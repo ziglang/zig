@@ -58,7 +58,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const target_version = target.os.version_range.semver.min;
 
     // In all cases in this function, we add the C compiler flags to
@@ -353,7 +353,7 @@ pub const BuiltSharedObjects = struct {
     }
 };
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
@@ -442,13 +442,13 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target NetBSD libc version: {}", .{target_version});
+                log.warn("invalid target NetBSD libc version: {f}", .{target_version});
                 return error.InvalidTargetLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
-        log.warn("zig cannot build new NetBSD libc version {}; providing instead {}", .{
+        log.warn("zig cannot build new NetBSD libc version {f}; providing instead {f}", .{
             target_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;

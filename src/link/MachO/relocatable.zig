@@ -20,13 +20,13 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
         // the *only* input file over.
         const path = positionals.items[0].path().?;
         const in_file = path.root_dir.handle.openFile(path.sub_path, .{}) catch |err|
-            return diags.fail("failed to open {}: {s}", .{ path, @errorName(err) });
+            return diags.fail("failed to open {f}: {s}", .{ path, @errorName(err) });
         const stat = in_file.stat() catch |err|
-            return diags.fail("failed to stat {}: {s}", .{ path, @errorName(err) });
+            return diags.fail("failed to stat {f}: {s}", .{ path, @errorName(err) });
         const amt = in_file.copyRangeAll(0, macho_file.base.file.?, 0, stat.size) catch |err|
-            return diags.fail("failed to copy range of file {}: {s}", .{ path, @errorName(err) });
+            return diags.fail("failed to copy range of file {f}: {s}", .{ path, @errorName(err) });
         if (amt != stat.size)
-            return diags.fail("unexpected short write in copy range of file {}", .{path});
+            return diags.fail("unexpected short write in copy range of file {f}", .{path});
         return;
     }
 
@@ -62,7 +62,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     allocateSegment(macho_file);
 
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{macho_file.dumpState()});
+        state_log.debug("{f}", .{macho_file.dumpState()});
     }
 
     try writeSections(macho_file);
@@ -126,7 +126,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         allocateSegment(macho_file);
 
         if (build_options.enable_logging) {
-            state_log.debug("{}", .{macho_file.dumpState()});
+            state_log.debug("{f}", .{macho_file.dumpState()});
         }
 
         try writeSections(macho_file);
@@ -202,7 +202,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(macho_file)});
+        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(macho_file)});
     }
 
     var buffer = std.ArrayList(u8).init(gpa);
@@ -784,6 +784,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
+const Writer = std.io.Writer;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

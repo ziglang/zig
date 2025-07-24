@@ -746,7 +746,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions must not overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -758,7 +760,9 @@ pub const Inst = struct {
         /// Dest slice may have any alignment; source pointer may have any alignment.
         /// The two memory regions may overlap.
         /// Result type is always void.
+        ///
         /// Uses the `bin_op` field. LHS is the dest slice. RHS is the source pointer.
+        ///
         /// If the length is compile-time known (due to the destination or
         /// source being a pointer-to-array), then it is guaranteed to be
         /// greater than zero.
@@ -957,18 +961,13 @@ pub const Inst = struct {
             return index.unwrap().target;
         }
 
-        pub fn format(
-            index: Index,
-            comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            try writer.writeByte('%');
+        pub fn format(index: Index, w: *std.io.Writer) std.io.Writer.Error!void {
+            try w.writeByte('%');
             switch (index.unwrap()) {
                 .ref => {},
-                .target => try writer.writeByte('t'),
+                .target => try w.writeByte('t'),
             }
-            try writer.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
+            try w.print("{d}", .{@as(u31, @truncate(@intFromEnum(index)))});
         }
     };
 
@@ -1140,6 +1139,20 @@ pub const Inst = struct {
 
         pub fn toType(ref: Ref) Type {
             return .fromInterned(ref.toInterned().?);
+        }
+
+        pub fn fromIntern(ip_index: InternPool.Index) Ref {
+            return switch (ip_index) {
+                .none => .none,
+                else => {
+                    assert(@intFromEnum(ip_index) >> 31 == 0);
+                    return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
+                },
+            };
+        }
+
+        pub fn fromValue(v: Value) Ref {
+            return .fromIntern(v.toIntern());
         }
     };
 
@@ -1400,19 +1413,20 @@ pub const ShuffleTwoMask = enum(u32) {
 ///      terminated string.
 ///    - name: memory at this position is reinterpreted as a null
 ///      terminated string. pad to the next u32 after the null byte.
-/// 4. for every clobbers_len
-///    - clobber_name: memory at this position is reinterpreted as a null
-///      terminated string. pad to the next u32 after the null byte.
-/// 5. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
+/// 4. A number of u32 elements follow according to the equation `(source_len + 3) / 4`.
 ///    Memory starting at this position is reinterpreted as the source bytes.
 pub const Asm = struct {
     /// Length of the assembly source in bytes.
     source_len: u32,
-    outputs_len: u32,
     inputs_len: u32,
-    /// The MSB is `is_volatile`.
-    /// The rest of the bits are `clobbers_len`.
-    flags: u32,
+    /// A comptime `std.builtin.assembly.Clobbers` value for the target architecture.
+    clobbers: InternPool.Index,
+    flags: Flags,
+
+    pub const Flags = packed struct(u32) {
+        outputs_len: u31,
+        is_volatile: bool,
+    };
 };
 
 pub const Cmpxchg = struct {
@@ -1736,7 +1750,7 @@ pub fn extraData(air: Air, comptime T: type, index: usize) struct { data: T, end
         @field(result, field.name) = switch (field.type) {
             u32 => air.extra.items[i],
             InternPool.Index, Inst.Ref => @enumFromInt(air.extra.items[i]),
-            i32, CondBr.BranchHints => @bitCast(air.extra.items[i]),
+            i32, CondBr.BranchHints, Asm.Flags => @bitCast(air.extra.items[i]),
             else => @compileError("bad field type: " ++ @typeName(field.type)),
         };
         i += 1;
@@ -1754,13 +1768,7 @@ pub fn deinit(air: *Air, gpa: std.mem.Allocator) void {
 }
 
 pub fn internedToRef(ip_index: InternPool.Index) Inst.Ref {
-    return switch (ip_index) {
-        .none => .none,
-        else => {
-            assert(@intFromEnum(ip_index) >> 31 == 0);
-            return @enumFromInt(@as(u31, @intCast(@intFromEnum(ip_index))));
-        },
-    };
+    return .fromIntern(ip_index);
 }
 
 /// Returns `null` if runtime-known.

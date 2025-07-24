@@ -33,7 +33,7 @@ pub fn expectFiles(
         var file = try dir.openFile(normalized_sub_path, .{});
         defer file.close();
         var content_buf: [4096]u8 = undefined;
-        const n = try file.reader().readAll(&content_buf);
+        const n = try file.deprecatedReader().readAll(&content_buf);
         try testing.expectEqualStrings(test_file.content, content_buf[0..n]);
     }
 }

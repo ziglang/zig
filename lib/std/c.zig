@@ -4110,7 +4110,7 @@ pub const msghdr_const = switch (native_os) {
         /// scatter/gather array
         iov: [*]const iovec_const,
         /// # elements in iov
-        iovlen: i32,
+        iovlen: u32,
         /// ancillary data
         control: ?*const anyopaque,
         /// ancillary data buffer len
@@ -4122,7 +4122,7 @@ pub const msghdr_const = switch (native_os) {
         name: ?*const anyopaque,
         namelen: socklen_t,
         iov: [*]const iovec,
-        iovlen: c_int,
+        iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
         flags: c_int,
@@ -5598,6 +5598,7 @@ pub const MSG = switch (native_os) {
     .linux => linux.MSG,
     .emscripten => emscripten.MSG,
     .windows => ws2_32.MSG,
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.MSG,
     .haiku => struct {
         pub const OOB = 0x0001;
         pub const PEEK = 0x0002;
@@ -5623,6 +5624,43 @@ pub const MSG = switch (native_os) {
         pub const DONTWAIT = 0x40;
         pub const NOSIGNAL = 0x80;
         pub const EOR = 0x100;
+    },
+    .freebsd => struct {
+        pub const OOB = 0x00000001;
+        pub const PEEK = 0x00000002;
+        pub const DONTROUTE = 0x00000004;
+        pub const EOR = 0x00000008;
+        pub const TRUNC = 0x00000010;
+        pub const CTRUNC = 0x00000020;
+        pub const WAITALL = 0x00000040;
+        pub const DONTWAIT = 0x00000080;
+        pub const EOF = 0x00000100;
+        pub const NOTIFICATION = 0x00002000;
+        pub const NBIO = 0x00004000;
+        pub const COMPAT = 0x00008000;
+        pub const SOCALLBCK = 0x00010000;
+        pub const NOSIGNAL = 0x00020000;
+        pub const CMSG_CLOEXEC = 0x00040000;
+        pub const WAITFORONE = 0x00080000;
+        pub const MORETOCOME = 0x00100000;
+        pub const TLSAPPDATA = 0x00200000;
+    },
+    .netbsd => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const TRUNC = 0x0010;
+        pub const CTRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const BCAST = 0x0100;
+        pub const MCAST = 0x0200;
+        pub const NOSIGNAL = 0x0400;
+        pub const CMSG_CLOEXEC = 0x0800;
+        pub const NBIO = 0x1000;
+        pub const WAITFORONE = 0x2000;
+        pub const NOTIFICATION = 0x4000;
     },
     else => void,
 };
@@ -7109,7 +7147,7 @@ pub const dirent = switch (native_os) {
         off: off_t,
         reclen: c_ushort,
         type: u8,
-        name: [256:0]u8,
+        name: [255:0]u8,
     },
     else => void,
 };
@@ -10411,7 +10449,10 @@ pub const sigfillset = switch (native_os) {
 };
 
 pub const sigaddset = private.sigaddset;
-pub const sigemptyset = private.sigemptyset;
+pub const sigemptyset = switch (native_os) {
+    .netbsd => private.__sigemptyset14,
+    else => private.sigemptyset,
+};
 pub const sigdelset = private.sigdelset;
 pub const sigismember = private.sigismember;
 
@@ -10456,9 +10497,9 @@ pub const sysconf = switch (native_os) {
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        headers: [*]const iovec_const,
+        headers: ?[*]const iovec_const,
         hdr_cnt: c_int,
-        trailers: [*]const iovec_const,
+        trailers: ?[*]const iovec_const,
         trl_cnt: c_int,
     },
     else => void,
@@ -10804,6 +10845,7 @@ pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub extern "c" fn getpid() pid_t;
 pub extern "c" fn getppid() pid_t;
+pub extern "c" fn setsid() pid_t;
 
 /// These are implementation defined but share identical values in at least musl and glibc:
 /// - https://git.musl-libc.org/cgit/musl/tree/include/locale.h?id=ab31e9d6a0fa7c5c408856c89df2dfb12c344039#n18
@@ -11267,6 +11309,7 @@ const private = struct {
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
+    extern "c" fn __sigemptyset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;

@@ -4,7 +4,6 @@ const common = @import("common.zig");
 const os_tag = builtin.os.tag;
 const arch = builtin.cpu.arch;
 const abi = builtin.abi;
-const is_test = builtin.is_test;
 
 pub const panic = common.panic;
 
@@ -13,11 +12,11 @@ comptime {
         // Default stack-probe functions emitted by LLVM
         if (builtin.target.isMinGW()) {
             @export(&_chkstk, .{ .name = "_alloca", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&___chkstk, .{ .name = "__alloca", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&___chkstk, .{ .name = "___chkstk", .linkage = common.linkage, .visibility = common.visibility });
+            @export(&__chkstk_ms, .{ .name = "__chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
             @export(&___chkstk_ms, .{ .name = "___chkstk_ms", .linkage = common.linkage, .visibility = common.visibility });
-
-            if (arch == .thumb or arch == .aarch64) {
-                @export(&__chkstk, .{ .name = "__chkstk", .linkage = common.linkage, .visibility = common.visibility });
-            }
         } else if (!builtin.link_libc) {
             // This symbols are otherwise exported by MSVCRT.lib
             @export(&_chkstk, .{ .name = "_chkstk", .linkage = common.linkage, .visibility = common.visibility });
@@ -127,23 +126,23 @@ fn win_probe_stack_only() void {
         },
         .x86_64 => {
             asm volatile (
-                \\         push   %%rcx
-                \\         push   %%rax
-                \\         cmp    $0x1000,%%rax
-                \\         lea    24(%%rsp),%%rcx
+                \\         pushq  %%rcx
+                \\         pushq  %%rax
+                \\         cmpq   $0x1000,%%rax
+                \\         leaq   24(%%rsp),%%rcx
                 \\         jb     1f
                 \\ 2:
-                \\         sub    $0x1000,%%rcx
-                \\         test   %%rcx,(%%rcx)
-                \\         sub    $0x1000,%%rax
-                \\         cmp    $0x1000,%%rax
+                \\         subq   $0x1000,%%rcx
+                \\         testq  %%rcx,(%%rcx)
+                \\         subq   $0x1000,%%rax
+                \\         cmpq   $0x1000,%%rax
                 \\         ja     2b
                 \\ 1:
-                \\         sub    %%rax,%%rcx
-                \\         test   %%rcx,(%%rcx)
-                \\         pop    %%rax
-                \\         pop    %%rcx
-                \\         ret
+                \\         subq   %%rax,%%rcx
+                \\         testq  %%rcx,(%%rcx)
+                \\         popq   %%rax
+                \\         popq   %%rcx
+                \\         retq
             );
         },
         .x86 => {
@@ -179,26 +178,26 @@ fn win_probe_stack_adjust_sp() void {
     switch (arch) {
         .x86_64 => {
             asm volatile (
-                \\         push   %%rcx
-                \\         cmp    $0x1000,%%rax
-                \\         lea    16(%%rsp),%%rcx
+                \\         pushq  %%rcx
+                \\         cmpq   $0x1000,%%rax
+                \\         leaq   16(%%rsp),%%rcx
                 \\         jb     1f
                 \\ 2:
-                \\         sub    $0x1000,%%rcx
-                \\         test   %%rcx,(%%rcx)
-                \\         sub    $0x1000,%%rax
-                \\         cmp    $0x1000,%%rax
+                \\         subq   $0x1000,%%rcx
+                \\         testq  %%rcx,(%%rcx)
+                \\         subq   $0x1000,%%rax
+                \\         cmpq   $0x1000,%%rax
                 \\         ja     2b
                 \\ 1:
-                \\         sub    %%rax,%%rcx
-                \\         test   %%rcx,(%%rcx)
+                \\         subq   %%rax,%%rcx
+                \\         testq  %%rcx,(%%rcx)
                 \\
-                \\         lea    8(%%rsp),%%rax
-                \\         mov    %%rcx,%%rsp
-                \\         mov    -8(%%rax),%%rcx
-                \\         push   (%%rax)
-                \\         sub    %%rsp,%%rax
-                \\         ret
+                \\         leaq   8(%%rsp),%%rax
+                \\         movq   %%rcx,%%rsp
+                \\         movq   -8(%%rax),%%rcx
+                \\         pushq  (%%rax)
+                \\         subq   %%rsp,%%rax
+                \\         retq
             );
         },
         .x86 => {

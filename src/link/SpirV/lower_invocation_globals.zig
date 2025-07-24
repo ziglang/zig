@@ -6,7 +6,7 @@ const log = std.log.scoped(.spirv_link);
 const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 /// This structure contains all the stuff that we need to parse from the module in
@@ -92,7 +92,7 @@ const ModuleInfo = struct {
                     const entry_point: ResultId = @enumFromInt(inst.operands[1]);
                     const entry = try entry_points.getOrPut(entry_point);
                     if (entry.found_existing) {
-                        log.err("Entry point type {} has duplicate definition", .{entry_point});
+                        log.err("Entry point type {f} has duplicate definition", .{entry_point});
                         return error.DuplicateId;
                     }
                 },
@@ -103,7 +103,7 @@ const ModuleInfo = struct {
 
                     const entry = try fn_types.getOrPut(fn_type);
                     if (entry.found_existing) {
-                        log.err("Function type {} has duplicate definition", .{fn_type});
+                        log.err("Function type {f} has duplicate definition", .{fn_type});
                         return error.DuplicateId;
                     }
 
@@ -135,7 +135,7 @@ const ModuleInfo = struct {
                 },
                 .OpFunction => {
                     if (maybe_current_function) |current_function| {
-                        log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+                        log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
                         return error.InvalidPhysicalFormat;
                     }
 
@@ -154,7 +154,7 @@ const ModuleInfo = struct {
                     };
                     const entry = try functions.getOrPut(current_function);
                     if (entry.found_existing) {
-                        log.err("Function {} has duplicate definition", .{current_function});
+                        log.err("Function {f} has duplicate definition", .{current_function});
                         return error.DuplicateId;
                     }
 
@@ -162,7 +162,7 @@ const ModuleInfo = struct {
                     try callee_store.appendSlice(calls.keys());
 
                     const fn_type = fn_types.get(fn_ty_id) orelse {
-                        log.err("Function {} has invalid OpFunction type", .{current_function});
+                        log.err("Function {f} has invalid OpFunction type", .{current_function});
                         return error.InvalidId;
                     };
 
@@ -187,7 +187,7 @@ const ModuleInfo = struct {
         }
 
         if (maybe_current_function) |current_function| {
-            log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+            log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
             return error.InvalidPhysicalFormat;
         }
 
@@ -222,7 +222,7 @@ const ModuleInfo = struct {
         seen: *std.DynamicBitSetUnmanaged,
     ) !void {
         const index = self.functions.getIndex(id) orelse {
-            log.err("function calls invalid function {}", .{id});
+            log.err("function calls invalid function {f}", .{id});
             return error.InvalidId;
         };
 
@@ -261,7 +261,7 @@ const ModuleInfo = struct {
         seen: *std.DynamicBitSetUnmanaged,
     ) !void {
         const index = self.invocation_globals.getIndex(id) orelse {
-            log.err("invalid invocation global {}", .{id});
+            log.err("invalid invocation global {f}", .{id});
             return error.InvalidId;
         };
 
@@ -276,7 +276,7 @@ const ModuleInfo = struct {
         }
 
         const initializer = self.functions.get(info.initializer) orelse {
-            log.err("invocation global {} has invalid initializer {}", .{ id, info.initializer });
+            log.err("invocation global {f} has invalid initializer {f}", .{ id, info.initializer });
             return error.InvalidId;
         };
 
@@ -626,7 +626,7 @@ const ModuleBuilder = struct {
                 try self.section.emit(self.arena, .OpVariable, .{
                     .id_result_type = global_info.ty,
                     .id_result = id,
-                    .storage_class = .Function,
+                    .storage_class = .function,
                     .initializer = null,
                 });
             }

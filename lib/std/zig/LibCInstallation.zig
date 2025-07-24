@@ -26,7 +26,7 @@ pub const FindError = error{
 pub fn parse(
     allocator: Allocator,
     libc_file: []const u8,
-    target: std.Target,
+    target: *const std.Target,
 ) !LibCInstallation {
     var self: LibCInstallation = .{};
 
@@ -157,7 +157,7 @@ pub fn render(self: LibCInstallation, out: anytype) !void {
 
 pub const FindNativeOptions = struct {
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
 
     /// If enabled, will print human-friendly errors to stderr.
     verbose: bool = false,
@@ -370,7 +370,7 @@ fn findNativeIncludeDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
+        try result_buf.print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -417,7 +417,7 @@ fn findNativeCrtDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -484,8 +484,7 @@ fn findNativeKernel32LibDir(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        const stream = result_buf.writer();
-        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -700,7 +699,7 @@ pub const CrtBasenames = struct {
     crtn: ?[]const u8 = null,
 
     pub const GetArgs = struct {
-        target: std.Target,
+        target: *const std.Target,
         link_libc: bool,
         output_mode: std.builtin.OutputMode,
         link_mode: std.builtin.LinkMode,
@@ -965,7 +964,7 @@ pub fn resolveCrtPaths(
     lci: LibCInstallation,
     arena: Allocator,
     crt_basenames: CrtBasenames,
-    target: std.Target,
+    target: *const std.Target,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
     const crt_dir_path: Path = .{
         .root_dir = std.Build.Cache.Directory.cwd(),

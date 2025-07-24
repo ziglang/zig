@@ -40,7 +40,7 @@ pub fn main() !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
+                    const stdout = std.fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage_libc);
                     return std.process.cleanExit();
                 } else if (mem.eql(u8, arg, "-target")) {
@@ -69,7 +69,7 @@ pub fn main() !void {
         const libc_installation: ?*LibCInstallation = libc: {
             if (input_file) |libc_file| {
                 const libc = try arena.create(LibCInstallation);
-                libc.* = LibCInstallation.parse(arena, libc_file, target) catch |err| {
+                libc.* = LibCInstallation.parse(arena, libc_file, &target) catch |err| {
                     fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
                 };
                 break :libc libc;
@@ -83,7 +83,7 @@ pub fn main() !void {
         const libc_dirs = std.zig.LibCDirs.detect(
             arena,
             zig_lib_directory,
-            target,
+            &target,
             is_native_abi,
             true,
             libc_installation,
@@ -97,7 +97,7 @@ pub fn main() !void {
             fatal("no include dirs detected for target {s}", .{zig_target});
         }
 
-        var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
+        var bw = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
         var writer = bw.writer();
         for (libc_dirs.libc_include_dir_list) |include_dir| {
             try writer.writeAll(include_dir);
@@ -108,7 +108,7 @@ pub fn main() !void {
     }
 
     if (input_file) |libc_file| {
-        var libc = LibCInstallation.parse(gpa, libc_file, target) catch |err| {
+        var libc = LibCInstallation.parse(gpa, libc_file, &target) catch |err| {
             fatal("unable to parse libc file at path {s}: {s}", .{ libc_file, @errorName(err) });
         };
         defer libc.deinit(gpa);
@@ -119,13 +119,13 @@ pub fn main() !void {
         var libc = LibCInstallation.findNative(.{
             .allocator = gpa,
             .verbose = true,
-            .target = target,
+            .target = &target,
         }) catch |err| {
             fatal("unable to detect native libc: {s}", .{@errorName(err)});
         };
         defer libc.deinit(gpa);
 
-        var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
+        var bw = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
         try libc.render(bw.writer());
         try bw.flush();
     }

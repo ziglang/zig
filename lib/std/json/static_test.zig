@@ -12,9 +12,7 @@ const parseFromValue = @import("./static.zig").parseFromValue;
 const parseFromValueLeaky = @import("./static.zig").parseFromValueLeaky;
 const ParseOptions = @import("./static.zig").ParseOptions;
 
-const JsonScanner = @import("./scanner.zig").Scanner;
-const jsonReader = @import("./scanner.zig").reader;
-const Diagnostics = @import("./scanner.zig").Diagnostics;
+const Scanner = @import("Scanner.zig");
 
 const Value = @import("./dynamic.zig").Value;
 
@@ -300,9 +298,9 @@ const subnamespaces_0_doc =
 fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
     // First do the one with the debug info in case we get a SyntaxError or something.
     {
-        var scanner = JsonScanner.initCompleteInput(testing.allocator, doc);
+        var scanner = Scanner.initCompleteInput(testing.allocator, doc);
         defer scanner.deinit();
-        var diagnostics = Diagnostics{};
+        var diagnostics = Scanner.Diagnostics{};
         scanner.enableDiagnostics(&diagnostics);
         var parsed = parseFromTokenSource(T, testing.allocator, &scanner, .{}) catch |e| {
             std.debug.print("at line,col: {}:{}\n", .{ diagnostics.getLine(), diagnostics.getColumn() });
@@ -317,8 +315,8 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
         try testing.expectEqualDeep(expected, parsed.value);
     }
     {
-        var stream = std.io.fixedBufferStream(doc);
-        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        var stream: std.Io.Reader = .fixed(doc);
+        var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
         defer json_reader.deinit();
         var parsed = try parseFromTokenSource(T, testing.allocator, &json_reader, .{});
         defer parsed.deinit();
@@ -331,13 +329,13 @@ fn testAllParseFunctions(comptime T: type, expected: T, doc: []const u8) !void {
         try testing.expectEqualDeep(expected, try parseFromSliceLeaky(T, arena.allocator(), doc, .{}));
     }
     {
-        var scanner = JsonScanner.initCompleteInput(testing.allocator, doc);
+        var scanner = Scanner.initCompleteInput(testing.allocator, doc);
         defer scanner.deinit();
         try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &scanner, .{}));
     }
     {
-        var stream = std.io.fixedBufferStream(doc);
-        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        var stream: std.Io.Reader = .fixed(doc);
+        var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
         defer json_reader.deinit();
         try testing.expectEqualDeep(expected, try parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}));
     }
@@ -763,7 +761,7 @@ test "parse exponential into int" {
 
 test "parseFromTokenSource" {
     {
-        var scanner = JsonScanner.initCompleteInput(testing.allocator, "123");
+        var scanner = Scanner.initCompleteInput(testing.allocator, "123");
         defer scanner.deinit();
         var parsed = try parseFromTokenSource(u32, testing.allocator, &scanner, .{});
         defer parsed.deinit();
@@ -771,8 +769,8 @@ test "parseFromTokenSource" {
     }
 
     {
-        var stream = std.io.fixedBufferStream("123");
-        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        var stream: std.Io.Reader = .fixed("123");
+        var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
         defer json_reader.deinit();
         var parsed = try parseFromTokenSource(u32, testing.allocator, &json_reader, .{});
         defer parsed.deinit();
@@ -836,7 +834,7 @@ test "json parse partial" {
         \\}
     ;
     const allocator = testing.allocator;
-    var scanner = JsonScanner.initCompleteInput(allocator, str);
+    var scanner = Scanner.initCompleteInput(allocator, str);
     defer scanner.deinit();
 
     var arena = ArenaAllocator.init(allocator);
@@ -886,8 +884,8 @@ test "json parse allocate when streaming" {
     var arena = ArenaAllocator.init(allocator);
     defer arena.deinit();
 
-    var stream = std.io.fixedBufferStream(str);
-    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    var stream: std.Io.Reader = .fixed(str);
+    var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
 
     const parsed = parseFromTokenSourceLeaky(T, arena.allocator(), &json_reader, .{}) catch |err| {
         json_reader.deinit();

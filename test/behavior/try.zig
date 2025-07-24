@@ -47,7 +47,7 @@ test "try then not executed with assignment" {
 }
 
 test "`try`ing an if/else expression" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -68,7 +68,6 @@ test "`try`ing an if/else expression" {
 }
 
 test "'return try' of empty error set in function returning non-error" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -121,4 +120,83 @@ test "'return try' through conditional" {
         const result = try comptime S.get(true);
         comptime std.debug.assert(result == 123);
     }
+}
+
+test "try ptr propagation const" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo0() !u32 {
+            return 0;
+        }
+
+        fn foo1() error{Bad}!u32 {
+            return 1;
+        }
+
+        fn foo2() anyerror!u32 {
+            return 2;
+        }
+
+        fn doTheTest() !void {
+            const res0: *const u32 = &(try foo0());
+            const res1: *const u32 = &(try foo1());
+            const res2: *const u32 = &(try foo2());
+            try expect(res0.* == 0);
+            try expect(res1.* == 1);
+            try expect(res2.* == 2);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "try ptr propagation mutate" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+
+    const S = struct {
+        fn foo0() !u32 {
+            return 0;
+        }
+
+        fn foo1() error{Bad}!u32 {
+            return 1;
+        }
+
+        fn foo2() anyerror!u32 {
+            return 2;
+        }
+
+        fn doTheTest() !void {
+            var f0 = foo0();
+            var f1 = foo1();
+            var f2 = foo2();
+
+            const res0: *u32 = &(try f0);
+            const res1: *u32 = &(try f1);
+            const res2: *u32 = &(try f2);
+
+            res0.* += 1;
+            res1.* += 1;
+            res2.* += 1;
+
+            try expect(f0 catch unreachable == 1);
+            try expect(f1 catch unreachable == 2);
+            try expect(f2 catch unreachable == 3);
+
+            try expect(res0.* == 1);
+            try expect(res1.* == 2);
+            try expect(res2.* == 3);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

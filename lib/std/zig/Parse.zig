@@ -359,16 +359,6 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
                 }
                 trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
-            .keyword_usingnamespace => {
-                const opt_node = try p.expectUsingNamespaceRecoverable();
-                if (opt_node) |node| {
-                    if (field_state == .seen) {
-                        field_state = .{ .end = node };
-                    }
-                    try p.scratch.append(p.gpa, node);
-                }
-                trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
-            },
             .keyword_const,
             .keyword_var,
             .keyword_threadlocal,
@@ -496,7 +486,6 @@ fn findNextContainerMember(p: *Parse) void {
             .keyword_extern,
             .keyword_inline,
             .keyword_noinline,
-            .keyword_usingnamespace,
             .keyword_threadlocal,
             .keyword_const,
             .keyword_var,
@@ -601,7 +590,6 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
 /// Decl
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
-///      / KEYWORD_usingnamespace Expr SEMICOLON
 fn expectTopLevelDecl(p: *Parse) !?Node.Index {
     const extern_export_inline_token = p.nextToken();
     var is_extern: bool = false;
@@ -664,35 +652,11 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
     if (expect_var_or_fn) {
         return p.fail(.expected_var_decl_or_fn);
     }
-    if (p.tokenTag(p.tok_i) != .keyword_usingnamespace) {
-        return p.fail(.expected_pub_item);
-    }
-    return try p.expectUsingNamespace();
+    return p.fail(.expected_pub_item);
 }
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     return p.expectTopLevelDecl() catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ParseError => {
-            p.findNextContainerMember();
-            return null;
-        },
-    };
-}
-
-fn expectUsingNamespace(p: *Parse) !Node.Index {
-    const usingnamespace_token = p.assertToken(.keyword_usingnamespace);
-    const expr = try p.expectExpr();
-    try p.expectSemicolon(.expected_semi_after_decl, false);
-    return p.addNode(.{
-        .tag = .@"usingnamespace",
-        .main_token = usingnamespace_token,
-        .data = .{ .node = expr },
-    });
-}
-
-fn expectUsingNamespaceRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
-    return p.expectUsingNamespace() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
             p.findNextContainerMember();
@@ -1688,7 +1652,6 @@ fn parseExprPrecedence(p: *Parse, min_prec: i32) Error!?Node.Index {
 ///      / MINUSPERCENT
 ///      / AMPERSAND
 ///      / KEYWORD_try
-///      / KEYWORD_await
 fn parsePrefixExpr(p: *Parse) Error!?Node.Index {
     const tag: Node.Tag = switch (p.tokenTag(p.tok_i)) {
         .bang => .bool_not,
@@ -1697,7 +1660,6 @@ fn parsePrefixExpr(p: *Parse) Error!?Node.Index {
         .minus_percent => .negation_wrap,
         .ampersand => .address_of,
         .keyword_try => .@"try",
-        .keyword_await => .@"await",
         else => return p.parsePrimaryExpr(),
     };
     return try p.addNode(.{
@@ -2385,62 +2347,12 @@ fn parseErrorUnionExpr(p: *Parse) !?Node.Index {
 }
 
 /// SuffixExpr
-///     <- KEYWORD_async PrimaryTypeExpr SuffixOp* FnCallArguments
-///      / PrimaryTypeExpr (SuffixOp / FnCallArguments)*
+///     <- PrimaryTypeExpr (SuffixOp / FnCallArguments)*
 ///
 /// FnCallArguments <- LPAREN ExprList RPAREN
 ///
 /// ExprList <- (Expr COMMA)* Expr?
 fn parseSuffixExpr(p: *Parse) !?Node.Index {
-    if (p.eatToken(.keyword_async)) |_| {
-        var res = try p.expectPrimaryTypeExpr();
-        while (true) {
-            res = try p.parseSuffixOp(res) orelse break;
-        }
-        const lparen = p.eatToken(.l_paren) orelse {
-            try p.warn(.expected_param_list);
-            return res;
-        };
-        const scratch_top = p.scratch.items.len;
-        defer p.scratch.shrinkRetainingCapacity(scratch_top);
-        while (true) {
-            if (p.eatToken(.r_paren)) |_| break;
-            const param = try p.expectExpr();
-            try p.scratch.append(p.gpa, param);
-            switch (p.tokenTag(p.tok_i)) {
-                .comma => p.tok_i += 1,
-                .r_paren => {
-                    p.tok_i += 1;
-                    break;
-                },
-                .colon, .r_brace, .r_bracket => return p.failExpected(.r_paren),
-                // Likely just a missing comma; give error but continue parsing.
-                else => try p.warn(.expected_comma_after_arg),
-            }
-        }
-        const comma = (p.tokenTag(p.tok_i - 2)) == .comma;
-        const params = p.scratch.items[scratch_top..];
-        if (params.len <= 1) {
-            return try p.addNode(.{
-                .tag = if (comma) .async_call_one_comma else .async_call_one,
-                .main_token = lparen,
-                .data = .{ .node_and_opt_node = .{
-                    res,
-                    if (params.len >= 1) params[0].toOptional() else .none,
-                } },
-            });
-        } else {
-            return try p.addNode(.{
-                .tag = if (comma) .async_call_comma else .async_call,
-                .main_token = lparen,
-                .data = .{ .node_and_extra = .{
-                    res,
-                    try p.addExtra(try p.listToSpan(params)),
-                } },
-            });
-        }
-    }
-
     var res = try p.parsePrimaryTypeExpr() orelse return null;
     while (true) {
         const opt_suffix_op = try p.parseSuffixOp(res);
@@ -2889,7 +2801,7 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
 ///
 /// AsmInput <- COLON AsmInputList AsmClobbers?
 ///
-/// AsmClobbers <- COLON StringList
+/// AsmClobbers <- COLON Expr
 ///
 /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
 ///
@@ -2929,7 +2841,8 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             else => try p.warnExpected(.comma),
         }
     }
-    if (p.eatToken(.colon)) |_| {
+
+    const clobbers: Node.OptionalIndex = if (p.eatToken(.colon)) |_| clobbers: {
         while (true) {
             const input_item = try p.parseAsmInputItem() orelse break;
             try p.scratch.append(p.gpa, input_item);
@@ -2941,7 +2854,11 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                 else => try p.warnExpected(.comma),
             }
         }
-        if (p.eatToken(.colon)) |_| {
+
+        _ = p.eatToken(.colon) orelse break :clobbers .none;
+
+        // For automatic upgrades; delete after 0.15.0 released.
+        if (p.tokenTag(p.tok_i) == .string_literal) {
             while (p.eatToken(.string_literal)) |_| {
                 switch (p.tokenTag(p.tok_i)) {
                     .comma => p.tok_i += 1,
@@ -2950,8 +2867,25 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                     else => try p.warnExpected(.comma),
                 }
             }
+            const rparen = try p.expectToken(.r_paren);
+            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
+            return p.addNode(.{
+                .tag = .asm_legacy,
+                .main_token = asm_token,
+                .data = .{ .node_and_extra = .{
+                    template,
+                    try p.addExtra(Node.AsmLegacy{
+                        .items_start = span.start,
+                        .items_end = span.end,
+                        .rparen = rparen,
+                    }),
+                } },
+            });
         }
-    }
+
+        break :clobbers (try p.expectExpr()).toOptional();
+    } else .none;
+
     const rparen = try p.expectToken(.r_paren);
     const span = try p.listToSpan(p.scratch.items[scratch_top..]);
     return p.addNode(.{
@@ -2962,6 +2896,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             try p.addExtra(Node.Asm{
                 .items_start = span.start,
                 .items_end = span.end,
+                .clobbers = clobbers,
                 .rparen = rparen,
             }),
         } },

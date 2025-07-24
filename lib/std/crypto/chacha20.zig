@@ -151,7 +151,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
+        fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             const m0 = switch (degree) {
@@ -215,7 +215,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
+        fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
             for (0..dm) |d| {
                 for (0..4) |i| {
                     mem.writeInt(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d], .little);
@@ -226,7 +226,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             x[0] +%= ctx[0];
             x[1] +%= ctx[1];
             x[2] +%= ctx[2];
@@ -365,7 +365,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             };
         }
 
-        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
+        fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             const rounds = comptime [_]QuarterRound{
@@ -394,7 +394,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        inline fn hashToBytes(out: *[64]u8, x: BlockVec) void {
+        fn hashToBytes(out: *[64]u8, x: BlockVec) void {
             for (0..4) |i| {
                 mem.writeInt(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0], .little);
                 mem.writeInt(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1], .little);
@@ -403,7 +403,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             for (0..16) |i| {
                 x[i] +%= ctx[i];
             }
@@ -1145,7 +1145,7 @@ test "xchacha20" {
         var c: [m.len]u8 = undefined;
         XChaCha20IETF.xor(c[0..], m[0..], 0, key, nonce);
         var buf: [2 * c.len]u8 = undefined;
-        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&c}), "E0A1BCF939654AFDBDC1746EC49832647C19D891F0D1A81FC0C1703B4514BDEA584B512F6908C2C5E9DD18D5CBC1805DE5803FE3B9CA5F193FB8359E91FAB0C3BB40309A292EB1CF49685C65C4A3ADF4F11DB0CD2B6B67FBC174BC2E860E8F769FD3565BBFAD1C845E05A0FED9BE167C240D");
     }
     {
         const ad = "Additional data";
@@ -1154,7 +1154,7 @@ test "xchacha20" {
         var out: [m.len]u8 = undefined;
         try XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key);
         var buf: [2 * c.len]u8 = undefined;
-        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&c)}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
+        try testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&c}), "994D2DD32333F48E53650C02C7A2ABB8E018B0836D7175AEC779F52E961780768F815C58F1AA52D211498DB89B9216763F569C9433A6BBFCEFB4D4A49387A4C5207FBB3B5A92B5941294DF30588C6740D39DC16FA1F0E634F7246CF7CDCB978E44347D89381B7A74EB7084F754B90BDE9AAF5A94B8F2A85EFD0B50692AE2D425E234");
         try testing.expectEqualSlices(u8, out[0..], m);
         c[0] +%= 1;
         try testing.expectError(error.AuthenticationFailed, XChaCha20Poly1305.decrypt(out[0..], c[0..m.len], c[m.len..].*, ad, nonce, key));

@@ -32,8 +32,6 @@ pub const CityHash64 = cityhash.CityHash64;
 const wyhash = @import("hash/wyhash.zig");
 pub const Wyhash = wyhash.Wyhash;
 
-pub const RapidHash = @import("hash/RapidHash.zig");
-
 const xxhash = @import("hash/xxhash.zig");
 pub const XxHash3 = xxhash.XxHash3;
 pub const XxHash64 = xxhash.XxHash64;
@@ -81,9 +79,8 @@ fn uint16(input: u16) u16 {
     return x;
 }
 
-/// DEPRECATED: use std.hash.int()
 /// Source: https://github.com/skeeto/hash-prospector
-pub fn uint32(input: u32) u32 {
+fn uint32(input: u32) u32 {
     var x: u32 = input;
     x = (x ^ (x >> 17)) *% 0xed5ad4bb;
     x = (x ^ (x >> 11)) *% 0xac4c1b51;

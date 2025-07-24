@@ -1781,7 +1781,8 @@ test "Macro matching" {
 fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
     defer std.process.exit(1);
 
-    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.io.getStdErr()));
+    var buffer: [1000]u8 = undefined;
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.fs.File.stderr()), &buffer);
     defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
 
     var saw_error = false;
@@ -1819,11 +1820,11 @@ pub fn main() !void {
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
         error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
+        error.StreamTooLong => std.process.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 
-    const formatted = try tree.render(arena);
-    try std.io.getStdOut().writeAll(formatted);
+    const formatted = try tree.renderAlloc(arena);
+    try std.fs.File.stdout().writeAll(formatted);
     return std.process.cleanExit();
 }

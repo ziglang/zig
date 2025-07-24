@@ -30,19 +30,19 @@ const Coff = struct {
         dllmain_crt_startup: bool,
     },
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Coff {
-        const target = comp.root_mod.resolved_target.result;
+        const target = &comp.root_mod.resolved_target.result;
         const output_mode = comp.config.output_mode;
         return .{
             .image_base = options.image_base orelse switch (output_mode) {
                 .Exe => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x140000000,
                     .thumb, .x86 => 0x400000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Lib => switch (target.cpu.arch) {
                     .aarch64, .x86_64 => 0x180000000,
                     .thumb, .x86 => 0x10000000,
-                    else => unreachable,
+                    else => return error.UnsupportedCoffArchitecture,
                 },
                 .Obj => 0,
             },
@@ -103,7 +103,7 @@ pub const Elf = struct {
 
     fn init(comp: *Compilation, options: link.File.OpenOptions) !Elf {
         const PtrWidth = enum { p32, p64 };
-        const target = comp.root_mod.resolved_target.result;
+        const target = &comp.root_mod.resolved_target.result;
         const output_mode = comp.config.output_mode;
         const is_dyn_lib = output_mode == .Lib and comp.config.link_mode == .dynamic;
         const ptr_width: PtrWidth = switch (target.ptrBitWidth()) {
@@ -202,10 +202,9 @@ pub fn createEmpty(
     emit: Cache.Path,
     options: link.File.OpenOptions,
 ) !*Lld {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
-    const is_native_os = comp.root_mod.resolved_target.is_native_os;
 
     const obj_file_ext: []const u8 = switch (target.ofmt) {
         .coff => "obj",
@@ -234,7 +233,7 @@ pub fn createEmpty(
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .build_id = options.build_id,
         },
@@ -294,7 +293,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
         break :p try comp.resolveEmitPathFlush(arena, .temp, base.zcu_object_basename.?);
     } else null;
 
-    log.debug("zcu_obj_path={?}", .{zcu_obj_path});
+    log.debug("zcu_obj_path={?f}", .{zcu_obj_path});
 
     const compiler_rt_path: ?Cache.Path = if (comp.compiler_rt_strat == .obj)
         comp.compiler_rt_obj.?.full_object_path
@@ -342,7 +341,7 @@ fn linkAsArchive(lld: *Lld, arena: Allocator) !void {
 
     const llvm_bindings = @import("../codegen/llvm/bindings.zig");
     const llvm = @import("../codegen/llvm.zig");
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     llvm.initializeLLVMTarget(target.cpu.arch);
     const bad = llvm_bindings.WriteArchive(
         full_out_path_z,
@@ -374,7 +373,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
     const is_dyn_lib = comp.config.link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or comp.config.output_mode == .Exe;
     const link_in_crt = comp.config.link_libc and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const optimize_mode = comp.root_mod.optimize_mode;
     const entry_name: ?[]const u8 = switch (coff.entry) {
         // This logic isn't quite right for disabled or enabled. No point in fixing it
@@ -437,7 +436,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-PDBALTPATH:{s}", .{out_pdb_basename}));
         }
         if (comp.version) |version| {
-            try argv.append(try allocPrint(arena, "-VERSION:{}.{}", .{ version.major, version.minor }));
+            try argv.append(try allocPrint(arena, "-VERSION:{d}.{d}", .{ version.major, version.minor }));
         }
 
         if (target_util.llvmMachineAbi(target)) |mabi| {
@@ -507,7 +506,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.emit_implib) |raw_emit_path| {
             const path = try comp.resolveEmitPathFlush(arena, .temp, raw_emit_path);
-            try argv.append(try allocPrint(arena, "-IMPLIB:{}", .{path}));
+            try argv.append(try allocPrint(arena, "-IMPLIB:{f}", .{path}));
         }
 
         if (comp.config.link_libc) {
@@ -533,7 +532,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             },
             .object, .archive => |obj| {
                 if (obj.must_link) {
-                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{}", .{@as(Cache.Path, obj.path)}));
+                    argv.appendAssumeCapacity(try allocPrint(arena, "-WHOLEARCHIVE:{f}", .{@as(Cache.Path, obj.path)}));
                 } else {
                     argv.appendAssumeCapacity(try obj.path.toString(arena));
                 }
@@ -811,7 +810,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
     const is_dyn_lib = link_mode == .dynamic and is_lib;
     const is_exe_or_dyn_lib = is_dyn_lib or output_mode == .Exe;
     const have_dynamic_linker = link_mode == .dynamic and is_exe_or_dyn_lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const compiler_rt_path: ?Cache.Path = blk: {
         if (comp.compiler_rt_lib) |x| break :blk x.full_object_path;
         if (comp.compiler_rt_obj) |x| break :blk x.full_object_path;
@@ -933,9 +932,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1, .md5 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
         }
 
         try argv.append(try std.fmt.allocPrint(arena, "--image-base={d}", .{elf.image_base}));
@@ -1218,7 +1215,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                             if (target.os.versionRange().gnuLibCVersion().?.order(rem_in) != .lt) continue;
                         }
 
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.glibc_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
@@ -1231,14 +1228,14 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
                     }));
                 } else if (target.isFreeBSDLibC()) {
                     for (freebsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.freebsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
                     }
                 } else if (target.isNetBSDLibC()) {
                     for (netbsd.libs) |lib| {
-                        const lib_path = try std.fmt.allocPrint(arena, "{}{c}lib{s}.so.{d}", .{
+                        const lib_path = try std.fmt.allocPrint(arena, "{f}{c}lib{s}.so.{d}", .{
                             comp.netbsd_so_files.?.dir_path, fs.path.sep, lib.name, lib.sover,
                         });
                         try argv.append(lib_path);
@@ -1281,7 +1278,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         try spawnLld(comp, arena, argv.items);
     }
 }
-fn getLDMOption(target: std.Target) ?[]const u8 {
+fn getLDMOption(target: *const std.Target) ?[]const u8 {
     // This should only return emulations understood by LLD's parseEmulation().
     return switch (target.cpu.arch) {
         .aarch64 => switch (target.os.tag) {
@@ -1364,7 +1361,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
     const shared_memory = comp.config.shared_memory;
     const export_memory = comp.config.export_memory;
     const import_memory = comp.config.import_memory;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const base = &lld.base;
     const wasm = &lld.ofmt.wasm;
 
@@ -1511,9 +1508,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
             .fast, .uuid, .sha1 => try argv.append(try std.fmt.allocPrint(arena, "--build-id={s}", .{
                 @tagName(base.build_id),
             })),
-            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            })),
+            .hexstring => |hs| try argv.append(try std.fmt.allocPrint(arena, "--build-id=0x{x}", .{hs.toSlice()})),
             .md5 => {},
         }
 
@@ -1539,13 +1534,6 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
 
         if (comp.config.link_libc and is_exe_or_dyn_lib) {
             if (target.os.tag == .wasi) {
-                for (comp.wasi_emulated_libs) |crt_file| {
-                    try argv.append(try comp.crtFileAsString(
-                        arena,
-                        wasi_libc.emulatedLibCRFileLibName(crt_file),
-                    ));
-                }
-
                 try argv.append(try comp.crtFileAsString(
                     arena,
                     wasi_libc.execModelCrtFileFullName(comp.config.wasi_exec_model),
@@ -1660,7 +1648,7 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        stderr = try child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        stderr = try child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
         break :term child.wait();
     }) catch |first_err| term: {
         const err = switch (first_err) {
@@ -1674,7 +1662,7 @@ fn spawnLld(
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.writer());
+                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
                     const rsp_writer = rsp_buf.writer();
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');
@@ -1708,7 +1696,7 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    stderr = try rsp_child.stderr.?.reader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    stderr = try rsp_child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
                     break :term rsp_child.wait() catch |err| break :err err;
                 }
             },

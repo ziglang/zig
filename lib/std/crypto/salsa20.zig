@@ -41,7 +41,7 @@ fn SalsaVecImpl(comptime rounds: comptime_int) type {
             };
         }
 
-        inline fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+        fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
             const n1n2n3n0 = Lane{ input[3][1], input[3][2], input[3][3], input[3][0] };
             const n1n2 = Half{ n1n2n3n0[0], n1n2n3n0[1] };
             const n3n0 = Half{ n1n2n3n0[2], n1n2n3n0[3] };
@@ -203,7 +203,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
             d: u6,
         };
 
-        inline fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
+        fn Rp(a: usize, b: usize, c: usize, d: u6) QuarterRound {
             return QuarterRound{
                 .a = a,
                 .b = b,
@@ -212,7 +212,7 @@ fn SalsaNonVecImpl(comptime rounds: comptime_int) type {
             };
         }
 
-        inline fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
+        fn salsaCore(x: *BlockVec, input: BlockVec, comptime feedback: bool) void {
             const arx_steps = comptime [_]QuarterRound{
                 Rp(4, 0, 12, 7),   Rp(8, 4, 0, 9),    Rp(12, 8, 4, 13),   Rp(0, 12, 8, 18),
                 Rp(9, 5, 1, 7),    Rp(13, 9, 5, 9),   Rp(1, 13, 9, 13),   Rp(5, 1, 13, 18),
@@ -557,6 +557,8 @@ pub const SealedBox = struct {
 const htest = @import("test.zig");
 
 test "(x)salsa20" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
     const key = [_]u8{0x69} ** 32;
     const nonce = [_]u8{0x42} ** 8;
     const msg = [_]u8{0} ** 20;
@@ -600,6 +602,8 @@ test "xsalsa20poly1305 secretbox" {
 }
 
 test "xsalsa20poly1305 box" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var nonce: [Box.nonce_length]u8 = undefined;
@@ -614,6 +618,8 @@ test "xsalsa20poly1305 box" {
 }
 
 test "xsalsa20poly1305 sealedbox" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
+
     var msg: [100]u8 = undefined;
     var msg2: [msg.len]u8 = undefined;
     var boxed: [msg.len + SealedBox.seal_length]u8 = undefined;

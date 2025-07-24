@@ -1,3 +1,10 @@
+const Path = @This();
+const std = @import("../../std.zig");
+const assert = std.debug.assert;
+const fs = std.fs;
+const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
+
 root_dir: Cache.Directory,
 /// The path, relative to the root dir, that this `Path` represents.
 /// Empty string means the root_dir is the path.
@@ -133,38 +140,44 @@ pub fn makePath(p: Path, sub_path: []const u8) !void {
 }
 
 pub fn toString(p: Path, allocator: Allocator) Allocator.Error![]u8 {
-    return std.fmt.allocPrint(allocator, "{}", .{p});
+    return std.fmt.allocPrint(allocator, "{f}", .{p});
 }
 
 pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
-    return std.fmt.allocPrintZ(allocator, "{}", .{p});
+    return std.fmt.allocPrintSentinel(allocator, "{f}", .{p}, 0);
 }
 
-pub fn format(
-    self: Path,
-    comptime fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    if (fmt_string.len == 1) {
-        // Quote-escape the string.
-        const stringEscape = std.zig.stringEscape;
-        const f = switch (fmt_string[0]) {
-            'q' => "",
-            '\'' => "\'",
-            else => @compileError("unsupported format string: " ++ fmt_string),
-        };
-        if (self.root_dir.path) |p| {
-            try stringEscape(p, f, options, writer);
-            if (self.sub_path.len > 0) try stringEscape(fs.path.sep_str, f, options, writer);
-        }
-        if (self.sub_path.len > 0) {
-            try stringEscape(self.sub_path, f, options, writer);
-        }
-        return;
+pub fn fmtEscapeString(path: Path) std.fmt.Formatter(Path, formatEscapeString) {
+    return .{ .data = path };
+}
+
+pub fn formatEscapeString(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+    if (path.root_dir.path) |p| {
+        try std.zig.stringEscape(p, writer);
+        if (path.sub_path.len > 0) try std.zig.stringEscape(fs.path.sep_str, writer);
     }
-    if (fmt_string.len > 0)
-        std.fmt.invalidFmtError(fmt_string, self);
+    if (path.sub_path.len > 0) {
+        try std.zig.stringEscape(path.sub_path, writer);
+    }
+}
+
+/// Deprecated, use double quoted escape to print paths.
+pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
+    return .{ .data = path };
+}
+
+/// Deprecated, use double quoted escape to print paths.
+pub fn formatEscapeChar(path: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
+    if (path.root_dir.path) |p| {
+        for (p) |byte| try std.zig.charEscape(byte, writer);
+        if (path.sub_path.len > 0) try writer.writeByte(fs.path.sep);
+    }
+    if (path.sub_path.len > 0) {
+        for (path.sub_path) |byte| try std.zig.charEscape(byte, writer);
+    }
+}
+
+pub fn format(self: Path, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (std.fs.path.isAbsolute(self.sub_path)) {
         try writer.writeAll(self.sub_path);
         return;
@@ -223,9 +236,3 @@ pub const TableAdapter = struct {
         return a.eql(b);
     }
 };
-
-const Path = @This();
-const std = @import("../../std.zig");
-const fs = std.fs;
-const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;

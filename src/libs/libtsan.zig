@@ -48,7 +48,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
     const unwind_tables: std.builtin.UnwindTables =
-        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const link_libcpp = target.os.tag.isDarwin();
 
     const config = Compilation.Config.resolve(.{
@@ -268,7 +268,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const skip_linker_dependencies = !target.os.tag.isDarwin();
     const linker_allow_shlib_undefined = target.os.tag.isDarwin();
     const install_name = if (target.os.tag.isDarwin())
-        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+        try std.fmt.allocPrintSentinel(arena, "@rpath/{s}", .{basename}, 0)
     else
         null;
     // Workaround for https://github.com/llvm/llvm-project/issues/97627
@@ -324,7 +324,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     comp.tsan_lib = crt_file;
 }
 
-fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn addCcArgs(target: *const std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-nostdinc++",
         "-fvisibility=hidden",

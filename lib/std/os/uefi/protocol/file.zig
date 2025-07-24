@@ -79,30 +79,6 @@ pub const File = extern struct {
         VolumeFull,
     };
 
-    pub const SeekableStream = io.SeekableStream(
-        *File,
-        SeekError,
-        SeekError,
-        setPosition,
-        seekBy,
-        getPosition,
-        getEndPos,
-    );
-    pub const Reader = io.Reader(*File, ReadError, read);
-    pub const Writer = io.Writer(*File, WriteError, write);
-
-    pub fn seekableStream(self: *File) SeekableStream {
-        return .{ .context = self };
-    }
-
-    pub fn reader(self: *File) Reader {
-        return .{ .context = self };
-    }
-
-    pub fn writer(self: *File) Writer {
-        return .{ .context = self };
-    }
-
     pub fn open(
         self: *const File,
         file_name: [*:0]const u16,
@@ -238,7 +214,7 @@ pub const File = extern struct {
     pub fn getInfo(
         self: *const File,
         comptime info: std.meta.Tag(Info),
-        buffer: []u8,
+        buffer: []align(@alignOf(@FieldType(Info, @tagName(info)))) u8,
     ) GetInfoError!*@FieldType(Info, @tagName(info)) {
         const InfoType = @FieldType(Info, @tagName(info));
 

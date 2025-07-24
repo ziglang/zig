@@ -1,5 +1,6 @@
 .{
-    .name = "standalone_test_cases",
+    .name = .standalone_test_cases,
+    .fingerprint = 0xc0dbdf9c818957be,
     .version = "0.0.0",
     .dependencies = .{
         .simple = .{
@@ -47,9 +48,6 @@
         },
         .pkg_import = .{
             .path = "pkg_import",
-        },
-        .use_alias = .{
-            .path = "use_alias",
         },
         .install_raw_hex = .{
             .path = "install_raw_hex",
@@ -203,6 +201,9 @@
         },
         .entry_point = .{
             .path = "entry_point",
+        },
+        .run_cwd = .{
+            .path = "run_cwd",
         },
     },
     .paths = .{

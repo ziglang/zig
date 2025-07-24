@@ -186,7 +186,7 @@ pub const IncludeDir = union(enum) {
             .embed_path => |lazy_path| {
                 // Special case: this is a single arg.
                 const resolved = lazy_path.getPath3(b, asking_step);
-                const arg = b.fmt("--embed-dir={}", .{resolved});
+                const arg = b.fmt("--embed-dir={f}", .{resolved});
                 return zig_args.append(arg);
             },
         };
@@ -572,7 +572,7 @@ pub fn appendZigProcessFlags(
         try zig_args.append(switch (unwind_tables) {
             .none => "-fno-unwind-tables",
             .sync => "-funwind-tables",
-            .@"async" => "-fasync-unwind-tables",
+            .async => "-fasync-unwind-tables",
         });
     }
 
@@ -655,10 +655,10 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 }
 
-fn requireKnownTarget(m: *Module) std.Target {
-    const resolved_target = m.resolved_target orelse
-        @panic("this API requires the Module to be created with a known 'target' field");
-    return resolved_target.result;
+fn requireKnownTarget(m: *Module) *const std.Target {
+    const resolved_target = &(m.resolved_target orelse
+        @panic("this API requires the Module to be created with a known 'target' field"));
+    return &resolved_target.result;
 }
 
 /// Elements of `modules` and `names` are matched one-to-one.

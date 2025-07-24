@@ -5,9 +5,7 @@ test {
     _ = @import("behavior/align.zig");
     _ = @import("behavior/alignof.zig");
     _ = @import("behavior/array.zig");
-    _ = @import("behavior/async_fn.zig");
     _ = @import("behavior/atomics.zig");
-    _ = @import("behavior/await_struct.zig");
     _ = @import("behavior/basic.zig");
     _ = @import("behavior/bit_shifting.zig");
     _ = @import("behavior/bitcast.zig");
@@ -103,7 +101,6 @@ test {
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
     _ = @import("behavior/union_with_members.zig");
-    _ = @import("behavior/usingnamespace.zig");
     _ = @import("behavior/var_args.zig");
     // https://github.com/llvm/llvm-project/issues/118879
     // https://github.com/llvm/llvm-project/issues/134659
@@ -126,7 +123,6 @@ test {
     }
 
     if (builtin.zig_backend != .stage2_arm and
-        builtin.zig_backend != .stage2_aarch64 and
         builtin.zig_backend != .stage2_spirv)
     {
         _ = @import("behavior/export_keyword.zig");
@@ -144,7 +140,8 @@ test {
 }
 
 // This bug only repros in the root file
-test "deference @embedFile() of a file full of zero bytes" {
+test "dereference @embedFile() of a file full of zero bytes" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const contents = @embedFile("behavior/zero.bin").*;

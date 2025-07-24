@@ -292,6 +292,13 @@ pub const Kind = enum {
     obj,
     @"test",
     test_obj,
+
+    pub fn isTest(kind: Kind) bool {
+        return switch (kind) {
+            .exe, .lib, .obj => false,
+            .@"test", .test_obj => true,
+        };
+    }
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -368,19 +375,16 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
 
-    // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
-        ""
-    else
-        owner.fmt("{s} ", .{name});
-
     const resolved_target = options.root_module.resolved_target orelse
         @panic("the root Module of a Compile step must be created with a known 'target' field");
-    const target = resolved_target.result;
+    const target = &resolved_target.result;
 
-    const step_name = owner.fmt("compile {s} {s}{s} {s}", .{
-        @tagName(options.kind),
-        name_adjusted,
+    const step_name = owner.fmt("compile {s} {s} {s}", .{
+        // Avoid the common case of the step name looking like "compile test test".
+        if (options.kind.isTest() and mem.eql(u8, name, "test"))
+            @tagName(options.kind)
+        else
+            owner.fmt("{s} {s}", .{ @tagName(options.kind), name }),
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
@@ -405,7 +409,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .linkage = options.linkage,
         .kind = options.kind,
         .name = name,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = step_name,
             .owner = owner,
@@ -664,6 +668,7 @@ pub fn producesPdbFile(compile: *Compile) bool {
         else => return false,
     }
     if (target.ofmt == .c) return false;
+    if (compile.use_llvm == false) return false;
     if (compile.root_module.strip == true or
         (compile.root_module.strip == null and compile.root_module.optimize == .ReleaseSmall))
     {
@@ -1012,20 +1017,16 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
 
@@ -1537,7 +1538,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
             try zig_args.append("--version");
-            try zig_args.append(b.fmt("{}", .{version}));
+            try zig_args.append(b.fmt("{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
@@ -1691,9 +1692,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
-            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            }),
+            .hexstring => |hs| b.fmt("--build-id=0x{x}", .{hs.toSlice()}),
             .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
         });
     }
@@ -1701,7 +1700,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
     else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{}", .{b.graph.zig_lib_directory})
+        b.fmt("{f}", .{b.graph.zig_lib_directory})
     else
         null;
 
@@ -1741,8 +1740,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     if (compile.error_limit) |err_limit| try zig_args.appendSlice(&.{
-        "--error-limit",
-        b.fmt("{}", .{err_limit}),
+        "--error-limit", b.fmt("{d}", .{err_limit}),
     });
 
     try addFlag(&zig_args, "incremental", b.graph.incremental);
@@ -1766,12 +1764,12 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(arena, arg.len + 1);
-                    const writer = escaped.writer();
-                    try writer.writeAll(arg[0..arg_idx]);
+                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
+                    try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
-                        if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
-                        try writer.writeByte(to_escape);
+                        if (to_escape == '\\' or to_escape == '"') try escaped.append(arena, '\\');
+                        try escaped.append(arena, to_escape);
                     }
                     escaped_args.appendAssumeCapacity(escaped.items);
                     continue :arg_blk;
@@ -1788,11 +1786,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-        _ = try std.fmt.bufPrint(
-            &args_hex_hash,
-            "{s}",
-            .{std.fmt.fmtSliceHexLower(&args_hash)},
-        );
+        _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
         try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
@@ -1831,7 +1825,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{}", .{output_dir});
+            lp.path = b.fmt("{f}", .{output_dir});
         }
 
         // zig fmt: off
@@ -1861,7 +1855,7 @@ fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifa
     const arena = c.step.owner.graph.arena;
     const name = ea.cacheName(arena, .{
         .root_name = c.name,
-        .target = c.root_module.resolved_target.?.result,
+        .target = &c.root_module.resolved_target.?.result,
         .output_mode = switch (c.kind) {
             .lib => .Lib,
             .obj, .test_obj => .Obj,
@@ -1965,20 +1959,23 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
 fn checkCompileErrors(compile: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    compile.step.result_error_bundle = .empty;
 
     const arena = compile.step.owner.allocator;
 
-    var actual_errors_list = std.ArrayList(u8).init(arena);
-    try actual_eb.renderToWriter(.{
-        .ttyconf = .no_color,
-        .include_reference_trace = false,
-        .include_source_line = false,
-    }, actual_errors_list.writer());
-    const actual_errors = try actual_errors_list.toOwnedSlice();
+    const actual_errors = ae: {
+        var aw: std.io.Writer.Allocating = .init(arena);
+        defer aw.deinit();
+        try actual_eb.renderToWriter(.{
+            .ttyconf = .no_color,
+            .include_reference_trace = false,
+            .include_source_line = false,
+        }, &aw.writer);
+        break :ae try aw.toOwnedSlice();
+    };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated = std.ArrayList(u8).init(arena);
+    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
@@ -2037,17 +2034,17 @@ fn checkCompileErrors(compile: *Compile) !void {
         .exact => |expect_lines| {
             for (expect_lines) |expect_line| {
                 const actual_line = actual_line_it.next() orelse {
-                    try expected_generated.appendSlice(expect_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, expect_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 };
                 if (matchCompileError(actual_line, expect_line)) {
-                    try expected_generated.appendSlice(actual_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, actual_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 }
-                try expected_generated.appendSlice(expect_line);
-                try expected_generated.append('\n');
+                try expected_generated.appendSlice(arena, expect_line);
+                try expected_generated.append(arena, '\n');
             }
 
             if (mem.eql(u8, expected_generated.items, actual_errors)) return;

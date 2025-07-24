@@ -477,7 +477,7 @@ fn processPreprocessedFile(
         const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
         const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
 
-        try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), value });
+        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), value });
     }
 }
 
@@ -510,7 +510,7 @@ fn processTableBasedArch(
         }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
-        try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
     }
 }
 
@@ -543,7 +543,7 @@ fn processMipsBasedArch(
         }
         const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
 
-        try writer.print("    {p} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
+        try writer.print("    {f} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
     }
 }
 
@@ -568,12 +568,12 @@ fn processPowerPcBasedArch(
         if (mem.eql(u8, abi, "spu")) {
             continue;
         } else if (mem.eql(u8, abi, "32")) {
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         } else if (mem.eql(u8, abi, "64")) {
-            try optional_writer.?.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         } else { // common/nospu
-            try writer.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
-            try optional_writer.?.print("    {p} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
+            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
         }
     }
 }
@@ -666,13 +666,16 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    if (args.len < 3 or mem.eql(u8, args[1], "--help"))
-        usageAndExit(std.io.getStdErr(), args[0], 1);
+    if (args.len < 3 or mem.eql(u8, args[1], "--help")) {
+        usage(std.debug.lockStderrWriter(&.{}), args[0]) catch std.process.exit(2);
+        std.process.exit(1);
+    }
     const zig_exe = args[1];
     const linux_path = args[2];
 
-    var buf_out = std.io.bufferedWriter(std.io.getStdOut().writer());
-    const writer = buf_out.writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const writer = &stdout_writer.interface;
 
     var linux_dir = try std.fs.cwd().openDir(linux_path, .{});
     defer linux_dir.close();
@@ -714,17 +717,16 @@ pub fn main() !void {
         }
     }
 
-    try buf_out.flush();
+    try writer.flush();
 }
 
-fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
-    file.writer().print(
+fn usage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+    try w.print(
         \\Usage: {s} /path/to/zig /path/to/linux
         \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/zig /path/to/linux
         \\
         \\Generates the list of Linux syscalls for each supported cpu arch, using the Linux development tree.
         \\Prints to stdout Zig code which you can use to replace the file lib/std/os/linux/syscalls.zig.
         \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
+    , .{arg0});
 }

@@ -15,14 +15,14 @@ const BinaryModule = @import("BinaryModule.zig");
 const Section = @import("../../codegen/spirv/Section.zig");
 const spec = @import("../../codegen/spirv/spec.zig");
 const Opcode = spec.Opcode;
-const ResultId = spec.IdResult;
+const ResultId = spec.Id;
 const Word = spec.Word;
 
 /// Return whether a particular opcode's instruction can be pruned.
 /// These are idempotent instructions at globals scope and instructions
 /// within functions that do not have any side effects.
 /// The opcodes that return true here do not necessarily need to
-/// have an .IdResult. If they don't, then they are regarded
+/// have an .Id. If they don't, then they are regarded
 /// as 'decoration'-style instructions that don't keep their
 /// operands alive, but will be emitted if they are.
 fn canPrune(op: Opcode) bool {
@@ -34,12 +34,12 @@ fn canPrune(op: Opcode) bool {
     // instruction has any non-trivial side effects (like OpLoad
     // with the Volatile memory semantics).
     return switch (op.class()) {
-        .TypeDeclaration,
-        .Conversion,
-        .Arithmetic,
-        .RelationalAndLogical,
-        .Bit,
-        .Annotation,
+        .type_declaration,
+        .conversion,
+        .arithmetic,
+        .relational_and_logical,
+        .bit,
+        .annotation,
         => true,
         else => switch (op) {
             .OpFunction,
@@ -111,7 +111,7 @@ const ModuleInfo = struct {
 
             // Result-id can only be the first or second operand
             const maybe_result_id: ?ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else null;
@@ -128,7 +128,7 @@ const ModuleInfo = struct {
             switch (inst.opcode) {
                 .OpFunction => {
                     if (maybe_current_function) |current_function| {
-                        log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+                        log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
                         return error.InvalidPhysicalFormat;
                     }
 
@@ -145,7 +145,7 @@ const ModuleInfo = struct {
                     };
                     const entry = try functions.getOrPut(current_function);
                     if (entry.found_existing) {
-                        log.err("Function {} has duplicate definition", .{current_function});
+                        log.err("Function {f} has duplicate definition", .{current_function});
                         return error.DuplicateId;
                     }
 
@@ -163,7 +163,7 @@ const ModuleInfo = struct {
         }
 
         if (maybe_current_function) |current_function| {
-            log.err("OpFunction {} does not have an OpFunctionEnd", .{current_function});
+            log.err("OpFunction {f} does not have an OpFunctionEnd", .{current_function});
             return error.InvalidPhysicalFormat;
         }
 
@@ -184,7 +184,7 @@ const AliveMarker = struct {
 
     fn markAlive(self: *AliveMarker, result_id: ResultId) BinaryModule.ParseError!void {
         const index = self.info.result_id_to_code_offset.getIndex(result_id) orelse {
-            log.err("undefined result-id {}", .{result_id});
+            log.err("undefined result-id {f}", .{result_id});
             return error.InvalidId;
         };
 
@@ -305,7 +305,7 @@ pub fn run(parser: *BinaryModule.Parser, binary: *BinaryModule, progress: std.Pr
 
             // Result-id can only be the first or second operand
             const result_id: ResultId = for (0..2) |i| {
-                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .IdResult) {
+                if (inst_spec.operands.len > i and inst_spec.operands[i].kind == .id_result) {
                     break @enumFromInt(inst.operands[i]);
                 }
             } else {

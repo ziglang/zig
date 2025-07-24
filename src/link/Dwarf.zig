@@ -92,7 +92,7 @@ const DebugFrame = struct {
     };
 
     fn headerBytes(dwarf: *Dwarf) u32 {
-        const target = dwarf.bin_file.comp.root_mod.resolved_target.result;
+        const target = &dwarf.bin_file.comp.root_mod.resolved_target.result;
         return @intCast(switch (dwarf.debug_frame.header.format) {
             .none => return 0,
             .debug_frame => dwarf.unitLengthBytes() + dwarf.sectionOffsetBytes() + 1 + "\x00".len + 1 + 1,
@@ -973,7 +973,7 @@ const Entry = struct {
                 else
                     .main;
                 if (sec.getUnit(ty_unit) == unit and unit.getEntry(other_entry) == entry)
-                    log.err("missing Type({}({d}))", .{
+                    log.err("missing Type({f}({d}))", .{
                         Type.fromInterned(ty).fmt(.{ .tid = .main, .zcu = zcu }),
                         @intFromEnum(ty),
                     });
@@ -981,7 +981,7 @@ const Entry = struct {
             for (dwarf.navs.keys(), dwarf.navs.values()) |nav, other_entry| {
                 const nav_unit = dwarf.getUnit(zcu.fileByIndex(ip.getNav(nav).srcInst(ip).resolveFile(ip)).mod.?) catch unreachable;
                 if (sec.getUnit(nav_unit) == unit and unit.getEntry(other_entry) == entry)
-                    log.err("missing Nav({}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
+                    log.err("missing Nav({f}({d}))", .{ ip.getNav(nav).fqn.fmt(ip), @intFromEnum(nav) });
             }
         }
         @panic("missing dwarf relocation target");
@@ -1957,7 +1957,7 @@ pub const WipNav = struct {
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
         if (old_len + bytes != wip_nav.debug_info.items.len) {
-            std.debug.print("{} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), bytes, wip_nav.debug_info.items.len - old_len });
+            std.debug.print("{f} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), bytes, wip_nav.debug_info.items.len - old_len });
             unreachable;
         }
     }
@@ -2140,7 +2140,7 @@ fn padToIdeal(actual_size: anytype) @TypeOf(actual_size) {
 pub fn init(lf: *link.File, format: DW.Format) Dwarf {
     const comp = lf.comp;
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     return .{
         .gpa = gpa,
         .bin_file = lf,
@@ -2427,7 +2427,7 @@ fn initWipNavInner(
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     const decl = file.zir.?.getDeclaration(inst_info.inst);
-    log.debug("initWipNav({s}:{d}:{d} %{d} = {})", .{
+    log.debug("initWipNav({s}:{d}:{d} %{d} = {f})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
@@ -2487,9 +2487,15 @@ fn initWipNavInner(
             try wip_nav.strp(nav.fqn.toSlice(ip));
             const ty: Type = nav_val.typeOf(zcu);
             const addr: Loc = .{ .addr_reloc = sym_index };
-            const loc: Loc = if (decl.is_threadlocal) .{ .form_tls_address = &addr } else addr;
+            const loc: Loc = if (decl.is_threadlocal) loc: {
+                const target = zcu.comp.root_mod.resolved_target.result;
+                break :loc switch (target.cpu.arch) {
+                    .x86_64 => .{ .form_tls_address = &addr },
+                    else => .empty,
+                };
+            } else addr;
             switch (decl.kind) {
-                .unnamed_test, .@"test", .decltest, .@"comptime", .@"usingnamespace" => unreachable,
+                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
                 .@"const" => {
                     const const_ty_reloc_index = try wip_nav.refForward();
                     try wip_nav.infoExprLoc(loc);
@@ -2573,7 +2579,7 @@ fn initWipNavInner(
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(wip_nav.debug_info.items.len);
             try diw.writeInt(u32, 0, dwarf.endian);
-            const target = mod.resolved_target.result;
+            const target = &mod.resolved_target.result;
             try uleb128(diw, switch (nav.status.fully_resolved.alignment) {
                 .none => target_info.defaultFunctionAlignment(target),
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
@@ -2632,7 +2638,7 @@ pub fn finishWipNavFunc(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
     assert(wip_nav.func != .none);
-    log.debug("finishWipNavFunc({})", .{nav.fqn.fmt(ip)});
+    log.debug("finishWipNavFunc({f})", .{nav.fqn.fmt(ip)});
 
     {
         const external_relocs = &dwarf.debug_aranges.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs;
@@ -2733,7 +2739,7 @@ pub fn finishWipNav(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("finishWipNav({})", .{nav.fqn.fmt(ip)});
+    log.debug("finishWipNav({f})", .{nav.fqn.fmt(ip)});
 
     try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.items);
     if (wip_nav.debug_line.items.len > 0) {
@@ -2765,7 +2771,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
     const inst_info = nav.srcInst(ip).resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
     const decl = file.zir.?.getDeclaration(inst_info.inst);
-    log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {})", .{
+    log.debug("updateComptimeNav({s}:{d}:{d} %{d} = {f})", .{
         file.sub_file_path,
         decl.src_line + 1,
         decl.src_column + 1,
@@ -2775,7 +2781,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
 
     const is_test = switch (decl.kind) {
         .unnamed_test, .@"test", .decltest => true,
-        .@"comptime", .@"usingnamespace", .@"const", .@"var" => false,
+        .@"comptime", .@"const", .@"var" => false,
     };
     if (is_test) {
         // This isn't actually a comptime Nav! It's a test, so it'll definitely never be referenced at comptime.
@@ -3215,7 +3221,7 @@ fn updateLazyType(
     const ty: Type = .fromInterned(type_index);
     switch (type_index) {
         .generic_poison_type => log.debug("updateLazyType({s})", .{"anytype"}),
-        else => log.debug("updateLazyType({})", .{ty.fmt(pt)}),
+        else => log.debug("updateLazyType({f})", .{ty.fmt(pt)}),
     }
 
     var wip_nav: WipNav = .{
@@ -3243,7 +3249,7 @@ fn updateLazyType(
     const diw = wip_nav.debug_info.writer(dwarf.gpa);
     const name = switch (type_index) {
         .generic_poison_type => "",
-        else => try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)}),
+        else => try std.fmt.allocPrint(dwarf.gpa, "{f}", .{ty.fmt(pt)}),
     };
     defer dwarf.gpa.free(name);
 
@@ -3596,7 +3602,7 @@ fn updateLazyType(
                 // For better or worse, we try to match what Clang emits.
                 break :cc switch (func_type.cc) {
                     .@"inline" => .nocall,
-                    .@"async", .auto, .naked => .normal,
+                    .async, .auto, .naked => .normal,
                     .x86_64_sysv => .LLVM_X86_64SysV,
                     .x86_64_win => .LLVM_Win64,
                     .x86_64_regcall_v3_sysv => .LLVM_X86RegCall,
@@ -3718,7 +3724,7 @@ fn updateLazyValue(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     assert(ip.typeOf(value_index) != .type_type);
-    log.debug("updateLazyValue(@as({}, {}))", .{
+    log.debug("updateLazyValue(@as({f}, {f}))", .{
         Value.fromInterned(value_index).typeOf(zcu).fmt(pt),
         Value.fromInterned(value_index).fmtValue(pt),
     });
@@ -4110,7 +4116,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
     const ip = &zcu.intern_pool;
     const ty: Type = .fromInterned(type_index);
     const ty_src_loc = ty.srcLoc(zcu);
-    log.debug("updateContainerType({})", .{ty.fmt(pt)});
+    log.debug("updateContainerType({f})", .{ty.fmt(pt)});
 
     const inst_info = ty.typeDeclInst(zcu).?.resolveFull(ip).?;
     const file = zcu.fileByIndex(inst_info.file);
@@ -4239,7 +4245,7 @@ pub fn updateContainerType(dwarf: *Dwarf, pt: Zcu.PerThread, type_index: InternP
         };
         defer wip_nav.deinit();
         const diw = wip_nav.debug_info.writer(dwarf.gpa);
-        const name = try std.fmt.allocPrint(dwarf.gpa, "{}", .{ty.fmt(pt)});
+        const name = try std.fmt.allocPrint(dwarf.gpa, "{f}", .{ty.fmt(pt)});
         defer dwarf.gpa.free(name);
 
         switch (ip.indexToKey(type_index)) {
@@ -4529,7 +4535,7 @@ pub fn flush(dwarf: *Dwarf, pt: Zcu.PerThread) FlushError!void {
         dwarf.debug_aranges.section.dirty = false;
     }
     if (dwarf.debug_frame.section.dirty) {
-        const target = dwarf.bin_file.comp.root_mod.resolved_target.result;
+        const target = &dwarf.bin_file.comp.root_mod.resolved_target.result;
         switch (dwarf.debug_frame.header.format) {
             .none => {},
             .debug_frame => unreachable,

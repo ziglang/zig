@@ -27,6 +27,22 @@
 //! All of this must be done with only referring to the state inside this struct
 //! because this work will be done in a dedicated thread.
 
+const builtin = @import("builtin");
+const std = @import("std");
+const fs = std.fs;
+const assert = std.debug.assert;
+const ascii = std.ascii;
+const Allocator = std.mem.Allocator;
+const Cache = std.Build.Cache;
+const ThreadPool = std.Thread.Pool;
+const WaitGroup = std.Thread.WaitGroup;
+const Fetch = @This();
+const git = @import("Fetch/git.zig");
+const Package = @import("../Package.zig");
+const Manifest = Package.Manifest;
+const ErrorBundle = std.zig.ErrorBundle;
+const native_os = builtin.os.tag;
+
 arena: std.heap.ArenaAllocator,
 location: Location,
 location_tok: std.zig.Ast.TokenIndex,
@@ -185,7 +201,7 @@ pub const JobQueue = struct {
             const hash_slice = hash.toSlice();
 
             try buf.writer().print(
-                \\    pub const {} = struct {{
+                \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
 
@@ -211,15 +227,15 @@ pub const JobQueue = struct {
             }
 
             try buf.writer().print(
-                \\        pub const build_root = "{q}";
+                \\        pub const build_root = "{f}";
                 \\
-            , .{fetch.package_root});
+            , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
                 try buf.writer().print(
-                    \\        pub const build_zig = @import("{}");
+                    \\        pub const build_zig = @import("{f}");
                     \\
-                , .{std.zig.fmtEscapes(hash_slice)});
+                , .{std.zig.fmtString(hash_slice)});
             }
 
             if (fetch.manifest) |*manifest| {
@@ -230,8 +246,8 @@ pub const JobQueue = struct {
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
                     try buf.writer().print(
-                        "            .{{ \"{}\", \"{}\" }},\n",
-                        .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                        "            .{{ \"{f}\", \"{f}\" }},\n",
+                        .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
                 }
 
@@ -262,8 +278,8 @@ pub const JobQueue = struct {
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
             try buf.writer().print(
-                "    .{{ \"{}\", \"{}\" }},\n",
-                .{ std.zig.fmtEscapes(name), std.zig.fmtEscapes(h.toSlice()) },
+                "    .{{ \"{f}\", \"{f}\" }},\n",
+                .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );
         }
         try buf.appendSlice("};\n");
@@ -353,7 +369,7 @@ pub fn run(f: *Fetch) RunError!void {
                 if (!std.mem.startsWith(u8, pkg_root.sub_path, expected_prefix)) {
                     return f.fail(
                         f.location_tok,
-                        try eb.printString("dependency path outside project: '{}'", .{pkg_root}),
+                        try eb.printString("dependency path outside project: '{f}'", .{pkg_root}),
                     );
                 }
             }
@@ -420,14 +436,14 @@ pub fn run(f: *Fetch) RunError!void {
                 }
                 if (f.job_queue.read_only) return f.fail(
                     f.name_tok,
-                    try eb.printString("package not found at '{}{s}'", .{
+                    try eb.printString("package not found at '{f}{s}'", .{
                         cache_root, pkg_sub_path,
                     }),
                 );
             },
             else => |e| {
                 try eb.addRootErrorMessage(.{
-                    .msg = try eb.printString("unable to open global package cache directory '{}{s}': {s}", .{
+                    .msg = try eb.printString("unable to open global package cache directory '{f}{s}': {s}", .{
                         cache_root, pkg_sub_path, @errorName(e),
                     }),
                 });
@@ -604,7 +620,7 @@ pub fn computedPackageHash(f: *const Fetch) Package.Hash {
     const saturated_size = std.math.cast(u32, f.computed_hash.total_size) orelse std.math.maxInt(u32);
     if (f.manifest) |man| {
         var version_buffer: [32]u8 = undefined;
-        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{}", .{man.version}) catch &version_buffer;
+        const version: []const u8 = std.fmt.bufPrint(&version_buffer, "{f}", .{man.version}) catch &version_buffer;
         return .init(f.computed_hash.digest, man.name, version, man.id, saturated_size);
     }
     // In the future build.zig.zon fields will be added to allow overriding these values
@@ -622,7 +638,7 @@ fn checkBuildFileExistence(f: *Fetch) RunError!void {
         error.FileNotFound => {},
         else => |e| {
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to access '{}{s}': {s}", .{
+                .msg = try eb.printString("unable to access '{f}{s}': {s}", .{
                     f.package_root, Package.build_zig_basename, @errorName(e),
                 }),
             });
@@ -647,7 +663,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
         else => |e| {
             const file_path = try pkg_root.join(arena, Manifest.basename);
             try eb.addRootErrorMessage(.{
-                .msg = try eb.printString("unable to load package manifest '{}': {s}", .{
+                .msg = try eb.printString("unable to load package manifest '{f}': {s}", .{
                     file_path, @errorName(e),
                 }),
             });
@@ -659,7 +675,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     ast.* = try std.zig.Ast.parse(arena, manifest_bytes, .zon);
 
     if (ast.errors.len > 0) {
-        const file_path = try std.fmt.allocPrint(arena, "{}" ++ fs.path.sep_str ++ Manifest.basename, .{pkg_root});
+        const file_path = try std.fmt.allocPrint(arena, "{f}" ++ fs.path.sep_str ++ Manifest.basename, .{pkg_root});
         try std.zig.putAstErrorsIntoBundle(arena, ast.*, file_path, eb);
         return error.FetchFailed;
     }
@@ -672,7 +688,7 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const manifest = &f.manifest.?;
 
     if (manifest.errors.len > 0) {
-        const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
+        const src_path = try eb.printString("{f}" ++ fs.path.sep_str ++ "{s}", .{ pkg_root, Manifest.basename });
         try manifest.copyErrorsIntoBundle(ast.*, src_path, eb);
         return error.FetchFailed;
     }
@@ -827,7 +843,7 @@ fn srcLoc(
     const ast = f.parent_manifest_ast orelse return .none;
     const eb = &f.error_bundle;
     const start_loc = ast.tokenLocation(0, tok);
-    const src_path = try eb.printString("{}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
+    const src_path = try eb.printString("{f}" ++ fs.path.sep_str ++ Manifest.basename, .{f.parent_package_root});
     const msg_off = 0;
     return eb.addSourceLocation(.{
         .src_path = src_path,
@@ -961,7 +977,7 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
         const path = try uri.path.toRawMaybeAlloc(arena);
         return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{}{s}': {s}", .{
+            return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {s}", .{
                 f.parent_package_root, path, @errorName(err),
             }));
         } };
@@ -1063,13 +1079,16 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
             });
             const notes_start = try eb.reserveNotes(notes_len);
             eb.extra.items[notes_start] = @intFromEnum(try eb.addErrorMessage(.{
-                .msg = try eb.printString("try .url = \"{;+/}#{}\",", .{ uri, want_oid }),
+                .msg = try eb.printString("try .url = \"{f}#{f}\",", .{
+                    uri.fmt(.{ .scheme = true, .authority = true, .path = true }),
+                    want_oid,
+                }),
             }));
             return error.FetchFailed;
         }
 
         var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
-        _ = std.fmt.bufPrint(&want_oid_buf, "{}", .{want_oid}) catch unreachable;
+        _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
         var fetch_stream = session.fetch(&.{&want_oid_buf}, server_header_buffer) catch |err| {
             return f.fail(f.location_tok, try eb.printString(
                 "unable to create fetch stream: {s}",
@@ -1178,12 +1197,17 @@ fn unpackResource(
     };
 
     switch (file_type) {
-        .tar => return try unpackTarball(f, tmp_directory.handle, resource.reader()),
+        .tar => {
+            var adapter = resource.reader().adaptToNewApi();
+            return unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+        },
         .@"tar.gz" => {
             const reader = resource.reader();
             var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
             var dcp = std.compress.gzip.decompressor(br.reader());
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
@@ -1196,7 +1220,9 @@ fn unpackResource(
                 ));
             };
             defer dcp.deinit();
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
             const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
@@ -1206,7 +1232,9 @@ fn unpackResource(
             var dcp = std.compress.zstd.decompressor(br.reader(), .{
                 .window_buffer = window_buffer,
             });
-            return try unpackTarball(f, tmp_directory.handle, dcp.reader());
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,
@@ -1220,7 +1248,7 @@ fn unpackResource(
     }
 }
 
-fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
+fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: *std.Io.Reader) RunError!UnpackResult {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
 
@@ -1231,10 +1259,10 @@ fn unpackTarball(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackRes
         .strip_components = 0,
         .mode_mode = .ignore,
         .exclude_empty_directories = true,
-    }) catch |err| return f.fail(f.location_tok, try eb.printString(
-        "unable to unpack tarball to temporary directory: {s}",
-        .{@errorName(err)},
-    ));
+    }) catch |err| return f.fail(
+        f.location_tok,
+        try eb.printString("unable to unpack tarball to temporary directory: {t}", .{err}),
+    );
 
     var res: UnpackResult = .{ .root_dir = diagnostics.root_dir };
     if (diagnostics.errors.items.len > 0) {
@@ -1305,7 +1333,7 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
                 .{@errorName(err)},
             ));
             if (len == 0) break;
-            zip_file.writer().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
+            zip_file.deprecatedWriter().writeAll(buf[0..len]) catch |err| return f.fail(f.location_tok, try eb.printString(
                 "write temporary zip file failed: {s}",
                 .{@errorName(err)},
             ));
@@ -1358,7 +1386,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
         defer pack_file.close();
         var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
-        try fifo.pump(resource.fetch_stream.reader(), pack_file.writer());
+        try fifo.pump(resource.fetch_stream.reader(), pack_file.deprecatedWriter());
         try pack_file.sync();
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
@@ -1366,7 +1394,7 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         {
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            var index_buffered_writer = std.io.bufferedWriter(index_file.writer());
+            var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
             try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
             try index_file.sync();
@@ -1508,7 +1536,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
         while (walker.next() catch |err| {
             try eb.addRootErrorMessage(.{ .msg = try eb.printString(
-                "unable to walk temporary directory '{}': {s}",
+                "unable to walk temporary directory '{f}': {s}",
                 .{ pkg_path, @errorName(err) },
             ) });
             return error.FetchFailed;
@@ -1638,14 +1666,14 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout = std.io.getStdOut();
-    var bw = std.io.bufferedWriter(stdout.writer());
+    const stdout: std.fs.File = .stdout();
+    var bw = std.io.bufferedWriter(stdout.deprecatedWriter());
     const w = bw.writer();
 
     for (all_files) |hashed_file| {
-        try w.print("{s}: {s}: {s}\n", .{
+        try w.print("{s}: {x}: {s}\n", .{
             @tagName(hashed_file.kind),
-            std.fmt.fmtSliceHexLower(&hashed_file.hash),
+            &hashed_file.hash,
             hashed_file.normalized_path,
         });
     }
@@ -1815,28 +1843,6 @@ pub fn depDigest(pkg_root: Cache.Path, cache_root: Cache.Directory, dep: Manifes
             return relativePathDigest(new_root, cache_root);
         },
     }
-}
-
-const builtin = @import("builtin");
-const std = @import("std");
-const fs = std.fs;
-const assert = std.debug.assert;
-const ascii = std.ascii;
-const Allocator = std.mem.Allocator;
-const Cache = std.Build.Cache;
-const ThreadPool = std.Thread.Pool;
-const WaitGroup = std.Thread.WaitGroup;
-const Fetch = @This();
-const git = @import("Fetch/git.zig");
-const Package = @import("../Package.zig");
-const Manifest = Package.Manifest;
-const ErrorBundle = std.zig.ErrorBundle;
-const native_os = builtin.os.tag;
-
-test {
-    _ = Filter;
-    _ = FileType;
-    _ = UnpackResult;
 }
 
 // Detects executable header: ELF or Macho-O magic header or shebang line.
@@ -2056,15 +2062,15 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var out = std.ArrayList(u8).init(gpa);
-        defer out.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, out.writer());
+        var aw: std.io.Writer.Allocating = .init(gpa);
+        defer aw.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(
             \\error: unable to unpack
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
             \\    note: file 'dir2/file4' has unsupported type 'x'
             \\
-        , out.items);
+        , aw.getWritten());
     }
 };
 
@@ -2080,7 +2086,7 @@ test "zip" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();
@@ -2113,7 +2119,7 @@ test "zip with one root folder" {
     {
         var zip_file = try tmp.dir.createFile("test.zip", .{});
         defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.writer());
+        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
         var store: [test_files.len]std.zip.testutil.FileStore = undefined;
         try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
         try bw.flush();
@@ -2431,9 +2437,15 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var al = std.ArrayList(u8).init(std.testing.allocator);
-        defer al.deinit();
-        try errors.renderToWriter(.{ .ttyconf = .no_color }, al.writer());
-        try std.testing.expectEqualStrings(msg, al.items);
+        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        defer aw.deinit();
+        try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
+        try std.testing.expectEqualStrings(msg, aw.getWritten());
     }
 };
+
+test {
+    _ = Filter;
+    _ = FileType;
+    _ = UnpackResult;
+}

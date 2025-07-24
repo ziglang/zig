@@ -60,12 +60,6 @@ const hashes = [_]Hash{
         .name = "crc32",
     },
     Hash{
-        .ty = hash.RapidHash,
-        .name = "rapidhash",
-        .has_iterative_api = false,
-        .init_u64 = 0,
-    },
-    Hash{
         .ty = hash.CityHash32,
         .name = "cityhash-32",
         .has_iterative_api = false,
@@ -346,7 +340,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);

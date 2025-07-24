@@ -20,8 +20,8 @@ test "super basic invocations" {
 }
 
 test "basic invocations" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -37,7 +37,7 @@ test "basic invocations" {
     comptime {
         // comptime calls with supported modifiers
         try expect(@call(.auto, foo, .{2}) == 1234);
-        try expect(@call(.no_async, foo, .{3}) == 1234);
+        try expect(@call(.no_suspend, foo, .{3}) == 1234);
         try expect(@call(.always_tail, foo, .{4}) == 1234);
         try expect(@call(.always_inline, foo, .{5}) == 1234);
     }
@@ -45,7 +45,7 @@ test "basic invocations" {
     const result = @call(.compile_time, foo, .{6}) == 1234;
     comptime assert(result);
     // runtime calls of comptime-known function
-    try expect(@call(.no_async, foo, .{7}) == 1234);
+    try expect(@call(.no_suspend, foo, .{7}) == 1234);
     try expect(@call(.never_tail, foo, .{8}) == 1234);
     try expect(@call(.never_inline, foo, .{9}) == 1234);
     // CBE does not support attributes on runtime functions
@@ -53,14 +53,13 @@ test "basic invocations" {
         // runtime calls of non comptime-known function
         var alias_foo = &foo;
         _ = &alias_foo;
-        try expect(@call(.no_async, alias_foo, .{10}) == 1234);
+        try expect(@call(.no_suspend, alias_foo, .{10}) == 1234);
         try expect(@call(.never_tail, alias_foo, .{11}) == 1234);
         try expect(@call(.never_inline, alias_foo, .{12}) == 1234);
     }
 }
 
 test "tuple parameters" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -95,7 +94,6 @@ test "tuple parameters" {
 
 test "result location of function call argument through runtime condition and struct init" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const E = enum { a, b };
@@ -115,6 +113,7 @@ test "result location of function call argument through runtime condition and st
 }
 
 test "function call with 40 arguments" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -270,7 +269,7 @@ test "arguments to comptime parameters generated in comptime blocks" {
 }
 
 test "forced tail call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -305,7 +304,7 @@ test "forced tail call" {
 }
 
 test "inline call preserves tail call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO
@@ -342,7 +341,6 @@ test "inline call preserves tail call" {
 }
 
 test "inline call doesn't re-evaluate non generic struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -409,7 +407,6 @@ test "recursive inline call with comptime known argument" {
 }
 
 test "inline while with @call" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -439,7 +436,6 @@ test "method call as parameter type" {
 }
 
 test "non-anytype generic parameters provide result type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -468,7 +464,6 @@ test "non-anytype generic parameters provide result type" {
 }
 
 test "argument to generic function has correct result type" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -507,29 +502,6 @@ test "call inline fn through pointer" {
     try f(123);
 }
 
-test "call coerced function" {
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const T = struct {
-        x: f64,
-        const T = @This();
-        usingnamespace Implement(1);
-        const F = fn (comptime f64) type;
-        const Implement: F = opaque {
-            fn implementer(comptime val: anytype) type {
-                return opaque {
-                    fn incr(self: T) T {
-                        return .{ .x = self.x + val };
-                    }
-                };
-            }
-        }.implementer;
-    };
-
-    const a = T{ .x = 3 };
-    try std.testing.expect(a.incr().x == 4);
-}
-
 test "call function in comptime field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
@@ -544,7 +516,6 @@ test "call function in comptime field" {
 
 test "call function pointer in comptime field" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -596,7 +567,6 @@ test "value returned from comptime function is comptime known" {
 }
 
 test "registers get overwritten when ignoring return" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.cpu.arch != .x86_64 or builtin.os.tag != .linux) return error.SkipZigTest;
 
@@ -642,7 +612,6 @@ test "call with union with zero sized field is not memorized incorrectly" {
 }
 
 test "function call with cast to anyopaque pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -660,6 +629,7 @@ test "function call with cast to anyopaque pointer" {
 }
 
 test "arguments pointed to on stack into tailcall" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -731,7 +701,7 @@ test "arguments pointed to on stack into tailcall" {
 }
 
 test "tail call function pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest; // TODO

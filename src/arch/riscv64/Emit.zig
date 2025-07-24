@@ -172,7 +172,7 @@ const Reloc = struct {
 
 fn fixupRelocs(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
-        log.debug("target inst: {}", .{emit.lower.mir.instructions.get(reloc.target)});
+        log.debug("target inst: {f}", .{emit.lower.mir.instructions.get(reloc.target)});
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("relocation target not found!", .{});
 

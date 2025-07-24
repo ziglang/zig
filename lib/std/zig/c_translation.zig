@@ -254,9 +254,6 @@ test "sizeof" {
 
 pub const CIntLiteralBase = enum { decimal, octal, hex };
 
-/// Deprecated: use `CIntLiteralBase`
-pub const CIntLiteralRadix = CIntLiteralBase;
-
 fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime base: CIntLiteralBase) type {
     const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };
     const signed_oct_hex = [_]type{ c_int, c_uint, c_long, c_ulong, c_longlong, c_ulonglong };

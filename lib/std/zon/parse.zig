@@ -64,22 +64,14 @@ pub const Error = union(enum) {
             }
         };
 
-        fn formatMessage(
-            self: []const u8,
-            comptime f: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = f;
-            _ = options;
-
+        fn formatMessage(self: []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
             // Just writes the string for now, but we're keeping this behind a formatter so we have
             // the option to extend it in the future to print more advanced messages (like `Error`
             // does) without breaking the API.
-            try writer.writeAll(self);
+            try w.writeAll(self);
         }
 
-        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Formatter(Note.formatMessage) {
+        pub fn fmtMessage(self: Note, diag: *const Diagnostics) std.fmt.Alt([]const u8, Note.formatMessage) {
             return .{ .data = switch (self) {
                 .zoir => |note| note.msg.get(diag.zoir),
                 .type_check => |note| note.msg,
@@ -155,21 +147,14 @@ pub const Error = union(enum) {
         diag: *const Diagnostics,
     };
 
-    fn formatMessage(
-        self: FormatMessage,
-        comptime f: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = f;
-        _ = options;
+    fn formatMessage(self: FormatMessage, w: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (self.err) {
-            .zoir => |err| try writer.writeAll(err.msg.get(self.diag.zoir)),
-            .type_check => |tc| try writer.writeAll(tc.message),
+            .zoir => |err| try w.writeAll(err.msg.get(self.diag.zoir)),
+            .type_check => |tc| try w.writeAll(tc.message),
         }
     }
 
-    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Formatter(formatMessage) {
+    pub fn fmtMessage(self: @This(), diag: *const Diagnostics) std.fmt.Alt(FormatMessage, formatMessage) {
         return .{ .data = .{
             .err = self,
             .diag = diag,
@@ -241,25 +226,18 @@ pub const Diagnostics = struct {
         return .{ .diag = self };
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
+    pub fn format(self: *const @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
         var errors = self.iterateErrors();
         while (errors.next()) |err| {
             const loc = err.getLocation(self);
             const msg = err.fmtMessage(self);
-            try writer.print("{}:{}: error: {}\n", .{ loc.line + 1, loc.column + 1, msg });
+            try w.print("{d}:{d}: error: {f}\n", .{ loc.line + 1, loc.column + 1, msg });
 
             var notes = err.iterateNotes(self);
             while (notes.next()) |note| {
                 const note_loc = note.getLocation(self);
                 const note_msg = note.fmtMessage(self);
-                try writer.print("{}:{}: note: {s}\n", .{
+                try w.print("{d}:{d}: note: {f}\n", .{
                     note_loc.line + 1,
                     note_loc.column + 1,
                     note_msg,
@@ -433,18 +411,22 @@ const Parser = struct {
     diag: ?*Diagnostics,
     options: Options,
 
-    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) error{ ParseZon, OutOfMemory }!T {
+    const ParseExprError = error{ ParseZon, OutOfMemory };
+
+    fn parseExpr(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprError!T {
         return self.parseExprInner(T, node) catch |err| switch (err) {
             error.WrongType => return self.failExpectedType(T, node),
             else => |e| return e,
         };
     }
 
+    const ParseExprInnerError = error{ ParseZon, OutOfMemory, WrongType };
+
     fn parseExprInner(
         self: *@This(),
         T: type,
         node: Zoir.Node.Index,
-    ) error{ ParseZon, OutOfMemory, WrongType }!T {
+    ) ParseExprInnerError!T {
         if (T == Zoir.Node.Index) {
             return node;
         }
@@ -624,7 +606,7 @@ const Parser = struct {
         }
     }
 
-    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseSlicePointer(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         switch (node.get(self.zoir)) {
             .string_literal => return self.parseString(T, node),
             .array_literal => |nodes| return self.parseSlice(T, nodes),
@@ -633,20 +615,22 @@ const Parser = struct {
         }
     }
 
-    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) !T {
+    fn parseString(self: *@This(), T: type, node: Zoir.Node.Index) ParseExprInnerError!T {
         const ast_node = node.getAstNode(self.zoir);
         const pointer = @typeInfo(T).pointer;
         var size_hint = ZonGen.strLitSizeHint(self.ast, ast_node);
         if (pointer.sentinel() != null) size_hint += 1;
 
-        var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, size_hint);
-        defer buf.deinit(self.gpa);
-        switch (try ZonGen.parseStrLit(self.ast, ast_node, buf.writer(self.gpa))) {
+        var aw: std.Io.Writer.Allocating = .init(self.gpa);
+        try aw.ensureUnusedCapacity(size_hint);
+        defer aw.deinit();
+        const result = ZonGen.parseStrLit(self.ast, ast_node, &aw.writer) catch return error.OutOfMemory;
+        switch (result) {
             .success => {},
             .failure => |err| {
                 const token = self.ast.nodeMainToken(ast_node);
                 const raw_string = self.ast.tokenSlice(token);
-                return self.failTokenFmt(token, @intCast(err.offset()), "{s}", .{err.fmt(raw_string)});
+                return self.failTokenFmt(token, @intCast(err.offset()), "{f}", .{err.fmt(raw_string)});
             },
         }
 
@@ -660,9 +644,9 @@ const Parser = struct {
         }
 
         if (pointer.sentinel() != null) {
-            return buf.toOwnedSliceSentinel(self.gpa, 0);
+            return aw.toOwnedSliceSentinel(0);
         } else {
-            return buf.toOwnedSlice(self.gpa);
+            return aw.toOwnedSlice();
         }
     }
 
@@ -1064,6 +1048,7 @@ const Parser = struct {
         name: []const u8,
     ) error{ OutOfMemory, ParseZon } {
         @branchHint(.cold);
+        const gpa = self.gpa;
         const token = if (field) |f| b: {
             var buf: [2]Ast.Node.Index = undefined;
             const struct_init = self.ast.fullStructInit(&buf, node.getAstNode(self.zoir)).?;
@@ -1081,18 +1066,20 @@ const Parser = struct {
                     };
                 } else b: {
                     const msg = "supported: ";
-                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(self.gpa, 64);
-                    defer buf.deinit(self.gpa);
-                    const writer = buf.writer(self.gpa);
-                    try writer.writeAll(msg);
+                    var buf: std.ArrayListUnmanaged(u8) = try .initCapacity(gpa, 64);
+                    defer buf.deinit(gpa);
+                    try buf.appendSlice(gpa, msg);
                     inline for (info.fields, 0..) |field_info, i| {
-                        if (i != 0) try writer.writeAll(", ");
-                        try writer.print("'{p_}'", .{std.zig.fmtId(field_info.name)});
+                        if (i != 0) try buf.appendSlice(gpa, ", ");
+                        try buf.print(gpa, "'{f}'", .{std.zig.fmtIdFlags(field_info.name, .{
+                            .allow_primitive = true,
+                            .allow_underscore = true,
+                        })});
                     }
                     break :b .{
                         .token = token,
                         .offset = 0,
-                        .msg = try buf.toOwnedSlice(self.gpa),
+                        .msg = try buf.toOwnedSlice(gpa),
                         .owned = true,
                     };
                 };
@@ -1298,7 +1285,7 @@ test "std.zon ast errors" {
         error.ParseZon,
         fromSlice(struct {}, gpa, ".{.x = 1 .y = 2}", &diag, .{}),
     );
-    try std.testing.expectFmt("1:13: error: expected ',' after initializer\n", "{}", .{diag});
+    try std.testing.expectFmt("1:13: error: expected ',' after initializer\n", "{f}", .{diag});
 }
 
 test "std.zon comments" {
@@ -1320,7 +1307,7 @@ test "std.zon comments" {
         , &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected expression, found 'a document comment'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1341,7 +1328,7 @@ test "std.zon failure/oom formatting" {
         &diag,
         .{},
     ));
-    try std.testing.expectFmt("", "{}", .{diag});
+    try std.testing.expectFmt("", "{f}", .{diag});
 }
 
 test "std.zon fromSlice syntax error" {
@@ -1421,7 +1408,7 @@ test "std.zon unions" {
             \\1:4: note: supported: 'x', 'y'
             \\
         ,
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1435,7 +1422,7 @@ test "std.zon unions" {
             error.ParseZon,
             fromSlice(Union, gpa, ".{.x=1}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:6: error: expected type 'void'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:6: error: expected type 'void'\n", "{f}", .{diag});
     }
 
     // Extra field
@@ -1447,7 +1434,7 @@ test "std.zon unions" {
             error.ParseZon,
             fromSlice(Union, gpa, ".{.x = 1.5, .y = true}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{f}", .{diag});
     }
 
     // No fields
@@ -1459,7 +1446,7 @@ test "std.zon unions" {
             error.ParseZon,
             fromSlice(Union, gpa, ".{}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{f}", .{diag});
     }
 
     // Enum literals cannot coerce into untagged unions
@@ -1468,7 +1455,7 @@ test "std.zon unions" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".x", &diag, .{}));
-        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{f}", .{diag});
     }
 
     // Unknown field for enum literal coercion
@@ -1482,7 +1469,7 @@ test "std.zon unions" {
             \\1:2: note: supported: 'x'
             \\
         ,
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1493,7 +1480,7 @@ test "std.zon unions" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(Union, gpa, ".x", &diag, .{}));
-        try std.testing.expectFmt("1:2: error: expected union\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected union\n", "{f}", .{diag});
     }
 }
 
@@ -1549,7 +1536,7 @@ test "std.zon structs" {
             \\1:12: note: supported: 'x', 'y'
             \\
         ,
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1567,7 +1554,7 @@ test "std.zon structs" {
             \\1:4: error: duplicate struct field name
             \\1:12: note: duplicate name here
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     // Ignore unknown fields
@@ -1592,7 +1579,7 @@ test "std.zon structs" {
             \\1:4: error: unexpected field 'x'
             \\1:4: note: none expected
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     // Missing field
@@ -1604,7 +1591,7 @@ test "std.zon structs" {
             error.ParseZon,
             fromSlice(Vec2, gpa, ".{.x=1.5}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:2: error: missing required field y\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: missing required field y\n", "{f}", .{diag});
     }
 
     // Default field
@@ -1631,7 +1618,7 @@ test "std.zon structs" {
         try std.testing.expectFmt(
             \\1:18: error: cannot initialize comptime field
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     // Enum field (regression test, we were previously getting the field name in an
@@ -1661,7 +1648,7 @@ test "std.zon structs" {
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
                 \\
-            , "{}", .{diag});
+            , "{f}", .{diag});
         }
 
         // Arrays
@@ -1674,7 +1661,7 @@ test "std.zon structs" {
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
                 \\
-            , "{}", .{diag});
+            , "{f}", .{diag});
         }
 
         // Slices
@@ -1687,7 +1674,7 @@ test "std.zon structs" {
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
                 \\
-            , "{}", .{diag});
+            , "{f}", .{diag});
         }
 
         // Tuples
@@ -1706,7 +1693,7 @@ test "std.zon structs" {
                 \\1:1: error: types are not available in ZON
                 \\1:1: note: replace the type with '.'
                 \\
-            , "{}", .{diag});
+            , "{f}", .{diag});
         }
 
         // Nested
@@ -1719,7 +1706,7 @@ test "std.zon structs" {
                 \\1:9: error: types are not available in ZON
                 \\1:9: note: replace the type with '.'
                 \\
-            , "{}", .{diag});
+            , "{f}", .{diag});
         }
     }
 }
@@ -1764,7 +1751,7 @@ test "std.zon tuples" {
             error.ParseZon,
             fromSlice(Tuple, gpa, ".{0.5, true, 123}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:14: error: index 2 outside of tuple length 2\n", "{}", .{diag});
+        try std.testing.expectFmt("1:14: error: index 2 outside of tuple length 2\n", "{f}", .{diag});
     }
 
     // Extra field
@@ -1778,7 +1765,7 @@ test "std.zon tuples" {
         );
         try std.testing.expectFmt(
             "1:2: error: missing tuple field with index 1\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1792,7 +1779,7 @@ test "std.zon tuples" {
             error.ParseZon,
             fromSlice(Tuple, gpa, ".{.foo = 10.0}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:2: error: expected tuple\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected tuple\n", "{f}", .{diag});
     }
 
     // Struct with missing field names
@@ -1804,7 +1791,7 @@ test "std.zon tuples" {
             error.ParseZon,
             fromSlice(Struct, gpa, ".{10.0}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:2: error: expected struct\n", "{}", .{diag});
+        try std.testing.expectFmt("1:2: error: expected struct\n", "{f}", .{diag});
     }
 
     // Comptime field
@@ -1824,7 +1811,7 @@ test "std.zon tuples" {
         try std.testing.expectFmt(
             \\1:9: error: cannot initialize comptime field
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 }
 
@@ -1936,7 +1923,7 @@ test "std.zon arrays and slices" {
         );
         try std.testing.expectFmt(
             "1:3: error: index 0 outside of array of length 0\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1951,7 +1938,7 @@ test "std.zon arrays and slices" {
         );
         try std.testing.expectFmt(
             "1:8: error: index 1 outside of array of length 1\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1966,7 +1953,7 @@ test "std.zon arrays and slices" {
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 array elements; found 1\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1981,7 +1968,7 @@ test "std.zon arrays and slices" {
         );
         try std.testing.expectFmt(
             "1:2: error: expected 3 array elements; found 0\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -1996,7 +1983,7 @@ test "std.zon arrays and slices" {
                 error.ParseZon,
                 fromSlice([3]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
             );
-            try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{}", .{diag});
+            try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{f}", .{diag});
         }
 
         // Slice
@@ -2007,7 +1994,7 @@ test "std.zon arrays and slices" {
                 error.ParseZon,
                 fromSlice([]bool, gpa, ".{'a', 'b', 'c'}", &diag, .{}),
             );
-            try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{}", .{diag});
+            try std.testing.expectFmt("1:3: error: expected type 'bool'\n", "{f}", .{diag});
         }
     }
 
@@ -2021,7 +2008,7 @@ test "std.zon arrays and slices" {
                 error.ParseZon,
                 fromSlice([3]u8, gpa, "'a'", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         // Slice
@@ -2032,7 +2019,7 @@ test "std.zon arrays and slices" {
                 error.ParseZon,
                 fromSlice([]u8, gpa, "'a'", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2046,7 +2033,7 @@ test "std.zon arrays and slices" {
         );
         try std.testing.expectFmt(
             "1:3: error: pointers are not available in ZON\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2085,7 +2072,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]u8, gpa, "\"abcd\"", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         {
@@ -2095,7 +2082,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]u8, gpa, "\\\\abcd", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2112,7 +2099,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([4:0]u8, gpa, "\"abcd\"", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         {
@@ -2122,7 +2109,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([4:0]u8, gpa, "\\\\abcd", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2164,7 +2151,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([:1]const u8, gpa, "\"foo\"", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         {
@@ -2174,7 +2161,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([:1]const u8, gpa, "\\\\foo", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2186,7 +2173,7 @@ test "std.zon string literal" {
             error.ParseZon,
             fromSlice([]const u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected string\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected string\n", "{f}", .{diag});
     }
 
     // Expecting string literal, getting an incompatible tuple
@@ -2197,7 +2184,7 @@ test "std.zon string literal" {
             error.ParseZon,
             fromSlice([]const u8, gpa, ".{false}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:3: error: expected type 'u8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:3: error: expected type 'u8'\n", "{f}", .{diag});
     }
 
     // Invalid string literal
@@ -2208,7 +2195,7 @@ test "std.zon string literal" {
             error.ParseZon,
             fromSlice([]const i8, gpa, "\"\\a\"", &diag, .{}),
         );
-        try std.testing.expectFmt("1:3: error: invalid escape character: 'a'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:3: error: invalid escape character: 'a'\n", "{f}", .{diag});
     }
 
     // Slice wrong child type
@@ -2220,7 +2207,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]const i8, gpa, "\"a\"", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         {
@@ -2230,7 +2217,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]const i8, gpa, "\\\\a", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2243,7 +2230,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]align(2) const u8, gpa, "\"abc\"", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
 
         {
@@ -2253,7 +2240,7 @@ test "std.zon string literal" {
                 error.ParseZon,
                 fromSlice([]align(2) const u8, gpa, "\\\\abc", &diag, .{}),
             );
-            try std.testing.expectFmt("1:1: error: expected array\n", "{}", .{diag});
+            try std.testing.expectFmt("1:1: error: expected array\n", "{f}", .{diag});
         }
     }
 
@@ -2327,7 +2314,7 @@ test "std.zon enum literals" {
             \\1:2: note: supported: 'foo', 'bar', 'baz', '@"ab\nc"'
             \\
         ,
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2345,7 +2332,7 @@ test "std.zon enum literals" {
             \\1:2: note: supported: 'foo', 'bar', 'baz', '@"ab\nc"'
             \\
         ,
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2358,7 +2345,7 @@ test "std.zon enum literals" {
             error.ParseZon,
             fromSlice(Enum, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected enum literal\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected enum literal\n", "{f}", .{diag});
     }
 
     // Test embedded nulls in an identifier
@@ -2371,7 +2358,7 @@ test "std.zon enum literals" {
         );
         try std.testing.expectFmt(
             "1:2: error: identifier cannot contain null bytes\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2397,13 +2384,13 @@ test "std.zon parse bool" {
             \\1:2: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
             \\1:2: note: precede identifier with '.' for an enum literal
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
     {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(bool, gpa, "123", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'bool'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'bool'\n", "{f}", .{diag});
     }
 }
 
@@ -2476,7 +2463,7 @@ test "std.zon parse int" {
         ));
         try std.testing.expectFmt(
             "1:1: error: type 'i66' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2492,7 +2479,7 @@ test "std.zon parse int" {
         ));
         try std.testing.expectFmt(
             "1:1: error: type 'i66' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2581,7 +2568,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "32a32", &diag, .{}));
         try std.testing.expectFmt(
             "1:3: error: invalid digit 'a' for decimal base\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2591,7 +2578,7 @@ test "std.zon parse int" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "true", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'u8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'u8'\n", "{f}", .{diag});
     }
 
     // Failing because an int is out of range
@@ -2601,7 +2588,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "256", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2613,7 +2600,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "-129", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'i8' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2625,7 +2612,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "-1", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2637,7 +2624,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "1.5", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2649,7 +2636,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "-1.0", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: type 'u8' cannot represent value\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2664,7 +2651,7 @@ test "std.zon parse int" {
             \\1:2: note: use '0' for an integer zero
             \\1:2: note: use '-0.0' for a floating-point signed zero
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     // Negative integer zero casted to float
@@ -2677,7 +2664,7 @@ test "std.zon parse int" {
             \\1:2: note: use '0' for an integer zero
             \\1:2: note: use '-0.0' for a floating-point signed zero
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     // Negative float 0 is allowed
@@ -2693,7 +2680,7 @@ test "std.zon parse int" {
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "--2", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2707,7 +2694,7 @@ test "std.zon parse int" {
         );
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2717,7 +2704,7 @@ test "std.zon parse int" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(u8, gpa, "0xg", &diag, .{}));
-        try std.testing.expectFmt("1:3: error: invalid digit 'g' for hex base\n", "{}", .{diag});
+        try std.testing.expectFmt("1:3: error: invalid digit 'g' for hex base\n", "{f}", .{diag});
     }
 
     // Notes on invalid int literal
@@ -2729,7 +2716,7 @@ test "std.zon parse int" {
             \\1:1: error: number '0123' has leading zero
             \\1:1: note: use '0o' prefix for octal literals
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 }
 
@@ -2742,7 +2729,7 @@ test "std.zon negative char" {
         try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-'a'", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2752,13 +2739,15 @@ test "std.zon negative char" {
         try std.testing.expectError(error.ParseZon, fromSlice(i16, gpa, "-'a'", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
 }
 
 test "std.zon parse float" {
+    if (builtin.cpu.arch == .x86 and builtin.abi == .musl and builtin.link_mode == .dynamic) return error.SkipZigTest;
+
     const gpa = std.testing.allocator;
 
     // Test decimals
@@ -2839,7 +2828,7 @@ test "std.zon parse float" {
         try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-nan", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2849,7 +2838,7 @@ test "std.zon parse float" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "nan", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{f}", .{diag});
     }
 
     // nan as int not allowed
@@ -2857,7 +2846,7 @@ test "std.zon parse float" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "nan", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{f}", .{diag});
     }
 
     // inf as int not allowed
@@ -2865,7 +2854,7 @@ test "std.zon parse float" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "inf", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{f}", .{diag});
     }
 
     // -inf as int not allowed
@@ -2873,7 +2862,7 @@ test "std.zon parse float" {
         var diag: Diagnostics = .{};
         defer diag.deinit(gpa);
         try std.testing.expectError(error.ParseZon, fromSlice(i8, gpa, "-inf", &diag, .{}));
-        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'i8'\n", "{f}", .{diag});
     }
 
     // Bad identifier as float
@@ -2886,7 +2875,7 @@ test "std.zon parse float" {
             \\1:1: note: ZON allows identifiers 'true', 'false', 'null', 'inf', and 'nan'
             \\1:1: note: precede identifier with '.' for an enum literal
             \\
-        , "{}", .{diag});
+        , "{f}", .{diag});
     }
 
     {
@@ -2895,7 +2884,7 @@ test "std.zon parse float" {
         try std.testing.expectError(error.ParseZon, fromSlice(f32, gpa, "-foo", &diag, .{}));
         try std.testing.expectFmt(
             "1:1: error: expected number or 'inf' after '-'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -2908,7 +2897,7 @@ test "std.zon parse float" {
             error.ParseZon,
             fromSlice(f32, gpa, "\"foo\"", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type 'f32'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type 'f32'\n", "{f}", .{diag});
     }
 }
 
@@ -3152,7 +3141,7 @@ test "std.zon vector" {
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 vector elements; found 1\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -3167,7 +3156,7 @@ test "std.zon vector" {
         );
         try std.testing.expectFmt(
             "1:2: error: expected 2 vector elements; found 3\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -3182,7 +3171,7 @@ test "std.zon vector" {
         );
         try std.testing.expectFmt(
             "1:8: error: expected type 'f32'\n",
-            "{}",
+            "{f}",
             .{diag},
         );
     }
@@ -3195,7 +3184,7 @@ test "std.zon vector" {
             error.ParseZon,
             fromSlice(@Vector(3, u8), gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type '@Vector(3, u8)'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type '@Vector(3, u8)'\n", "{f}", .{diag});
     }
 
     // Elements should get freed on error
@@ -3206,7 +3195,7 @@ test "std.zon vector" {
             error.ParseZon,
             fromSlice(@Vector(3, *u8), gpa, ".{1, true, 3}", &diag, .{}),
         );
-        try std.testing.expectFmt("1:6: error: expected type 'u8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:6: error: expected type 'u8'\n", "{f}", .{diag});
     }
 }
 
@@ -3330,7 +3319,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type '?u8'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type '?u8'\n", "{f}", .{diag});
     }
 
     {
@@ -3340,7 +3329,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const f32, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type '?f32'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type '?f32'\n", "{f}", .{diag});
     }
 
     {
@@ -3350,7 +3339,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const @Vector(3, u8), gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type '?@Vector(3, u8)'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type '?@Vector(3, u8)'\n", "{f}", .{diag});
     }
 
     {
@@ -3360,7 +3349,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const bool, gpa, "10", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected type '?bool'\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected type '?bool'\n", "{f}", .{diag});
     }
 
     {
@@ -3370,7 +3359,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const struct { a: i32 }, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional struct\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional struct\n", "{f}", .{diag});
     }
 
     {
@@ -3380,7 +3369,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const struct { i32 }, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional tuple\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional tuple\n", "{f}", .{diag});
     }
 
     {
@@ -3390,7 +3379,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const union { x: void }, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional union\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional union\n", "{f}", .{diag});
     }
 
     {
@@ -3400,7 +3389,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const [3]u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional array\n", "{f}", .{diag});
     }
 
     {
@@ -3410,7 +3399,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(?[3]u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional array\n", "{f}", .{diag});
     }
 
     {
@@ -3420,7 +3409,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const []u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional array\n", "{f}", .{diag});
     }
 
     {
@@ -3430,7 +3419,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(?[]u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional array\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional array\n", "{f}", .{diag});
     }
 
     {
@@ -3440,7 +3429,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const []const u8, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional string\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional string\n", "{f}", .{diag});
     }
 
     {
@@ -3450,7 +3439,7 @@ test "std.zon add pointers" {
             error.ParseZon,
             fromSlice(*const ?*const enum { foo }, gpa, "true", &diag, .{}),
         );
-        try std.testing.expectFmt("1:1: error: expected optional enum literal\n", "{}", .{diag});
+        try std.testing.expectFmt("1:1: error: expected optional enum literal\n", "{f}", .{diag});
     }
 }
 

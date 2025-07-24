@@ -71,8 +71,7 @@ const SpinlockTable = struct {
                     break :flag asm volatile ("ldstub [%[addr]], %[flag]"
                         : [flag] "=r" (-> @TypeOf(self.v)),
                         : [addr] "r" (&self.v),
-                        : "memory"
-                    );
+                        : .{ .memory = true });
                 } else flag: {
                     break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .acquire);
                 };
@@ -88,8 +87,7 @@ const SpinlockTable = struct {
                 _ = asm volatile ("clrb [%[addr]]"
                     :
                     : [addr] "r" (&self.v),
-                    : "memory"
-                );
+                    : .{ .memory = true });
             } else {
                 @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .release);
             }

@@ -618,7 +618,7 @@ pub fn getNavVAddr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
     const sym_index = if (nav.getExtern(ip)) |@"extern"| try self.getGlobalSymbol(
         macho_file,
         nav.name.toSlice(ip),
@@ -704,7 +704,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: Atom.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -716,7 +716,7 @@ pub fn lowerUav(
         const sym = self.symbols.items[metadata.symbol_index];
         const existing_alignment = sym.getAtom(macho_file).?.alignment;
         if (uav_alignment.order(existing_alignment).compare(.lte))
-            return .{ .mcv = .{ .load_symbol = sym.nlist_idx } };
+            return .{ .sym_index = metadata.symbol_index };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -740,14 +740,11 @@ pub fn lowerUav(
             .{@errorName(e)},
         ) },
     };
-    const sym_index = switch (res) {
-        .ok => |sym_index| sym_index,
-        .fail => |em| return .{ .fail = em },
-    };
-    try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index });
-    return .{ .mcv = .{
-        .load_symbol = self.symbols.items[sym_index].nlist_idx,
-    } };
+    switch (res) {
+        .sym_index => |sym_index| try self.uavs.put(gpa, uav, .{ .symbol_index = sym_index }),
+        .fail => {},
+    }
+    return res;
 }
 
 fn freeNavMetadata(self: *ZigObject, macho_file: *MachO, sym_index: Symbol.Index) void {
@@ -946,11 +943,15 @@ fn updateNavCode(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNavCode {f} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    const required_alignment = switch (pt.navAlignment(nav_index)) {
-        .none => target_util.defaultFunctionAlignment(target),
+    const mod = zcu.navFileScope(nav_index).mod.?;
+    const target = &mod.resolved_target.result;
+    const required_alignment = switch (nav.status.fully_resolved.alignment) {
+        .none => switch (mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
+            .ReleaseSmall => target_util.minFunctionAlignment(target),
+        },
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
@@ -962,7 +963,7 @@ fn updateNavCode(
     sym.out_n_sect = sect_index;
     atom.out_n_sect = sect_index;
 
-    const sym_name = try std.fmt.allocPrintZ(gpa, "_{s}", .{nav.fqn.toSlice(ip)});
+    const sym_name = try std.fmt.allocPrintSentinel(gpa, "_{s}", .{nav.fqn.toSlice(ip)}, 0);
     defer gpa.free(sym_name);
     sym.name = try self.addString(gpa, sym_name);
     atom.setAlive(true);
@@ -984,7 +985,7 @@ fn updateNavCode(
         if (need_realloc) {
             atom.grow(macho_file) catch |err|
                 return macho_file.base.cgFail(nav_index, "failed to grow atom: {s}", .{@errorName(err)});
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
+            log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), old_vaddr, atom.value });
             if (old_vaddr != atom.value) {
                 sym.value = 0;
                 nlist.n_value = 0;
@@ -1026,7 +1027,7 @@ fn updateTlv(
     const ip = &pt.zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateTlv {} (0x{x})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateTlv {f} (0x{x})", .{ nav.fqn.fmt(ip), nav_index });
 
     // 1. Lower TLV initializer
     const init_sym_index = try self.createTlvInitializer(
@@ -1187,11 +1188,6 @@ fn getNavOutputSection(
     return macho_file.zig_data_sect_index.?;
 }
 
-const LowerConstResult = union(enum) {
-    ok: Symbol.Index,
-    fail: *Zcu.ErrorMsg,
-};
-
 fn lowerConst(
     self: *ZigObject,
     macho_file: *MachO,
@@ -1201,7 +1197,7 @@ fn lowerConst(
     required_alignment: Atom.Alignment,
     output_section_index: u8,
     src_loc: Zcu.LazySrcLoc,
-) !LowerConstResult {
+) !codegen.SymbolResult {
     const gpa = macho_file.base.comp.gpa;
 
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
@@ -1241,7 +1237,7 @@ fn lowerConst(
     const file_offset = sect.offset + atom.value;
     try macho_file.pwriteAll(code, file_offset);
 
-    return .{ .ok = sym_index };
+    return .{ .sym_index = sym_index };
 }
 
 pub fn updateExports(
@@ -1265,7 +1261,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try self.lowerUav(macho_file, pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Zcu.processExportsInner
                     // handle the error?
@@ -1359,7 +1355,7 @@ fn updateLazySymbol(
     defer code_buffer.deinit(gpa);
 
     const name_str = blk: {
-        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{}", .{
+        const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
             @tagName(lazy_sym.kind),
             Type.fromInterned(lazy_sym.ty).fmt(pt),
         });
@@ -1438,7 +1434,7 @@ pub fn deleteExport(
     } orelse return;
     const nlist_index = metadata.@"export"(self, name.toSlice(&zcu.intern_pool)) orelse return;
 
-    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
+    log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
 
     const nlist = &self.symtab.items(.nlist)[nlist_index.*];
     self.symtab.items(.size)[nlist_index.*] = 0;
@@ -1686,62 +1682,48 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *ZigObject,
     macho_file: *MachO,
-};
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  symbols\n");
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        try w.writeAll("  symbols\n");
+        const self = f.self;
+        const macho_file = f.macho_file;
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
         }
     }
-}
 
-pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        const self = f.self;
+        const macho_file = f.macho_file;
+        try w.writeAll("  atoms\n");
+        for (self.getAtoms()) |atom_index| {
+            const atom = self.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(macho_file)});
+        }
+    }
+};
+
+pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
     } };
-}
-
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const self = ctx.self;
-    const macho_file = ctx.macho_file;
-    try writer.writeAll("  atoms\n");
-    for (self.getAtoms()) |atom_index| {
-        const atom = self.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(macho_file)});
-    }
 }
 
 const AvMetadata = struct {
@@ -1805,6 +1787,7 @@ const mem = std.mem;
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");

@@ -1512,11 +1512,11 @@ fn logSecrets(key_log_file: std.fs.File, context: anytype, secrets: anytype) voi
     const locked = if (key_log_file.lock(.exclusive)) |_| true else |_| false;
     defer if (locked) key_log_file.unlock();
     key_log_file.seekFromEnd(0) catch {};
-    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| key_log_file.writer().print("{s}" ++
-        (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {} {}\n", .{field.name} ++
+    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| key_log_file.deprecatedWriter().print("{s}" ++
+        (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {x} {x}\n", .{field.name} ++
         (if (@hasField(@TypeOf(context), "counter")) .{context.counter} else .{}) ++ .{
-        std.fmt.fmtSliceHexLower(context.client_random),
-        std.fmt.fmtSliceHexLower(@field(secrets, field.name)),
+        context.client_random,
+        @field(secrets, field.name),
     }) catch {};
 }
 
@@ -1576,7 +1576,7 @@ fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-inline fn big(x: anytype) @TypeOf(x) {
+fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
         .big => x,
         .little => @byteSwap(x),

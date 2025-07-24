@@ -710,7 +710,7 @@ fn testHelloZig(b: *Build, opts: Options) *Step {
     const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
         \\const std = @import("std");
         \\pub fn main() void {
-        \\    std.io.getStdOut().writer().print("Hello world!\n", .{}) catch unreachable;
+        \\    std.fs.File.stdout().writeAll("Hello world!\n") catch @panic("fail");
         \\}
     });
 
@@ -864,7 +864,7 @@ fn testLayout(b: *Build, opts: Options) *Step {
 fn testLinkDirectlyCppTbd(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "link-directly-cpp-tbd", opts);
 
-    const sdk = std.zig.system.darwin.getSdk(b.allocator, opts.target.result) orelse
+    const sdk = std.zig.system.darwin.getSdk(b.allocator, &opts.target.result) orelse
         @panic("macOS SDK is required to run the test");
 
     const exe = addExecutable(b, opts, .{
@@ -2365,10 +2365,11 @@ fn testTlsZig(b: *Build, opts: Options) *Step {
         \\threadlocal var x: i32 = 0;
         \\threadlocal var y: i32 = -1;
         \\pub fn main() void {
-        \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+        \\    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+        \\    stdout_writer.interface.print("{d} {d}\n", .{x, y}) catch unreachable;
         \\    x -= 1;
         \\    y += 1;
-        \\    std.io.getStdOut().writer().print("{d} {d}\n", .{x, y}) catch unreachable;
+        \\    stdout_writer.interface.print("{d} {d}\n", .{x, y}) catch unreachable;
         \\}
     });
 

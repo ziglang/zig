@@ -267,7 +267,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
-    liveness: *const Air.Liveness,
+    liveness: *const ?Air.Liveness,
 ) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -288,7 +288,7 @@ pub fn generate(
         .gpa = gpa,
         .pt = pt,
         .air = air.*,
-        .liveness = liveness.*,
+        .liveness = liveness.*.?,
         .target = target,
         .bin_file = lf,
         .func_index = func_index,
@@ -723,7 +723,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
+                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{t}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
             }
         }
     }
@@ -873,10 +873,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = (extra.data.flags & 0x80000000) != 0;
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const is_volatile = extra.data.flags.is_volatile;
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -921,17 +921,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             try self.genSetReg(self.typeOf(input), reg, arg_mcv);
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                // TODO honor these
-            }
-        }
+        // TODO honor the clobbers
+        _ = extra.data.clobbers;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
@@ -1001,7 +992,7 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
         switch (self.args[arg_index]) {
             .stack_offset => |off| {
                 const abi_size = math.cast(u32, ty.abiSize(zcu)) orelse {
-                    return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(pt)});
+                    return self.fail("type '{f}' too big to fit into stack frame", .{ty.fmt(pt)});
                 };
                 const offset = off + abi_size;
                 break :blk .{ .stack_offset = offset };
@@ -2748,7 +2739,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(zcu);
@@ -2760,7 +2751,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const zcu = pt.zcu;
     const elem_ty = self.typeOfIndex(inst);
     const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     const abi_align = elem_ty.abiAlignment(zcu);
     self.stack_align = self.stack_align.max(abi_align);
@@ -4088,7 +4079,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         pt,
         self.src_loc,
         val,
-        self.target.*,
+        self.target,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -4111,7 +4102,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            log.debug("getResolvedInstValue %{} => {}", .{ inst, mcv });
+            log.debug("getResolvedInstValue %{f} => {}", .{ inst, mcv });
             assert(mcv != .dead);
             return mcv;
         }
@@ -4382,7 +4373,7 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     branch.inst_table.putAssumeCapacity(inst, .dead);
-    log.debug("%{} death: {} -> .dead", .{ inst, prev_value });
+    log.debug("%{f} death: {} -> .dead", .{ inst, prev_value });
     switch (prev_value) {
         .register => |reg| {
             self.register_manager.freeReg(reg);

@@ -606,36 +606,29 @@ pub const GotSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         got: GotSection,
         elf_file: *Elf,
+
+        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const got = f.got;
+            const elf_file = f.elf_file;
+            try writer.writeAll("GOT\n");
+            for (got.entries.items) |entry| {
+                const symbol = elf_file.symbol(entry.ref).?;
+                try writer.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    entry.cell_index,
+                    entry.address(elf_file),
+                    entry.ref,
+                    symbol.address(.{}, elf_file),
+                    symbol.name(elf_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .got = got, .elf_file = elf_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const got = ctx.got;
-        const elf_file = ctx.elf_file;
-        try writer.writeAll("GOT\n");
-        for (got.entries.items) |entry| {
-            const symbol = elf_file.symbol(entry.ref).?;
-            try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
-                entry.cell_index,
-                entry.address(elf_file),
-                entry.ref,
-                symbol.address(.{}, elf_file),
-                symbol.name(elf_file),
-            });
-        }
     }
 };
 
@@ -703,7 +696,7 @@ pub const PltSection = struct {
             const r_sym: u64 = extra.dynamic;
             const r_type = relocation.encode(.jump_slot, cpu_arch);
 
-            relocs_log.debug("  {s}: [{x} => {d}({s})] + 0", .{
+            relocs_log.debug("  {f}: [{x} => {d}({s})] + 0", .{
                 relocation.fmtRelocType(r_type, cpu_arch),
                 r_offset,
                 r_sym,
@@ -749,36 +742,29 @@ pub const PltSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         plt: PltSection,
         elf_file: *Elf,
+
+        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const plt = f.plt;
+            const elf_file = f.elf_file;
+            try writer.writeAll("PLT\n");
+            for (plt.symbols.items, 0..) |ref, i| {
+                const symbol = elf_file.symbol(ref).?;
+                try writer.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.pltAddress(elf_file),
+                    ref,
+                    symbol.address(.{}, elf_file),
+                    symbol.name(elf_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(format2) {
+    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .plt = plt, .elf_file = elf_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        const plt = ctx.plt;
-        const elf_file = ctx.elf_file;
-        try writer.writeAll("PLT\n");
-        for (plt.symbols.items, 0..) |ref, i| {
-            const symbol = elf_file.symbol(ref).?;
-            try writer.print("  {d}@0x{x} => {}@0x{x} ({s})\n", .{
-                i,
-                symbol.pltAddress(elf_file),
-                ref,
-                symbol.address(.{}, elf_file),
-                symbol.name(elf_file),
-            });
-        }
     }
 
     const x86_64 = struct {
@@ -824,54 +810,43 @@ pub const PltSection = struct {
                 const got_plt_addr: i64 = @intCast(shdrs[elf_file.section_indexes.got_plt.?].sh_addr);
                 // TODO: relax if possible
                 // .got.plt[2]
-                const pages = try aarch64_util.calcNumberOfPages(plt_addr + 4, got_plt_addr + 16);
-                const ldr_off = try math.divExact(u12, @truncate(@as(u64, @bitCast(got_plt_addr + 16))), 8);
+                const pages = try util.calcNumberOfPages(plt_addr + 4, got_plt_addr + 16);
+                const ldr_off: u12 = @truncate(@as(u64, @bitCast(got_plt_addr + 16)));
                 const add_off: u12 = @truncate(@as(u64, @bitCast(got_plt_addr + 16)));
 
-                const preamble = &[_]Instruction{
-                    Instruction.stp(
-                        .x16,
-                        .x30,
-                        Register.sp,
-                        Instruction.LoadStorePairOffset.pre_index(-16),
-                    ),
-                    Instruction.adrp(.x16, pages),
-                    Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(ldr_off)),
-                    Instruction.add(.x16, .x16, add_off, false),
-                    Instruction.br(.x17),
-                    Instruction.nop(),
-                    Instruction.nop(),
-                    Instruction.nop(),
+                const preamble = [_]util.encoding.Instruction{
+                    .stp(.x16, .x30, .{ .pre_index = .{ .base = .sp, .index = -16 } }),
+                    .adrp(.x16, pages << 12),
+                    .ldr(.x17, .{ .unsigned_offset = .{ .base = .x16, .offset = ldr_off } }),
+                    .add(.x16, .x16, .{ .immediate = add_off }),
+                    .br(.x17),
+                    .nop(),
+                    .nop(),
+                    .nop(),
                 };
                 comptime assert(preamble.len == 8);
-                for (preamble) |inst| {
-                    try writer.writeInt(u32, inst.toU32(), .little);
-                }
+                for (preamble) |inst| try writer.writeInt(util.encoding.Instruction.Backing, @bitCast(inst), .little);
             }
 
             for (plt.symbols.items) |ref| {
                 const sym = elf_file.symbol(ref).?;
                 const target_addr = sym.gotPltAddress(elf_file);
                 const source_addr = sym.pltAddress(elf_file);
-                const pages = try aarch64_util.calcNumberOfPages(source_addr, target_addr);
-                const ldr_off = try math.divExact(u12, @truncate(@as(u64, @bitCast(target_addr))), 8);
+                const pages = try util.calcNumberOfPages(source_addr, target_addr);
+                const ldr_off: u12 = @truncate(@as(u64, @bitCast(target_addr)));
                 const add_off: u12 = @truncate(@as(u64, @bitCast(target_addr)));
-                const insts = &[_]Instruction{
-                    Instruction.adrp(.x16, pages),
-                    Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(ldr_off)),
-                    Instruction.add(.x16, .x16, add_off, false),
-                    Instruction.br(.x17),
+                const insts = [_]util.encoding.Instruction{
+                    .adrp(.x16, pages << 12),
+                    .ldr(.x17, .{ .unsigned_offset = .{ .base = .x16, .offset = ldr_off } }),
+                    .add(.x16, .x16, .{ .immediate = add_off }),
+                    .br(.x17),
                 };
                 comptime assert(insts.len == 4);
-                for (insts) |inst| {
-                    try writer.writeInt(u32, inst.toU32(), .little);
-                }
+                for (insts) |inst| try writer.writeInt(util.encoding.Instruction.Backing, @bitCast(inst), .little);
             }
         }
 
-        const aarch64_util = @import("../aarch64.zig");
-        const Instruction = aarch64_util.Instruction;
-        const Register = aarch64_util.Register;
+        const util = @import("../aarch64.zig");
     };
 };
 
@@ -993,24 +968,20 @@ pub const PltGotSection = struct {
                 const sym = elf_file.symbol(ref).?;
                 const target_addr = sym.gotAddress(elf_file);
                 const source_addr = sym.pltGotAddress(elf_file);
-                const pages = try aarch64_util.calcNumberOfPages(source_addr, target_addr);
-                const off = try math.divExact(u12, @truncate(@as(u64, @bitCast(target_addr))), 8);
-                const insts = &[_]Instruction{
-                    Instruction.adrp(.x16, pages),
-                    Instruction.ldr(.x17, .x16, Instruction.LoadStoreOffset.imm(off)),
-                    Instruction.br(.x17),
-                    Instruction.nop(),
+                const pages = try util.calcNumberOfPages(source_addr, target_addr);
+                const off: u12 = @truncate(@as(u64, @bitCast(target_addr)));
+                const insts = [_]util.encoding.Instruction{
+                    .adrp(.x16, pages << 12),
+                    .ldr(.x17, .{ .unsigned_offset = .{ .base = .x16, .offset = off } }),
+                    .br(.x17),
+                    .nop(),
                 };
                 comptime assert(insts.len == 4);
-                for (insts) |inst| {
-                    try writer.writeInt(u32, inst.toU32(), .little);
-                }
+                for (insts) |inst| try writer.writeInt(util.encoding.Instruction.Backing, @bitCast(inst), .little);
             }
         }
 
-        const aarch64_util = @import("../aarch64.zig");
-        const Instruction = aarch64_util.Instruction;
-        const Register = aarch64_util.Register;
+        const util = @import("../aarch64.zig");
     };
 };
 

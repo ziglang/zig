@@ -33,7 +33,7 @@ pub fn main() !void {
     defer coverage.deinit(gpa);
 
     var debug_info = std.debug.Info.load(gpa, exe_path, &coverage) catch |err| {
-        fatal("failed to load debug info for {}: {s}", .{ exe_path, @errorName(err) });
+        fatal("failed to load debug info for {f}: {s}", .{ exe_path, @errorName(err) });
     };
     defer debug_info.deinit(gpa);
 
@@ -42,14 +42,15 @@ pub fn main() !void {
         cov_path.sub_path,
         1 << 30,
         null,
-        @alignOf(SeenPcsHeader),
+        .of(SeenPcsHeader),
         null,
     ) catch |err| {
-        fatal("failed to load coverage file {}: {s}", .{ cov_path, @errorName(err) });
+        fatal("failed to load coverage file {f}: {s}", .{ cov_path, @errorName(err) });
     };
 
-    var bw = std.io.bufferedWriter(std.io.getStdOut().writer());
-    const stdout = bw.writer();
+    var stdout_buffer: [4000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
 
     const header: *SeenPcsHeader = @ptrCast(cov_bytes);
     try stdout.print("{any}\n", .{header.*});
@@ -83,5 +84,5 @@ pub fn main() !void {
         });
     }
 
-    try bw.flush();
+    try stdout.flush();
 }

@@ -4,8 +4,6 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
-pub const Sign = enum(u1) { positive, negative };
-
 pub fn FloatRepr(comptime Float: type) type {
     const fractional_bits = floatFractionalBits(Float);
     const exponent_bits = floatExponentBits(Float);
@@ -14,7 +12,7 @@ pub fn FloatRepr(comptime Float: type) type {
 
         mantissa: StoredMantissa,
         exponent: BiasedExponent,
-        sign: Sign,
+        sign: std.math.Sign,
 
         pub const StoredMantissa = @Type(.{ .int = .{
             .signedness = .unsigned,
@@ -69,7 +67,7 @@ pub fn FloatRepr(comptime Float: type) type {
 
             /// This currently truncates denormal values, which needs to be fixed before this can be used to
             /// produce a rounded value.
-            pub fn reconstruct(normalized: Normalized, sign: Sign) Float {
+            pub fn reconstruct(normalized: Normalized, sign: std.math.Sign) Float {
                 if (normalized.exponent > BiasedExponent.max_normal.unbias()) return @bitCast(Repr{
                     .mantissa = 0,
                     .exponent = .infinite,
@@ -220,42 +218,61 @@ pub inline fn floatEpsAt(comptime T: type, x: T) T {
     }
 }
 
-/// Returns the value inf for floating point type T.
-pub inline fn inf(comptime T: type) T {
-    return reconstructFloat(T, floatExponentMax(T) + 1, mantissaOne(T));
+/// Returns the inf value for a floating point `Type`.
+pub inline fn inf(comptime Type: type) Type {
+    const RuntimeType = switch (Type) {
+        else => Type,
+        comptime_float => f128, // any float type will do
+    };
+    return reconstructFloat(RuntimeType, floatExponentMax(RuntimeType) + 1, mantissaOne(RuntimeType));
 }
 
-/// Returns the canonical quiet NaN representation for floating point type T.
-pub inline fn nan(comptime T: type) T {
+/// Returns the canonical quiet NaN representation for a floating point `Type`.
+pub inline fn nan(comptime Type: type) Type {
+    const RuntimeType = switch (Type) {
+        else => Type,
+        comptime_float => f128, // any float type will do
+    };
     return reconstructFloat(
-        T,
-        floatExponentMax(T) + 1,
-        mantissaOne(T) | 1 << (floatFractionalBits(T) - 1),
+        RuntimeType,
+        floatExponentMax(RuntimeType) + 1,
+        mantissaOne(RuntimeType) | 1 << (floatFractionalBits(RuntimeType) - 1),
     );
 }
 
-/// Returns a signalling NaN representation for floating point type T.
+/// Returns a signalling NaN representation for a floating point `Type`.
 ///
 /// TODO: LLVM is known to miscompile on some architectures to quiet NaN -
 ///       this is tracked by https://github.com/ziglang/zig/issues/14366
-pub inline fn snan(comptime T: type) T {
+pub inline fn snan(comptime Type: type) Type {
+    const RuntimeType = switch (Type) {
+        else => Type,
+        comptime_float => f128, // any float type will do
+    };
     return reconstructFloat(
-        T,
-        floatExponentMax(T) + 1,
-        mantissaOne(T) | 1 << (floatFractionalBits(T) - 2),
+        RuntimeType,
+        floatExponentMax(RuntimeType) + 1,
+        mantissaOne(RuntimeType) | 1 << (floatFractionalBits(RuntimeType) - 2),
     );
 }
 
-test "float bits" {
-    inline for ([_]type{ f16, f32, f64, f80, f128, c_longdouble }) |T| {
-        // (1 +) for the sign bit, since it is separate from the other bits
-        const size = 1 + floatExponentBits(T) + floatMantissaBits(T);
-        try expect(@bitSizeOf(T) == size);
+fn floatBits(comptime Type: type) !void {
+    // (1 +) for the sign bit, since it is separate from the other bits
+    const size = 1 + floatExponentBits(Type) + floatMantissaBits(Type);
+    try expect(@bitSizeOf(Type) == size);
+    try expect(floatFractionalBits(Type) <= floatMantissaBits(Type));
 
-        // for machine epsilon, assert expmin <= -prec <= expmax
-        try expect(floatExponentMin(T) <= -floatFractionalBits(T));
-        try expect(-floatFractionalBits(T) <= floatExponentMax(T));
-    }
+    // for machine epsilon, assert expmin <= -prec <= expmax
+    try expect(floatExponentMin(Type) <= -floatFractionalBits(Type));
+    try expect(-floatFractionalBits(Type) <= floatExponentMax(Type));
+}
+test floatBits {
+    try floatBits(f16);
+    try floatBits(f32);
+    try floatBits(f64);
+    try floatBits(f80);
+    try floatBits(f128);
+    try floatBits(c_longdouble);
 }
 
 test inf {

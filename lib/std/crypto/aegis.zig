@@ -104,7 +104,7 @@ fn State128X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
+        fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[7];
             comptime var i: usize = 7;
@@ -413,7 +413,7 @@ fn State256X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d: AesBlockVec) void {
+        fn update(state: *State, d: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[5].encrypt(blocks[0]);
             comptime var i: usize = 5;
@@ -803,7 +803,7 @@ fn AegisMac(comptime T: type) type {
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Mac, Error, write);
+        pub const Writer = std.io.GenericWriter(*Mac, Error, write);
 
         fn write(self: *Mac, bytes: []const u8) Error!usize {
             self.update(bytes);

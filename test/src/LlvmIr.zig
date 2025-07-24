@@ -75,7 +75,7 @@ pub fn addExact(
 pub fn addCase(self: *LlvmIr, case: TestCase) void {
     const target = self.b.resolveTargetQuery(case.params.target);
     if (self.options.test_target_filters.len > 0) {
-        const triple_txt = target.result.zigTriple(self.b.allocator) catch @panic("OOM");
+        const triple_txt = target.query.zigTriple(self.b.allocator) catch @panic("OOM");
         for (self.options.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
         } else return;
@@ -90,19 +90,21 @@ pub fn addCase(self: *LlvmIr, case: TestCase) void {
 
     const obj = self.b.addObject(.{
         .name = "test",
-        .root_source_file = self.b.addWriteFiles().add("test.zig", case.source),
-        .use_llvm = true,
+        .root_module = self.b.createModule(.{
+            .root_source_file = self.b.addWriteFiles().add("test.zig", case.source),
 
-        .code_model = case.params.code_model,
-        .error_tracing = case.params.error_tracing,
-        .omit_frame_pointer = case.params.omit_frame_pointer,
-        .optimize = case.params.optimize,
-        .pic = case.params.pic,
-        .sanitize_thread = case.params.sanitize_thread,
-        .single_threaded = case.params.single_threaded,
-        .strip = case.params.strip,
-        .target = target,
-        .unwind_tables = case.params.unwind_tables,
+            .code_model = case.params.code_model,
+            .error_tracing = case.params.error_tracing,
+            .omit_frame_pointer = case.params.omit_frame_pointer,
+            .optimize = case.params.optimize,
+            .pic = case.params.pic,
+            .sanitize_thread = case.params.sanitize_thread,
+            .single_threaded = case.params.single_threaded,
+            .strip = case.params.strip,
+            .target = target,
+            .unwind_tables = case.params.unwind_tables,
+        }),
+        .use_llvm = true,
     });
 
     obj.dll_export_fns = case.params.dll_export_fns;

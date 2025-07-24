@@ -54,6 +54,7 @@ namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.In
 memoized_state_main_deps: DepEntry.Index.Optional,
 memoized_state_panic_deps: DepEntry.Index.Optional,
 memoized_state_va_list_deps: DepEntry.Index.Optional,
+memoized_state_assembly_deps: DepEntry.Index.Optional,
 
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
@@ -96,6 +97,7 @@ pub const empty: InternPool = .{
     .memoized_state_main_deps = .none,
     .memoized_state_panic_deps = .none,
     .memoized_state_va_list_deps = .none,
+    .memoized_state_assembly_deps = .none,
     .first_dependency = .empty,
     .dep_entries = .empty,
     .free_dep_entries = .empty,
@@ -458,6 +460,8 @@ pub const MemoizedStateStage = enum(u32) {
     panic,
     /// Specifically `std.builtin.VaList`. See `Zcu.BuiltinDecl.stage`.
     va_list,
+    /// Everything within `std.builtin.assembly`. See `Zcu.BuiltinDecl.stage`.
+    assembly,
 };
 
 pub const ComptimeUnit = extern struct {
@@ -518,8 +522,6 @@ pub const Nav = struct {
         namespace: NamespaceIndex,
         zir_index: TrackedInst.Index,
     },
-    /// TODO: this is a hack! If #20663 isn't accepted, let's figure out something a bit better.
-    is_usingnamespace: bool,
     status: union(enum) {
         /// This `Nav` is pending semantic analysis.
         unresolved,
@@ -735,7 +737,7 @@ pub const Nav = struct {
             @"addrspace": std.builtin.AddressSpace,
             /// Populated only if `bits.status == .type_resolved`.
             is_threadlocal: bool,
-            is_usingnamespace: bool,
+            _: u1 = 0,
         };
 
         fn unpack(repr: Repr) Nav {
@@ -749,7 +751,6 @@ pub const Nav = struct {
                     assert(repr.analysis_zir_index == .none);
                     break :a null;
                 },
-                .is_usingnamespace = repr.bits.is_usingnamespace,
                 .status = switch (repr.bits.status) {
                     .unresolved => .unresolved,
                     .type_resolved, .type_resolved_extern_decl => .{ .type_resolved = .{
@@ -797,7 +798,6 @@ pub const Nav = struct {
                     .is_const = false,
                     .alignment = .none,
                     .@"addrspace" = .generic,
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = false,
                 },
                 .type_resolved => |r| .{
@@ -805,7 +805,6 @@ pub const Nav = struct {
                     .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = r.is_threadlocal,
                 },
                 .fully_resolved => |r| .{
@@ -813,7 +812,6 @@ pub const Nav = struct {
                     .is_const = r.is_const,
                     .alignment = r.alignment,
                     .@"addrspace" = r.@"addrspace",
-                    .is_usingnamespace = nav.is_usingnamespace,
                     .is_threadlocal = false,
                 },
             },
@@ -886,6 +884,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
             .main => ip.memoized_state_main_deps.unwrap(),
             .panic => ip.memoized_state_panic_deps.unwrap(),
             .va_list => ip.memoized_state_va_list_deps.unwrap(),
+            .assembly => ip.memoized_state_assembly_deps.unwrap(),
         },
     } orelse return .{
         .ip = ip,
@@ -921,6 +920,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .main => &ip.memoized_state_main_deps,
                 .panic => &ip.memoized_state_panic_deps,
                 .va_list => &ip.memoized_state_va_list_deps,
+                .assembly => &ip.memoized_state_assembly_deps,
             };
 
             if (deps.unwrap()) |first| {
@@ -1867,7 +1867,7 @@ pub const NullTerminatedString = enum(u32) {
 
         pub fn hash(ctx: @This(), a: NullTerminatedString) u32 {
             _ = ctx;
-            return std.hash.uint32(@intFromEnum(a));
+            return std.hash.int(@intFromEnum(a));
         }
     };
 
@@ -1887,23 +1887,23 @@ pub const NullTerminatedString = enum(u32) {
     const FormatData = struct {
         string: NullTerminatedString,
         ip: *const InternPool,
+        id: bool,
     };
-    fn format(
-        data: FormatData,
-        comptime specifier: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    fn format(data: FormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
-        if (comptime std.mem.eql(u8, specifier, "")) {
+        if (!data.id) {
             try writer.writeAll(slice);
-        } else if (comptime std.mem.eql(u8, specifier, "i")) {
-            try writer.print("{p}", .{std.zig.fmtId(slice)});
-        } else @compileError("invalid format string '" ++ specifier ++ "' for '" ++ @typeName(NullTerminatedString) ++ "'");
+        } else {
+            try writer.print("{f}", .{std.zig.fmtIdP(slice)});
+        }
     }
 
-    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(format) {
-        return .{ .data = .{ .string = string, .ip = ip } };
+    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .string = string, .ip = ip, .id = false } };
+    }
+
+    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+        return .{ .data = .{ .string = string, .ip = ip, .id = true } };
     }
 
     const debug_state = InternPool.debug_state;
@@ -4746,7 +4746,7 @@ pub const Index = enum(u32) {
 
         pub fn hash(ctx: @This(), a: Index) u32 {
             _ = ctx;
-            return std.hash.uint32(@intFromEnum(a));
+            return std.hash.int(@intFromEnum(a));
         }
     };
 
@@ -6865,8 +6865,6 @@ pub fn deinit(ip: *InternPool, gpa: Allocator) void {
             {
                 namespace.pub_decls.deinit(gpa);
                 namespace.priv_decls.deinit(gpa);
-                namespace.pub_usingnamespace.deinit(gpa);
-                namespace.priv_usingnamespace.deinit(gpa);
                 namespace.comptime_decls.deinit(gpa);
                 namespace.test_decls.deinit(gpa);
             }
@@ -7558,12 +7556,18 @@ fn extraFuncCoerced(ip: *const InternPool, extra: Local.Extra, extra_index: u32)
 fn indexToKeyBigInt(ip: *const InternPool, tid: Zcu.PerThread.Id, limb_index: u32, positive: bool) Key {
     const limbs_items = ip.getLocalShared(tid).getLimbs().view().items(.@"0");
     const int: Int = @bitCast(limbs_items[limb_index..][0..Int.limbs_items_len].*);
+    const big_int: BigIntConst = .{
+        .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
+        .positive = positive,
+    };
     return .{ .int = .{
         .ty = int.ty,
-        .storage = .{ .big_int = .{
-            .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
-            .positive = positive,
-        } },
+        .storage = if (big_int.toInt(u64)) |x|
+            .{ .u64 = x }
+        else |_| if (big_int.toInt(i64)) |x|
+            .{ .i64 = x }
+        else |_|
+            .{ .big_int = big_int },
     } };
 }
 
@@ -9758,7 +9762,7 @@ fn finishFuncInstance(
     const fn_namespace = fn_owner_nav.analysis.?.namespace;
 
     // TODO: improve this name
-    const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{}__anon_{d}", .{
+    const nav_name = try ip.getOrPutStringFmt(gpa, tid, "{f}__anon_{d}", .{
         fn_owner_nav.name.fmt(ip), @intFromEnum(func_index),
     }, .no_embedded_nulls);
     const nav_index = try ip.createNav(gpa, tid, .{
@@ -11267,8 +11271,9 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
 }
 
 fn dumpAllFallible(ip: *const InternPool) anyerror!void {
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
-    const w = bw.writer();
+    var buffer: [4096]u8 = undefined;
+    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
     for (ip.locals, 0..) |*local, tid| {
         const items = local.shared.items.view();
         for (
@@ -11277,12 +11282,12 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
             0..,
         ) |tag, data, index| {
             const i = Index.Unwrapped.wrap(.{ .tid = @enumFromInt(tid), .index = @intCast(index) }, ip);
-            try w.print("${d} = {s}(", .{ i, @tagName(tag) });
+            try stderr_bw.print("${d} = {s}(", .{ i, @tagName(tag) });
             switch (tag) {
                 .removed => {},
 
-                .simple_type => try w.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
-                .simple_value => try w.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
+                .simple_type => try stderr_bw.print("{s}", .{@tagName(@as(SimpleType, @enumFromInt(@intFromEnum(i))))}),
+                .simple_value => try stderr_bw.print("{s}", .{@tagName(@as(SimpleValue, @enumFromInt(@intFromEnum(i))))}),
 
                 .type_int_signed,
                 .type_int_unsigned,
@@ -11355,17 +11360,16 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .func_coerced,
                 .union_value,
                 .memoized_call,
-                => try w.print("{d}", .{data}),
+                => try stderr_bw.print("{d}", .{data}),
 
                 .opt_null,
                 .type_slice,
                 .only_possible_value,
-                => try w.print("${d}", .{data}),
+                => try stderr_bw.print("${d}", .{data}),
             }
-            try w.writeAll(")\n");
+            try stderr_bw.writeAll(")\n");
         }
     }
-    try bw.flush();
 }
 
 pub fn dumpGenericInstances(ip: *const InternPool, allocator: Allocator) void {
@@ -11376,9 +11380,6 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var arena_allocator = std.heap.ArenaAllocator.init(allocator);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
-
-    var bw = std.io.bufferedWriter(std.io.getStdErr().writer());
-    const w = bw.writer();
 
     var instances: std.AutoArrayHashMapUnmanaged(Index, std.ArrayListUnmanaged(Index)) = .empty;
     for (ip.locals, 0..) |*local, tid| {
@@ -11402,6 +11403,10 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
         }
     }
 
+    var buffer: [4096]u8 = undefined;
+    const stderr_bw = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+
     const SortContext = struct {
         values: []std.ArrayListUnmanaged(Index),
         pub fn lessThan(ctx: @This(), a_index: usize, b_index: usize) bool {
@@ -11413,23 +11418,21 @@ pub fn dumpGenericInstancesFallible(ip: *const InternPool, allocator: Allocator)
     var it = instances.iterator();
     while (it.next()) |entry| {
         const generic_fn_owner_nav = ip.getNav(ip.funcDeclInfo(entry.key_ptr.*).owner_nav);
-        try w.print("{} ({}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
+        try stderr_bw.print("{f} ({d}): \n", .{ generic_fn_owner_nav.name.fmt(ip), entry.value_ptr.items.len });
         for (entry.value_ptr.items) |index| {
             const unwrapped_index = index.unwrap(ip);
             const func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), unwrapped_index.getData(ip));
             const owner_nav = ip.getNav(func.owner_nav);
-            try w.print("  {}: (", .{owner_nav.name.fmt(ip)});
+            try stderr_bw.print("  {f}: (", .{owner_nav.name.fmt(ip)});
             for (func.comptime_args.get(ip)) |arg| {
                 if (arg != .none) {
                     const key = ip.indexToKey(arg);
-                    try w.print(" {} ", .{key});
+                    try stderr_bw.print(" {} ", .{key});
                 }
             }
-            try w.writeAll(")\n");
+            try stderr_bw.writeAll(")\n");
         }
     }
-
-    try bw.flush();
 }
 
 pub fn getNav(ip: *const InternPool, index: Nav.Index) Nav {
@@ -11503,7 +11506,6 @@ pub fn createNav(
             .@"linksection" = opts.@"linksection",
             .@"addrspace" = opts.@"addrspace",
         } },
-        .is_usingnamespace = false,
     }));
     return index_unwrapped.wrap(ip);
 }
@@ -11518,8 +11520,6 @@ pub fn createDeclNav(
     fqn: NullTerminatedString,
     zir_index: TrackedInst.Index,
     namespace: NamespaceIndex,
-    /// TODO: this is hacky! See `Nav.is_usingnamespace`.
-    is_usingnamespace: bool,
 ) Allocator.Error!Nav.Index {
     const navs = ip.getLocal(tid).getMutableNavs(gpa);
 
@@ -11538,7 +11538,6 @@ pub fn createDeclNav(
             .zir_index = zir_index,
         },
         .status = .unresolved,
-        .is_usingnamespace = is_usingnamespace,
     }));
 
     return nav;
@@ -12738,7 +12737,7 @@ const GlobalErrorSet = struct {
         name: NullTerminatedString,
     ) Allocator.Error!GlobalErrorSet.Index {
         if (name == .empty) return .none;
-        const hash = std.hash.uint32(@intFromEnum(name));
+        const hash = std.hash.int(@intFromEnum(name));
         var map = ges.shared.map.acquire();
         const Map = @TypeOf(map);
         var map_mask = map.header().mask();
@@ -12831,7 +12830,7 @@ const GlobalErrorSet = struct {
         name: NullTerminatedString,
     ) ?GlobalErrorSet.Index {
         if (name == .empty) return .none;
-        const hash = std.hash.uint32(@intFromEnum(name));
+        const hash = std.hash.int(@intFromEnum(name));
         const map = ges.shared.map.acquire();
         const map_mask = map.header().mask();
         const names_items = ges.shared.names.acquire().view().items(.@"0");

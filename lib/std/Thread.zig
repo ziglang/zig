@@ -58,7 +58,7 @@ pub fn sleep(nanoseconds: u64) void {
         const boot_services = std.os.uefi.system_table.boot_services.?;
         const us_from_ns = nanoseconds / std.time.ns_per_us;
         const us = math.cast(usize, us_from_ns) orelse math.maxInt(usize);
-        _ = boot_services.stall(us);
+        boot_services.stall(us) catch unreachable;
         return;
     }
 
@@ -167,7 +167,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.writer().writeAll(name);
+            try file.deprecatedWriter().writeAll(name);
             return;
         },
         .windows => {
@@ -281,7 +281,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             const file = try std.fs.cwd().openFile(path, .{});
             defer file.close();
 
-            const data_len = try file.reader().readAll(buffer_ptr[0 .. max_name_len + 1]);
+            const data_len = try file.deprecatedReader().readAll(buffer_ptr[0 .. max_name_len + 1]);
 
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;
         },
@@ -911,18 +911,9 @@ const WasiThreadImpl = struct {
             allocator.free(self.thread.memory);
         }
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
-
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
+            if (tid == 0) break;
 
             const result = asm (
                 \\ local.get %[ptr]
@@ -1163,7 +1154,7 @@ const LinuxThreadImpl = struct {
 
     fn getCurrentId() Id {
         return tls_thread_id orelse {
-            const tid = @as(u32, @bitCast(linux.gettid()));
+            const tid: u32 = @bitCast(linux.gettid());
             tls_thread_id = tid;
             return tid;
         };
@@ -1198,8 +1189,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .x86_64 => asm volatile (
                     \\  movq $11, %%rax # SYS_munmap
                     \\  syscall
@@ -1221,8 +1211,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .aarch64, .aarch64_be => asm volatile (
                     \\  mov x8, #215 // SYS_munmap
                     \\  mov x0, %[ptr]
@@ -1234,8 +1223,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .hexagon => asm volatile (
                     \\  r6 = #215 // SYS_munmap
                     \\  r0 = %[ptr]
@@ -1247,8 +1235,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 // We set `sp` to the address of the current function as a workaround for a Linux
                 // kernel bug that caused syscalls to return EFAULT if the stack pointer is invalid.
                 // The bug was introduced in 46e12c07b3b9603c60fc1d421ff18618241cb081 and fixed in
@@ -1265,8 +1252,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .mips64, .mips64el => asm volatile (
                     \\  li $2, 5011 # SYS_munmap
                     \\  move $4, %[ptr]
@@ -1278,8 +1264,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => asm volatile (
                     \\  li 0, 91 # SYS_munmap
                     \\  mr 3, %[ptr]
@@ -1292,8 +1277,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .riscv32, .riscv64 => asm volatile (
                     \\  li a7, 215 # SYS_munmap
                     \\  mv a0, %[ptr]
@@ -1305,8 +1289,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .s390x => asm volatile (
                     \\  lgr %%r2, %[ptr]
                     \\  lgr %%r3, %[len]
@@ -1316,8 +1299,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc => asm volatile (
                     \\ # See sparc64 comments below.
                     \\ 1:
@@ -1338,8 +1320,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .sparc64 => asm volatile (
                     \\ # SPARCs really don't like it when active stack frames
                     \\ # is unmapped (it will result in a segfault), so we
@@ -1365,8 +1346,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 .loongarch32, .loongarch64 => asm volatile (
                     \\ or      $a0, $zero, %[ptr]
                     \\ or      $a1, $zero, %[len]
@@ -1378,8 +1358,7 @@ const LinuxThreadImpl = struct {
                     :
                     : [ptr] "r" (@intFromPtr(self.mapped.ptr)),
                       [len] "r" (self.mapped.len),
-                    : "memory"
-                ),
+                    : .{ .memory = true }),
                 else => |cpu_arch| @compileError("Unsupported linux arch: " ++ @tagName(cpu_arch)),
             }
             unreachable;
@@ -1526,23 +1505,14 @@ const LinuxThreadImpl = struct {
     fn join(self: Impl) void {
         defer posix.munmap(self.thread.mapped);
 
-        var spin: u8 = 10;
         while (true) {
             const tid = self.thread.child_tid.load(.seq_cst);
-            if (tid == 0) {
-                break;
-            }
+            if (tid == 0) break;
 
-            if (spin > 0) {
-                spin -= 1;
-                std.atomic.spinLoopHint();
-                continue;
-            }
-
-            switch (linux.E.init(linux.futex_wait(
+            switch (linux.E.init(linux.futex_4arg(
                 &self.thread.child_tid.raw,
-                linux.FUTEX.WAIT,
-                tid,
+                .{ .cmd = .WAIT, .private = false },
+                @bitCast(tid),
                 null,
             ))) {
                 .SUCCESS => continue,
@@ -1628,7 +1598,6 @@ test "setName, getName" {
 }
 
 test {
-    // Doesn't use testing.refAllDecls() since that would pull in the compileError spinLoopHint.
     _ = Futex;
     _ = ResetEvent;
     _ = Mutex;

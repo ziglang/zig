@@ -122,8 +122,10 @@ pub const Feature = enum {
 
     /// Legalize (shift lhs, (splat rhs)) -> (shift lhs, rhs)
     unsplat_shift_rhs,
-    /// Legalize reduce of a one element vector to a bitcast
+    /// Legalize reduce of a one element vector to a bitcast.
     reduce_one_elem_to_bitcast,
+    /// Legalize splat to a one element vector to a bitcast.
+    splat_one_elem_to_bitcast,
 
     /// Replace `intcast_safe` with an explicit safety check which `call`s the panic function on failure.
     /// Not compatible with `scalarize_intcast_safe`.
@@ -628,7 +630,17 @@ fn legalizeBody(l: *Legalize, body_start: usize, body_len: usize) Error!void {
                     else => {},
                 }
             },
-            .splat => {},
+            .splat => if (l.features.has(.splat_one_elem_to_bitcast)) {
+                const ty_op = l.air_instructions.items(.data)[@intFromEnum(inst)].ty_op;
+                switch (ty_op.ty.toType().vectorLen(zcu)) {
+                    0 => unreachable,
+                    1 => continue :inst l.replaceInst(inst, .bitcast, .{ .ty_op = .{
+                        .ty = ty_op.ty,
+                        .operand = ty_op.operand,
+                    } }),
+                    else => {},
+                }
+            },
             .shuffle_one => if (l.features.has(.scalarize_shuffle_one)) continue :inst try l.scalarize(inst, .shuffle_one),
             .shuffle_two => if (l.features.has(.scalarize_shuffle_two)) continue :inst try l.scalarize(inst, .shuffle_two),
             .select => if (l.features.has(.scalarize_select)) continue :inst try l.scalarize(inst, .select),

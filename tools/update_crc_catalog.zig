@@ -11,14 +11,10 @@ pub fn main() anyerror!void {
     const arena = arena_state.allocator();
 
     const args = try std.process.argsAlloc(arena);
-    if (args.len <= 1) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    if (args.len <= 1) printUsageAndExit(args[0]);
 
     const zig_src_root = args[1];
-    if (mem.startsWith(u8, zig_src_root, "-")) {
-        usageAndExit(std.io.getStdErr(), args[0], 1);
-    }
+    if (mem.startsWith(u8, zig_src_root, "-")) printUsageAndExit(args[0]);
 
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
@@ -34,7 +30,7 @@ pub fn main() anyerror!void {
     var zig_code_file = try hash_target_dir.createFile("crc.zig", .{});
     defer zig_code_file.close();
 
-    var cbw = std.io.bufferedWriter(zig_code_file.writer());
+    var cbw = std.io.bufferedWriter(zig_code_file.deprecatedWriter());
     defer cbw.flush() catch unreachable;
     const code_writer = cbw.writer();
 
@@ -59,7 +55,7 @@ pub fn main() anyerror!void {
     var zig_test_file = try crc_target_dir.createFile("test.zig", .{});
     defer zig_test_file.close();
 
-    var tbw = std.io.bufferedWriter(zig_test_file.writer());
+    var tbw = std.io.bufferedWriter(zig_test_file.deprecatedWriter());
     defer tbw.flush() catch unreachable;
     const test_writer = tbw.writer();
 
@@ -193,10 +189,14 @@ pub fn main() anyerror!void {
     }
 }
 
-fn usageAndExit(file: fs.File, arg0: []const u8, code: u8) noreturn {
-    file.writer().print(
+fn printUsageAndExit(arg0: []const u8) noreturn {
+    printUsage(std.debug.lockStderrWriter(&.{}), arg0) catch std.process.exit(2);
+    std.process.exit(1);
+}
+
+fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+    return w.print(
         \\Usage: {s} /path/git/zig
         \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
+    , .{arg0});
 }

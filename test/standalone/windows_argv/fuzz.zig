@@ -58,7 +58,7 @@ pub fn main() !void {
             std.debug.print(">>> found discrepancy <<<\n", .{});
             const cmd_line_wtf8 = try std.unicode.wtf16LeToWtf8Alloc(allocator, cmd_line_w);
             defer allocator.free(cmd_line_wtf8);
-            std.debug.print("\"{}\"\n\n", .{std.zig.fmtEscapes(cmd_line_wtf8)});
+            std.debug.print("\"{f}\"\n\n", .{std.zig.fmtString(cmd_line_wtf8)});
 
             errors += 1;
         }

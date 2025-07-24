@@ -7,7 +7,7 @@ const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const max_doc_file_size = 10 * 1024 * 1024;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 
 pub fn main() !void {
     var arena_instance = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -27,9 +27,9 @@ pub fn main() !void {
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
-    const input_file_bytes = try in_file.reader().readAllAlloc(arena, std.math.maxInt(u32));
+    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(u32));
 
-    var buffered_writer = io.bufferedWriter(out_file.writer());
+    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
 
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);
 
@@ -388,39 +388,39 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                     try file.writeAll("\n\n");
 
                     if (just_check_syntax) {
-                        try file.writer().print("// syntax\n", .{});
+                        try file.deprecatedWriter().print("// syntax\n", .{});
                     } else switch (code_kind_id) {
-                        .@"test" => try file.writer().print("// test\n", .{}),
-                        .lib => try file.writer().print("// lib\n", .{}),
-                        .test_error => |s| try file.writer().print("// test_error={s}\n", .{s}),
-                        .test_safety => |s| try file.writer().print("// test_safety={s}\n", .{s}),
-                        .exe => |s| try file.writer().print("// exe={s}\n", .{@tagName(s)}),
+                        .@"test" => try file.deprecatedWriter().print("// test\n", .{}),
+                        .lib => try file.deprecatedWriter().print("// lib\n", .{}),
+                        .test_error => |s| try file.deprecatedWriter().print("// test_error={s}\n", .{s}),
+                        .test_safety => |s| try file.deprecatedWriter().print("// test_safety={s}\n", .{s}),
+                        .exe => |s| try file.deprecatedWriter().print("// exe={s}\n", .{@tagName(s)}),
                         .obj => |opt| if (opt) |s| {
-                            try file.writer().print("// obj={s}\n", .{s});
+                            try file.deprecatedWriter().print("// obj={s}\n", .{s});
                         } else {
-                            try file.writer().print("// obj\n", .{});
+                            try file.deprecatedWriter().print("// obj\n", .{});
                         },
                     }
 
                     if (mode != .Debug)
-                        try file.writer().print("// optimize={s}\n", .{@tagName(mode)});
+                        try file.deprecatedWriter().print("// optimize={s}\n", .{@tagName(mode)});
 
                     for (link_objects.items) |link_object| {
-                        try file.writer().print("// link_object={s}\n", .{link_object});
+                        try file.deprecatedWriter().print("// link_object={s}\n", .{link_object});
                     }
 
                     if (target_str) |s|
-                        try file.writer().print("// target={s}\n", .{s});
+                        try file.deprecatedWriter().print("// target={s}\n", .{s});
 
-                    if (link_libc) try file.writer().print("// link_libc\n", .{});
-                    if (disable_cache) try file.writer().print("// disable_cache\n", .{});
-                    if (verbose_cimport) try file.writer().print("// verbose_cimport\n", .{});
+                    if (link_libc) try file.deprecatedWriter().print("// link_libc\n", .{});
+                    if (disable_cache) try file.deprecatedWriter().print("// disable_cache\n", .{});
+                    if (verbose_cimport) try file.deprecatedWriter().print("// verbose_cimport\n", .{});
 
                     if (link_mode) |m|
-                        try file.writer().print("// link_mode={s}\n", .{@tagName(m)});
+                        try file.deprecatedWriter().print("// link_mode={s}\n", .{@tagName(m)});
 
                     for (additional_options.items) |o| {
-                        try file.writer().print("// additional_option={s}\n", .{o});
+                        try file.deprecatedWriter().print("// additional_option={s}\n", .{o});
                     }
                     try w.print("{{#code|{s}#}}\n", .{basename});
                 } else {

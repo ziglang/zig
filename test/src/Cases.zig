@@ -433,7 +433,7 @@ fn addFromDirInner(
         // Cross-product to get all possible test combinations
         for (targets) |target_query| {
             const resolved_target = b.resolveTargetQuery(target_query);
-            const target = resolved_target.result;
+            const target = &resolved_target.result;
             for (backends) |backend| {
                 if (backend == .stage2 and
                     target.cpu.arch != .wasm32 and target.cpu.arch != .x86_64 and target.cpu.arch != .spirv64)
@@ -594,29 +594,56 @@ pub fn lowerToTranslateCSteps(
     };
 }
 
+pub const CaseTestOptions = struct {
+    test_filters: []const []const u8,
+    test_target_filters: []const []const u8,
+    skip_non_native: bool,
+    skip_freebsd: bool,
+    skip_netbsd: bool,
+    skip_windows: bool,
+    skip_macos: bool,
+    skip_linux: bool,
+    skip_llvm: bool,
+    skip_libc: bool,
+};
+
 pub fn lowerToBuildSteps(
     self: *Cases,
     b: *std.Build,
     parent_step: *std.Build.Step,
-    test_filters: []const []const u8,
-    test_target_filters: []const []const u8,
+    options: CaseTestOptions,
 ) void {
     const host = std.zig.system.resolveTargetQuery(.{}) catch |err|
         std.debug.panic("unable to detect native host: {s}\n", .{@errorName(err)});
     const cases_dir_path = b.build_root.join(b.allocator, &.{ "test", "cases" }) catch @panic("OOM");
 
     for (self.cases.items) |case| {
-        for (test_filters) |test_filter| {
+        for (options.test_filters) |test_filter| {
             if (std.mem.indexOf(u8, case.name, test_filter)) |_| break;
-        } else if (test_filters.len > 0) continue;
+        } else if (options.test_filters.len > 0) continue;
 
-        const triple_txt = case.target.result.zigTriple(b.allocator) catch @panic("OOM");
+        if (options.skip_non_native and !case.target.query.isNative())
+            continue;
 
-        if (test_target_filters.len > 0) {
-            for (test_target_filters) |filter| {
+        if (options.skip_freebsd and case.target.query.os_tag == .freebsd) continue;
+        if (options.skip_netbsd and case.target.query.os_tag == .netbsd) continue;
+        if (options.skip_windows and case.target.query.os_tag == .windows) continue;
+        if (options.skip_macos and case.target.query.os_tag == .macos) continue;
+        if (options.skip_linux and case.target.query.os_tag == .linux) continue;
+
+        const would_use_llvm = @import("../tests.zig").wouldUseLlvm(case.backend == .llvm, case.target.query, case.optimize_mode);
+        if (options.skip_llvm and would_use_llvm) continue;
+
+        const triple_txt = case.target.query.zigTriple(b.allocator) catch @panic("OOM");
+
+        if (options.test_target_filters.len > 0) {
+            for (options.test_target_filters) |filter| {
                 if (std.mem.indexOf(u8, triple_txt, filter) != null) break;
             } else continue;
         }
+
+        if (options.skip_libc and case.link_libc)
+            continue;
 
         const writefiles = b.addWriteFiles();
         var file_sources = std.StringHashMap(std.Build.LazyPath).init(b.allocator);
@@ -708,7 +735,7 @@ pub fn lowerToBuildSteps(
             },
             .Execution => |expected_stdout| no_exec: {
                 const run = if (case.target.result.ofmt == .c) run_step: {
-                    if (getExternalExecutor(host, &case.target.result, .{ .link_libc = true }) != .native) {
+                    if (getExternalExecutor(&host, &case.target.result, .{ .link_libc = true }) != .native) {
                         // We wouldn't be able to run the compiled C code.
                         break :no_exec;
                     }

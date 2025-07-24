@@ -10,15 +10,15 @@ const ET = union(enum) {
 
     pub fn print(a: *const ET, buf: []u8) anyerror!usize {
         return switch (a.*) {
-            ET.SINT => |x| fmt.formatIntBuf(buf, x, 10, .lower, fmt.FormatOptions{}),
-            ET.UINT => |x| fmt.formatIntBuf(buf, x, 10, .lower, fmt.FormatOptions{}),
+            ET.SINT => |x| fmt.printInt(buf, x, 10, .lower, fmt.FormatOptions{}),
+            ET.UINT => |x| fmt.printInt(buf, x, 10, .lower, fmt.FormatOptions{}),
         };
     }
 };
 
 test "enum with members" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 

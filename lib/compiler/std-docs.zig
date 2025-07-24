@@ -7,7 +7,7 @@ const assert = std.debug.assert;
 const Cache = std.Build.Cache;
 
 fn usage() noreturn {
-    io.getStdOut().writeAll(
+    std.fs.File.stdout().writeAll(
         \\Usage: zig std [options]
         \\
         \\Options:
@@ -60,10 +60,12 @@ pub fn main() !void {
     const should_open_browser = force_open_browser orelse (listen_port == 0);
 
     const address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
-    var http_server = try address.listen(.{});
+    var http_server = try address.listen(.{
+        .reuse_address = true,
+    });
     const port = http_server.listen_address.in.getPort();
     const url_with_newline = try std.fmt.allocPrint(arena, "http://127.0.0.1:{d}/\n", .{port});
-    std.io.getStdOut().writeAll(url_with_newline) catch {};
+    std.fs.File.stdout().writeAll(url_with_newline) catch {};
     if (should_open_browser) {
         openBrowserTab(gpa, url_with_newline[0 .. url_with_newline.len - 1 :'\n']) catch |err| {
             std.log.err("unable to open browser: {s}", .{@errorName(err)});
@@ -189,7 +191,11 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(response.writer());
+    var adapter_buffer: [500]u8 = undefined;
+    var response_writer = response.writer().adaptToNewApi();
+    response_writer.new_interface.buffer = &adapter_buffer;
+
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer.new_interface };
     archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
@@ -204,7 +210,13 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
         }
         var file = try entry.dir.openFile(entry.basename, .{});
         defer file.close();
-        try archiver.writeFile(entry.path, file);
+        const stat = try file.stat();
+        var file_reader: std.fs.File.Reader = .{
+            .file = file,
+            .interface = std.fs.File.Reader.initInterface(&.{}),
+            .size = stat.size,
+        };
+        try archiver.writeFile(entry.path, &file_reader, stat.mtime);
     }
 
     {
@@ -236,10 +248,10 @@ fn serveWasm(
     const wasm_base_path = try buildWasmBinary(arena, context, optimize_mode);
     const bin_name = try std.zig.binNameAlloc(arena, .{
         .root_name = autodoc_root_name,
-        .target = std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
+        .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = autodoc_arch_os_abi,
             .cpu_features = autodoc_cpu_features,
-        }) catch unreachable) catch unreachable,
+        }) catch unreachable) catch unreachable),
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.

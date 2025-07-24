@@ -301,29 +301,13 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(
-            ver: WindowsVersion,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            const maybe_name = std.enums.tagName(WindowsVersion, ver);
-            if (comptime std.mem.eql(u8, fmt_str, "s")) {
-                if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
-                else
-                    try writer.print(".{d}", .{@intFromEnum(ver)});
-            } else if (comptime std.mem.eql(u8, fmt_str, "c")) {
-                if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
-                else
-                    try writer.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else if (fmt_str.len == 0) {
-                if (maybe_name) |name|
-                    try writer.print("WindowsVersion.{s}", .{name})
-                else
-                    try writer.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else std.fmt.invalidFmtError(fmt_str, ver);
+        pub fn format(wv: WindowsVersion, w: *std.io.Writer) std.io.Writer.Error!void {
+            if (std.enums.tagName(WindowsVersion, wv)) |name| {
+                var vecs: [2][]const u8 = .{ ".", name };
+                return w.writeVecAll(&vecs);
+            } else {
+                return w.print("@enumFromInt(0x{X:0>8})", .{wv});
+            }
         }
     };
 
@@ -523,7 +507,7 @@ pub const Os = struct {
                 .freebsd => .{
                     .semver = .{
                         .min = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 14, .minor = 0, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
@@ -541,7 +525,7 @@ pub const Os = struct {
                 .netbsd => .{
                     .semver = .{
                         .min = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 9, .minor = 4, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 10, .minor = 1, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
@@ -1066,7 +1050,7 @@ pub const ObjectFormat = enum {
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .spirv, .spirv32, .spirv64 => .spirv,
+                .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
                 else => .elf,
             },
@@ -1074,7 +1058,7 @@ pub const ObjectFormat = enum {
     }
 };
 
-pub fn toElfMachine(target: Target) std.elf.EM {
+pub fn toElfMachine(target: *const Target) std.elf.EM {
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
         .arc => .ARC_COMPACT,
@@ -1106,7 +1090,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -1115,7 +1098,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
     };
 }
 
-pub fn toCoffMachine(target: Target) std.coff.MachineType {
+pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
     return switch (target.cpu.arch) {
         .arm => .ARM,
         .thumb => .ARMNT,
@@ -1155,7 +1138,6 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .s390x,
         .sparc,
         .sparc64,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -1368,7 +1350,6 @@ pub const Cpu = struct {
         s390x,
         sparc,
         sparc64,
-        spirv,
         spirv32,
         spirv64,
         ve,
@@ -1454,7 +1435,7 @@ pub const Cpu = struct {
                 .riscv32, .riscv64 => .riscv,
                 .s390x => .s390x,
                 .sparc, .sparc64 => .sparc,
-                .spirv, .spirv32, .spirv64 => .spirv,
+                .spirv32, .spirv64 => .spirv,
                 .ve => .ve,
                 .wasm32, .wasm64 => .wasm,
                 .x86, .x86_64 => .x86,
@@ -1558,7 +1539,7 @@ pub const Cpu = struct {
 
         pub inline fn isSpirV(arch: Arch) bool {
             return switch (arch) {
-                .spirv, .spirv32, .spirv64 => true,
+                .spirv32, .spirv64 => true,
                 else => false,
             };
         }
@@ -1614,7 +1595,6 @@ pub const Cpu = struct {
                 .thumb,
                 .ve,
                 // GPU bitness is opaque. For now, assume little endian.
-                .spirv,
                 .spirv32,
                 .spirv64,
                 .loongarch32,
@@ -1695,7 +1675,7 @@ pub const Cpu = struct {
         pub fn fromCallingConvention(cc: std.builtin.CallingConvention.Tag) []const Arch {
             return switch (cc) {
                 .auto,
-                .@"async",
+                .async,
                 .naked,
                 .@"inline",
                 => unreachable,
@@ -1843,7 +1823,7 @@ pub const Cpu = struct {
                 .spirv_kernel,
                 .spirv_fragment,
                 .spirv_vertex,
-                => &.{ .spirv, .spirv32, .spirv64 },
+                => &.{ .spirv32, .spirv64 },
             };
         }
     };
@@ -1999,7 +1979,7 @@ pub const Cpu = struct {
     }
 };
 
-pub fn zigTriple(target: Target, allocator: Allocator) Allocator.Error![]u8 {
+pub fn zigTriple(target: *const Target, allocator: Allocator) Allocator.Error![]u8 {
     return Query.fromTarget(target).zigTriple(allocator);
 }
 
@@ -2007,7 +1987,7 @@ pub fn hurdTupleSimple(allocator: Allocator, arch: Cpu.Arch, abi: Abi) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}-{s}", .{ @tagName(arch), @tagName(abi) });
 }
 
-pub fn hurdTuple(target: Target, allocator: Allocator) ![]u8 {
+pub fn hurdTuple(target: *const Target, allocator: Allocator) ![]u8 {
     return hurdTupleSimple(allocator, target.cpu.arch, target.abi);
 }
 
@@ -2015,63 +1995,63 @@ pub fn linuxTripleSimple(allocator: Allocator, arch: Cpu.Arch, os_tag: Os.Tag, a
     return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(arch), @tagName(os_tag), @tagName(abi) });
 }
 
-pub fn linuxTriple(target: Target, allocator: Allocator) ![]u8 {
+pub fn linuxTriple(target: *const Target, allocator: Allocator) ![]u8 {
     return linuxTripleSimple(allocator, target.cpu.arch, target.os.tag, target.abi);
 }
 
-pub fn exeFileExt(target: Target) [:0]const u8 {
+pub fn exeFileExt(target: *const Target) [:0]const u8 {
     return target.os.tag.exeFileExt(target.cpu.arch);
 }
 
-pub fn staticLibSuffix(target: Target) [:0]const u8 {
+pub fn staticLibSuffix(target: *const Target) [:0]const u8 {
     return target.os.tag.staticLibSuffix(target.abi);
 }
 
-pub fn dynamicLibSuffix(target: Target) [:0]const u8 {
+pub fn dynamicLibSuffix(target: *const Target) [:0]const u8 {
     return target.os.tag.dynamicLibSuffix();
 }
 
-pub fn libPrefix(target: Target) [:0]const u8 {
+pub fn libPrefix(target: *const Target) [:0]const u8 {
     return target.os.tag.libPrefix(target.abi);
 }
 
-pub inline fn isMinGW(target: Target) bool {
+pub inline fn isMinGW(target: *const Target) bool {
     return target.os.tag == .windows and target.abi.isGnu();
 }
 
-pub inline fn isGnuLibC(target: Target) bool {
+pub inline fn isGnuLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .hurd, .linux => target.abi.isGnu(),
         else => false,
     };
 }
 
-pub inline fn isMuslLibC(target: Target) bool {
+pub inline fn isMuslLibC(target: *const Target) bool {
     return target.os.tag == .linux and target.abi.isMusl();
 }
 
-pub inline fn isDarwinLibC(target: Target) bool {
+pub inline fn isDarwinLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .macabi, .simulator => target.os.tag.isDarwin(),
         else => false,
     };
 }
 
-pub inline fn isFreeBSDLibC(target: Target) bool {
+pub inline fn isFreeBSDLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .eabihf => target.os.tag == .freebsd,
         else => false,
     };
 }
 
-pub inline fn isNetBSDLibC(target: Target) bool {
+pub inline fn isNetBSDLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .eabi, .eabihf => target.os.tag == .netbsd,
         else => false,
     };
 }
 
-pub inline fn isWasiLibC(target: Target) bool {
+pub inline fn isWasiLibC(target: *const Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
 }
 
@@ -2576,7 +2556,7 @@ pub const DynamicLinker = struct {
     }
 };
 
-pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
+pub fn standardDynamicLinkerPath(target: *const Target) DynamicLinker {
     return DynamicLinker.standard(target.cpu, target.os, target.abi);
 }
 
@@ -2638,18 +2618,17 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .sparc64,
         .s390x,
         .ve,
-        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
     };
 }
 
-pub fn ptrBitWidth(target: Target) u16 {
+pub fn ptrBitWidth(target: *const Target) u16 {
     return ptrBitWidth_cpu_abi(target.cpu, target.abi);
 }
 
-pub fn stackAlignment(target: Target) u16 {
+pub fn stackAlignment(target: *const Target) u16 {
     // Overrides for when the stack alignment is not equal to the pointer width.
     switch (target.cpu.arch) {
         .m68k,
@@ -2697,7 +2676,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-pub fn cCharSignedness(target: Target) std.builtin.Signedness {
+pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
@@ -2740,7 +2719,7 @@ pub const CType = enum {
     longdouble,
 };
 
-pub fn cTypeByteSize(t: Target, c_type: CType) u16 {
+pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
     return switch (c_type) {
         .char,
         .short,
@@ -2766,7 +2745,7 @@ pub fn cTypeByteSize(t: Target, c_type: CType) u16 {
     };
 }
 
-pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
+pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
@@ -3077,7 +3056,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
     }
 }
 
-pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
+pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .avr => return 1,
@@ -3157,7 +3136,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3172,7 +3150,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
+pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .arc => switch (c_type) {
@@ -3250,7 +3228,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3265,7 +3242,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn cMaxIntAlignment(target: std.Target) u16 {
+pub fn cMaxIntAlignment(target: *const Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
 
@@ -3319,7 +3296,6 @@ pub fn cMaxIntAlignment(target: std.Target) u16 {
         .loongarch32,
         .loongarch64,
         .m68k,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -3328,7 +3304,7 @@ pub fn cMaxIntAlignment(target: std.Target) u16 {
     };
 }
 
-pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
+pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_64_win = .{} },
@@ -3389,7 +3365,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .xtensa => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
-        .spirv, .spirv32, .spirv64 => .spirv_device,
+        .spirv32, .spirv64 => .spirv_device,
     };
 }
 

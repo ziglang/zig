@@ -442,7 +442,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     const tree = astgen.tree;
     switch (tree.nodeTag(node)) {
         .root => unreachable,
-        .@"usingnamespace" => unreachable,
         .test_decl => unreachable,
         .global_var_decl => unreachable,
         .local_var_decl => unreachable,
@@ -506,16 +505,13 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .bool_or,
         .@"asm",
         .asm_simple,
+        .asm_legacy,
         .string_literal,
         .number_literal,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .unreachable_literal,
         .@"return",
         .@"if",
@@ -547,7 +543,6 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
         .merge_error_sets,
         .switch_range,
         .for_range,
-        .@"await",
         .bit_not,
         .negation,
         .negation_wrap,
@@ -642,7 +637,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
     switch (tree.nodeTag(node)) {
         .root => unreachable, // Top-level declaration.
-        .@"usingnamespace" => unreachable, // Top-level declaration.
         .test_decl => unreachable, // Top-level declaration.
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.
@@ -818,6 +812,12 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .@"asm",
         => return asmExpr(gz, scope, ri, node, tree.fullAsm(node).?),
 
+        .asm_legacy => {
+            return astgen.failNodeNotes(node, "legacy asm clobbers syntax", .{}, &[_]u32{
+                try astgen.errNoteNode(node, "use 'zig fmt' to auto-upgrade", .{}),
+            });
+        },
+
         .string_literal           => return stringLiteral(gz, ri, node),
         .multiline_string_literal => return multilineStringLiteral(gz, ri, node),
 
@@ -836,12 +836,8 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .call_one,
         .call_one_comma,
-        .async_call_one,
-        .async_call_one_comma,
         .call,
         .call_comma,
-        .async_call,
-        .async_call_comma,
         => {
             var buf: [1]Ast.Node.Index = undefined;
             return callExpr(gz, scope, ri, .none, node, tree.fullCall(&buf, node).?);
@@ -1114,7 +1110,6 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
 
         .@"nosuspend" => return nosuspendExpr(gz, scope, ri, node),
         .@"suspend" => return suspendExpr(gz, scope, node),
-        .@"await" => return awaitExpr(gz, scope, ri, node),
         .@"resume" => return resumeExpr(gz, scope, ri, node),
 
         .@"try" => return tryExpr(gz, scope, ri, node, tree.nodeData(node).node),
@@ -1257,33 +1252,6 @@ fn suspendExpr(
     try suspend_scope.setBlockBody(suspend_inst);
 
     return suspend_inst.toRef();
-}
-
-fn awaitExpr(
-    gz: *GenZir,
-    scope: *Scope,
-    ri: ResultInfo,
-    node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
-    const astgen = gz.astgen;
-    const tree = astgen.tree;
-    const rhs_node = tree.nodeData(node).node;
-
-    if (gz.suspend_node.unwrap()) |suspend_node| {
-        return astgen.failNodeNotes(node, "cannot await inside suspend block", .{}, &[_]u32{
-            try astgen.errNoteNode(suspend_node, "suspend block here", .{}),
-        });
-    }
-    const operand = try expr(gz, scope, .{ .rl = .ref }, rhs_node);
-    const result = if (gz.nosuspend_node != .none)
-        try gz.addExtendedPayload(.await_nosuspend, Zir.Inst.UnNode{
-            .node = gz.nodeIndexToRelative(node),
-            .operand = operand,
-        })
-    else
-        try gz.addUnNode(.@"await", operand, node);
-
-    return rvalue(gz, ri, result, node);
 }
 
 fn resumeExpr(
@@ -2853,7 +2821,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .tag_name,
             .type_name,
             .frame_type,
-            .frame_size,
             .int_from_float,
             .float_from_int,
             .ptr_from_int,
@@ -2887,7 +2854,6 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .min,
             .c_import,
             .@"resume",
-            .@"await",
             .ret_err_value_code,
             .ret_ptr,
             .ret_type,
@@ -4739,69 +4705,6 @@ fn comptimeDecl(
     });
 }
 
-fn usingnamespaceDecl(
-    astgen: *AstGen,
-    gz: *GenZir,
-    scope: *Scope,
-    wip_members: *WipMembers,
-    node: Ast.Node.Index,
-) InnerError!void {
-    const tree = astgen.tree;
-
-    const old_hasher = astgen.src_hasher;
-    defer astgen.src_hasher = old_hasher;
-    astgen.src_hasher = std.zig.SrcHasher.init(.{});
-    astgen.src_hasher.update(tree.getNodeSource(node));
-    astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
-
-    const type_expr = tree.nodeData(node).node;
-    const is_pub = tree.isTokenPrecededByTags(tree.nodeMainToken(node), &.{.keyword_pub});
-
-    // Up top so the ZIR instruction index marks the start range of this
-    // top-level declaration.
-    const decl_inst = try gz.makeDeclaration(node);
-    wip_members.nextDecl(decl_inst);
-    astgen.advanceSourceCursorToNode(node);
-
-    // This is just needed for the `setDeclaration` call.
-    var dummy_gz = gz.makeSubBlock(scope);
-    defer dummy_gz.unstack();
-
-    var usingnamespace_gz: GenZir = .{
-        .is_comptime = true,
-        .decl_node_index = node,
-        .decl_line = astgen.source_line,
-        .parent = scope,
-        .astgen = astgen,
-        .instructions = gz.instructions,
-        .instructions_top = gz.instructions.items.len,
-    };
-    defer usingnamespace_gz.unstack();
-
-    const decl_column = astgen.source_column;
-
-    const namespace_inst = try typeExpr(&usingnamespace_gz, &usingnamespace_gz.base, type_expr);
-    _ = try usingnamespace_gz.addBreak(.break_inline, decl_inst, namespace_inst);
-
-    var hash: std.zig.SrcHash = undefined;
-    astgen.src_hasher.final(&hash);
-    try setDeclaration(decl_inst, .{
-        .src_hash = hash,
-        .src_line = usingnamespace_gz.decl_line,
-        .src_column = decl_column,
-        .kind = .@"usingnamespace",
-        .name = .empty,
-        .is_pub = is_pub,
-        .is_threadlocal = false,
-        .linkage = .normal,
-        .type_gz = &dummy_gz,
-        .align_gz = &dummy_gz,
-        .linksection_gz = &dummy_gz,
-        .addrspace_gz = &dummy_gz,
-        .value_gz = &usingnamespace_gz,
-    });
-}
-
 fn testDecl(
     astgen: *AstGen,
     gz: *GenZir,
@@ -5967,23 +5870,6 @@ fn containerMember(
                         .empty,
                         member_node,
                         false,
-                    );
-                },
-            };
-        },
-        .@"usingnamespace" => {
-            const prev_decl_index = wip_members.decl_index;
-            astgen.usingnamespaceDecl(gz, scope, wip_members, member_node) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                error.AnalysisFail => {
-                    wip_members.decl_index = prev_decl_index;
-                    try addFailedDeclaration(
-                        wip_members,
-                        gz,
-                        .@"usingnamespace",
-                        .empty,
-                        member_node,
-                        tree.isTokenPrecededByTags(tree.nodeMainToken(member_node), &.{.keyword_pub}),
                     );
                 },
             };
@@ -8895,7 +8781,7 @@ fn asmExpr(
     if (is_container_asm) {
         if (full.volatile_token) |t|
             return astgen.failTok(t, "volatile is meaningless on global assembly", .{});
-        if (full.outputs.len != 0 or full.inputs.len != 0 or full.first_clobber != null)
+        if (full.outputs.len != 0 or full.inputs.len != 0 or full.ast.clobbers != .none)
             return astgen.failNode(node, "global assembly cannot have inputs, outputs, or clobbers", .{});
     } else {
         if (full.outputs.len == 0 and full.volatile_token == null) {
@@ -8960,32 +8846,12 @@ fn asmExpr(
         };
     }
 
-    var clobbers_buffer: [63]u32 = undefined;
-    var clobber_i: usize = 0;
-    if (full.first_clobber) |first_clobber| clobbers: {
-        // asm ("foo" ::: "a", "b")
-        // asm ("foo" ::: "a", "b",)
-        var tok_i = first_clobber;
-        while (true) : (tok_i += 1) {
-            if (clobber_i >= clobbers_buffer.len) {
-                return astgen.failTok(tok_i, "too many asm clobbers", .{});
-            }
-            clobbers_buffer[clobber_i] = @intFromEnum((try astgen.strLitAsString(tok_i)).index);
-            clobber_i += 1;
-            tok_i += 1;
-            switch (tree.tokenTag(tok_i)) {
-                .r_paren => break :clobbers,
-                .comma => {
-                    if (tree.tokenTag(tok_i + 1) == .r_paren) {
-                        break :clobbers;
-                    } else {
-                        continue;
-                    }
-                },
-                else => unreachable,
-            }
-        }
-    }
+    const clobbers: Zir.Inst.Ref = if (full.ast.clobbers.unwrap()) |clobbers_node|
+        try comptimeExpr(gz, scope, .{ .rl = .{
+            .coerced_ty = try gz.addBuiltinValue(clobbers_node, .clobbers),
+        } }, clobbers_node, .clobber)
+    else
+        .none;
 
     const result = try gz.addAsm(.{
         .tag = tag_and_tmpl.tag,
@@ -8995,7 +8861,7 @@ fn asmExpr(
         .output_type_bits = output_type_bits,
         .outputs = outputs,
         .inputs = inputs,
-        .clobbers = clobbers_buffer[0..clobber_i],
+        .clobbers = clobbers,
     });
     return rvalue(gz, ri, result, node);
 }
@@ -9501,7 +9367,6 @@ fn builtinCall(
         .tag_name              => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .tag_name),
         .type_name             => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .type_name),
         .Frame                 => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_type),
-        .frame_size            => return simpleUnOp(gz, scope, ri, node, .{ .rl = .none },                                     params[0], .frame_size),
 
         .int_from_float => return typeCast(gz, scope, ri, node, params[0], .int_from_float, builtin_name),
         .float_from_int => return typeCast(gz, scope, ri, node, params[0], .float_from_int, builtin_name),
@@ -9764,16 +9629,6 @@ fn builtinCall(
                 .pred = try expr(gz, scope, .{ .rl = .none }, params[1]),
                 .a = try expr(gz, scope, .{ .rl = .none }, params[2]),
                 .b = try expr(gz, scope, .{ .rl = .none }, params[3]),
-            });
-            return rvalue(gz, ri, result, node);
-        },
-        .async_call => {
-            const result = try gz.addExtendedPayload(.builtin_async_call, Zir.Inst.AsyncCall{
-                .node = gz.nodeIndexToRelative(node),
-                .frame_buffer = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .result_ptr = try expr(gz, scope, .{ .rl = .none }, params[1]),
-                .fn_ptr = try expr(gz, scope, .{ .rl = .none }, params[2]),
-                .args = try expr(gz, scope, .{ .rl = .none }, params[3]),
             });
             return rvalue(gz, ri, result, node);
         },
@@ -10175,11 +10030,8 @@ fn callExpr(
 
     const callee = try calleeExpr(gz, scope, ri.rl, override_decl_literal_type, call.ast.fn_expr);
     const modifier: std.builtin.CallModifier = blk: {
-        if (call.async_token != null) {
-            break :blk .async_kw;
-        }
         if (gz.nosuspend_node != .none) {
-            break :blk .no_async;
+            break :blk .no_suspend;
         }
         break :blk .auto;
     };
@@ -10451,7 +10303,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10468,6 +10319,7 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .identifier,
             .field_access,
             .deref,
@@ -10483,12 +10335,8 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             => return .maybe,
 
             .@"return",
@@ -10613,7 +10461,6 @@ fn nodeMayEvalToError(tree: *const Ast, start_node: Ast.Node.Index) BuiltinFn.Ev
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -10664,7 +10511,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10717,6 +10563,7 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
@@ -10803,12 +10650,8 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -10826,7 +10669,6 @@ fn nodeImpliesMoreThanOnePossibleValue(tree: *const Ast, start_node: Ast.Node.In
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -10908,7 +10750,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
     while (true) {
         switch (tree.nodeTag(node)) {
             .root,
-            .@"usingnamespace",
             .test_decl,
             .switch_case,
             .switch_case_inline,
@@ -10961,6 +10802,7 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .tagged_union_enum_tag_trailing,
             .@"asm",
             .asm_simple,
+            .asm_legacy,
             .add,
             .add_wrap,
             .add_sat,
@@ -11047,12 +10889,8 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
             .switch_comma,
             .call_one,
             .call_one_comma,
-            .async_call_one,
-            .async_call_one_comma,
             .call,
             .call_comma,
-            .async_call,
-            .async_call_comma,
             .block_two,
             .block_two_semicolon,
             .block,
@@ -11079,7 +10917,6 @@ fn nodeImpliesComptimeOnly(tree: *const Ast, start_node: Ast.Node.Index) bool {
 
             // Forward the question to the LHS sub-expression.
             .@"try",
-            .@"await",
             .@"comptime",
             .@"nosuspend",
             => node = tree.nodeData(node).node,
@@ -11441,10 +11278,14 @@ fn parseStrLit(
     offset: u32,
 ) InnerError!void {
     const raw_string = bytes[offset..];
-    var buf_managed = buf.toManaged(astgen.gpa);
-    const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
-    buf.* = buf_managed.moveToUnmanaged();
-    switch (try result) {
+    const result = r: {
+        var aw: std.io.Writer.Allocating = .fromArrayList(astgen.gpa, buf);
+        defer buf.* = aw.toArrayList();
+        break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    };
+    switch (result) {
         .success => return,
         .failure => |err| return astgen.failWithStrLitError(err, token, bytes, offset),
     }
@@ -11458,13 +11299,7 @@ fn failWithStrLitError(
     offset: u32,
 ) InnerError {
     const raw_string = bytes[offset..];
-    return failOff(
-        astgen,
-        token,
-        @intCast(offset + err.offset()),
-        "{}",
-        .{err.fmt(raw_string)},
-    );
+    return failOff(astgen, token, @intCast(offset + err.offset()), "{f}", .{err.fmt(raw_string)});
 }
 
 fn failNode(
@@ -11493,17 +11328,18 @@ fn appendErrorNodeNotes(
     notes: []const u32,
 ) Allocator.Error!void {
     @branchHint(.cold);
+    const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
-        try astgen.extra.ensureTotalCapacity(astgen.gpa, notes_start + 1 + notes.len);
+        try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
         astgen.extra.appendAssumeCapacity(@intCast(notes.len));
         astgen.extra.appendSliceAssumeCapacity(notes);
         break :blk @intCast(notes_start);
     } else 0;
-    try astgen.compile_errors.append(astgen.gpa, .{
+    try astgen.compile_errors.append(gpa, .{
         .msg = msg,
         .node = node.toOptional(),
         .token = .none,
@@ -11587,7 +11423,7 @@ fn appendErrorTokNotesOff(
     const gpa = astgen.gpa;
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(gpa).print(format ++ "\x00", args);
+    try string_bytes.print(gpa, format ++ "\x00", args);
     const notes_index: u32 = if (notes.len != 0) blk: {
         const notes_start = astgen.extra.items.len;
         try astgen.extra.ensureTotalCapacity(gpa, notes_start + 1 + notes.len);
@@ -11623,7 +11459,7 @@ fn errNoteTokOff(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = .none,
@@ -11642,7 +11478,7 @@ fn errNoteNode(
     @branchHint(.cold);
     const string_bytes = &astgen.string_bytes;
     const msg: Zir.NullTerminatedString = @enumFromInt(string_bytes.items.len);
-    try string_bytes.writer(astgen.gpa).print(format ++ "\x00", args);
+    try string_bytes.print(astgen.gpa, format ++ "\x00", args);
     return astgen.addExtra(Zir.Inst.CompileErrors.Item{
         .msg = msg,
         .node = node.toOptional(),
@@ -12965,7 +12801,7 @@ const GenZir = struct {
             is_volatile: bool,
             outputs: []const Zir.Inst.Asm.Output,
             inputs: []const Zir.Inst.Asm.Input,
-            clobbers: []const u32,
+            clobbers: Zir.Inst.Ref,
         },
     ) !Zir.Inst.Ref {
         const astgen = gz.astgen;
@@ -12975,13 +12811,13 @@ const GenZir = struct {
         try astgen.instructions.ensureUnusedCapacity(gpa, 1);
         try astgen.extra.ensureUnusedCapacity(gpa, @typeInfo(Zir.Inst.Asm).@"struct".fields.len +
             args.outputs.len * @typeInfo(Zir.Inst.Asm.Output).@"struct".fields.len +
-            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).@"struct".fields.len +
-            args.clobbers.len);
+            args.inputs.len * @typeInfo(Zir.Inst.Asm.Input).@"struct".fields.len);
 
         const payload_index = gz.astgen.addExtraAssumeCapacity(Zir.Inst.Asm{
             .src_node = gz.nodeIndexToRelative(args.node),
             .asm_source = args.asm_source,
             .output_type_bits = args.output_type_bits,
+            .clobbers = args.clobbers,
         });
         for (args.outputs) |output| {
             _ = gz.astgen.addExtraAssumeCapacity(output);
@@ -12989,23 +12825,19 @@ const GenZir = struct {
         for (args.inputs) |input| {
             _ = gz.astgen.addExtraAssumeCapacity(input);
         }
-        gz.astgen.extra.appendSliceAssumeCapacity(args.clobbers);
 
-        //  * 0b00000000_0000XXXX - `outputs_len`.
-        //  * 0b0000000X_XXXX0000 - `inputs_len`.
-        //  * 0b0XXXXXX0_00000000 - `clobbers_len`.
-        //  * 0bX0000000_00000000 - is volatile
-        const small: u16 = @as(u16, @as(u4, @intCast(args.outputs.len))) << 0 |
-            @as(u16, @as(u5, @intCast(args.inputs.len))) << 4 |
-            @as(u16, @as(u6, @intCast(args.clobbers.len))) << 9 |
-            @as(u16, @intFromBool(args.is_volatile)) << 15;
+        const small: Zir.Inst.Asm.Small = .{
+            .outputs_len = @intCast(args.outputs.len),
+            .inputs_len = @intCast(args.inputs.len),
+            .is_volatile = args.is_volatile,
+        };
 
         const new_index: Zir.Inst.Index = @enumFromInt(astgen.instructions.len);
         astgen.instructions.appendAssumeCapacity(.{
             .tag = .extended,
             .data = .{ .extended = .{
                 .opcode = args.tag,
-                .small = small,
+                .small = @bitCast(small),
                 .operand = payload_index,
             } },
         });
@@ -13586,7 +13418,7 @@ fn scanContainer(
                 break :blk .{ .decl, ident };
             },
 
-            .@"comptime", .@"usingnamespace" => {
+            .@"comptime" => {
                 decl_count += 1;
                 continue;
             },
@@ -13888,13 +13720,14 @@ fn emitDbgStmtForceCurrentIndex(gz: *GenZir, lc: LineColumn) !void {
     } });
 }
 
-fn lowerAstErrors(astgen: *AstGen) !void {
+fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const gpa = astgen.gpa;
     const tree = astgen.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.ArrayListUnmanaged(u8) = .empty;
-    defer msg.deinit(gpa);
+    var msg: std.io.Writer.Allocating = .init(gpa);
+    defer msg.deinit();
+    const msg_w = &msg.writer;
 
     var notes: std.ArrayListUnmanaged(u32) = .empty;
     defer notes.deinit(gpa);
@@ -13922,26 +13755,26 @@ fn lowerAstErrors(astgen: *AstGen) !void {
             break :blk idx - tok_start;
         };
 
-        const err: Ast.Error = .{
+        const ast_err: Ast.Error = .{
             .tag = Ast.Error.Tag.invalid_byte,
             .token = tok,
             .extra = .{ .offset = bad_off },
         };
         msg.clearRetainingCapacity();
-        try tree.renderError(err, msg.writer(gpa));
-        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.items}, notes.items);
+        tree.renderError(ast_err, msg_w) catch return error.OutOfMemory;
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.getWritten()}, notes.items);
     }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
-            try tree.renderError(err, msg.writer(gpa));
-            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.items}));
+            tree.renderError(err, msg_w) catch return error.OutOfMemory;
+            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
         } else {
             // Flush error
             const extra_offset = tree.errorOffset(cur_err);
-            try tree.renderError(cur_err, msg.writer(gpa));
-            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+            tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
+            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -13954,8 +13787,8 @@ fn lowerAstErrors(astgen: *AstGen) !void {
 
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
-    try tree.renderError(cur_err, msg.writer(gpa));
-    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.items}, notes.items);
+    tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
+    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
 }
 
 const DeclarationName = union(enum) {
@@ -13964,7 +13797,6 @@ const DeclarationName = union(enum) {
     decltest: Ast.TokenIndex,
     unnamed_test,
     @"comptime",
-    @"usingnamespace",
 };
 
 fn addFailedDeclaration(
@@ -14054,7 +13886,6 @@ fn setDeclaration(
         .@"test" => .@"test",
         .decltest => .decltest,
         .@"comptime" => .@"comptime",
-        .@"usingnamespace" => if (args.is_pub) .pub_usingnamespace else .@"usingnamespace",
         .@"const" => switch (args.linkage) {
             .normal => if (args.is_pub) id: {
                 if (has_special_body) break :id .pub_const;

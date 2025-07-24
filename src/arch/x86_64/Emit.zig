@@ -105,9 +105,9 @@ pub fn emitMir(emit: *Emit) Error!void {
                             emit.pt,
                             emit.lower.src_loc,
                             nav,
-                            emit.lower.target.*,
+                            emit.lower.target,
                         )) {
-                            .mcv => |mcv| mcv.lea_symbol,
+                            .sym_index => |sym_index| sym_index,
                             .fail => |em| {
                                 assert(emit.lower.err_msg == null);
                                 emit.lower.err_msg = em;
@@ -151,7 +151,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                             Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
                             emit.lower.src_loc,
                         )) {
-                            .mcv => |mcv| mcv.load_symbol,
+                            .sym_index => |sym_index| sym_index,
                             .fail => |em| {
                                 assert(emit.lower.err_msg == null);
                                 emit.lower.err_msg = em;
@@ -186,7 +186,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                         else if (emit.bin_file.cast(.macho)) |macho_file|
                             try macho_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
                         else if (emit.bin_file.cast(.coff)) |coff_file|
-                            link.File.Coff.global_symbol_bit | try coff_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, null)
+                            try coff_file.getGlobalSymbol(extern_func.toSlice(&emit.lower.mir).?, "compiler_rt")
                         else
                             return emit.fail("external symbols unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
                         .is_extern = true,
@@ -542,16 +542,13 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                     emit.pt,
                                                     emit.lower.src_loc,
                                                     nav,
-                                                    emit.lower.target.*,
+                                                    emit.lower.target,
                                                 ) catch |err| switch (err) {
                                                     error.CodegenFail,
                                                     => return emit.fail("unable to codegen: {s}", .{@errorName(err)}),
                                                     else => |e| return e,
                                                 }) {
-                                                    .mcv => |mcv| switch (mcv) {
-                                                        else => unreachable,
-                                                        .load_direct, .load_symbol => |sym_index| sym_index,
-                                                    },
+                                                    .sym_index => |sym_index| sym_index,
                                                     .fail => |em| {
                                                         assert(emit.lower.err_msg == null);
                                                         emit.lower.err_msg = em;
@@ -564,10 +561,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                                     Type.fromInterned(uav.orig_ty).ptrAlignment(emit.pt.zcu),
                                                     emit.lower.src_loc,
                                                 )) {
-                                                    .mcv => |mcv| switch (mcv) {
-                                                        else => unreachable,
-                                                        .load_direct, .load_symbol => |sym_index| sym_index,
-                                                    },
+                                                    .sym_index => |sym_index| sym_index,
                                                     .fail => |em| {
                                                         assert(emit.lower.err_msg == null);
                                                         emit.lower.err_msg = em;
@@ -713,7 +707,14 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
     const comp = emit.bin_file.comp;
     const gpa = comp.gpa;
     const start_offset: u32 = @intCast(emit.code.items.len);
-    try lowered_inst.encode(emit.code.writer(gpa), .{});
+    {
+        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, emit.code);
+        defer emit.code.* = aw.toArrayList();
+        lowered_inst.encode(&aw.writer, .{}) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+    }
     const end_offset: u32 = @intCast(emit.code.items.len);
     for (reloc_info) |reloc| switch (reloc.target.type) {
         .inst => {

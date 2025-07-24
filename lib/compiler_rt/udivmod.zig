@@ -1,8 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const Log2Int = std.math.Log2Int;
-const HalveInt = @import("common.zig").HalveInt;
+const common = @import("common.zig");
+const HalveInt = common.HalveInt;
 
 const lo = switch (builtin.cpu.arch.endian()) {
     .big => 1,
@@ -14,7 +14,7 @@ const hi = 1 - lo;
 // Returns U / v_ and sets r = U % v_.
 fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
     const HalfT = HalveInt(T, false).HalfT;
-    @setRuntimeSafety(is_test);
+    @setRuntimeSafety(common.test_safety);
     var v = v_;
 
     const b = @as(T, 1) << (@bitSizeOf(T) / 2);
@@ -70,7 +70,7 @@ fn divwide_generic(comptime T: type, _u1: T, _u0: T, v_: T, r: *T) T {
 }
 
 fn divwide(comptime T: type, _u1: T, _u0: T, v: T, r: *T) T {
-    @setRuntimeSafety(is_test);
+    @setRuntimeSafety(common.test_safety);
     if (T == u64 and builtin.target.cpu.arch == .x86_64 and builtin.target.os.tag != .windows) {
         var rem: T = undefined;
         const quo = asm (
@@ -90,7 +90,7 @@ fn divwide(comptime T: type, _u1: T, _u0: T, v: T, r: *T) T {
 
 // Returns a_ / b_ and sets maybe_rem = a_ % b.
 pub fn udivmod(comptime T: type, a_: T, b_: T, maybe_rem: ?*T) T {
-    @setRuntimeSafety(is_test);
+    @setRuntimeSafety(common.test_safety);
     const HalfT = HalveInt(T, false).HalfT;
     const SignedT = std.meta.Int(.signed, @bitSizeOf(T));
 

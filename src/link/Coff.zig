@@ -208,7 +208,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Coff {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .coff);
     const optimize_mode = comp.root_mod.optimize_mode;
     const output_mode = comp.config.output_mode;
@@ -752,7 +752,7 @@ fn shrinkAtom(coff: *Coff, atom_index: Atom.Index, new_block_size: u32) void {
     // capacity, insert a free list node for it.
 }
 
-fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
+fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bool) !void {
     const atom = coff.getAtom(atom_index);
     const sym = atom.getSymbol(coff);
     const section = coff.sections.get(@intFromEnum(sym.section_number) - 1);
@@ -774,11 +774,13 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
     var relocs = std.ArrayList(*Relocation).init(gpa);
     defer relocs.deinit();
 
-    if (coff.relocs.getPtr(atom_index)) |rels| {
-        try relocs.ensureTotalCapacityPrecise(rels.items.len);
-        for (rels.items) |*reloc| {
-            if (reloc.isResolvable(coff) and reloc.dirty) {
-                relocs.appendAssumeCapacity(reloc);
+    if (resolve_relocs) {
+        if (coff.relocs.getPtr(atom_index)) |rels| {
+            try relocs.ensureTotalCapacityPrecise(rels.items.len);
+            for (rels.items) |*reloc| {
+                if (reloc.isResolvable(coff) and reloc.dirty) {
+                    relocs.appendAssumeCapacity(reloc);
+                }
             }
         }
     }
@@ -812,12 +814,15 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8) !void {
         }
     }
 
-    coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    if (resolve_relocs) {
+        coff.resolveRelocs(atom_index, relocs.items, code, coff.image_base);
+    }
     try coff.pwriteAll(code, file_offset);
-
-    // Now we can mark the relocs as resolved.
-    while (relocs.pop()) |reloc| {
-        reloc.dirty = false;
+    if (resolve_relocs) {
+        // Now we can mark the relocs as resolved.
+        while (relocs.pop()) |reloc| {
+            reloc.dirty = false;
+        }
     }
 }
 
@@ -825,8 +830,8 @@ fn debugMem(allocator: Allocator, handle: std.process.Child.Id, pvaddr: std.os.w
     const buffer = try allocator.alloc(u8, code.len);
     defer allocator.free(buffer);
     const memread = try std.os.windows.ReadProcessMemory(handle, pvaddr, buffer);
-    log.debug("to write: {x}", .{std.fmt.fmtSliceHexLower(code)});
-    log.debug("in memory: {x}", .{std.fmt.fmtSliceHexLower(memread)});
+    log.debug("to write: {x}", .{code});
+    log.debug("in memory: {x}", .{memread});
 }
 
 fn writeMemProtected(handle: std.process.Child.Id, pvaddr: std.os.windows.LPVOID, code: []const u8) !void {
@@ -914,6 +919,7 @@ fn writeOffsetTableEntry(coff: *Coff, index: usize) !void {
 }
 
 fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
+    if (!coff.base.comp.incremental) return;
     // TODO: reverse-lookup might come in handy here
     for (coff.relocs.values()) |*relocs| {
         for (relocs.items) |*reloc| {
@@ -924,6 +930,7 @@ fn markRelocsDirtyByTarget(coff: *Coff, target: SymbolWithLoc) void {
 }
 
 fn markRelocsDirtyByAddress(coff: *Coff, addr: u32) void {
+    if (!coff.base.comp.incremental) return;
     const got_moved = blk: {
         const sect_id = coff.got_section_index orelse break :blk false;
         break :blk coff.sections.items(.header)[sect_id].virtual_address >= addr;
@@ -1129,7 +1136,7 @@ fn lowerConst(
     log.debug("allocated atom for {s} at 0x{x}", .{ name, atom.getSymbol(coff).value });
     log.debug("  (required alignment 0x{x})", .{required_alignment});
 
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 
     return .{ .ok = atom_index };
 }
@@ -1206,14 +1213,13 @@ fn updateLazySymbolAtom(
     var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
     defer code_buffer.deinit(gpa);
 
-    const name = try allocPrint(gpa, "__lazy_{s}_{}", .{
+    const name = try allocPrint(gpa, "__lazy_{s}_{f}", .{
         @tagName(sym.kind),
         Type.fromInterned(sym.ty).fmt(pt),
     });
     defer gpa.free(name);
 
-    const atom = coff.getAtomPtr(atom_index);
-    const local_sym_index = atom.getSymbolIndex().?;
+    const local_sym_index = coff.getAtomPtr(atom_index).getSymbolIndex().?;
 
     const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
     try codegen.generateLazySymbol(
@@ -1228,12 +1234,13 @@ fn updateLazySymbolAtom(
     );
     const code = code_buffer.items;
 
-    const code_len: u32 = @intCast(code.len);
+    const atom = coff.getAtomPtr(atom_index);
     const symbol = atom.getSymbolPtr(coff);
     try coff.setSymbolName(symbol, name);
     symbol.section_number = @enumFromInt(section_index + 1);
     symbol.type = .{ .complex_type = .NULL, .base_type = .NULL };
 
+    const code_len: u32 = @intCast(code.len);
     const vaddr = try coff.allocateAtom(atom_index, code_len, @intCast(required_alignment.toByteUnits() orelse 0));
     errdefer coff.freeAtom(atom_index);
 
@@ -1244,7 +1251,7 @@ fn updateLazySymbolAtom(
     symbol.value = vaddr;
 
     try coff.addGotEntry(.{ .sym_index = local_sym_index });
-    try coff.writeAtom(atom_index, code);
+    try coff.writeAtom(atom_index, code, coff.base.comp.incremental);
 }
 
 pub fn getOrCreateAtomForLazySymbol(
@@ -1326,11 +1333,15 @@ fn updateNavCode(
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
 
-    log.debug("updateNavCode {} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("updateNavCode {f} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    const required_alignment = switch (pt.navAlignment(nav_index)) {
-        .none => target_util.defaultFunctionAlignment(target),
+    const mod = zcu.navFileScope(nav_index).mod.?;
+    const target = &mod.resolved_target.result;
+    const required_alignment = switch (nav.status.fully_resolved.alignment) {
+        .none => switch (mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
+            .ReleaseSmall => target_util.minFunctionAlignment(target),
+        },
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
@@ -1354,7 +1365,7 @@ fn updateNavCode(
                 error.OutOfMemory => return error.OutOfMemory,
                 else => |e| return coff.base.cgFail(nav_index, "failed to grow atom: {s}", .{@errorName(e)}),
             };
-            log.debug("growing {} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), sym.value, vaddr });
+            log.debug("growing {f} from 0x{x} to 0x{x}", .{ nav.fqn.fmt(ip), sym.value, vaddr });
             log.debug("  (required alignment 0x{x}", .{required_alignment});
 
             if (vaddr != sym.value) {
@@ -1382,7 +1393,7 @@ fn updateNavCode(
             else => |e| return coff.base.cgFail(nav_index, "failed to allocate atom: {s}", .{@errorName(e)}),
         };
         errdefer coff.freeAtom(atom_index);
-        log.debug("allocated atom for {} at 0x{x}", .{ nav.fqn.fmt(ip), vaddr });
+        log.debug("allocated atom for {f} at 0x{x}", .{ nav.fqn.fmt(ip), vaddr });
         coff.getAtomPtr(atom_index).size = code_len;
         sym.value = vaddr;
 
@@ -1392,7 +1403,7 @@ fn updateNavCode(
         };
     }
 
-    coff.writeAtom(atom_index, code) catch |err| switch (err) {
+    coff.writeAtom(atom_index, code, coff.base.comp.incremental) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |e| return coff.base.cgFail(nav_index, "failed to write atom: {s}", .{@errorName(e)}),
     };
@@ -1430,7 +1441,7 @@ pub fn updateExports(
             const first_exp = export_indices[0].ptr(zcu);
             const res = try coff.lowerUav(pt, uav, .none, first_exp.src);
             switch (res) {
-                .mcv => {},
+                .sym_index => {},
                 .fail => |em| {
                     // TODO maybe it's enough to return an error here and let Module.processExportsInner
                     // handle the error?
@@ -1447,7 +1458,7 @@ pub fn updateExports(
 
     for (export_indices) |export_idx| {
         const exp = export_idx.ptr(zcu);
-        log.debug("adding new export '{}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
+        log.debug("adding new export '{f}'", .{exp.opts.name.fmt(&zcu.intern_pool)});
 
         if (exp.opts.section.toSlice(&zcu.intern_pool)) |section_name| {
             if (!mem.eql(u8, section_name, ".text")) {
@@ -1523,7 +1534,7 @@ pub fn deleteExport(
     const gpa = coff.base.comp.gpa;
     const sym_loc = SymbolWithLoc{ .sym_index = sym_index.*, .file = null };
     const sym = coff.getSymbolPtr(sym_loc);
-    log.debug("deleting export '{}'", .{name.fmt(&zcu.intern_pool)});
+    log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
         .name = [_]u8{0} ** 8,
@@ -1677,7 +1688,7 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         const amt = try coff.base.file.?.preadAll(code.items, file_offset);
         if (amt != code.items.len) return error.InputOutput;
 
-        try coff.writeAtom(atom_index, code.items);
+        try coff.writeAtom(atom_index, code.items, true);
     }
 
     // Update GOT if it got moved in memory.
@@ -1715,6 +1726,21 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     }
 
     assert(!coff.imports_count_dirty);
+
+    // hack for stage2_x86_64 + coff
+    if (comp.compiler_rt_dyn_lib) |crt_file| {
+        const compiler_rt_sub_path = try std.fs.path.join(gpa, &.{
+            std.fs.path.dirname(coff.base.emit.sub_path) orelse "",
+            std.fs.path.basename(crt_file.full_object_path.sub_path),
+        });
+        defer gpa.free(compiler_rt_sub_path);
+        try crt_file.full_object_path.root_dir.handle.copyFile(
+            crt_file.full_object_path.sub_path,
+            coff.base.emit.root_dir.handle,
+            compiler_rt_sub_path,
+            .{},
+        );
+    }
 }
 
 pub fn getNavVAddr(
@@ -1726,7 +1752,7 @@ pub fn getNavVAddr(
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     const nav = ip.getNav(nav_index);
-    log.debug("getNavVAddr {}({d})", .{ nav.fqn.fmt(ip), nav_index });
+    log.debug("getNavVAddr {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
     const sym_index = if (nav.getExtern(ip)) |e|
         try coff.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip))
     else
@@ -1755,7 +1781,7 @@ pub fn lowerUav(
     uav: InternPool.Index,
     explicit_alignment: InternPool.Alignment,
     src_loc: Zcu.LazySrcLoc,
-) !codegen.GenResult {
+) !codegen.SymbolResult {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const val = Value.fromInterned(uav);
@@ -1767,7 +1793,7 @@ pub fn lowerUav(
         const atom = coff.getAtom(metadata.atom);
         const existing_addr = atom.getSymbol(coff).value;
         if (uav_alignment.check(existing_addr))
-            return .{ .mcv = .{ .load_symbol = atom.getSymbolIndex().? } };
+            return .{ .sym_index = atom.getSymbolIndex().? };
     }
 
     var name_buf: [32]u8 = undefined;
@@ -1798,9 +1824,7 @@ pub fn lowerUav(
         .atom = atom_index,
         .section = coff.rdata_section_index.?,
     });
-    return .{ .mcv = .{
-        .load_symbol = coff.getAtom(atom_index).getSymbolIndex().?,
-    } };
+    return .{ .sym_index = coff.getAtom(atom_index).getSymbolIndex().? };
 }
 
 pub fn getUavVAddr(
@@ -2153,7 +2177,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 }
 
 fn writeHeader(coff: *Coff) !void {
-    const target = coff.base.comp.root_mod.resolved_target.result;
+    const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
     var buffer = std.ArrayList(u8).init(gpa);
     defer buffer.deinit();
@@ -2464,11 +2488,6 @@ const GetOrPutGlobalPtrResult = struct {
     value_ptr: *SymbolWithLoc,
 };
 
-/// Used only for disambiguating local from global at relocation level.
-/// TODO this must go away.
-pub const global_symbol_bit: u32 = 0x80000000;
-pub const global_symbol_mask: u32 = 0x7fffffff;
-
 /// Return pointer to the global entry for `name` if one exists.
 /// Puts a new global entry for `name` if one doesn't exist, and
 /// returns a pointer to it.
@@ -2573,7 +2592,7 @@ fn logSymtab(coff: *Coff) void {
             .DEBUG => unreachable, // TODO
             else => @intFromEnum(sym.section_number),
         };
-        log.debug("    %{d}: {?s} @{x} in {s}({d}), {s}", .{
+        log.debug("    %{d}: {s} @{x} in {s}({d}), {s}", .{
             sym_id,
             coff.getSymbolName(.{ .sym_index = @as(u32, @intCast(sym_id)), .file = null }),
             sym.value,
@@ -2590,7 +2609,7 @@ fn logSymtab(coff: *Coff) void {
     }
 
     log.debug("GOT entries:", .{});
-    log.debug("{}", .{coff.got_table});
+    log.debug("{f}", .{coff.got_table});
 }
 
 fn logSections(coff: *Coff) void {
@@ -2610,7 +2629,7 @@ fn logImportTables(coff: *const Coff) void {
     log.debug("import tables:", .{});
     for (coff.import_tables.keys(), 0..) |off, i| {
         const itable = coff.import_tables.values()[i];
-        log.debug("{}", .{itable.fmtDebug(.{
+        log.debug("{f}", .{itable.fmtDebug(.{
             .coff = coff,
             .index = i,
             .name_off = off,
@@ -2800,7 +2819,7 @@ pub const Relocation = struct {
             .ptr_width = coff.ptr_width,
         };
 
-        const target = coff.base.comp.root_mod.resolved_target.result;
+        const target = &coff.base.comp.root_mod.resolved_target.result;
         switch (target.cpu.arch) {
             .aarch64 => reloc.resolveAarch64(ctx),
             .x86, .x86_64 => reloc.resolveX86(ctx),
@@ -2817,58 +2836,33 @@ pub const Relocation = struct {
     };
 
     fn resolveAarch64(reloc: Relocation, ctx: Context) void {
+        const Instruction = aarch64_util.encoding.Instruction;
         var buffer = ctx.code[reloc.offset..];
         switch (reloc.type) {
             .got_page, .import_page, .page => {
                 const source_page = @as(i32, @intCast(ctx.source_vaddr >> 12));
                 const target_page = @as(i32, @intCast(ctx.target_vaddr >> 12));
-                const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
-                var inst = aarch64_util.Instruction{
-                    .pc_relative_address = mem.bytesToValue(@FieldType(
-                        aarch64_util.Instruction,
-                        @tagName(aarch64_util.Instruction.pc_relative_address),
-                    ), buffer[0..4]),
-                };
-                inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
-                inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                const pages: i21 = @intCast(target_page - source_page);
+                var inst: Instruction = .read(buffer[0..Instruction.size]);
+                inst.data_processing_immediate.pc_relative_addressing.group.immhi = @intCast(pages >> 2);
+                inst.data_processing_immediate.pc_relative_addressing.group.immlo = @truncate(@as(u21, @bitCast(pages)));
+                inst.write(buffer[0..Instruction.size]);
             },
             .got_pageoff, .import_pageoff, .pageoff => {
                 assert(!reloc.pcrel);
 
-                const narrowed = @as(u12, @truncate(@as(u64, @intCast(ctx.target_vaddr))));
-                if (isArithmeticOp(buffer[0..4])) {
-                    var inst = aarch64_util.Instruction{
-                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
-                            aarch64_util.Instruction,
-                            @tagName(aarch64_util.Instruction.add_subtract_immediate),
-                        ), buffer[0..4]),
-                    };
-                    inst.add_subtract_immediate.imm12 = narrowed;
-                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
-                } else {
-                    var inst = aarch64_util.Instruction{
-                        .load_store_register = mem.bytesToValue(@FieldType(
-                            aarch64_util.Instruction,
-                            @tagName(aarch64_util.Instruction.load_store_register),
-                        ), buffer[0..4]),
-                    };
-                    const offset: u12 = blk: {
-                        if (inst.load_store_register.size == 0) {
-                            if (inst.load_store_register.v == 1) {
-                                // 128-bit SIMD is scaled by 16.
-                                break :blk @divExact(narrowed, 16);
-                            }
-                            // Otherwise, 8-bit SIMD or ldrb.
-                            break :blk narrowed;
-                        } else {
-                            const denom: u4 = math.powi(u4, 2, inst.load_store_register.size) catch unreachable;
-                            break :blk @divExact(narrowed, denom);
-                        }
-                    };
-                    inst.load_store_register.offset = offset;
-                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                const narrowed: u12 = @truncate(@as(u64, @intCast(ctx.target_vaddr)));
+                var inst: Instruction = .read(buffer[0..Instruction.size]);
+                switch (inst.decode()) {
+                    else => unreachable,
+                    .data_processing_immediate => inst.data_processing_immediate.add_subtract_immediate.group.imm12 = narrowed,
+                    .load_store => |load_store| inst.load_store.register_unsigned_immediate.group.imm12 =
+                        switch (load_store.register_unsigned_immediate.decode()) {
+                            .integer => |integer| @shrExact(narrowed, @intFromEnum(integer.group.size)),
+                            .vector => |vector| @shrExact(narrowed, @intFromEnum(vector.group.opc1.decode(vector.group.size))),
+                        },
                 }
+                inst.write(buffer[0..Instruction.size]);
             },
             .direct => {
                 assert(!reloc.pcrel);
@@ -2918,11 +2912,6 @@ pub const Relocation = struct {
                 }
             },
         }
-    }
-
-    fn isArithmeticOp(inst: *const [4]u8) bool {
-        const group_decode = @as(u5, @truncate(inst[3]));
-        return ((group_decode >> 2) == 4);
     }
 };
 
@@ -3046,40 +3035,25 @@ const ImportTable = struct {
         return base_vaddr + index * @sizeOf(u64);
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         itab: ImportTable,
         ctx: Context,
+
+        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+            const lib_name = f.ctx.coff.temp_strtab.getAssumeExists(f.ctx.name_off);
+            const base_vaddr = getBaseAddress(f.ctx);
+            try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
+            for (f.itab.entries.items, 0..) |entry, i| {
+                try writer.print("\n  {d}@{?x} => {s}", .{
+                    i,
+                    f.itab.getImportAddress(entry, f.ctx),
+                    f.ctx.coff.getSymbolName(entry),
+                });
+            }
+        }
     };
 
-    fn format(itab: ImportTable, comptime unused_format_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = itab;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format ImportTable directly; use itab.fmtDebug()");
-    }
-
-    fn format2(
-        fmt_ctx: FormatContext,
-        comptime unused_format_string: []const u8,
-        options: fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        comptime assert(unused_format_string.len == 0);
-        const lib_name = fmt_ctx.ctx.coff.temp_strtab.getAssumeExists(fmt_ctx.ctx.name_off);
-        const base_vaddr = getBaseAddress(fmt_ctx.ctx);
-        try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });
-        for (fmt_ctx.itab.entries.items, 0..) |entry, i| {
-            try writer.print("\n  {d}@{?x} => {s}", .{
-                i,
-                fmt_ctx.itab.getImportAddress(entry, fmt_ctx.ctx),
-                fmt_ctx.ctx.coff.getSymbolName(entry),
-            });
-        }
-    }
-
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(format2) {
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(Format, Format.default) {
         return .{ .data = .{ .itab = itab, .ctx = ctx } };
     }
 
@@ -3112,7 +3086,7 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Cache = std.Build.Cache;
 
-const aarch64_util = @import("../arch/aarch64/bits.zig");
+const aarch64_util = link.aarch64;
 const allocPrint = std.fmt.allocPrint;
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

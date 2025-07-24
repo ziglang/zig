@@ -28,6 +28,8 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
+    main.root_module.linkSystemLibrary("advapi32", .{});
+
     const run = b.addRunArtifact(main);
     run.addArtifactArg(hello);
     run.expectExitCode(0);

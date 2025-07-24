@@ -15,9 +15,7 @@ const Wyhash = std.hash.Wyhash;
 
 const spec = @import("spec.zig");
 const Word = spec.Word;
-const IdRef = spec.IdRef;
-const IdResult = spec.IdResult;
-const IdResultType = spec.IdResultType;
+const Id = spec.Id;
 
 const Section = @import("Section.zig");
 
@@ -82,7 +80,7 @@ pub const Decl = struct {
     /// - For `func`, this is the result-id of the associated OpFunction instruction.
     /// - For `global`, this is the result-id of the associated OpVariable instruction.
     /// - For `invocation_global`, this is the result-id of the associated InvocationGlobal instruction.
-    result_id: IdRef,
+    result_id: Id,
     /// The offset of the first dependency of this decl in the `decl_deps` array.
     begin_dep: u32,
     /// The past-end offset of the dependencies of this decl in the `decl_deps` array.
@@ -107,7 +105,7 @@ gpa: Allocator,
 arena: std.heap.ArenaAllocator,
 
 /// Target info
-target: std.Target,
+target: *const std.Target,
 
 /// The target SPIR-V version
 version: spec.Version,
@@ -150,7 +148,7 @@ sections: struct {
 next_result_id: Word,
 
 /// Cache for results of OpString instructions.
-strings: std.StringArrayHashMapUnmanaged(IdRef) = .empty,
+strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
 
 /// Some types shouldn't be emitted more than one time, but cannot be caught by
 /// the `intern_map` during codegen. Sometimes, IDs are compared to check if
@@ -161,20 +159,20 @@ strings: std.StringArrayHashMapUnmanaged(IdRef) = .empty,
 /// Additionally, this is used for other values which can be cached, for example,
 /// built-in variables.
 cache: struct {
-    bool_type: ?IdRef = null,
-    void_type: ?IdRef = null,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, IdRef) = .empty,
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, IdRef) = .empty,
-    vector_types: std.AutoHashMapUnmanaged(struct { IdRef, u32 }, IdRef) = .empty,
-    array_types: std.AutoHashMapUnmanaged(struct { IdRef, IdRef }, IdRef) = .empty,
+    bool_type: ?Id = null,
+    void_type: ?Id = null,
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
+    vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
+    array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
 
     capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
     extensions: std.StringHashMapUnmanaged(void) = .empty,
-    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, IdRef) = .empty,
-    decorations: std.AutoHashMapUnmanaged(struct { IdRef, spec.Decoration }, void) = .empty,
-    builtins: std.AutoHashMapUnmanaged(struct { IdRef, spec.BuiltIn }, Decl.Index) = .empty,
+    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
+    decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
+    builtins: std.AutoHashMapUnmanaged(struct { Id, spec.BuiltIn }, Decl.Index) = .empty,
 
-    bool_const: [2]?IdRef = .{ null, null },
+    bool_const: [2]?Id = .{ null, null },
 } = .{},
 
 /// Set of Decls, referred to by Decl.Index.
@@ -185,9 +183,9 @@ decls: std.ArrayListUnmanaged(Decl) = .empty,
 decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
 
 /// The list of entry points that should be exported from this module.
-entry_points: std.AutoArrayHashMapUnmanaged(IdRef, EntryPoint) = .empty,
+entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
 
-pub fn init(gpa: Allocator, target: std.Target) Module {
+pub fn init(gpa: Allocator, target: *const std.Target) Module {
     const version_minor: u8 = blk: {
         // Prefer higher versions
         if (target.cpu.has(.spirv, .v1_6)) break :blk 6;
@@ -245,7 +243,7 @@ pub const IdRange = struct {
     base: u32,
     len: u32,
 
-    pub fn at(range: IdRange, i: usize) IdResult {
+    pub fn at(range: IdRange, i: usize) Id {
         assert(i < range.len);
         return @enumFromInt(range.base + i);
     }
@@ -259,7 +257,7 @@ pub fn allocIds(self: *Module, n: u32) IdRange {
     };
 }
 
-pub fn allocId(self: *Module) IdResult {
+pub fn allocId(self: *Module) Id {
     return self.allocIds(1).at(0);
 }
 
@@ -275,7 +273,7 @@ fn addEntryPointDeps(
     self: *Module,
     decl_index: Decl.Index,
     seen: *std.DynamicBitSetUnmanaged,
-    interface: *std.ArrayList(IdRef),
+    interface: *std.ArrayList(Id),
 ) !void {
     const decl = self.declPtr(decl_index);
     const deps = self.decl_deps.items[decl.begin_dep..decl.end_dep];
@@ -299,7 +297,7 @@ fn entryPoints(self: *Module) !Section {
     var entry_points = Section{};
     errdefer entry_points.deinit(self.gpa);
 
-    var interface = std.ArrayList(IdRef).init(self.gpa);
+    var interface = std.ArrayList(Id).init(self.gpa);
     defer interface.deinit();
 
     var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
@@ -317,12 +315,12 @@ fn entryPoints(self: *Module) !Section {
             .interface = interface.items,
         });
 
-        if (entry_point.exec_mode == null and entry_point.exec_model == .Fragment) {
+        if (entry_point.exec_mode == null and entry_point.exec_model == .fragment) {
             switch (self.target.os.tag) {
                 .vulkan, .opengl => |tag| {
                     try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
                         .entry_point = entry_point_id,
-                        .mode = if (tag == .vulkan) .OriginUpperLeft else .OriginLowerLeft,
+                        .mode = if (tag == .vulkan) .origin_upper_left else .origin_lower_left,
                     });
                 },
                 .opencl => {},
@@ -336,71 +334,61 @@ fn entryPoints(self: *Module) !Section {
 
 pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Emit capabilities and extensions
-    for (std.Target.spirv.all_features) |feature| {
-        if (self.target.cpu.features.isEnabled(feature.index)) {
-            const feature_tag: std.Target.spirv.Feature = @enumFromInt(feature.index);
-            switch (feature_tag) {
-                // Versions
-                .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => {},
-                // Features with no dependencies
-                .int64 => try self.addCapability(.Int64),
-                .float16 => try self.addCapability(.Float16),
-                .float64 => try self.addCapability(.Float64),
-                .matrix => try self.addCapability(.Matrix),
-                .storage_push_constant16 => {
-                    try self.addExtension("SPV_KHR_16bit_storage");
-                    try self.addCapability(.StoragePushConstant16);
-                },
-                .arbitrary_precision_integers => {
-                    try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
-                    try self.addCapability(.ArbitraryPrecisionIntegersINTEL);
-                },
-                .addresses => try self.addCapability(.Addresses),
-                // Kernel
-                .kernel => try self.addCapability(.Kernel),
-                .generic_pointer => try self.addCapability(.GenericPointer),
-                .vector16 => try self.addCapability(.Vector16),
-                // Shader
-                .shader => try self.addCapability(.Shader),
-                .variable_pointers => {
-                    try self.addExtension("SPV_KHR_variable_pointers");
-                    try self.addCapability(.VariablePointersStorageBuffer);
-                    try self.addCapability(.VariablePointers);
-                },
-                .physical_storage_buffer => {
-                    try self.addExtension("SPV_KHR_physical_storage_buffer");
-                    try self.addCapability(.PhysicalStorageBufferAddresses);
-                },
+    switch (self.target.os.tag) {
+        .opengl => {
+            try self.addCapability(.shader);
+            try self.addCapability(.matrix);
+        },
+        .vulkan => {
+            try self.addCapability(.shader);
+            try self.addCapability(.matrix);
+            if (self.target.cpu.arch == .spirv64) {
+                try self.addExtension("SPV_KHR_physical_storage_buffer");
+                try self.addCapability(.physical_storage_buffer_addresses);
             }
-        }
+        },
+        .opencl, .amdhsa => {
+            try self.addCapability(.kernel);
+            try self.addCapability(.addresses);
+        },
+        else => unreachable,
+    }
+    if (self.target.cpu.arch == .spirv64) try self.addCapability(.int64);
+    if (self.target.cpu.has(.spirv, .int64)) try self.addCapability(.int64);
+    if (self.target.cpu.has(.spirv, .float16)) try self.addCapability(.float16);
+    if (self.target.cpu.has(.spirv, .float64)) try self.addCapability(.float64);
+    if (self.target.cpu.has(.spirv, .generic_pointer)) try self.addCapability(.generic_pointer);
+    if (self.target.cpu.has(.spirv, .vector16)) try self.addCapability(.vector16);
+    if (self.target.cpu.has(.spirv, .storage_push_constant16)) {
+        try self.addExtension("SPV_KHR_16bit_storage");
+        try self.addCapability(.storage_push_constant16);
+    }
+    if (self.target.cpu.has(.spirv, .arbitrary_precision_integers)) {
+        try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
+        try self.addCapability(.arbitrary_precision_integers_intel);
+    }
+    if (self.target.cpu.has(.spirv, .variable_pointers)) {
+        try self.addExtension("SPV_KHR_variable_pointers");
+        try self.addCapability(.variable_pointers_storage_buffer);
+        try self.addCapability(.variable_pointers);
     }
     // These are well supported
-    try self.addCapability(.Int8);
-    try self.addCapability(.Int16);
+    try self.addCapability(.int8);
+    try self.addCapability(.int16);
 
     // Emit memory model
-    const addressing_model: spec.AddressingModel = blk: {
-        if (self.hasFeature(.shader)) {
-            if (self.hasFeature(.physical_storage_buffer)) {
-                assert(self.target.cpu.arch == .spirv64);
-                break :blk .PhysicalStorageBuffer64;
-            }
-            assert(self.target.cpu.arch == .spirv);
-            break :blk .Logical;
-        }
-
-        assert(self.hasFeature(.kernel));
-        break :blk switch (self.target.cpu.arch) {
-            .spirv32 => .Physical32,
-            .spirv64 => .Physical64,
-            else => unreachable,
-        };
+    const addressing_model: spec.AddressingModel = switch (self.target.os.tag) {
+        .opengl => .logical,
+        .vulkan => if (self.target.cpu.arch == .spirv32) .logical else .physical_storage_buffer64,
+        .opencl => if (self.target.cpu.arch == .spirv32) .physical32 else .physical64,
+        .amdhsa => .physical64,
+        else => unreachable,
     };
     try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
         .memory_model = switch (self.target.os.tag) {
-            .opencl => .OpenCL,
-            .vulkan, .opengl => .GLSL450,
+            .opencl => .open_cl,
+            .vulkan, .opengl => .glsl450,
             else => unreachable,
         },
     });
@@ -421,7 +409,7 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
     var source = Section{};
     defer source.deinit(self.gpa);
     try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
-        .source_language = .Zig,
+        .source_language = .zig,
         .version = 0,
         // We cannot emit these because the Khronos translator does not parse this instruction
         // correctly.
@@ -483,7 +471,7 @@ pub fn addExtension(self: *Module, ext: []const u8) !void {
 }
 
 /// Imports or returns the existing id of an extended instruction set
-pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !IdRef {
+pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !Id {
     assert(set != .core);
 
     const gop = try self.cache.extended_instruction_set.getOrPut(self.gpa, set);
@@ -500,7 +488,7 @@ pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !IdRef {
 }
 
 /// Fetch the result-id of an instruction corresponding to a string.
-pub fn resolveString(self: *Module, string: []const u8) !IdRef {
+pub fn resolveString(self: *Module, string: []const u8) !Id {
     if (self.strings.get(string)) |id| {
         return id;
     }
@@ -516,7 +504,7 @@ pub fn resolveString(self: *Module, string: []const u8) !IdRef {
     return id;
 }
 
-pub fn structType(self: *Module, result_id: IdResult, types: []const IdRef, maybe_names: ?[]const []const u8) !void {
+pub fn structType(self: *Module, result_id: Id, types: []const Id, maybe_names: ?[]const []const u8) !void {
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeStruct, .{
         .id_result = result_id,
         .id_ref = types,
@@ -530,7 +518,7 @@ pub fn structType(self: *Module, result_id: IdResult, types: []const IdRef, mayb
     }
 }
 
-pub fn boolType(self: *Module) !IdRef {
+pub fn boolType(self: *Module) !Id {
     if (self.cache.bool_type) |id| return id;
 
     const result_id = self.allocId();
@@ -541,7 +529,7 @@ pub fn boolType(self: *Module) !IdRef {
     return result_id;
 }
 
-pub fn voidType(self: *Module) !IdRef {
+pub fn voidType(self: *Module) !Id {
     if (self.cache.void_type) |id| return id;
 
     const result_id = self.allocId();
@@ -553,7 +541,7 @@ pub fn voidType(self: *Module) !IdRef {
     return result_id;
 }
 
-pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !IdRef {
+pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
     assert(bits > 0);
     const entry = try self.cache.int_types.getOrPut(self.gpa, .{ .signedness = signedness, .bits = bits });
     if (!entry.found_existing) {
@@ -576,7 +564,7 @@ pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Id
     return entry.value_ptr.*;
 }
 
-pub fn floatType(self: *Module, bits: u16) !IdRef {
+pub fn floatType(self: *Module, bits: u16) !Id {
     assert(bits > 0);
     const entry = try self.cache.float_types.getOrPut(self.gpa, .{ .bits = bits });
     if (!entry.found_existing) {
@@ -591,7 +579,7 @@ pub fn floatType(self: *Module, bits: u16) !IdRef {
     return entry.value_ptr.*;
 }
 
-pub fn vectorType(self: *Module, len: u32, child_ty_id: IdRef) !IdRef {
+pub fn vectorType(self: *Module, len: u32, child_ty_id: Id) !Id {
     const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_ty_id, len });
     if (!entry.found_existing) {
         const result_id = self.allocId();
@@ -605,7 +593,7 @@ pub fn vectorType(self: *Module, len: u32, child_ty_id: IdRef) !IdRef {
     return entry.value_ptr.*;
 }
 
-pub fn arrayType(self: *Module, len_id: IdRef, child_ty_id: IdRef) !IdRef {
+pub fn arrayType(self: *Module, len_id: Id, child_ty_id: Id) !Id {
     const entry = try self.cache.array_types.getOrPut(self.gpa, .{ child_ty_id, len_id });
     if (!entry.found_existing) {
         const result_id = self.allocId();
@@ -619,7 +607,7 @@ pub fn arrayType(self: *Module, len_id: IdRef, child_ty_id: IdRef) !IdRef {
     return entry.value_ptr.*;
 }
 
-pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const IdRef) !IdRef {
+pub fn functionType(self: *Module, return_ty_id: Id, param_type_ids: []const Id) !Id {
     const result_id = self.allocId();
     try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFunction, .{
         .id_result = result_id,
@@ -629,7 +617,7 @@ pub fn functionType(self: *Module, return_ty_id: IdRef, param_type_ids: []const 
     return result_id;
 }
 
-pub fn constant(self: *Module, result_ty_id: IdRef, value: spec.LiteralContextDependentNumber) !IdRef {
+pub fn constant(self: *Module, result_ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
     const result_id = self.allocId();
     const section = &self.sections.types_globals_constants;
     try section.emit(self.gpa, .OpConstant, .{
@@ -640,7 +628,7 @@ pub fn constant(self: *Module, result_ty_id: IdRef, value: spec.LiteralContextDe
     return result_id;
 }
 
-pub fn constBool(self: *Module, value: bool) !IdRef {
+pub fn constBool(self: *Module, value: bool) !Id {
     if (self.cache.bool_const[@intFromBool(value)]) |b| return b;
 
     const result_ty_id = try self.boolType();
@@ -663,7 +651,7 @@ pub fn constBool(self: *Module, value: bool) !IdRef {
 
 /// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
 /// with storage class `.Input`.
-pub fn builtin(self: *Module, result_ty_id: IdRef, spirv_builtin: spec.BuiltIn) !Decl.Index {
+pub fn builtin(self: *Module, result_ty_id: Id, spirv_builtin: spec.BuiltIn) !Decl.Index {
     const entry = try self.cache.builtins.getOrPut(self.gpa, .{ result_ty_id, spirv_builtin });
     if (!entry.found_existing) {
         const decl_index = try self.allocDecl(.global);
@@ -672,15 +660,15 @@ pub fn builtin(self: *Module, result_ty_id: IdRef, spirv_builtin: spec.BuiltIn) 
         try self.sections.types_globals_constants.emit(self.gpa, .OpVariable, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
-            .storage_class = .Input,
+            .storage_class = .input,
         });
-        try self.decorate(result_id, .{ .BuiltIn = .{ .built_in = spirv_builtin } });
+        try self.decorate(result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
         try self.declareDeclDeps(decl_index, &.{});
     }
     return entry.value_ptr.*;
 }
 
-pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {
+pub fn constUndef(self: *Module, ty_id: Id) !Id {
     const result_id = self.allocId();
     try self.sections.types_globals_constants.emit(self.gpa, .OpUndef, .{
         .id_result_type = ty_id,
@@ -689,7 +677,7 @@ pub fn constUndef(self: *Module, ty_id: IdRef) !IdRef {
     return result_id;
 }
 
-pub fn constNull(self: *Module, ty_id: IdRef) !IdRef {
+pub fn constNull(self: *Module, ty_id: Id) !Id {
     const result_id = self.allocId();
     try self.sections.types_globals_constants.emit(self.gpa, .OpConstantNull, .{
         .id_result_type = ty_id,
@@ -701,7 +689,7 @@ pub fn constNull(self: *Module, ty_id: IdRef) !IdRef {
 /// Decorate a result-id.
 pub fn decorate(
     self: *Module,
-    target: IdRef,
+    target: Id,
     decoration: spec.Decoration.Extended,
 ) !void {
     const entry = try self.cache.decorations.getOrPut(self.gpa, .{ target, decoration });
@@ -717,7 +705,7 @@ pub fn decorate(
 /// We really don't have to and shouldn't need to cache this.
 pub fn decorateMember(
     self: *Module,
-    structure_type: IdRef,
+    structure_type: Id,
     member: u32,
     decoration: spec.Decoration.Extended,
 ) !void {
@@ -772,20 +760,20 @@ pub fn declareEntryPoint(
     if (!gop.found_existing) gop.value_ptr.exec_mode = exec_mode;
 }
 
-pub fn debugName(self: *Module, target: IdResult, name: []const u8) !void {
+pub fn debugName(self: *Module, target: Id, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpName, .{
         .target = target,
         .name = name,
     });
 }
 
-pub fn debugNameFmt(self: *Module, target: IdResult, comptime fmt: []const u8, args: anytype) !void {
+pub fn debugNameFmt(self: *Module, target: Id, comptime fmt: []const u8, args: anytype) !void {
     const name = try std.fmt.allocPrint(self.gpa, fmt, args);
     defer self.gpa.free(name);
     try self.debugName(target, name);
 }
 
-pub fn memberDebugName(self: *Module, target: IdResult, member: u32, name: []const u8) !void {
+pub fn memberDebugName(self: *Module, target: Id, member: u32, name: []const u8) !void {
     try self.sections.debug_names.emit(self.gpa, .OpMemberName, .{
         .type = target,
         .member = member,

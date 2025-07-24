@@ -20,8 +20,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (@intFromEnum(number)),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -29,8 +28,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -39,8 +37,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -50,8 +47,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -62,8 +58,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
           [arg4] "{r10}" (arg4),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -75,8 +70,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{rdx}" (arg3),
           [arg4] "{r10}" (arg4),
           [arg5] "{r8}" (arg5),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall6(
@@ -97,8 +91,7 @@ pub fn syscall6(
           [arg4] "{r10}" (arg4),
           [arg5] "{r8}" (arg5),
           [arg6] "{r9}" (arg6),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn clone() callconv(.naked) usize {
@@ -144,14 +137,12 @@ pub fn restore_rt() callconv(.naked) noreturn {
             \\ syscall
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : "rcx", "r11", "memory"
-        ),
+            : .{ .rcx = true, .r11 = true, .memory = true }),
         else => asm volatile (
             \\ syscall
             :
             : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "rcx", "r11", "memory"
-        ),
+            : .{ .rcx = true, .r11 = true, .memory = true }),
     }
 }
 
@@ -231,30 +222,6 @@ pub const Flock = extern struct {
     start: off_t,
     len: off_t,
     pid: pid_t,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
 };
 
 pub const off_t = i64;
@@ -464,8 +431,7 @@ fn getContextInternal() callconv(.naked) usize {
           [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
           [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
           [sigset_size] "i" (@sizeOf(sigset_t)),
-        : "cc", "memory", "rax", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
-    );
+        : .{ .cc = true, .memory = true, .rax = true, .rcx = true, .rdx = true, .rdi = true, .rsi = true, .r8 = true, .r10 = true, .r11 = true });
 }
 
 pub inline fn getcontext(context: *ucontext_t) usize {
@@ -479,6 +445,5 @@ pub inline fn getcontext(context: *ucontext_t) usize {
           [_] "={rdi}" (clobber_rdi),
         : [_] "{rdi}" (context),
           [getContextInternal] "X" (&getContextInternal),
-        : "cc", "memory", "rcx", "rdx", "rsi", "r8", "r10", "r11"
-    );
+        : .{ .cc = true, .memory = true, .rcx = true, .rdx = true, .rsi = true, .r8 = true, .r10 = true, .r11 = true });
 }

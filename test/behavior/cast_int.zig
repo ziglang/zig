@@ -5,7 +5,6 @@ const expectEqual = std.testing.expectEqual;
 const maxInt = std.math.maxInt;
 
 test "@intCast i32 to u7" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -19,7 +18,6 @@ test "@intCast i32 to u7" {
 }
 
 test "coerce i8 to i32 and @intCast back" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -35,6 +33,8 @@ test "coerce i8 to i32 and @intCast back" {
 }
 
 test "coerce non byte-sized integers accross 32bits boundary" {
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
+
     {
         var v: u21 = 6417;
         _ = &v;
@@ -163,9 +163,11 @@ const Piece = packed struct {
     }
 };
 
+// Originally reported at https://github.com/ziglang/zig/issues/14200
 test "load non byte-sized optional value" {
-    // Originally reported at https://github.com/ziglang/zig/issues/14200
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     // note: this bug is triggered by the == operator, expectEqual will hide it
     const opt: ?Piece = try Piece.charToPiece('p');
@@ -179,8 +181,10 @@ test "load non byte-sized optional value" {
 }
 
 test "load non byte-sized value in struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.cpu.arch.endian() != .little) return error.SkipZigTest; // packed struct TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     // note: this bug is triggered by the == operator, expectEqual will hide it
     // using ptrCast not to depend on unitialised memory state

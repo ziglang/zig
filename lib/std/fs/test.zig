@@ -1435,14 +1435,17 @@ test "setEndPos" {
     try testing.expectEqual(0, try f.preadAll(&buffer, 0));
 
     // Invalid file length should error gracefully. Actual limit is host
-    // and file-system dependent, but 1PB should fail most everywhere.
-    // Except MacOS APFS limit is 8 exabytes.
+    // and file-system dependent, but 1PB should fail on filesystems like
+    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
     f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
         return err;
     };
 
-    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63))); // Maximum signed value
+    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
 
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
     try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
 }
 
@@ -1496,32 +1499,18 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
+    var file_reader = src_file.reader(&.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
     const amt = try dest_file.preadAll(&written_buf, 0);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
@@ -1592,9 +1581,10 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
             const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
@@ -1795,11 +1785,11 @@ test "walker" {
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
         testing.expect(expected_basenames.has(entry.basename)) catch |err| {
-            std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
             return err;
         };
         testing.expect(expected_paths.has(entry.path)) catch |err| {
-            std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
         // make sure that the entry.dir is the containing dir
@@ -1950,113 +1940,6 @@ test "chown" {
     try dir.chown(null, null);
 }
 
-test "File.Metadata" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    try testing.expectEqual(File.Kind.file, metadata.kind());
-    try testing.expectEqual(@as(u64, 0), metadata.size());
-    _ = metadata.accessed();
-    _ = metadata.modified();
-    _ = metadata.created();
-}
-
-test "File.Permissions" {
-    if (native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    try testing.expect(!permissions.readOnly());
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-
-    try file.setPermissions(permissions);
-    const new_permissions = (try file.metadata()).permissions();
-    try testing.expect(new_permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-}
-
-test "File.PermissionsUnix" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-    try testing.expect(!permissions.inner.unixHas(.user, .write));
-    permissions.inner.unixSet(.user, .{ .write = true });
-    try testing.expect(!permissions.readOnly());
-    try testing.expect(permissions.inner.unixHas(.user, .write));
-    try testing.expect(permissions.inner.mode & 0o400 != 0);
-
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-    permissions = (try file.metadata()).permissions();
-    try testing.expect(permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-
-    const permissions_unix = File.PermissionsUnix.unixNew(0o754);
-    try testing.expect(permissions_unix.unixHas(.user, .execute));
-    try testing.expect(!permissions_unix.unixHas(.other, .execute));
-}
-
-test "delete a read-only file on windows" {
-    if (native_os != .windows)
-        return error.SkipZigTest;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-    // Create a file and make it read-only
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-
-    // If the OS and filesystem support it, POSIX_SEMANTICS and IGNORE_READONLY_ATTRIBUTE
-    // is used meaning that the deletion of a read-only file will succeed.
-    // Otherwise, this delete will fail and the read-only flag must be unset before it's
-    // able to be deleted.
-    const delete_result = tmp.dir.deleteFile("test_file");
-    if (delete_result) {
-        try testing.expectError(error.FileNotFound, tmp.dir.deleteFile("test_file"));
-    } else |err| {
-        try testing.expectEqual(@as(anyerror, error.AccessDenied), err);
-        // Now make the file not read-only
-        permissions.setReadOnly(false);
-        try file.setPermissions(permissions);
-        try tmp.dir.deleteFile("test_file");
-    }
-}
-
 test "delete a setAsCwd directory on Windows" {
     if (native_os != .windows) return error.SkipZigTest;
 
@@ -2174,4 +2057,75 @@ test "invalid UTF-8/WTF-8 paths" {
             }
         }
     }.impl);
+}
+
+test "read file non vectored" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "hello, world!\n";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var file_reader: std.fs.File.Reader = .init(file, &.{});
+
+    var write_buffer: [100]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&write_buffer);
+
+    var i: usize = 0;
+    while (true) {
+        i += file_reader.interface.stream(&w, .limited(3)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+    }
+    try testing.expectEqualStrings(contents, w.buffered());
+    try testing.expectEqual(contents.len, i);
+}
+
+test "seek keeping partial buffer" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "0123456789";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [3]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    try testing.expectEqual(0, file_reader.logicalPos());
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+
+    if (file_reader.interface.bufferedLen() != 3) {
+        // Pass the test if the OS doesn't give us vectored reads.
+        return;
+    }
+
+    try testing.expectEqual(4, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+    try file_reader.seekTo(6);
+    try testing.expectEqual(6, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+
+    try testing.expectEqualStrings("0123", &buf);
+
+    const n = try file_reader.interface.readSliceShort(&buf);
+    try testing.expectEqual(4, n);
+
+    try testing.expectEqualStrings("6789", &buf);
 }

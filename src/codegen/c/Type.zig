@@ -209,7 +209,7 @@ pub fn getStandardDefineAbbrev(ctype: CType) ?[]const u8 {
     };
 }
 
-pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *const Pool) @TypeOf(writer).Error!void {
+pub fn renderLiteralPrefix(ctype: CType, w: *Writer, kind: Kind, pool: *const Pool) Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -224,7 +224,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .uintptr_t,
             .intptr_t,
             => switch (kind) {
-                else => try writer.print("({s})", .{@tagName(basic_info)}),
+                else => try w.print("({s})", .{@tagName(basic_info)}),
                 .global => {},
             },
             .int,
@@ -246,7 +246,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .int32_t,
             .uint64_t,
             .int64_t,
-            => try writer.print("{s}_C(", .{ctype.getStandardDefineAbbrev().?}),
+            => try w.print("{s}_C(", .{ctype.getStandardDefineAbbrev().?}),
             .zig_u128,
             .zig_i128,
             .zig_f16,
@@ -255,7 +255,7 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .zig_f80,
             .zig_f128,
             .zig_c_longdouble,
-            => try writer.print("zig_{s}_{s}(", .{
+            => try w.print("zig_{s}_{s}(", .{
                 switch (kind) {
                     else => "make",
                     .global => "init",
@@ -265,12 +265,12 @@ pub fn renderLiteralPrefix(ctype: CType, writer: anytype, kind: Kind, pool: *con
             .va_list => unreachable,
             _ => unreachable,
         },
-        .array, .vector => try writer.writeByte('{'),
+        .array, .vector => try w.writeByte('{'),
         else => unreachable,
     }
 }
 
-pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @TypeOf(writer).Error!void {
+pub fn renderLiteralSuffix(ctype: CType, w: *Writer, pool: *const Pool) Writer.Error!void {
     switch (ctype.info(pool)) {
         .basic => |basic_info| switch (basic_info) {
             .void => unreachable,
@@ -280,20 +280,20 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
             .short,
             .int,
             => {},
-            .long => try writer.writeByte('l'),
-            .@"long long" => try writer.writeAll("ll"),
+            .long => try w.writeByte('l'),
+            .@"long long" => try w.writeAll("ll"),
             .@"unsigned char",
             .@"unsigned short",
             .@"unsigned int",
-            => try writer.writeByte('u'),
+            => try w.writeByte('u'),
             .@"unsigned long",
             .size_t,
             .uintptr_t,
-            => try writer.writeAll("ul"),
-            .@"unsigned long long" => try writer.writeAll("ull"),
-            .float => try writer.writeByte('f'),
+            => try w.writeAll("ul"),
+            .@"unsigned long long" => try w.writeAll("ull"),
+            .float => try w.writeByte('f'),
             .double => {},
-            .@"long double" => try writer.writeByte('l'),
+            .@"long double" => try w.writeByte('l'),
             .bool,
             .ptrdiff_t,
             .intptr_t,
@@ -314,11 +314,11 @@ pub fn renderLiteralSuffix(ctype: CType, writer: anytype, pool: *const Pool) @Ty
             .zig_f80,
             .zig_f128,
             .zig_c_longdouble,
-            => try writer.writeByte(')'),
+            => try w.writeByte(')'),
             .va_list => unreachable,
             _ => unreachable,
         },
-        .array, .vector => try writer.writeByte('}'),
+        .array, .vector => try w.writeByte('}'),
         else => unreachable,
     }
 }
@@ -938,19 +938,13 @@ pub const Pool = struct {
         index: String.Index,
 
         const FormatData = struct { string: String, pool: *const Pool };
-        fn format(
-            data: FormatData,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            if (fmt_str.len > 0) @compileError("invalid format string '" ++ fmt_str ++ "'");
+        fn format(data: FormatData, writer: *Writer) Writer.Error!void {
             if (data.string.toSlice(data.pool)) |slice|
                 try writer.writeAll(slice)
             else
                 try writer.print("f{d}", .{@intFromEnum(data.string.index)});
         }
-        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(format) {
+        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(FormatData, format) {
             return .{ .data = .{ .string = str, .pool = pool } };
         }
 
@@ -1319,9 +1313,9 @@ pub const Pool = struct {
             },
             else => {
                 const target = &mod.resolved_target.result;
-                const abi_align_bytes = std.zig.target.intAlignment(target.*, int_info.bits);
+                const abi_align_bytes = std.zig.target.intAlignment(target, int_info.bits);
                 const array_ctype = try pool.getArray(allocator, .{
-                    .len = @divExact(std.zig.target.intByteSize(target.*, int_info.bits), abi_align_bytes),
+                    .len = @divExact(std.zig.target.intByteSize(target, int_info.bits), abi_align_bytes),
                     .elem_ctype = try pool.fromIntInfo(allocator, .{
                         .signedness = .unsigned,
                         .bits = @intCast(abi_align_bytes * 8),
@@ -1438,13 +1432,13 @@ pub const Pool = struct {
                             .elem_ctype = .u8,
                             .@"const" = true,
                         }),
-                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target.*)),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
                     },
                     .{
                         .name = .{ .index = .len },
                         .ctype = .usize,
                         .alignas = AlignAs.fromAbiAlignment(
-                            .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
                         ),
                     },
                 };
@@ -2246,13 +2240,13 @@ pub const Pool = struct {
                                     mod,
                                     kind,
                                 ),
-                                .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target.*)),
+                                .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
                             },
                             .{
                                 .name = .{ .index = .len },
                                 .ctype = .usize,
                                 .alignas = AlignAs.fromAbiAlignment(
-                                    .fromByteUnits(std.zig.target.intAlignment(target.*, target.ptrBitWidth())),
+                                    .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
                                 ),
                             },
                         };
@@ -2372,7 +2366,7 @@ pub const Pool = struct {
                             .name = .{ .index = .@"error" },
                             .ctype = error_set_ctype,
                             .alignas = AlignAs.fromAbiAlignment(
-                                .fromByteUnits(std.zig.target.intAlignment(target.*, error_set_bits)),
+                                .fromByteUnits(std.zig.target.intAlignment(target, error_set_bits)),
                             ),
                         },
                         .{
@@ -2890,7 +2884,7 @@ pub const Pool = struct {
         comptime fmt_str: []const u8,
         fmt_args: anytype,
     ) !String {
-        try pool.string_bytes.writer(allocator).print(fmt_str, fmt_args);
+        try pool.string_bytes.print(allocator, fmt_str, fmt_args);
         return pool.trailingString(allocator);
     }
 
@@ -3281,10 +3275,12 @@ pub const AlignAs = packed struct {
     }
 };
 
+const std = @import("std");
 const assert = std.debug.assert;
+const Writer = std.io.Writer;
+
 const CType = @This();
 const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Package/Module.zig");
-const std = @import("std");
 const Type = @import("../../Type.zig");
 const Zcu = @import("../../Zcu.zig");
