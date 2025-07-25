@@ -2029,7 +2029,10 @@ pub const Writer = struct {
         switch (w.mode) {
             .positional,
             .positional_reading,
-            => try w.file.setEndPos(w.pos),
+            => w.file.setEndPos(w.pos) catch |err| switch (err) {
+                error.NonResizable => return,
+                else => |e| return e,
+            },
 
             .streaming,
             .streaming_reading,
