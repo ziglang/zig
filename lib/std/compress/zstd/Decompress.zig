@@ -151,8 +151,7 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
     const in = d.input;
     const window_len = d.window_len;
 
-    const header_bytes = try in.takeArray(3);
-    const block_header: Frame.Zstandard.Block.Header = @bitCast(header_bytes.*);
+    const block_header = try in.takeStruct(Frame.Zstandard.Block.Header, .little);
     const block_size = block_header.size;
     const frame_block_size_max = state.frame.block_size_max;
     if (frame_block_size_max < block_size) return error.BlockOversize;
