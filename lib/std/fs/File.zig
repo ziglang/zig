@@ -2026,7 +2026,16 @@ pub const Writer = struct {
     /// along with other write failures.
     pub fn end(w: *Writer) EndError!void {
         try w.interface.flush();
-        return w.file.setEndPos(w.pos);
+        switch (w.mode) {
+            .positional,
+            .positional_reading,
+            => try w.file.setEndPos(w.pos),
+
+            .streaming,
+            .streaming_reading,
+            .failure,
+            => {},
+        }
     }
 };
 
