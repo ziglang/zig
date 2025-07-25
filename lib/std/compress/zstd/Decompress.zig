@@ -224,11 +224,6 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
             }
 
             if (bytes_written > frame_block_size_max) return error.BlockOversize;
-
-            state.decompressed_size += bytes_written;
-            if (state.frame.content_size) |size| {
-                if (state.decompressed_size > size) return error.MalformedFrame;
-            }
         },
         .reserved => return error.ReservedBlock,
     }
@@ -239,6 +234,8 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
             @panic("TODO all those bytes written needed to go through the hasher too");
         }
     }
+
+    state.decompressed_size += bytes_written;
 
     if (block_header.last) {
         if (state.frame.has_checksum) {
@@ -254,6 +251,8 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
             }
         }
         d.state = .new_frame;
+    } else if (state.frame.content_size) |content_size| {
+        if (state.decompressed_size > content_size) return error.MalformedFrame;
     }
 
     return bytes_written;
