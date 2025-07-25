@@ -6693,8 +6693,8 @@ pub fn layout(
     wip_mir_log.debug("{f}<body>:\n", .{nav.fqn.fmt(ip)});
 
     const stack_size: u24 = @intCast(InternPool.Alignment.@"16".forward(isel.stack_size));
-    const stack_size_low: u12 = @truncate(stack_size >> 0);
-    const stack_size_high: u12 = @truncate(stack_size >> 12);
+    const stack_size_lo: u12 = @truncate(stack_size >> 0);
+    const stack_size_hi: u12 = @truncate(stack_size >> 12);
 
     var saves_buf: [10 + 8 + 8 + 2 + 8]struct {
         class: enum { integer, vector },
@@ -6881,28 +6881,53 @@ pub fn layout(
             }
         }
 
+        try isel.emit(.add(.fp, .sp, .{ .immediate = frame_record_offset }));
         const scratch_reg: Register = if (isel.stack_align == .@"16")
             .sp
-        else if (stack_size == 0)
+        else if (stack_size == 0 and frame_record_offset == 0)
             .fp
         else
-            .x9;
-        try isel.emit(.add(.fp, .sp, .{ .immediate = frame_record_offset }));
-        if (stack_size_high > 0) try isel.emit(.sub(scratch_reg, .sp, .{
-            .shifted_immediate = .{ .immediate = stack_size_high, .lsl = .@"12" },
-        }));
-        if (stack_size_low > 0) try isel.emit(.sub(
-            scratch_reg,
-            if (stack_size_high > 0) scratch_reg else .sp,
-            .{ .immediate = stack_size_low },
-        ));
-        if (isel.stack_align != .@"16") {
-            try isel.emit(.@"and"(.sp, scratch_reg, .{ .immediate = .{
-                .N = .doubleword,
-                .immr = -%isel.stack_align.toLog2Units(),
-                .imms = ~isel.stack_align.toLog2Units(),
-            } }));
+            .ip0;
+        if (mod.stack_check) {
+            if (stack_size_hi > 2) {
+                try isel.movImmediate(.ip1, stack_size_hi);
+                const loop_label = isel.instructions.items.len;
+                try isel.emit(.sub(.sp, .sp, .{
+                    .shifted_immediate = .{ .immediate = 1, .lsl = .@"12" },
+                }));
+                try isel.emit(.sub(.ip1, .ip1, .{ .immediate = 1 }));
+                try isel.emit(.ldr(.xzr, .{ .base = .sp }));
+                try isel.emit(.cbnz(.ip1, -@as(i21, @intCast(
+                    (isel.instructions.items.len - loop_label) << 2,
+                ))));
+            } else for (0..stack_size_hi) |_| {
+                try isel.emit(.sub(.sp, .sp, .{
+                    .shifted_immediate = .{ .immediate = 1, .lsl = .@"12" },
+                }));
+                try isel.emit(.ldr(.xzr, .{ .base = .sp }));
+            }
+            if (stack_size_lo > 0) try isel.emit(.sub(
+                scratch_reg,
+                .sp,
+                .{ .immediate = stack_size_lo },
+            )) else if (scratch_reg.alias == Register.Alias.ip0)
+                try isel.emit(.add(scratch_reg, .sp, .{ .immediate = 0 }));
+        } else {
+            if (stack_size_hi > 0) try isel.emit(.sub(scratch_reg, .sp, .{
+                .shifted_immediate = .{ .immediate = stack_size_hi, .lsl = .@"12" },
+            }));
+            if (stack_size_lo > 0) try isel.emit(.sub(
+                scratch_reg,
+                if (stack_size_hi > 0) scratch_reg else .sp,
+                .{ .immediate = stack_size_lo },
+            )) else if (scratch_reg.alias == Register.Alias.ip0 and stack_size_hi == 0)
+                try isel.emit(.add(scratch_reg, .sp, .{ .immediate = 0 }));
         }
+        if (isel.stack_align != .@"16") try isel.emit(.@"and"(.sp, scratch_reg, .{ .immediate = .{
+            .N = .doubleword,
+            .immr = -%isel.stack_align.toLog2Units(),
+            .imms = ~isel.stack_align.toLog2Units(),
+        } }));
         wip_mir_log.debug("", .{});
     }
 
@@ -6947,17 +6972,17 @@ pub fn layout(
                 save_index += 1;
             } else save_index += 1;
         }
-        if (isel.stack_align != .@"16" or (stack_size_low > 0 and stack_size_high > 0)) {
+        if (isel.stack_align != .@"16" or (stack_size_lo > 0 and stack_size_hi > 0)) {
             try isel.emit(switch (frame_record_offset) {
                 0 => .add(.sp, .fp, .{ .immediate = 0 }),
                 else => |offset| .sub(.sp, .fp, .{ .immediate = offset }),
             });
         } else {
-            if (stack_size_high > 0) try isel.emit(.add(.sp, .sp, .{
-                .shifted_immediate = .{ .immediate = stack_size_high, .lsl = .@"12" },
+            if (stack_size_hi > 0) try isel.emit(.add(.sp, .sp, .{
+                .shifted_immediate = .{ .immediate = stack_size_hi, .lsl = .@"12" },
             }));
-            if (stack_size_low > 0) try isel.emit(.add(.sp, .sp, .{
-                .immediate = stack_size_low,
+            if (stack_size_lo > 0) try isel.emit(.add(.sp, .sp, .{
+                .immediate = stack_size_lo,
             }));
         }
         wip_mir_log.debug("{f}<epilogue>:\n", .{nav.fqn.fmt(ip)});

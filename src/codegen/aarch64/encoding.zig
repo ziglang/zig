@@ -151,6 +151,7 @@ pub const Register = struct {
     pub const wzr: Register = .{ .alias = .zr, .format = .{ .integer = .word } };
     pub const wsp: Register = .{ .alias = .sp, .format = .{ .integer = .word } };
 
+    pub const ip = x16;
     pub const ip0 = x16;
     pub const ip1 = x17;
     pub const fp = x29;
@@ -774,6 +775,7 @@ pub const Register = struct {
 
         ffr,
 
+        pub const ip: Alias = .r16;
         pub const ip0: Alias = .r16;
         pub const ip1: Alias = .r17;
         pub const fp: Alias = .r29;

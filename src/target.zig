@@ -248,9 +248,13 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     return false;
 }
 
-pub fn supportsStackProbing(target: *const std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi and
-        (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
+pub fn supportsStackProbing(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+    return switch (backend) {
+        .stage2_aarch64, .stage2_x86_64 => true,
+        .stage2_llvm => target.os.tag != .windows and target.os.tag != .uefi and
+            (target.cpu.arch == .x86 or target.cpu.arch == .x86_64),
+        else => false,
+    };
 }
 
 pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
