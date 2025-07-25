@@ -286,7 +286,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, w: *std.io.Writer, tty_config: std.io.tty.Config) void {
+pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -359,7 +359,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 
 pub const ZigProcess = struct {
     child: std.process.Child,
-    poller: std.io.Poller(StreamEnum),
+    poller: std.Io.Poller(StreamEnum),
     progress_ipc_fd: if (std.Progress.have_ipc) ?std.posix.fd_t else void,
 
     pub const StreamEnum = enum { stdout, stderr };
@@ -428,7 +428,7 @@ pub fn evalZigProcess(
     const zp = try gpa.create(ZigProcess);
     zp.* = .{
         .child = child,
-        .poller = std.io.poll(gpa, ZigProcess.StreamEnum, .{
+        .poller = std.Io.poll(gpa, ZigProcess.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         }),
@@ -511,12 +511,14 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     var result: ?Path = null;
 
     const stdout = zp.poller.reader(.stdout);
+
     poll: while (true) {
         const Header = std.zig.Server.Message.Header;
         while (stdout.buffered().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
-        const header = (stdout.takeStruct(Header) catch unreachable).*;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
         while (stdout.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
         const body = stdout.take(header.bytes_len) catch unreachable;
+
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -606,8 +608,7 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
 
     s.result_duration_ns = timer.read();
 
-    const stderr = zp.poller.reader(.stderr);
-    const stderr_contents = stderr.buffered();
+    const stderr_contents = try zp.poller.toOwnedSlice(.stderr);
     if (stderr_contents.len > 0) {
         try s.result_error_msgs.append(arena, try arena.dupe(u8, stderr_contents));
     }
@@ -726,7 +727,7 @@ pub fn allocPrintCmd2(
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
     const shell = struct {
-        fn escape(writer: *std.io.Writer, string: []const u8, is_argv0: bool) !void {
+        fn escape(writer: *std.Io.Writer, string: []const u8, is_argv0: bool) !void {
             for (string) |c| {
                 if (switch (c) {
                     else => true,
@@ -760,9 +761,9 @@ pub fn allocPrintCmd2(
         }
     };
 
-    var aw: std.io.Writer.Allocating = .init(arena);
+    var aw: std.Io.Writer.Allocating = .init(arena);
     const writer = &aw.writer;
-    if (opt_cwd) |cwd| try writer.print(arena, "cd {s} && ", .{cwd});
+    if (opt_cwd) |cwd| writer.print("cd {s} && ", .{cwd}) catch return error.OutOfMemory;
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
@@ -772,17 +773,17 @@ pub fn allocPrintCmd2(
             if (process_env_map.get(key)) |process_value| {
                 if (std.mem.eql(u8, value, process_value)) continue;
             }
-            try writer.print(arena, "{s}=", .{key});
-            try shell.escape(writer, value, false);
-            try writer.writeByte(arena, ' ');
+            writer.print("{s}=", .{key}) catch return error.OutOfMemory;
+            shell.escape(writer, value, false) catch return error.OutOfMemory;
+            writer.writeByte(' ') catch return error.OutOfMemory;
         }
     }
-    try shell.escape(writer, argv[0], true);
+    shell.escape(writer, argv[0], true) catch return error.OutOfMemory;
     for (argv[1..]) |arg| {
-        try writer.writeByte(arena, ' ');
-        try shell.escape(writer, arg, false);
+        writer.writeByte(' ') catch return error.OutOfMemory;
+        shell.escape(writer, arg, false) catch return error.OutOfMemory;
     }
-    return aw.getWritten();
+    return aw.toOwnedSlice();
 }
 
 /// Prefer `cacheHitAndWatch` unless you already added watch inputs

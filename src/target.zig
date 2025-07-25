@@ -414,6 +414,8 @@ pub fn libcFullLinkFlags(target: *const std.Target) []const []const u8 {
             .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },
             else => &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
         },
+        // On SerenityOS libc includes libm, libpthread, libdl, and libssp.
+        .serenity => &.{"-lc"},
         else => &.{},
     };
     return result;

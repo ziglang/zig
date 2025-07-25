@@ -1369,16 +1369,15 @@ const test_targets = blk: {
 
         // WASI Targets
 
-        // TODO: lowerTry for pointers
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .wasm32,
-        //        .os_tag = .wasi,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = false,
-        //    .use_lld = false,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
         .{
             .target = .{
                 .cpu_arch = .wasm32,

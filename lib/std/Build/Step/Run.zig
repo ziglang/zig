@@ -1545,7 +1545,7 @@ fn evalZigTest(
     const any_write_failed = first_write_failed or poll: while (true) {
         const Header = std.zig.Server.Message.Header;
         while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
-        const header = (stdout.takeStruct(Header, .little) catch unreachable).*;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
         while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
         const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
@@ -1808,21 +1808,23 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
                 }
             }
 
-            stdout_bytes = poller.reader(.stdout).buffered();
-            stderr_bytes = poller.reader(.stderr).buffered();
+            stdout_bytes = try poller.toOwnedSlice(.stdout);
+            stderr_bytes = try poller.toOwnedSlice(.stderr);
         } else {
-            var fr = stdout.readerStreaming();
-            stdout_bytes = fr.interface().allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+            var small_buffer: [1]u8 = undefined;
+            var stdout_reader = stdout.readerStreaming(&small_buffer);
+            stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
-                error.ReadFailed => return fr.err.?,
+                error.ReadFailed => return stdout_reader.err.?,
                 error.StreamTooLong => return error.StdoutStreamTooLong,
             };
         }
     } else if (child.stderr) |stderr| {
-        var fr = stderr.readerStreaming();
-        stderr_bytes = fr.interface().allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
+        var small_buffer: [1]u8 = undefined;
+        var stderr_reader = stderr.readerStreaming(&small_buffer);
+        stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
-            error.ReadFailed => return fr.err.?,
+            error.ReadFailed => return stderr_reader.err.?,
             error.StreamTooLong => return error.StderrStreamTooLong,
         };
     }

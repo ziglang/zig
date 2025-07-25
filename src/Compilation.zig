@@ -6215,19 +6215,20 @@ fn spawnZigRc(
         return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv[0], @errorName(err) });
     };
 
-    var poller = std.io.poll(comp.gpa, enum { stdout }, .{
+    var poller = std.Io.poll(comp.gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
+        .stderr = child.stderr.?,
     });
     defer poller.deinit();
 
-    const stdout = poller.fifo(.stdout);
+    const stdout = poller.reader(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) if (!try poller.poll()) break :poll;
-        var header: std.zig.Server.Message.Header = undefined;
-        assert(stdout.read(std.mem.asBytes(&header)) == @sizeOf(std.zig.Server.Message.Header));
-        while (stdout.readableLength() < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout.readableSliceOfLen(header.bytes_len);
+        const MessageHeader = std.zig.Server.Message.Header;
+        while (stdout.buffered().len < @sizeOf(MessageHeader)) if (!try poller.poll()) break :poll;
+        const header = stdout.takeStruct(MessageHeader, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
             // We expect exactly one ErrorBundle, and if any error_bundle header is
@@ -6250,13 +6251,10 @@ fn spawnZigRc(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
     // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
-    const stderr_reader = child.stderr.?.deprecatedReader();
-    const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+    const stderr = poller.reader(.stderr);
 
     const term = child.wait() catch |err| {
         return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {s}", .{ argv[0], @errorName(err) });
@@ -6265,12 +6263,12 @@ fn spawnZigRc(
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                log.err("zig rc failed with stderr:\n{s}", .{stderr.buffered()});
                 return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
             }
         },
         else => {
-            log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+            log.err("zig rc terminated with stderr:\n{s}", .{stderr.buffered()});
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
     }

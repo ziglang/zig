@@ -800,6 +800,8 @@ const TestManifestConfigDefaults = struct {
                 }
                 // Windows
                 defaults = defaults ++ "x86_64-windows" ++ ",";
+                // Wasm
+                defaults = defaults ++ "wasm32-wasi";
                 break :blk defaults;
             };
         } else if (std.mem.eql(u8, key, "output_mode")) {

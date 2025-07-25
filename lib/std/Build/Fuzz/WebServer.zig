@@ -282,13 +282,15 @@ fn buildWasmBinary(
     var result: ?Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
-    const stdout_br = poller.reader(.stdout);
+    const stdout = poller.reader(.stdout);
+
     poll: while (true) {
         const Header = std.zig.Server.Message.Header;
-        while (stdout_br.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
-        const header = (stdout_br.takeStruct(Header) catch unreachable).*;
-        while (stdout_br.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
-        const body = stdout_br.take(header.bytes_len) catch unreachable;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
+
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
@@ -327,8 +329,7 @@ fn buildWasmBinary(
         }
     }
 
-    const stderr_br = poller.reader(.stderr);
-    const stderr_contents = stderr_br.buffered();
+    const stderr_contents = try poller.toOwnedSlice(.stderr);
     if (stderr_contents.len > 0) {
         std.debug.print("{s}", .{stderr_contents});
     }

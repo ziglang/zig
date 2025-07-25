@@ -192,10 +192,27 @@ pub const iovec_const = extern struct {
     len: usize,
 };
 
-pub const ACCMODE = enum(u2) {
-    RDONLY = 0,
-    WRONLY = 1,
-    RDWR = 2,
+pub const ACCMODE = switch (native_os) {
+    // POSIX has a note about the access mode values:
+    //
+    // In historical implementations the value of O_RDONLY is zero. Because of
+    // that, it is not possible to detect the presence of O_RDONLY and another
+    // option. Future implementations should encode O_RDONLY and O_WRONLY as
+    // bit flags so that: O_RDONLY | O_WRONLY == O_RDWR
+    //
+    // In practice SerenityOS is the only system supported by Zig that
+    // implements this suggestion.
+    // https://github.com/SerenityOS/serenity/blob/4adc51fdf6af7d50679c48b39362e062f5a3b2cb/Kernel/API/POSIX/fcntl.h#L28-L30
+    .serenity => enum(u2) {
+        RDONLY = 1,
+        WRONLY = 2,
+        RDWR = 3,
+    },
+    else => enum(u2) {
+        RDONLY = 0,
+        WRONLY = 1,
+        RDWR = 2,
+    },
 };
 
 pub const TCSA = enum(c_uint) {

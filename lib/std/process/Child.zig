@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
+const ArrayList = std.ArrayListUnmanaged;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -348,18 +349,6 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn writeBufferedReaderToArrayList(allocator: Allocator, list: *std.ArrayListUnmanaged(u8), r: *std.Io.Reader) !void {
-    assert(r.seek == 0);
-    if (list.capacity == 0) {
-        list.* = .{
-            .items = r.buffered(),
-            .capacity = r.buffer.len,
-        };
-    } else {
-        try list.appendSlice(allocator, r.buffered());
-    }
-}
-
 /// Collect the output from the process's stdout and stderr. Will return once all output
 /// has been collected. This does not mean that the process has ended. `wait` should still
 /// be called to wait for and clean up the process.
@@ -369,8 +358,8 @@ pub fn collectOutput(
     child: ChildProcess,
     /// Used for `stdout` and `stderr`.
     allocator: Allocator,
-    stdout: *std.ArrayListUnmanaged(u8),
-    stderr: *std.ArrayListUnmanaged(u8),
+    stdout: *ArrayList(u8),
+    stderr: *ArrayList(u8),
     max_output_bytes: usize,
 ) !void {
     assert(child.stdout_behavior == .Pipe);
@@ -382,15 +371,35 @@ pub fn collectOutput(
     });
     defer poller.deinit();
 
-    while (try poller.poll()) {
-        if (poller.reader(.stdout).bufferedLen() > max_output_bytes)
-            return error.StdoutStreamTooLong;
-        if (poller.reader(.stderr).bufferedLen() > max_output_bytes)
-            return error.StderrStreamTooLong;
+    const stdout_r = poller.reader(.stdout);
+    stdout_r.buffer = stdout.allocatedSlice();
+    stdout_r.seek = 0;
+    stdout_r.end = stdout.items.len;
+
+    const stderr_r = poller.reader(.stderr);
+    stderr_r.buffer = stderr.allocatedSlice();
+    stderr_r.seek = 0;
+    stderr_r.end = stderr.items.len;
+
+    defer {
+        stdout.* = .{
+            .items = stdout_r.buffer[0..stdout_r.end],
+            .capacity = stdout_r.buffer.len,
+        };
+        stderr.* = .{
+            .items = stderr_r.buffer[0..stderr_r.end],
+            .capacity = stderr_r.buffer.len,
+        };
+        stdout_r.buffer = &.{};
+        stderr_r.buffer = &.{};
     }
 
-    try writeBufferedReaderToArrayList(allocator, stdout, poller.reader(.stdout));
-    try writeBufferedReaderToArrayList(allocator, stderr, poller.reader(.stderr));
+    while (try poller.poll()) {
+        if (stdout_r.bufferedLen() > max_output_bytes)
+            return error.StdoutStreamTooLong;
+        if (stderr_r.bufferedLen() > max_output_bytes)
+            return error.StderrStreamTooLong;
+    }
 }
 
 pub const RunError = posix.GetCwdError || posix.ReadError || SpawnError || posix.PollError || error{
@@ -420,10 +429,10 @@ pub fn run(args: struct {
     child.expand_arg0 = args.expand_arg0;
     child.progress_node = args.progress_node;
 
-    var stdout: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer stdout.deinit(args.allocator);
-    var stderr: std.ArrayListUnmanaged(u8) = .empty;
-    errdefer stderr.deinit(args.allocator);
+    var stdout: ArrayList(u8) = .empty;
+    defer stdout.deinit(args.allocator);
+    var stderr: ArrayList(u8) = .empty;
+    defer stderr.deinit(args.allocator);
 
     try child.spawn();
     errdefer {
@@ -431,7 +440,7 @@ pub fn run(args: struct {
     }
     try child.collectOutput(args.allocator, &stdout, &stderr, args.max_output_bytes);
 
-    return RunResult{
+    return .{
         .stdout = try stdout.toOwnedSlice(args.allocator),
         .stderr = try stderr.toOwnedSlice(args.allocator),
         .term = try child.wait(),
@@ -877,12 +886,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
         defer cmd_line_cache.deinit();
 
-        var app_buf: std.ArrayListUnmanaged(u16) = .empty;
+        var app_buf: ArrayList(u16) = .empty;
         defer app_buf.deinit(self.allocator);
 
         try app_buf.appendSlice(self.allocator, app_name_w);
 
-        var dir_buf: std.ArrayListUnmanaged(u16) = .empty;
+        var dir_buf: ArrayList(u16) = .empty;
         defer dir_buf.deinit(self.allocator);
 
         if (cwd_path_w.len > 0) {
@@ -1022,8 +1031,8 @@ const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
 /// Note: If the dir is the cwd, dir_buf should be empty (len = 0).
 fn windowsCreateProcessPathExt(
     allocator: mem.Allocator,
-    dir_buf: *std.ArrayListUnmanaged(u16),
-    app_buf: *std.ArrayListUnmanaged(u16),
+    dir_buf: *ArrayList(u16),
+    app_buf: *ArrayList(u16),
     pathext: [:0]const u16,
     cmd_line_cache: *WindowsCommandLineCache,
     envp_ptr: ?[*]u16,
@@ -1506,7 +1515,7 @@ const WindowsCommandLineCache = struct {
 /// Returns the absolute path of `cmd.exe` within the Windows system directory.
 /// The caller owns the returned slice.
 fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
-    var buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 128);
+    var buf = try ArrayList(u16).initCapacity(allocator, 128);
     errdefer buf.deinit(allocator);
     while (true) {
         const unused_slice = buf.unusedCapacitySlice();

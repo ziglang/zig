@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
-const ChildProcess = std.process.Child;
 const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
