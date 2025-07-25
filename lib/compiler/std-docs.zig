@@ -229,6 +229,7 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
 
     // intentionally omitting the pointless trailer
     //try archiver.finish();
+    try response_writer.new_interface.flush();
     try response.end();
 }
 
