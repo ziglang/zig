@@ -1391,6 +1391,16 @@ fn runCommand(
             }
         },
         else => {
+            // On failure, print stderr if captured.
+            const bad_exit = switch (result.term) {
+                .Exited => |code| code != 0,
+                .Signal, .Stopped, .Unknown => true,
+            };
+
+            if (bad_exit) if (result.stdio.stderr) |err| {
+                try step.addError("stderr:\n{s}", .{err});
+            };
+
             try step.handleChildProcessTerm(result.term, cwd, final_argv);
         },
     }
