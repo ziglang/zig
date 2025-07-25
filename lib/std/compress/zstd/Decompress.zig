@@ -23,6 +23,7 @@ const State = union(enum) {
         frame: Frame,
         checksum: ?u32,
         decompressed_size: usize,
+        decode: Frame.Zstandard.Decode,
     };
 };
 
@@ -138,6 +139,7 @@ fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
                 .frame = try Frame.init(header, window_size_max, d.verify_checksum),
                 .checksum = null,
                 .decompressed_size = 0,
+                .decode = .init,
             } };
         },
         .skippable => {
@@ -168,16 +170,13 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
             bytes_written = block_size;
         },
         .compressed => {
-            var literal_fse_buffer: [zstd.table_size_max.literal]Table.Fse = undefined;
-            var match_fse_buffer: [zstd.table_size_max.match]Table.Fse = undefined;
-            var offset_fse_buffer: [zstd.table_size_max.offset]Table.Fse = undefined;
             var literals_buffer: [zstd.block_size_max]u8 = undefined;
             var sequence_buffer: [zstd.block_size_max]u8 = undefined;
-            var decode: Frame.Zstandard.Decode = .init(&literal_fse_buffer, &match_fse_buffer, &offset_fse_buffer, window_len);
             var remaining: Limit = .limited(block_size);
             const literals = try LiteralsSection.decode(in, &remaining, &literals_buffer);
             const sequences_header = try SequencesSection.Header.decode(in, &remaining);
 
+            const decode = &state.decode;
             try decode.prepare(in, &remaining, literals, sequences_header);
 
             {
@@ -370,16 +369,15 @@ pub const Frame = struct {
         };
 
         pub const Decode = struct {
-            window_len: u32,
             repeat_offsets: [3]u32,
 
             offset: StateData(8),
             match: StateData(9),
             literal: StateData(9),
 
-            offset_fse_buffer: []Table.Fse,
-            match_fse_buffer: []Table.Fse,
-            literal_fse_buffer: []Table.Fse,
+            literal_fse_buffer: [zstd.table_size_max.literal]Table.Fse,
+            match_fse_buffer: [zstd.table_size_max.match]Table.Fse,
+            offset_fse_buffer: [zstd.table_size_max.offset]Table.Fse,
 
             fse_tables_undefined: bool,
 
@@ -401,38 +399,30 @@ pub const Frame = struct {
                 };
             }
 
-            pub fn init(
-                literal_fse_buffer: []Table.Fse,
-                match_fse_buffer: []Table.Fse,
-                offset_fse_buffer: []Table.Fse,
-                window_len: u32,
-            ) Decode {
-                return .{
-                    .window_len = window_len,
-                    .repeat_offsets = .{
-                        zstd.start_repeated_offset_1,
-                        zstd.start_repeated_offset_2,
-                        zstd.start_repeated_offset_3,
-                    },
+            const init: Decode = .{
+                .repeat_offsets = .{
+                    zstd.start_repeated_offset_1,
+                    zstd.start_repeated_offset_2,
+                    zstd.start_repeated_offset_3,
+                },
 
-                    .offset = undefined,
-                    .match = undefined,
-                    .literal = undefined,
+                .offset = undefined,
+                .match = undefined,
+                .literal = undefined,
 
-                    .literal_fse_buffer = literal_fse_buffer,
-                    .match_fse_buffer = match_fse_buffer,
-                    .offset_fse_buffer = offset_fse_buffer,
+                .literal_fse_buffer = undefined,
+                .match_fse_buffer = undefined,
+                .offset_fse_buffer = undefined,
 
-                    .fse_tables_undefined = true,
+                .fse_tables_undefined = true,
 
-                    .literal_written_count = 0,
-                    .literal_header = undefined,
-                    .literal_streams = undefined,
-                    .literal_stream_reader = undefined,
-                    .literal_stream_index = undefined,
-                    .huffman_tree = null,
-                };
-            }
+                .literal_written_count = 0,
+                .literal_header = undefined,
+                .literal_streams = undefined,
+                .literal_stream_reader = undefined,
+                .literal_stream_index = undefined,
+                .huffman_tree = null,
+            };
 
             pub const PrepareError = error{
                 /// the (reversed) literal bitstream's first byte does not have any bits set
@@ -514,12 +504,12 @@ pub const Frame = struct {
                 return self.repeat_offsets[0];
             }
 
-            const DataType = enum { offset, match, literal };
+            const WhichFse = enum { offset, match, literal };
 
             /// TODO: don't use `@field`
             fn updateState(
                 self: *Decode,
-                comptime choice: DataType,
+                comptime choice: WhichFse,
                 bit_reader: *ReverseBitReader,
             ) error{ MalformedFseBits, EndOfStream }!void {
                 switch (@field(self, @tagName(choice)).table) {
@@ -549,7 +539,7 @@ pub const Frame = struct {
                 self: *Decode,
                 in: *Reader,
                 remaining: *Limit,
-                comptime choice: DataType,
+                comptime choice: WhichFse,
                 mode: SequencesSection.Header.Mode,
             ) !void {
                 const field_name = @tagName(choice);
@@ -576,10 +566,10 @@ pub const Frame = struct {
                             &bit_reader,
                             @field(zstd.table_symbol_count_max, field_name),
                             @field(zstd.table_accuracy_log_max, field_name),
-                            @field(self, field_name ++ "_fse_buffer"),
+                            &@field(self, field_name ++ "_fse_buffer"),
                         );
                         @field(self, field_name).table = .{
-                            .fse = @field(self, field_name ++ "_fse_buffer")[0..table_size],
+                            .fse = (&@field(self, field_name ++ "_fse_buffer"))[0..table_size],
                         };
                         @field(self, field_name).accuracy_log = std.math.log2_int_ceil(usize, table_size);
                         in.toss(bit_reader.index);
@@ -762,7 +752,7 @@ pub const Frame = struct {
             }
 
             /// TODO: don't use `@field`
-            fn getCode(self: *Decode, comptime choice: DataType) u32 {
+            fn getCode(self: *Decode, comptime choice: WhichFse) u32 {
                 return switch (@field(self, @tagName(choice)).table) {
                     .rle => |value| value,
                     .fse => |table| table[@field(self, @tagName(choice)).state].symbol,
