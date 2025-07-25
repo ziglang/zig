@@ -1,12 +1,11 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 
+pub const Decompress = @import("zstd/Decompress.zig");
+
 /// Recommended amount by the standard. Lower than this may result in inability
 /// to decompress common streams.
 pub const default_window_len = 8 * 1024 * 1024;
-
-pub const Decompress = @import("zstd/Decompress.zig");
-
 pub const block_size_max = 1 << 17;
 
 pub const literals_length_default_distribution = [36]i16{
