@@ -4328,7 +4328,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
             };
             var cond_mat: ?Value.Materialize = null;
             var cond_reg: Register = undefined;
-            var temp_reg: Register = undefined;
             var cases_it = switch_br.iterateCases();
             while (cases_it.next()) |case| {
                 const next_label = isel.instructions.items.len;
@@ -4342,11 +4341,10 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                 if (cond_mat == null) {
                     var cond_vi = try isel.use(switch_br.operand);
                     cond_mat = try cond_vi.matReg(isel);
-                    const temp_ra = try isel.allocIntReg();
-                    cond_reg, temp_reg = switch (cond_int_info.bits) {
+                    cond_reg = switch (cond_int_info.bits) {
                         else => unreachable,
-                        1...32 => .{ cond_mat.?.ra.w(), temp_ra.w() },
-                        33...64 => .{ cond_mat.?.ra.x(), temp_ra.x() },
+                        1...32 => cond_mat.?.ra.w(),
+                        33...64 => cond_mat.?.ra.x(),
                     };
                 }
                 if (case.ranges.len == 0 and case.items.len == 1 and Constant.fromInterned(
@@ -4387,17 +4385,45 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                     ) else high_bigint.toInt(i64) catch
                         return isel.fail("too big case range end: {f}", .{isel.fmtConstant(high_val)});
 
+                    const adjusted_ra = switch (low_int) {
+                        0 => cond_mat.?.ra,
+                        else => try isel.allocIntReg(),
+                    };
+                    defer if (adjusted_ra != cond_mat.?.ra) isel.freeReg(adjusted_ra);
+                    const adjusted_reg = switch (cond_int_info.bits) {
+                        else => unreachable,
+                        1...32 => adjusted_ra.w(),
+                        33...64 => adjusted_ra.x(),
+                    };
                     const delta_int = high_int -% low_int;
-                    if (case_range_index > 0) {
-                        return isel.fail("case range", .{});
-                    } else if (case.items.len > 0) {
-                        return isel.fail("case range", .{});
+                    if (case_range_index | case.items.len > 0) {
+                        if (std.math.cast(u5, delta_int)) |pos_imm| try isel.emit(.ccmp(
+                            adjusted_reg,
+                            .{ .immediate = pos_imm },
+                            .{ .n = false, .z = true, .c = false, .v = false },
+                            if (case_range_index > 0) .hi else .ne,
+                        )) else if (std.math.cast(u5, -delta_int)) |neg_imm| try isel.emit(.ccmn(
+                            adjusted_reg,
+                            .{ .immediate = neg_imm },
+                            .{ .n = false, .z = true, .c = false, .v = false },
+                            if (case_range_index > 0) .hi else .ne,
+                        )) else {
+                            const imm_ra = try isel.allocIntReg();
+                            defer isel.freeReg(imm_ra);
+                            const imm_reg = switch (cond_int_info.bits) {
+                                else => unreachable,
+                                1...32 => imm_ra.w(),
+                                33...64 => imm_ra.x(),
+                            };
+                            try isel.emit(.ccmp(
+                                cond_reg,
+                                .{ .register = imm_reg },
+                                .{ .n = false, .z = true, .c = false, .v = false },
+                                if (case_range_index > 0) .hi else .ne,
+                            ));
+                            try isel.movImmediate(imm_reg, @bitCast(delta_int));
+                        }
                     } else {
-                        const adjusted_reg = switch (low_int) {
-                            0 => cond_reg,
-                            else => temp_reg,
-                        };
-
                         if (std.math.cast(u12, delta_int)) |pos_imm| try isel.emit(.subs(
                             zero_reg,
                             adjusted_reg,
@@ -4421,41 +4447,55 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             adjusted_reg,
                             .{ .shifted_immediate = .{ .immediate = neg_imm_lsr_12, .lsl = .@"12" } },
                         )) else {
-                            try isel.movImmediate(temp_reg, @bitCast(delta_int));
-                            try isel.emit(.subs(zero_reg, adjusted_reg, .{ .register = temp_reg }));
+                            const imm_ra = try isel.allocIntReg();
+                            defer isel.freeReg(imm_ra);
+                            const imm_reg = switch (cond_int_info.bits) {
+                                else => unreachable,
+                                1...32 => imm_ra.w(),
+                                33...64 => imm_ra.x(),
+                            };
+                            try isel.emit(.subs(zero_reg, adjusted_reg, .{ .register = imm_reg }));
+                            try isel.movImmediate(imm_reg, @bitCast(delta_int));
                         }
+                    }
 
-                        switch (low_int) {
-                            0 => {},
-                            else => {
-                                if (std.math.cast(u12, low_int)) |pos_imm| try isel.emit(.sub(
-                                    adjusted_reg,
-                                    cond_reg,
-                                    .{ .immediate = pos_imm },
-                                )) else if (std.math.cast(u12, -low_int)) |neg_imm| try isel.emit(.add(
-                                    adjusted_reg,
-                                    cond_reg,
-                                    .{ .immediate = neg_imm },
-                                )) else if (if (@as(i12, @truncate(low_int)) == 0)
-                                    std.math.cast(u12, low_int >> 12)
-                                else
-                                    null) |pos_imm_lsr_12| try isel.emit(.sub(
-                                    adjusted_reg,
-                                    cond_reg,
-                                    .{ .shifted_immediate = .{ .immediate = pos_imm_lsr_12, .lsl = .@"12" } },
-                                )) else if (if (@as(i12, @truncate(-low_int)) == 0)
-                                    std.math.cast(u12, -low_int >> 12)
-                                else
-                                    null) |neg_imm_lsr_12| try isel.emit(.add(
-                                    adjusted_reg,
-                                    cond_reg,
-                                    .{ .shifted_immediate = .{ .immediate = neg_imm_lsr_12, .lsl = .@"12" } },
-                                )) else {
-                                    try isel.movImmediate(temp_reg, @bitCast(low_int));
-                                    try isel.emit(.subs(adjusted_reg, cond_reg, .{ .register = temp_reg }));
-                                }
-                            },
-                        }
+                    switch (low_int) {
+                        0 => {},
+                        else => {
+                            if (std.math.cast(u12, low_int)) |pos_imm| try isel.emit(.sub(
+                                adjusted_reg,
+                                cond_reg,
+                                .{ .immediate = pos_imm },
+                            )) else if (std.math.cast(u12, -low_int)) |neg_imm| try isel.emit(.add(
+                                adjusted_reg,
+                                cond_reg,
+                                .{ .immediate = neg_imm },
+                            )) else if (if (@as(i12, @truncate(low_int)) == 0)
+                                std.math.cast(u12, low_int >> 12)
+                            else
+                                null) |pos_imm_lsr_12| try isel.emit(.sub(
+                                adjusted_reg,
+                                cond_reg,
+                                .{ .shifted_immediate = .{ .immediate = pos_imm_lsr_12, .lsl = .@"12" } },
+                            )) else if (if (@as(i12, @truncate(-low_int)) == 0)
+                                std.math.cast(u12, -low_int >> 12)
+                            else
+                                null) |neg_imm_lsr_12| try isel.emit(.add(
+                                adjusted_reg,
+                                cond_reg,
+                                .{ .shifted_immediate = .{ .immediate = neg_imm_lsr_12, .lsl = .@"12" } },
+                            )) else {
+                                const imm_ra = try isel.allocIntReg();
+                                defer isel.freeReg(imm_ra);
+                                const imm_reg = switch (cond_int_info.bits) {
+                                    else => unreachable,
+                                    1...32 => imm_ra.w(),
+                                    33...64 => imm_ra.x(),
+                                };
+                                try isel.emit(.sub(adjusted_reg, cond_reg, .{ .register = imm_reg }));
+                                try isel.movImmediate(imm_reg, @bitCast(low_int));
+                            }
+                        },
                     }
                 }
                 var case_item_index = case.items.len;
@@ -4483,13 +4523,20 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             .{ .n = false, .z = true, .c = false, .v = false },
                             .ne,
                         )) else {
-                            try isel.movImmediate(temp_reg, @bitCast(item_int));
+                            const imm_ra = try isel.allocIntReg();
+                            defer isel.freeReg(imm_ra);
+                            const imm_reg = switch (cond_int_info.bits) {
+                                else => unreachable,
+                                1...32 => imm_ra.w(),
+                                33...64 => imm_ra.x(),
+                            };
                             try isel.emit(.ccmp(
                                 cond_reg,
-                                .{ .register = temp_reg },
+                                .{ .register = imm_reg },
                                 .{ .n = false, .z = true, .c = false, .v = false },
                                 .ne,
                             ));
+                            try isel.movImmediate(imm_reg, @bitCast(item_int));
                         }
                     } else {
                         if (std.math.cast(u12, item_int)) |pos_imm| try isel.emit(.subs(
@@ -4515,16 +4562,20 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             cond_reg,
                             .{ .shifted_immediate = .{ .immediate = neg_imm_lsr_12, .lsl = .@"12" } },
                         )) else {
-                            try isel.movImmediate(temp_reg, @bitCast(item_int));
-                            try isel.emit(.subs(zero_reg, cond_reg, .{ .register = temp_reg }));
+                            const imm_ra = try isel.allocIntReg();
+                            defer isel.freeReg(imm_ra);
+                            const imm_reg = switch (cond_int_info.bits) {
+                                else => unreachable,
+                                1...32 => imm_ra.w(),
+                                33...64 => imm_ra.x(),
+                            };
+                            try isel.emit(.subs(zero_reg, cond_reg, .{ .register = imm_reg }));
+                            try isel.movImmediate(imm_reg, @bitCast(item_int));
                         }
                     }
                 }
             }
-            if (cond_mat) |mat| {
-                try mat.finish(isel);
-                isel.freeReg(temp_reg.alias);
-            }
+            if (cond_mat) |mat| try mat.finish(isel);
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .@"try", .try_cold => {
