@@ -552,3 +552,13 @@ test "@ptrCast single-item pointer to slice of bytes" {
     try comptime S.doTheTest(void, &{});
     try comptime S.doTheTest(struct { x: u32 }, &.{ .x = 123 });
 }
+
+test "@ptrCast array pointer removing sentinel" {
+    const in: *const [4:0]u8 = &.{ 1, 2, 3, 4 };
+    const out: []const i8 = @ptrCast(in);
+    comptime assert(out.len == 4);
+    comptime assert(out[0] == 1);
+    comptime assert(out[1] == 2);
+    comptime assert(out[2] == 3);
+    comptime assert(out[3] == 4);
+}

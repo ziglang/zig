@@ -22483,11 +22483,18 @@ fn ptrCastFull(
             .slice => {},
             .many, .c, .one => break :len null,
         }
-        // `null` means the operand is a runtime-known slice (so the length is runtime-known).
-        const opt_src_len: ?u64 = switch (src_info.flags.size) {
-            .one => 1,
-            .slice => src_len: {
-                const operand_val = try sema.resolveValue(operand) orelse break :src_len null;
+        // A `null` length means the operand is a runtime-known slice (so the length is runtime-known).
+        // `src_elem_type` is different from `src_info.child` if the latter is an array, to ensure we ignore sentinels.
+        const src_elem_ty: Type, const opt_src_len: ?u64 = switch (src_info.flags.size) {
+            .one => src: {
+                const true_child: Type = .fromInterned(src_info.child);
+                break :src switch (true_child.zigTypeTag(zcu)) {
+                    .array => .{ true_child.childType(zcu), true_child.arrayLen(zcu) },
+                    else => .{ true_child, 1 },
+                };
+            },
+            .slice => src: {
+                const operand_val = try sema.resolveValue(operand) orelse break :src .{ .fromInterned(src_info.child), null };
                 if (operand_val.isUndef(zcu)) break :len .undef;
                 const slice_val = switch (operand_ty.zigTypeTag(zcu)) {
                     .optional => operand_val.optionalValue(zcu) orelse break :len .undef,
@@ -22496,14 +22503,13 @@ fn ptrCastFull(
                 };
                 const slice_len_resolved = try sema.resolveLazyValue(.fromInterned(zcu.intern_pool.sliceLen(slice_val.toIntern())));
                 if (slice_len_resolved.isUndef(zcu)) break :len .undef;
-                break :src_len slice_len_resolved.toUnsignedInt(zcu);
+                break :src .{ .fromInterned(src_info.child), slice_len_resolved.toUnsignedInt(zcu) };
             },
             .many, .c => {
                 return sema.fail(block, src, "cannot infer length of slice from {s}", .{pointerSizeString(src_info.flags.size)});
             },
         };
         const dest_elem_ty: Type = .fromInterned(dest_info.child);
-        const src_elem_ty: Type = .fromInterned(src_info.child);
         if (dest_elem_ty.toIntern() == src_elem_ty.toIntern()) {
             break :len if (opt_src_len) |l| .{ .constant = l } else .equal_runtime_src_slice;
         }
@@ -22519,7 +22525,7 @@ fn ptrCastFull(
                 const bytes = src_len * src_elem_size;
                 const dest_len = std.math.divExact(u64, bytes, dest_elem_size) catch switch (src_info.flags.size) {
                     .slice => return sema.fail(block, src, "slice length '{d}' does not divide exactly into destination elements", .{src_len}),
-                    .one => return sema.fail(block, src, "type '{f}' does not divide exactly into destination elements", .{src_elem_ty.fmt(pt)}),
+                    .one => return sema.fail(block, src, "type '{f}' does not divide exactly into destination elements", .{Type.fromInterned(src_info.child).fmt(pt)}),
                     else => unreachable,
                 };
                 break :len .{ .constant = dest_len };
