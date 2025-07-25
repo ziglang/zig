@@ -185,6 +185,32 @@ pub fn streamExact64(r: *Reader, w: *Writer, n: u64) StreamError!void {
     while (remaining != 0) remaining -= try r.stream(w, .limited64(remaining));
 }
 
+/// "Pump" exactly `n` bytes from the reader to the writer.
+///
+/// When draining `w`, ensures that at least `preserve_len` bytes remain
+/// buffered.
+///
+/// Asserts `Writer.buffer` capacity exceeds `preserve_len`.
+pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize) StreamError!void {
+    if (w.end + n <= w.buffer.len) {
+        @branchHint(.likely);
+        return streamExact(r, w, n);
+    }
+    // If `n` is large, we can ignore `preserve_len` up to a point.
+    var remaining = n;
+    while (remaining > preserve_len) {
+        assert(remaining != 0);
+        remaining -= try r.stream(w, .limited(remaining - preserve_len));
+        if (w.end + remaining <= w.buffer.len) return streamExact(r, w, remaining);
+    }
+    // All the next bytes received must be preserved.
+    if (preserve_len < w.end) {
+        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
+        w.end = preserve_len;
+    }
+    return streamExact(r, w, remaining);
+}
+
 /// "Pump" data from the reader to the writer, handling `error.EndOfStream` as
 /// a success case.
 ///
