@@ -1052,6 +1052,7 @@ pub const TruncateError = error{
     FileBusy,
     AccessDenied,
     PermissionDenied,
+    NonResizable,
 } || UnexpectedError;
 
 /// Length must be positive when treated as an i64.
@@ -1091,7 +1092,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
+            .INVAL => return error.NonResizable,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -1107,7 +1108,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
+            .INVAL => return error.NonResizable, // This is returned for /dev/null for example.
             else => |err| return unexpectedErrno(err),
         }
     }

@@ -1,12 +1,11 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 
+pub const Decompress = @import("zstd/Decompress.zig");
+
 /// Recommended amount by the standard. Lower than this may result in inability
 /// to decompress common streams.
 pub const default_window_len = 8 * 1024 * 1024;
-
-pub const Decompress = @import("zstd/Decompress.zig");
-
 pub const block_size_max = 1 << 17;
 
 pub const literals_length_default_distribution = [36]i16{
@@ -85,7 +84,7 @@ fn testDecompress(gpa: std.mem.Allocator, compressed: []const u8) ![]u8 {
 
     var in: std.io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
-    try zstd_stream.interface.appendRemaining(gpa, null, &out, .unlimited);
+    try zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited);
 
     return out.toOwnedSlice(gpa);
 }
@@ -108,7 +107,7 @@ fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
     try std.testing.expectError(
         error.ReadFailed,
-        zstd_stream.interface.appendRemaining(gpa, null, &out, .unlimited),
+        zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited),
     );
     try std.testing.expectError(err, zstd_stream.err orelse {});
 }

@@ -5535,7 +5535,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                         2 => if (elem_is_vector) .ldr(elem_ra.h(), .{ .extended_register = .{
                             .base = base_mat.ra.x(),
                             .index = index_mat.ra.x(),
-                            .extend = .{ .lsl = 0 },
+                            .extend = .{ .lsl = 1 },
                         } }) else switch (elem_vi.value.signedness(isel)) {
                             .signed => .ldrsh(elem_ra.w(), .{ .extended_register = .{
                                 .base = base_mat.ra.x(),
@@ -5558,15 +5558,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             .index = index_mat.ra.x(),
                             .extend = .{ .lsl = 3 },
                         } }),
-                        16 => .ldr(elem_ra.q(), .{ .extended_register = .{
+                        16 => if (elem_is_vector) .ldr(elem_ra.q(), .{ .extended_register = .{
                             .base = base_mat.ra.x(),
                             .index = index_mat.ra.x(),
                             .extend = .{ .lsl = 4 },
-                        } }),
+                        } }) else unreachable,
                     });
                     try index_mat.finish(isel);
                     try base_mat.finish(isel);
-                    break :unused;
                 } else {
                     const elem_ptr_ra = try isel.allocIntReg();
                     defer isel.freeReg(elem_ptr_ra);
@@ -5611,66 +5610,81 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                 const ptr_ty = isel.air.typeOf(bin_op.lhs, ip);
                 const ptr_info = ptr_ty.ptrInfo(zcu);
                 const elem_size = elem_vi.value.size(isel);
-                switch (elem_size) {
+                const elem_is_vector = elem_vi.value.isVector(isel);
+                if (switch (elem_size) {
                     0 => unreachable,
-                    1, 2, 4, 8 => {
-                        const elem_ra = try elem_vi.value.defReg(isel) orelse break :unused;
-                        const base_vi = try isel.use(bin_op.lhs);
-                        const index_vi = try isel.use(bin_op.rhs);
-                        const base_mat = try base_vi.matReg(isel);
-                        const index_mat = try index_vi.matReg(isel);
-                        try isel.emit(switch (elem_size) {
-                            else => unreachable,
-                            1 => switch (elem_vi.value.signedness(isel)) {
-                                .signed => .ldrsb(elem_ra.w(), .{ .extended_register = .{
-                                    .base = base_mat.ra.x(),
-                                    .index = index_mat.ra.x(),
-                                    .extend = .{ .lsl = 0 },
-                                } }),
-                                .unsigned => .ldrb(elem_ra.w(), .{ .extended_register = .{
-                                    .base = base_mat.ra.x(),
-                                    .index = index_mat.ra.x(),
-                                    .extend = .{ .lsl = 0 },
-                                } }),
-                            },
-                            2 => switch (elem_vi.value.signedness(isel)) {
-                                .signed => .ldrsh(elem_ra.w(), .{ .extended_register = .{
-                                    .base = base_mat.ra.x(),
-                                    .index = index_mat.ra.x(),
-                                    .extend = .{ .lsl = 1 },
-                                } }),
-                                .unsigned => .ldrh(elem_ra.w(), .{ .extended_register = .{
-                                    .base = base_mat.ra.x(),
-                                    .index = index_mat.ra.x(),
-                                    .extend = .{ .lsl = 1 },
-                                } }),
-                            },
-                            4 => .ldr(elem_ra.w(), .{ .extended_register = .{
+                    1, 2, 4, 8 => true,
+                    16 => elem_is_vector,
+                    else => false,
+                }) {
+                    const elem_ra = try elem_vi.value.defReg(isel) orelse break :unused;
+                    const base_vi = try isel.use(bin_op.lhs);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    const base_mat = try base_vi.matReg(isel);
+                    const index_mat = try index_vi.matReg(isel);
+                    try isel.emit(switch (elem_size) {
+                        else => unreachable,
+                        1 => if (elem_is_vector) .ldr(elem_ra.b(), .{ .extended_register = .{
+                            .base = base_mat.ra.x(),
+                            .index = index_mat.ra.x(),
+                            .extend = .{ .lsl = 0 },
+                        } }) else switch (elem_vi.value.signedness(isel)) {
+                            .signed => .ldrsb(elem_ra.w(), .{ .extended_register = .{
                                 .base = base_mat.ra.x(),
                                 .index = index_mat.ra.x(),
-                                .extend = .{ .lsl = 2 },
+                                .extend = .{ .lsl = 0 },
                             } }),
-                            8 => .ldr(elem_ra.x(), .{ .extended_register = .{
+                            .unsigned => .ldrb(elem_ra.w(), .{ .extended_register = .{
                                 .base = base_mat.ra.x(),
                                 .index = index_mat.ra.x(),
-                                .extend = .{ .lsl = 3 },
+                                .extend = .{ .lsl = 0 },
                             } }),
-                        });
-                        try index_mat.finish(isel);
-                        try base_mat.finish(isel);
-                    },
-                    else => {
-                        const elem_ptr_ra = try isel.allocIntReg();
-                        defer isel.freeReg(elem_ptr_ra);
-                        if (!try elem_vi.value.load(isel, ptr_ty.elemType2(zcu), elem_ptr_ra, .{
-                            .@"volatile" = ptr_info.flags.is_volatile,
-                        })) break :unused;
-                        const base_vi = try isel.use(bin_op.lhs);
-                        const base_mat = try base_vi.matReg(isel);
-                        const index_vi = try isel.use(bin_op.rhs);
-                        try isel.elemPtr(elem_ptr_ra, base_mat.ra, .add, elem_size, index_vi);
-                        try base_mat.finish(isel);
-                    },
+                        },
+                        2 => if (elem_is_vector) .ldr(elem_ra.h(), .{ .extended_register = .{
+                            .base = base_mat.ra.x(),
+                            .index = index_mat.ra.x(),
+                            .extend = .{ .lsl = 1 },
+                        } }) else switch (elem_vi.value.signedness(isel)) {
+                            .signed => .ldrsh(elem_ra.w(), .{ .extended_register = .{
+                                .base = base_mat.ra.x(),
+                                .index = index_mat.ra.x(),
+                                .extend = .{ .lsl = 1 },
+                            } }),
+                            .unsigned => .ldrh(elem_ra.w(), .{ .extended_register = .{
+                                .base = base_mat.ra.x(),
+                                .index = index_mat.ra.x(),
+                                .extend = .{ .lsl = 1 },
+                            } }),
+                        },
+                        4 => .ldr(if (elem_is_vector) elem_ra.s() else elem_ra.w(), .{ .extended_register = .{
+                            .base = base_mat.ra.x(),
+                            .index = index_mat.ra.x(),
+                            .extend = .{ .lsl = 2 },
+                        } }),
+                        8 => .ldr(if (elem_is_vector) elem_ra.d() else elem_ra.x(), .{ .extended_register = .{
+                            .base = base_mat.ra.x(),
+                            .index = index_mat.ra.x(),
+                            .extend = .{ .lsl = 3 },
+                        } }),
+                        16 => if (elem_is_vector) .ldr(elem_ra.q(), .{ .extended_register = .{
+                            .base = base_mat.ra.x(),
+                            .index = index_mat.ra.x(),
+                            .extend = .{ .lsl = 4 },
+                        } }) else unreachable,
+                    });
+                    try index_mat.finish(isel);
+                    try base_mat.finish(isel);
+                } else {
+                    const elem_ptr_ra = try isel.allocIntReg();
+                    defer isel.freeReg(elem_ptr_ra);
+                    if (!try elem_vi.value.load(isel, ptr_ty.elemType2(zcu), elem_ptr_ra, .{
+                        .@"volatile" = ptr_info.flags.is_volatile,
+                    })) break :unused;
+                    const base_vi = try isel.use(bin_op.lhs);
+                    const base_mat = try base_vi.matReg(isel);
+                    const index_vi = try isel.use(bin_op.rhs);
+                    try isel.elemPtr(elem_ptr_ra, base_mat.ra, .add, elem_size, index_vi);
+                    try base_mat.finish(isel);
                 }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -6250,11 +6264,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             try agg_part_vi.?.move(isel, elems[field_index]);
                             field_offset += field_size;
                         }
-                        assert(field_offset == agg_vi.value.size(isel));
+                        assert(loaded_struct.flagsUnordered(ip).alignment.forward(field_offset) == agg_vi.value.size(isel));
                     },
                     .tuple_type => |tuple_type| {
                         const elems: []const Air.Inst.Ref =
                             @ptrCast(isel.air.extra.items[ty_pl.payload..][0..tuple_type.types.len]);
+                        var tuple_align: InternPool.Alignment = .@"1";
                         var field_offset: u64 = 0;
                         for (
                             tuple_type.types.get(ip),
@@ -6263,7 +6278,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                         ) |field_ty_index, field_val, elem| {
                             if (field_val != .none) continue;
                             const field_ty: ZigType = .fromInterned(field_ty_index);
-                            field_offset = field_ty.abiAlignment(zcu).forward(field_offset);
+                            const field_align = field_ty.abiAlignment(zcu);
+                            tuple_align = tuple_align.maxStrict(field_align);
+                            field_offset = field_align.forward(field_offset);
                             const field_size = field_ty.abiSize(zcu);
                             if (field_size == 0) continue;
                             var agg_part_it = agg_vi.value.field(agg_ty, field_offset, field_size);
@@ -6271,7 +6288,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) !void {
                             try agg_part_vi.?.move(isel, elem);
                             field_offset += field_size;
                         }
-                        assert(field_offset == agg_vi.value.size(isel));
+                        assert(tuple_align.forward(field_offset) == agg_vi.value.size(isel));
                     },
                     else => return isel.fail("aggregate init {f}", .{isel.fmtType(agg_ty)}),
                 }
@@ -7283,6 +7300,175 @@ fn ctzLimb(
     }
 }
 
+fn loadReg(
+    isel: *Select,
+    ra: Register.Alias,
+    size: u64,
+    signedness: std.builtin.Signedness,
+    base_ra: Register.Alias,
+    offset: i65,
+) !void {
+    switch (size) {
+        0 => unreachable,
+        1 => {
+            if (std.math.cast(u12, offset)) |unsigned_offset| return isel.emit(if (ra.isVector()) .ldr(
+                ra.b(),
+                .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } },
+            ) else switch (signedness) {
+                .signed => .ldrsb(ra.w(), .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } }),
+                .unsigned => .ldrb(ra.w(), .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } }),
+            });
+            if (std.math.cast(i9, offset)) |signed_offset| return isel.emit(if (ra.isVector())
+                .ldur(ra.b(), base_ra.x(), signed_offset)
+            else switch (signedness) {
+                .signed => .ldursb(ra.w(), base_ra.x(), signed_offset),
+                .unsigned => .ldurb(ra.w(), base_ra.x(), signed_offset),
+            });
+        },
+        2 => {
+            if (std.math.cast(u13, offset)) |unsigned_offset| if (unsigned_offset % 2 == 0)
+                return isel.emit(if (ra.isVector()) .ldr(
+                    ra.h(),
+                    .{ .unsigned_offset = .{
+                        .base = base_ra.x(),
+                        .offset = unsigned_offset,
+                    } },
+                ) else switch (signedness) {
+                    .signed => .ldrsh(
+                        ra.w(),
+                        .{ .unsigned_offset = .{
+                            .base = base_ra.x(),
+                            .offset = unsigned_offset,
+                        } },
+                    ),
+                    .unsigned => .ldrh(
+                        ra.w(),
+                        .{ .unsigned_offset = .{
+                            .base = base_ra.x(),
+                            .offset = unsigned_offset,
+                        } },
+                    ),
+                });
+            if (std.math.cast(i9, offset)) |signed_offset| return isel.emit(if (ra.isVector())
+                .ldur(ra.h(), base_ra.x(), signed_offset)
+            else switch (signedness) {
+                .signed => .ldursh(ra.w(), base_ra.x(), signed_offset),
+                .unsigned => .ldurh(ra.w(), base_ra.x(), signed_offset),
+            });
+        },
+        3 => {
+            const lo16_ra = try isel.allocIntReg();
+            defer isel.freeReg(lo16_ra);
+            try isel.emit(.orr(ra.w(), lo16_ra.w(), .{ .shifted_register = .{
+                .register = ra.w(),
+                .shift = .{ .lsl = 16 },
+            } }));
+            try isel.loadReg(ra, 1, signedness, base_ra, offset + 2);
+            return isel.loadReg(lo16_ra, 2, .unsigned, base_ra, offset);
+        },
+        4 => {
+            if (std.math.cast(u14, offset)) |unsigned_offset| if (unsigned_offset % 4 == 0) return isel.emit(.ldr(
+                if (ra.isVector()) ra.s() else ra.w(),
+                .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } },
+            ));
+            if (std.math.cast(i9, offset)) |signed_offset| return isel.emit(.ldur(
+                if (ra.isVector()) ra.s() else ra.w(),
+                base_ra.x(),
+                signed_offset,
+            ));
+        },
+        5, 6 => {
+            const lo32_ra = try isel.allocIntReg();
+            defer isel.freeReg(lo32_ra);
+            try isel.emit(.orr(ra.x(), lo32_ra.x(), .{ .shifted_register = .{
+                .register = ra.x(),
+                .shift = .{ .lsl = 32 },
+            } }));
+            try isel.loadReg(ra, size - 4, signedness, base_ra, offset + 4);
+            return isel.loadReg(lo32_ra, 4, .unsigned, base_ra, offset);
+        },
+        7 => {
+            const lo32_ra = try isel.allocIntReg();
+            defer isel.freeReg(lo32_ra);
+            const lo48_ra = try isel.allocIntReg();
+            defer isel.freeReg(lo48_ra);
+            try isel.emit(.orr(ra.x(), lo48_ra.x(), .{ .shifted_register = .{
+                .register = ra.x(),
+                .shift = .{ .lsl = 32 + 16 },
+            } }));
+            try isel.loadReg(ra, 1, signedness, base_ra, offset + 4 + 2);
+            try isel.emit(.orr(lo48_ra.x(), lo32_ra.x(), .{ .shifted_register = .{
+                .register = lo48_ra.x(),
+                .shift = .{ .lsl = 32 },
+            } }));
+            try isel.loadReg(lo48_ra, 2, .unsigned, base_ra, offset + 4);
+            return isel.loadReg(lo32_ra, 4, .unsigned, base_ra, offset);
+        },
+        8 => {
+            if (std.math.cast(u15, offset)) |unsigned_offset| if (unsigned_offset % 8 == 0) return isel.emit(.ldr(
+                if (ra.isVector()) ra.d() else ra.x(),
+                .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } },
+            ));
+            if (std.math.cast(i9, offset)) |signed_offset| return isel.emit(.ldur(
+                if (ra.isVector()) ra.d() else ra.x(),
+                base_ra.x(),
+                signed_offset,
+            ));
+        },
+        16 => {
+            if (std.math.cast(u16, offset)) |unsigned_offset| if (unsigned_offset % 16 == 0) return isel.emit(.ldr(
+                ra.q(),
+                .{ .unsigned_offset = .{
+                    .base = base_ra.x(),
+                    .offset = unsigned_offset,
+                } },
+            ));
+            if (std.math.cast(i9, offset)) |signed_offset| return isel.emit(.ldur(ra.q(), base_ra.x(), signed_offset));
+        },
+        else => return isel.fail("bad load size: {d}", .{size}),
+    }
+    const ptr_ra = try isel.allocIntReg();
+    defer isel.freeReg(ptr_ra);
+    try isel.loadReg(ra, size, signedness, ptr_ra, 0);
+    if (std.math.cast(u24, offset)) |pos_offset| {
+        const lo12: u12 = @truncate(pos_offset >> 0);
+        const hi12: u12 = @intCast(pos_offset >> 12);
+        if (hi12 > 0) try isel.emit(.add(
+            ptr_ra.x(),
+            if (lo12 > 0) ptr_ra.x() else base_ra.x(),
+            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+        ));
+        if (lo12 > 0 or hi12 == 0) try isel.emit(.add(ptr_ra.x(), base_ra.x(), .{ .immediate = lo12 }));
+    } else if (std.math.cast(u24, -offset)) |neg_offset| {
+        const lo12: u12 = @truncate(neg_offset >> 0);
+        const hi12: u12 = @intCast(neg_offset >> 12);
+        if (hi12 > 0) try isel.emit(.sub(
+            ptr_ra.x(),
+            if (lo12 > 0) ptr_ra.x() else base_ra.x(),
+            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+        ));
+        if (lo12 > 0 or hi12 == 0) try isel.emit(.sub(ptr_ra.x(), base_ra.x(), .{ .immediate = lo12 }));
+    } else {
+        try isel.emit(.add(ptr_ra.x(), base_ra.x(), .{ .register = ptr_ra.x() }));
+        try isel.movImmediate(ptr_ra.x(), @truncate(@as(u65, @bitCast(offset))));
+    }
+}
+
 fn storeReg(
     isel: *Select,
     ra: Register.Alias,
@@ -7556,6 +7742,13 @@ pub const Value = struct {
                 .stack_slot, .constant => {},
                 .address, .value => |parent_vi| _ = parent_vi.ref(isel),
             };
+        }
+
+        pub fn changeStackSlot(vi: Value.Index, isel: *Select, new_stack_slot: Indirect) void {
+            const value = vi.get(isel);
+            assert(value.flags.parent_tag == .stack_slot);
+            value.flags.parent_tag = .unallocated;
+            vi.setParent(isel, .{ .stack_slot = new_stack_slot });
         }
 
         pub fn parent(vi: Value.Index, isel: *Select) Parent {
@@ -8070,123 +8263,7 @@ pub const Value = struct {
                     }),
                     64 => {},
                 };
-                try isel.emit(emit: switch (part_size) {
-                    else => return isel.fail("bad load size of {d}", .{part_size}),
-                    1 => if (part_is_vector) .ldr(part_ra.b(), .{ .unsigned_offset = .{
-                        .base = base_ra.x(),
-                        .offset = @intCast(opts.offset),
-                    } }) else switch (part_vi.signedness(isel)) {
-                        .signed => .ldrsb(part_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } }),
-                        .unsigned => .ldrb(part_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } }),
-                    },
-                    2 => if (part_is_vector) .ldr(part_ra.h(), .{ .unsigned_offset = .{
-                        .base = base_ra.x(),
-                        .offset = @intCast(opts.offset),
-                    } }) else switch (part_vi.signedness(isel)) {
-                        .signed => .ldrsh(part_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } }),
-                        .unsigned => .ldrh(part_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } }),
-                    },
-                    3 => {
-                        const lo16_ra = try isel.allocIntReg();
-                        defer isel.freeReg(lo16_ra);
-                        try isel.emit(.orr(part_ra.w(), lo16_ra.w(), .{ .shifted_register = .{
-                            .register = part_ra.w(),
-                            .shift = .{ .lsl = 16 },
-                        } }));
-                        try isel.emit(switch (part_vi.signedness(isel)) {
-                            .signed => .ldrsb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 2),
-                            } }),
-                            .unsigned => .ldrb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 2),
-                            } }),
-                        });
-                        break :emit .ldrh(lo16_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } });
-                    },
-                    4 => .ldr(if (part_is_vector) part_ra.s() else part_ra.w(), .{ .unsigned_offset = .{
-                        .base = base_ra.x(),
-                        .offset = @intCast(opts.offset),
-                    } }),
-                    5 => {
-                        const lo32_ra = try isel.allocIntReg();
-                        defer isel.freeReg(lo32_ra);
-                        try isel.emit(.orr(part_ra.x(), lo32_ra.x(), .{ .shifted_register = .{
-                            .register = part_ra.x(),
-                            .shift = .{ .lsl = 32 },
-                        } }));
-                        try isel.emit(switch (part_vi.signedness(isel)) {
-                            .signed => .ldrsb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 4),
-                            } }),
-                            .unsigned => .ldrb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 4),
-                            } }),
-                        });
-                        break :emit .ldr(lo32_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } });
-                    },
-                    7 => {
-                        const lo32_ra = try isel.allocIntReg();
-                        defer isel.freeReg(lo32_ra);
-                        const lo48_ra = try isel.allocIntReg();
-                        defer isel.freeReg(lo48_ra);
-                        try isel.emit(.orr(part_ra.x(), lo48_ra.x(), .{ .shifted_register = .{
-                            .register = part_ra.x(),
-                            .shift = .{ .lsl = 32 + 16 },
-                        } }));
-                        try isel.emit(switch (part_vi.signedness(isel)) {
-                            .signed => .ldrsb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 4 + 2),
-                            } }),
-                            .unsigned => .ldrb(part_ra.w(), .{ .unsigned_offset = .{
-                                .base = base_ra.x(),
-                                .offset = @intCast(opts.offset + 4 + 2),
-                            } }),
-                        });
-                        try isel.emit(.orr(lo48_ra.x(), lo32_ra.x(), .{ .shifted_register = .{
-                            .register = lo48_ra.x(),
-                            .shift = .{ .lsl = 32 },
-                        } }));
-                        try isel.emit(.ldrh(lo48_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset + 4),
-                        } }));
-                        break :emit .ldr(lo32_ra.w(), .{ .unsigned_offset = .{
-                            .base = base_ra.x(),
-                            .offset = @intCast(opts.offset),
-                        } });
-                    },
-                    8 => .ldr(if (part_is_vector) part_ra.d() else part_ra.x(), .{ .unsigned_offset = .{
-                        .base = base_ra.x(),
-                        .offset = @intCast(opts.offset),
-                    } }),
-                    16 => .ldr(part_ra.q(), .{ .unsigned_offset = .{
-                        .base = base_ra.x(),
-                        .offset = @intCast(opts.offset),
-                    } }),
-                });
+                try isel.loadReg(part_ra, part_size, part_vi.signedness(isel), base_ra, opts.offset);
                 if (part_ra != .zr) {
                     const live_vi = isel.live_registers.getPtr(part_ra);
                     assert(live_vi.* == .allocating);
@@ -9104,7 +9181,7 @@ pub const Value = struct {
             const live_vi = isel.live_registers.getPtr(mat.ra);
             assert(live_vi.* == .allocating);
             var vi = mat.vi;
-            var offset: i65 = 0;
+            var offset: u64 = 0;
             const size = mat.vi.size(isel);
             free: while (true) {
                 if (vi.register(isel)) |ra| {
@@ -9156,93 +9233,16 @@ pub const Value = struct {
                         live_vi.* = mat.vi;
                         return;
                     },
-                    .stack_slot => |stack_slot| {
-                        offset += stack_slot.offset;
-                        break :free try isel.emit(switch (size) {
-                            else => unreachable,
-                            1 => if (mat.ra.isVector()) .ldr(mat.ra.b(), .{ .unsigned_offset = .{
-                                .base = stack_slot.base.x(),
-                                .offset = @intCast(offset),
-                            } }) else switch (mat.vi.signedness(isel)) {
-                                .signed => .ldrsb(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = stack_slot.base.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                                .unsigned => .ldrb(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = stack_slot.base.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                            },
-                            2 => if (mat.ra.isVector()) .ldr(mat.ra.h(), .{ .unsigned_offset = .{
-                                .base = stack_slot.base.x(),
-                                .offset = @intCast(offset),
-                            } }) else switch (mat.vi.signedness(isel)) {
-                                .signed => .ldrsh(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = stack_slot.base.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                                .unsigned => .ldrh(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = stack_slot.base.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                            },
-                            4 => .ldr(if (mat.ra.isVector()) mat.ra.s() else mat.ra.w(), .{ .unsigned_offset = .{
-                                .base = stack_slot.base.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                            8 => .ldr(if (mat.ra.isVector()) mat.ra.d() else mat.ra.x(), .{ .unsigned_offset = .{
-                                .base = stack_slot.base.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                            16 => .ldr(mat.ra.q(), .{ .unsigned_offset = .{
-                                .base = stack_slot.base.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                        });
-                    },
+                    .stack_slot => |stack_slot| break :free try isel.loadReg(
+                        mat.ra,
+                        size,
+                        mat.vi.signedness(isel),
+                        stack_slot.base,
+                        @as(i65, stack_slot.offset) + offset,
+                    ),
                     .address => |base_vi| {
                         const base_mat = try base_vi.matReg(isel);
-                        try isel.emit(switch (size) {
-                            else => unreachable,
-                            1 => if (mat.ra.isVector()) .ldr(mat.ra.b(), .{ .unsigned_offset = .{
-                                .base = base_mat.ra.x(),
-                                .offset = @intCast(offset),
-                            } }) else switch (mat.vi.signedness(isel)) {
-                                .signed => .ldrsb(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = base_mat.ra.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                                .unsigned => .ldrb(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = base_mat.ra.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                            },
-                            2 => if (mat.ra.isVector()) .ldr(mat.ra.h(), .{ .unsigned_offset = .{
-                                .base = base_mat.ra.x(),
-                                .offset = @intCast(offset),
-                            } }) else switch (mat.vi.signedness(isel)) {
-                                .signed => .ldrsh(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = base_mat.ra.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                                .unsigned => .ldrh(mat.ra.w(), .{ .unsigned_offset = .{
-                                    .base = base_mat.ra.x(),
-                                    .offset = @intCast(offset),
-                                } }),
-                            },
-                            4 => .ldr(if (mat.ra.isVector()) mat.ra.s() else mat.ra.w(), .{ .unsigned_offset = .{
-                                .base = base_mat.ra.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                            8 => .ldr(if (mat.ra.isVector()) mat.ra.d() else mat.ra.x(), .{ .unsigned_offset = .{
-                                .base = base_mat.ra.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                            16 => .ldr(mat.ra.q(), .{ .unsigned_offset = .{
-                                .base = base_mat.ra.x(),
-                                .offset = @intCast(offset),
-                            } }),
-                        });
+                        try isel.loadReg(mat.ra, size, mat.vi.signedness(isel), base_mat.ra, offset);
                         break :free try base_mat.finish(isel);
                     },
                     .value => |parent_vi| vi = parent_vi,

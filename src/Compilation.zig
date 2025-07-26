@@ -4880,6 +4880,14 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
         try seen_table.ensureUnusedCapacity(comp.gpa, deps.len);
         for (deps) |dep| seen_table.putAssumeCapacity(dep, dep.fully_qualified_name);
     }
+
+    tar_file_writer.end() catch |err| {
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to write '{f}/sources.tar': {t}",
+            .{ docs_path, err },
+        );
+    };
 }
 
 fn docsCopyModule(

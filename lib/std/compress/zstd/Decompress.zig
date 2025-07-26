@@ -10,6 +10,7 @@ input: *Reader,
 reader: Reader,
 state: State,
 verify_checksum: bool,
+window_len: u32,
 err: ?Error = null,
 
 const State = union(enum) {
@@ -22,11 +23,16 @@ const State = union(enum) {
         frame: Frame,
         checksum: ?u32,
         decompressed_size: usize,
+        decode: Frame.Zstandard.Decode,
     };
 };
 
 pub const Options = struct {
-    verify_checksum: bool = true,
+    /// Verifying checksums is not implemented yet and will cause a panic if
+    /// you set this to true.
+    verify_checksum: bool = false,
+    /// Affects the minimum capacity of the provided buffer.
+    window_len: u32 = zstd.default_window_len,
 };
 
 pub const Error = error{
@@ -63,11 +69,14 @@ pub const Error = error{
     WindowSizeUnknown,
 };
 
+/// If buffer that is written to is not big enough, some streams will fail with
+/// `error.OutputBufferUndersize`. A safe value is `zstd.default_window_len * 2`.
 pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
     return .{
         .input = input,
         .state = .new_frame,
         .verify_checksum = options.verify_checksum,
+        .window_len = options.window_len,
         .reader = .{
             .vtable = &.{ .stream = stream },
             .buffer = buffer,
@@ -130,6 +139,7 @@ fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
                 .frame = try Frame.init(header, window_size_max, d.verify_checksum),
                 .checksum = null,
                 .decompressed_size = 0,
+                .decode = .init,
             } };
         },
         .skippable => {
@@ -139,11 +149,11 @@ fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
     }
 }
 
-fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame) !usize {
+fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) !usize {
     const in = d.input;
+    const window_len = d.window_len;
 
-    const header_bytes = try in.takeArray(3);
-    const block_header: Frame.Zstandard.Block.Header = @bitCast(header_bytes.*);
+    const block_header = try in.takeStruct(Frame.Zstandard.Block.Header, .little);
     const block_size = block_header.size;
     const frame_block_size_max = state.frame.block_size_max;
     if (frame_block_size_max < block_size) return error.BlockOversize;
@@ -151,49 +161,47 @@ fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame)
     var bytes_written: usize = 0;
     switch (block_header.type) {
         .raw => {
-            try in.readAll(bw, .limited(block_size));
+            try in.streamExactPreserve(w, window_len, block_size);
             bytes_written = block_size;
         },
         .rle => {
             const byte = try in.takeByte();
-            try bw.splatByteAll(byte, block_size);
+            try w.splatBytePreserve(window_len, byte, block_size);
             bytes_written = block_size;
         },
         .compressed => {
-            var literal_fse_buffer: [zstd.table_size_max.literal]Table.Fse = undefined;
-            var match_fse_buffer: [zstd.table_size_max.match]Table.Fse = undefined;
-            var offset_fse_buffer: [zstd.table_size_max.offset]Table.Fse = undefined;
             var literals_buffer: [zstd.block_size_max]u8 = undefined;
             var sequence_buffer: [zstd.block_size_max]u8 = undefined;
-            var decode: Frame.Zstandard.Decode = .init(&literal_fse_buffer, &match_fse_buffer, &offset_fse_buffer);
             var remaining: Limit = .limited(block_size);
             const literals = try LiteralsSection.decode(in, &remaining, &literals_buffer);
             const sequences_header = try SequencesSection.Header.decode(in, &remaining);
 
+            const decode = &state.decode;
             try decode.prepare(in, &remaining, literals, sequences_header);
 
             {
                 if (sequence_buffer.len < @intFromEnum(remaining))
                     return error.SequenceBufferUndersize;
                 const seq_slice = remaining.slice(&sequence_buffer);
-                try in.readSlice(seq_slice);
+                try in.readSliceAll(seq_slice);
                 var bit_stream = try ReverseBitReader.init(seq_slice);
 
                 if (sequences_header.sequence_count > 0) {
                     try decode.readInitialFseState(&bit_stream);
 
                     // Ensures the following calls to `decodeSequence` will not flush.
-                    if (frame_block_size_max > bw.buffer.len) return error.OutputBufferUndersize;
-                    const dest = (try bw.writableSliceGreedy(frame_block_size_max))[0..frame_block_size_max];
+                    if (window_len + frame_block_size_max > w.buffer.len) return error.OutputBufferUndersize;
+                    const dest = (try w.writableSliceGreedyPreserve(window_len, frame_block_size_max))[0..frame_block_size_max];
+                    const write_pos = dest.ptr - w.buffer.ptr;
                     for (0..sequences_header.sequence_count - 1) |_| {
-                        bytes_written += try decode.decodeSequence(dest, bytes_written, &bit_stream);
+                        bytes_written += try decode.decodeSequence(w.buffer, write_pos + bytes_written, &bit_stream);
                         try decode.updateState(.literal, &bit_stream);
                         try decode.updateState(.match, &bit_stream);
                         try decode.updateState(.offset, &bit_stream);
                     }
-                    bytes_written += try decode.decodeSequence(dest, bytes_written, &bit_stream);
+                    bytes_written += try decode.decodeSequence(w.buffer, write_pos + bytes_written, &bit_stream);
                     if (bytes_written > dest.len) return error.MalformedSequence;
-                    bw.advance(bytes_written);
+                    w.advance(bytes_written);
                 }
 
                 if (!bit_stream.isEmpty()) {
@@ -203,7 +211,7 @@ fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame)
 
             if (decode.literal_written_count < literals.header.regenerated_size) {
                 const len = literals.header.regenerated_size - decode.literal_written_count;
-                try decode.decodeLiterals(bw, len);
+                try decode.decodeLiterals(w, len);
                 decode.literal_written_count += len;
                 bytes_written += len;
             }
@@ -216,11 +224,6 @@ fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame)
             }
 
             if (bytes_written > frame_block_size_max) return error.BlockOversize;
-
-            state.decompressed_size += bytes_written;
-            if (state.frame.content_size) |size| {
-                if (state.decompressed_size > size) return error.MalformedFrame;
-            }
         },
         .reserved => return error.ReservedBlock,
     }
@@ -231,6 +234,8 @@ fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame)
             @panic("TODO all those bytes written needed to go through the hasher too");
         }
     }
+
+    state.decompressed_size += bytes_written;
 
     if (block_header.last) {
         if (state.frame.has_checksum) {
@@ -246,6 +251,8 @@ fn readInFrame(d: *Decompress, bw: *Writer, limit: Limit, state: *State.InFrame)
             }
         }
         d.state = .new_frame;
+    } else if (state.frame.content_size) |content_size| {
+        if (state.decompressed_size > content_size) return error.MalformedFrame;
     }
 
     return bytes_written;
@@ -367,9 +374,9 @@ pub const Frame = struct {
             match: StateData(9),
             literal: StateData(9),
 
-            offset_fse_buffer: []Table.Fse,
-            match_fse_buffer: []Table.Fse,
-            literal_fse_buffer: []Table.Fse,
+            literal_fse_buffer: [zstd.table_size_max.literal]Table.Fse,
+            match_fse_buffer: [zstd.table_size_max.match]Table.Fse,
+            offset_fse_buffer: [zstd.table_size_max.offset]Table.Fse,
 
             fse_tables_undefined: bool,
 
@@ -391,36 +398,30 @@ pub const Frame = struct {
                 };
             }
 
-            pub fn init(
-                literal_fse_buffer: []Table.Fse,
-                match_fse_buffer: []Table.Fse,
-                offset_fse_buffer: []Table.Fse,
-            ) Decode {
-                return .{
-                    .repeat_offsets = .{
-                        zstd.start_repeated_offset_1,
-                        zstd.start_repeated_offset_2,
-                        zstd.start_repeated_offset_3,
-                    },
+            const init: Decode = .{
+                .repeat_offsets = .{
+                    zstd.start_repeated_offset_1,
+                    zstd.start_repeated_offset_2,
+                    zstd.start_repeated_offset_3,
+                },
 
-                    .offset = undefined,
-                    .match = undefined,
-                    .literal = undefined,
+                .offset = undefined,
+                .match = undefined,
+                .literal = undefined,
 
-                    .literal_fse_buffer = literal_fse_buffer,
-                    .match_fse_buffer = match_fse_buffer,
-                    .offset_fse_buffer = offset_fse_buffer,
+                .literal_fse_buffer = undefined,
+                .match_fse_buffer = undefined,
+                .offset_fse_buffer = undefined,
 
-                    .fse_tables_undefined = true,
+                .fse_tables_undefined = true,
 
-                    .literal_written_count = 0,
-                    .literal_header = undefined,
-                    .literal_streams = undefined,
-                    .literal_stream_reader = undefined,
-                    .literal_stream_index = undefined,
-                    .huffman_tree = null,
-                };
-            }
+                .literal_written_count = 0,
+                .literal_header = undefined,
+                .literal_streams = undefined,
+                .literal_stream_reader = undefined,
+                .literal_stream_index = undefined,
+                .huffman_tree = null,
+            };
 
             pub const PrepareError = error{
                 /// the (reversed) literal bitstream's first byte does not have any bits set
@@ -502,12 +503,12 @@ pub const Frame = struct {
                 return self.repeat_offsets[0];
             }
 
-            const DataType = enum { offset, match, literal };
+            const WhichFse = enum { offset, match, literal };
 
             /// TODO: don't use `@field`
             fn updateState(
                 self: *Decode,
-                comptime choice: DataType,
+                comptime choice: WhichFse,
                 bit_reader: *ReverseBitReader,
             ) error{ MalformedFseBits, EndOfStream }!void {
                 switch (@field(self, @tagName(choice)).table) {
@@ -537,7 +538,7 @@ pub const Frame = struct {
                 self: *Decode,
                 in: *Reader,
                 remaining: *Limit,
-                comptime choice: DataType,
+                comptime choice: WhichFse,
                 mode: SequencesSection.Header.Mode,
             ) !void {
                 const field_name = @tagName(choice);
@@ -564,10 +565,10 @@ pub const Frame = struct {
                             &bit_reader,
                             @field(zstd.table_symbol_count_max, field_name),
                             @field(zstd.table_accuracy_log_max, field_name),
-                            @field(self, field_name ++ "_fse_buffer"),
+                            &@field(self, field_name ++ "_fse_buffer"),
                         );
                         @field(self, field_name).table = .{
-                            .fse = @field(self, field_name ++ "_fse_buffer")[0..table_size],
+                            .fse = (&@field(self, field_name ++ "_fse_buffer"))[0..table_size],
                         };
                         @field(self, field_name).accuracy_log = std.math.log2_int_ceil(usize, table_size);
                         in.toss(bit_reader.index);
@@ -696,19 +697,19 @@ pub const Frame = struct {
                 };
             }
 
-            /// Decode `len` bytes of literals into `dest`.
-            fn decodeLiterals(self: *Decode, dest: *Writer, len: usize) !void {
-                switch (self.literal_header.block_type) {
+            /// Decode `len` bytes of literals into `w`.
+            fn decodeLiterals(d: *Decode, w: *Writer, len: usize) !void {
+                switch (d.literal_header.block_type) {
                     .raw => {
-                        try dest.writeAll(self.literal_streams.one[self.literal_written_count..][0..len]);
+                        try w.writeAll(d.literal_streams.one[d.literal_written_count..][0..len]);
                     },
                     .rle => {
-                        try dest.splatByteAll(self.literal_streams.one[0], len);
+                        try w.splatByteAll(d.literal_streams.one[0], len);
                     },
                     .compressed, .treeless => {
-                        if (len > dest.buffer.len) return error.OutputBufferUndersize;
-                        const buf = try dest.writableSlice(len);
-                        const huffman_tree = self.huffman_tree.?;
+                        if (len > w.buffer.len) return error.OutputBufferUndersize;
+                        const buf = try w.writableSlice(len);
+                        const huffman_tree = d.huffman_tree.?;
                         const max_bit_count = huffman_tree.max_bit_count;
                         const starting_bit_count = LiteralsSection.HuffmanTree.weightToBitCount(
                             huffman_tree.nodes[huffman_tree.symbol_count_minus_one].weight,
@@ -720,7 +721,7 @@ pub const Frame = struct {
                         for (buf) |*out| {
                             var prefix: u16 = 0;
                             while (true) {
-                                const new_bits = try self.readLiteralsBits(bit_count_to_read);
+                                const new_bits = try d.readLiteralsBits(bit_count_to_read);
                                 prefix <<= bit_count_to_read;
                                 prefix |= new_bits;
                                 bits_read += bit_count_to_read;
@@ -750,7 +751,7 @@ pub const Frame = struct {
             }
 
             /// TODO: don't use `@field`
-            fn getCode(self: *Decode, comptime choice: DataType) u32 {
+            fn getCode(self: *Decode, comptime choice: WhichFse) u32 {
                 return switch (@field(self, @tagName(choice)).table) {
                     .rle => |value| value,
                     .fse => |table| table[@field(self, @tagName(choice)).state].symbol,
@@ -1166,7 +1167,7 @@ pub const LiteralsSection = struct {
             .raw => {
                 if (buffer.len < header.regenerated_size) return error.MalformedLiteralsSection;
                 remaining.* = remaining.subtract(header.regenerated_size) orelse return error.EndOfStream;
-                try in.readSlice(buffer[0..header.regenerated_size]);
+                try in.readSliceAll(buffer[0..header.regenerated_size]);
                 return .{
                     .header = header,
                     .huffman_tree = null,
@@ -1193,7 +1194,7 @@ pub const LiteralsSection = struct {
                     return error.MalformedLiteralsSection;
                 if (total_streams_size > buffer.len) return error.MalformedLiteralsSection;
                 remaining.* = remaining.subtract(total_streams_size) orelse return error.EndOfStream;
-                try in.readSlice(buffer[0..total_streams_size]);
+                try in.readSliceAll(buffer[0..total_streams_size]);
                 const stream_data = buffer[0..total_streams_size];
                 const streams = try Streams.decode(header.size_format, stream_data);
                 return .{

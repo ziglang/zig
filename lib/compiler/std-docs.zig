@@ -348,8 +348,9 @@ fn buildWasmBinary(
         };
     }
 
-    if (poller.reader(.stderr).buffer.len > 0) {
-        std.debug.print("{s}", .{poller.reader(.stderr).buffered()});
+    const stderr = poller.reader(.stderr);
+    if (stderr.bufferedLen() > 0) {
+        std.debug.print("{s}", .{stderr.buffered()});
     }
 
     // Send EOF to stdin.
