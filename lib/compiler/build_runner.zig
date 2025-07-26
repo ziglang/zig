@@ -696,8 +696,11 @@ fn runStepNames(
         .failures, .none => true,
         else => false,
     };
-    if (failure_count == 0 and failures_only) {
-        return run.cleanExit();
+    if (failure_count == 0) {
+        std.Progress.setStatus(.success);
+        if (failures_only) return run.cleanExit();
+    } else {
+        std.Progress.setStatus(.failure);
     }
 
     const ttyconf = run.ttyconf;
@@ -1149,6 +1152,7 @@ fn workerMakeOneStep(
         } else |err| switch (err) {
             error.MakeFailed => {
                 @atomicStore(Step.State, &s.state, .failure, .seq_cst);
+                std.Progress.setStatus(.failure_working);
                 break :handle_result;
             },
             error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
