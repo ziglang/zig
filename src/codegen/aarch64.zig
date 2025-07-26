@@ -47,6 +47,7 @@ pub fn generate(
         .literals = .empty,
         .nav_relocs = .empty,
         .uav_relocs = .empty,
+        .lazy_relocs = .empty,
         .global_relocs = .empty,
         .literal_relocs = .empty,
 
@@ -101,8 +102,8 @@ pub fn generate(
         };
         switch (passed_vi.parent(&isel)) {
             .unallocated => if (!mod.strip) {
-                var part_it = arg_vi.parts(&isel);
-                const first_passed_part_vi = part_it.next() orelse passed_vi;
+                var part_it = passed_vi.parts(&isel);
+                const first_passed_part_vi = part_it.next().?;
                 const hint_ra = first_passed_part_vi.hint(&isel).?;
                 passed_vi.setParent(&isel, .{ .stack_slot = if (hint_ra.isVector())
                     isel.va_list.__vr_top.withOffset(@as(i8, -16) *
@@ -167,6 +168,7 @@ pub fn generate(
         .literals = &.{},
         .nav_relocs = &.{},
         .uav_relocs = &.{},
+        .lazy_relocs = &.{},
         .global_relocs = &.{},
         .literal_relocs = &.{},
     };
@@ -174,6 +176,7 @@ pub fn generate(
     mir.literals = try isel.literals.toOwnedSlice(gpa);
     mir.nav_relocs = try isel.nav_relocs.toOwnedSlice(gpa);
     mir.uav_relocs = try isel.uav_relocs.toOwnedSlice(gpa);
+    mir.lazy_relocs = try isel.lazy_relocs.toOwnedSlice(gpa);
     mir.global_relocs = try isel.global_relocs.toOwnedSlice(gpa);
     mir.literal_relocs = try isel.literal_relocs.toOwnedSlice(gpa);
     return mir;

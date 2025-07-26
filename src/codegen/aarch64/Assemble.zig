@@ -6,14 +6,19 @@ pub const Operand = union(enum) {
 };
 
 pub fn nextInstruction(as: *Assemble) !?Instruction {
-    @setEvalBranchQuota(37_000);
+    @setEvalBranchQuota(42_000);
     comptime var ct_token_buf: [token_buf_len]u8 = undefined;
     var token_buf: [token_buf_len]u8 = undefined;
     const original_source = while (true) {
         const original_source = as.source;
         const source_token = try as.nextToken(&token_buf, .{});
-        if (source_token.len == 0) return null;
-        if (source_token[0] != '\n') break original_source;
+        switch (source_token.len) {
+            0 => return null,
+            else => switch (source_token[0]) {
+                else => break original_source,
+                '\n', ';' => {},
+            },
+        }
     };
     log.debug(
         \\.
@@ -52,7 +57,13 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
                     std.zig.fmtString(source_token),
                 });
                 if (pattern_token.len == 0) {
-                    if (source_token.len > 0 and source_token[0] != '\n') break :next_pattern;
+                    switch (source_token.len) {
+                        0 => {},
+                        else => switch (source_token[0]) {
+                            else => break :next_pattern,
+                            '\n', ';' => {},
+                        },
+                    }
                     const encode = @field(Instruction, @tagName(instruction.encode[0]));
                     const Encode = @TypeOf(encode);
                     var args: std.meta.ArgsTuple(Encode) = undefined;
@@ -65,7 +76,7 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
                     const symbol = &@field(symbols, symbol_name);
                     symbol.* = zonCast(SymbolSpec, @field(instruction.symbols, symbol_name), .{}).parse(source_token) orelse break :next_pattern;
                     log.debug("{s} = {any}", .{ symbol_name, symbol.* });
-                } else if (!std.ascii.eqlIgnoreCase(pattern_token, source_token)) break :next_pattern;
+                } else if (!toUpperEqlAssertUpper(source_token, pattern_token)) break :next_pattern;
             }
         }
         log.debug("'{s}' not matched...", .{instruction.pattern});
@@ -125,6 +136,15 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
     }
 }
 
+fn toUpperEqlAssertUpper(lhs: []const u8, rhs: []const u8) bool {
+    if (lhs.len != rhs.len) return false;
+    for (lhs, rhs) |l, r| {
+        assert(!std.ascii.isLower(r));
+        if (std.ascii.toUpper(l) != r) return false;
+    }
+    return true;
+}
+
 const token_buf_len = "v31.b[15]".len;
 fn nextToken(as: *Assemble, buf: *[token_buf_len]u8, comptime opts: struct {
     operands: bool = false,
@@ -134,7 +154,7 @@ fn nextToken(as: *Assemble, buf: *[token_buf_len]u8, comptime opts: struct {
     while (true) c: switch (as.source[0]) {
         0 => return as.source[0..0],
         '\t', '\n' + 1...'\r', ' ' => as.source = as.source[1..],
-        '\n', '!', '#', ',', '[', ']' => {
+        '\n', '!', '#', ',', ';', '[', ']' => {
             defer as.source = as.source[1..];
             return as.source[0..1];
         },

@@ -19,4 +19,4 @@ fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux

@@ -7,5 +7,5 @@ export fn entry3() callconv(.avr_interrupt) void {}
 // target=aarch64-linux-none
 //
 // :1:30: error: calling convention 'x86_64_interrupt' only available on architectures 'x86_64'
-// :1:30: error: calling convention 'x86_interrupt' only available on architectures 'x86'
-// :1:30: error: calling convention 'avr_interrupt' only available on architectures 'avr'
+// :2:30: error: calling convention 'x86_interrupt' only available on architectures 'x86'
+// :3:30: error: calling convention 'avr_interrupt' only available on architectures 'avr'
