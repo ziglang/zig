@@ -256,10 +256,10 @@ test "fixed buffer flush" {
     try testing.expectEqual(10, buffer[0]);
 }
 
-/// Calls `VTable.drain` but hides the last `preserve_length` bytes from the
+/// Calls `VTable.drain` but hides the last `preserve_len` bytes from the
 /// implementation, keeping them buffered.
-pub fn drainPreserve(w: *Writer, preserve_length: usize) Error!void {
-    const temp_end = w.end -| preserve_length;
+pub fn drainPreserve(w: *Writer, preserve_len: usize) Error!void {
+    const temp_end = w.end -| preserve_len;
     const preserved = w.buffer[temp_end..w.end];
     w.end = temp_end;
     defer w.end += preserved.len;
@@ -310,22 +310,36 @@ pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
 }
 
 /// Asserts the provided buffer has total capacity enough for `minimum_length`
-/// and `preserve_length` combined.
+/// and `preserve_len` combined.
 ///
 /// Does not `advance` the buffer end position.
 ///
-/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// When draining the buffer, ensures that at least `preserve_len` bytes
 /// remain buffered.
 ///
-/// If `preserve_length` is zero, this is equivalent to `writableSliceGreedy`.
-pub fn writableSliceGreedyPreserve(w: *Writer, preserve_length: usize, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= preserve_length + minimum_length);
+/// If `preserve_len` is zero, this is equivalent to `writableSliceGreedy`.
+pub fn writableSliceGreedyPreserve(w: *Writer, preserve_len: usize, minimum_length: usize) Error![]u8 {
+    assert(w.buffer.len >= preserve_len + minimum_length);
     while (w.buffer.len - w.end < minimum_length) {
-        try drainPreserve(w, preserve_length);
+        try drainPreserve(w, preserve_len);
     } else {
         @branchHint(.likely);
         return w.buffer[w.end..];
     }
+}
+
+/// Asserts the provided buffer has total capacity enough for `len`.
+///
+/// Advances the buffer end position by `len`.
+///
+/// When draining the buffer, ensures that at least `preserve_len` bytes
+/// remain buffered.
+///
+/// If `preserve_len` is zero, this is equivalent to `writableSlice`.
+pub fn writableSlicePreserve(w: *Writer, preserve_len: usize, len: usize) Error![]u8 {
+    const big_slice = try w.writableSliceGreedyPreserve(preserve_len, len);
+    advance(w, len);
+    return big_slice[0..len];
 }
 
 pub const WritableVectorIterator = struct {
@@ -523,16 +537,16 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     return w.vtable.drain(w, &.{bytes}, 1);
 }
 
-/// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!usize {
-    assert(preserve_length <= w.buffer.len);
+/// Asserts `buffer` capacity exceeds `preserve_len`.
+pub fn writePreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!usize {
+    assert(preserve_len <= w.buffer.len);
     if (w.end + bytes.len <= w.buffer.len) {
         @branchHint(.likely);
         @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
         w.end += bytes.len;
         return bytes.len;
     }
-    const temp_end = w.end -| preserve_length;
+    const temp_end = w.end -| preserve_len;
     const preserved = w.buffer[temp_end..w.end];
     w.end = temp_end;
     defer w.end += preserved.len;
@@ -552,13 +566,13 @@ pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
 /// Calls `drain` as many times as necessary such that all of `bytes` are
 /// transferred.
 ///
-/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// When draining the buffer, ensures that at least `preserve_len` bytes
 /// remain buffered.
 ///
-/// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!void {
+/// Asserts `buffer` capacity exceeds `preserve_len`.
+pub fn writeAllPreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!void {
     var index: usize = 0;
-    while (index < bytes.len) index += try w.writePreserve(preserve_length, bytes[index..]);
+    while (index < bytes.len) index += try w.writePreserve(preserve_len, bytes[index..]);
 }
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -761,11 +775,11 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
     }
 }
 
-/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// When draining the buffer, ensures that at least `preserve_len` bytes
 /// remain buffered.
-pub fn writeBytePreserve(w: *Writer, preserve_length: usize, byte: u8) Error!void {
+pub fn writeBytePreserve(w: *Writer, preserve_len: usize, byte: u8) Error!void {
     while (w.buffer.len - w.end == 0) {
-        try drainPreserve(w, preserve_length);
+        try drainPreserve(w, preserve_len);
     } else {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
@@ -788,10 +802,42 @@ test splatByteAll {
     try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
 }
 
+pub fn splatBytePreserve(w: *Writer, preserve_len: usize, byte: u8, n: usize) Error!void {
+    const new_end = w.end + n;
+    if (new_end <= w.buffer.len) {
+        @memset(w.buffer[w.end..][0..n], byte);
+        w.end = new_end;
+        return;
+    }
+    // If `n` is large, we can ignore `preserve_len` up to a point.
+    var remaining = n;
+    while (remaining > preserve_len) {
+        assert(remaining != 0);
+        remaining -= try splatByte(w, byte, remaining - preserve_len);
+        if (w.end + remaining <= w.buffer.len) {
+            @memset(w.buffer[w.end..][0..remaining], byte);
+            w.end += remaining;
+            return;
+        }
+    }
+    // All the next bytes received must be preserved.
+    if (preserve_len < w.end) {
+        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
+        w.end = preserve_len;
+    }
+    while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
+}
+
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `VTable.drain`.
 pub fn splatByte(w: *Writer, byte: u8, n: usize) Error!usize {
+    if (w.end + n <= w.buffer.len) {
+        @branchHint(.likely);
+        @memset(w.buffer[w.end..][0..n], byte);
+        w.end += n;
+        return n;
+    }
     return writeSplat(w, &.{&.{byte}}, n);
 }
 
@@ -801,9 +847,10 @@ pub fn splatBytesAll(w: *Writer, bytes: []const u8, splat: usize) Error!void {
     var remaining_bytes: usize = bytes.len * splat;
     remaining_bytes -= try w.splatBytes(bytes, splat);
     while (remaining_bytes > 0) {
-        const leftover = remaining_bytes % bytes.len;
-        const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try w.writeSplat(&buffers, splat);
+        const leftover_splat = remaining_bytes / bytes.len;
+        const leftover_bytes = remaining_bytes % bytes.len;
+        const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover_bytes ..], bytes };
+        remaining_bytes -= try w.writeSplat(&buffers, leftover_splat);
     }
 }
 

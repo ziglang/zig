@@ -1198,7 +1198,8 @@ fn unpackResource(
 
     switch (file_type) {
         .tar => {
-            var adapter = resource.reader().adaptToNewApi();
+            var adapter_buffer: [1024]u8 = undefined;
+            var adapter = resource.reader().adaptToNewApi(&adapter_buffer);
             return unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.gz" => {
@@ -1225,16 +1226,14 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
-            const window_size = std.compress.zstd.DecompressorOptions.default_window_buffer_len;
+            const window_size = std.compress.zstd.default_window_len;
             const window_buffer = try f.arena.allocator().create([window_size]u8);
-            const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-            var dcp = std.compress.zstd.decompressor(br.reader(), .{
-                .window_buffer = window_buffer,
+            var adapter_buffer: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+            var adapter = resource.reader().adaptToNewApi(&adapter_buffer);
+            var decompress: std.compress.zstd.Decompress = .init(&adapter.new_interface, window_buffer, .{
+                .verify_checksum = false,
             });
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .git_pack => return unpackGitPack(f, tmp_directory.handle, &resource.git) catch |err| switch (err) {
             error.FetchFailed => return error.FetchFailed,

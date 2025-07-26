@@ -2026,7 +2026,19 @@ pub const Writer = struct {
     /// along with other write failures.
     pub fn end(w: *Writer) EndError!void {
         try w.interface.flush();
-        return w.file.setEndPos(w.pos);
+        switch (w.mode) {
+            .positional,
+            .positional_reading,
+            => w.file.setEndPos(w.pos) catch |err| switch (err) {
+                error.NonResizable => return,
+                else => |e| return e,
+            },
+
+            .streaming,
+            .streaming_reading,
+            .failure,
+            => {},
+        }
     }
 };
 

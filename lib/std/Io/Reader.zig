@@ -185,6 +185,32 @@ pub fn streamExact64(r: *Reader, w: *Writer, n: u64) StreamError!void {
     while (remaining != 0) remaining -= try r.stream(w, .limited64(remaining));
 }
 
+/// "Pump" exactly `n` bytes from the reader to the writer.
+///
+/// When draining `w`, ensures that at least `preserve_len` bytes remain
+/// buffered.
+///
+/// Asserts `Writer.buffer` capacity exceeds `preserve_len`.
+pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize) StreamError!void {
+    if (w.end + n <= w.buffer.len) {
+        @branchHint(.likely);
+        return streamExact(r, w, n);
+    }
+    // If `n` is large, we can ignore `preserve_len` up to a point.
+    var remaining = n;
+    while (remaining > preserve_len) {
+        assert(remaining != 0);
+        remaining -= try r.stream(w, .limited(remaining - preserve_len));
+        if (w.end + remaining <= w.buffer.len) return streamExact(r, w, remaining);
+    }
+    // All the next bytes received must be preserved.
+    if (preserve_len < w.end) {
+        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
+        w.end = preserve_len;
+    }
+    return streamExact(r, w, remaining);
+}
+
 /// "Pump" data from the reader to the writer, handling `error.EndOfStream` as
 /// a success case.
 ///
@@ -240,7 +266,7 @@ pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocErro
 /// such case, the next byte that would be read will be the first one to exceed
 /// `limit`, and all preceeding bytes have been appended to `list`.
 ///
-/// Asserts `buffer` has nonzero capacity.
+/// If `limit` is not `Limit.unlimited`, asserts `buffer` has nonzero capacity.
 ///
 /// See also:
 /// * `allocRemaining`
@@ -251,7 +277,7 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
-    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
+    if (limit != .unlimited) assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
     const buffer_contents = r.buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
     try list.appendSlice(gpa, r.buffer[0..copy_len]);
