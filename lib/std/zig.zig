@@ -385,23 +385,23 @@ pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtIdFlags`.
-pub fn fmtId(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{} } };
+pub fn fmtId(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{} };
 }
 
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtId`.
-pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = flags } };
+pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) FormatId {
+    return .{ .bytes = bytes, .flags = flags };
 }
 
-pub fn fmtIdPU(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } } };
+pub fn fmtIdPU(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } };
 }
 
-pub fn fmtIdP(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true } } };
+pub fn fmtIdP(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true } };
 }
 
 test fmtId {
@@ -447,7 +447,7 @@ pub const FormatId = struct {
     };
 
     /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-    fn render(ctx: FormatId, writer: *Writer) Writer.Error!void {
+    pub fn format(ctx: FormatId, writer: *Writer) Writer.Error!void {
         const bytes = ctx.bytes;
         if (isValidId(bytes) and
             (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and
