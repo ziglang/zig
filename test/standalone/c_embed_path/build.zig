@@ -13,12 +13,12 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
-    exe.addCSourceFile(.{
+    exe.root_module.addCSourceFile(.{
         .file = b.path("test.c"),
         .flags = &.{"-std=c23"},
     });
-    exe.linkLibC();
-    exe.addEmbedPath(b.path("data"));
+    exe.root_module.link_libc = true;
+    exe.root_module.addEmbedPath(b.path("data"));
 
     const run_c_cmd = b.addRunArtifact(exe);
     run_c_cmd.expectExitCode(0);
