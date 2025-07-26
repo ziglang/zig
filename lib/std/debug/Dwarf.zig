@@ -2235,18 +2235,14 @@ pub const ElfModule = struct {
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-                var section_stream = std.io.fixedBufferStream(section_bytes);
-                const section_reader = section_stream.reader();
-                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+                var section_reader: std.Io.Reader = .fixed(section_bytes);
+                const chdr = section_reader.takeStruct(elf.Chdr, endian) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressor(section_reader);
-
-                const decompressed_section = try gpa.alloc(u8, chdr.ch_size);
+                var zlib_stream: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
+                const decompressed_section = zlib_stream.reader.allocRemaining(gpa, .unlimited) catch continue;
                 errdefer gpa.free(decompressed_section);
-
-                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
-                assert(read == decompressed_section.len);
+                assert(chdr.ch_size == decompressed_section.len);
 
                 break :blk .{
                     .data = decompressed_section,

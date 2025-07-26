@@ -6,7 +6,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const print = std.debug.print;
 const expect = std.testing.expect;
-const consts = @import("consts.zig").match;
+const match = std.compress.flate.match;
 
 const Token = @This();
 
@@ -26,11 +26,11 @@ pub fn literal(t: Token) u8 {
 }
 
 pub fn distance(t: Token) u16 {
-    return @as(u16, t.dist) + consts.min_distance;
+    return @as(u16, t.dist) + match.min_distance;
 }
 
 pub fn length(t: Token) u16 {
-    return @as(u16, t.len_lit) + consts.base_length;
+    return @as(u16, t.len_lit) + match.base_length;
 }
 
 pub fn initLiteral(lit: u8) Token {
@@ -40,12 +40,12 @@ pub fn initLiteral(lit: u8) Token {
 // distance range 1 - 32768, stored in dist as 0 - 32767 (u15)
 // length range 3 - 258, stored in len_lit as 0 - 255 (u8)
 pub fn initMatch(dist: u16, len: u16) Token {
-    assert(len >= consts.min_length and len <= consts.max_length);
-    assert(dist >= consts.min_distance and dist <= consts.max_distance);
+    assert(len >= match.min_length and len <= match.max_length);
+    assert(dist >= match.min_distance and dist <= match.max_distance);
     return .{
         .kind = .match,
-        .dist = @intCast(dist - consts.min_distance),
-        .len_lit = @intCast(len - consts.base_length),
+        .dist = @intCast(dist - match.min_distance),
+        .len_lit = @intCast(len - match.base_length),
     };
 }
 

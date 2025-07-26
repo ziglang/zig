@@ -405,13 +405,8 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
-    // https://github.com/ziglang/zig/issues/18937
-    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
-
-    deflate: DeflateDecompressor,
-    gzip: GzipDecompressor,
+    deflate: std.compress.flate.Decompress,
+    gzip: std.compress.flate.Decompress,
     // https://github.com/ziglang/zig/issues/18937
     //zstd: ZstdDecompressor,
     none: void,
