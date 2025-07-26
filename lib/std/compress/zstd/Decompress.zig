@@ -31,7 +31,12 @@ pub const Options = struct {
     /// Verifying checksums is not implemented yet and will cause a panic if
     /// you set this to true.
     verify_checksum: bool = false,
-    /// Affects the minimum capacity of the provided buffer.
+
+    /// The output buffer is asserted to have capacity for `window_len` plus
+    /// `zstd.block_size_max`.
+    ///
+    /// If `window_len` is too small, then some streams will fail to decompress
+    /// with `error.OutputBufferUndersize`.
     window_len: u32 = zstd.default_window_len,
 };
 
@@ -69,8 +74,10 @@ pub const Error = error{
     WindowSizeUnknown,
 };
 
-/// If buffer that is written to is not big enough, some streams will fail with
-/// `error.OutputBufferUndersize`. A safe value is `zstd.default_window_len * 2`.
+/// When connecting `reader` to a `Writer`, `buffer` should be empty, and
+/// `Writer.buffer` capacity has requirements based on `Options.window_len`.
+///
+/// Otherwise, `buffer` has those requirements.
 pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
     return .{
         .input = input,
@@ -78,12 +85,27 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
         .verify_checksum = options.verify_checksum,
         .window_len = options.window_len,
         .reader = .{
-            .vtable = &.{ .stream = stream },
+            .vtable = &.{
+                .stream = stream,
+                .rebase = rebase,
+            },
             .buffer = buffer,
             .seek = 0,
             .end = 0,
         },
     };
+}
+
+fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    assert(capacity <= r.buffer.len - d.window_len);
+    assert(r.end + capacity > r.buffer.len);
+    const buffered = r.buffer[0..r.end];
+    const discard = buffered.len - d.window_len;
+    const keep = buffered[discard..];
+    @memmove(r.buffer[0..keep.len], keep);
+    r.end = keep.len;
+    r.seek -= discard;
 }
 
 fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
