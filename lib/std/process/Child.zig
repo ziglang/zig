@@ -901,11 +901,6 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             if (dir_buf.items.len > 0) try dir_buf.append(self.allocator, fs.path.sep);
             try dir_buf.appendSlice(self.allocator, app_dir);
         }
-        if (dir_buf.items.len > 0) {
-            // Need to normalize the path, openDirW can't handle things like double backslashes
-            const normalized_len = windows.normalizePath(u16, dir_buf.items) catch return error.BadPathName;
-            dir_buf.shrinkRetainingCapacity(normalized_len);
-        }
 
         windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo) catch |no_path_err| {
             const original_err = switch (no_path_err) {
@@ -930,10 +925,6 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             while (it.next()) |search_path| {
                 dir_buf.clearRetainingCapacity();
                 try dir_buf.appendSlice(self.allocator, search_path);
-                // Need to normalize the path, some PATH values can contain things like double
-                // backslashes which openDirW can't handle
-                const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
-                dir_buf.shrinkRetainingCapacity(normalized_len);
 
                 if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo)) {
                     break :run;
