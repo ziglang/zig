@@ -25,6 +25,7 @@ redraw_event: std.Thread.ResetEvent,
 /// Accessed atomically.
 done: bool,
 need_clear: bool,
+status: Status,
 
 refresh_rate_ns: u64,
 initial_delay_ns: u64,
@@ -46,6 +47,22 @@ node_freelist: Freelist,
 /// index are either active, or on the freelist. The remaining nodes are implicitly free. This
 /// value may at times temporarily exceed the node count.
 node_end_index: u32,
+
+pub const Status = enum {
+    /// Indicates the application is progressing towards completion of a task.
+    /// Unless the application is interactive, this is the only status the
+    /// program will ever have!
+    working,
+    /// The application has completed an operation, and is now waiting for user
+    /// input rather than calling exit(0).
+    success,
+    /// The application encountered an error, and is now waiting for user input
+    /// rather than calling exit(1).
+    failure,
+    /// The application encountered at least one error, but is still working on
+    /// more tasks.
+    failure_working,
+};
 
 const Freelist = packed struct(u32) {
     head: Node.OptionalIndex,
@@ -383,6 +400,7 @@ var global_progress: Progress = .{
     .draw_buffer = undefined,
     .done = false,
     .need_clear = false,
+    .status = .working,
 
     .node_parents = &node_parents_buffer,
     .node_storage = &node_storage_buffer,
@@ -496,6 +514,11 @@ pub fn start(options: Options) Node {
     }
 
     return root_node;
+}
+
+pub fn setStatus(new_status: Status) void {
+    if (noop_impl) return;
+    @atomicStore(Status, &global_progress.status, new_status, .monotonic);
 }
 
 /// Returns whether a resize is needed to learn the terminal size.
@@ -678,6 +701,14 @@ const save = "\x1b7";
 const restore = "\x1b8";
 const finish_sync = "\x1b[?2026l";
 
+const progress_remove = "\x1b]9;4;0\x07";
+const @"progress_normal {d}" = "\x1b]9;4;1;{d}\x07";
+const @"progress_error {d}" = "\x1b]9;4;2;{d}\x07";
+const progress_pulsing = "\x1b]9;4;3\x07";
+const progress_pulsing_error = "\x1b]9;4;2\x07";
+const progress_normal_100 = "\x1b]9;4;1;100\x07";
+const progress_error_100 = "\x1b]9;4;2;100\x07";
+
 const TreeSymbol = enum {
     /// ├─
     tee,
@@ -760,7 +791,7 @@ fn clearWrittenWithEscapeCodes() anyerror!void {
     if (noop_impl or !global_progress.need_clear) return;
 
     global_progress.need_clear = false;
-    try write(clear);
+    try write(clear ++ progress_remove);
 }
 
 /// U+25BA or ►
@@ -1203,6 +1234,43 @@ fn computeRedraw(serialized_buffer: *Serialized.Buffer) struct { []u8, usize } {
     i, const nl_n = computeNode(buf, i, 0, serialized, children, root_node_index);
 
     if (global_progress.terminal_mode == .ansi_escape_codes) {
+        {
+            // Set progress state https://conemu.github.io/en/AnsiEscapeCodes.html#ConEmu_specific_OSC
+            const root_storage = &serialized.storage[0];
+            const storage = if (root_storage.name[0] != 0 or children[0].child == .none) root_storage else &serialized.storage[@intFromEnum(children[0].child)];
+            const estimated_total = storage.estimated_total_count;
+            const completed_items = storage.completed_count;
+            const status = @atomicLoad(Status, &global_progress.status, .monotonic);
+            switch (status) {
+                .working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing.len].* = progress_pulsing.*;
+                        i += progress_pulsing.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        i += (std.fmt.bufPrint(buf[i..], @"progress_normal {d}", .{percent}) catch &.{}).len;
+                    }
+                },
+                .success => {
+                    buf[i..][0..progress_remove.len].* = progress_remove.*;
+                    i += progress_remove.len;
+                },
+                .failure => {
+                    buf[i..][0..progress_error_100.len].* = progress_error_100.*;
+                    i += progress_error_100.len;
+                },
+                .failure_working => {
+                    if (estimated_total == 0) {
+                        buf[i..][0..progress_pulsing_error.len].* = progress_pulsing_error.*;
+                        i += progress_pulsing_error.len;
+                    } else {
+                        const percent = completed_items * 100 / estimated_total;
+                        i += (std.fmt.bufPrint(buf[i..], @"progress_error {d}", .{percent}) catch &.{}).len;
+                    }
+                },
+            }
+        }
+
         if (nl_n > 0) {
             buf[i] = '\r';
             i += 1;
