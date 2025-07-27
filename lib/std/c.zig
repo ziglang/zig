@@ -207,6 +207,16 @@ pub const passwd = switch (native_os) {
     else => void,
 };
 
+pub const group = switch (native_os) {
+    .linux, .freebsd, .openbsd, .dragonfly, .netbsd, .macos => extern struct {
+        name: ?[*:0]const u8,
+        passwd: ?[*:0]const u8,
+        gid: gid_t,
+        mem: [*:null]?[*:0]const u8,
+    },
+    else => void,
+};
+
 pub const blkcnt_t = switch (native_os) {
     .linux => linux.blkcnt_t,
     .emscripten => emscripten.blkcnt_t,
@@ -3291,8 +3301,8 @@ pub const T = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
 
-        fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
-            return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
+        fn ior(inout: u32, group_arg: usize, num: usize, len: usize) usize {
+            return (inout | ((len & IOCPARM_MASK) << 16) | ((group_arg) << 8) | (num));
         }
     },
     .freebsd => struct {
@@ -10264,6 +10274,13 @@ pub const fstatat = switch (native_os) {
 
 pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+pub extern "c" fn getgrent() ?*group;
+pub extern "c" fn setgrent() void;
+pub extern "c" fn endgrent() void;
+pub extern "c" fn getgrnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getgrnam_r(name: [*:0]const u8, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
+pub extern "c" fn getgrgid(gid: gid_t) ?*group;
+pub extern "c" fn getgrgid_r(gid: gid_t, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
 pub extern "c" fn mmap64(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
