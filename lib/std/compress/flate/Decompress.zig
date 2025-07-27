@@ -1,11 +1,13 @@
 const std = @import("../../std.zig");
+const assert = std.debug.assert;
 const flate = std.compress.flate;
-const Container = flate.Container;
-const Token = @import("Token.zig");
 const testing = std.testing;
-const Decompress = @This();
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
+const Container = flate.Container;
+
+const Decompress = @This();
+const Token = @import("Token.zig");
 
 input: *Reader,
 reader: Reader,
@@ -54,7 +56,10 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
         .reader = .{
             // TODO populate discard so that when an amount is discarded that
             // includes an entire frame, skip decoding that frame.
-            .vtable = &.{ .stream = stream },
+            .vtable = &.{
+                .stream = stream,
+                .rebase = rebase,
+            },
             .buffer = buffer,
             .seek = 0,
             .end = 0,
@@ -67,6 +72,17 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
         .state = .protocol_header,
         .read_err = null,
     };
+}
+
+fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
+    assert(capacity <= r.buffer.len - flate.history_len);
+    assert(r.end + capacity > r.buffer.len);
+    const buffered = r.buffer[0..r.end];
+    const discard = buffered.len - flate.history_len;
+    const keep = buffered[discard..];
+    @memmove(r.buffer[0..keep.len], keep);
+    r.end = keep.len;
+    r.seek -= discard;
 }
 
 fn decodeLength(self: *Decompress, code: u8) !u16 {
