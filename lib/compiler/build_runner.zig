@@ -393,6 +393,24 @@ pub fn main() !void {
         return;
     }
 
+    inline for (dependencies.root_deps) |dep| {
+        if (!@hasDecl(dependencies.packages, dep[1])) continue;
+        const pkg = @field(dependencies.packages, dep[1]);
+        if (!@hasDecl(pkg, "local_override")) continue;
+        const allocator = single_threaded_arena.allocator();
+        const from = try std.process.getCwdAlloc(allocator);
+        const relative_path = try std.fs.path.relative(allocator, from, pkg.build_root);
+        if (pkg.local_override) {
+            if (builder.graph.system_package_mode) {
+                std.log.warn("ignoring local override of '{s}' in system mode, using '{s}'", .{
+                    dep[0], pkg.build_root,
+                });
+            } else {
+                std.log.warn("overriding dependency '{s}' with '{s}'", .{ dep[0], relative_path });
+            }
+        }
+    }
+
     var run: Run = .{
         .max_rss = max_rss,
         .max_rss_is_default = false,
