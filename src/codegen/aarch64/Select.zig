@@ -584,11 +584,23 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
 
             air_body_index += 1;
         },
-        .@"try", .try_cold, .try_ptr, .try_ptr_cold => {
+        .@"try", .try_cold => {
             const pl_op = air_data[@intFromEnum(air_inst_index)].pl_op;
             const extra = isel.air.extraData(Air.Try, pl_op.payload);
 
             try isel.analyzeUse(pl_op.operand);
+            try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.def_order.putNoClobber(gpa, air_inst_index, {});
+
+            air_body_index += 1;
+            air_inst_index = air_body[air_body_index];
+            continue :air_tag air_tags[@intFromEnum(air_inst_index)];
+        },
+        .try_ptr, .try_ptr_cold => {
+            const ty_pl = air_data[@intFromEnum(air_inst_index)].ty_pl;
+            const extra = isel.air.extraData(Air.TryPtr, ty_pl.payload);
+
+            try isel.analyzeUse(extra.data.ptr);
             try isel.analyze(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
             try isel.def_order.putNoClobber(gpa, air_inst_index, {});
 
@@ -4760,14 +4772,59 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             const error_set_part_vi = try error_set_part_it.only(isel);
             const error_set_part_mat = try error_set_part_vi.?.matReg(isel);
             try isel.emit(.cbz(
-                switch (error_set_part_vi.?.size(isel)) {
-                    else => unreachable,
-                    1...4 => error_set_part_mat.ra.w(),
-                    5...8 => error_set_part_mat.ra.x(),
-                },
+                error_set_part_mat.ra.w(),
                 @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
             ));
             try error_set_part_mat.finish(isel);
+
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .try_ptr, .try_ptr_cold => {
+            const ty_pl = air.data(air.inst_index).ty_pl;
+            const extra = isel.air.extraData(Air.TryPtr, ty_pl.payload);
+            const error_union_ty = isel.air.typeOf(extra.data.ptr, ip).childType(zcu);
+            const error_union_info = ip.indexToKey(error_union_ty.toIntern()).error_union_type;
+            const payload_ty: ZigType = .fromInterned(error_union_info.payload_type);
+
+            const error_union_ptr_vi = try isel.use(extra.data.ptr);
+            const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
+            if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| unused: {
+                defer payload_ptr_vi.value.deref(isel);
+                switch (codegen.errUnionPayloadOffset(ty_pl.ty.toType().childType(zcu), zcu)) {
+                    0 => try payload_ptr_vi.value.move(isel, extra.data.ptr),
+                    else => |payload_offset| {
+                        const payload_ptr_ra = try payload_ptr_vi.value.defReg(isel) orelse break :unused;
+                        const lo12: u12 = @truncate(payload_offset >> 0);
+                        const hi12: u12 = @intCast(payload_offset >> 12);
+                        if (hi12 > 0) try isel.emit(.add(
+                            payload_ptr_ra.x(),
+                            if (lo12 > 0) payload_ptr_ra.x() else error_union_ptr_mat.ra.x(),
+                            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+                        ));
+                        if (lo12 > 0) try isel.emit(.add(payload_ptr_ra.x(), error_union_ptr_mat.ra.x(), .{ .immediate = lo12 }));
+                    },
+                }
+            }
+
+            const cont_label = isel.instructions.items.len;
+            const cont_live_registers = isel.live_registers;
+            try isel.body(@ptrCast(isel.air.extra.items[extra.end..][0..extra.data.body_len]));
+            try isel.merge(&cont_live_registers, .{});
+
+            const error_set_ra = try isel.allocIntReg();
+            defer isel.freeReg(error_set_ra);
+            try isel.loadReg(
+                error_set_ra,
+                ZigType.fromInterned(error_union_info.error_set_type).abiSize(zcu),
+                .unsigned,
+                error_union_ptr_mat.ra,
+                codegen.errUnionErrorOffset(payload_ty, zcu),
+            );
+            try error_union_ptr_mat.finish(isel);
+            try isel.emit(.cbz(
+                error_set_ra.w(),
+                @intCast((isel.instructions.items.len + 1 - cont_label) << 2),
+            ));
 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -5403,14 +5460,6 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .optional_payload_ptr => {
-            if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| {
-                defer dst_vi.value.deref(isel);
-                const ty_op = air.data(air.inst_index).ty_op;
-                try dst_vi.value.move(isel, ty_op.operand);
-            }
-            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
-        },
         .optional_payload => {
             if (isel.live_values.fetchRemove(air.inst_index)) |payload_vi| unused: {
                 defer payload_vi.value.deref(isel);
@@ -5426,6 +5475,37 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 var payload_part_it = opt_vi.field(opt_ty, 0, payload_vi.value.size(isel));
                 const payload_part_vi = try payload_part_it.only(isel);
                 try payload_vi.value.copy(isel, ty_op.ty.toType(), payload_part_vi.?);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .optional_payload_ptr => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| {
+                defer payload_ptr_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                try payload_ptr_vi.value.move(isel, ty_op.operand);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .optional_payload_ptr_set => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| {
+                defer payload_ptr_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                const opt_ty = isel.air.typeOf(ty_op.operand, ip).childType(zcu);
+                if (!opt_ty.optionalReprIsPayload(zcu)) {
+                    const opt_ptr_vi = try isel.use(ty_op.operand);
+                    const opt_ptr_mat = try opt_ptr_vi.matReg(isel);
+                    const has_value_ra = try isel.allocIntReg();
+                    defer isel.freeReg(has_value_ra);
+                    try isel.storeReg(
+                        has_value_ra,
+                        1,
+                        opt_ptr_mat.ra,
+                        opt_ty.optionalChild(zcu).abiSize(zcu),
+                    );
+                    try opt_ptr_mat.finish(isel);
+                    try isel.emit(.movz(has_value_ra.w(), 1, .{ .lsl = .@"0" }));
+                }
+                try payload_ptr_vi.value.move(isel, ty_op.operand);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -5483,6 +5563,93 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 );
                 const error_set_part_vi = try error_set_part_it.only(isel);
                 try error_set_vi.value.copy(isel, ty_op.ty.toType(), error_set_part_vi.?);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .unwrap_errunion_payload_ptr => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| unused: {
+                defer payload_ptr_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                switch (codegen.errUnionPayloadOffset(ty_op.ty.toType().childType(zcu), zcu)) {
+                    0 => try payload_ptr_vi.value.move(isel, ty_op.operand),
+                    else => |payload_offset| {
+                        const payload_ptr_ra = try payload_ptr_vi.value.defReg(isel) orelse break :unused;
+                        const error_union_ptr_vi = try isel.use(ty_op.operand);
+                        const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
+                        const lo12: u12 = @truncate(payload_offset >> 0);
+                        const hi12: u12 = @intCast(payload_offset >> 12);
+                        if (hi12 > 0) try isel.emit(.add(
+                            payload_ptr_ra.x(),
+                            if (lo12 > 0) payload_ptr_ra.x() else error_union_ptr_mat.ra.x(),
+                            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+                        ));
+                        if (lo12 > 0) try isel.emit(.add(payload_ptr_ra.x(), error_union_ptr_mat.ra.x(), .{ .immediate = lo12 }));
+                        try error_union_ptr_mat.finish(isel);
+                    },
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .unwrap_errunion_err_ptr => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |error_ptr_vi| unused: {
+                defer error_ptr_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                switch (codegen.errUnionErrorOffset(
+                    isel.air.typeOf(ty_op.operand, ip).childType(zcu).errorUnionPayload(zcu),
+                    zcu,
+                )) {
+                    0 => try error_ptr_vi.value.move(isel, ty_op.operand),
+                    else => |error_offset| {
+                        const error_ptr_ra = try error_ptr_vi.value.defReg(isel) orelse break :unused;
+                        const error_union_ptr_vi = try isel.use(ty_op.operand);
+                        const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
+                        const lo12: u12 = @truncate(error_offset >> 0);
+                        const hi12: u12 = @intCast(error_offset >> 12);
+                        if (hi12 > 0) try isel.emit(.add(
+                            error_ptr_ra.x(),
+                            if (lo12 > 0) error_ptr_ra.x() else error_union_ptr_mat.ra.x(),
+                            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+                        ));
+                        if (lo12 > 0) try isel.emit(.add(error_ptr_ra.x(), error_union_ptr_mat.ra.x(), .{ .immediate = lo12 }));
+                        try error_union_ptr_mat.finish(isel);
+                    },
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .errunion_payload_ptr_set => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |payload_ptr_vi| unused: {
+                defer payload_ptr_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                const payload_ty = ty_op.ty.toType().childType(zcu);
+                const error_union_ty = isel.air.typeOf(ty_op.operand, ip).childType(zcu);
+                const error_set_size = error_union_ty.errorUnionSet(zcu).abiSize(zcu);
+                const error_union_ptr_vi = try isel.use(ty_op.operand);
+                const error_union_ptr_mat = try error_union_ptr_vi.matReg(isel);
+                if (error_set_size > 0) try isel.storeReg(
+                    .zr,
+                    error_set_size,
+                    error_union_ptr_mat.ra,
+                    codegen.errUnionErrorOffset(payload_ty, zcu),
+                );
+                switch (codegen.errUnionPayloadOffset(payload_ty, zcu)) {
+                    0 => {
+                        try error_union_ptr_mat.finish(isel);
+                        try payload_ptr_vi.value.move(isel, ty_op.operand);
+                    },
+                    else => |payload_offset| {
+                        const payload_ptr_ra = try payload_ptr_vi.value.defReg(isel) orelse break :unused;
+                        const lo12: u12 = @truncate(payload_offset >> 0);
+                        const hi12: u12 = @intCast(payload_offset >> 12);
+                        if (hi12 > 0) try isel.emit(.add(
+                            payload_ptr_ra.x(),
+                            if (lo12 > 0) payload_ptr_ra.x() else error_union_ptr_mat.ra.x(),
+                            .{ .shifted_immediate = .{ .immediate = hi12, .lsl = .@"12" } },
+                        ));
+                        if (lo12 > 0) try isel.emit(.add(payload_ptr_ra.x(), error_union_ptr_mat.ra.x(), .{ .immediate = lo12 }));
+                        try error_union_ptr_mat.finish(isel);
+                    },
+                }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -5669,6 +5836,32 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                         try agg_subpart_vi.?.liveOut(isel, field_subpart_ra);
                     }
                 }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .set_union_tag => {
+            const bin_op = air.data(air.inst_index).bin_op;
+            const union_ty = isel.air.typeOf(bin_op.lhs, ip).childType(zcu);
+            const union_layout = union_ty.unionGetLayout(zcu);
+            const tag_vi = try isel.use(bin_op.rhs);
+            const union_ptr_vi = try isel.use(bin_op.lhs);
+            const union_ptr_mat = try union_ptr_vi.matReg(isel);
+            try tag_vi.store(isel, isel.air.typeOf(bin_op.rhs, ip), union_ptr_mat.ra, .{
+                .offset = union_layout.tagOffset(),
+            });
+            try union_ptr_mat.finish(isel);
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .get_union_tag => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |tag_vi| {
+                defer tag_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                const union_ty = isel.air.typeOf(ty_op.operand, ip);
+                const union_layout = union_ty.unionGetLayout(zcu);
+                const union_vi = try isel.use(ty_op.operand);
+                var tag_part_it = union_vi.field(union_ty, union_layout.tagOffset(), union_layout.tag_size);
+                const tag_part_vi = try tag_part_it.only(isel);
+                try tag_vi.value.copy(isel, ty_op.ty.toType(), tag_part_vi.?);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -6541,8 +6734,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 if (ptr_part_ra == null and len_part_ra == null) break :unused;
 
                 const un_op = air.data(air.inst_index).un_op;
-                const err_vi = try isel.use(un_op);
-                const err_mat = try err_vi.matReg(isel);
+                const error_vi = try isel.use(un_op);
+                const error_mat = try error_vi.matReg(isel);
                 const ptr_ra = try isel.allocIntReg();
                 defer isel.freeReg(ptr_ra);
                 const start_ra, const end_ra = range_ras: {
@@ -6573,7 +6766,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 if (len_part_ra) |_| try isel.emit(.sub(end_ra.w(), end_ra.w(), .{ .immediate = 1 }));
                 try isel.emit(.ldp(start_ra.w(), end_ra.w(), .{ .base = start_ra.x() }));
                 try isel.emit(.add(start_ra.x(), ptr_ra.x(), .{ .extended_register = .{
-                    .register = err_mat.ra.w(),
+                    .register = error_mat.ra.w(),
                     .extend = switch (zcu.errorSetBits()) {
                         else => unreachable,
                         1...8 => .{ .uxtb = 2 },
@@ -6591,7 +6784,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     .reloc = .{ .label = @intCast(isel.instructions.items.len) },
                 });
                 try isel.emit(.adrp(ptr_ra.x(), 0));
-                try err_mat.finish(isel);
+                try error_mat.finish(isel);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -6893,11 +7086,11 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 try isel.emit(.csinc(is_ra.w(), .wzr, .wzr, .invert(.ls)));
 
                 const un_op = air.data(air.inst_index).un_op;
-                const err_vi = try isel.use(un_op);
-                const err_mat = try err_vi.matReg(isel);
+                const error_vi = try isel.use(un_op);
+                const error_mat = try error_vi.matReg(isel);
                 const ptr_ra = try isel.allocIntReg();
                 defer isel.freeReg(ptr_ra);
-                try isel.emit(.subs(.wzr, err_mat.ra.w(), .{ .register = ptr_ra.w() }));
+                try isel.emit(.subs(.wzr, error_mat.ra.w(), .{ .register = ptr_ra.w() }));
                 try isel.lazy_relocs.append(gpa, .{
                     .symbol = .{ .kind = .const_data, .ty = .anyerror_type },
                     .reloc = .{ .label = @intCast(isel.instructions.items.len) },
@@ -6908,7 +7101,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     .reloc = .{ .label = @intCast(isel.instructions.items.len) },
                 });
                 try isel.emit(.adrp(ptr_ra.x(), 0));
-                try err_mat.finish(isel);
+                try error_mat.finish(isel);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -9529,8 +9722,14 @@ pub const Value = struct {
                         } },
                     },
                     .struct_type => {
-                        const min_part_log2_stride: u5 = if (size > 16) 4 else if (size > 8) 3 else 0;
                         const loaded_struct = ip.loadStructType(ty.toIntern());
+                        switch (loaded_struct.layout) {
+                            .auto, .@"extern" => {},
+                            .@"packed" => continue :type_key .{
+                                .int_type = ip.indexToKey(loaded_struct.backingIntTypeUnordered(ip)).int_type,
+                            },
+                        }
+                        const min_part_log2_stride: u5 = if (size > 16) 4 else if (size > 8) 3 else 0;
                         if (loaded_struct.field_types.len > Value.max_parts and
                             (std.math.divCeil(u64, size, @as(u64, 1) << min_part_log2_stride) catch unreachable) > Value.max_parts)
                             return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)});
@@ -9636,6 +9835,77 @@ pub const Value = struct {
                         for (parts[0..parts_len]) |part| {
                             const subpart_vi = vi.addPart(isel, part.offset - offset, part.size);
                             if (part.is_vector) subpart_vi.setIsVector(isel);
+                        }
+                    },
+                    .union_type => {
+                        const loaded_union = ip.loadUnionType(ty.toIntern());
+                        switch (loaded_union.flagsUnordered(ip).layout) {
+                            .auto, .@"extern" => {},
+                            .@"packed" => continue :type_key .{ .int_type = .{
+                                .signedness = .unsigned,
+                                .bits = @intCast(ty.bitSize(zcu)),
+                            } },
+                        }
+                        const min_part_log2_stride: u5 = if (size > 16) 4 else if (size > 8) 3 else 0;
+                        if ((std.math.divCeil(u64, size, @as(u64, 1) << min_part_log2_stride) catch unreachable) > Value.max_parts)
+                            return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)});
+                        const union_layout = ZigType.getUnionLayout(loaded_union, zcu);
+                        const alignment = vi.alignment(isel);
+                        const tag_offset = union_layout.tagOffset();
+                        const payload_offset = union_layout.payloadOffset();
+                        const Part = struct { offset: u64, size: u64, signedness: ?std.builtin.Signedness };
+                        var parts: [2]Part = undefined;
+                        var parts_len: Value.PartsLen = 0;
+                        var field_end: u64 = 0;
+                        for (0..2) |field_index| {
+                            const field: enum { tag, payload } = switch (field_index) {
+                                0 => if (tag_offset < payload_offset) .tag else .payload,
+                                1 => if (tag_offset < payload_offset) .payload else .tag,
+                                else => unreachable,
+                            };
+                            const field_size, const field_begin = switch (field) {
+                                .tag => .{ union_layout.tag_size, tag_offset },
+                                .payload => .{ union_layout.payload_size, payload_offset },
+                            };
+                            if (field_begin >= offset + size) break;
+                            if (field_size == 0) continue;
+                            field_end = field_begin + field_size;
+                            if (field_end <= offset) continue;
+                            const field_signedness = field_signedness: switch (field) {
+                                .tag => {
+                                    if (offset >= field_begin and offset + size <= field_begin + field_size) {
+                                        ty = .fromInterned(loaded_union.enum_tag_ty);
+                                        ty_size = field_size;
+                                        offset -= field_begin;
+                                        continue :type_key ip.indexToKey(loaded_union.enum_tag_ty);
+                                    }
+                                    break :field_signedness ip.indexToKey(loaded_union.loadTagType(ip).tag_ty).int_type.signedness;
+                                },
+                                .payload => null,
+                            };
+                            if (parts_len > 0) combine: {
+                                const prev_part = &parts[parts_len - 1];
+                                const combined_size = field_end - prev_part.offset;
+                                if (combined_size > @as(u64, 1) << @min(
+                                    min_part_log2_stride,
+                                    alignment.toLog2Units(),
+                                    @ctz(prev_part.offset),
+                                )) break :combine;
+                                prev_part.size = combined_size;
+                                prev_part.signedness = null;
+                                continue;
+                            }
+                            parts[parts_len] = .{
+                                .offset = field_begin,
+                                .size = field_size,
+                                .signedness = field_signedness,
+                            };
+                            parts_len += 1;
+                        }
+                        vi.setParts(isel, parts_len);
+                        for (parts[0..parts_len]) |part| {
+                            const subpart_vi = vi.addPart(isel, part.offset - offset, part.size);
+                            if (part.signedness) |signedness| subpart_vi.setSignedness(isel, signedness);
                         }
                     },
                     .opaque_type, .func_type => continue :type_key .{ .simple_type = .anyopaque },
@@ -10075,7 +10345,11 @@ pub const Value = struct {
                                     };
                                 },
                                 .slice => |slice| switch (offset) {
-                                    0 => continue :constant_key .{ .ptr = ip.indexToKey(slice.ptr).ptr },
+                                    0 => continue :constant_key switch (ip.indexToKey(slice.ptr)) {
+                                        else => unreachable,
+                                        .undef => |undef| .{ .undef = undef },
+                                        .ptr => |ptr| .{ .ptr = ptr },
+                                    },
                                     else => {
                                         assert(offset == @divExact(isel.target.ptrBitWidth(), 8));
                                         offset = 0;
@@ -11128,16 +11402,14 @@ pub const CallAbiIterator = struct {
                     {
                         const error_set_ty: ZigType = .fromInterned(error_union_type.error_set_type);
                         const offset = codegen.errUnionErrorOffset(payload_ty, zcu);
-                        const size = error_set_ty.abiSize(zcu);
-                        const end = offset % 8 + size;
+                        const end = offset % 8 + error_set_ty.abiSize(zcu);
                         const part_index: usize = @intCast(offset / 8);
                         sizes[part_index] = @max(sizes[part_index], @min(end, 8));
                         if (end > 8) sizes[part_index + 1] = @max(sizes[part_index + 1], end - 8);
                     }
                     {
                         const offset = codegen.errUnionPayloadOffset(payload_ty, zcu);
-                        const size = payload_ty.abiSize(zcu);
-                        const end = offset % 8 + size;
+                        const end = offset % 8 + payload_ty.abiSize(zcu);
                         const part_index: usize = @intCast(offset / 8);
                         sizes[part_index] = @max(sizes[part_index], @min(end, 8));
                         if (end > 8) sizes[part_index + 1] = @max(sizes[part_index + 1], end - 8);
@@ -11181,8 +11453,14 @@ pub const CallAbiIterator = struct {
                 => unreachable,
             },
             .struct_type => {
-                const size = wip_vi.size(isel);
                 const loaded_struct = ip.loadStructType(ty.toIntern());
+                switch (loaded_struct.layout) {
+                    .auto, .@"extern" => {},
+                    .@"packed" => continue :type_key .{
+                        .int_type = ip.indexToKey(loaded_struct.backingIntTypeUnordered(ip)).int_type,
+                    },
+                }
+                const size = wip_vi.size(isel);
                 if (size <= 16 * 4) homogeneous_aggregate: {
                     const fdt = homogeneousStructBaseType(zcu, &loaded_struct) orelse break :homogeneous_aggregate;
                     const parts_len = @shrExact(size, fdt.log2Size());
@@ -11263,6 +11541,40 @@ pub const CallAbiIterator = struct {
                         }
                         assert(parts_len == part_sizes.len);
                         it.integers(isel, wip_vi, part_sizes);
+                    },
+                    else => it.indirect(isel, wip_vi),
+                }
+            },
+            .union_type => {
+                const loaded_union = ip.loadUnionType(ty.toIntern());
+                switch (loaded_union.flagsUnordered(ip).layout) {
+                    .auto, .@"extern" => {},
+                    .@"packed" => continue :type_key .{ .int_type = .{
+                        .signedness = .unsigned,
+                        .bits = @intCast(ty.bitSize(zcu)),
+                    } },
+                }
+                switch (wip_vi.size(isel)) {
+                    0 => unreachable,
+                    1...8 => it.integer(isel, wip_vi),
+                    9...16 => {
+                        const union_layout = ZigType.getUnionLayout(loaded_union, zcu);
+                        var sizes: [2]u64 = @splat(0);
+                        {
+                            const offset = union_layout.tagOffset();
+                            const end = offset % 8 + union_layout.tag_size;
+                            const part_index: usize = @intCast(offset / 8);
+                            sizes[part_index] = @max(sizes[part_index], @min(end, 8));
+                            if (end > 8) sizes[part_index + 1] = @max(sizes[part_index + 1], end - 8);
+                        }
+                        {
+                            const offset = union_layout.payloadOffset();
+                            const end = offset % 8 + union_layout.payload_size;
+                            const part_index: usize = @intCast(offset / 8);
+                            sizes[part_index] = @max(sizes[part_index], @min(end, 8));
+                            if (end > 8) sizes[part_index + 1] = @max(sizes[part_index + 1], end - 8);
+                        }
+                        it.integers(isel, wip_vi, sizes);
                     },
                     else => it.indirect(isel, wip_vi),
                 }

@@ -299,7 +299,6 @@ fn switchProngWithVarFn(a: SwitchProngWithVarEnum) !void {
 }
 
 test "switch on enum using pointer capture" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -360,7 +359,6 @@ fn testSwitchHandleAllCasesRange(x: u8) u8 {
 }
 
 test "switch on union with some prongs capturing" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -975,8 +973,6 @@ test "switch prong captures range" {
 }
 
 test "prong with inline call to unreachable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const U = union(enum) {
         void: void,
         bool: bool,

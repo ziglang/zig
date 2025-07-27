@@ -240,7 +240,7 @@ comptime {
     _ = @import("compiler_rt/udivmodti4.zig");
 
     // extra
-    if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/os_version_check.zig");
+    _ = @import("compiler_rt/os_version_check.zig");
     _ = @import("compiler_rt/emutls.zig");
     _ = @import("compiler_rt/arm.zig");
     _ = @import("compiler_rt/aulldiv.zig");
