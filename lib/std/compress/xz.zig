@@ -12,17 +12,11 @@ pub const Check = enum(u4) {
 };
 
 fn readStreamFlags(reader: anytype, check: *Check) !void {
-    var bit_reader = std.io.bitReader(.little, reader);
-
-    const reserved1 = try bit_reader.readBitsNoEof(u8, 8);
-    if (reserved1 != 0)
-        return error.CorruptInput;
-
-    check.* = @as(Check, @enumFromInt(try bit_reader.readBitsNoEof(u4, 4)));
-
-    const reserved2 = try bit_reader.readBitsNoEof(u4, 4);
-    if (reserved2 != 0)
-        return error.CorruptInput;
+    const reserved1 = try reader.readByte();
+    if (reserved1 != 0) return error.CorruptInput;
+    const byte = try reader.readByte();
+    if ((byte >> 4) != 0) return error.CorruptInput;
+    check.* = @enumFromInt(@as(u4, @truncate(byte)));
 }
 
 pub fn decompress(allocator: Allocator, reader: anytype) !Decompress(@TypeOf(reader)) {
