@@ -28,10 +28,15 @@ literal_relocs: std.ArrayListUnmanaged(codegen.aarch64.Mir.Reloc.Literal),
 
 // Stack Frame
 returns: bool,
-va_list: struct {
-    __stack: Value.Indirect,
-    __gr_top: Value.Indirect,
-    __vr_top: Value.Indirect,
+va_list: union(enum) {
+    other: Value.Indirect,
+    sysv: struct {
+        __stack: Value.Indirect,
+        __gr_top: Value.Indirect,
+        __vr_top: Value.Indirect,
+        __gr_offs: i32,
+        __vr_offs: i32,
+    },
 },
 stack_size: u24,
 stack_align: InternPool.Alignment,
@@ -408,13 +413,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
 
             air_body_index += 1;
         },
-        .breakpoint,
-        .dbg_stmt,
-        .dbg_empty_stmt,
-        .dbg_var_ptr,
-        .dbg_var_val,
-        .dbg_arg_inline,
-        => {
+        .breakpoint, .dbg_stmt, .dbg_empty_stmt, .dbg_var_ptr, .dbg_var_val, .dbg_arg_inline, .c_va_end => {
             air_body_index += 1;
             air_inst_index = air_body[air_body_index];
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
@@ -428,23 +427,43 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             const extra = isel.air.extraData(Air.Call, pl_op.payload);
             const args: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra.end..][0..extra.data.args_len]);
             isel.saved_registers.insert(.lr);
+            const callee_ty = isel.air.typeOf(pl_op.operand, ip);
+            const func_info = switch (ip.indexToKey(callee_ty.toIntern())) {
+                else => unreachable,
+                .func_type => |func_type| func_type,
+                .ptr_type => |ptr_type| ip.indexToKey(ptr_type.child).func_type,
+            };
 
             try isel.analyzeUse(pl_op.operand);
             var param_it: CallAbiIterator = .init;
-            for (args) |arg| {
+            for (args, 0..) |arg, arg_index| {
                 const restore_values_len = isel.values.items.len;
                 defer isel.values.shrinkRetainingCapacity(restore_values_len);
-                const param_vi = try param_it.param(isel, isel.air.typeOf(arg, ip)) orelse continue;
-                const param_parent = param_vi.parent(isel);
-                switch (switch (param_parent) {
-                    .unallocated, .stack_slot => param_parent,
+                const param_vi = param_vi: {
+                    const param_ty = isel.air.typeOf(arg, ip);
+                    if (arg_index >= func_info.param_types.len) {
+                        assert(func_info.is_var_args);
+                        switch (isel.va_list) {
+                            .other => break :param_vi try param_it.nonSysvVarArg(isel, param_ty),
+                            .sysv => {},
+                        }
+                    }
+                    break :param_vi try param_it.param(isel, param_ty);
+                } orelse continue;
+                defer param_vi.deref(isel);
+                const passed_vi = switch (param_vi.parent(isel)) {
+                    .unallocated, .stack_slot => param_vi,
                     .value, .constant => unreachable,
-                    .address => |address_vi| address_vi.parent(isel),
-                }) {
+                    .address => |address_vi| address_vi,
+                };
+                switch (passed_vi.parent(isel)) {
                     .unallocated => {},
                     .stack_slot => |stack_slot| {
                         assert(stack_slot.base == .sp);
-                        isel.stack_size = @max(isel.stack_size, stack_slot.offset);
+                        isel.stack_size = @max(
+                            isel.stack_size,
+                            stack_slot.offset + @as(u24, @intCast(passed_vi.size(isel))),
+                        );
                     },
                     .value, .constant, .address => unreachable,
                 }
@@ -802,7 +821,7 @@ pub fn analyze(isel: *Select, air_body: []const Air.Inst.Index) !void {
             air_inst_index = air_body[air_body_index];
             continue :air_tag air_tags[@intFromEnum(air_inst_index)];
         },
-        .set_err_return_trace, .c_va_end => {
+        .set_err_return_trace => {
             const un_op = air_data[@intFromEnum(air_inst_index)].un_op;
 
             try isel.analyzeUse(un_op);
@@ -2474,6 +2493,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
+        .inferred_alloc, .inferred_alloc_comptime => unreachable,
         .assembly => {
             const ty_pl = air.data(air.inst_index).ty_pl;
             const extra = isel.air.extraData(Air.Asm, ty_pl.payload);
@@ -3389,6 +3409,12 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             const pl_op = air.data(air.inst_index).pl_op;
             const extra = isel.air.extraData(Air.Call, pl_op.payload);
             const args: []const Air.Inst.Ref = @ptrCast(isel.air.extra.items[extra.end..][0..extra.data.args_len]);
+            const callee_ty = isel.air.typeOf(pl_op.operand, ip);
+            const func_info = switch (ip.indexToKey(callee_ty.toIntern())) {
+                else => unreachable,
+                .func_type => |func_type| func_type,
+                .ptr_type => |ptr_type| ip.indexToKey(ptr_type.child).func_type,
+            };
 
             try call.prepareReturn(isel);
             const maybe_def_ret_vi = isel.live_values.fetchRemove(air.inst_index);
@@ -3455,41 +3481,50 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 ret_addr_vi.hint(isel).?,
             );
             var param_it: CallAbiIterator = .init;
-            for (args) |arg| {
-                const param_vi = try param_it.param(isel, isel.air.typeOf(arg, ip)) orelse continue;
+            for (args, 0..) |arg, arg_index| {
+                const param_ty = isel.air.typeOf(arg, ip);
+                const param_vi = param_vi: {
+                    if (arg_index >= func_info.param_types.len) {
+                        assert(func_info.is_var_args);
+                        switch (isel.va_list) {
+                            .other => break :param_vi try param_it.nonSysvVarArg(isel, param_ty),
+                            .sysv => {},
+                        }
+                    }
+                    break :param_vi try param_it.param(isel, param_ty);
+                } orelse continue;
                 defer param_vi.deref(isel);
                 const arg_vi = try isel.use(arg);
-                const passed_vi = switch (param_vi.parent(isel)) {
-                    .unallocated, .stack_slot => param_vi,
-                    .value, .constant => unreachable,
-                    .address => |address_vi| {
-                        try call.paramAddress(isel, arg_vi, address_vi.hint(isel).?);
-                        continue;
+                switch (param_vi.parent(isel)) {
+                    .unallocated => if (param_vi.hint(isel)) |param_ra| {
+                        try call.paramLiveOut(isel, arg_vi, param_ra);
+                    } else {
+                        var param_part_it = param_vi.parts(isel);
+                        var arg_part_it = arg_vi.parts(isel);
+                        if (arg_part_it.only()) |_| {
+                            try isel.values.ensureUnusedCapacity(gpa, param_part_it.remaining);
+                            arg_vi.setParts(isel, param_part_it.remaining);
+                            while (param_part_it.next()) |param_part_vi| _ = arg_vi.addPart(
+                                isel,
+                                param_part_vi.get(isel).offset_from_parent,
+                                param_part_vi.size(isel),
+                            );
+                            param_part_it = param_vi.parts(isel);
+                            arg_part_it = arg_vi.parts(isel);
+                        }
+                        while (param_part_it.next()) |param_part_vi| {
+                            const arg_part_vi = arg_part_it.next().?;
+                            assert(arg_part_vi.get(isel).offset_from_parent ==
+                                param_part_vi.get(isel).offset_from_parent);
+                            assert(arg_part_vi.size(isel) == param_part_vi.size(isel));
+                            try call.paramLiveOut(isel, arg_part_vi, param_part_vi.hint(isel).?);
+                        }
                     },
-                };
-                if (passed_vi.hint(isel)) |param_ra| {
-                    try call.paramLiveOut(isel, arg_vi, param_ra);
-                } else {
-                    var param_part_it = passed_vi.parts(isel);
-                    var arg_part_it = arg_vi.parts(isel);
-                    if (arg_part_it.only()) |_| {
-                        try isel.values.ensureUnusedCapacity(gpa, param_part_it.remaining);
-                        arg_vi.setParts(isel, param_part_it.remaining);
-                        while (param_part_it.next()) |param_part_vi| _ = arg_vi.addPart(
-                            isel,
-                            param_part_vi.get(isel).offset_from_parent,
-                            param_part_vi.size(isel),
-                        );
-                        param_part_it = passed_vi.parts(isel);
-                        arg_part_it = arg_vi.parts(isel);
-                    }
-                    while (param_part_it.next()) |param_part_vi| {
-                        const arg_part_vi = arg_part_it.next().?;
-                        assert(arg_part_vi.get(isel).offset_from_parent ==
-                            param_part_vi.get(isel).offset_from_parent);
-                        assert(arg_part_vi.size(isel) == param_part_vi.size(isel));
-                        try call.paramLiveOut(isel, arg_part_vi, param_part_vi.hint(isel).?);
-                    }
+                    .stack_slot => |stack_slot| try arg_vi.store(isel, param_ty, stack_slot.base, .{
+                        .offset = @intCast(stack_slot.offset),
+                    }),
+                    .value, .constant => unreachable,
+                    .address => |address_vi| try call.paramAddress(isel, arg_vi, address_vi.hint(isel).?),
                 }
             }
             try call.finishParams(isel);
@@ -4828,9 +4863,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
 
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .dbg_stmt => {
-            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
-        },
+        .dbg_stmt => if (air.next()) |next_air_tag| continue :air_tag next_air_tag,
         .dbg_empty_stmt => {
             try isel.emit(.nop());
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -7079,6 +7112,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
+        .wasm_memory_size, .wasm_memory_grow => unreachable,
         .cmp_lt_errors_len => {
             if (isel.live_values.fetchRemove(air.inst_index)) |is_vi| unused: {
                 defer is_vi.value.deref(isel);
@@ -7135,16 +7169,266 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .inferred_alloc,
-        .inferred_alloc_comptime,
-        .int_from_float_safe,
-        .int_from_float_optimized_safe,
-        .wasm_memory_size,
-        .wasm_memory_grow,
-        .work_item_id,
-        .work_group_size,
-        .work_group_id,
-        => unreachable,
+        .c_va_arg => {
+            const maybe_arg_vi = isel.live_values.fetchRemove(air.inst_index);
+            defer if (maybe_arg_vi) |arg_vi| arg_vi.value.deref(isel);
+            const ty_op = air.data(air.inst_index).ty_op;
+            const ty = ty_op.ty.toType();
+            var param_it: CallAbiIterator = .init;
+            const param_vi = try param_it.param(isel, ty);
+            defer param_vi.?.deref(isel);
+            const passed_vi = switch (param_vi.?.parent(isel)) {
+                .unallocated => param_vi.?,
+                .stack_slot, .value, .constant => unreachable,
+                .address => |address_vi| address_vi,
+            };
+            const passed_size: u5 = @intCast(passed_vi.alignment(isel).forward(passed_vi.size(isel)));
+            const passed_is_vector = passed_vi.isVector(isel);
+
+            const va_list_ptr_vi = try isel.use(ty_op.operand);
+            const va_list_ptr_mat = try va_list_ptr_vi.matReg(isel);
+            const offs_ra = try isel.allocIntReg();
+            defer isel.freeReg(offs_ra);
+            const stack_ra = try isel.allocIntReg();
+            defer isel.freeReg(stack_ra);
+
+            var part_vis: [2]Value.Index = undefined;
+            var arg_part_ras: [2]?Register.Alias = @splat(null);
+            const parts_len = parts_len: {
+                var parts_len: u2 = 0;
+                var part_it = passed_vi.parts(isel);
+                while (part_it.next()) |part_vi| : (parts_len += 1) {
+                    part_vis[parts_len] = part_vi;
+                    const arg_vi = maybe_arg_vi orelse continue;
+                    const part_offset, const part_size = part_vi.position(isel);
+                    var arg_part_it = arg_vi.value.field(ty, part_offset, part_size);
+                    const arg_part_vi = try arg_part_it.only(isel);
+                    arg_part_ras[parts_len] = try arg_part_vi.?.defReg(isel);
+                }
+                break :parts_len parts_len;
+            };
+
+            const done_label = isel.instructions.items.len;
+            try isel.emit(.str(stack_ra.x(), .{ .unsigned_offset = .{
+                .base = va_list_ptr_mat.ra.x(),
+                .offset = 0,
+            } }));
+            try isel.emit(switch (parts_len) {
+                else => unreachable,
+                1 => if (arg_part_ras[0]) |arg_part_ra| switch (part_vis[0].size(isel)) {
+                    else => unreachable,
+                    1 => if (arg_part_ra.isVector()) .ldr(arg_part_ra.b(), .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } }) else switch (part_vis[0].signedness(isel)) {
+                        .signed => .ldrsb(arg_part_ra.w(), .{ .post_index = .{
+                            .base = stack_ra.x(),
+                            .index = passed_size,
+                        } }),
+                        .unsigned => .ldrb(arg_part_ra.w(), .{ .post_index = .{
+                            .base = stack_ra.x(),
+                            .index = passed_size,
+                        } }),
+                    },
+                    2 => if (arg_part_ra.isVector()) .ldr(arg_part_ra.h(), .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } }) else switch (part_vis[0].signedness(isel)) {
+                        .signed => .ldrsh(arg_part_ra.w(), .{ .post_index = .{
+                            .base = stack_ra.x(),
+                            .index = passed_size,
+                        } }),
+                        .unsigned => .ldrh(arg_part_ra.w(), .{ .post_index = .{
+                            .base = stack_ra.x(),
+                            .index = passed_size,
+                        } }),
+                    },
+                    4 => .ldr(if (arg_part_ra.isVector()) arg_part_ra.s() else arg_part_ra.w(), .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } }),
+                    8 => .ldr(if (arg_part_ra.isVector()) arg_part_ra.d() else arg_part_ra.x(), .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } }),
+                    16 => .ldr(arg_part_ra.q(), .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } }),
+                } else .add(stack_ra.x(), stack_ra.x(), .{ .immediate = passed_size }),
+                2 => if (arg_part_ras[0] != null or arg_part_ras[1] != null) .ldp(
+                    @as(Register.Alias, arg_part_ras[0] orelse .zr).x(),
+                    @as(Register.Alias, arg_part_ras[1] orelse .zr).x(),
+                    .{ .post_index = .{
+                        .base = stack_ra.x(),
+                        .index = passed_size,
+                    } },
+                ) else .add(stack_ra.x(), stack_ra.x(), .{ .immediate = passed_size }),
+            });
+            try isel.emit(.ldr(stack_ra.x(), .{ .unsigned_offset = .{
+                .base = va_list_ptr_mat.ra.x(),
+                .offset = 0,
+            } }));
+            switch (isel.va_list) {
+                .other => {},
+                .sysv => {
+                    const stack_label = isel.instructions.items.len;
+                    try isel.emit(.b(
+                        @intCast((isel.instructions.items.len + 1 - done_label) << 2),
+                    ));
+                    switch (parts_len) {
+                        else => unreachable,
+                        1 => if (arg_part_ras[0]) |arg_part_ra| try isel.emit(switch (part_vis[0].size(isel)) {
+                            else => unreachable,
+                            1 => if (arg_part_ra.isVector()) .ldr(arg_part_ra.b(), .{ .extended_register = .{
+                                .base = stack_ra.x(),
+                                .index = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }) else switch (part_vis[0].signedness(isel)) {
+                                .signed => .ldrsb(arg_part_ra.w(), .{ .extended_register = .{
+                                    .base = stack_ra.x(),
+                                    .index = offs_ra.w(),
+                                    .extend = .{ .sxtw = 0 },
+                                } }),
+                                .unsigned => .ldrb(arg_part_ra.w(), .{ .extended_register = .{
+                                    .base = stack_ra.x(),
+                                    .index = offs_ra.w(),
+                                    .extend = .{ .sxtw = 0 },
+                                } }),
+                            },
+                            2 => if (arg_part_ra.isVector()) .ldr(arg_part_ra.h(), .{ .extended_register = .{
+                                .base = stack_ra.x(),
+                                .index = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }) else switch (part_vis[0].signedness(isel)) {
+                                .signed => .ldrsh(arg_part_ra.w(), .{ .extended_register = .{
+                                    .base = stack_ra.x(),
+                                    .index = offs_ra.w(),
+                                    .extend = .{ .sxtw = 0 },
+                                } }),
+                                .unsigned => .ldrh(arg_part_ra.w(), .{ .extended_register = .{
+                                    .base = stack_ra.x(),
+                                    .index = offs_ra.w(),
+                                    .extend = .{ .sxtw = 0 },
+                                } }),
+                            },
+                            4 => .ldr(if (arg_part_ra.isVector()) arg_part_ra.s() else arg_part_ra.w(), .{ .extended_register = .{
+                                .base = stack_ra.x(),
+                                .index = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }),
+                            8 => .ldr(if (arg_part_ra.isVector()) arg_part_ra.d() else arg_part_ra.x(), .{ .extended_register = .{
+                                .base = stack_ra.x(),
+                                .index = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }),
+                            16 => .ldr(arg_part_ra.q(), .{ .extended_register = .{
+                                .base = stack_ra.x(),
+                                .index = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }),
+                        }),
+                        2 => if (arg_part_ras[0] != null or arg_part_ras[1] != null) {
+                            try isel.emit(.ldp(
+                                @as(Register.Alias, arg_part_ras[0] orelse .zr).x(),
+                                @as(Register.Alias, arg_part_ras[1] orelse .zr).x(),
+                                .{ .base = stack_ra.x() },
+                            ));
+                            try isel.emit(.add(stack_ra.x(), stack_ra.x(), .{ .extended_register = .{
+                                .register = offs_ra.w(),
+                                .extend = .{ .sxtw = 0 },
+                            } }));
+                        },
+                    }
+                    try isel.emit(.ldr(stack_ra.x(), .{ .unsigned_offset = .{
+                        .base = va_list_ptr_mat.ra.x(),
+                        .offset = if (passed_is_vector) 16 else 8,
+                    } }));
+                    try isel.emit(.@"b."(
+                        .gt,
+                        @intCast((isel.instructions.items.len + 1 - stack_label) << 2),
+                    ));
+                    try isel.emit(.str(stack_ra.w(), .{ .unsigned_offset = .{
+                        .base = va_list_ptr_mat.ra.x(),
+                        .offset = if (passed_is_vector) 28 else 24,
+                    } }));
+                    try isel.emit(.adds(stack_ra.w(), offs_ra.w(), .{ .immediate = passed_size }));
+                    try isel.emit(.tbz(
+                        offs_ra.w(),
+                        31,
+                        @intCast((isel.instructions.items.len + 1 - stack_label) << 2),
+                    ));
+                    try isel.emit(.ldr(offs_ra.w(), .{ .unsigned_offset = .{
+                        .base = va_list_ptr_mat.ra.x(),
+                        .offset = if (passed_is_vector) 28 else 24,
+                    } }));
+                },
+            }
+            try va_list_ptr_mat.finish(isel);
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .c_va_copy => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |va_list_vi| {
+                defer va_list_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                const va_list_ptr_vi = try isel.use(ty_op.operand);
+                const va_list_ptr_mat = try va_list_ptr_vi.matReg(isel);
+                _ = try va_list_vi.value.load(isel, ty_op.ty.toType(), va_list_ptr_mat.ra, .{});
+                try va_list_ptr_mat.finish(isel);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .c_va_end => if (air.next()) |next_air_tag| continue :air_tag next_air_tag,
+        .c_va_start => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |va_list_vi| {
+                defer va_list_vi.value.deref(isel);
+                const ty = air.data(air.inst_index).ty;
+                switch (isel.va_list) {
+                    .other => |va_list| if (try va_list_vi.value.defReg(isel)) |va_list_ra| try isel.emit(.add(
+                        va_list_ra.x(),
+                        va_list.base.x(),
+                        .{ .immediate = @intCast(va_list.offset) },
+                    )),
+                    .sysv => |va_list| {
+                        var vr_offs_it = va_list_vi.value.field(ty, 28, 4);
+                        const vr_offs_vi = try vr_offs_it.only(isel);
+                        if (try vr_offs_vi.?.defReg(isel)) |vr_offs_ra| try isel.movImmediate(
+                            vr_offs_ra.w(),
+                            @as(u32, @bitCast(va_list.__vr_offs)),
+                        );
+                        var gr_offs_it = va_list_vi.value.field(ty, 24, 4);
+                        const gr_offs_vi = try gr_offs_it.only(isel);
+                        if (try gr_offs_vi.?.defReg(isel)) |gr_offs_ra| try isel.movImmediate(
+                            gr_offs_ra.w(),
+                            @as(u32, @bitCast(va_list.__gr_offs)),
+                        );
+                        var vr_top_it = va_list_vi.value.field(ty, 16, 8);
+                        const vr_top_vi = try vr_top_it.only(isel);
+                        if (try vr_top_vi.?.defReg(isel)) |vr_top_ra| try isel.emit(.add(
+                            vr_top_ra.x(),
+                            va_list.__vr_top.base.x(),
+                            .{ .immediate = @intCast(va_list.__vr_top.offset) },
+                        ));
+                        var gr_top_it = va_list_vi.value.field(ty, 8, 8);
+                        const gr_top_vi = try gr_top_it.only(isel);
+                        if (try gr_top_vi.?.defReg(isel)) |gr_top_ra| try isel.emit(.add(
+                            gr_top_ra.x(),
+                            va_list.__gr_top.base.x(),
+                            .{ .immediate = @intCast(va_list.__gr_top.offset) },
+                        ));
+                        var stack_it = va_list_vi.value.field(ty, 0, 8);
+                        const stack_vi = try stack_it.only(isel);
+                        if (try stack_vi.?.defReg(isel)) |stack_ra| try isel.emit(.add(
+                            stack_ra.x(),
+                            va_list.__stack.base.x(),
+                            .{ .immediate = @intCast(va_list.__stack.offset) },
+                        ));
+                    },
+                }
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .work_item_id, .work_group_size, .work_group_id => unreachable,
     }
     assert(air.body_index == 0);
 }
@@ -7225,7 +7509,7 @@ pub fn verify(isel: *Select, check_values: bool) void {
 pub fn layout(
     isel: *Select,
     incoming: CallAbiIterator,
-    have_va: bool,
+    is_sysv_var_args: bool,
     saved_gra_len: u7,
     saved_vra_len: u7,
     mod: *const Package.Module,
@@ -7236,8 +7520,6 @@ pub fn layout(
     wip_mir_log.debug("{f}<body>:\n", .{nav.fqn.fmt(ip)});
 
     const stack_size: u24 = @intCast(InternPool.Alignment.@"16".forward(isel.stack_size));
-    const stack_size_lo: u12 = @truncate(stack_size >> 0);
-    const stack_size_hi: u12 = @truncate(stack_size >> 12);
 
     var saves_buf: [10 + 8 + 8 + 2 + 8]struct {
         class: enum { integer, vector },
@@ -7315,7 +7597,7 @@ pub fn layout(
 
         // incoming vr arguments
         save_ra = if (mod.strip) incoming.nsrn else CallAbiIterator.nsrn_start;
-        while (save_ra != if (have_va) CallAbiIterator.nsrn_end else incoming.nsrn) : (save_ra = @enumFromInt(@intFromEnum(save_ra) + 1)) {
+        while (save_ra != if (is_sysv_var_args) CallAbiIterator.nsrn_end else incoming.nsrn) : (save_ra = @enumFromInt(@intFromEnum(save_ra) + 1)) {
             saves_size = std.mem.alignForward(u10, saves_size, 16);
             saves_buf[saves_len] = .{
                 .class = .vector,
@@ -7370,7 +7652,7 @@ pub fn layout(
             1 => saves_size += 8,
         }
         save_ra = if (mod.strip) incoming.ngrn else CallAbiIterator.ngrn_start;
-        while (save_ra != if (have_va) CallAbiIterator.ngrn_end else incoming.ngrn) : (save_ra = @enumFromInt(@intFromEnum(save_ra) + 1)) {
+        while (save_ra != if (is_sysv_var_args) CallAbiIterator.ngrn_end else incoming.ngrn) : (save_ra = @enumFromInt(@intFromEnum(save_ra) + 1)) {
             saves_size = std.mem.alignForward(u10, saves_size, 8);
             saves_buf[saves_len] = .{
                 .class = .integer,
@@ -7434,6 +7716,8 @@ pub fn layout(
             .fp
         else
             .ip0;
+        const stack_size_lo: u12 = @truncate(stack_size >> 0);
+        const stack_size_hi: u12 = @truncate(stack_size >> 12);
         if (mod.stack_check) {
             if (stack_size_hi > 2) {
                 try isel.movImmediate(.ip1, stack_size_hi);
@@ -7481,6 +7765,7 @@ pub fn layout(
     if (isel.returns) {
         try isel.emit(.ret(.lr));
         var save_index: usize = 0;
+        var first_offset: ?u10 = null;
         while (save_index < saves.len) {
             if (save_index + 2 <= saves.len and saves[save_index + 1].needs_restore and
                 saves[save_index + 0].class == saves[save_index + 1].class and
@@ -7489,46 +7774,51 @@ pub fn layout(
                 try isel.emit(.ldp(
                     saves[save_index + 0].register,
                     saves[save_index + 1].register,
-                    switch (saves[save_index + 0].offset) {
-                        0 => .{ .post_index = .{
+                    if (first_offset) |offset| .{ .signed_offset = .{
+                        .base = .sp,
+                        .offset = @intCast(saves[save_index + 0].offset - offset),
+                    } } else form: {
+                        first_offset = @intCast(saves[save_index + 0].offset);
+                        break :form .{ .post_index = .{
                             .base = .sp,
-                            .index = @intCast(saves_size),
-                        } },
-                        else => |offset| .{ .signed_offset = .{
-                            .base = .sp,
-                            .offset = @intCast(offset),
-                        } },
+                            .index = @intCast(saves_size - first_offset.?),
+                        } };
                     },
                 ));
                 save_index += 2;
             } else if (saves[save_index].needs_restore) {
                 try isel.emit(.ldr(
                     saves[save_index].register,
-                    switch (saves[save_index].offset) {
-                        0 => .{ .post_index = .{
+                    if (first_offset) |offset| .{ .unsigned_offset = .{
+                        .base = .sp,
+                        .offset = saves[save_index + 0].offset - offset,
+                    } } else form: {
+                        const offset = saves[save_index + 0].offset;
+                        first_offset = offset;
+                        break :form .{ .post_index = .{
                             .base = .sp,
-                            .index = @intCast(saves_size),
-                        } },
-                        else => |offset| .{ .unsigned_offset = .{
-                            .base = .sp,
-                            .offset = @intCast(offset),
-                        } },
+                            .index = @intCast(saves_size - offset),
+                        } };
                     },
                 ));
                 save_index += 1;
             } else save_index += 1;
         }
-        if (isel.stack_align != .@"16" or (stack_size_lo > 0 and stack_size_hi > 0)) {
-            try isel.emit(switch (frame_record_offset) {
-                0 => .add(.sp, .fp, .{ .immediate = 0 }),
-                else => |offset| .sub(.sp, .fp, .{ .immediate = offset }),
-            });
+        const offset = stack_size + first_offset.?;
+        const offset_lo: u12 = @truncate(offset >> 0);
+        const offset_hi: u12 = @truncate(offset >> 12);
+        if (isel.stack_align != .@"16" or (offset_lo > 0 and offset_hi > 0)) {
+            const fp_offset = @as(i11, first_offset.?) - frame_record_offset;
+            try isel.emit(if (fp_offset >= 0)
+                .add(.sp, .fp, .{ .immediate = @intCast(fp_offset) })
+            else
+                .sub(.sp, .fp, .{ .immediate = @intCast(-fp_offset) }));
         } else {
-            if (stack_size_hi > 0) try isel.emit(.add(.sp, .sp, .{
-                .shifted_immediate = .{ .immediate = stack_size_hi, .lsl = .@"12" },
+            if (offset_hi > 0) try isel.emit(.add(.sp, .sp, .{
+                .shifted_immediate = .{ .immediate = offset_hi, .lsl = .@"12" },
             }));
-            if (stack_size_lo > 0) try isel.emit(.add(.sp, .sp, .{
-                .immediate = stack_size_lo,
+            if (offset_lo > 0) try isel.emit(.add(.sp, .sp, .{
+                .immediate = offset_lo,
             }));
         }
         wip_mir_log.debug("{f}<epilogue>:\n", .{nav.fqn.fmt(ip)});
@@ -9493,6 +9783,11 @@ pub const Value = struct {
             return it.vi;
         }
 
+        pub fn peek(it: PartIterator) ?Value.Index {
+            var it_mut = it;
+            return it_mut.next();
+        }
+
         pub fn only(it: PartIterator) ?Value.Index {
             return if (it.remaining == 1) it.vi else null;
         }
@@ -10119,11 +10414,12 @@ pub const Value = struct {
                                 } },
                                 .error_union => |error_union| {
                                     const error_union_type = ip.indexToKey(error_union.ty).error_union_type;
+                                    const error_set_ty: ZigType = .fromInterned(error_union_type.error_set_type);
                                     const payload_ty: ZigType = .fromInterned(error_union_type.payload_type);
-                                    if (!ip.isNoReturn(error_union_type.error_set_type) and
-                                        offset == codegen.errUnionErrorOffset(payload_ty, zcu))
-                                    {
-                                        offset = 0;
+                                    const error_set_offset = codegen.errUnionErrorOffset(payload_ty, zcu);
+                                    const error_set_size = error_set_ty.abiSize(zcu);
+                                    if (offset >= error_set_offset and offset + size <= error_set_offset + error_set_size) {
+                                        offset -= error_set_offset;
                                         continue :constant_key switch (error_union.val) {
                                             .err_name => |err_name| .{ .err = .{
                                                 .ty = error_union_type.error_set_type,
@@ -10135,15 +10431,18 @@ pub const Value = struct {
                                             } },
                                         };
                                     }
-                                    assert(payload_ty.hasRuntimeBitsIgnoreComptime(zcu));
-                                    offset -= @intCast(codegen.errUnionPayloadOffset(payload_ty, zcu));
-                                    switch (error_union.val) {
-                                        .err_name => continue :constant_key .{ .undef = error_union_type.payload_type },
-                                        .payload => |payload| {
-                                            constant = payload;
-                                            constant_key = ip.indexToKey(payload);
-                                            continue :constant_key constant_key;
-                                        },
+                                    const payload_offset = codegen.errUnionPayloadOffset(payload_ty, zcu);
+                                    const payload_size = payload_ty.abiSize(zcu);
+                                    if (offset >= payload_offset and offset + size <= payload_offset + payload_size) {
+                                        offset -= payload_offset;
+                                        switch (error_union.val) {
+                                            .err_name => continue :constant_key .{ .undef = error_union_type.payload_type },
+                                            .payload => |payload| {
+                                                constant = payload;
+                                                constant_key = ip.indexToKey(payload);
+                                                continue :constant_key constant_key;
+                                            },
+                                        }
                                     }
                                 },
                                 .enum_tag => |enum_tag| continue :constant_key .{ .int = ip.indexToKey(enum_tag.int).int },
@@ -10680,7 +10979,17 @@ fn hasRepeatedByteRepr(isel: *Select, constant: Constant) error{OutOfMemory}!?u8
 fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMemory}!bool {
     const zcu = isel.pt.zcu;
     const ip = &zcu.intern_pool;
-    switch (ip.indexToKey(constant.toIntern())) {
+    if (try isel.writeKeyToMemory(ip.indexToKey(constant.toIntern()), buffer)) return true;
+    constant.writeToMemory(isel.pt, buffer) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ReinterpretDeclRef, error.Unimplemented, error.IllDefinedMemoryLayout => return false,
+    };
+    return true;
+}
+fn writeKeyToMemory(isel: *Select, constant_key: InternPool.Key, buffer: []u8) error{OutOfMemory}!bool {
+    const zcu = isel.pt.zcu;
+    const ip = &zcu.intern_pool;
+    switch (constant_key) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -10702,6 +11011,37 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
         .empty_enum_value,
         .memoized_call,
         => unreachable, // not a runtime value
+        .err => |err| {
+            const error_int = ip.getErrorValueIfExists(err.name).?;
+            switch (buffer.len) {
+                else => unreachable,
+                inline 1...4 => |size| std.mem.writeInt(
+                    @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * size } }),
+                    buffer[0..size],
+                    @intCast(error_int),
+                    isel.target.cpu.arch.endian(),
+                ),
+            }
+        },
+        .error_union => |error_union| {
+            const error_union_type = ip.indexToKey(error_union.ty).error_union_type;
+            const error_set_ty: ZigType = .fromInterned(error_union_type.error_set_type);
+            const payload_ty: ZigType = .fromInterned(error_union_type.payload_type);
+            const error_set = buffer[@intCast(codegen.errUnionErrorOffset(payload_ty, zcu))..][0..@intCast(error_set_ty.abiSize(zcu))];
+            switch (error_union.val) {
+                .err_name => |err_name| if (!try isel.writeKeyToMemory(.{ .err = .{
+                    .ty = error_set_ty.toIntern(),
+                    .name = err_name,
+                } }, error_set)) return false,
+                .payload => |payload| {
+                    if (!try isel.writeToMemory(
+                        .fromInterned(payload),
+                        buffer[@intCast(codegen.errUnionPayloadOffset(payload_ty, zcu))..][0..@intCast(payload_ty.abiSize(zcu))],
+                    )) return false;
+                    @memset(error_set, 0);
+                },
+            }
+        },
         .opt => |opt| {
             const child_size: usize = @intCast(ZigType.fromInterned(ip.indexToKey(opt.ty).opt_type).abiSize(zcu));
             switch (opt.val) {
@@ -10713,7 +11053,6 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                     if (!ZigType.fromInterned(opt.ty).optionalReprIsPayload(zcu)) buffer[child_size] = @intFromBool(true);
                 },
             }
-            return true;
         },
         .aggregate => |aggregate| switch (ip.indexToKey(aggregate.ty)) {
             else => unreachable,
@@ -10732,9 +11071,8 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                         elem_offset += elem_size;
                     },
                 }
-                return true;
             },
-            .vector_type => {},
+            .vector_type => return false,
             .struct_type => {
                 const loaded_struct = ip.loadStructType(aggregate.ty);
                 switch (loaded_struct.layout) {
@@ -10757,9 +11095,8 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                             }), buffer[@intCast(field_offset)..][0..@intCast(field_size)])) return false;
                             field_offset += field_size;
                         }
-                        return true;
                     },
-                    .@"extern", .@"packed" => {},
+                    .@"extern", .@"packed" => return false,
                 }
             },
             .tuple_type => |tuple_type| {
@@ -10776,15 +11113,10 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                     }), buffer[@intCast(field_offset)..][0..@intCast(field_size)])) return false;
                     field_offset += field_size;
                 }
-                return true;
             },
         },
-        else => {},
+        else => return false,
     }
-    constant.writeToMemory(isel.pt, buffer) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ReinterpretDeclRef, error.Unimplemented, error.IllDefinedMemoryLayout => return false,
-    };
     return true;
 }
 
@@ -11605,6 +11937,16 @@ pub const CallAbiIterator = struct {
             => unreachable, // values, not types
         }
         return wip_vi.ref(isel);
+    }
+
+    pub fn nonSysvVarArg(it: *CallAbiIterator, isel: *Select, ty: ZigType) !?Value.Index {
+        const ngrn = it.ngrn;
+        defer it.ngrn = ngrn;
+        it.ngrn = ngrn_end;
+        const nsrn = it.nsrn;
+        defer it.nsrn = nsrn;
+        it.nsrn = nsrn_end;
+        return it.param(isel, ty);
     }
 
     pub fn ret(it: *CallAbiIterator, isel: *Select, ty: ZigType) !?Value.Index {
