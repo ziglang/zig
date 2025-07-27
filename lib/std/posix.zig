@@ -6577,6 +6577,32 @@ pub fn recvfrom(
     }
 }
 
+pub fn recvmsg(sockfd: socket_t, msg: *msghdr, flags: u32) RecvFromError!usize {
+    while (true) {
+        const rc = system.recvmsg(sockfd, msg, flags);
+        switch (errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+
+            .AGAIN => return error.WouldBlock,
+            .CONNREFUSED => return error.ConnectionRefused,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .IO => return error.InputOutput,
+            .MSGSIZE => return error.MessageTooBig,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .INTR => continue,
+            .BADF => unreachable,
+            .FAULT => unreachable,
+            .INVAL => unreachable,
+            .NOTSOCK => unreachable, // the socket descriptor does not refer to a socket
+            .OPNOTSUPP => unreachable, // Some bit in the flags argument is inappropriate for the socket type.
+            else => |err| return unexpectedErrno(err),
+        }
+    }
+}
+
 pub const DnExpandError = error{InvalidDnsPacket};
 
 pub fn dn_expand(
