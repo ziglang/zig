@@ -10414,11 +10414,12 @@ pub const Value = struct {
                                 } },
                                 .error_union => |error_union| {
                                     const error_union_type = ip.indexToKey(error_union.ty).error_union_type;
+                                    const error_set_ty: ZigType = .fromInterned(error_union_type.error_set_type);
                                     const payload_ty: ZigType = .fromInterned(error_union_type.payload_type);
-                                    if (!ip.isNoReturn(error_union_type.error_set_type) and
-                                        offset == codegen.errUnionErrorOffset(payload_ty, zcu))
-                                    {
-                                        offset = 0;
+                                    const error_set_offset = codegen.errUnionErrorOffset(payload_ty, zcu);
+                                    const error_set_size = error_set_ty.abiSize(zcu);
+                                    if (offset >= error_set_offset and offset + size <= error_set_offset + error_set_size) {
+                                        offset -= error_set_offset;
                                         continue :constant_key switch (error_union.val) {
                                             .err_name => |err_name| .{ .err = .{
                                                 .ty = error_union_type.error_set_type,
@@ -10430,15 +10431,18 @@ pub const Value = struct {
                                             } },
                                         };
                                     }
-                                    assert(payload_ty.hasRuntimeBitsIgnoreComptime(zcu));
-                                    offset -= @intCast(codegen.errUnionPayloadOffset(payload_ty, zcu));
-                                    switch (error_union.val) {
-                                        .err_name => continue :constant_key .{ .undef = error_union_type.payload_type },
-                                        .payload => |payload| {
-                                            constant = payload;
-                                            constant_key = ip.indexToKey(payload);
-                                            continue :constant_key constant_key;
-                                        },
+                                    const payload_offset = codegen.errUnionPayloadOffset(payload_ty, zcu);
+                                    const payload_size = payload_ty.abiSize(zcu);
+                                    if (offset >= payload_offset and offset + size <= payload_offset + payload_size) {
+                                        offset -= payload_offset;
+                                        switch (error_union.val) {
+                                            .err_name => continue :constant_key .{ .undef = error_union_type.payload_type },
+                                            .payload => |payload| {
+                                                constant = payload;
+                                                constant_key = ip.indexToKey(payload);
+                                                continue :constant_key constant_key;
+                                            },
+                                        }
                                     }
                                 },
                                 .enum_tag => |enum_tag| continue :constant_key .{ .int = ip.indexToKey(enum_tag.int).int },
@@ -10975,7 +10979,17 @@ fn hasRepeatedByteRepr(isel: *Select, constant: Constant) error{OutOfMemory}!?u8
 fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMemory}!bool {
     const zcu = isel.pt.zcu;
     const ip = &zcu.intern_pool;
-    switch (ip.indexToKey(constant.toIntern())) {
+    if (try isel.writeKeyToMemory(ip.indexToKey(constant.toIntern()), buffer)) return true;
+    constant.writeToMemory(isel.pt, buffer) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.ReinterpretDeclRef, error.Unimplemented, error.IllDefinedMemoryLayout => return false,
+    };
+    return true;
+}
+fn writeKeyToMemory(isel: *Select, constant_key: InternPool.Key, buffer: []u8) error{OutOfMemory}!bool {
+    const zcu = isel.pt.zcu;
+    const ip = &zcu.intern_pool;
+    switch (constant_key) {
         .int_type,
         .ptr_type,
         .array_type,
@@ -10997,6 +11011,37 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
         .empty_enum_value,
         .memoized_call,
         => unreachable, // not a runtime value
+        .err => |err| {
+            const error_int = ip.getErrorValueIfExists(err.name).?;
+            switch (buffer.len) {
+                else => unreachable,
+                inline 1...4 => |size| std.mem.writeInt(
+                    @Type(.{ .int = .{ .signedness = .unsigned, .bits = 8 * size } }),
+                    buffer[0..size],
+                    @intCast(error_int),
+                    isel.target.cpu.arch.endian(),
+                ),
+            }
+        },
+        .error_union => |error_union| {
+            const error_union_type = ip.indexToKey(error_union.ty).error_union_type;
+            const error_set_ty: ZigType = .fromInterned(error_union_type.error_set_type);
+            const payload_ty: ZigType = .fromInterned(error_union_type.payload_type);
+            const error_set = buffer[@intCast(codegen.errUnionErrorOffset(payload_ty, zcu))..][0..@intCast(error_set_ty.abiSize(zcu))];
+            switch (error_union.val) {
+                .err_name => |err_name| if (!try isel.writeKeyToMemory(.{ .err = .{
+                    .ty = error_set_ty.toIntern(),
+                    .name = err_name,
+                } }, error_set)) return false,
+                .payload => |payload| {
+                    if (!try isel.writeToMemory(
+                        .fromInterned(payload),
+                        buffer[@intCast(codegen.errUnionPayloadOffset(payload_ty, zcu))..][0..@intCast(payload_ty.abiSize(zcu))],
+                    )) return false;
+                    @memset(error_set, 0);
+                },
+            }
+        },
         .opt => |opt| {
             const child_size: usize = @intCast(ZigType.fromInterned(ip.indexToKey(opt.ty).opt_type).abiSize(zcu));
             switch (opt.val) {
@@ -11008,7 +11053,6 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                     if (!ZigType.fromInterned(opt.ty).optionalReprIsPayload(zcu)) buffer[child_size] = @intFromBool(true);
                 },
             }
-            return true;
         },
         .aggregate => |aggregate| switch (ip.indexToKey(aggregate.ty)) {
             else => unreachable,
@@ -11027,9 +11071,8 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                         elem_offset += elem_size;
                     },
                 }
-                return true;
             },
-            .vector_type => {},
+            .vector_type => return false,
             .struct_type => {
                 const loaded_struct = ip.loadStructType(aggregate.ty);
                 switch (loaded_struct.layout) {
@@ -11052,9 +11095,8 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                             }), buffer[@intCast(field_offset)..][0..@intCast(field_size)])) return false;
                             field_offset += field_size;
                         }
-                        return true;
                     },
-                    .@"extern", .@"packed" => {},
+                    .@"extern", .@"packed" => return false,
                 }
             },
             .tuple_type => |tuple_type| {
@@ -11071,15 +11113,10 @@ fn writeToMemory(isel: *Select, constant: Constant, buffer: []u8) error{OutOfMem
                     }), buffer[@intCast(field_offset)..][0..@intCast(field_size)])) return false;
                     field_offset += field_size;
                 }
-                return true;
             },
         },
-        else => {},
+        else => return false,
     }
-    constant.writeToMemory(isel.pt, buffer) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.ReinterpretDeclRef, error.Unimplemented, error.IllDefinedMemoryLayout => return false,
-    };
     return true;
 }
 

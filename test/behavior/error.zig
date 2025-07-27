@@ -145,14 +145,11 @@ test "implicit cast to optional to error union to return result loc" {
 }
 
 test "fn returning empty error set can be passed as fn returning any error" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     entry();
     comptime entry();
 }
 
 test "fn returning empty error set can be passed as fn returning any error - pointer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     entryPtr();
@@ -404,7 +401,6 @@ fn intLiteral(str: []const u8) !?i64 {
 }
 
 test "nested error union function call in optional unwrap" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -482,7 +478,6 @@ test "optional error set is the same size as error set" {
 }
 
 test "nested catch" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -698,7 +693,6 @@ test "coerce error set to the current inferred error set" {
 }
 
 test "error union payload is properly aligned" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -757,7 +751,6 @@ test "simple else prong allowed even when all errors handled" {
 }
 
 test "pointer to error union payload" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -845,7 +838,6 @@ test "alignment of wrapping an error union payload" {
 }
 
 test "compare error union and error set" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var a: anyerror = error.Foo;
@@ -1034,8 +1026,6 @@ test "errorCast to adhoc inferred error set" {
 }
 
 test "@errorCast from error set to error union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest(set: error{ A, B }) error{A}!i32 {
             return @errorCast(set);
@@ -1046,8 +1036,6 @@ test "@errorCast from error set to error union" {
 }
 
 test "@errorCast from error union to error union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const S = struct {
         fn doTheTest(set: error{ A, B }!i32) error{A}!i32 {
             return @errorCast(set);
