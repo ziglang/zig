@@ -895,8 +895,8 @@ pub const VaList = switch (builtin.cpu.arch) {
         .windows => *u8,
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
         else => switch (builtin.zig_backend) {
-            .stage2_aarch64 => VaListAarch64,
-            else => @compileError("disabled due to miscompilations"),
+            else => VaListAarch64,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
         },
     },
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
@@ -921,7 +921,10 @@ pub const VaList = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => *anyopaque,
     .x86 => *u8,
     .x86_64 => switch (builtin.os.tag) {
-        .windows => @compileError("disabled due to miscompilations"), // *u8,
+        .windows => switch (builtin.zig_backend) {
+            else => *u8,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
+        },
         else => VaListX86_64,
     },
     .xtensa => VaListXtensa,
