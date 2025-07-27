@@ -620,10 +620,9 @@ test "init/find" {
 }
 
 test "encode/decode literals" {
-    const LiteralEncoder = std.compress.flate.Compress.LiteralEncoder;
-
+    var codes: [flate.HuffmanEncoder.max_num_frequencies]flate.HuffmanEncoder.Code = undefined;
     for (1..286) |j| { // for all different number of codes
-        var enc: LiteralEncoder = .{};
+        var enc: flate.HuffmanEncoder = .{ .codes = &codes };
         // create frequencies
         var freq = [_]u16{0} ** 286;
         freq[256] = 1; // ensure we have end of block code

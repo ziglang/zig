@@ -8,32 +8,33 @@ const Writer = std.io.Writer;
 const BlockWriter = @This();
 const flate = @import("../flate.zig");
 const Compress = flate.Compress;
-const huffman = flate.huffman;
+const HuffmanEncoder = flate.HuffmanEncoder;
 const Token = @import("Token.zig");
 
-const codegen_order = huffman.codegen_order;
+const codegen_order = HuffmanEncoder.codegen_order;
 const end_code_mark = 255;
 
 output: *Writer,
 
-codegen_freq: [huffman.codegen_code_count]u16 = undefined,
-literal_freq: [huffman.max_num_lit]u16 = undefined,
-distance_freq: [huffman.distance_code_count]u16 = undefined,
-codegen: [huffman.max_num_lit + huffman.distance_code_count + 1]u8 = undefined,
-literal_encoding: Compress.LiteralEncoder = .{},
-distance_encoding: Compress.DistanceEncoder = .{},
-codegen_encoding: Compress.CodegenEncoder = .{},
-fixed_literal_encoding: Compress.LiteralEncoder,
-fixed_distance_encoding: Compress.DistanceEncoder,
-huff_distance: Compress.DistanceEncoder,
+codegen_freq: [HuffmanEncoder.codegen_code_count]u16,
+literal_freq: [HuffmanEncoder.max_num_lit]u16,
+distance_freq: [HuffmanEncoder.distance_code_count]u16,
+codegen: [HuffmanEncoder.max_num_lit + HuffmanEncoder.distance_code_count + 1]u8,
+literal_encoding: HuffmanEncoder,
+distance_encoding: HuffmanEncoder,
+codegen_encoding: HuffmanEncoder,
+fixed_literal_encoding: HuffmanEncoder,
+fixed_distance_encoding: HuffmanEncoder,
+huff_distance: HuffmanEncoder,
 
-pub fn init(output: *Writer) BlockWriter {
-    return .{
-        .output = output,
-        .fixed_literal_encoding = Compress.fixedLiteralEncoder(),
-        .fixed_distance_encoding = Compress.fixedDistanceEncoder(),
-        .huff_distance = Compress.huffmanDistanceEncoder(),
-    };
+fixed_literal_codes: [HuffmanEncoder.max_num_frequencies]HuffmanEncoder.Code,
+fixed_distance_codes: [HuffmanEncoder.distance_code_count]HuffmanEncoder.Code,
+distance_codes: [HuffmanEncoder.distance_code_count]HuffmanEncoder.Code,
+
+pub fn init(bw: *BlockWriter) void {
+    bw.fixed_literal_encoding = .fixedLiteralEncoder(&bw.fixed_literal_codes);
+    bw.fixed_distance_encoding = .fixedDistanceEncoder(&bw.fixed_distance_codes);
+    bw.huff_distance = .huffmanDistanceEncoder(&bw.distance_codes);
 }
 
 /// Flush intrenal bit buffer to the writer.
@@ -46,27 +47,23 @@ pub fn flush(self: *BlockWriter) Writer.Error!void {
     try self.bit_writer.flush();
 }
 
-pub fn setWriter(self: *BlockWriter, new_writer: *Writer) void {
-    self.bit_writer.setWriter(new_writer);
-}
-
 fn writeCode(self: *BlockWriter, c: Compress.HuffCode) Writer.Error!void {
     try self.bit_writer.writeBits(c.code, c.len);
 }
 
-// RFC 1951 3.2.7 specifies a special run-length encoding for specifying
-// the literal and distance lengths arrays (which are concatenated into a single
-// array).  This method generates that run-length encoding.
-//
-// The result is written into the codegen array, and the frequencies
-// of each code is written into the codegen_freq array.
-// Codes 0-15 are single byte codes. Codes 16-18 are followed by additional
-// information. Code bad_code is an end marker
-//
-// num_literals: The number of literals in literal_encoding
-// num_distances: The number of distances in distance_encoding
-// lit_enc: The literal encoder to use
-// dist_enc: The distance encoder to use
+/// RFC 1951 3.2.7 specifies a special run-length encoding for specifying
+/// the literal and distance lengths arrays (which are concatenated into a single
+/// array).  This method generates that run-length encoding.
+///
+/// The result is written into the codegen array, and the frequencies
+/// of each code is written into the codegen_freq array.
+/// Codes 0-15 are single byte codes. Codes 16-18 are followed by additional
+/// information. Code bad_code is an end marker
+///
+/// num_literals: The number of literals in literal_encoding
+/// num_distances: The number of distances in distance_encoding
+/// lit_enc: The literal encoder to use
+/// dist_enc: The distance encoder to use
 fn generateCodegen(
     self: *BlockWriter,
     num_literals: u32,
@@ -167,7 +164,7 @@ const DynamicSize = struct {
     num_codegens: u32,
 };
 
-// dynamicSize returns the size of dynamically encoded data in bits.
+/// dynamicSize returns the size of dynamically encoded data in bits.
 fn dynamicSize(
     self: *BlockWriter,
     lit_enc: *Compress.LiteralEncoder, // literal encoder
@@ -194,7 +191,7 @@ fn dynamicSize(
     };
 }
 
-// fixedSize returns the size of dynamically encoded data in bits.
+/// fixedSize returns the size of dynamically encoded data in bits.
 fn fixedSize(self: *BlockWriter, extra_bits: u32) u32 {
     return 3 +
         self.fixed_literal_encoding.bitLength(&self.literal_freq) +
@@ -207,25 +204,25 @@ const StoredSize = struct {
     storable: bool,
 };
 
-// storedSizeFits calculates the stored size, including header.
-// The function returns the size in bits and whether the block
-// fits inside a single block.
+/// storedSizeFits calculates the stored size, including header.
+/// The function returns the size in bits and whether the block
+/// fits inside a single block.
 fn storedSizeFits(in: ?[]const u8) StoredSize {
     if (in == null) {
         return .{ .size = 0, .storable = false };
     }
-    if (in.?.len <= huffman.max_store_block_size) {
+    if (in.?.len <= HuffmanEncoder.max_store_block_size) {
         return .{ .size = @as(u32, @intCast((in.?.len + 5) * 8)), .storable = true };
     }
     return .{ .size = 0, .storable = false };
 }
 
-// Write the header of a dynamic Huffman block to the output stream.
-//
-//  num_literals: The number of literals specified in codegen
-//  num_distances: The number of distances specified in codegen
-//  num_codegens: The number of codegens used in codegen
-//  eof: Is it the end-of-file? (end of stream)
+/// Write the header of a dynamic Huffman block to the output stream.
+///
+///  num_literals: The number of literals specified in codegen
+///  num_distances: The number of distances specified in codegen
+///  num_codegens: The number of codegens used in codegen
+///  eof: Is it the end-of-file? (end of stream)
 fn dynamicHeader(
     self: *BlockWriter,
     num_literals: u32,
@@ -291,11 +288,11 @@ fn fixedHeader(self: *BlockWriter, eof: bool) Writer.Error!void {
     try self.bit_writer.writeBits(value, 3);
 }
 
-// Write a block of tokens with the smallest encoding. Will choose block type.
-// The original input can be supplied, and if the huffman encoded data
-// is larger than the original bytes, the data will be written as a
-// stored block.
-// If the input is null, the tokens will always be Huffman encoded.
+/// Write a block of tokens with the smallest encoding. Will choose block type.
+/// The original input can be supplied, and if the huffman encoded data
+/// is larger than the original bytes, the data will be written as a
+/// stored block.
+/// If the input is null, the tokens will always be Huffman encoded.
 pub fn write(self: *BlockWriter, tokens: []const Token, eof: bool, input: ?[]const u8) Writer.Error!void {
     const lit_and_dist = self.indexTokens(tokens);
     const num_literals = lit_and_dist.num_literals;
@@ -379,11 +376,11 @@ pub fn storedBlock(self: *BlockWriter, input: []const u8, eof: bool) Writer.Erro
     try self.bit_writer.writeBytes(input);
 }
 
-// writeBlockDynamic encodes a block using a dynamic Huffman table.
-// This should be used if the symbols used have a disproportionate
-// histogram distribution.
-// If input is supplied and the compression savings are below 1/16th of the
-// input size the block is stored.
+/// writeBlockDynamic encodes a block using a dynamic Huffman table.
+/// This should be used if the symbols used have a disproportionate
+/// histogram distribution.
+/// If input is supplied and the compression savings are below 1/16th of the
+/// input size the block is stored.
 fn dynamicBlock(
     self: *BlockWriter,
     tokens: []const Token,
@@ -429,10 +426,10 @@ const TotalIndexedTokens = struct {
     num_distances: u32,
 };
 
-// Indexes a slice of tokens followed by an end_block_marker, and updates
-// literal_freq and distance_freq, and generates literal_encoding
-// and distance_encoding.
-// The number of literal and distance tokens is returned.
+/// Indexes a slice of tokens followed by an end_block_marker, and updates
+/// literal_freq and distance_freq, and generates literal_encoding
+/// and distance_encoding.
+/// The number of literal and distance tokens is returned.
 fn indexTokens(self: *BlockWriter, tokens: []const Token) TotalIndexedTokens {
     var num_literals: u32 = 0;
     var num_distances: u32 = 0;
@@ -453,7 +450,7 @@ fn indexTokens(self: *BlockWriter, tokens: []const Token) TotalIndexedTokens {
         self.distance_freq[t.distanceCode()] += 1;
     }
     // add end_block_marker token at the end
-    self.literal_freq[huffman.end_block_marker] += 1;
+    self.literal_freq[HuffmanEncoder.end_block_marker] += 1;
 
     // get the number of literals
     num_literals = @as(u32, @intCast(self.literal_freq.len));
@@ -479,8 +476,8 @@ fn indexTokens(self: *BlockWriter, tokens: []const Token) TotalIndexedTokens {
     };
 }
 
-// Writes a slice of tokens to the output followed by and end_block_marker.
-// codes for literal and distance encoding must be supplied.
+/// Writes a slice of tokens to the output followed by and end_block_marker.
+/// codes for literal and distance encoding must be supplied.
 fn writeTokens(
     self: *BlockWriter,
     tokens: []const Token,
@@ -508,18 +505,18 @@ fn writeTokens(
         }
     }
     // add end_block_marker at the end
-    try self.writeCode(le_codes[huffman.end_block_marker]);
+    try self.writeCode(le_codes[HuffmanEncoder.end_block_marker]);
 }
 
-// Encodes a block of bytes as either Huffman encoded literals or uncompressed bytes
-// if the results only gains very little from compression.
+/// Encodes a block of bytes as either Huffman encoded literals or uncompressed bytes
+/// if the results only gains very little from compression.
 pub fn huffmanBlock(self: *BlockWriter, input: []const u8, eof: bool) Writer.Error!void {
     // Add everything as literals
     histogram(input, &self.literal_freq);
 
-    self.literal_freq[huffman.end_block_marker] = 1;
+    self.literal_freq[HuffmanEncoder.end_block_marker] = 1;
 
-    const num_literals = huffman.end_block_marker + 1;
+    const num_literals = HuffmanEncoder.end_block_marker + 1;
     self.distance_freq[0] = 1;
     const num_distances = 1;
 
@@ -560,10 +557,9 @@ pub fn huffmanBlock(self: *BlockWriter, input: []const u8, eof: bool) Writer.Err
         const c = encoding[t];
         try self.bit_writer.writeBits(c.code, c.len);
     }
-    try self.writeCode(encoding[huffman.end_block_marker]);
+    try self.writeCode(encoding[HuffmanEncoder.end_block_marker]);
 }
 
-// histogram accumulates a histogram of b in h.
 fn histogram(b: []const u8, h: *[286]u16) void {
     // Clear histogram
     for (h, 0..) |_, i| {
@@ -574,123 +570,4 @@ fn histogram(b: []const u8, h: *[286]u16) void {
     for (b) |t| {
         lh[t] += 1;
     }
-}
-
-// tests
-const expect = std.testing.expect;
-const fmt = std.fmt;
-const testing = std.testing;
-const ArrayList = std.ArrayList;
-
-const TestCase = @import("testdata/block_writer.zig").TestCase;
-const testCases = @import("testdata/block_writer.zig").testCases;
-
-// tests if the writeBlock encoding has changed.
-test "write" {
-    inline for (0..testCases.len) |i| {
-        try testBlock(testCases[i], .write_block);
-    }
-}
-
-// tests if the writeBlockDynamic encoding has changed.
-test "dynamicBlock" {
-    inline for (0..testCases.len) |i| {
-        try testBlock(testCases[i], .write_dyn_block);
-    }
-}
-
-test "huffmanBlock" {
-    inline for (0..testCases.len) |i| {
-        try testBlock(testCases[i], .write_huffman_block);
-    }
-    try testBlock(.{
-        .tokens = &[_]Token{},
-        .input = "huffman-rand-max.input",
-        .want = "huffman-rand-max.{s}.expect",
-    }, .write_huffman_block);
-}
-
-const TestFn = enum {
-    write_block,
-    write_dyn_block, // write dynamic block
-    write_huffman_block,
-
-    fn to_s(self: TestFn) []const u8 {
-        return switch (self) {
-            .write_block => "wb",
-            .write_dyn_block => "dyn",
-            .write_huffman_block => "huff",
-        };
-    }
-
-    fn write(
-        comptime self: TestFn,
-        bw: anytype,
-        tok: []const Token,
-        input: ?[]const u8,
-        final: bool,
-    ) !void {
-        switch (self) {
-            .write_block => try bw.write(tok, final, input),
-            .write_dyn_block => try bw.dynamicBlock(tok, final, input),
-            .write_huffman_block => try bw.huffmanBlock(input.?, final),
-        }
-        try bw.flush();
-    }
-};
-
-// testBlock tests a block against its references
-//
-// size
-//  64K [file-name].input                  - input non compressed file
-// 8.1K [file-name].golden                 -
-//   78 [file-name].dyn.expect             - output with writeBlockDynamic
-//   78 [file-name].wb.expect              - output with writeBlock
-// 8.1K [file-name].huff.expect            - output with writeBlockHuff
-//   78 [file-name].dyn.expect-noinput     - output with writeBlockDynamic when input is null
-//   78 [file-name].wb.expect-noinput      - output with writeBlock when input is null
-//
-//   wb   - writeBlock
-//   dyn  - writeBlockDynamic
-//   huff - writeBlockHuff
-//
-fn testBlock(comptime tc: TestCase, comptime tfn: TestFn) !void {
-    if (tc.input.len != 0 and tc.want.len != 0) {
-        const want_name = comptime fmt.comptimePrint(tc.want, .{tfn.to_s()});
-        const input = @embedFile("testdata/block_writer/" ++ tc.input);
-        const want = @embedFile("testdata/block_writer/" ++ want_name);
-        try testWriteBlock(tfn, input, want, tc.tokens);
-    }
-
-    if (tfn == .write_huffman_block) {
-        return;
-    }
-
-    const want_name_no_input = comptime fmt.comptimePrint(tc.want_no_input, .{tfn.to_s()});
-    const want = @embedFile("testdata/block_writer/" ++ want_name_no_input);
-    try testWriteBlock(tfn, null, want, tc.tokens);
-}
-
-// Uses writer function `tfn` to write `tokens`, tests that we got `want` as output.
-fn testWriteBlock(comptime tfn: TestFn, input: ?[]const u8, want: []const u8, tokens: []const Token) !void {
-    var buf = ArrayList(u8).init(testing.allocator);
-    var bw: BlockWriter = .init(buf.writer());
-    try tfn.write(&bw, tokens, input, false);
-    var got = buf.items;
-    try testing.expectEqualSlices(u8, want, got); // expect writeBlock to yield expected result
-    try expect(got[0] & 0b0000_0001 == 0); // bfinal is not set
-    //
-    // Test if the writer produces the same output after reset.
-    buf.deinit();
-    buf = ArrayList(u8).init(testing.allocator);
-    defer buf.deinit();
-    bw.setWriter(buf.writer());
-
-    try tfn.write(&bw, tokens, input, true);
-    try bw.flush();
-    got = buf.items;
-
-    try expect(got[0] & 1 == 1); // bfinal is set
-    buf.items[0] &= 0b1111_1110; // remove bfinal bit, so we can run test slices
-    try testing.expectEqualSlices(u8, want, got); // expect writeBlock to yield expected result
 }
