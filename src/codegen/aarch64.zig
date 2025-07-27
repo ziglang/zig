@@ -19,8 +19,12 @@ pub fn generate(
 ) !Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
+    const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
-    const func_type = zcu.intern_pool.indexToKey(func.ty).func_type;
+    const func_zir = func.zir_body_inst.resolveFull(ip).?;
+    const file = zcu.fileByIndex(func_zir.file);
+    const named_params_len = file.zir.?.getParamBody(func_zir.inst).len;
+    const func_type = ip.indexToKey(func.ty).func_type;
     assert(liveness.* == null);
 
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
@@ -61,23 +65,32 @@ pub fn generate(
         .values = .empty,
     };
     defer isel.deinit();
+    const is_sysv = !isel.target.os.tag.isDarwin() and isel.target.os.tag != .windows;
+    const is_sysv_var_args = is_sysv and func_type.is_var_args;
 
     const air_main_body = air.getMainBody();
     var param_it: Select.CallAbiIterator = .init;
     const air_args = for (air_main_body, 0..) |air_inst_index, body_index| {
         if (air.instructions.items(.tag)[@intFromEnum(air_inst_index)] != .arg) break air_main_body[0..body_index];
-        const param_ty = air.instructions.items(.data)[@intFromEnum(air_inst_index)].arg.ty.toType();
-        const param_vi = try param_it.param(&isel, param_ty);
+        const arg = air.instructions.items(.data)[@intFromEnum(air_inst_index)].arg;
+        const param_ty = arg.ty.toType();
+        const param_vi = param_vi: {
+            if (arg.zir_param_index >= named_params_len) {
+                assert(func_type.is_var_args);
+                if (!is_sysv) break :param_vi try param_it.nonSysvVarArg(&isel, param_ty);
+            }
+            break :param_vi try param_it.param(&isel, param_ty);
+        };
         tracking_log.debug("${d} <- %{d}", .{ @intFromEnum(param_vi.?), @intFromEnum(air_inst_index) });
         try isel.live_values.putNoClobber(gpa, air_inst_index, param_vi.?);
     } else unreachable;
 
     const saved_gra_start = if (mod.strip) param_it.ngrn else Select.CallAbiIterator.ngrn_start;
-    const saved_gra_end = if (func_type.is_var_args) Select.CallAbiIterator.ngrn_end else param_it.ngrn;
+    const saved_gra_end = if (is_sysv_var_args) Select.CallAbiIterator.ngrn_end else param_it.ngrn;
     const saved_gra_len = @intFromEnum(saved_gra_end) - @intFromEnum(saved_gra_start);
 
     const saved_vra_start = if (mod.strip) param_it.nsrn else Select.CallAbiIterator.nsrn_start;
-    const saved_vra_end = if (func_type.is_var_args) Select.CallAbiIterator.nsrn_end else param_it.nsrn;
+    const saved_vra_end = if (is_sysv_var_args) Select.CallAbiIterator.nsrn_end else param_it.nsrn;
     const saved_vra_len = @intFromEnum(saved_vra_end) - @intFromEnum(saved_vra_start);
 
     const frame_record = 2;
@@ -85,11 +98,16 @@ pub fn generate(
         .base = .fp,
         .offset = 8 * std.mem.alignForward(u7, frame_record + saved_gra_len, 2),
     };
-    isel.va_list = .{
-        .__stack = named_stack_args.withOffset(param_it.nsaa),
-        .__gr_top = named_stack_args,
-        .__vr_top = .{ .base = .fp, .offset = 0 },
-    };
+    const stack_var_args = named_stack_args.withOffset(param_it.nsaa);
+    const gr_top = named_stack_args;
+    const vr_top: Select.Value.Indirect = .{ .base = .fp, .offset = 0 };
+    isel.va_list = if (is_sysv) .{ .sysv = .{
+        .__stack = stack_var_args,
+        .__gr_top = gr_top,
+        .__vr_top = vr_top,
+        .__gr_offs = @as(i32, @intFromEnum(Select.CallAbiIterator.ngrn_end) - @intFromEnum(param_it.ngrn)) * -8,
+        .__vr_offs = @as(i32, @intFromEnum(Select.CallAbiIterator.nsrn_end) - @intFromEnum(param_it.nsrn)) * -16,
+    } } else .{ .other = stack_var_args };
 
     // translate arg locations from caller-based to callee-based
     for (air_args) |air_inst_index| {
@@ -106,11 +124,9 @@ pub fn generate(
                 const first_passed_part_vi = part_it.next().?;
                 const hint_ra = first_passed_part_vi.hint(&isel).?;
                 passed_vi.setParent(&isel, .{ .stack_slot = if (hint_ra.isVector())
-                    isel.va_list.__vr_top.withOffset(@as(i8, -16) *
-                        (@intFromEnum(saved_vra_end) - @intFromEnum(hint_ra)))
+                    vr_top.withOffset(@as(i8, -16) * (@intFromEnum(saved_vra_end) - @intFromEnum(hint_ra)))
                 else
-                    isel.va_list.__gr_top.withOffset(@as(i8, -8) *
-                        (@intFromEnum(saved_gra_end) - @intFromEnum(hint_ra))) });
+                    gr_top.withOffset(@as(i8, -8) * (@intFromEnum(saved_gra_end) - @intFromEnum(hint_ra))) });
             },
             .stack_slot => |stack_slot| {
                 assert(stack_slot.base == .sp);
@@ -152,13 +168,7 @@ pub fn generate(
     isel.verify(true);
 
     const prologue = isel.instructions.items.len;
-    const epilogue = try isel.layout(
-        param_it,
-        func_type.is_var_args,
-        saved_gra_len,
-        saved_vra_len,
-        mod,
-    );
+    const epilogue = try isel.layout(param_it, is_sysv_var_args, saved_gra_len, saved_vra_len, mod);
 
     const instructions = try isel.instructions.toOwnedSlice(gpa);
     var mir: Mir = .{

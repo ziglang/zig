@@ -10089,18 +10089,6 @@ pub const Instruction = packed union {
                             },
                         } } } };
                     },
-                    .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
-                        return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
-                            .ldp = .{
-                                .Rt = t1.alias.encode(.{}),
-                                .Rn = signed_offset.base.alias.encode(.{ .sp = true }),
-                                .Rt2 = t2.alias.encode(.{}),
-                                .imm7 = @intCast(@shrExact(signed_offset.offset, @as(u2, 2) + @intFromEnum(sf))),
-                                .sf = sf,
-                            },
-                        } } } };
-                    },
                     .pre_index => |pre_index| {
                         assert(pre_index.base.format.integer == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .integer = .{
@@ -10109,6 +10097,18 @@ pub const Instruction = packed union {
                                 .Rn = pre_index.base.alias.encode(.{ .sp = true }),
                                 .Rt2 = t2.alias.encode(.{}),
                                 .imm7 = @intCast(@shrExact(pre_index.index, @as(u2, 2) + @intFromEnum(sf))),
+                                .sf = sf,
+                            },
+                        } } } };
+                    },
+                    .signed_offset => |signed_offset| {
+                        assert(signed_offset.base.format.integer == .doubleword);
+                        return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
+                            .ldp = .{
+                                .Rt = t1.alias.encode(.{}),
+                                .Rn = signed_offset.base.alias.encode(.{ .sp = true }),
+                                .Rt2 = t2.alias.encode(.{}),
+                                .imm7 = @intCast(@shrExact(signed_offset.offset, @as(u2, 2) + @intFromEnum(sf))),
                                 .sf = sf,
                             },
                         } } } };
@@ -11473,18 +11473,6 @@ pub const Instruction = packed union {
                             },
                         } } } };
                     },
-                    .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
-                        return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
-                            .stp = .{
-                                .Rt = t1.alias.encode(.{}),
-                                .Rn = signed_offset.base.alias.encode(.{ .sp = true }),
-                                .Rt2 = t2.alias.encode(.{}),
-                                .imm7 = @intCast(@shrExact(signed_offset.offset, @as(u2, 2) + @intFromEnum(sf))),
-                                .sf = sf,
-                            },
-                        } } } };
-                    },
                     .pre_index => |pre_index| {
                         assert(pre_index.base.format.integer == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .integer = .{
@@ -11493,6 +11481,18 @@ pub const Instruction = packed union {
                                 .Rn = pre_index.base.alias.encode(.{ .sp = true }),
                                 .Rt2 = t2.alias.encode(.{}),
                                 .imm7 = @intCast(@shrExact(pre_index.index, @as(u2, 2) + @intFromEnum(sf))),
+                                .sf = sf,
+                            },
+                        } } } };
+                    },
+                    .signed_offset => |signed_offset| {
+                        assert(signed_offset.base.format.integer == .doubleword);
+                        return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
+                            .stp = .{
+                                .Rt = t1.alias.encode(.{}),
+                                .Rn = signed_offset.base.alias.encode(.{ .sp = true }),
+                                .Rt2 = t2.alias.encode(.{}),
+                                .imm7 = @intCast(@shrExact(signed_offset.offset, @as(u2, 2) + @intFromEnum(sf))),
                                 .sf = sf,
                             },
                         } } } };
