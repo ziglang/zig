@@ -2978,7 +2978,6 @@ const NavGen = struct {
                     .@"extern" => null,
                     else => val,
                 };
-                assert(maybe_init_val == null); // TODO
 
                 const storage_class = self.spvStorageClass(nav.getAddrspace());
                 assert(storage_class != .generic); // These should be instance globals
@@ -2989,6 +2988,7 @@ const NavGen = struct {
                     .id_result_type = ptr_ty_id,
                     .id_result = result_id,
                     .storage_class = storage_class,
+                    .initializer = if (maybe_init_val) |init_val| try self.constant(ty, init_val, .indirect) else null,
                 });
 
                 if (std.meta.stringToEnum(spec.BuiltIn, nav.fqn.toSlice(ip))) |builtin| {
