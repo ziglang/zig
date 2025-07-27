@@ -3261,7 +3261,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     assert(dst_int_info.bits == src_child_int_info.bits * src_len);
                     const src_child_size = src_ty.childType(zcu).abiSize(zcu);
                     if (8 * src_child_size == src_child_int_info.bits) {
-                        try dst_vi.value.defAddr(isel, dst_ty, dst_int_info, comptime &.initFill(.free)) orelse break :unused;
+                        try dst_vi.value.defAddr(isel, dst_ty, .{ .wrap = dst_int_info }) orelse break :unused;
 
                         try call.prepareReturn(isel);
                         try call.finishReturn(isel);
@@ -3288,7 +3288,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     assert(dst_child_int_info.bits * dst_len == src_int_info.bits);
                     const dst_child_size = dst_ty.childType(zcu).abiSize(zcu);
                     if (8 * dst_child_size == dst_child_int_info.bits) {
-                        try dst_vi.value.defAddr(isel, dst_ty, null, comptime &.initFill(.free)) orelse break :unused;
+                        try dst_vi.value.defAddr(isel, dst_ty, .{}) orelse break :unused;
 
                         try call.prepareReturn(isel);
                         try call.finishReturn(isel);
@@ -3438,12 +3438,9 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     .value, .constant => unreachable,
                     .address => |address_vi| {
                         maybe_ret_addr_vi = address_vi;
-                        _ = try def_ret_vi.value.defAddr(
-                            isel,
-                            isel.air.typeOfIndex(air.inst_index, ip),
-                            null,
-                            &call.caller_saved_regs,
-                        );
+                        _ = try def_ret_vi.value.defAddr(isel, isel.air.typeOfIndex(air.inst_index, ip), .{
+                            .expected_live_registers = &call.caller_saved_regs,
+                        });
                     },
                 }
             }
@@ -4953,37 +4950,34 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (ptr_info.flags.is_volatile) _ = try isel.use(air.inst_index.toRef());
             if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
                 defer dst_vi.value.deref(isel);
-                switch (dst_vi.value.size(isel)) {
-                    0 => unreachable,
-                    1...Value.max_parts => {
-                        const ptr_vi = try isel.use(ty_op.operand);
-                        const ptr_mat = try ptr_vi.matReg(isel);
-                        _ = try dst_vi.value.load(isel, ty_op.ty.toType(), ptr_mat.ra, .{
-                            .@"volatile" = ptr_info.flags.is_volatile,
-                        });
-                        try ptr_mat.finish(isel);
-                    },
-                    else => |size| {
-                        try dst_vi.value.defAddr(isel, .fromInterned(ptr_info.child), null, comptime &.initFill(.free)) orelse break :unused;
+                const size = dst_vi.value.size(isel);
+                if (size <= Value.max_parts and ip.zigTypeTag(ptr_info.child) != .@"union") {
+                    const ptr_vi = try isel.use(ty_op.operand);
+                    const ptr_mat = try ptr_vi.matReg(isel);
+                    _ = try dst_vi.value.load(isel, ty_op.ty.toType(), ptr_mat.ra, .{
+                        .@"volatile" = ptr_info.flags.is_volatile,
+                    });
+                    try ptr_mat.finish(isel);
+                } else {
+                    try dst_vi.value.defAddr(isel, .fromInterned(ptr_info.child), .{}) orelse break :unused;
 
-                        try call.prepareReturn(isel);
-                        try call.finishReturn(isel);
+                    try call.prepareReturn(isel);
+                    try call.finishReturn(isel);
 
-                        try call.prepareCallee(isel);
-                        try isel.global_relocs.append(gpa, .{
-                            .name = "memcpy",
-                            .reloc = .{ .label = @intCast(isel.instructions.items.len) },
-                        });
-                        try isel.emit(.bl(0));
-                        try call.finishCallee(isel);
+                    try call.prepareCallee(isel);
+                    try isel.global_relocs.append(gpa, .{
+                        .name = "memcpy",
+                        .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                    });
+                    try isel.emit(.bl(0));
+                    try call.finishCallee(isel);
 
-                        try call.prepareParams(isel);
-                        const ptr_vi = try isel.use(ty_op.operand);
-                        try isel.movImmediate(.x2, size);
-                        try call.paramLiveOut(isel, ptr_vi, .r1);
-                        try call.paramAddress(isel, dst_vi.value, .r0);
-                        try call.finishParams(isel);
-                    },
+                    try call.prepareParams(isel);
+                    const ptr_vi = try isel.use(ty_op.operand);
+                    try isel.movImmediate(.x2, size);
+                    try call.paramLiveOut(isel, ptr_vi, .r1);
+                    try call.paramAddress(isel, dst_vi.value, .r0);
+                    try call.finishParams(isel);
                 }
             }
 
@@ -5727,26 +5721,14 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 const error_set_size = error_set_ty.abiSize(zcu);
                 const payload_size = payload_ty.abiSize(zcu);
 
-                if (payload_size > 0) {
-                    var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
-                    const payload_part_vi = try payload_part_it.only(isel);
-                    if (try payload_part_vi.?.defReg(isel)) |payload_part_ra| try isel.emit(switch (payload_size) {
-                        else => unreachable,
-                        1...4 => .orr(payload_part_ra.w(), .wzr, .{ .immediate = .{
-                            .N = .word,
-                            .immr = 0b000001,
-                            .imms = 0b111100,
-                        } }),
-                        5...8 => .orr(payload_part_ra.x(), .xzr, .{ .immediate = .{
-                            .N = .word,
-                            .immr = 0b000001,
-                            .imms = 0b111100,
-                        } }),
-                    });
-                }
                 var error_set_part_it = error_union_vi.value.field(error_union_ty, error_set_offset, error_set_size);
                 const error_set_part_vi = try error_set_part_it.only(isel);
                 try error_set_part_vi.?.move(isel, ty_op.operand);
+                if (payload_size > 0) {
+                    var payload_part_it = error_union_vi.value.field(error_union_ty, payload_offset, payload_size);
+                    const payload_part_vi = try payload_part_it.only(isel);
+                    try payload_part_vi.?.defUndef(isel, payload_ty, .{});
+                }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
@@ -5820,7 +5802,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
         .struct_field_val => {
-            if (isel.live_values.fetchRemove(air.inst_index)) |field_vi| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |field_vi| unused: {
                 defer field_vi.value.deref(isel);
 
                 const ty_pl = air.data(air.inst_index).ty_pl;
@@ -5847,27 +5829,55 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 });
 
                 const agg_vi = try isel.use(extra.struct_operand);
-                var agg_part_it = agg_vi.field(agg_ty, @divExact(field_bit_offset, 8), @divExact(field_bit_size, 8));
-                while (try agg_part_it.next(isel)) |agg_part| {
-                    var field_part_it = field_vi.value.field(ty_pl.ty.toType(), agg_part.offset, agg_part.vi.size(isel));
-                    const field_part_vi = try field_part_it.only(isel);
-                    if (field_part_vi.? == agg_part.vi) continue;
-                    var field_subpart_it = field_part_vi.?.parts(isel);
-                    const field_part_offset = if (field_subpart_it.only()) |field_subpart_vi|
-                        field_subpart_vi.get(isel).offset_from_parent
-                    else
-                        0;
-                    while (field_subpart_it.next()) |field_subpart_vi| {
-                        const field_subpart_ra = try field_subpart_vi.defReg(isel) orelse continue;
-                        const field_subpart_offset, const field_subpart_size = field_subpart_vi.position(isel);
-                        var agg_subpart_it = agg_part.vi.field(
-                            field_ty,
-                            agg_part.offset + field_subpart_offset - field_part_offset,
-                            field_subpart_size,
-                        );
-                        const agg_subpart_vi = try agg_subpart_it.only(isel);
-                        try agg_subpart_vi.?.liveOut(isel, field_subpart_ra);
-                    }
+                switch (agg_ty.zigTypeTag(zcu)) {
+                    else => unreachable,
+                    .@"struct" => {
+                        var agg_part_it = agg_vi.field(agg_ty, @divExact(field_bit_offset, 8), @divExact(field_bit_size, 8));
+                        while (try agg_part_it.next(isel)) |agg_part| {
+                            var field_part_it = field_vi.value.field(ty_pl.ty.toType(), agg_part.offset, agg_part.vi.size(isel));
+                            const field_part_vi = try field_part_it.only(isel);
+                            if (field_part_vi.? == agg_part.vi) continue;
+                            var field_subpart_it = field_part_vi.?.parts(isel);
+                            const field_part_offset = if (field_subpart_it.only()) |field_subpart_vi|
+                                field_subpart_vi.get(isel).offset_from_parent
+                            else
+                                0;
+                            while (field_subpart_it.next()) |field_subpart_vi| {
+                                const field_subpart_ra = try field_subpart_vi.defReg(isel) orelse continue;
+                                const field_subpart_offset, const field_subpart_size = field_subpart_vi.position(isel);
+                                var agg_subpart_it = agg_part.vi.field(
+                                    field_ty,
+                                    agg_part.offset + field_subpart_offset - field_part_offset,
+                                    field_subpart_size,
+                                );
+                                const agg_subpart_vi = try agg_subpart_it.only(isel);
+                                try agg_subpart_vi.?.liveOut(isel, field_subpart_ra);
+                            }
+                        }
+                    },
+                    .@"union" => {
+                        try field_vi.value.defAddr(isel, field_ty, .{}) orelse break :unused;
+
+                        try call.prepareReturn(isel);
+                        try call.finishReturn(isel);
+
+                        try call.prepareCallee(isel);
+                        try isel.global_relocs.append(gpa, .{
+                            .name = "memcpy",
+                            .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                        });
+                        try isel.emit(.bl(0));
+                        try call.finishCallee(isel);
+
+                        try call.prepareParams(isel);
+                        const union_layout = agg_ty.unionGetLayout(zcu);
+                        var payload_it = agg_vi.field(agg_ty, union_layout.payloadOffset(), union_layout.payload_size);
+                        const payload_vi = try payload_it.only(isel);
+                        try isel.movImmediate(.x2, field_vi.value.size(isel));
+                        try call.paramAddress(isel, payload_vi.?, .r1);
+                        try call.paramAddress(isel, field_vi.value, .r0);
+                        try call.finishParams(isel);
+                    },
                 }
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -6899,16 +6909,45 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .union_init => {
-            if (isel.live_values.fetchRemove(air.inst_index)) |un_vi| unused: {
-                defer un_vi.value.deref(isel);
+        .union_init => |air_tag| {
+            if (isel.live_values.fetchRemove(air.inst_index)) |union_vi| unused: {
+                defer union_vi.value.deref(isel);
 
                 const ty_pl = air.data(air.inst_index).ty_pl;
                 const extra = isel.air.extraData(Air.UnionInit, ty_pl.payload).data;
-                const un_ty = ty_pl.ty.toType();
-                if (un_ty.containerLayout(zcu) != .@"extern") return isel.fail("bad union init {f}", .{isel.fmtType(un_ty)});
+                const union_ty = ty_pl.ty.toType();
+                const loaded_union = ip.loadUnionType(union_ty.toIntern());
+                const union_layout = ZigType.getUnionLayout(loaded_union, zcu);
 
-                try un_vi.value.defAddr(isel, un_ty, null, comptime &.initFill(.free)) orelse break :unused;
+                if (union_layout.tag_size > 0) unused_tag: {
+                    const loaded_tag = loaded_union.loadTagType(ip);
+                    var tag_it = union_vi.value.field(union_ty, union_layout.tagOffset(), union_layout.tag_size);
+                    const tag_vi = try tag_it.only(isel);
+                    const tag_ra = try tag_vi.?.defReg(isel) orelse break :unused_tag;
+                    switch (union_layout.tag_size) {
+                        0 => unreachable,
+                        1...4 => try isel.movImmediate(tag_ra.w(), @as(u32, switch (loaded_tag.values.len) {
+                            0 => extra.field_index,
+                            else => switch (ip.indexToKey(loaded_tag.values.get(ip)[extra.field_index]).int.storage) {
+                                .u64 => |imm| @intCast(imm),
+                                .i64 => |imm| @bitCast(@as(i32, @intCast(imm))),
+                                else => unreachable,
+                            },
+                        })),
+                        5...8 => try isel.movImmediate(tag_ra.x(), switch (loaded_tag.values.len) {
+                            0 => extra.field_index,
+                            else => switch (ip.indexToKey(loaded_tag.values.get(ip)[extra.field_index]).int.storage) {
+                                .u64 => |imm| imm,
+                                .i64 => |imm| @bitCast(imm),
+                                else => unreachable,
+                            },
+                        }),
+                        else => return isel.fail("too big {s} {f}", .{ @tagName(air_tag), isel.fmtType(union_ty) }),
+                    }
+                }
+                var payload_it = union_vi.value.field(union_ty, union_layout.payloadOffset(), union_layout.payload_size);
+                const payload_vi = try payload_it.only(isel);
+                try payload_vi.?.defAddr(isel, union_ty, .{ .root_vi = union_vi.value }) orelse break :unused;
 
                 try call.prepareReturn(isel);
                 try call.finishReturn(isel);
@@ -6925,7 +6964,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                 const init_vi = try isel.use(extra.init);
                 try isel.movImmediate(.x2, init_vi.size(isel));
                 try call.paramAddress(isel, init_vi, .r1);
-                try call.paramAddress(isel, un_vi.value, .r0);
+                try call.paramAddress(isel, payload_vi.?, .r0);
                 try call.finishParams(isel);
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
@@ -8944,9 +8983,18 @@ pub const Value = struct {
             var dst_part_it = dst_vi.parts(isel);
             if (dst_part_it.only()) |dst_part_vi| {
                 var src_part_it = src_vi.parts(isel);
-                if (src_part_it.only()) |src_part_vi| {
-                    try src_part_vi.liveOut(isel, try dst_part_vi.defReg(isel) orelse return);
-                } else while (src_part_it.next()) |src_part_vi| {
+                if (src_part_it.only()) |src_part_vi| only: {
+                    const src_part_size = src_part_vi.size(isel);
+                    if (src_part_size > @as(@TypeOf(src_part_size), if (src_part_vi.isVector(isel)) 16 else 8)) {
+                        var subpart_it = root.src_vi.field(root.ty, root.src_offset, src_part_size - 1);
+                        _ = try subpart_it.next(isel);
+                        src_part_it = src_vi.parts(isel);
+                        assert(src_part_it.only() == null);
+                        break :only;
+                    }
+                    return src_part_vi.liveOut(isel, try dst_part_vi.defReg(isel) orelse return);
+                }
+                while (src_part_it.next()) |src_part_vi| {
                     const src_part_offset, const src_part_size = src_part_vi.position(isel);
                     var dst_field_it = root.dst_vi.field(root.ty, root.dst_offset + src_part_offset, src_part_size);
                     const dst_field_vi = try dst_field_it.only(isel);
@@ -9420,9 +9468,12 @@ pub const Value = struct {
         fn defAddr(
             def_vi: Value.Index,
             isel: *Select,
-            def_ty: ZigType,
-            wrap: ?std.builtin.Type.Int,
-            expected_live_registers: *const LiveRegisters,
+            root_ty: ZigType,
+            opts: struct {
+                root_vi: Value.Index = .free,
+                wrap: ?std.builtin.Type.Int = null,
+                expected_live_registers: *const LiveRegisters = &.initFill(.free),
+            },
         ) !?void {
             if (!def_vi.isUsed(isel)) return null;
             const offset_from_parent: i65, const parent_vi = def_vi.valueParent(isel);
@@ -9431,11 +9482,12 @@ pub const Value = struct {
                 .stack_slot => |stack_slot| .{ stack_slot, false },
                 else => unreachable,
             };
-            _ = try def_vi.load(isel, def_ty, stack_slot.base, .{
+            _ = try def_vi.load(isel, root_ty, stack_slot.base, .{
+                .root_vi = opts.root_vi,
                 .offset = @intCast(stack_slot.offset + offset_from_parent),
                 .split = false,
-                .wrap = wrap,
-                .expected_live_registers = expected_live_registers,
+                .wrap = opts.wrap,
+                .expected_live_registers = opts.expected_live_registers,
             });
             if (allocated) parent_vi.setParent(isel, .{ .stack_slot = stack_slot });
         }
@@ -9512,6 +9564,53 @@ pub const Value = struct {
                     .value => |parent_vi| vi = parent_vi,
                 }
             }
+        }
+
+        pub fn defUndef(def_vi: Value.Index, isel: *Select, root_ty: ZigType, opts: struct {
+            root_vi: Value.Index = .free,
+            offset: u64 = 0,
+            split: bool = true,
+        }) !void {
+            const root_vi = switch (opts.root_vi) {
+                _ => |root_vi| root_vi,
+                .allocating => unreachable,
+                .free => def_vi,
+            };
+            var part_it = def_vi.parts(isel);
+            if (part_it.only()) |part_vi| only: {
+                const part_size = part_vi.size(isel);
+                const part_is_vector = part_vi.isVector(isel);
+                if (part_size > @as(@TypeOf(part_size), if (part_is_vector) 16 else 8)) {
+                    if (!opts.split) return;
+                    var subpart_it = root_vi.field(root_ty, opts.offset, part_size - 1);
+                    _ = try subpart_it.next(isel);
+                    part_it = def_vi.parts(isel);
+                    assert(part_it.only() == null);
+                    break :only;
+                }
+                return if (try part_vi.defReg(isel)) |part_ra| try isel.emit(if (part_is_vector)
+                    .movi(switch (part_size) {
+                        else => unreachable,
+                        1...8 => part_ra.@"8b"(),
+                        9...16 => part_ra.@"16b"(),
+                    }, 0xaa, .{ .lsl = 0 })
+                else switch (part_size) {
+                    else => unreachable,
+                    1...4 => .orr(part_ra.w(), .wzr, .{ .immediate = .{
+                        .N = .word,
+                        .immr = 0b000001,
+                        .imms = 0b111100,
+                    } }),
+                    5...8 => .orr(part_ra.x(), .xzr, .{ .immediate = .{
+                        .N = .word,
+                        .immr = 0b000001,
+                        .imms = 0b111100,
+                    } }),
+                });
+            }
+            while (part_it.next()) |part_vi| try part_vi.defUndef(isel, root_ty, .{
+                .root_vi = root_vi,
+            });
         }
 
         pub fn liveIn(
@@ -9846,24 +9945,31 @@ pub const Value = struct {
                             _ = vi.addPart(isel, 8, 8);
                         } else unreachable,
                     },
-                    .opt_type => |child_type| if (ty.optionalReprIsPayload(zcu))
-                        continue :type_key ip.indexToKey(child_type)
-                    else switch (ZigType.fromInterned(child_type).abiSize(zcu)) {
-                        0...8, 16 => |child_size| if (offset == 0 and size == ty_size) {
-                            vi.setParts(isel, 2);
-                            _ = vi.addPart(isel, 0, child_size);
-                            _ = vi.addPart(isel, child_size, 1);
-                        } else unreachable,
-                        9...15 => |child_size| if (offset == 0 and size == ty_size) {
-                            vi.setParts(isel, 2);
-                            _ = vi.addPart(isel, 0, 8);
-                            _ = vi.addPart(isel, 8, ty_size - 8);
-                        } else if (offset == 8 and size == ty_size - 8) {
-                            vi.setParts(isel, 2);
-                            _ = vi.addPart(isel, 0, child_size - 8);
-                            _ = vi.addPart(isel, child_size - 8, 1);
-                        } else unreachable,
-                        else => return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)}),
+                    .opt_type => |child_type| if (ty.optionalReprIsPayload(zcu)) continue :type_key ip.indexToKey(child_type) else {
+                        const child_ty: ZigType = .fromInterned(child_type);
+                        const child_size = child_ty.abiSize(zcu);
+                        if (offset == 0 and size == child_size) {
+                            ty = child_ty;
+                            ty_size = child_size;
+                            continue :type_key ip.indexToKey(child_type);
+                        }
+                        switch (child_size) {
+                            0...8, 16 => if (offset == 0 and size == ty_size) {
+                                vi.setParts(isel, 2);
+                                _ = vi.addPart(isel, 0, child_size);
+                                _ = vi.addPart(isel, child_size, 1);
+                            } else unreachable,
+                            9...15 => if (offset == 0 and size == ty_size) {
+                                vi.setParts(isel, 2);
+                                _ = vi.addPart(isel, 0, 8);
+                                _ = vi.addPart(isel, 8, ty_size - 8);
+                            } else if (offset == 8 and size == ty_size - 8) {
+                                vi.setParts(isel, 2);
+                                _ = vi.addPart(isel, 0, child_size - 8);
+                                _ = vi.addPart(isel, child_size - 8, 1);
+                            } else unreachable,
+                            else => return isel.fail("Value.FieldPartIterator.next({f})", .{isel.fmtType(ty)}),
+                        }
                     },
                     .array_type => |array_type| {
                         const min_part_log2_stride: u5 = if (size > 16) 4 else if (size > 8) 3 else 0;
