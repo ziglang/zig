@@ -467,9 +467,6 @@ pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
 /// Deprecated with no replacement; inefficient pattern
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 
-pub const BitReader = @import("Io/bit_reader.zig").BitReader;
-pub const bitReader = @import("Io/bit_reader.zig").bitReader;
-
 pub const tty = @import("Io/tty.zig");
 
 /// Deprecated in favor of `Writer.Discarding`.
@@ -945,9 +942,7 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = Reader;
-    _ = Reader.Limited;
     _ = Writer;
-    _ = BitReader;
     _ = BufferedReader;
     _ = BufferedWriter;
     _ = CountingWriter;
