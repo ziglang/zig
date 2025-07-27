@@ -31,7 +31,26 @@ fixed_literal_codes: [HuffmanEncoder.max_num_frequencies]HuffmanEncoder.Code,
 fixed_distance_codes: [HuffmanEncoder.distance_code_count]HuffmanEncoder.Code,
 distance_codes: [HuffmanEncoder.distance_code_count]HuffmanEncoder.Code,
 
-pub fn init(bw: *BlockWriter) void {
+pub fn init(output: *Writer) BlockWriter {
+    return .{
+        .output = output,
+        .codegen_freq = undefined,
+        .literal_freq = undefined,
+        .distance_freq = undefined,
+        .codegen = undefined,
+        .literal_encoding = undefined,
+        .distance_encoding = undefined,
+        .codegen_encoding = undefined,
+        .fixed_literal_encoding = undefined,
+        .fixed_distance_encoding = undefined,
+        .huff_distance = undefined,
+        .fixed_literal_codes = undefined,
+        .fixed_distance_codes = undefined,
+        .distance_codes = undefined,
+    };
+}
+
+pub fn initBuffers(bw: *BlockWriter) void {
     bw.fixed_literal_encoding = .fixedLiteralEncoder(&bw.fixed_literal_codes);
     bw.fixed_distance_encoding = .fixedDistanceEncoder(&bw.fixed_distance_codes);
     bw.huff_distance = .huffmanDistanceEncoder(&bw.distance_codes);

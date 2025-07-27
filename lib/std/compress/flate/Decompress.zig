@@ -4,8 +4,8 @@ const Container = flate.Container;
 const Token = @import("Token.zig");
 const testing = std.testing;
 const Decompress = @This();
-const Writer = std.io.Writer;
-const Reader = std.io.Reader;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 input: *Reader,
 reader: Reader,
@@ -129,7 +129,7 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
     return sym;
 }
 
-pub fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+pub fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     return readInner(d, w, limit) catch |err| switch (err) {
         error.EndOfStream => return error.EndOfStream,
@@ -143,7 +143,8 @@ pub fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!us
     };
 }
 
-fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.StreamError)!usize {
+fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.StreamError)!usize {
+    var remaining = @intFromEnum(limit);
     const in = d.input;
     sw: switch (d.state) {
         .protocol_header => switch (d.hasher.container()) {
@@ -182,15 +183,9 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
                 continue :sw .block_header;
             },
             .zlib => {
-                const Header = extern struct {
-                    cmf: packed struct(u8) {
-                        cm: u4,
-                        cinfo: u4,
-                    },
-                    flg: u8,
-                };
-                const header = try in.takeStruct(Header);
-                if (header.cmf.cm != 8 or header.cmf.cinfo > 7) return error.BadZlibHeader;
+                const header = try in.takeArray(2);
+                const cmf: packed struct(u8) { cm: u4, cinfo: u4 } = @bitCast(header[0]);
+                if (cmf.cm != 8 or cmf.cinfo > 7) return error.BadZlibHeader;
                 continue :sw .block_header;
             },
             .raw => continue :sw .block_header,
@@ -219,7 +214,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
                     // lengths for code lengths
                     var cl_lens = [_]u4{0} ** 19;
                     for (0..hclen) |i| {
-                        cl_lens[flate.huffman.codegen_order[i]] = try d.takeBits(u3);
+                        cl_lens[flate.HuffmanEncoder.codegen_order[i]] = try d.takeBits(u3);
                     }
                     var cl_dec: CodegenDecoder = .{};
                     try cl_dec.generate(&cl_lens);
@@ -259,52 +254,56 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
             return n;
         },
         .fixed_block => {
-            const start = w.count;
-            while (@intFromEnum(limit) > w.count - start) {
+            while (remaining > 0) {
                 const code = try d.readFixedCode();
                 switch (code) {
-                    0...255 => try w.writeBytePreserve(flate.history_len, @intCast(code)),
+                    0...255 => {
+                        try w.writeBytePreserve(flate.history_len, @intCast(code));
+                        remaining -= 1;
+                    },
                     256 => {
                         d.state = if (d.final_block) .protocol_footer else .block_header;
-                        return w.count - start;
+                        return @intFromEnum(limit) - remaining;
                     },
                     257...285 => {
                         // Handles fixed block non literal (length) code.
                         // Length code is followed by 5 bits of distance code.
                         const length = try d.decodeLength(@intCast(code - 257));
                         const distance = try d.decodeDistance(try d.takeBitsReverseBuffered(u5));
-                        try writeMatch(w, length, distance);
+                        remaining = try writeMatch(w, length, distance, remaining);
                     },
                     else => return error.InvalidCode,
                 }
             }
             d.state = .fixed_block;
-            return w.count - start;
+            return @intFromEnum(limit) - remaining;
         },
         .dynamic_block => {
-            // In larger archives most blocks are usually dynamic, so decompression
-            // performance depends on this logic.
-            const start = w.count;
-            while (@intFromEnum(limit) > w.count - start) {
+            // In larger archives most blocks are usually dynamic, so
+            // decompression performance depends on this logic.
+            while (remaining > 0) {
                 const sym = try d.decodeSymbol(&d.lit_dec);
 
                 switch (sym.kind) {
-                    .literal => try w.writeBytePreserve(flate.history_len, sym.symbol),
+                    .literal => {
+                        try w.writeBytePreserve(flate.history_len, sym.symbol);
+                        remaining -= 1;
+                    },
                     .match => {
                         // Decode match backreference <length, distance>
                         const length = try d.decodeLength(sym.symbol);
                         const dsm = try d.decodeSymbol(&d.dst_dec);
                         const distance = try d.decodeDistance(dsm.symbol);
-                        try writeMatch(w, length, distance);
+                        remaining = try writeMatch(w, length, distance, remaining);
                     },
                     .end_of_block => {
                         d.state = if (d.final_block) .protocol_footer else .block_header;
-                        return w.count - start;
+                        return @intFromEnum(limit) - remaining;
                     },
                 }
             }
             d.state = .dynamic_block;
-            return w.count - start;
+            return @intFromEnum(limit) - remaining;
         },
         .protocol_footer => {
             d.alignBitsToByte();
@@ -314,7 +313,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
                     if (try in.takeInt(u32, .little) != gzip.count) return error.WrongGzipSize;
                 },
                 .zlib => |*zlib| {
-                    const chksum: u32 = @byteSwap(zlib.final());
+                    const chksum: u32 = @byteSwap(zlib.adler);
                     if (try in.takeInt(u32, .big) != chksum) return error.WrongZlibChecksum;
                 },
                 .raw => {},
@@ -328,10 +327,11 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.io.Limit) (Error || Reader.S
 
 /// Write match (back-reference to the same data slice) starting at `distance`
 /// back from current write position, and `length` of bytes.
-fn writeMatch(bw: *Writer, length: u16, distance: u16) !void {
-    _ = bw;
+fn writeMatch(w: *Writer, length: u16, distance: u16, remaining: usize) !usize {
+    _ = w;
     _ = length;
     _ = distance;
+    _ = remaining;
     @panic("TODO");
 }
 
@@ -622,7 +622,13 @@ test "init/find" {
 test "encode/decode literals" {
     var codes: [flate.HuffmanEncoder.max_num_frequencies]flate.HuffmanEncoder.Code = undefined;
     for (1..286) |j| { // for all different number of codes
-        var enc: flate.HuffmanEncoder = .{ .codes = &codes };
+        var enc: flate.HuffmanEncoder = .{
+            .codes = &codes,
+            .freq_cache = undefined,
+            .bit_count = undefined,
+            .lns = undefined,
+            .lfs = undefined,
+        };
         // create frequencies
         var freq = [_]u16{0} ** 286;
         freq[256] = 1; // ensure we have end of block code
@@ -857,7 +863,7 @@ test "fuzzing tests" {
         const r = &decompress.reader;
         if (c.err) |expected_err| {
             try testing.expectError(error.ReadFailed, r.streamRemaining(&aw.writer));
-            try testing.expectError(expected_err, decompress.read_err.?);
+            try testing.expectEqual(expected_err, decompress.read_err orelse return error.TestFailed);
         } else {
             _ = try r.streamRemaining(&aw.writer);
             try testing.expectEqualStrings(c.out, aw.getWritten());
@@ -890,4 +896,149 @@ test "reading into empty buffer" {
     const r = &decomp.reader;
     var buf: [0]u8 = undefined;
     try testing.expectEqual(0, try r.readVec(&.{&buf}));
+}
+
+test "don't read past deflate stream's end" {
+    try testDecompress(.zlib, &[_]u8{
+        0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
+        0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
+        0x83, 0x95, 0x0b, 0xf5,
+    }, &[_]u8{
+        0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff,
+        0x00, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00,
+        0x00, 0x00, 0xff, 0xff, 0xff,
+    });
+}
+
+test "zlib header" {
+    // Truncated header
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.zlib, &[_]u8{0x78}, ""),
+    );
+    // Wrong CM
+    try testing.expectError(
+        error.BadZlibHeader,
+        testDecompress(.zlib, &[_]u8{ 0x79, 0x94 }, ""),
+    );
+    // Wrong CINFO
+    try testing.expectError(
+        error.BadZlibHeader,
+        testDecompress(.zlib, &[_]u8{ 0x88, 0x98 }, ""),
+    );
+    // Wrong checksum
+    try testing.expectError(
+        error.WrongZlibChecksum,
+        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, ""),
+    );
+    // Truncated checksum
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
+    );
+}
+
+test "gzip header" {
+    // Truncated header
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{ 0x1f, 0x8B }, undefined),
+    );
+    // Wrong CM
+    try testing.expectError(
+        error.BadGzipHeader,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03,
+        }, undefined),
+    );
+
+    // Wrong checksum
+    try testing.expectError(
+        error.WrongGzipChecksum,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01,
+            0x00, 0x00, 0x00, 0x00,
+        }, undefined),
+    );
+    // Truncated checksum
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+        }, undefined),
+    );
+    // Wrong initial size
+    try testing.expectError(
+        error.WrongGzipSize,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x01,
+        }, undefined),
+    );
+    // Truncated initial size field
+    try testing.expectError(
+        error.EndOfStream,
+        testDecompress(.gzip, &[_]u8{
+            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00,
+        }, undefined),
+    );
+
+    try testDecompress(.gzip, &[_]u8{
+        // GZIP header
+        0x1f, 0x8b, 0x08, 0x12, 0x00, 0x09, 0x6e, 0x88, 0x00, 0xff, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x00,
+        // header.FHCRC (should cover entire header)
+        0x99, 0xd6,
+        // GZIP data
+        0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    }, "");
+}
+
+fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
+    var in: std.Io.Reader = .fixed(compressed);
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var decompress: Decompress = .init(&in, container, &.{});
+    _ = try decompress.reader.streamRemaining(&aw.writer);
+    try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
+}
+
+test "zlib should not overshoot" {
+    // Compressed zlib data with extra 4 bytes at the end.
+    const data = [_]u8{
+        0x78, 0x9c, 0x73, 0xce, 0x2f, 0xa8, 0x2c, 0xca, 0x4c, 0xcf, 0x28, 0x51, 0x08, 0xcf, 0xcc, 0xc9,
+        0x49, 0xcd, 0x55, 0x28, 0x4b, 0xcc, 0x53, 0x08, 0x4e, 0xce, 0x48, 0xcc, 0xcc, 0xd6, 0x51, 0x08,
+        0xce, 0xcc, 0x4b, 0x4f, 0x2c, 0xc8, 0x2f, 0x4a, 0x55, 0x30, 0xb4, 0xb4, 0x34, 0xd5, 0xb5, 0x34,
+        0x03, 0x00, 0x8b, 0x61, 0x0f, 0xa4, 0x52, 0x5a, 0x94, 0x12,
+    };
+
+    var reader: std.Io.Reader = .fixed(&data);
+
+    var decompress: Decompress = .init(&reader, .zlib, &.{});
+    var out: [128]u8 = undefined;
+
+    {
+        const n = try decompress.reader.readSliceShort(out[0..]);
+
+        // Expected decompressed data
+        try std.testing.expectEqual(46, n);
+        try std.testing.expectEqualStrings("Copyright Willem van Schaik, Singapore 1995-96", out[0..n]);
+
+        // Decompressor don't overshoot underlying reader.
+        // It is leaving it at the end of compressed data chunk.
+        try std.testing.expectEqual(data.len - 4, reader.seek);
+        // TODO what was this testing, exactly?
+        //try std.testing.expectEqual(0, decompress.unreadBytes());
+    }
+
+    // 4 bytes after compressed chunk are available in reader.
+    const n = try reader.readSliceShort(out[0..]);
+    try std.testing.expectEqual(n, 4);
+    try std.testing.expectEqualSlices(u8, data[data.len - 4 .. data.len], out[0..n]);
 }

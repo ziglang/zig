@@ -135,7 +135,7 @@ fn bitCounts(self: *HuffmanEncoder, list: []LiteralNode, max_bits_to_use: usize)
     // of ancestors of the rightmost node at level i.
     // leaf_counts[i][j] is the number of literals at the left
     // of the level j ancestor.
-    var leaf_counts: [max_bits_limit][max_bits_limit]u32 = @splat(0);
+    var leaf_counts: [max_bits_limit][max_bits_limit]u32 = @splat(@splat(0));
 
     {
         var level = @as(u32, 1);
@@ -389,7 +389,8 @@ pub fn huffmanDistanceEncoder(codes: *[distance_code_count]Code) HuffmanEncoder 
 }
 
 test "generate a Huffman code for the fixed literal table specific to Deflate" {
-    const enc = fixedLiteralEncoder();
+    var codes: [max_num_frequencies]Code = undefined;
+    const enc: HuffmanEncoder = .fixedLiteralEncoder(&codes);
     for (enc.codes) |c| {
         switch (c.len) {
             7 => {

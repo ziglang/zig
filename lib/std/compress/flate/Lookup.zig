@@ -6,14 +6,19 @@ const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;
 const flate = @import("../flate.zig");
+const Token = @import("Token.zig");
 
 const Lookup = @This();
 
 const prime4 = 0x9E3779B1; // 4 bytes prime number 2654435761
 const chain_len = 2 * flate.history_len;
 
+pub const bits = 15;
+pub const len = 1 << bits;
+pub const shift = 32 - bits;
+
 // Maps hash => first position
-head: [flate.lookup.len]u16 = [_]u16{0} ** flate.lookup.len,
+head: [len]u16 = [_]u16{0} ** len,
 // Maps position => previous positions for the same hash value
 chain: [chain_len]u16 = [_]u16{0} ** (chain_len),
 
@@ -52,8 +57,8 @@ pub fn slide(self: *Lookup, n: u16) void {
 
 // Add `len` 4 bytes hashes from `data` into lookup.
 // Position of the first byte is `pos`.
-pub fn bulkAdd(self: *Lookup, data: []const u8, len: u16, pos: u16) void {
-    if (len == 0 or data.len < flate.match.min_length) {
+pub fn bulkAdd(self: *Lookup, data: []const u8, length: u16, pos: u16) void {
+    if (length == 0 or data.len < Token.min_length) {
         return;
     }
     var hb =
@@ -64,7 +69,7 @@ pub fn bulkAdd(self: *Lookup, data: []const u8, len: u16, pos: u16) void {
     _ = self.set(hashu(hb), pos);
 
     var i = pos;
-    for (4..@min(len + 3, data.len)) |j| {
+    for (4..@min(length + 3, data.len)) |j| {
         hb = (hb << 8) | @as(u32, data[j]);
         i += 1;
         _ = self.set(hashu(hb), i);
@@ -80,7 +85,7 @@ fn hash(b: *const [4]u8) u32 {
 }
 
 fn hashu(v: u32) u32 {
-    return @intCast((v *% prime4) >> flate.lookup.shift);
+    return @intCast((v *% prime4) >> shift);
 }
 
 test add {
