@@ -232,10 +232,15 @@ pub const Parser = struct {
             switch (opcode) {
                 .OpExtInstImport => {
                     const set_name = std.mem.sliceTo(std.mem.sliceAsBytes(operands[1..]), 0);
-                    const set = std.meta.stringToEnum(InstructionSet, set_name) orelse {
-                        log.err("invalid instruction set '{s}'", .{set_name});
-                        return error.InvalidExtInstImport;
-                    };
+                    const set = if (std.mem.eql(u8, set_name, "OpenCL.std"))
+                        InstructionSet.open_cl_std
+                    else if (std.mem.eql(u8, set_name, "GLSL.std.450"))
+                        InstructionSet.glsl_std_450
+                    else
+                        std.meta.stringToEnum(InstructionSet, set_name) orelse {
+                            log.err("invalid instruction set '{s}'", .{set_name});
+                            return error.InvalidExtInstImport;
+                        };
                     if (set == .core) return error.InvalidExtInstImport;
                     try binary.ext_inst_map.put(self.a, @enumFromInt(operands[0]), set);
                 },

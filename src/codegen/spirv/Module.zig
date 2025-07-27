@@ -480,7 +480,11 @@ pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !Id {
     const result_id = self.allocId();
     try self.sections.extended_instruction_set.emit(self.gpa, .OpExtInstImport, .{
         .id_result = result_id,
-        .name = @tagName(set),
+        .name = switch (set) {
+            .open_cl_std => "OpenCL.std",
+            .glsl_std_450 => "GLSL.std.450",
+            else => @tagName(set),
+        },
     });
     gop.value_ptr.* = result_id;
 

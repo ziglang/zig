@@ -290,9 +290,14 @@ fn processInstruction(self: *Assembler) !void {
         .OpExtInstImport => blk: {
             const set_name_offset = self.inst.operands.items[1].string;
             const set_name = std.mem.sliceTo(self.inst.string_bytes.items[set_name_offset..], 0);
-            const set_tag = std.meta.stringToEnum(spec.InstructionSet, set_name) orelse {
-                return self.fail(set_name_offset, "unknown instruction set: {s}", .{set_name});
-            };
+            const set_tag = if (std.mem.eql(u8, set_name, "OpenCL.std"))
+                spec.InstructionSet.open_cl_std
+            else if (std.mem.eql(u8, set_name, "GLSL.std.450"))
+                spec.InstructionSet.glsl_std_450
+            else
+                std.meta.stringToEnum(spec.InstructionSet, set_name) orelse {
+                    return self.fail(set_name_offset, "unknown instruction set: {s}", .{set_name});
+                };
             break :blk .{ .value = try self.spv.importInstructionSet(set_tag) };
         },
         .OpExecutionMode, .OpExecutionModeId => {
