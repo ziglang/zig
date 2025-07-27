@@ -1072,3 +1072,13 @@ test "switch on a signed value smaller than the smallest prong value" {
         else => {},
     }
 }
+
+test "switch on 8-bit mod result" {
+    var x: u8 = undefined;
+    x = 16;
+    switch (x % 4) {
+        0 => {},
+        1, 2, 3 => return error.TestFailed,
+        else => unreachable,
+    }
+}
