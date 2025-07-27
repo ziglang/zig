@@ -248,9 +248,13 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     return false;
 }
 
-pub fn supportsStackProbing(target: *const std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi and
-        (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
+pub fn supportsStackProbing(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+    return switch (backend) {
+        .stage2_aarch64, .stage2_x86_64 => true,
+        .stage2_llvm => target.os.tag != .windows and target.os.tag != .uefi and
+            (target.cpu.arch == .x86 or target.cpu.arch == .x86_64),
+        else => false,
+    };
 }
 
 pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
@@ -347,7 +351,7 @@ pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.builtin.Opti
     }
 }
 
-pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, comptime have_llvm: bool) bool {
+pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
     switch (target.os.tag) {
         .plan9 => return false,
         else => {},
@@ -369,7 +373,7 @@ pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, comptime
     };
 }
 
-pub fn canBuildLibUbsanRt(target: *const std.Target, use_llvm: bool, comptime have_llvm: bool) bool {
+pub fn canBuildLibUbsanRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
     switch (target.cpu.arch) {
         .spirv32, .spirv64 => return false,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
@@ -378,6 +382,7 @@ pub fn canBuildLibUbsanRt(target: *const std.Target, use_llvm: bool, comptime ha
     }
     return switch (zigBackend(target, use_llvm)) {
         .stage2_llvm => true,
+        .stage2_wasm => false,
         .stage2_x86_64 => switch (target.ofmt) {
             .elf, .macho => true,
             else => have_llvm,
@@ -856,6 +861,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.builtin.Compile
 pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
+            .stage2_aarch64,
             .stage2_c,
             .stage2_llvm,
             .stage2_x86_64,
