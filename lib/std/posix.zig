@@ -6577,7 +6577,11 @@ pub fn recvfrom(
     }
 }
 
-pub fn recvmsg(sockfd: socket_t, msg: *msghdr, flags: u32) RecvFromError!usize {
+pub const RecvMsgError = error{
+    InputOutput,
+} || RecvFromError;
+
+pub fn recvmsg(sockfd: socket_t, msg: *msghdr, flags: u32) RecvMsgError!usize {
     while (true) {
         const rc = system.recvmsg(sockfd, msg, flags);
         switch (errno(rc)) {
