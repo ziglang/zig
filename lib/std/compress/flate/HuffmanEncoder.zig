@@ -421,19 +421,6 @@ test "generate a Huffman code for the 30 possible relative distances (LZ77 dista
     }
 }
 
-test "fixedLiteralEncoder codes" {
-    var al = std.ArrayList(u8).init(testing.allocator);
-    defer al.deinit();
-    var bw = std.Io.bitWriter(.little, al.writer());
-
-    var codes: [max_num_frequencies]Code = undefined;
-    const f = fixedLiteralEncoder(&codes);
-    for (f.codes) |c| {
-        try bw.writeBits(c.code, c.len);
-    }
-    try testing.expectEqualSlices(u8, &fixed_codes, al.items);
-}
-
 pub const fixed_codes = [_]u8{
     0b00001100, 0b10001100, 0b01001100, 0b11001100, 0b00101100, 0b10101100, 0b01101100, 0b11101100,
     0b00011100, 0b10011100, 0b01011100, 0b11011100, 0b00111100, 0b10111100, 0b01111100, 0b11111100,

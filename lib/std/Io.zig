@@ -470,9 +470,6 @@ pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 pub const BitReader = @import("Io/bit_reader.zig").BitReader;
 pub const bitReader = @import("Io/bit_reader.zig").bitReader;
 
-pub const BitWriter = @import("Io/bit_writer.zig").BitWriter;
-pub const bitWriter = @import("Io/bit_writer.zig").bitWriter;
-
 pub const tty = @import("Io/tty.zig");
 
 /// Deprecated in favor of `Writer.Discarding`.
@@ -951,7 +948,6 @@ test {
     _ = Reader.Limited;
     _ = Writer;
     _ = BitReader;
-    _ = BitWriter;
     _ = BufferedReader;
     _ = BufferedWriter;
     _ = CountingWriter;

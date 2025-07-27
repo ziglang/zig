@@ -57,51 +57,6 @@ test "write a file, read it, then delete it" {
     try tmp.dir.deleteFile(tmp_file_name);
 }
 
-test "BitStreams with File Stream" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const tmp_file_name = "temp_test_file.txt";
-    {
-        var file = try tmp.dir.createFile(tmp_file_name, .{});
-        defer file.close();
-
-        var bit_stream = io.bitWriter(native_endian, file.deprecatedWriter());
-
-        try bit_stream.writeBits(@as(u2, 1), 1);
-        try bit_stream.writeBits(@as(u5, 2), 2);
-        try bit_stream.writeBits(@as(u128, 3), 3);
-        try bit_stream.writeBits(@as(u8, 4), 4);
-        try bit_stream.writeBits(@as(u9, 5), 5);
-        try bit_stream.writeBits(@as(u1, 1), 1);
-        try bit_stream.flushBits();
-    }
-    {
-        var file = try tmp.dir.openFile(tmp_file_name, .{});
-        defer file.close();
-
-        var bit_stream = io.bitReader(native_endian, file.deprecatedReader());
-
-        var out_bits: u16 = undefined;
-
-        try expect(1 == try bit_stream.readBits(u2, 1, &out_bits));
-        try expect(out_bits == 1);
-        try expect(2 == try bit_stream.readBits(u5, 2, &out_bits));
-        try expect(out_bits == 2);
-        try expect(3 == try bit_stream.readBits(u128, 3, &out_bits));
-        try expect(out_bits == 3);
-        try expect(4 == try bit_stream.readBits(u8, 4, &out_bits));
-        try expect(out_bits == 4);
-        try expect(5 == try bit_stream.readBits(u9, 5, &out_bits));
-        try expect(out_bits == 5);
-        try expect(1 == try bit_stream.readBits(u1, 1, &out_bits));
-        try expect(out_bits == 1);
-
-        try expectError(error.EndOfStream, bit_stream.readBitsNoEof(u1, 1));
-    }
-    try tmp.dir.deleteFile(tmp_file_name);
-}
-
 test "File seek ops" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
