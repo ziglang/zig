@@ -4639,7 +4639,7 @@ const usage_init =
     \\   directory.
     \\
     \\Options:
-    \\  -s, --strip            Generate files without comments
+    \\  -m, --minimal          Use minimal init template
     \\  -h, --help             Print this help and exit
     \\
     \\
