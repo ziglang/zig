@@ -397,6 +397,7 @@ pub const Adapter = struct {
             a.err = err;
             return error.ReadFailed;
         };
+        if (n == 0) return error.EndOfStream;
         w.advance(n);
         return n;
     }
