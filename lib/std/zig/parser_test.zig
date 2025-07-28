@@ -6114,6 +6114,16 @@ test "zig fmt: seperate errors in error sets with comments" {
     );
 }
 
+test "zig fmt: proper escape checks" {
+    try testTransform(
+        \\@"\x41\x42\!"
+        \\
+    ,
+        \\@"AB\\!"
+        \\
+    );
+}
+
 test "zig fmt: field accesses on number literals" {
     try testCanonical(
         \\const a = 0xF .A;

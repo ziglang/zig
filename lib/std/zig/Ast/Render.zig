@@ -3318,7 +3318,7 @@ fn renderIdentifier(r: *Render, token_index: Ast.TokenIndex, space: Space, quote
                     },
                     .failure => return renderQuotedIdentifier(r, token_index, space, false),
                 }
-                contents_i += esc_offset;
+                contents_i = esc_offset;
                 continue;
             },
             else => return renderQuotedIdentifier(r, token_index, space, false),
