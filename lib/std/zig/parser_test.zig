@@ -2607,6 +2607,19 @@ test "zig fmt: first line comment in struct initializer" {
     );
 }
 
+test "zig fmt: multiline string literals in struct initializer" {
+    try testTransform(
+        \\const a = .{ .a = \\
+        \\+ 1};
+        \\
+    ,
+        \\const a = .{ .a =
+        \\    \\
+        \\+ 1 };
+        \\
+    );
+}
+
 test "zig fmt: doc comments before struct field" {
     try testCanonical(
         \\pub const Allocator = struct {
@@ -4078,6 +4091,18 @@ test "zig fmt: multiline string in array" {
         \\        \\bbb
         \\    };
         \\}
+        \\
+    );
+
+    try testTransform(
+        \\const a = .{ k, \\
+        \\};
+        \\
+    ,
+        \\const a = .{
+        \\    k,
+        \\    \\
+        \\};
         \\
     );
 }
@@ -6053,6 +6078,294 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
         \\        //
         \\        qux();
         \\}
+        \\
+    );
+}
+
+test "zig fmt: whitespace with multiline strings" {
+    try testCanonical(
+        \\const a = .{
+        \\    .b =
+        \\    \\
+        \\    ++ "",
+        \\};
+        \\const b = switch (a) {
+        \\    a =>
+        \\    \\
+        \\    ++ "",
+        \\};
+        \\
+    );
+
+    try testTransform(
+        \\test {
+        \\    a = \\
+        \\    ;
+        \\    b = \\
+        \\    ();
+        \\    c = x ++ \\
+        \\    ;
+        \\    d = x catch \\
+        \\    ;
+        \\    comptime \\
+        \\    , \\
+        \\    , \\
+        \\    = \\
+        \\    ;
+        \\    e = if (x) \\
+        \\    else y;
+        \\    f = if (x) y else
+        \\        \\
+        \\    ;
+        \\    comptime \\
+        \\    ;
+        \\    errdefer \\
+        \\    ;
+        \\    try \\
+        \\    ;
+        \\    return \\
+        \\    ;
+        \\    const a = asm (\\
+        \\    ++ "": [a] "" (-> \\
+        \\    ) :: \\
+        \\    );
+        \\    const a2 = asm ("" ::: \\
+        \\    );
+        \\    const b = x[1 + 1 .. \\
+        \\    ];
+        \\}
+        \\/// tuple type
+        \\comptime \\
+        \\,
+        \\a: \\
+        \\align(\\
+        \\)
+        \\= \\
+        \\,
+        \\const A = .{
+        \\    *volatile \\
+        \\    ,
+        \\    *const \\
+        \\    ,
+        \\    *addrspace( \\
+        \\    ) \\
+        \\    ,
+        \\    *align( \\
+        \\    : \\
+        \\    : \\
+        \\    ) \\
+        \\    ,
+        \\    *allowzero \\
+        \\    ,
+        \\    *\\
+        \\    ,
+        \\    **\\
+        \\    ,
+        \\    [*]\\
+        \\    ,
+        \\    [*: \\
+        \\    ]\\
+        \\    ,
+        \\    [*c]\\
+        \\    ,
+        \\    []\\
+        \\    ,
+        \\    [: \\
+        \\    ]\\
+        \\    ,
+        \\    *addrspace(a) align(a) \\
+        \\    ,
+        \\};
+        \\const a = blk: {
+        \\    break \\
+        \\    ;
+        \\    break :blk \\
+        \\    ;
+        \\    continue \\
+        \\    ;
+        \\    continue :blk \\
+        \\    ;
+        \\};
+        \\const b = a(a, \\
+        \\++ "");
+        \\const c = @a(a, \\
+        \\++ "");
+        \\extern fn a(T,\\
+        \\) \\
+        \\;
+        \\extern fn b(a: \\
+        \\) align(a) callconv(a) \\
+        \\;
+        \\const d = switch (a) { \\
+        \\    , 1,
+        \\    \\
+        \\     => {},
+        \\    inline \\
+        \\    => {},
+        \\};
+        \\
+    ,
+        \\test {
+        \\    a =
+        \\        \\
+        \\    ;
+        \\    b =
+        \\        \\
+        \\    ();
+        \\    c = x ++
+        \\        \\
+        \\    ;
+        \\    d = x catch
+        \\        \\
+        \\    ;
+        \\    comptime
+        \\    \\
+        \\    ,
+        \\    \\
+        \\    ,
+        \\    \\
+        \\    =
+        \\        \\
+        \\    ;
+        \\    e = if (x)
+        \\        \\
+        \\    else
+        \\        y;
+        \\    f = if (x) y else
+        \\        \\
+        \\    ;
+        \\    comptime
+        \\    \\
+        \\    ;
+        \\    errdefer
+        \\    \\
+        \\    ;
+        \\    try
+        \\    \\
+        \\    ;
+        \\    return
+        \\    \\
+        \\    ;
+        \\    const a = asm (
+        \\        \\
+        \\    ++ ""
+        \\        : [a] "" (->
+        \\          \\
+        \\          ),
+        \\        :
+        \\        :
+        \\        \\
+        \\    );
+        \\    const a2 = asm ("" :::
+        \\        \\
+        \\    );
+        \\    const b = x[1 + 1 ..
+        \\        \\
+        \\    ];
+        \\}
+        \\/// tuple type
+        \\comptime
+        \\\\
+        \\,
+        \\a:
+        \\\\
+        \\align(
+        \\\\
+        \\) =
+        \\    \\
+        \\,
+        \\const A = .{
+        \\    *volatile
+        \\    \\
+        \\    ,
+        \\    *const
+        \\    \\
+        \\    ,
+        \\    *addrspace(
+        \\    \\
+        \\    )
+        \\    \\
+        \\    ,
+        \\    *align(
+        \\    \\
+        \\    :
+        \\    \\
+        \\    :
+        \\    \\
+        \\    )
+        \\    \\
+        \\    ,
+        \\    *allowzero
+        \\    \\
+        \\    ,
+        \\    *
+        \\    \\
+        \\    ,
+        \\    **
+        \\    \\
+        \\    ,
+        \\    [*]
+        \\    \\
+        \\    ,
+        \\    [*:
+        \\    \\
+        \\    ]
+        \\    \\
+        \\    ,
+        \\    [*c]
+        \\    \\
+        \\    ,
+        \\    []
+        \\    \\
+        \\    ,
+        \\    [:
+        \\    \\
+        \\    ]
+        \\    \\
+        \\    ,
+        \\    *align(a) addrspace(a)
+        \\    \\
+        \\    ,
+        \\};
+        \\const a = blk: {
+        \\    break
+        \\    \\
+        \\    ;
+        \\    break :blk
+        \\    \\
+        \\    ;
+        \\    continue
+        \\    \\
+        \\    ;
+        \\    continue :blk
+        \\    \\
+        \\    ;
+        \\};
+        \\const b = a(a,
+        \\    \\
+        \\++ "");
+        \\const c = @a(a,
+        \\    \\
+        \\++ "");
+        \\extern fn a(T,
+        \\\\
+        \\)
+        \\\\
+        \\;
+        \\extern fn b(a:
+        \\\\
+        \\) align(a) callconv(a)
+        \\\\
+        \\;
+        \\const d = switch (a) {
+        \\    \\
+        \\    , 1,
+        \\    \\
+        \\    => {},
+        \\    inline
+        \\    \\
+        \\    => {},
+        \\};
         \\
     );
 }
