@@ -2426,170 +2426,132 @@ fn renderArrayInit(
 
     try ais.pushIndent(.normal);
     try renderToken(r, array_init.ast.lbrace, .newline);
+    try ais.pushSpace(.comma);
 
-    var expr_index: usize = 0;
-    while (true) {
-        const row_size = rowSize(tree, array_init.ast.elements[expr_index..], rbrace);
-        const row_exprs = array_init.ast.elements[expr_index..];
-        // A place to store the width of each expression and its column's maximum
-        const widths = try gpa.alloc(usize, row_exprs.len + row_size);
-        defer gpa.free(widths);
-        @memset(widths, 0);
-
-        const expr_newlines = try gpa.alloc(bool, row_exprs.len);
-        defer gpa.free(expr_newlines);
-        @memset(expr_newlines, false);
-
-        const expr_widths = widths[0..row_exprs.len];
-        const column_widths = widths[row_exprs.len..];
-
-        // Find next row with trailing comment (if any) to end the current section.
-        const section_end = sec_end: {
-            var this_line_first_expr: usize = 0;
-            var this_line_size = rowSize(tree, row_exprs, rbrace);
-            for (row_exprs, 0..) |expr, i| {
-                // Ignore comment on first line of this section.
-                if (i == 0) continue;
-                const expr_last_token = tree.lastToken(expr);
-                if (tree.tokensOnSameLine(tree.firstToken(row_exprs[0]), expr_last_token))
-                    continue;
-                // Track start of line containing comment.
-                if (!tree.tokensOnSameLine(tree.firstToken(row_exprs[this_line_first_expr]), expr_last_token)) {
-                    this_line_first_expr = i;
-                    this_line_size = rowSize(tree, row_exprs[this_line_first_expr..], rbrace);
-                }
-
-                const maybe_comma = expr_last_token + 1;
-                if (tree.tokenTag(maybe_comma) == .comma) {
-                    if (hasSameLineComment(tree, maybe_comma))
-                        break :sec_end i - this_line_size + 1;
-                }
-            }
-            break :sec_end row_exprs.len;
-        };
-        expr_index += section_end;
-
-        const section_exprs = row_exprs[0..section_end];
-
-        var sub_expr_buffer: std.io.Writer.Allocating = .init(gpa);
-        defer sub_expr_buffer.deinit();
-
-        const sub_expr_buffer_starts = try gpa.alloc(usize, section_exprs.len + 1);
-        defer gpa.free(sub_expr_buffer_starts);
-
-        var auto_indenting_stream: AutoIndentingStream = .init(gpa, &sub_expr_buffer.writer, indent_delta);
-        defer auto_indenting_stream.deinit();
-        var sub_render: Render = .{
+    const expr_widths = try gpa.alloc(enum(usize) {
+        /// The expression contains non-printable characters (e.g. unicode / newlines)
+        /// or has formatting disabled at the start or end.
+        nonprint = std.math.maxInt(usize),
+        _,
+    }, array_init.ast.elements.len);
+    defer gpa.free(expr_widths);
+    {
+        var buf: std.Io.Writer.Allocating = .init(gpa);
+        defer buf.deinit();
+        var sub_ais: AutoIndentingStream = .init(gpa, &buf.writer, indent_delta);
+        sub_ais.disabled_offset = ais.disabled_offset;
+        defer sub_ais.deinit();
+        var sub_r: Render = .{
             .gpa = r.gpa,
-            .ais = &auto_indenting_stream,
+            .ais = &sub_ais,
             .tree = r.tree,
             .fixups = r.fixups,
         };
-
-        // Calculate size of columns in current section
-        var column_counter: usize = 0;
-        var single_line = true;
-        var contains_newline = false;
-        for (section_exprs, 0..) |expr, i| {
-            const start = sub_expr_buffer.getWritten().len;
-            sub_expr_buffer_starts[i] = start;
-
-            if (i + 1 < section_exprs.len) {
-                try renderExpression(&sub_render, expr, .none);
-                const written = sub_expr_buffer.getWritten();
-                const width = written.len - start;
-                const this_contains_newline = mem.indexOfScalar(u8, written[start..], '\n') != null;
-                contains_newline = contains_newline or this_contains_newline;
-                expr_widths[i] = width;
-                expr_newlines[i] = this_contains_newline;
-
-                if (!this_contains_newline) {
-                    const column = column_counter % row_size;
-                    column_widths[column] = @max(column_widths[column], width);
-
-                    const expr_last_token = tree.lastToken(expr) + 1;
-                    const next_expr = section_exprs[i + 1];
-                    column_counter += 1;
-                    if (!tree.tokensOnSameLine(expr_last_token, tree.firstToken(next_expr))) single_line = false;
-                } else {
-                    single_line = false;
-                    column_counter = 0;
-                }
+        for (array_init.ast.elements, expr_widths) |e, *width| {
+            const begin_disabled = sub_ais.disabled_offset != null;
+            // `.skip` space so trailing commments aren't included
+            try renderExpressionComma(&sub_r, e, .skip);
+            if (!begin_disabled and sub_ais.disabled_offset == null) {
+                const w = buf.getWritten();
+                width.* = for (w) |c| {
+                    if (!std.ascii.isPrint(c))
+                        break .nonprint;
+                } else @enumFromInt(w.len - @intFromBool(w[w.len - 1] == ','));
             } else {
-                try ais.pushSpace(.comma);
-                try renderExpression(&sub_render, expr, .comma);
-                ais.popSpace();
-
-                const written = sub_expr_buffer.getWritten();
-                const width = written.len - start - 2;
-                const this_contains_newline = mem.indexOfScalar(u8, written[start .. written.len - 1], '\n') != null;
-                contains_newline = contains_newline or this_contains_newline;
-                expr_widths[i] = width;
-                expr_newlines[i] = contains_newline;
-
-                if (!contains_newline) {
-                    const column = column_counter % row_size;
-                    column_widths[column] = @max(column_widths[column], width);
-                }
+                width.* = .nonprint;
             }
+
+            // Write trailing comments since they may enable/disable zig fmt
+            buf.clearRetainingCapacity();
+            var after_expr = tree.lastToken(e);
+            after_expr += @intFromBool(tree.tokenTag(after_expr + 1) == .comma);
+            try renderSpace(&sub_r, after_expr, tokenSliceForRender(tree, after_expr).len, .none);
+
+            buf.clearRetainingCapacity();
         }
-        sub_expr_buffer_starts[section_exprs.len] = sub_expr_buffer.getWritten().len;
-
-        // Render exprs in current section.
-        column_counter = 0;
-        for (section_exprs, 0..) |expr, i| {
-            const start = sub_expr_buffer_starts[i];
-            const end = sub_expr_buffer_starts[i + 1];
-            const expr_text = sub_expr_buffer.getWritten()[start..end];
-            if (!expr_newlines[i]) {
-                try ais.writeAll(expr_text);
-            } else {
-                var by_line = std.mem.splitScalar(u8, expr_text, '\n');
-                var last_line_was_empty = false;
-                try ais.writeAll(by_line.first());
-                while (by_line.next()) |line| {
-                    if (std.mem.startsWith(u8, line, "//") and last_line_was_empty) {
-                        try ais.insertNewline();
-                    } else {
-                        try ais.maybeInsertNewline();
-                    }
-                    last_line_was_empty = (line.len == 0);
-                    try ais.writeAll(line);
-                }
-            }
-
-            if (i + 1 < section_exprs.len) {
-                const next_expr = section_exprs[i + 1];
-                const comma = tree.lastToken(expr) + 1;
-
-                if (column_counter != row_size - 1) {
-                    if (!expr_newlines[i] and !expr_newlines[i + 1]) {
-                        // Neither the current or next expression is multiline
-                        try renderToken(r, comma, .space); // ,
-                        assert(column_widths[column_counter % row_size] >= expr_widths[i]);
-                        const padding = column_widths[column_counter % row_size] - expr_widths[i];
-                        try ais.splatByteAll(' ', padding);
-
-                        column_counter += 1;
-                        continue;
-                    }
-                }
-
-                if (single_line and row_size != 1) {
-                    try renderToken(r, comma, .space); // ,
-                    continue;
-                }
-
-                column_counter = 0;
-                try renderToken(r, comma, .newline); // ,
-                try renderExtraNewline(r, next_expr);
-            }
-        }
-
-        if (expr_index == array_init.ast.elements.len)
-            break;
     }
 
+    var remaining_exprs = array_init.ast.elements;
+    var remaining_widths = expr_widths;
+    while (remaining_exprs.len != 0) {
+        var row_size: usize = 1;
+        for (1.., remaining_exprs, remaining_widths) |len, e, w| {
+            if (w == .nonprint) break;
+            row_size = len;
+
+            var after_expr = tree.lastToken(e);
+            after_expr += @intFromBool(tree.tokenTag(after_expr + 1) == .comma);
+            assert(tree.tokenTag(after_expr) == .comma or after_expr + 1 == rbrace);
+            if (!tree.tokensOnSameLine(after_expr, after_expr + 1))
+                break;
+        } else {
+            // All the expressions are on the same line.
+            // However, if there is a trailing comma, we put them each on their own line.
+            if (tree.tokenTag(rbrace - 1) == .comma)
+                row_size = 1;
+        }
+
+        // Determine the size of this section
+        const section_end = end: {
+            var line_start = row_size; // Start after the first row to ignore comments on it
+            break :end for (line_start.., remaining_exprs[line_start..]) |i, e| {
+                const expr_first = tree.firstToken(e);
+                // Any nonprint character terminates the line because they are always put on their
+                // own line, so they will not end up on the same line as the trailing comment.
+                if (expr_widths[i - 1] == .nonprint or !tree.tokensOnSameLine(expr_first - 1, expr_first)) {
+                    line_start = i;
+                }
+
+                var after_expr = tree.lastToken(e);
+                after_expr += @intFromBool(tree.tokenTag(after_expr + 1) == .comma);
+                assert(tree.tokenTag(after_expr) == .comma or after_expr + 1 == rbrace);
+                if (hasTrailingComment(tree, after_expr))
+                    break line_start;
+            } else remaining_exprs.len;
+        };
+        const section_exprs = remaining_exprs[0..section_end];
+        const section_widths = remaining_widths[0..section_end];
+        remaining_exprs = remaining_exprs[section_end..];
+        remaining_widths = remaining_widths[section_end..];
+
+        // Determine the width of each column
+        var col_widths = try gpa.alloc(usize, row_size);
+        defer gpa.free(col_widths);
+        @memset(col_widths, 0);
+
+        var col: usize = 0;
+        for (section_widths) |w| {
+            if (w == .nonprint) {
+                col = 0;
+                continue;
+            }
+            col_widths[col] = @max(col_widths[col], @intFromEnum(w));
+            col += 1;
+            if (col == row_size) {
+                col = 0;
+            }
+        }
+
+        // Render each expression
+        col = 0;
+        for (0.., section_exprs, section_widths) |i, e, w| {
+            if (i + 1 == section_end or col + 1 == row_size or
+                w == .nonprint or section_widths[i + 1] == .nonprint)
+            {
+                try renderExpression(r, e, .comma);
+                col = 0;
+                if (i + 1 != section_end) {
+                    try renderExtraNewline(r, section_exprs[i + 1]);
+                }
+            } else {
+                try renderExpression(r, e, .comma_space);
+                try ais.splatByteAll(' ', col_widths[col] - @intFromEnum(w));
+                col += 1;
+            }
+        }
+    }
+
+    ais.popSpace();
     ais.popIndent();
     return renderToken(r, rbrace, space); // rbrace
 }
@@ -3437,7 +3399,7 @@ fn hasComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex)
         const token: Ast.TokenIndex = @intCast(i);
         const start = tree.tokenStart(token) + tree.tokenSlice(token).len;
         const end = tree.tokenStart(token + 1);
-        if (mem.indexOf(u8, tree.source[start..end], "//") != null) return true;
+        if (mem.indexOfScalar(u8, tree.source[start..end], '/') != null) return true;
     }
 
     return false;
@@ -3647,9 +3609,10 @@ fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) Error
     return lexeme.len;
 }
 
-fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
-    const between_source = tree.source[tree.tokenStart(token_index)..tree.tokenStart(token_index + 1)];
-    for (between_source) |byte| switch (byte) {
+fn hasTrailingComment(tree: Ast, t: Ast.TokenIndex) bool {
+    const start = tree.tokenStart(t) + tree.tokenSlice(t).len;
+    const between = tree.source[start..tree.tokenStart(t + 1)];
+    for (between) |byte| switch (byte) {
         '\n' => return false,
         '/' => return true,
         else => continue,
@@ -3661,12 +3624,7 @@ fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
 /// start_token and end_token.
 fn anythingBetween(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
     if (start_token + 1 != end_token) return true;
-    const between_source = tree.source[tree.tokenStart(start_token)..tree.tokenStart(start_token + 1)];
-    for (between_source) |byte| switch (byte) {
-        '/' => return true,
-        else => continue,
-    };
-    return false;
+    return hasComment(tree, start_token, end_token);
 }
 
 fn writeFixingWhitespace(w: *Writer, slice: []const u8) Error!void {
@@ -3751,29 +3709,6 @@ fn nodeCausesSliceOpSpace(tag: Ast.Node.Tag) bool {
 
         else => false,
     };
-}
-
-// Returns the number of nodes in `exprs` that are on the same line as `rtoken`.
-fn rowSize(tree: Ast, exprs: []const Ast.Node.Index, rtoken: Ast.TokenIndex) usize {
-    const first_token = tree.firstToken(exprs[0]);
-    if (tree.tokensOnSameLine(first_token, rtoken)) {
-        const maybe_comma = rtoken - 1;
-        if (tree.tokenTag(maybe_comma) == .comma)
-            return 1;
-        return exprs.len; // no newlines
-    }
-
-    var count: usize = 1;
-    for (exprs, 0..) |expr, i| {
-        if (i + 1 < exprs.len) {
-            const expr_last_token = tree.lastToken(expr) + 1;
-            if (!tree.tokensOnSameLine(expr_last_token, tree.firstToken(exprs[i + 1]))) return count;
-            count += 1;
-        } else {
-            return count;
-        }
-    }
-    unreachable;
 }
 
 /// Automatically inserts indentation of written data by keeping
