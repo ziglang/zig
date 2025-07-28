@@ -919,11 +919,15 @@ fn expectStatement(p: *Parse, allow_defer_var: bool) Error!Node.Index {
         } else {
             const assign = try p.expectAssignExpr();
             try p.expectSemicolon(.expected_semi_after_stmt, true);
-            return p.addNode(.{
-                .tag = .@"comptime",
-                .main_token = comptime_token,
-                .data = .{ .node = assign },
-            });
+            if (p.nodeTag(assign) != .assign_destructure) {
+                return p.addNode(.{
+                    .tag = .@"comptime",
+                    .main_token = comptime_token,
+                    .data = .{ .node = assign },
+                });
+            } else {
+                return assign;
+            }
         }
     }
 

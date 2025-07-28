@@ -2950,6 +2950,7 @@ test "zig fmt: destructure" {
         \\    comptime w, var y = .{ 3, 4 };
         \\    comptime var z, x = .{ 5, 6 };
         \\    comptime y, z = .{ 7, 8 };
+        \\    if (false) unreachable else comptime a, b = .{ 9, 10 };
         \\}
         \\
     );
