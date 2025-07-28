@@ -1393,12 +1393,30 @@ test "zig fmt: comment to disable/enable zig fmt" {
         \\const  c  =  d;
         \\// zig fmt: on
         \\const  e  =  f;
+        \\const g = .{
+        \\    h, i,
+        \\    // zig fmt: off
+        \\    j,
+        \\    k,
+        \\    // zig fmt: on
+        \\    l, m, n, o,
+        \\};
+        \\
     ,
         \\const a = b;
         \\// zig fmt: off
         \\const  c  =  d;
         \\// zig fmt: on
         \\const e = f;
+        \\const g = .{
+        \\    h, i,
+        \\    // zig fmt: off
+        \\    j,
+        \\    k,
+        \\    // zig fmt: on
+        \\    l, m,
+        \\    n, o,
+        \\};
         \\
     );
 }
@@ -2050,6 +2068,38 @@ test "zig fmt: array literal vertical column alignment" {
         \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
         \\const a = [12]u8{
         \\    31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31, };
+        \\const a = .{
+        \\    1, \\
+        \\    , 2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    \\
+        \\    , 1, 2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    {{}}, 1,
+        \\    2, 3,
+        \\};
+        \\const a = .{
+        \\    a, bb //
+        \\    , ccc, dddd,
+        \\};
+        \\const a = .{
+        \\    "a", "b", "ä", "a", "123",
+        \\};
+        \\const a = .{
+        \\    a, a, .{
+        \\        // zig fmt: off
+        \\    },
+        \\    a*a,  a,
+        \\    .{
+        \\        // zig fmt: on
+        \\    }, aa,
+        \\    // zig fmt: off
+        \\    a*a,
+        \\};
         \\
     ,
         \\const a = []u8{
@@ -2077,6 +2127,53 @@ test "zig fmt: array literal vertical column alignment" {
         \\    31,
         \\    30,
         \\    31,
+        \\};
+        \\const a = .{
+        \\    1,
+        \\    \\
+        \\    ,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    \\
+        \\    ,
+        \\    1,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    {
+        \\        {}
+        \\    },
+        \\    1,
+        \\    2,
+        \\    3,
+        \\};
+        \\const a = .{
+        \\    a,
+        \\    bb //
+        \\    ,
+        \\    ccc,
+        \\    dddd,
+        \\};
+        \\const a = .{
+        \\    "a", "b",
+        \\    "ä",
+        \\    "a", "123",
+        \\};
+        \\const a = .{
+        \\    a,  a,
+        \\    .{
+        \\        // zig fmt: off
+        \\    },
+        \\    a*a,  a,
+        \\    .{
+        \\        // zig fmt: on
+        \\    },
+        \\    aa,
+        \\    // zig fmt: off
+        \\    a*a,
         \\};
         \\
     );
@@ -4887,8 +4984,8 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\        0,
         \\    }}}}}}}};
         \\    myFunc(.{
-        \\        "aaaaaaa",                           "bbbbbb", "ccccc",
-        \\        "dddd",                              ("eee"),  ("fff"),
+        \\        "aaaaaaa",                           "bbbbbb",                            "ccccc",
+        \\        "dddd",                              ("eee"),                             ("fff"),
         \\        ("gggg"),
         \\        // Line comment
         \\        \\Multiline String Literals can be quite long
@@ -4917,11 +5014,9 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\            (
         \\                \\ xxx
         \\            ),
-        \\            "xxx",
-        \\            "xxx",
+        \\            "xxx",     "xxx",
         \\        },
-        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" },
-        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" },
+        \\        .{ "xxxxxxx", "xxx", "xxx", "xxx" }, .{ "xxxxxxx", "xxx", "xxx", "xxx" },
         \\        "aaaaaaa", "bbbbbb", "ccccc", // -
         \\        "dddd",    ("eee"),  ("fff"),
         \\        .{
@@ -4929,8 +5024,7 @@ test "zig fmt: multiline string literals should play nice with array initializer
         \\            (
         \\                \\ xxx
         \\            ),
-        \\            "xxxxxxxxxxxxxx",
-        \\            "xxx",
+        \\            "xxxxxxxxxxxxxx", "xxx",
         \\        },
         \\        .{
         \\            (
@@ -6728,6 +6822,23 @@ test "zig fmt: doc comments on fn parameters" {
         \\    /// Bitmap
         \\    active: u64,
         \\}) void;
+        \\
+    );
+}
+
+test "zig fmt: array literal formatting when element becomes multiline" {
+    try testTransform(
+        \\const a = .{a,{{}},
+        \\            b,c,};
+    ,
+        \\const a = .{
+        \\    a,
+        \\    {
+        \\        {}
+        \\    },
+        \\    b,
+        \\    c,
+        \\};
         \\
     );
 }
