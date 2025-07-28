@@ -1139,7 +1139,6 @@ fn toNativePathSep(b: *std.Build, s: []const u8) []u8 {
 const zig_cpp_sources = [_][]const u8{
     // These are planned to stay even when we are self-hosted.
     "src/zig_llvm.cpp",
-    "src/zig_clang.cpp",
     "src/zig_llvm-ar.cpp",
     "src/zig_clang_driver.cpp",
     "src/zig_clang_cc1_main.cpp",

@@ -11,7 +11,22 @@ pic_level: PicLevel,
 is_pie: bool,
 optimization_level: OptimizationLevel,
 /// Generate debug information
-debug: bool,
+debug: DebugFormat,
+dwarf_version: DwarfVersion,
+
+pub const DebugFormat = union(enum) {
+    strip,
+    dwarf: std.dwarf.Format,
+    code_view,
+};
+
+pub const DwarfVersion = enum(u3) {
+    @"0" = 0,
+    @"2" = 2,
+    @"3" = 3,
+    @"4" = 4,
+    @"5" = 5,
+};
 
 pub const PicLevel = enum(u8) {
     /// Do not generate position-independent code
@@ -60,5 +75,6 @@ pub const default: @This() = .{
     .pic_level = .none,
     .is_pie = false,
     .optimization_level = .@"0",
-    .debug = false,
+    .debug = .strip,
+    .dwarf_version = .@"0",
 };

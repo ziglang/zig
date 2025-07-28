@@ -10,6 +10,7 @@ const Object = backend.Object;
 
 const Compilation = @import("Compilation.zig");
 const Diagnostics = @import("Diagnostics.zig");
+const DepFile = @import("DepFile.zig");
 const GCCVersion = @import("Driver/GCCVersion.zig");
 const LangOpts = @import("LangOpts.zig");
 const Preprocessor = @import("Preprocessor.zig");
@@ -63,7 +64,6 @@ verbose_ast: bool = false,
 verbose_pp: bool = false,
 verbose_ir: bool = false,
 verbose_linker_args: bool = false,
-color: ?bool = null,
 nobuiltininc: bool = false,
 nostdinc: bool = false,
 nostdlibinc: bool = false,
@@ -73,7 +73,6 @@ mabicalls: ?bool = null,
 dynamic_nopic: ?bool = null,
 ropi: bool = false,
 rwpi: bool = false,
-cmodel: std.builtin.CodeModel = .default,
 debug_dump_letters: packed struct(u3) {
     d: bool = false,
     m: bool = false,
@@ -88,17 +87,27 @@ debug_dump_letters: packed struct(u3) {
         return .result_only;
     }
 } = .{},
+dependencies: struct {
+    m: bool = false,
+    md: bool = false,
+    format: DepFile.Format = .make,
+    file: ?[]const u8 = null,
+} = .{},
 
 /// Full path to the aro executable
 aro_name: []const u8 = "",
 
-/// Value of --triple= passed via CLI
+/// Value of -target passed via CLI
 raw_target_triple: ?[]const u8 = null,
+
+/// Value of -mcpu passed via CLI
+raw_cpu: ?[]const u8 = null,
 
 /// Non-optimizing assembly backend is currently selected by passing `-O0`
 use_assembly_backend: bool = false,
 
 // linker options
+use_linker: ?[]const u8 = null,
 linker_path: ?[]const u8 = null,
 nodefaultlibs: bool = false,
 nolibc: bool = false,
@@ -133,13 +142,26 @@ pub const usage =
     \\  --help      Print this message
     \\  --version   Print aro version
     \\
-    \\Compile options:
-    \\  -c, --compile           Only run preprocess, compile, and assemble steps
+    \\Preprocessor options:
+    \\  -C                      Do not discard comments
+    \\  -CC                     Do not discard comments, including in macro expansions
     \\  -dM                     Output #define directives for all the macros defined during the execution of the preprocessor
     \\  -dD                     Like -dM except that it outputs both the #define directives and the result of preprocessing
     \\  -dN                     Like -dD, but emit only the macro names, not their expansions.
     \\  -D <macro>=<value>      Define <macro> to <value> (defaults to 1)
     \\  -E                      Only run the preprocessor
+    \\  -fdollars-in-identifiers
+    \\                          Allow '$' in identifiers
+    \\  -fno-dollars-in-identifiers
+    \\                          Disallow '$' in identifiers
+    \\  -M                      Output dependency file instead of preprocessing result
+    \\  -MD                     Like -M except -E is not implied
+    \\  -MF <file>              Write dependency file to <file>
+    \\  -MV                     Use NMake/Jom format for dependency file
+    \\  -P, --no-line-commands  Disable linemarker output in -E mode
+    \\
+    \\Compile options:
+    \\  -c, --compile           Only run preprocess, compile, and assemble steps
     \\  -fapple-kext            Use Apple's kernel extensions ABI
     \\  -fchar8_t               Enable char8_t (enabled by default in C23 and later)
     \\  -fno-char8_t            Disable char8_t (disabled by default for pre-C23)
@@ -158,10 +180,6 @@ pub const usage =
     \\  -fhosted                Compilation in a hosted environment
     \\  -fms-extensions         Enable support for Microsoft extensions
     \\  -fno-ms-extensions      Disable support for Microsoft extensions
-    \\  -fdollars-in-identifiers
-    \\                          Allow '$' in identifiers
-    \\  -fno-dollars-in-identifiers
-    \\                          Disallow '$' in identifiers
     \\  -g                      Generate debug information
     \\  -fmacro-backtrace-limit=<limit>
     \\                          Set limit on how many macro expansion traces are shown in errors (default 6)
@@ -197,6 +215,7 @@ pub const usage =
     \\  -mabicalls              Enable SVR4-style position-independent code (Mips only)
     \\  -mno-abicalls           Disable SVR4-style position-independent code (Mips only)
     \\  -mcmodel=<code-model>   Generate code for the given code model
+    \\  -mcpu [cpu]             Specify target CPU and feature set
     \\  -mkernel                Enable kernel development mode
     \\  -nobuiltininc           Do not search the compiler's builtin directory for include files
     \\  -resource-dir <dir>     Override the path to the compiler's builtin resource directory
@@ -204,7 +223,6 @@ pub const usage =
     \\                          Do not search the standard system directories or compiler builtin directories for include files.
     \\  -nostdlibinc            Do not search the standard system directories for include files, but do search compiler builtin include directories
     \\  -o <file>               Write output to <file>
-    \\  -P, --no-line-commands  Disable linemarker output in -E mode
     \\  -pedantic               Warn on language extensions
     \\  -pedantic-errors        Error on language extensions
     \\  --rtlib=<arg>           Compiler runtime library to use (libgcc or compiler-rt)
@@ -262,9 +280,12 @@ pub fn parseArgs(
     var pic_arg: []const u8 = "";
     var declspec_attrs: ?bool = null;
     var ms_extensions: ?bool = null;
+    var strip = true;
+    var debug: ?backend.CodeGenOptions.DebugFormat = null;
+    var emulate: ?LangOpts.Compiler = null;
     while (i < args.len) : (i += 1) {
         const arg = args[i];
-        if (mem.startsWith(u8, arg, "-") and arg.len > 1) {
+        if (arg.len > 1 and arg[0] == '-') {
             if (mem.eql(u8, arg, "--help")) {
                 try stdout.print(usage, .{args[0]});
                 try stdout.flush();
@@ -329,7 +350,7 @@ pub fn parseArgs(
             } else if (mem.eql(u8, arg, "-fapple-kext")) {
                 d.apple_kext = true;
             } else if (option(arg, "-mcmodel=")) |cmodel| {
-                d.cmodel = std.meta.stringToEnum(std.builtin.CodeModel, cmodel) orelse
+                d.comp.cmodel = std.meta.stringToEnum(std.builtin.CodeModel, cmodel) orelse
                     return d.fatal("unsupported machine code model: '{s}'", .{arg});
             } else if (mem.eql(u8, arg, "-mkernel")) {
                 d.mkernel = true;
@@ -339,14 +360,47 @@ pub fn parseArgs(
                 d.mabicalls = true;
             } else if (mem.eql(u8, arg, "-mno-abicalls")) {
                 d.mabicalls = false;
+            } else if (mem.eql(u8, arg, "-mcpu")) {
+                i += 1;
+                if (i >= args.len) {
+                    try d.err("expected argument after -mcpu", .{});
+                    continue;
+                }
+                d.raw_cpu = args[i];
+            } else if (option(arg, "-mcpu=")) |cpu| {
+                d.raw_cpu = cpu;
+            } else if (mem.eql(u8, arg, "-M") or mem.eql(u8, arg, "--dependencies")) {
+                d.dependencies.m = true;
+                // -M implies -w and -E
+                d.diagnostics.state.ignore_warnings = true;
+                d.only_preprocess = true;
+            } else if (mem.eql(u8, arg, "-MD") or mem.eql(u8, arg, "--write-dependencies")) {
+                d.dependencies.md = true;
+            } else if (mem.startsWith(u8, arg, "-MF")) {
+                var path = arg["-MF".len..];
+                if (path.len == 0) {
+                    i += 1;
+                    if (i >= args.len) {
+                        try d.err("expected argument after -MF", .{});
+                        continue;
+                    }
+                    path = args[i];
+                }
+                d.dependencies.file = path;
+            } else if (mem.eql(u8, arg, "-MV")) {
+                d.dependencies.format = .nmake;
             } else if (mem.eql(u8, arg, "-fchar8_t")) {
                 d.comp.langopts.has_char8_t_override = true;
             } else if (mem.eql(u8, arg, "-fno-char8_t")) {
                 d.comp.langopts.has_char8_t_override = false;
             } else if (mem.eql(u8, arg, "-fcolor-diagnostics")) {
-                d.color = true;
+                d.diagnostics.color = true;
             } else if (mem.eql(u8, arg, "-fno-color-diagnostics")) {
-                d.color = false;
+                d.diagnostics.color = false;
+            } else if (mem.eql(u8, arg, "-fcaret-diagnostics")) {
+                d.diagnostics.details = true;
+            } else if (mem.eql(u8, arg, "-fno-caret-diagnostics")) {
+                d.diagnostics.details = false;
             } else if (mem.eql(u8, arg, "-fcommon")) {
                 d.comp.code_gen_options.common = true;
             } else if (mem.eql(u8, arg, "-fno-common")) {
@@ -356,9 +410,31 @@ pub fn parseArgs(
             } else if (mem.eql(u8, arg, "-fno-dollars-in-identifiers")) {
                 d.comp.langopts.dollars_in_identifiers = false;
             } else if (mem.eql(u8, arg, "-g")) {
-                d.comp.code_gen_options.debug = true;
+                strip = false;
             } else if (mem.eql(u8, arg, "-g0")) {
-                d.comp.code_gen_options.debug = false;
+                strip = true;
+            } else if (mem.eql(u8, arg, "-gcodeview")) {
+                debug = .code_view;
+            } else if (mem.eql(u8, arg, "-gdwarf32")) {
+                debug = .{ .dwarf = .@"32" };
+            } else if (mem.eql(u8, arg, "-gdwarf64")) {
+                debug = .{ .dwarf = .@"64" };
+            } else if (mem.eql(u8, arg, "-gdwarf") or
+                mem.eql(u8, arg, "-gdwarf-2") or
+                mem.eql(u8, arg, "-gdwarf-3") or
+                mem.eql(u8, arg, "-gdwarf-4") or
+                mem.eql(u8, arg, "-gdwarf-5"))
+            {
+                d.comp.code_gen_options.dwarf_version = switch (arg[arg.len - 1]) {
+                    '2' => .@"2",
+                    '3' => .@"3",
+                    '4' => .@"4",
+                    '5' => .@"5",
+                    else => .@"0",
+                };
+                if (debug == null or debug.? != .dwarf) {
+                    debug = .{ .dwarf = .@"32" };
+                }
             } else if (mem.eql(u8, arg, "-fdigraphs")) {
                 d.comp.langopts.digraphs = true;
             } else if (mem.eql(u8, arg, "-fno-digraphs")) {
@@ -413,9 +489,9 @@ pub fn parseArgs(
                 ms_extensions = true;
             } else if (mem.eql(u8, arg, "-fno-ms-extensions")) {
                 ms_extensions = false;
-            } else if (mem.startsWith(u8, arg, "-fsyntax-only")) {
+            } else if (mem.eql(u8, arg, "-fsyntax-only")) {
                 d.only_syntax = true;
-            } else if (mem.startsWith(u8, arg, "-fno-syntax-only")) {
+            } else if (mem.eql(u8, arg, "-fno-syntax-only")) {
                 d.only_syntax = false;
             } else if (mem.eql(u8, arg, "-fgnuc-version=")) {
                 gnuc_version = "0";
@@ -483,12 +559,7 @@ pub fn parseArgs(
                     try d.err("invalid compiler '{s}'", .{arg});
                     continue;
                 };
-                d.comp.langopts.setEmulatedCompiler(compiler);
-                switch (d.comp.langopts.emulate) {
-                    .clang => try d.diagnostics.set("clang", .off),
-                    .gcc => try d.diagnostics.set("gnu", .off),
-                    .msvc => try d.diagnostics.set("microsoft", .off),
-                }
+                emulate = compiler;
             } else if (option(arg, "-ffp-eval-method=")) |fp_method_str| {
                 const fp_eval_method = std.meta.stringToEnum(LangOpts.FPEvalMethod, fp_method_str) orelse .indeterminate;
                 if (fp_eval_method == .indeterminate) {
@@ -554,8 +625,10 @@ pub fn parseArgs(
                     continue;
                 }
                 d.raw_target_triple = args[i];
+                emulate = null;
             } else if (option(arg, "--target=")) |triple| {
                 d.raw_target_triple = triple;
+                emulate = null;
             } else if (mem.eql(u8, arg, "--verbose-ast")) {
                 d.verbose_ast = true;
             } else if (mem.eql(u8, arg, "--verbose-pp")) {
@@ -571,6 +644,10 @@ pub fn parseArgs(
                 d.comp.langopts.preserve_comments = true;
                 d.comp.langopts.preserve_comments_in_macros = true;
                 comment_arg = arg;
+            } else if (option(arg, "-fuse-ld=")) |linker_name| {
+                d.use_linker = linker_name;
+            } else if (mem.eql(u8, arg, "-fuse-ld=")) {
+                d.use_linker = null;
             } else if (option(arg, "--ld-path=")) |linker_path| {
                 d.linker_path = linker_path;
             } else if (mem.eql(u8, arg, "-r")) {
@@ -624,6 +701,33 @@ pub fn parseArgs(
                 } else {
                     try d.err("invalid unwind library name  '{s}'", .{unwindlib});
                 }
+            } else if (mem.startsWith(u8, arg, "-x")) {
+                var lang = arg["-x".len..];
+                if (lang.len == 0) {
+                    i += 1;
+                    if (i >= args.len) {
+                        try d.err("expected argument after -x", .{});
+                        continue;
+                    }
+                    lang = args[i];
+                }
+                if (!mem.eql(u8, lang, "none") and !mem.eql(u8, lang, "c")) {
+                    try d.err("language not recognized: '{s}'", .{lang});
+                }
+            } else if (mem.startsWith(u8, arg, "-flto")) {
+                const rest = arg["-flto".len..];
+                if (rest.len == 0 or
+                    mem.eql(u8, rest, "=auto") or
+                    mem.eql(u8, rest, "=full") or
+                    mem.eql(u8, rest, "=jobserver") or
+                    mem.eql(u8, rest, "=thin"))
+                {
+                    try d.warn("lto not supported", .{});
+                } else {
+                    return d.fatal("invalid lto mode: '{s}'", .{arg});
+                }
+            } else if (mem.eql(u8, arg, "-fno-lto")) {
+                // nothing to do
             } else {
                 try d.warn("unknown argument '{s}'", .{arg});
             }
@@ -636,17 +740,33 @@ pub fn parseArgs(
             try d.inputs.append(d.comp.gpa, source);
         }
     }
-    if (d.raw_target_triple) |triple| triple: {
-        const query = std.Target.Query.parse(.{ .arch_os_abi = triple }) catch {
-            try d.err("invalid target '{s}'", .{triple});
-            d.raw_target_triple = null;
-            break :triple;
+    {
+        var diags: std.Target.Query.ParseOptions.Diagnostics = .{};
+        const opts: std.Target.Query.ParseOptions = .{
+            .arch_os_abi = d.raw_target_triple orelse "native",
+            .cpu_features = d.raw_cpu,
+            .diagnostics = &diags,
         };
-        const target = std.zig.system.resolveTargetQuery(query) catch |e| {
+        const query = std.Target.Query.parse(opts) catch |er| switch (er) {
+            error.UnknownCpuModel => {
+                return d.fatal("unknown CPU: '{s}'", .{diags.cpu_name.?});
+            },
+            error.UnknownCpuFeature => {
+                return d.fatal("unknown CPU feature: '{s}'", .{diags.unknown_feature_name.?});
+            },
+            error.UnknownArchitecture => {
+                return d.fatal("unknown architecture: '{s}'", .{diags.unknown_architecture_name.?});
+            },
+            else => |e| return d.fatal("unable to parse target query '{s}': {s}", .{
+                opts.arch_os_abi, @errorName(e),
+            }),
+        };
+        d.comp.target = std.zig.system.resolveTargetQuery(query) catch |e| {
             return d.fatal("unable to resolve target: {s}", .{errorDescription(e)});
         };
-        d.comp.target = target;
-        d.comp.langopts.setEmulatedCompiler(target_util.systemCompiler(target));
+    }
+    if (emulate != null or d.raw_target_triple != null) {
+        d.comp.langopts.setEmulatedCompiler(emulate orelse target_util.systemCompiler(d.comp.target));
         switch (d.comp.langopts.emulate) {
             .clang => try d.diagnostics.set("clang", .off),
             .gcc => try d.diagnostics.set("gnu", .off),
@@ -673,6 +793,19 @@ pub fn parseArgs(
     const pic_level, const is_pie = try d.getPICMode(pic_arg);
     d.comp.code_gen_options.pic_level = pic_level;
     d.comp.code_gen_options.is_pie = is_pie;
+    d.comp.code_gen_options.debug = debug: {
+        if (strip) break :debug .strip;
+        if (debug) |explicit| break :debug explicit;
+        break :debug switch (d.comp.target.ofmt) {
+            .elf, .goff, .macho, .wasm, .xcoff => .{ .dwarf = .@"32" },
+            .coff => .code_view,
+            .c => switch (d.comp.target.os.tag) {
+                .windows, .uefi => .code_view,
+                else => .{ .dwarf = .@"32" },
+            },
+            .spirv, .hex, .raw, .plan9 => .strip,
+        };
+    };
     if (declspec_attrs) |some| d.comp.langopts.declspec_attrs = some;
     if (ms_extensions) |some| d.comp.langopts.setMSExtensions(some);
     return false;
@@ -728,6 +861,7 @@ pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalEr
 }
 
 pub fn printDiagnosticsStats(d: *Driver) void {
+    if (!d.diagnostics.details) return;
     const warnings = d.diagnostics.warnings;
     const errors = d.diagnostics.errors;
 
@@ -743,14 +877,14 @@ pub fn printDiagnosticsStats(d: *Driver) void {
 }
 
 pub fn detectConfig(d: *Driver, file: std.fs.File) std.Io.tty.Config {
-    if (d.color == true) return .escape_codes;
-    if (d.color == false) return .no_color;
+    if (d.diagnostics.color == false) return .no_color;
+    const force_color = d.diagnostics.color == true;
 
     if (file.supportsAnsiEscapeCodes()) return .escape_codes;
     if (@import("builtin").os.tag == .windows and file.isTty()) {
         var info: std.os.windows.CONSOLE_SCREEN_BUFFER_INFO = undefined;
-        if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) != std.os.windows.TRUE) {
-            return .no_color;
+        if (std.os.windows.kernel32.GetConsoleScreenBufferInfo(file.handle, &info) == std.os.windows.FALSE) {
+            return if (force_color) .escape_codes else .no_color;
         }
         return .{ .windows_api = .{
             .handle = file.handle,
@@ -758,7 +892,7 @@ pub fn detectConfig(d: *Driver, file: std.fs.File) std.Io.tty.Config {
         } };
     }
 
-    return .no_color;
+    return if (force_color) .escape_codes else .no_color;
 }
 
 pub fn errorDescription(e: anyerror) []const u8 {
@@ -851,6 +985,47 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
     if (fast_exit) std.process.exit(0);
 }
 
+/// Initializes a DepFile if requested by driver options.
+pub fn initDepFile(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u8) Compilation.Error!?DepFile {
+    if (!d.dependencies.m and !d.dependencies.md) return null;
+    var dep_file: DepFile = .{
+        .target = undefined,
+        .format = d.dependencies.format,
+    };
+
+    if (d.dependencies.md and d.output_name != null) {
+        dep_file.target = d.output_name.?;
+    } else {
+        const args = .{
+            std.fs.path.stem(source.path),
+            d.comp.target.ofmt.fileExt(d.comp.target.cpu.arch),
+        };
+        dep_file.target = std.fmt.bufPrint(buf, "{s}{s}", args) catch
+            return d.fatal("dependency file name too long for filesystem '{s}{s}'", args);
+    }
+
+    try dep_file.addDependency(d.comp.gpa, source.path);
+    errdefer comptime unreachable;
+
+    return dep_file;
+}
+
+/// Returns name requested for the dependency file or null for stdout.
+pub fn getDepFileName(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u8) Compilation.Error!?[]const u8 {
+    if (d.dependencies.file) |file| {
+        if (std.mem.eql(u8, file, "-")) return null;
+        return file;
+    }
+    if (!d.dependencies.md) {
+        if (d.output_name) |name| return name;
+        return null;
+    }
+
+    const base_name = std.fs.path.stem(d.output_name orelse source.path);
+    return std.fmt.bufPrint(buf, "{s}.d", .{base_name}) catch
+        return d.fatal("dependency file name too long for filesystem: {s}.d", .{base_name});
+}
+
 fn getRandomFilename(d: *Driver, buf: *[std.fs.max_name_bytes]u8, extension: []const u8) ![]const u8 {
     const random_bytes_count = 12;
     const sub_path_len = comptime std.fs.base64_encoder.calcSize(random_bytes_count);
@@ -925,6 +1100,12 @@ fn processSource(
     var pp = try Preprocessor.initDefault(d.comp);
     defer pp.deinit();
 
+    var name_buf: [std.fs.max_name_bytes]u8 = undefined;
+    var opt_dep_file = try d.initDepFile(source, &name_buf);
+    defer if (opt_dep_file) |*dep_file| dep_file.deinit(pp.gpa);
+
+    if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
+
     if (d.comp.langopts.ms_extensions) {
         d.comp.ms_cwd_source_id = source.id;
     }
@@ -943,10 +1124,31 @@ fn processSource(
 
     try pp.preprocessSources(&.{ source, builtin, user_macros });
 
+    var writer_buf: [4096]u8 = undefined;
+    if (opt_dep_file) |dep_file| {
+        const dep_file_name = try d.getDepFileName(source, writer_buf[0..std.fs.max_name_bytes]);
+
+        const file = if (dep_file_name) |path|
+            d.comp.cwd.createFile(path, .{}) catch |er|
+                return d.fatal("unable to create dependency file '{s}': {s}", .{ path, errorDescription(er) })
+        else
+            std.fs.File.stdout();
+        defer if (dep_file_name != null) file.close();
+
+        var file_writer = file.writer(&writer_buf);
+        dep_file.write(&file_writer.interface) catch
+            return d.fatal("unable to write dependency file: {s}", .{errorDescription(file_writer.err.?)});
+    }
+
     if (d.only_preprocess) {
         d.printDiagnosticsStats();
 
         if (d.diagnostics.errors != prev_total) {
+            if (fast_exit) std.process.exit(1); // Not linking, no need for cleanup.
+            return;
+        }
+
+        if (d.dependencies.m and !d.dependencies.md) {
             if (fast_exit) std.process.exit(1); // Not linking, no need for cleanup.
             return;
         }
@@ -997,7 +1199,6 @@ fn processSource(
         );
     }
 
-    var name_buf: [std.fs.max_name_bytes]u8 = undefined;
     const out_file_name = try d.getOutFileName(source, &name_buf);
 
     if (d.use_assembly_backend) {
@@ -1039,8 +1240,7 @@ fn processSource(
         defer ir.deinit(d.comp.gpa);
 
         if (d.verbose_ir) {
-            var stdout_buf: [4096]u8 = undefined;
-            var stdout = std.fs.File.stdout().writer(&stdout_buf);
+            var stdout = std.fs.File.stdout().writer(&writer_buf);
             ir.dump(d.comp.gpa, d.detectConfig(stdout.file), &stdout.interface) catch {};
         }
 
@@ -1065,8 +1265,7 @@ fn processSource(
             return d.fatal("unable to create output file '{s}': {s}", .{ out_file_name, errorDescription(er) });
         defer out_file.close();
 
-        var file_buf: [4096]u8 = undefined;
-        var file_writer = out_file.writer(&file_buf);
+        var file_writer = out_file.writer(&writer_buf);
         obj.finish(&file_writer.interface) catch
             return d.fatal("could not output to object file '{s}': {s}", .{ out_file_name, errorDescription(file_writer.err.?) });
     }
@@ -1236,7 +1435,7 @@ pub fn getPICMode(d: *Driver, lastpic: []const u8) Compilation.Error!struct { ba
         } else {
             pic, pie = .{ false, false };
             if (target_util.isPS(target)) {
-                if (d.cmodel != .kernel) {
+                if (d.comp.cmodel != .kernel) {
                     pic = true;
                     try d.warn(
                         "option '{s}' was ignored by the {s} toolchain, using '-fPIC'",

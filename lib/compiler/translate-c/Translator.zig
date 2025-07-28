@@ -171,7 +171,7 @@ pub const Options = struct {
     tree: *const aro.Tree,
 };
 
-pub fn translate(options: Options) ![]u8 {
+pub fn translate(options: Options) mem.Allocator.Error![]u8 {
     const gpa = options.gpa;
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -219,19 +219,19 @@ pub fn translate(options: Options) ![]u8 {
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
 
-    try aw.writer.writeAll(
+    aw.writer.writeAll(
         \\pub const __builtin = @import("std").zig.c_translation.builtins;
         \\pub const __helpers = @import("std").zig.c_translation.helpers;
         \\
         \\
-    );
+    ) catch return error.OutOfMemory;
 
     var zig_ast = try ast.render(gpa, translator.global_scope.nodes.items);
     defer {
         gpa.free(zig_ast.source);
         zig_ast.deinit(gpa);
     }
-    try zig_ast.render(gpa, &aw.writer, .{});
+    zig_ast.render(gpa, &aw.writer, .{}) catch return error.OutOfMemory;
     return aw.toOwnedSlice();
 }
 
