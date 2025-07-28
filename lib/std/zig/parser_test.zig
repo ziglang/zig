@@ -6122,6 +6122,248 @@ test "zig fmt: field accesses on number literals" {
     );
 }
 
+test "zig fmt: array indent when inner becomes multi-line" {
+    try testTransform(
+        \\const access_block = x[{{}}];
+        \\
+        \\const block = [{{}}]T;
+        \\const sentinel_block = [15:{{}}]T;
+        \\const container = [enum { A, }]T;
+        \\const container_arg = [union({{}}) {}]T;
+        \\const error_set = [error{ A, }]T;
+        \\const @"switch" = [switch (m) { 0 => {}, }]T;
+        \\const switch_op = [switch ({{}}) {}]T;
+        \\const for_capture = [for (a) |_,| {}]T;
+        \\const for_expr = [for ({{}}) |_| {}]T;
+        \\const for_range = [for ({{}}..15) |_| {}]T;
+        \\const for_input_comma = [for (0..15,) |_| {}]T;
+        \\const call_param = [a({{}})]T;
+        \\const call_fn = [({{}})()]T;
+        \\const builtin_call = [@log2({{}})]T;
+        \\const array_init = [.{{{}}}]T;
+        \\const struct_init = [.{.x = {{}}}]T;
+        \\const @"asm" = [asm ("" : [x] "" (-> T))]T;
+        \\const asm_template = [asm ({{}})]T;
+        \\const asm_clobbers = [asm ("" ::: {{}})]T;
+        \\const @"fn" = [fn (({{}})) void]T;
+        \\const array_type_len = [[{{}}]T]T;
+        \\const array_type_type = [[1]({{}})]T;
+        \\const array_access_array = [({{}})[1]]T;
+        \\const array_access_index = [x[{{}}]]T;
+        \\const binop = [1 + {{}}]T;
+        \\const unaryop = [!{{}}]T;
+        \\const destructure = [while (true) : (x, {{}} = z) {}]T;
+        \\
+    ,
+        \\const access_block = x[
+        \\    {
+        \\        {}
+        \\    }
+        \\];
+        \\
+        \\const block = [
+        \\    {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const sentinel_block = [
+        \\    15
+        \\    :
+        \\    {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const container = [
+        \\    enum {
+        \\        A,
+        \\    }
+        \\]T;
+        \\const container_arg = [
+        \\    union({
+        \\        {}
+        \\    }) {}
+        \\]T;
+        \\const error_set = [
+        \\    error{
+        \\        A,
+        \\    }
+        \\]T;
+        \\const @"switch" = [
+        \\    switch (m) {
+        \\        0 => {},
+        \\    }
+        \\]T;
+        \\const switch_op = [
+        \\    switch ({
+        \\        {}
+        \\    }) {}
+        \\]T;
+        \\const for_capture = [
+        \\    for (a) |
+        \\        _,
+        \\    | {}
+        \\]T;
+        \\const for_expr = [
+        \\    for ({
+        \\        {}
+        \\    }) |_| {}
+        \\]T;
+        \\const for_range = [
+        \\    for ({
+        \\        {}
+        \\    }..15) |_| {}
+        \\]T;
+        \\const for_input_comma = [
+        \\    for (
+        \\        0..15,
+        \\    ) |_| {}
+        \\]T;
+        \\const call_param = [
+        \\    a({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const call_fn = [
+        \\    ({
+        \\        {}
+        \\    })()
+        \\]T;
+        \\const builtin_call = [
+        \\    @log2({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const array_init = [
+        \\    .{{
+        \\        {}
+        \\    }}
+        \\]T;
+        \\const struct_init = [
+        \\    .{ .x = {
+        \\        {}
+        \\    } }
+        \\]T;
+        \\const @"asm" = [
+        \\    asm (""
+        \\        : [x] "" (-> T),
+        \\    )
+        \\]T;
+        \\const asm_template = [
+        \\    asm ({
+        \\            {}
+        \\        })
+        \\]T;
+        \\const asm_clobbers = [
+        \\    asm ("" ::: {
+        \\            {}
+        \\        })
+        \\]T;
+        \\const @"fn" = [
+        \\    fn (({
+        \\        {}
+        \\    })) void
+        \\]T;
+        \\const array_type_len = [
+        \\    [
+        \\        {
+        \\            {}
+        \\        }
+        \\    ]T
+        \\]T;
+        \\const array_type_type = [
+        \\    [1]({
+        \\        {}
+        \\    })
+        \\]T;
+        \\const array_access_array = [
+        \\    ({
+        \\        {}
+        \\    })[1]
+        \\]T;
+        \\const array_access_index = [
+        \\    x[
+        \\        {
+        \\            {}
+        \\        }
+        \\    ]
+        \\]T;
+        \\const binop = [
+        \\    1 + {
+        \\        {}
+        \\    }
+        \\]T;
+        \\const unaryop = [
+        \\    !{
+        \\        {}
+        \\    }
+        \\]T;
+        \\const destructure = [
+        \\    while (true) : (x, {
+        \\        {}
+        \\    } = z) {}
+        \\]T;
+        \\
+    );
+
+    try testCanonical(
+        \\const oneline_access_block = x[{}];
+        \\const oneline_block = [{}]T;
+        \\const oneline_sentinel_block = [15:{}]T;
+        \\const oneline_container = [enum { A }]T;
+        \\const oneline_error_set = [error{A}]T;
+        \\const oneline_switch = [switch (m) {}]T;
+        \\const oneline_for = [for (a, 0..15) |_, _| {}]T;
+        \\const oneline_call = [a(a)]T;
+        \\const oneline_builtin_call = [@log2(a)]T;
+        \\const oneline_array_init = [.{a}]T;
+        \\const oneline_struct_init = [.{ .x = a }]T;
+        \\const oneline_asm = [asm ("" ::: .{})]T;
+        \\const onlinee_fn = [fn (usize) void]T;
+        \\const oneline_array_type = [[{}]T]T;
+        \\const oneline_array_access = [x[{}]]T;
+        \\const online_binop = [1 + 1]T;
+        \\const online_unaryop = [!false]T;
+        \\const oneline_destructure = [while (true) : (x, y = z) {}]T;
+        \\
+    );
+
+    try testTransform(
+        \\const a = [{
+        \\}]T;
+        \\
+        \\const b = x[{
+        \\}];
+        \\
+        \\const c = [
+        \\    {
+        \\    }
+        \\]T;
+        \\
+        \\const d = x[
+        \\    {
+        \\    }
+        \\];
+        \\
+    ,
+        \\const a = [
+        \\    {}
+        \\]T;
+        \\
+        \\const b = x[
+        \\    {}
+        \\];
+        \\
+        \\const c = [
+        \\    {}
+        \\]T;
+        \\
+        \\const d = x[
+        \\    {}
+        \\];
+        \\
+    );
+}
+
 test "zig fmt: whitespace with multiline strings" {
     try testCanonical(
         \\const a = .{

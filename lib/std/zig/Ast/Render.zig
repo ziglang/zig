@@ -645,7 +645,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const lhs, const rhs = tree.nodeData(node).node_and_node;
             const lbracket = tree.firstToken(rhs) - 1;
             const rbracket = tree.lastToken(rhs) + 1;
-            const one_line = tree.tokensOnSameLine(lbracket, rbracket);
+            const one_line = tree.tokensOnSameLine(lbracket, rbracket) and
+                !becomesMultilineExpr(tree, rhs);
             const inner_space = if (one_line) Space.none else Space.newline;
             try renderExpression(r, lhs, .none);
             try ais.pushIndent(.normal);
@@ -887,6 +888,389 @@ fn renderExpressionFixup(r: *Render, node: Ast.Node.Index, space: Space) Error!v
     }
 }
 
+/// Same as becomesMultilineExpr, but returns false when `node == .none`
+fn optBecomesMultilineExpr(tree: Ast, node: Ast.Node.OptionalIndex) bool {
+    return if (node.unwrap()) |payload| becomesMultilineExpr(tree, payload) else false;
+}
+
+/// May return false if `node` is already multiline
+fn becomesMultilineExpr(tree: Ast, node: Ast.Node.Index) bool {
+    // Conditions related to comments, doc comments, and multiline string literals are ignored
+    // since they always go to the end of the line, which already make them a multi-line
+    // expression (since they contain a newline).
+    switch (tree.nodeTag(node)) {
+        .identifier,
+        .number_literal,
+        .char_literal,
+        .unreachable_literal,
+        .anyframe_literal,
+        .string_literal,
+        .multiline_string_literal,
+        .error_value,
+        .enum_literal,
+        => return false,
+        .container_decl_trailing,
+        .container_decl_arg_trailing,
+        .container_decl_two_trailing,
+        .tagged_union_trailing,
+        .tagged_union_enum_tag_trailing,
+        .tagged_union_two_trailing,
+        .switch_comma,
+        .builtin_call_two_comma,
+        .builtin_call_comma,
+        .call_one_comma,
+        .call_comma,
+        .struct_init_one_comma,
+        .struct_init_dot_two_comma,
+        .struct_init_dot_comma,
+        .struct_init_comma,
+        .array_init_one_comma,
+        .array_init_dot_two_comma,
+        .array_init_dot_comma,
+        .array_init_comma,
+        // The following always have a non-zero amount of members
+        // which is also the condition for them to be multi-line.
+        .block,
+        .block_semicolon,
+        => return true,
+        .block_two,
+        .block_two_semicolon,
+        => return tree.nodeData(node).opt_node_and_opt_node[0] != .none,
+        .container_decl,
+        .container_decl_arg,
+        .container_decl_two,
+        .tagged_union,
+        .tagged_union_enum_tag,
+        .tagged_union_two,
+        => {
+            var buf: [2]Ast.Node.Index = undefined;
+            const full = tree.fullContainerDecl(&buf, node).?;
+            if (full.ast.arg.unwrap()) |arg| {
+                if (becomesMultilineExpr(tree, arg))
+                    return true;
+            }
+            // This does the same checks as `isOneLineContainerDecl`, however it avoids unnecessary
+            // checks related to comments and multiline strings, which would mean the container is
+            // already multiple lines.
+            for (full.ast.members) |member| {
+                if (tree.fullContainerField(member)) |field_full| {
+                    for ([_]Ast.Node.OptionalIndex{
+                        field_full.ast.type_expr,
+                        field_full.ast.align_expr,
+                        field_full.ast.value_expr,
+                    }) |opt_expr| {
+                        if (opt_expr.unwrap()) |expr| {
+                            if (becomesMultilineExpr(tree, expr))
+                                return true;
+                        }
+                    }
+                } else return true;
+            }
+            return false;
+        },
+        .error_set_decl => {
+            const lbrace, const rbrace = tree.nodeData(node).token_and_token;
+            return !isOneLineErrorSetDecl(tree, lbrace, rbrace);
+        },
+        .@"switch" => {
+            const op, const extra_index = tree.nodeData(node).node_and_extra;
+            const case_range = tree.extraData(extra_index, Ast.Node.SubRange);
+            return @intFromEnum(case_range.end) - @intFromEnum(case_range.start) != 0 or
+                becomesMultilineExpr(tree, op);
+        },
+        .for_simple, .@"for" => {
+            const full = tree.fullFor(node).?;
+            if (becomesMultilineExpr(tree, full.ast.then_expr) or
+                optBecomesMultilineExpr(tree, full.ast.else_expr))
+                return true;
+
+            for (full.ast.inputs) |expr| {
+                if (if (tree.nodeTag(expr) == .for_range) blk: {
+                    const lhs, const rhs = tree.nodeData(expr).node_and_opt_node;
+                    break :blk becomesMultilineExpr(tree, lhs) or optBecomesMultilineExpr(tree, rhs);
+                } else becomesMultilineExpr(tree, expr))
+                    return true;
+            }
+            const final_input_expr = full.ast.inputs[full.ast.inputs.len - 1];
+            if (tree.tokenTag(tree.lastToken(final_input_expr) + 1) == .comma)
+                return true;
+
+            const token_tags = tree.tokens.items(.tag);
+            const payload = full.payload_token;
+            const pipe = std.mem.indexOfScalarPos(Token.Tag, token_tags, payload, .pipe).?;
+            return token_tags[@intCast(pipe - 1)] == .comma;
+        },
+        .while_simple,
+        .while_cont,
+        .@"while",
+        => {
+            const full = tree.fullWhile(node).?;
+            return becomesMultilineExpr(tree, full.ast.cond_expr) or
+                becomesMultilineExpr(tree, full.ast.then_expr) or
+                optBecomesMultilineExpr(tree, full.ast.cont_expr) or
+                optBecomesMultilineExpr(tree, full.ast.else_expr);
+        },
+        .if_simple,
+        .@"if",
+        => {
+            const full = tree.fullIf(node).?;
+            return becomesMultilineExpr(tree, full.ast.cond_expr) or
+                becomesMultilineExpr(tree, full.ast.then_expr) or
+                optBecomesMultilineExpr(tree, full.ast.else_expr);
+        },
+        .fn_proto_simple,
+        .fn_proto_multi,
+        .fn_proto_one,
+        .fn_proto,
+        => {
+            var buf: [1]Ast.Node.Index = undefined;
+            const fn_proto = tree.fullFnProto(&buf, node).?;
+
+            for ([_]Ast.Node.OptionalIndex{
+                fn_proto.ast.return_type,
+                fn_proto.ast.align_expr,
+                fn_proto.ast.addrspace_expr,
+                fn_proto.ast.section_expr,
+                fn_proto.ast.callconv_expr,
+            }) |opt_expr| {
+                if (opt_expr.unwrap()) |expr| {
+                    if (becomesMultilineExpr(tree, expr))
+                        return true;
+                }
+            }
+            for (fn_proto.ast.params) |expr| {
+                if (becomesMultilineExpr(tree, expr))
+                    return true;
+            }
+
+            const lparen = fn_proto.ast.fn_token + 1;
+            const return_type = fn_proto.ast.return_type.unwrap().?;
+            const maybe_bang = tree.firstToken(return_type) - 1;
+            const rparen = fnProtoRparen(tree, fn_proto, maybe_bang);
+            return !isOneLineFnProto(tree, fn_proto, lparen, rparen);
+        },
+        .asm_simple,
+        => {
+            const lhs = tree.nodeData(node).node_and_token[0];
+            return becomesMultilineExpr(tree, lhs);
+        },
+        .@"asm",
+        => {
+            const lhs, const extra_index = tree.nodeData(node).node_and_extra;
+            const asm_extra = tree.extraData(extra_index, Ast.Node.Asm);
+            return @intFromEnum(asm_extra.items_end) - @intFromEnum(asm_extra.items_start) != 0 or
+                becomesMultilineExpr(tree, lhs) or optBecomesMultilineExpr(tree, asm_extra.clobbers);
+        },
+        .asm_legacy,
+        => {
+            const lhs, const extra_index = tree.nodeData(node).node_and_extra;
+            const asm_extra = tree.extraData(extra_index, Ast.Node.AsmLegacy);
+            return @intFromEnum(asm_extra.items_end) - @intFromEnum(asm_extra.items_start) != 0 or
+                becomesMultilineExpr(tree, lhs);
+        },
+        .array_type, .array_type_sentinel => {
+            const array_type = tree.fullArrayType(node).?;
+            const rbracket = tree.firstToken(array_type.ast.elem_type) - 1;
+            return !isOneLineArrayType(tree, array_type, rbracket) or
+                becomesMultilineExpr(tree, array_type.ast.elem_type);
+        },
+        .array_access => {
+            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            const lbracket = tree.firstToken(rhs) - 1;
+            const rbracket = tree.lastToken(rhs) + 1;
+            return !tree.tokensOnSameLine(lbracket, rbracket) or
+                becomesMultilineExpr(tree, lhs) or
+                becomesMultilineExpr(tree, rhs);
+        },
+        .call_one,
+        .call,
+        .builtin_call_two,
+        .builtin_call,
+        .array_init_one,
+        .array_init_dot_two,
+        .array_init_dot,
+        .array_init,
+        .struct_init_one,
+        .struct_init_dot_two,
+        .struct_init_dot,
+        .struct_init,
+        => |tag| {
+            var buf: [2]Ast.Node.Index = undefined;
+            const opt_lhs: Ast.Node.OptionalIndex, const items = switch (tag) {
+                .call_one, .call => blk: {
+                    const full = tree.fullCall(buf[0..1], node).?;
+                    break :blk .{ full.ast.fn_expr.toOptional(), full.ast.params };
+                },
+                .builtin_call_two, .builtin_call => .{ .none, tree.builtinCallParams(&buf, node).? },
+                .array_init_one,
+                .array_init_dot_two,
+                .array_init_dot,
+                .array_init,
+                => blk: {
+                    const full = tree.fullArrayInit(&buf, node).?;
+                    break :blk .{ full.ast.type_expr, full.ast.elements };
+                },
+                .struct_init_one,
+                .struct_init_dot_two,
+                .struct_init_dot,
+                .struct_init,
+                => blk: {
+                    const full = tree.fullStructInit(&buf, node).?;
+                    break :blk .{ full.ast.type_expr, full.ast.fields };
+                },
+                else => unreachable,
+            };
+            if (opt_lhs.unwrap()) |lhs| {
+                if (becomesMultilineExpr(tree, lhs))
+                    return true;
+            }
+            for (items) |expr| {
+                if (becomesMultilineExpr(tree, expr))
+                    return true;
+            }
+            return false;
+        },
+        .assign_destructure => {
+            const full = tree.assignDestructure(node);
+            for (full.ast.variables) |expr| {
+                if (becomesMultilineExpr(tree, expr))
+                    return true;
+            }
+            return becomesMultilineExpr(tree, full.ast.value_expr);
+        },
+        .ptr_type_aligned,
+        .ptr_type_sentinel,
+        .ptr_type,
+        .ptr_type_bit_range,
+        => {
+            const full = tree.fullPtrType(node).?;
+            return becomesMultilineExpr(tree, full.ast.child_type) or
+                optBecomesMultilineExpr(tree, full.ast.sentinel) or
+                optBecomesMultilineExpr(tree, full.ast.align_node) or
+                optBecomesMultilineExpr(tree, full.ast.addrspace_node) or
+                optBecomesMultilineExpr(tree, full.ast.bit_range_start) or
+                optBecomesMultilineExpr(tree, full.ast.bit_range_end);
+        },
+        .slice_open,
+        .slice,
+        .slice_sentinel,
+        => {
+            const full = tree.fullSlice(node).?;
+            return becomesMultilineExpr(tree, full.ast.sliced) or
+                becomesMultilineExpr(tree, full.ast.start) or
+                optBecomesMultilineExpr(tree, full.ast.end) or
+                optBecomesMultilineExpr(tree, full.ast.sentinel);
+        },
+        .@"comptime",
+        .@"nosuspend",
+        .@"suspend",
+        .@"resume",
+        .bit_not,
+        .bool_not,
+        .negation,
+        .negation_wrap,
+        .optional_type,
+        .address_of,
+        .deref,
+        .@"try",
+        => return becomesMultilineExpr(tree, tree.nodeData(node).node),
+        .@"return" => return optBecomesMultilineExpr(tree, tree.nodeData(node).opt_node),
+        .field_access,
+        .unwrap_optional,
+        .grouped_expression,
+        => return becomesMultilineExpr(tree, tree.nodeData(node).node_and_token[0]),
+        .add,
+        .add_wrap,
+        .add_sat,
+        .array_cat,
+        .array_mult,
+        .bang_equal,
+        .bit_and,
+        .bit_or,
+        .shl,
+        .shl_sat,
+        .shr,
+        .bit_xor,
+        .bool_and,
+        .bool_or,
+        .div,
+        .equal_equal,
+        .greater_or_equal,
+        .greater_than,
+        .less_or_equal,
+        .less_than,
+        .merge_error_sets,
+        .mod,
+        .mul,
+        .mul_wrap,
+        .mul_sat,
+        .sub,
+        .sub_wrap,
+        .sub_sat,
+        .@"orelse",
+        .@"catch",
+        .error_union,
+        .assign,
+        .assign_bit_and,
+        .assign_bit_or,
+        .assign_shl,
+        .assign_shl_sat,
+        .assign_shr,
+        .assign_bit_xor,
+        .assign_div,
+        .assign_sub,
+        .assign_sub_wrap,
+        .assign_sub_sat,
+        .assign_mod,
+        .assign_add,
+        .assign_add_wrap,
+        .assign_add_sat,
+        .assign_mul,
+        .assign_mul_wrap,
+        .assign_mul_sat,
+        => {
+            const lhs, const rhs = tree.nodeData(node).node_and_node;
+            return becomesMultilineExpr(tree, lhs) or becomesMultilineExpr(tree, rhs);
+        },
+        .@"break", .@"continue" => {
+            const opt_expr = tree.nodeData(node).opt_token_and_opt_node[1];
+            return optBecomesMultilineExpr(tree, opt_expr);
+        },
+        .anyframe_type => return becomesMultilineExpr(tree, tree.nodeData(node).token_and_node[1]),
+        .@"errdefer",
+        .@"defer",
+        .for_range,
+        .switch_range,
+        .switch_case_one,
+        .switch_case_inline_one,
+        .switch_case,
+        .switch_case_inline,
+        .asm_output,
+        .asm_input,
+        .fn_decl,
+        .container_field,
+        .container_field_init,
+        .container_field_align,
+        .root,
+        .global_var_decl,
+        .local_var_decl,
+        .simple_var_decl,
+        .aligned_var_decl,
+        .test_decl,
+        => unreachable,
+    }
+}
+
+fn isOneLineArrayType(
+    tree: Ast,
+    array_type: Ast.full.ArrayType,
+    rbracket: Ast.TokenIndex,
+) bool {
+    return tree.tokensOnSameLine(array_type.ast.lbracket, rbracket) and
+        !becomesMultilineExpr(tree, array_type.ast.elem_count) and
+        !optBecomesMultilineExpr(tree, array_type.ast.sentinel);
+}
+
 fn renderArrayType(
     r: *Render,
     array_type: Ast.full.ArrayType,
@@ -895,7 +1279,7 @@ fn renderArrayType(
     const tree = r.tree;
     const ais = r.ais;
     const rbracket = tree.firstToken(array_type.ast.elem_type) - 1;
-    const one_line = tree.tokensOnSameLine(array_type.ast.lbracket, rbracket);
+    const one_line = isOneLineArrayType(tree, array_type, rbracket);
     const inner_space = if (one_line) Space.none else Space.newline;
     try ais.pushIndent(.normal);
     try renderToken(r, array_type.ast.lbracket, inner_space); // lbracket
@@ -1576,6 +1960,47 @@ fn renderBuiltinCall(
     return renderParamList(r, builtin_token + 1, params, space);
 }
 
+fn fnProtoRparen(tree: Ast, fn_proto: Ast.full.FnProto, maybe_bang: Ast.TokenIndex) Ast.TokenIndex {
+    // These may appear in any order, so we have to check the token_starts array
+    // to find out which is first.
+    var rparen = if (tree.tokenTag(maybe_bang) == .bang) maybe_bang - 1 else maybe_bang;
+    var smallest_start = tree.tokenStart(maybe_bang);
+    if (fn_proto.ast.align_expr.unwrap()) |align_expr| {
+        const tok = tree.firstToken(align_expr) - 3;
+        const start = tree.tokenStart(tok);
+        if (start < smallest_start) {
+            rparen = tok;
+            smallest_start = start;
+        }
+    }
+    if (fn_proto.ast.addrspace_expr.unwrap()) |addrspace_expr| {
+        const tok = tree.firstToken(addrspace_expr) - 3;
+        const start = tree.tokenStart(tok);
+        if (start < smallest_start) {
+            rparen = tok;
+            smallest_start = start;
+        }
+    }
+    if (fn_proto.ast.section_expr.unwrap()) |section_expr| {
+        const tok = tree.firstToken(section_expr) - 3;
+        const start = tree.tokenStart(tok);
+        if (start < smallest_start) {
+            rparen = tok;
+            smallest_start = start;
+        }
+    }
+    if (fn_proto.ast.callconv_expr.unwrap()) |callconv_expr| {
+        const tok = tree.firstToken(callconv_expr) - 3;
+        const start = tree.tokenStart(tok);
+        if (start < smallest_start) {
+            rparen = tok;
+            smallest_start = start;
+        }
+    }
+    assert(tree.tokenTag(rparen) == .r_paren);
+    return rparen;
+}
+
 fn isOneLineFnProto(
     tree: Ast,
     fn_proto: Ast.full.FnProto,
@@ -1614,46 +2039,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
 
     const return_type = fn_proto.ast.return_type.unwrap().?;
     const maybe_bang = tree.firstToken(return_type) - 1;
-    const rparen = blk: {
-        // These may appear in any order, so we have to check the token_starts array
-        // to find out which is first.
-        var rparen = if (tree.tokenTag(maybe_bang) == .bang) maybe_bang - 1 else maybe_bang;
-        var smallest_start = tree.tokenStart(maybe_bang);
-        if (fn_proto.ast.align_expr.unwrap()) |align_expr| {
-            const tok = tree.firstToken(align_expr) - 3;
-            const start = tree.tokenStart(tok);
-            if (start < smallest_start) {
-                rparen = tok;
-                smallest_start = start;
-            }
-        }
-        if (fn_proto.ast.addrspace_expr.unwrap()) |addrspace_expr| {
-            const tok = tree.firstToken(addrspace_expr) - 3;
-            const start = tree.tokenStart(tok);
-            if (start < smallest_start) {
-                rparen = tok;
-                smallest_start = start;
-            }
-        }
-        if (fn_proto.ast.section_expr.unwrap()) |section_expr| {
-            const tok = tree.firstToken(section_expr) - 3;
-            const start = tree.tokenStart(tok);
-            if (start < smallest_start) {
-                rparen = tok;
-                smallest_start = start;
-            }
-        }
-        if (fn_proto.ast.callconv_expr.unwrap()) |callconv_expr| {
-            const tok = tree.firstToken(callconv_expr) - 3;
-            const start = tree.tokenStart(tok);
-            if (start < smallest_start) {
-                rparen = tok;
-                smallest_start = start;
-            }
-        }
-        break :blk rparen;
-    };
-    assert(tree.tokenTag(rparen) == .r_paren);
+    const rparen = fnProtoRparen(tree, fn_proto, maybe_bang);
 
     // The params list is a sparse set that does *not* include anytype or ... parameters.
 
@@ -2220,6 +2606,34 @@ fn isOneLineErrorSetDecl(
         !hasComment(tree, lbrace, rbrace);
 }
 
+fn isOneLineContainerDecl(
+    tree: Ast,
+    container_decl: Ast.full.ContainerDecl,
+    lbrace: Ast.TokenIndex,
+    rbrace: Ast.TokenIndex,
+) bool {
+    // We print all the members in one-line unless one of the following conditions are true:
+
+    // 1. The container has comments or multiline strings.
+    if (hasComment(tree, lbrace, rbrace) or hasMultilineString(tree, lbrace, rbrace)) {
+        return false;
+    }
+
+    // 2. The container has a container comment.
+    if (tree.tokenTag(lbrace + 1) == .container_doc_comment) return false;
+
+    // 3. A member of the container has a doc comment.
+    if (hasDocComment(tree, lbrace + 1, rbrace))
+        return false;
+
+    // 4. The container has non-field members.
+    for (container_decl.ast.members) |member| {
+        if (tree.fullContainerField(member) == null) return false;
+    }
+
+    return true;
+}
+
 fn renderContainerDecl(
     r: *Render,
     container_decl_node: Ast.Node.Index,
@@ -2284,27 +2698,7 @@ fn renderContainerDecl(
     }
 
     const src_has_trailing_comma = tree.tokenTag(rbrace - 1) == .comma;
-    if (!src_has_trailing_comma) one_line: {
-        // We print all the members in-line unless one of the following conditions are true:
-
-        // 1. The container has comments or multiline strings.
-        if (hasComment(tree, lbrace, rbrace) or hasMultilineString(tree, lbrace, rbrace)) {
-            break :one_line;
-        }
-
-        // 2. The container has a container comment.
-        if (tree.tokenTag(lbrace + 1) == .container_doc_comment) break :one_line;
-
-        // 3. A member of the container has a doc comment.
-        for (tree.tokens.items(.tag)[lbrace + 1 .. rbrace - 1]) |tag| {
-            if (tag == .doc_comment) break :one_line;
-        }
-
-        // 4. The container has non-field members.
-        for (container_decl.ast.members) |member| {
-            if (tree.fullContainerField(member) == null) break :one_line;
-        }
-
+    if (!src_has_trailing_comma and isOneLineContainerDecl(tree, container_decl, lbrace, rbrace)) {
         // Print all the declarations on the same line.
         try renderToken(r, lbrace, .space); // lbrace
         for (container_decl.ast.members) |member| {
