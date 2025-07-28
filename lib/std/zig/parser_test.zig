@@ -6694,6 +6694,24 @@ test "zig fmt: doc comments on fn parameters" {
     );
 }
 
+test "zig fmt: canonicalize stray backslashes in identifiers" {
+    try testTransform(
+        \\const @"\x" = undefined;
+        \\const @"\x3" = undefined;
+        \\const @"\x3\x39" = undefined;
+        \\const @"\u{" = undefined;
+        \\const @"\?" = undefined;
+        \\
+    ,
+        \\const @"\\x" = undefined;
+        \\const @"\\x3" = undefined;
+        \\const @"\\x39" = undefined;
+        \\const @"\\u{" = undefined;
+        \\const @"\\?" = undefined;
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}

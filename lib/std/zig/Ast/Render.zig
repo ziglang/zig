@@ -3408,6 +3408,9 @@ fn renderIdentifierContents(ais: *AutoIndentingStream, bytes: []const u8) !void 
                         }
                     },
                     .failure => {
+                        // Escape the stray backslash
+                        // This also avoids cases like "\x3\x39" becoming "\x39"
+                        try ais.writeByte('\\');
                         try ais.writeAll(escape_sequence);
                     },
                 }
