@@ -333,7 +333,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         defer std.debug.unlockStderrWriter();
         for (aro_comp.diagnostics.output.to_list.messages.items) |msg| {
             if (msg.kind == .@"fatal error" or msg.kind == .@"error") {
-                aro.Diagnostics.writeToWriter(msg, w, std.io.tty.detectConfig(std.fs.File.stderr())) catch {};
+                msg.write(w, .detect(std.fs.File.stderr()), true) catch {};
                 return error.AroPreprocessorFailed;
             }
         }

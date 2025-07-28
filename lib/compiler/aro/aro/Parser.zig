@@ -6904,6 +6904,9 @@ pub const Result = struct {
                 try p.err(l_paren, .invalid_union_cast, .{res.qt});
                 return error.ParsingFailed;
             }
+        } else if (dest_qt.eql(res.qt, p.comp)) {
+            try p.err(l_paren, .cast_to_same_type, .{dest_qt});
+            cast_kind = .no_op;
         } else {
             try p.err(l_paren, .invalid_cast_type, .{dest_qt});
             return error.ParsingFailed;
@@ -8720,7 +8723,9 @@ fn fieldAccess(
     };
 
     if (record_ty.layout == null) {
-        std.debug.assert(is_ptr);
+        // Invalid use of incomplete type, error reported elsewhere.
+        if (!is_ptr) return error.ParsingFailed;
+
         try p.err(field_name_tok - 2, .deref_incomplete_ty_ptr, .{expr_base_qt});
         return error.ParsingFailed;
     }
