@@ -2140,10 +2140,12 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
     // here while looking for modifiers as that could result in false
     // positives. Therefore, start after a sentinel if there is one and
     // skip over any align node and bit range nodes.
-    var i = if (info.sentinel.unwrap()) |sentinel| tree.lastToken(sentinel) + 1 else switch (size) {
-        .many, .c => info.main_token + 1,
-        else => info.main_token,
-    };
+    var i = (if (info.sentinel.unwrap()) |sentinel| tree.lastToken(sentinel) + 1 else switch (size) {
+        .one => info.main_token,
+        .slice => info.main_token + 1,
+        .many => info.main_token + 2,
+        .c => info.main_token + 3,
+    }) + 1;
     const end = tree.firstToken(info.child_type);
     while (i < end) : (i += 1) {
         switch (tree.tokenTag(i)) {
@@ -2151,15 +2153,15 @@ fn fullPtrTypeComponents(tree: Ast, info: full.PtrType.Components) full.PtrType 
             .keyword_const => result.const_token = i,
             .keyword_volatile => result.volatile_token = i,
             .keyword_align => {
-                const align_node = info.align_node.unwrap().?;
                 if (info.bit_range_end.unwrap()) |bit_range_end| {
                     assert(info.bit_range_start != .none);
                     i = tree.lastToken(bit_range_end) + 1;
-                } else {
+                } else if (info.align_node.unwrap()) |align_node| {
                     i = tree.lastToken(align_node) + 1;
-                }
+                } else unreachable;
             },
-            else => {},
+            .keyword_addrspace => i = tree.lastToken(info.addrspace_node.unwrap().?) + 1,
+            else => unreachable,
         }
     }
     return result;

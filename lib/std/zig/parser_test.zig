@@ -7001,6 +7001,23 @@ test "ampersand" {
     , &.{});
 }
 
+test "Ast: pointer types with subexprs containing qualifiers" {
+    var fixed_allocator = std.heap.FixedBufferAllocator.init(fixed_buffer_mem[0..]);
+    const allocator = fixed_allocator.allocator();
+    var tree = try std.zig.Ast.parse(allocator, "**addrspace(*align(1)T)T", .zon);
+    defer tree.deinit(allocator);
+
+    const regular_ptr_node = tree.nodeData(.root).node;
+    const full_regular_ptr = tree.fullPtrType(regular_ptr_node) orelse return error.TestFailed;
+    try std.testing.expect(full_regular_ptr.ast.addrspace_node == .none);
+    try std.testing.expect(full_regular_ptr.ast.align_node == .none);
+
+    const special_ptr_node = full_regular_ptr.ast.child_type;
+    const full_special_ptr = tree.fullPtrType(special_ptr_node) orelse return error.TestFailed;
+    try std.testing.expect(full_special_ptr.ast.addrspace_node != .none);
+    try std.testing.expect(full_special_ptr.ast.align_node == .none);
+}
+
 var fixed_buffer_mem: [100 * 1024]u8 = undefined;
 
 fn testParse(source: [:0]const u8, allocator: mem.Allocator, anything_changed: *bool) ![]u8 {
