@@ -245,7 +245,8 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
                     var dec_lens: [286 + 30]u4 = @splat(0);
                     var pos: usize = 0;
                     while (pos < hlit + hdist) {
-                        const sym = try cl_dec.find(@bitReverse(try d.peekBits(u7)));
+                        const peeked = @bitReverse(try d.peekBits(u7));
+                        const sym = try cl_dec.find(peeked);
                         try d.tossBits(sym.code_bits);
                         pos += try d.dynamicCodeLength(sym.symbol, &dec_lens, pos);
                     }
@@ -377,7 +378,7 @@ fn takeBits(d: *Decompress, comptime T: type) !T {
         error.EndOfStream => return takeBitsEnding(d, T),
     };
     const needed_bits = @bitSizeOf(T) - remaining_bits;
-    const u: U = @intCast((next_bits << needed_bits) | (next_int & ((@as(usize, 1) << needed_bits) - 1)));
+    const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
     d.next_bits = next_int >> needed_bits;
     d.remaining_bits = @intCast(@bitSizeOf(usize) - @as(usize, needed_bits));
     return switch (@typeInfo(T)) {
@@ -434,7 +435,7 @@ fn peekBits(d: *Decompress, comptime T: type) !T {
         error.EndOfStream => return peekBitsEnding(d, T),
     };
     const needed_bits = @bitSizeOf(T) - remaining_bits;
-    const u: U = @intCast((next_bits << needed_bits) | (next_int & ((@as(usize, 1) << needed_bits) - 1)));
+    const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
     return switch (@typeInfo(T)) {
         .int => u,
         .@"enum" => @enumFromInt(u),
@@ -983,11 +984,10 @@ test "fuzzing tests" {
         .{ .input = "puff27", .err = error.InvalidDynamicBlockHeader },
     };
 
-    inline for (cases, 0..) |c, case_no| {
+    inline for (cases) |c| {
         var in: Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
         var aw: Writer.Allocating = .init(testing.allocator);
         defer aw.deinit();
-        errdefer std.debug.print("test case failed {}\n", .{case_no});
 
         var decompress: Decompress = .init(&in, .raw, &.{});
         const r = &decompress.reader;
