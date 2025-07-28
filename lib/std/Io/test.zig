@@ -180,3 +180,11 @@ test "GenericReader methods can return error.EndOfStream" {
         fbs.reader().isBytes("foo"),
     );
 }
+
+test "Adapted DeprecatedReader EndOfStream" {
+    var fbs: io.FixedBufferStream([]const u8) = .{ .buffer = &.{}, .pos = 0 };
+    const reader = fbs.reader();
+    var buf: [1]u8 = undefined;
+    var adapted = reader.adaptToNewApi(&buf);
+    try std.testing.expectError(error.EndOfStream, adapted.new_interface.takeByte());
+}
