@@ -441,13 +441,18 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
             const dot_token = name_token - 1;
 
             try ais.pushIndent(.field_access);
-            try renderExpression(r, lhs, .none);
+
+            const lhs_last_token = tree.lastToken(lhs);
+            const same_line = tree.tokensOnSameLine(lhs_last_token, name_token);
+            // Keeping a space after the number ensures it will not turn into a decimal number
+            // (e.g. "0xF .A").
+            const number_space: Space = if (tree.tokenTag(lhs_last_token) == .number_literal and same_line) .space else .none;
+            try renderExpression(r, lhs, number_space);
 
             // Allow a line break between the lhs and the dot if the lhs and rhs
             // are on different lines.
-            const lhs_last_token = tree.lastToken(lhs);
-            const same_line = tree.tokensOnSameLine(lhs_last_token, name_token);
-            if (!same_line and !hasComment(tree, lhs_last_token, dot_token)) try ais.insertNewline();
+            if (!same_line and !hasComment(tree, lhs_last_token, dot_token))
+                try ais.insertNewline();
 
             try renderToken(r, dot_token, .none);
 

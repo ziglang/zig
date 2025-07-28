@@ -6082,6 +6082,15 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: field accesses on number literals" {
+    try testCanonical(
+        \\const a = 0xF .A;
+        \\const a = 0xF
+        \\    .A;
+        \\
+    );
+}
+
 test "zig fmt: whitespace with multiline strings" {
     try testCanonical(
         \\const a = .{
