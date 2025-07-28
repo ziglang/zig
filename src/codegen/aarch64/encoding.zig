@@ -81,6 +81,14 @@ pub const Register = struct {
                 .@"16b", .@"8b" => .byte,
             };
         }
+
+        pub fn elemSz(arrangement: Arrangement) Instruction.DataProcessingVector.Sz {
+            return switch (arrangement) {
+                else => unreachable,
+                .@"2d", .@"1d" => .double,
+                .@"4s", .@"2s" => .single,
+            };
+        }
     };
 
     pub const x0: Register = .{ .alias = .r0, .format = .{ .integer = .doubleword } };
@@ -6817,7 +6825,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b01,
-                U: bool = false,
+                U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -6831,7 +6839,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .sub,
                 Rm: Register.Encoded,
                 op21: u2 = 0b01,
-                U: bool = false,
+                U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -6845,7 +6853,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b10,
-                U: bool = false,
+                U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -6859,7 +6867,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b01,
-                U: bool = true,
+                U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -6873,7 +6881,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .sub,
                 Rm: Register.Encoded,
                 op21: u2 = 0b01,
-                U: bool = true,
+                U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -6887,7 +6895,7 @@ pub const Instruction = packed union {
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b10,
-                U: bool = true,
+                U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
                 sf: Register.IntegerSize = .doubleword,
@@ -7009,8 +7017,12 @@ pub const Instruction = packed union {
     /// C4.1.90 Data Processing -- Scalar Floating-Point and Advanced SIMD
     pub const DataProcessingVector = packed union {
         group: @This().Group,
+        simd_scalar_copy: SimdScalarCopy,
+        simd_scalar_two_register_miscellaneous_fp16: SimdScalarTwoRegisterMiscellaneousFp16,
+        simd_scalar_two_register_miscellaneous: SimdScalarTwoRegisterMiscellaneous,
         simd_scalar_pairwise: SimdScalarPairwise,
         simd_copy: SimdCopy,
+        simd_two_register_miscellaneous_fp16: SimdTwoRegisterMiscellaneousFp16,
         simd_two_register_miscellaneous: SimdTwoRegisterMiscellaneous,
         simd_across_lanes: SimdAcrossLanes,
         simd_three_same: SimdThreeSame,
@@ -7020,6 +7032,7 @@ pub const Instruction = packed union {
         float_compare: FloatCompare,
         float_immediate: FloatImmediate,
         float_data_processing_two_source: FloatDataProcessingTwoSource,
+        float_conditional_select: FloatConditionalSelect,
         float_data_processing_three_source: FloatDataProcessingThreeSource,
 
         /// Table C4-91 Encoding table for the Data Processing -- Scalar Floating-Point and Advanced SIMD group
@@ -7030,6 +7043,876 @@ pub const Instruction = packed union {
             op1: u2,
             decoded25: u3 = 0b111,
             op0: u4,
+        };
+
+        /// Advanced SIMD scalar copy
+        pub const SimdScalarCopy = packed union {
+            group: @This().Group,
+            dup: Dup,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                imm4: u4,
+                decoded15: u1 = 0b0,
+                imm5: u5,
+                decoded21: u8 = 0b11110000,
+                op: u1,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.39 DUP (element)
+            pub const Dup = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                imm4: u4 = 0b0000,
+                decoded15: u1 = 0b0,
+                imm5: u5,
+                decoded21: u8 = 0b11110000,
+                op: u1 = 0b0,
+                decoded30: u2 = 0b01,
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                dup: Dup,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    0b0 => switch (inst.group.imm4) {
+                        else => .unallocated,
+                        0b0000 => .{ .dup = inst.dup },
+                    },
+                    0b1 => .unallocated,
+                };
+            }
+        };
+
+        /// Advanced SIMD scalar two-register miscellaneous FP16
+        pub const SimdScalarTwoRegisterMiscellaneousFp16 = packed union {
+            group: @This().Group,
+            fcvtns: Fcvtns,
+            fcvtms: Fcvtms,
+            fcvtas: Fcvtas,
+            scvtf: Scvtf,
+            fcmgt: Fcmgt,
+            fcmeq: Fcmeq,
+            fcmlt: Fcmlt,
+            fcvtps: Fcvtps,
+            fcvtzs: Fcvtzs,
+            frecpe: Frecpe,
+            frecpx: Frecpx,
+            fcvtnu: Fcvtnu,
+            fcvtmu: Fcvtmu,
+            fcvtau: Fcvtau,
+            ucvtf: Ucvtf,
+            fcmge: Fcmge,
+            fcmle: Fcmle,
+            fcvtpu: Fcvtpu,
+            fcvtzu: Fcvtzu,
+            frsqrte: Frsqrte,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5,
+                decoded17: u6 = 0b111100,
+                a: u1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.80 FCVTNS (vector)
+            pub const Fcvtns = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.75 FCVTMS (vector)
+            pub const Fcvtms = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.70 FCVTAS (vector)
+            pub const Fcvtas = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.234 SCVTF (vector, integer)
+            pub const Scvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.61 FCMGT (zero)
+            pub const Fcmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.57 FCMEQ (zero)
+            pub const Fcmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.65 FCMLT (zero)
+            pub const Fcmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01110,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.84 FCVTPS (vector)
+            pub const Fcvtps = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.90 FCVTZS (vector, integer)
+            pub const Fcvtzs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.144 FRECPE
+            pub const Frecpe = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.146 FRECPX
+            pub const Frecpx = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11111,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.82 FCVTNU (vector)
+            pub const Fcvtnu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.77 FCVTMU (vector)
+            pub const Fcvtmu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.72 FCVTAU (vector)
+            pub const Fcvtau = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.353 UCVTF (vector, integer)
+            pub const Ucvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.59 FCMGE (zero)
+            pub const Fcmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.64 FCMLE (zero)
+            pub const Fcmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.86 FCVTPU (vector)
+            pub const Fcvtpu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.94 FCVTZU (vector, integer)
+            pub const Fcvtzu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.169 FRSQRTE
+            pub const Frsqrte = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+        };
+
+        /// Advanced SIMD scalar two-register miscellaneous
+        pub const SimdScalarTwoRegisterMiscellaneous = packed union {
+            group: @This().Group,
+            suqadd: Suqadd,
+            sqabs: Sqabs,
+            cmgt: Cmgt,
+            cmeq: Cmeq,
+            cmlt: Cmlt,
+            abs: Abs,
+            sqxtn: Sqxtn,
+            fcvtns: Fcvtns,
+            fcvtms: Fcvtms,
+            fcvtas: Fcvtas,
+            scvtf: Scvtf,
+            fcmgt: Fcmgt,
+            fcmeq: Fcmeq,
+            fcmlt: Fcmlt,
+            fcvtps: Fcvtps,
+            fcvtzs: Fcvtzs,
+            frecpe: Frecpe,
+            frecpx: Frecpx,
+            usqadd: Usqadd,
+            sqneg: Sqneg,
+            cmge: Cmge,
+            cmle: Cmle,
+            neg: Neg,
+            sqxtun: Sqxtun,
+            uqxtn: Uqxtn,
+            fcvtxn: Fcvtxn,
+            fcvtnu: Fcvtnu,
+            fcvtmu: Fcvtmu,
+            fcvtau: Fcvtau,
+            ucvtf: Ucvtf,
+            fcmge: Fcmge,
+            fcmle: Fcmle,
+            fcvtpu: Fcvtpu,
+            fcvtzu: Fcvtzu,
+            frsqrte: Frsqrte,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.337 SUQADD
+            pub const Suqadd = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.282 SQABS
+            pub const Sqabs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00111,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.32 CMGT (zero)
+            pub const Cmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01000,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.28 CMEQ (zero)
+            pub const Cmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01001,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.36 CMLT (zero)
+            pub const Cmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01010,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.1 ABS
+            pub const Abs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.308 SQXTN
+            pub const Sqxtn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10100,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.80 FCVTNS (vector)
+            pub const Fcvtns = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.75 FCVTMS (vector)
+            pub const Fcvtms = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.70 FCVTAS (vector)
+            pub const Fcvtas = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.234 SCVTF (vector, integer)
+            pub const Scvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.61 FCMGT (zero)
+            pub const Fcmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.57 FCMEQ (zero)
+            pub const Fcmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.65 FCMLT (zero)
+            pub const Fcmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01110,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.84 FCVTPS (vector)
+            pub const Fcvtps = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.90 FCVTZS (vector, integer)
+            pub const Fcvtzs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.144 FRECPE
+            pub const Frecpe = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.146 FRECPX
+            pub const Frecpx = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11111,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .signed,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.394 USQADD
+            pub const Usqadd = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.292 SQNEG
+            pub const Sqneg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00111,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.30 CMGE (zero)
+            pub const Cmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01000,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.35 CMLE (zero)
+            pub const Cmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01001,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.209 NEG (vector)
+            pub const Neg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.309 SQXTUN
+            pub const Sqxtun = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10010,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.381 UQXTN
+            pub const Uqxtn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10100,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.88 FCVTXN
+            pub const Fcvtxn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10110,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.82 FCVTNU (vector)
+            pub const Fcvtnu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.77 FCVTMU (vector)
+            pub const Fcvtmu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.72 FCVTAU (vector)
+            pub const Fcvtau = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.353 UCVTF (vector, integer)
+            pub const Ucvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.59 FCMGE (zero)
+            pub const Fcmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.64 FCMLE (zero)
+            pub const Fcmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.86 FCVTPU (vector)
+            pub const Fcvtpu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.94 FCVTZU (vector, integer)
+            pub const Fcvtzu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
+
+            /// C7.2.169 FRSQRTE
+            pub const Frsqrte = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b11110,
+                U: std.builtin.Signedness = .unsigned,
+                decoded30: u2 = 0b01,
+            };
         };
 
         /// Advanced SIMD scalar pairwise
@@ -7045,7 +7928,7 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b11000,
                 size: Size,
                 decoded24: u5 = 0b11110,
-                U: u1,
+                U: std.builtin.Signedness,
                 decoded30: u2 = 0b01,
             };
 
@@ -7058,7 +7941,7 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b11000,
                 size: Size,
                 decoded24: u5 = 0b11110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 decoded30: u2 = 0b01,
             };
         };
@@ -7066,8 +7949,10 @@ pub const Instruction = packed union {
         /// Advanced SIMD copy
         pub const SimdCopy = packed union {
             group: @This().Group,
+            dup: Dup,
             smov: Smov,
             umov: Umov,
+            ins: Ins,
 
             pub const Group = packed struct {
                 Rd: Register.Encoded,
@@ -7078,8 +7963,29 @@ pub const Instruction = packed union {
                 imm5: u5,
                 decoded21: u8 = 0b01110000,
                 op: u1,
-                Q: Register.IntegerSize,
+                Q: u1,
                 decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.39 DUP (element)
+            /// C7.2.40 DUP (general)
+            pub const Dup = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                imm4: Imm4,
+                decoded15: u1 = 0b0,
+                imm5: u5,
+                decoded21: u8 = 0b01110000,
+                op: u1 = 0b0,
+                Q: Q,
+                decoded31: u1 = 0b0,
+
+                pub const Imm4 = enum(u4) {
+                    element = 0b0000,
+                    general = 0b0001,
+                    _,
+                };
             };
 
             /// C7.2.279 SMOV
@@ -7087,13 +7993,11 @@ pub const Instruction = packed union {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
                 decoded10: u1 = 0b1,
-                decoded11: u1 = 0b1,
-                decoded12: u1 = 0b0,
-                decoded13: u2 = 0b01,
+                imm4: u4 = 0b0101,
                 decoded15: u1 = 0b0,
                 imm5: u5,
                 decoded21: u8 = 0b01110000,
-                decoded29: u1 = 0b0,
+                op: u1 = 0b0,
                 Q: Register.IntegerSize,
                 decoded31: u1 = 0b0,
             };
@@ -7103,14 +8007,534 @@ pub const Instruction = packed union {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
                 decoded10: u1 = 0b1,
-                decoded11: u1 = 0b1,
-                decoded12: u1 = 0b1,
-                decoded13: u2 = 0b01,
+                imm4: u4 = 0b0111,
                 decoded15: u1 = 0b0,
                 imm5: u5,
                 decoded21: u8 = 0b01110000,
-                decoded29: u1 = 0b0,
+                op: u1 = 0b0,
                 Q: Register.IntegerSize,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.175 INS (element)
+            /// C7.2.176 INS (general)
+            pub const Ins = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                imm4: Imm4,
+                decoded15: u1 = 0b0,
+                imm5: u5,
+                decoded21: u8 = 0b01110000,
+                op: Op,
+                Q: u1 = 0b1,
+                decoded31: u1 = 0b0,
+
+                pub const Imm4 = packed union {
+                    general: General,
+                    element: u4,
+
+                    pub const General = enum(u4) {
+                        general = 0b0011,
+                        _,
+                    };
+                };
+
+                pub const Op = enum(u1) {
+                    general = 0b0,
+                    element = 0b1,
+                };
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                dup: Dup,
+                smov: Smov,
+                umov: Umov,
+                ins: Ins,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    0b0 => switch (inst.group.imm4) {
+                        0b0000, 0b0001 => .{ .dup = inst.dup },
+                        else => .unallocated,
+                        0b0101 => switch (@ctz(inst.group.imm5)) {
+                            0, 1 => .{ .smov = inst.smov },
+                            2 => switch (inst.group.Q) {
+                                0b1 => .{ .smov = inst.smov },
+                                0b0 => .unallocated,
+                            },
+                            else => .unallocated,
+                        },
+                        0b0111 => switch (@ctz(inst.group.imm5)) {
+                            0, 1, 2 => switch (inst.group.Q) {
+                                0b0 => .{ .umov = inst.umov },
+                                0b1 => .unallocated,
+                            },
+                            3 => switch (inst.group.Q) {
+                                0b1 => .{ .umov = inst.umov },
+                                0b0 => .unallocated,
+                            },
+                            else => .unallocated,
+                        },
+                    },
+                    0b1 => switch (inst.group.Q) {
+                        0b0 => .unallocated,
+                        0b1 => .{ .ins = inst.ins },
+                    },
+                };
+            }
+        };
+
+        /// Advanced SIMD two-register miscellaneous (FP16)
+        pub const SimdTwoRegisterMiscellaneousFp16 = packed union {
+            group: @This().Group,
+            frintn: Frintn,
+            frintm: Frintm,
+            fcvtns: Fcvtns,
+            fcvtms: Fcvtms,
+            fcvtas: Fcvtas,
+            scvtf: Scvtf,
+            fcmgt: Fcmgt,
+            fcmeq: Fcmeq,
+            fcmlt: Fcmlt,
+            fabs: Fabs,
+            frintp: Frintp,
+            frintz: Frintz,
+            fcvtps: Fcvtps,
+            fcvtzs: Fcvtzs,
+            frecpe: Frecpe,
+            frinta: Frinta,
+            frintx: Frintx,
+            fcvtnu: Fcvtnu,
+            fcvtmu: Fcvtmu,
+            fcvtau: Fcvtau,
+            ucvtf: Ucvtf,
+            fcmge: Fcmge,
+            fcmle: Fcmle,
+            fneg: Fneg,
+            frinti: Frinti,
+            fcvtpu: Fcvtpu,
+            fcvtzu: Fcvtzu,
+            frsqrte: Frsqrte,
+            fsqrt: Fsqrt,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5,
+                decoded17: u6 = 0b111100,
+                a: u1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.161 FRINTN (vector)
+            pub const Frintn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.159 FRINTM (vector)
+            pub const Frintm = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.80 FCVTNS (vector)
+            pub const Fcvtns = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.75 FCVTMS (vector)
+            pub const Fcvtms = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.70 FCVTAS (vector)
+            pub const Fcvtas = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.234 SCVTF (vector, integer)
+            pub const Scvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.61 FCMGT (zero)
+            pub const Fcmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.57 FCMEQ (zero)
+            pub const Fcmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.65 FCMLT (zero)
+            pub const Fcmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01110,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.45 FABS (vector)
+            pub const Fabs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01111,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.163 FRINTP (vector)
+            pub const Frintp = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.167 FRINTZ (vector)
+            pub const Frintz = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.84 FCVTPS (vector)
+            pub const Fcvtps = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.90 FCVTZS (vector, integer)
+            pub const Fcvtzs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.144 FRECPE
+            pub const Frecpe = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.155 FRINTA (vector)
+            pub const Frinta = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.159 FRINTX (vector)
+            pub const Frintx = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.82 FCVTNU (vector)
+            pub const Fcvtnu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.77 FCVTMU (vector)
+            pub const Fcvtmu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.72 FCVTAU (vector)
+            pub const Fcvtau = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.353 UCVTF (vector, integer)
+            pub const Ucvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.59 FCMGE (zero)
+            pub const Fcmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.64 FCMLE (zero)
+            pub const Fcmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.139 FNEG (vector)
+            pub const Fneg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01111,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.157 FRINTI (vector)
+            pub const Frinti = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.86 FCVTPU (vector)
+            pub const Fcvtpu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.94 FCVTZU (vector, integer)
+            pub const Fcvtzu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.169 FRSQRTE
+            pub const Frsqrte = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.171 FSQRT
+            pub const Fsqrt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11111,
+                decoded17: u6 = 0b111100,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
                 decoded31: u1 = 0b0,
             };
         };
@@ -7118,7 +8542,52 @@ pub const Instruction = packed union {
         /// Advanced SIMD two-register miscellaneous
         pub const SimdTwoRegisterMiscellaneous = packed union {
             group: @This().Group,
+            suqadd: Suqadd,
             cnt: Cnt,
+            sqabs: Sqabs,
+            cmgt: Cmgt,
+            cmeq: Cmeq,
+            cmlt: Cmlt,
+            abs: Abs,
+            sqxtn: Sqxtn,
+            frintn: Frintn,
+            frintm: Frintm,
+            fcvtns: Fcvtns,
+            fcvtms: Fcvtms,
+            fcvtas: Fcvtas,
+            scvtf: Scvtf,
+            fcmgt: Fcmgt,
+            fcmeq: Fcmeq,
+            fcmlt: Fcmlt,
+            fabs: Fabs,
+            frintp: Frintp,
+            frintz: Frintz,
+            fcvtps: Fcvtps,
+            fcvtzs: Fcvtzs,
+            frecpe: Frecpe,
+            usqadd: Usqadd,
+            sqneg: Sqneg,
+            cmge: Cmge,
+            cmle: Cmle,
+            neg: Neg,
+            sqxtun: Sqxtun,
+            uqxtn: Uqxtn,
+            fcvtxn: Fcvtxn,
+            frinta: Frinta,
+            frintx: Frintx,
+            fcvtnu: Fcvtnu,
+            fcvtmu: Fcvtmu,
+            fcvtau: Fcvtau,
+            ucvtf: Ucvtf,
+            not: Not,
+            fcmge: Fcmge,
+            fcmle: Fcmle,
+            fneg: Fneg,
+            frinti: Frinti,
+            fcvtpu: Fcvtpu,
+            fcvtzu: Fcvtzu,
+            frsqrte: Frsqrte,
+            fsqrt: Fsqrt,
 
             pub const Group = packed struct {
                 Rd: Register.Encoded,
@@ -7128,7 +8597,21 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b10000,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1,
+                U: std.builtin.Signedness,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.337 SUQADD
+            pub const Suqadd = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7142,7 +8625,653 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b10000,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.282 SQABS
+            pub const Sqabs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00111,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.32 CMGT (zero)
+            pub const Cmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01000,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.28 CMEQ (zero)
+            pub const Cmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01001,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.36 CMLT (zero)
+            pub const Cmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01010,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.1 ABS
+            pub const Abs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.308 SQXTN
+            pub const Sqxtn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10100,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.161 FRINTN (vector)
+            pub const Frintn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.159 FRINTM (vector)
+            pub const Frintm = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.80 FCVTNS (vector)
+            pub const Fcvtns = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.75 FCVTMS (vector)
+            pub const Fcvtms = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.70 FCVTAS (vector)
+            pub const Fcvtas = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.234 SCVTF (vector, integer)
+            pub const Scvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.61 FCMGT (zero)
+            pub const Fcmgt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.57 FCMEQ (zero)
+            pub const Fcmeq = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.65 FCMLT (zero)
+            pub const Fcmlt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01110,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.45 FABS (vector)
+            pub const Fabs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01111,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.163 FRINTP (vector)
+            pub const Frintp = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.167 FRINTZ (vector)
+            pub const Frintz = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.84 FCVTPS (vector)
+            pub const Fcvtps = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.90 FCVTZS (vector, integer)
+            pub const Fcvtzs = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.144 FRECPE
+            pub const Frecpe = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .signed,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.394 USQADD
+            pub const Usqadd = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.292 SQNEG
+            pub const Sqneg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00111,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.30 CMGE (zero)
+            pub const Cmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01000,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.35 CMLE (zero)
+            pub const Cmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01001,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.209 NEG (vector)
+            pub const Neg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01011,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.309 SQXTUN
+            pub const Sqxtun = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10010,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.381 UQXTN
+            pub const Uqxtn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10100,
+                decoded17: u5 = 0b10000,
+                size: Size,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.88 FCVTXN
+            pub const Fcvtxn = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b10110,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.155 FRINTA (vector)
+            pub const Frinta = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11000,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.165 FRINTX (vector)
+            pub const Frintx = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.82 FCVTNU (vector)
+            pub const Fcvtnu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.77 FCVTMU (vector)
+            pub const Fcvtmu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.72 FCVTAU (vector)
+            pub const Fcvtau = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.353 UCVTF (vector, integer)
+            pub const Ucvtf = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b0,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.210 NOT
+            pub const Not = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b00101,
+                decoded17: u5 = 0b10000,
+                size: Size = .byte,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.59 FCMGE (zero)
+            pub const Fcmge = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01100,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.64 FCMLE (zero)
+            pub const Fcmle = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.139 FNEG (vector)
+            pub const Fneg = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b01111,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.157 FRINTI (vector)
+            pub const Frinti = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11001,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.86 FCVTPU (vector)
+            pub const Fcvtpu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11010,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.94 FCVTZU (vector, integer)
+            pub const Fcvtzu = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11011,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.169 FRSQRTE
+            pub const Frsqrte = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11101,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.171 FSQRT (vector)
+            pub const Fsqrt = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b10,
+                opcode: u5 = 0b11111,
+                decoded17: u5 = 0b10000,
+                sz: Sz,
+                o2: u1 = 0b1,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7161,7 +9290,7 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b11000,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1,
+                U: std.builtin.Signedness,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7175,7 +9304,7 @@ pub const Instruction = packed union {
                 decoded17: u5 = 0b11000,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7190,6 +9319,9 @@ pub const Instruction = packed union {
             orr: Orr,
             orn: Orn,
             eor: Eor,
+            bsl: Bsl,
+            bit: Bit,
+            bif: Bif,
 
             pub const Group = packed struct {
                 Rd: Register.Encoded,
@@ -7200,7 +9332,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1,
+                U: std.builtin.Signedness,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7215,7 +9347,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7230,7 +9362,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size = .byte,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7245,7 +9377,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size = .half,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7260,7 +9392,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size = .single,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7275,7 +9407,7 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size = .double,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b0,
+                U: std.builtin.Signedness = .signed,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -7290,7 +9422,52 @@ pub const Instruction = packed union {
                 decoded21: u1 = 0b1,
                 size: Size = .byte,
                 decoded24: u5 = 0b01110,
-                U: u1 = 0b1,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.24 BSL
+            pub const Bsl = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                opcode: u5 = 0b00011,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                size: Size = .half,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.23 BIT
+            pub const Bit = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                opcode: u5 = 0b00011,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                size: Size = .single,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
+                Q: Q,
+                decoded31: u1 = 0b0,
+            };
+
+            /// C7.2.22 BIF
+            pub const Bif = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u1 = 0b1,
+                opcode: u5 = 0b00011,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                size: Size = .double,
+                decoded24: u5 = 0b01110,
+                U: std.builtin.Signedness = .unsigned,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -8154,6 +10331,58 @@ pub const Instruction = packed union {
             };
         };
 
+        /// Floating-point conditional select
+        pub const FloatConditionalSelect = packed union {
+            group: @This().Group,
+            fcsel: Fcsel,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b11,
+                cond: ConditionCode,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                ptype: Ftype,
+                decoded24: u5 = 0b11110,
+                S: bool,
+                decoded30: u1 = 0b0,
+                M: u1,
+            };
+
+            /// C7.2.68 FCSEL
+            pub const Fcsel = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b11,
+                cond: ConditionCode,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                ftype: Ftype,
+                decoded24: u5 = 0b11110,
+                S: bool = false,
+                decoded30: u1 = 0b0,
+                M: u1 = 0b0,
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fcsel: Fcsel,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.ptype) {
+                    .quad => .unallocated,
+                    .single, .double, .half => switch (inst.group.S) {
+                        true => .unallocated,
+                        false => switch (inst.group.M) {
+                            0b0 => .{ .fcsel = inst.fcsel },
+                            0b1 => .unallocated,
+                        },
+                    },
+                };
+            }
+        };
+
         /// Floating-point data-processing (3 source)
         pub const FloatDataProcessingThreeSource = packed union {
             group: @This().Group,
@@ -8242,11 +10471,6 @@ pub const Instruction = packed union {
             };
         };
 
-        pub const Q = enum(u1) {
-            double = 0b0,
-            quad = 0b1,
-        };
-
         pub const Size = enum(u2) {
             byte = 0b00,
             half = 0b01,
@@ -8264,6 +10488,7 @@ pub const Instruction = packed union {
 
             pub fn fromVectorSize(vs: Register.VectorSize) Size {
                 return switch (vs) {
+                    else => unreachable,
                     .byte => .byte,
                     .half => .half,
                     .single => .single,
@@ -8272,11 +10497,54 @@ pub const Instruction = packed union {
             }
         };
 
+        pub const Sz = enum(u1) {
+            single = 0b0,
+            double = 0b1,
+
+            pub fn toVectorSize(sz: Sz) Register.VectorSize {
+                return switch (sz) {
+                    .single => .single,
+                    .double => .double,
+                };
+            }
+
+            pub fn fromVectorSize(vs: Register.VectorSize) Sz {
+                return switch (vs) {
+                    else => unreachable,
+                    .single => .single,
+                    .double => .double,
+                };
+            }
+        };
+
+        pub const Q = enum(u1) {
+            double = 0b0,
+            quad = 0b1,
+        };
+
         pub const Ftype = enum(u2) {
             single = 0b00,
             double = 0b01,
             quad = 0b10,
             half = 0b11,
+
+            pub fn toVectorSize(ftype: Ftype) Register.VectorSize {
+                return switch (ftype) {
+                    _ => unreachable,
+                    .single => .single,
+                    .double => .double,
+                    .half => .half,
+                };
+            }
+
+            pub fn fromVectorSize(vs: Register.VectorSize) Ftype {
+                return switch (vs) {
+                    else => unreachable,
+                    .single => .single,
+                    .double => .double,
+                    .half => .half,
+                };
+            }
         };
     };
 
@@ -8320,6 +10588,33 @@ pub const Instruction = packed union {
         };
     }
 
+    /// C7.2.1 ABS (zero)
+    pub fn abs(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(elem_size == .double and elem_size == n.format.scalar);
+                return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                    .abs = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = .fromVectorSize(elem_size),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                    .abs = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = arrangement.elemSize(),
+                        .Q = arrangement.size(),
+                    },
+                } } };
+            },
+        }
+    }
     /// C6.2.1 ADC
     pub fn adc(d: Register, n: Register, m: Register) Instruction {
         const sf = d.format.integer;
@@ -8867,6 +11162,45 @@ pub const Instruction = packed union {
             } },
         }
     }
+    /// C7.2.22 BIF
+    pub fn bif(d: Register, n: Register, m: Register) Instruction {
+        const arrangement = d.format.vector;
+        assert(arrangement.elemSize() == .byte and n.format.vector == arrangement and m.format.vector == arrangement);
+        return .{ .data_processing_vector = .{ .simd_three_same = .{
+            .bif = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .Rm = m.alias.encode(.{ .V = true }),
+                .Q = arrangement.size(),
+            },
+        } } };
+    }
+    /// C7.2.23 BIT
+    pub fn bit(d: Register, n: Register, m: Register) Instruction {
+        const arrangement = d.format.vector;
+        assert(arrangement.elemSize() == .byte and n.format.vector == arrangement and m.format.vector == arrangement);
+        return .{ .data_processing_vector = .{ .simd_three_same = .{
+            .bit = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .Rm = m.alias.encode(.{ .V = true }),
+                .Q = arrangement.size(),
+            },
+        } } };
+    }
+    /// C7.2.24 BSL
+    pub fn bsl(d: Register, n: Register, m: Register) Instruction {
+        const arrangement = d.format.vector;
+        assert(arrangement.elemSize() == .byte and n.format.vector == arrangement and m.format.vector == arrangement);
+        return .{ .data_processing_vector = .{ .simd_three_same = .{
+            .bsl = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .Rm = m.alias.encode(.{ .V = true }),
+                .Q = arrangement.size(),
+            },
+        } } };
+    }
     /// C6.2.34 BL
     pub fn bl(label: i28) Instruction {
         return .{ .branch_exception_generating_system = .{ .unconditional_branch_immediate = .{
@@ -8999,6 +11333,151 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C7.2.28 CMEQ (zero)
+    pub fn cmeq(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(elem_size == .double and elem_size == n.format.scalar);
+                    return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                        .cmeq = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = .fromVectorSize(elem_size),
+                        },
+                    } } };
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .cmeq = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = arrangement.elemSize(),
+                            .Q = arrangement.size(),
+                        },
+                    } } };
+                },
+            },
+        }
+    }
+    /// C7.2.30 CMGE (zero)
+    pub fn cmge(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(elem_size == .double and elem_size == n.format.scalar);
+                    return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                        .cmge = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = .fromVectorSize(elem_size),
+                        },
+                    } } };
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .cmge = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = arrangement.elemSize(),
+                            .Q = arrangement.size(),
+                        },
+                    } } };
+                },
+            },
+        }
+    }
+    /// C7.2.32 CMGT (zero)
+    pub fn cmgt(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(elem_size == .double and elem_size == n.format.scalar);
+                    return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                        .cmgt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = .fromVectorSize(elem_size),
+                        },
+                    } } };
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .cmgt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = arrangement.elemSize(),
+                            .Q = arrangement.size(),
+                        },
+                    } } };
+                },
+            },
+        }
+    }
+    /// C7.2.35 CMLE (zero)
+    pub fn cmle(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(elem_size == .double and elem_size == n.format.scalar);
+                    return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                        .cmle = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = .fromVectorSize(elem_size),
+                        },
+                    } } };
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .cmle = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = arrangement.elemSize(),
+                            .Q = arrangement.size(),
+                        },
+                    } } };
+                },
+            },
+        }
+    }
+    /// C7.2.36 CMLT (zero)
+    pub fn cmlt(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(elem_size == .double and elem_size == n.format.scalar);
+                    return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                        .cmlt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = .fromVectorSize(elem_size),
+                        },
+                    } } };
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .cmlt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .size = arrangement.elemSize(),
+                            .Q = arrangement.size(),
+                        },
+                    } } };
+                },
+            },
+        }
+    }
     /// C7.2.38 CNT
     pub fn cnt(d: Register, n: Register) Instruction {
         const arrangement = d.format.vector;
@@ -9093,6 +11572,57 @@ pub const Instruction = packed union {
                 .CRm = option,
             },
         } } };
+    }
+    /// C7.2.39 DUP (element)
+    /// C7.2.40 DUP (general)
+    pub fn dup(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(@intFromEnum(elem_size) <= @intFromEnum(Register.VectorSize.double) and elem_size == n.format.element.size);
+                return .{ .data_processing_vector = .{ .simd_scalar_copy = .{
+                    .dup = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .imm5 = @shlExact(@as(u5, n.format.element.index) << 1 | @as(u5, 0b1), @intFromEnum(elem_size)),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d");
+                const elem_size = arrangement.elemSize();
+                switch (n.format) {
+                    else => unreachable,
+                    .element => |element| {
+                        assert(elem_size.toVectorSize() == element.size);
+                        return .{ .data_processing_vector = .{ .simd_copy = .{
+                            .dup = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .imm4 = .element,
+                                .imm5 = @shlExact(@as(u5, element.index) << 1 | @as(u5, 0b1), @intFromEnum(elem_size)),
+                                .Q = arrangement.size(),
+                            },
+                        } } };
+                    },
+                    .integer => |sf| {
+                        assert(sf == @as(Register.IntegerSize, switch (elem_size) {
+                            .byte, .half, .single => .word,
+                            .double => .doubleword,
+                        }));
+                        return .{ .data_processing_vector = .{ .simd_copy = .{
+                            .dup = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{}),
+                                .imm4 = .general,
+                                .imm5 = @shlExact(@as(u5, 0b1), @intFromEnum(elem_size)),
+                                .Q = arrangement.size(),
+                            },
+                        } } };
+                    },
+                }
+            },
+        }
     }
     /// C6.2.118 EON (shifted register)
     pub fn eon(d: Register, n: Register, form: union(enum) {
@@ -9212,22 +11742,43 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C7.2.45 FABS (vector)
     /// C7.2.46 FABS (scalar)
     pub fn fabs(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .fabs = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fabs = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fabs = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .fabs = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
     /// C7.2.50 FADD (scalar)
     pub fn fadd(d: Register, n: Register, m: Register) Instruction {
@@ -9238,14 +11789,264 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
+    }
+    /// C7.2.57 FCMEQ (zero)
+    pub fn fcmeq(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |ftype| switch (n.format) {
+                    else => unreachable,
+                    .scalar => |n_scalar| {
+                        assert(n_scalar == ftype);
+                        switch (ftype) {
+                            else => unreachable,
+                            .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                                .fcmeq = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                },
+                            } } },
+                            .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                                .fcmeq = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                    .sz = .fromVectorSize(ftype),
+                                },
+                            } } },
+                        }
+                    },
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    switch (arrangement.elemSize()) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                            .fcmeq = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                            .fcmeq = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = arrangement.elemSz(),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                    }
+                },
+            },
+        }
+    }
+    /// C7.2.59 FCMGE (zero)
+    pub fn fcmge(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |ftype| switch (n.format) {
+                    else => unreachable,
+                    .scalar => |n_scalar| {
+                        assert(n_scalar == ftype);
+                        switch (ftype) {
+                            else => unreachable,
+                            .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                                .fcmge = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                },
+                            } } },
+                            .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                                .fcmge = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                    .sz = .fromVectorSize(ftype),
+                                },
+                            } } },
+                        }
+                    },
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    switch (arrangement.elemSize()) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                            .fcmge = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                            .fcmge = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = arrangement.elemSz(),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                    }
+                },
+            },
+        }
+    }
+    /// C7.2.61 FCMGT (zero)
+    pub fn fcmgt(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |ftype| switch (n.format) {
+                    else => unreachable,
+                    .scalar => |n_scalar| {
+                        assert(n_scalar == ftype);
+                        switch (ftype) {
+                            else => unreachable,
+                            .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                                .fcmgt = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                },
+                            } } },
+                            .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                                .fcmgt = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                    .sz = .fromVectorSize(ftype),
+                                },
+                            } } },
+                        }
+                    },
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    switch (arrangement.elemSize()) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                            .fcmgt = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                            .fcmgt = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = arrangement.elemSz(),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                    }
+                },
+            },
+        }
+    }
+    /// C7.2.64 FCMLE (zero)
+    pub fn fcmle(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |ftype| switch (n.format) {
+                    else => unreachable,
+                    .scalar => |n_scalar| {
+                        assert(n_scalar == ftype);
+                        switch (ftype) {
+                            else => unreachable,
+                            .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                                .fcmle = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                },
+                            } } },
+                            .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                                .fcmle = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                    .sz = .fromVectorSize(ftype),
+                                },
+                            } } },
+                        }
+                    },
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    switch (arrangement.elemSize()) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                            .fcmle = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                            .fcmle = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = arrangement.elemSz(),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                    }
+                },
+            },
+        }
+    }
+    /// C7.2.65 FCMLT (zero)
+    pub fn fcmlt(d: Register, n: Register, form: union(enum) { zero }) Instruction {
+        switch (form) {
+            .zero => switch (d.format) {
+                else => unreachable,
+                .scalar => |ftype| switch (n.format) {
+                    else => unreachable,
+                    .scalar => |n_scalar| {
+                        assert(n_scalar == ftype);
+                        switch (ftype) {
+                            else => unreachable,
+                            .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                                .fcmlt = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                },
+                            } } },
+                            .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                                .fcmlt = .{
+                                    .Rd = d.alias.encode(.{ .V = true }),
+                                    .Rn = n.alias.encode(.{ .V = true }),
+                                    .sz = .fromVectorSize(ftype),
+                                },
+                            } } },
+                        }
+                    },
+                },
+                .vector => |arrangement| {
+                    assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                    switch (arrangement.elemSize()) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                            .fcmlt = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                            .fcmlt = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = arrangement.elemSz(),
+                                .Q = arrangement.size(),
+                            },
+                        } } },
+                    }
+                },
+            },
+        }
     }
     /// C7.2.66 FCMP
     pub fn fcmp(n: Register, form: union(enum) { register: Register, zero }) Instruction {
@@ -9258,12 +12059,7 @@ pub const Instruction = packed union {
                         .opc0 = .register,
                         .Rn = n.alias.encode(.{ .V = true }),
                         .Rm = m.alias.encode(.{ .V = true }),
-                        .ftype = switch (ftype) {
-                            else => unreachable,
-                            .single => .single,
-                            .double => .double,
-                            .half => .half,
-                        },
+                        .ftype = .fromVectorSize(ftype),
                     },
                 } } };
             },
@@ -9272,12 +12068,7 @@ pub const Instruction = packed union {
                     .opc0 = .register,
                     .Rn = n.alias.encode(.{ .V = true }),
                     .Rm = @enumFromInt(0b00000),
-                    .ftype = switch (ftype) {
-                        else => unreachable,
-                        .single => .single,
-                        .double => .double,
-                        .half => .half,
-                    },
+                    .ftype = .fromVectorSize(ftype),
                 },
             } } },
         }
@@ -9293,12 +12084,7 @@ pub const Instruction = packed union {
                         .opc0 = .zero,
                         .Rn = n.alias.encode(.{ .V = true }),
                         .Rm = m.alias.encode(.{ .V = true }),
-                        .ftype = switch (ftype) {
-                            else => unreachable,
-                            .single => .single,
-                            .double => .double,
-                            .half => .half,
-                        },
+                        .ftype = .fromVectorSize(ftype),
                     },
                 } } };
             },
@@ -9307,15 +12093,24 @@ pub const Instruction = packed union {
                     .opc0 = .zero,
                     .Rn = n.alias.encode(.{ .V = true }),
                     .Rm = @enumFromInt(0b00000),
-                    .ftype = switch (ftype) {
-                        else => unreachable,
-                        .single => .single,
-                        .double => .double,
-                        .half => .half,
-                    },
+                    .ftype = .fromVectorSize(ftype),
                 },
             } } },
         }
+    }
+    /// C7.2.68 FCSEL
+    pub fn fcsel(d: Register, n: Register, m: Register, cond: ConditionCode) Instruction {
+        const ftype = d.format.scalar;
+        assert(n.format.scalar == ftype and m.format.scalar == ftype);
+        return .{ .data_processing_vector = .{ .float_conditional_select = .{
+            .fcsel = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .cond = cond,
+                .Rm = m.alias.encode(.{ .V = true }),
+                .ftype = .fromVectorSize(ftype),
+            },
+        } } };
     }
     /// C7.2.69 FCVT
     pub fn fcvt(d: Register, n: Register) Instruction {
@@ -9330,174 +12125,589 @@ pub const Instruction = packed union {
                     .double => .double,
                     .half => .half,
                 },
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(n.format.scalar),
             },
         } } };
     }
+    /// C7.2.70 FCVTAS (vector)
     /// C7.2.71 FCVTAS (scalar)
     pub fn fcvtas(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtas = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtas = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtas = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtas = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtas = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtas = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.72 FCVTAU (vector)
     /// C7.2.73 FCVTAU (scalar)
     pub fn fcvtau(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtau = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtau = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtau = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtau = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtau = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtau = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.75 FCVTMS (vector)
     /// C7.2.76 FCVTMS (scalar)
     pub fn fcvtms(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtms = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtms = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtms = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtms = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtms = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtms = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.77 FCVTMU (vector)
     /// C7.2.78 FCVTMU (scalar)
     pub fn fcvtmu(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtmu = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtmu = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtmu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtmu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtmu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtmu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.80 FCVTNS (vector)
     /// C7.2.81 FCVTNS (scalar)
     pub fn fcvtns(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtns = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtns = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtns = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtns = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtns = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtns = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.82 FCVTNU (vector)
     /// C7.2.83 FCVTNU (scalar)
     pub fn fcvtnu(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtnu = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtnu = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtnu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtnu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtnu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtnu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.84 FCVTPS (vector)
     /// C7.2.85 FCVTPS (scalar)
     pub fn fcvtps(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtps = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtps = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtps = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtps = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtps = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtps = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.86 FCVTPU (vector)
     /// C7.2.87 FCVTPU (scalar)
     pub fn fcvtpu(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtpu = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtpu = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtpu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtpu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtpu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtpu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.90 FCVTZS (vector, integer)
     /// C7.2.92 FCVTZS (scalar, integer)
     pub fn fcvtzs(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtzs = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtzs = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtzs = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtzs = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtzs = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtzs = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
+    /// C7.2.94 FCVTZU (vector, integer)
     /// C7.2.96 FCVTZU (scalar, integer)
     pub fn fcvtzu(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .fcvtzu = .{
-                .Rd = d.alias.encode(.{}),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (n.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .fcvtzu = .{
+                    .Rd = d.alias.encode(.{}),
+                    .Rn = n.alias.encode(.{ .V = true }),
+                    .ftype = .fromVectorSize(n.format.scalar),
+                    .sf = sf,
                 },
-                .sf = d.format.integer,
+            } } },
+            .scalar => |elem_size| switch (n.format) {
+                else => unreachable,
+                .scalar => |ftype| {
+                    assert(ftype == elem_size);
+                    switch (elem_size) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .fcvtzu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .fcvtzu = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(elem_size),
+                            },
+                        } } },
+                    }
+                },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fcvtzu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fcvtzu = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
     /// C7.2.98 FDIV (scalar)
     pub fn fdiv(d: Register, n: Register, m: Register) Instruction {
@@ -9508,12 +12718,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9538,12 +12743,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9556,12 +12756,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9574,12 +12769,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9592,12 +12782,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9610,12 +12795,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9642,12 +12822,7 @@ pub const Instruction = packed union {
                         .fmov = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .imm8 = imm,
-                            .ftype = switch (ftype) {
-                                else => unreachable,
-                                .single => .single,
-                                .double => .double,
-                                .half => .half,
-                            },
+                            .ftype = .fromVectorSize(ftype),
                         },
                     } } },
                     .vector => |arrangement| {
@@ -9680,12 +12855,7 @@ pub const Instruction = packed union {
                                 .Rn = n.alias.encode(.{ .V = true }),
                                 .opcode = .float_to_integer,
                                 .rmode = .@"0",
-                                .ftype = switch (ftype) {
-                                    else => unreachable,
-                                    .single => .single,
-                                    .double => .double,
-                                    .half => .half,
-                                },
+                                .ftype = .fromVectorSize(ftype),
                                 .sf = sf,
                             },
                         } } };
@@ -9723,12 +12893,7 @@ pub const Instruction = packed union {
                                 .Rn = n.alias.encode(.{}),
                                 .opcode = .integer_to_float,
                                 .rmode = .@"0",
-                                .ftype = switch (ftype) {
-                                    else => unreachable,
-                                    .single => .single,
-                                    .double => .double,
-                                    .half => .half,
-                                },
+                                .ftype = .fromVectorSize(ftype),
                                 .sf = sf,
                             },
                         } } };
@@ -9739,12 +12904,7 @@ pub const Instruction = packed union {
                             .fmov = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .ftype = switch (ftype) {
-                                    else => unreachable,
-                                    .single => .single,
-                                    .double => .double,
-                                    .half => .half,
-                                },
+                                .ftype = .fromVectorSize(ftype),
                             },
                         } } };
                     },
@@ -9781,12 +12941,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9799,31 +12954,47 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
+    /// C7.2.139 FNEG (vector)
     /// C7.2.140 FNEG (scalar)
     pub fn fneg(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .fneg = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fneg = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fneg = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .fneg = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
     /// C7.2.141 FNMADD
     pub fn fnmadd(d: Register, n: Register, m: Register, a: Register) Instruction {
@@ -9835,12 +13006,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9854,12 +13020,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -9872,150 +13033,313 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
+    /// C7.2.155 FRINTA (vector)
     /// C7.2.156 FRINTA (scalar)
     pub fn frinta(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frinta = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frinta = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frinta = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frinta = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.157 FRINTI (vector)
     /// C7.2.158 FRINTI (scalar)
     pub fn frinti(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frinti = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frinti = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frinti = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frinti = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.159 FRINTM (vector)
     /// C7.2.160 FRINTM (scalar)
     pub fn frintm(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frintm = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frintm = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frintm = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frintm = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.161 FRINTN (vector)
     /// C7.2.162 FRINTN (scalar)
     pub fn frintn(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frintn = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frintn = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frintn = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frintn = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.163 FRINTP (vector)
     /// C7.2.164 FRINTP (scalar)
     pub fn frintp(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frintp = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frintp = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frintp = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frintp = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.165 FRINTX (vector)
     /// C7.2.166 FRINTX (scalar)
     pub fn frintx(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frintx = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frintx = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frintx = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frintx = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.167 FRINTZ (vector)
     /// C7.2.168 FRINTZ (scalar)
     pub fn frintz(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .frintz = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .frintz = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .frintz = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .frintz = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
+    /// C7.2.171 FSQRT (vector)
     /// C7.2.172 FSQRT (scalar)
     pub fn fsqrt(d: Register, n: Register) Instruction {
-        const ftype = d.format.scalar;
-        assert(n.format.scalar == ftype);
-        return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
-            .fsqrt = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
+        switch (d.format) {
+            else => unreachable,
+            .vector => |arrangement| {
+                assert(n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
                     else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .fsqrt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .fsqrt = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
             },
-        } } };
+            .scalar => |ftype| {
+                assert(n.format.scalar == ftype);
+                return .{ .data_processing_vector = .{ .float_data_processing_one_source = .{
+                    .fsqrt = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .ftype = .fromVectorSize(ftype),
+                    },
+                } } };
+            },
+        }
     }
     /// C7.2.174 FSUB (scalar)
     pub fn fsub(d: Register, n: Register, m: Register) Instruction {
@@ -10026,12 +13350,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = switch (ftype) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
-                },
+                .ftype = .fromVectorSize(ftype),
             },
         } } };
     }
@@ -11021,10 +14340,50 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C7.2.209 NEG (vector)
+    pub fn neg(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(elem_size == .double and elem_size == n.format.scalar);
+                return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                    .neg = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = .fromVectorSize(elem_size),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                    .neg = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = arrangement.elemSize(),
+                        .Q = arrangement.size(),
+                    },
+                } } };
+            },
+        }
+    }
     /// C6.2.238 NOP
     pub fn nop() Instruction {
         return .{ .branch_exception_generating_system = .{ .hints = .{
             .nop = .{},
+        } } };
+    }
+    /// C7.2.210 NOT
+    pub fn not(d: Register, n: Register) Instruction {
+        const arrangement = d.format.vector;
+        assert(arrangement.elemSize() == .byte and n.format.vector == arrangement);
+        return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+            .not = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .size = arrangement.elemSize(),
+                .Q = arrangement.size(),
+            },
         } } };
     }
     /// C6.2.239 ORN (shifted register)
@@ -11343,21 +14702,63 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C7.2.234 SCVTF (vector, integer)
     /// C7.2.236 SCVTF (scalar, integer)
     pub fn scvtf(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .scvtf = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{}),
-                .ftype = switch (d.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |ftype| switch (n.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(ftype == elem_size);
+                    switch (ftype) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .scvtf = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .scvtf = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(ftype),
+                            },
+                        } } },
+                    }
                 },
-                .sf = n.format.integer,
+                .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                    .scvtf = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{}),
+                        .ftype = .fromVectorSize(ftype),
+                        .sf = sf,
+                    },
+                } } },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .scvtf = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .scvtf = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
     /// C6.2.270 SDIV
     pub fn sdiv(d: Register, n: Register, m: Register) Instruction {
@@ -11447,6 +14848,60 @@ pub const Instruction = packed union {
                 .Rm = m.alias.encode(.{}),
             },
         } } };
+    }
+    /// C7.2.282 SQABS
+    pub fn sqabs(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(elem_size == n.format.scalar);
+                return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                    .sqabs = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = .fromVectorSize(elem_size),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                    .sqabs = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = arrangement.elemSize(),
+                        .Q = arrangement.size(),
+                    },
+                } } };
+            },
+        }
+    }
+    /// C7.2.308 SQXTN
+    pub fn sqxtn(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(elem_size == n.format.scalar);
+                return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                    .sqxtn = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = .fromVectorSize(elem_size),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                    .sqxtn = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = arrangement.elemSize(),
+                        .Q = arrangement.size(),
+                    },
+                } } };
+            },
+        }
     }
     /// C6.2.321 STP
     /// C7.2.330 STP (SIMD&FP)
@@ -11942,6 +15397,33 @@ pub const Instruction = packed union {
             } },
         }
     }
+    /// C7.2.337 SUQADD
+    pub fn suqadd(d: Register, n: Register) Instruction {
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |elem_size| {
+                assert(elem_size == n.format.scalar);
+                return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                    .suqadd = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = .fromVectorSize(elem_size),
+                    },
+                } } };
+            },
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                    .suqadd = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .size = arrangement.elemSize(),
+                        .Q = arrangement.size(),
+                    },
+                } } };
+            },
+        }
+    }
     /// C6.2.365 SVC
     pub fn svc(imm: u16) Instruction {
         return .{ .branch_exception_generating_system = .{ .exception_generating = .{
@@ -12021,21 +15503,63 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C7.2.353 UCVTF (vector, integer)
     /// C7.2.355 UCVTF (scalar, integer)
     pub fn ucvtf(d: Register, n: Register) Instruction {
-        return .{ .data_processing_vector = .{ .convert_float_integer = .{
-            .ucvtf = .{
-                .Rd = d.alias.encode(.{ .V = true }),
-                .Rn = n.alias.encode(.{}),
-                .ftype = switch (d.format.scalar) {
-                    else => unreachable,
-                    .single => .single,
-                    .double => .double,
-                    .half => .half,
+        switch (d.format) {
+            else => unreachable,
+            .scalar => |ftype| switch (n.format) {
+                else => unreachable,
+                .scalar => |elem_size| {
+                    assert(ftype == elem_size);
+                    switch (ftype) {
+                        else => unreachable,
+                        .half => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous_fp16 = .{
+                            .ucvtf = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                            },
+                        } } },
+                        .single, .double => return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
+                            .ucvtf = .{
+                                .Rd = d.alias.encode(.{ .V = true }),
+                                .Rn = n.alias.encode(.{ .V = true }),
+                                .sz = .fromVectorSize(ftype),
+                            },
+                        } } },
+                    }
                 },
-                .sf = n.format.integer,
+                .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                    .ucvtf = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{}),
+                        .ftype = .fromVectorSize(ftype),
+                        .sf = sf,
+                    },
+                } } },
             },
-        } } };
+            .vector => |arrangement| {
+                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                switch (arrangement.elemSize()) {
+                    else => unreachable,
+                    .half => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous_fp16 = .{
+                        .ucvtf = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                    .single, .double => return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+                        .ucvtf = .{
+                            .Rd = d.alias.encode(.{ .V = true }),
+                            .Rn = n.alias.encode(.{ .V = true }),
+                            .sz = arrangement.elemSz(),
+                            .Q = arrangement.size(),
+                        },
+                    } } },
+                }
+            },
+        }
     }
     /// C6.2.387 UDF
     pub fn udf(imm: u16) Instruction {
@@ -12149,7 +15673,7 @@ pub const Instruction = packed union {
     }
 
     comptime {
-        @setEvalBranchQuota(68_000);
+        @setEvalBranchQuota(110_000);
         verify(@typeName(Instruction), Instruction);
     }
     fn verify(name: []const u8, Type: type) void {
