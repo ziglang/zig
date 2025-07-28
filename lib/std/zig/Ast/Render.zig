@@ -1576,6 +1576,27 @@ fn renderBuiltinCall(
     return renderParamList(r, builtin_token + 1, params, space);
 }
 
+fn isOneLineFnProto(
+    tree: Ast,
+    fn_proto: Ast.full.FnProto,
+    lparen: Ast.TokenIndex,
+    rparen: Ast.TokenIndex,
+) bool {
+    const trailing_comma = tree.tokenTag(rparen - 1) == .comma;
+    if (trailing_comma or hasComment(tree, lparen, rparen))
+        return false;
+
+    // Check that there are no doc comments
+    var after_last_param = lparen + 1;
+    for (fn_proto.ast.params) |expr| {
+        // Looking before each param is insufficient since anytype is not included in `params`
+        if (hasDocComment(tree, after_last_param, tree.firstToken(expr)))
+            return false;
+        after_last_param = tree.lastToken(expr) + 1;
+    }
+    return !hasDocComment(tree, after_last_param, rparen);
+}
+
 fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!void {
     const tree = r.tree;
     const ais = r.ais;
@@ -1636,8 +1657,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
 
     // The params list is a sparse set that does *not* include anytype or ... parameters.
 
-    const trailing_comma = tree.tokenTag(rparen - 1) == .comma;
-    if (!trailing_comma and !hasComment(tree, lparen, rparen)) {
+    if (isOneLineFnProto(tree, fn_proto, lparen, rparen)) {
         // Render all on one line, no trailing comma.
         try renderToken(r, lparen, .none); // (
 
@@ -1646,10 +1666,7 @@ fn renderFnProto(r: *Render, fn_proto: Ast.full.FnProto, space: Space) Error!voi
         while (true) {
             last_param_token += 1;
             switch (tree.tokenTag(last_param_token)) {
-                .doc_comment => {
-                    try renderToken(r, last_param_token, .newline);
-                    continue;
-                },
+                .doc_comment => unreachable,
                 .ellipsis3 => {
                     try renderToken(r, last_param_token, .none); // ...
                     break;

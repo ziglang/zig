@@ -6410,6 +6410,47 @@ test "zig fmt: whitespace with multiline strings" {
     );
 }
 
+test "zig fmt: doc comments on fn parameters" {
+    try testTransform(
+        \\extern fn foo(
+        \\    /// Bitmap
+        \\    active: u64
+        \\) void;
+        \\extern fn bar(
+        \\    bits: u6,
+        \\    /// Bitmap
+        \\    active: u64
+        \\) void;
+        \\extern fn baz(
+        \\    /// Bitmap
+        \\    active: anytype
+        \\) void;
+        \\
+    ,
+        \\extern fn foo(
+        \\    /// Bitmap
+        \\    active: u64,
+        \\) void;
+        \\extern fn bar(
+        \\    bits: u6,
+        \\    /// Bitmap
+        \\    active: u64,
+        \\) void;
+        \\extern fn baz(
+        \\    /// Bitmap
+        \\    active: anytype,
+        \\) void;
+        \\
+    );
+    try testCanonical(
+        \\extern fn foo(x: struct {
+        \\    /// Bitmap
+        \\    active: u64,
+        \\}) void;
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
