@@ -6110,6 +6110,37 @@ test "zig fmt: do not canonicalize invalid cast builtins" {
     );
 }
 
+test "zig fmt: seperate errors in error sets with comments" {
+    try testTransform(
+        \\error{
+        \\    /// This error is very bad!
+        \\    A, B}
+        \\
+    ,
+        \\error{
+        \\    /// This error is very bad!
+        \\    A,
+        \\    B,
+        \\}
+        \\
+    );
+
+    try testTransform(
+        \\error{
+        \\    A, B
+        \\    // something important
+        \\}
+        \\
+    ,
+        \\error{
+        \\    A,
+        \\    B,
+        \\    // something important
+        \\}
+        \\
+    );
+}
+
 test "zig fmt: field accesses on number literals" {
     try testCanonical(
         \\const a = 0xF .A;
