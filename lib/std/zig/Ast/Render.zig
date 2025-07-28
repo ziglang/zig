@@ -741,8 +741,8 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, lbrace, .none);
                 try renderIdentifier(r, lbrace + 1, .none, .eagerly_unquote); // identifier
                 return renderToken(r, rbrace, space);
-            } else if (tree.tokenTag(rbrace - 1) == .comma) {
-                // There is a trailing comma so render each member on a new line.
+            } else if (!isOneLineErrorSetDecl(tree, lbrace, rbrace)) {
+                // Render each member on a new line.
                 try ais.pushIndent(.normal);
                 try renderToken(r, lbrace, .newline);
                 var i = lbrace + 1;
@@ -755,19 +755,17 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                             try renderIdentifier(r, i, .comma, .eagerly_unquote);
                             ais.popSpace();
                         },
-                        .comma => {},
                         else => unreachable,
                     }
                 }
                 ais.popIndent();
                 return renderToken(r, rbrace, space);
             } else {
-                // There is no trailing comma so render everything on one line.
+                // Render each member on one line.
                 try renderToken(r, lbrace, .space);
                 var i = lbrace + 1;
                 while (i < rbrace) : (i += 1) {
                     switch (tree.tokenTag(i)) {
-                        .doc_comment => unreachable, // TODO
                         .identifier => try renderIdentifier(r, i, .comma_space, .eagerly_unquote),
                         .comma => {},
                         else => unreachable,
@@ -2193,6 +2191,18 @@ fn renderArrayInit(
     return renderToken(r, rbrace, space); // rbrace
 }
 
+fn isOneLineErrorSetDecl(
+    tree: Ast,
+    lbrace: Ast.TokenIndex,
+    rbrace: Ast.TokenIndex,
+) bool {
+    // If there is a trailing comma, comment, or document comment, then render each
+    // item on its own line.
+    return tree.tokenTag(rbrace - 1) != .comma and
+        !hasDocComment(tree, lbrace + 1, rbrace) and
+        !hasComment(tree, lbrace, rbrace);
+}
+
 fn renderContainerDecl(
     r: *Render,
     container_decl_node: Ast.Node.Index,
@@ -3026,6 +3036,16 @@ fn hasMultilineString(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.Tok
         Token.Tag,
         tree.tokens.items(.tag)[start_token..end_token],
         .multiline_string_literal_line,
+    ) != null;
+}
+
+/// Returns true if there exists a doc comment between the start
+/// of token `start_token` and the start of token `end_token`.
+fn hasDocComment(tree: Ast, start_token: Ast.TokenIndex, end_token: Ast.TokenIndex) bool {
+    return std.mem.indexOfScalar(
+        Token.Tag,
+        tree.tokens.items(.tag)[start_token..end_token],
+        .doc_comment,
     ) != null;
 }
 
