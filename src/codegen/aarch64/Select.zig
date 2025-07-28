@@ -1919,8 +1919,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                                         switch (bits) {
                                             else => unreachable,
                                             1...32 => {
-                                                try isel.emit(.sub(res_ra.w(), div_ra.w(), .{ .register = rem_ra.w() }));
-                                                try isel.emit(.csinc(rem_ra.w(), .wzr, .wzr, .ge));
+                                                try isel.emit(.csel(res_ra.w(), div_ra.w(), rem_ra.w(), .pl));
+                                                try isel.emit(.sub(rem_ra.w(), div_ra.w(), .{ .immediate = 1 }));
                                                 try isel.emit(.ccmp(
                                                     rem_ra.w(),
                                                     .{ .immediate = 0 },
@@ -1932,8 +1932,8 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                                                 try isel.emit(.msub(rem_ra.w(), div_ra.w(), rhs_mat.ra.w(), lhs_mat.ra.w()));
                                             },
                                             33...64 => {
-                                                try isel.emit(.sub(res_ra.x(), div_ra.x(), .{ .register = rem_ra.x() }));
-                                                try isel.emit(.csinc(rem_ra.x(), .xzr, .xzr, .ge));
+                                                try isel.emit(.csel(res_ra.x(), div_ra.x(), rem_ra.x(), .pl));
+                                                try isel.emit(.sub(rem_ra.x(), div_ra.x(), .{ .immediate = 1 }));
                                                 try isel.emit(.ccmp(
                                                     rem_ra.x(),
                                                     .{ .immediate = 0 },
@@ -2162,7 +2162,7 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
-        .rem => |air_tag| {
+        .rem, .rem_optimized, .mod, .mod_optimized => |air_tag| {
             if (isel.live_values.fetchRemove(air.inst_index)) |res_vi| unused: {
                 defer res_vi.value.deref(isel);
 
@@ -2180,17 +2180,57 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     const rhs_mat = try rhs_vi.matReg(isel);
                     const div_ra = try isel.allocIntReg();
                     defer isel.freeReg(div_ra);
+                    const rem_ra = rem_ra: switch (air_tag) {
+                        else => unreachable,
+                        .rem => res_ra,
+                        .mod => switch (int_info.signedness) {
+                            .signed => {
+                                const rem_ra = try isel.allocIntReg();
+                                errdefer isel.freeReg(rem_ra);
+                                switch (int_info.bits) {
+                                    else => unreachable,
+                                    1...32 => {
+                                        try isel.emit(.csel(res_ra.w(), rem_ra.w(), div_ra.w(), .pl));
+                                        try isel.emit(.add(div_ra.w(), rem_ra.w(), .{ .register = rhs_mat.ra.w() }));
+                                        try isel.emit(.ccmp(
+                                            div_ra.w(),
+                                            .{ .immediate = 0 },
+                                            .{ .n = false, .z = false, .c = false, .v = false },
+                                            .ne,
+                                        ));
+                                        try isel.emit(.eor(div_ra.w(), rem_ra.w(), .{ .register = rhs_mat.ra.w() }));
+                                        try isel.emit(.subs(.wzr, rem_ra.w(), .{ .immediate = 0 }));
+                                    },
+                                    33...64 => {
+                                        try isel.emit(.csel(res_ra.x(), rem_ra.x(), div_ra.x(), .pl));
+                                        try isel.emit(.add(div_ra.x(), rem_ra.x(), .{ .register = rhs_mat.ra.x() }));
+                                        try isel.emit(.ccmp(
+                                            div_ra.x(),
+                                            .{ .immediate = 0 },
+                                            .{ .n = false, .z = false, .c = false, .v = false },
+                                            .ne,
+                                        ));
+                                        try isel.emit(.eor(div_ra.x(), rem_ra.x(), .{ .register = rhs_mat.ra.x() }));
+                                        try isel.emit(.subs(.xzr, rem_ra.x(), .{ .immediate = 0 }));
+                                    },
+                                }
+                                break :rem_ra rem_ra;
+                            },
+                            .unsigned => res_ra,
+                        },
+                    };
+                    defer if (rem_ra != res_ra) isel.freeReg(rem_ra);
                     switch (int_info.bits) {
                         else => unreachable,
                         1...32 => {
-                            try isel.emit(.msub(res_ra.w(), div_ra.w(), rhs_mat.ra.w(), lhs_mat.ra.w()));
+                            try isel.emit(.msub(rem_ra.w(), div_ra.w(), rhs_mat.ra.w(), lhs_mat.ra.w()));
                             try isel.emit(switch (int_info.signedness) {
                                 .signed => .sdiv(div_ra.w(), lhs_mat.ra.w(), rhs_mat.ra.w()),
                                 .unsigned => .udiv(div_ra.w(), lhs_mat.ra.w(), rhs_mat.ra.w()),
                             });
                         },
                         33...64 => {
-                            try isel.emit(.msub(res_ra.x(), div_ra.x(), rhs_mat.ra.x(), lhs_mat.ra.x()));
+                            try isel.emit(.msub(rem_ra.x(), div_ra.x(), rhs_mat.ra.x(), lhs_mat.ra.x()));
                             try isel.emit(switch (int_info.signedness) {
                                 .signed => .sdiv(div_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
                                 .unsigned => .udiv(div_ra.x(), lhs_mat.ra.x(), rhs_mat.ra.x()),
@@ -2201,21 +2241,184 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
                     try lhs_mat.finish(isel);
                 } else {
                     const bits = ty.floatBits(isel.target);
-
-                    try call.prepareReturn(isel);
-                    switch (bits) {
+                    switch (air_tag) {
                         else => unreachable,
-                        16, 32, 64, 128 => try call.returnLiveIn(isel, res_vi.value, .v0),
-                        80 => {
-                            var res_hi16_it = res_vi.value.field(ty, 8, 8);
-                            const res_hi16_vi = try res_hi16_it.only(isel);
-                            try call.returnLiveIn(isel, res_hi16_vi.?, .r1);
-                            var res_lo64_it = res_vi.value.field(ty, 0, 8);
-                            const res_lo64_vi = try res_lo64_it.only(isel);
-                            try call.returnLiveIn(isel, res_lo64_vi.?, .r0);
+                        .rem, .rem_optimized => {
+                            if (!res_vi.value.isUsed(isel)) break :unused;
+                            try call.prepareReturn(isel);
+                            switch (bits) {
+                                else => unreachable,
+                                16, 32, 64, 128 => try call.returnLiveIn(isel, res_vi.value, .v0),
+                                80 => {
+                                    var res_hi16_it = res_vi.value.field(ty, 8, 8);
+                                    const res_hi16_vi = try res_hi16_it.only(isel);
+                                    try call.returnLiveIn(isel, res_hi16_vi.?, .r1);
+                                    var res_lo64_it = res_vi.value.field(ty, 0, 8);
+                                    const res_lo64_vi = try res_lo64_it.only(isel);
+                                    try call.returnLiveIn(isel, res_lo64_vi.?, .r0);
+                                },
+                            }
+                            try call.finishReturn(isel);
+                        },
+                        .mod, .mod_optimized => switch (bits) {
+                            else => unreachable,
+                            16, 32, 64 => {
+                                const res_ra = try res_vi.value.defReg(isel) orelse break :unused;
+                                try call.prepareReturn(isel);
+                                const rem_ra: Register.Alias = .v0;
+                                const temp1_ra: Register.Alias = .v1;
+                                const temp2_ra: Register.Alias = switch (res_ra) {
+                                    rem_ra, temp1_ra => .v2,
+                                    else => res_ra,
+                                };
+                                const need_fcvt = switch (bits) {
+                                    else => unreachable,
+                                    16 => !isel.target.cpu.has(.aarch64, .fullfp16),
+                                    32, 64 => false,
+                                };
+                                if (need_fcvt) try isel.emit(.fcvt(res_ra.h(), res_ra.s()));
+                                try isel.emit(switch (res_ra) {
+                                    rem_ra => .bif(res_ra.@"8b"(), temp2_ra.@"8b"(), temp1_ra.@"8b"()),
+                                    temp1_ra => .bsl(res_ra.@"8b"(), rem_ra.@"8b"(), temp2_ra.@"8b"()),
+                                    else => .bit(res_ra.@"8b"(), rem_ra.@"8b"(), temp1_ra.@"8b"()),
+                                });
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                const rhs_mat = try rhs_vi.matReg(isel);
+                                try isel.emit(bits: switch (bits) {
+                                    else => unreachable,
+                                    16 => if (need_fcvt)
+                                        continue :bits 32
+                                    else
+                                        .fadd(temp2_ra.h(), rem_ra.h(), rhs_mat.ra.h()),
+                                    32 => .fadd(temp2_ra.s(), rem_ra.s(), rhs_mat.ra.s()),
+                                    64 => .fadd(temp2_ra.d(), rem_ra.d(), rhs_mat.ra.d()),
+                                });
+                                if (need_fcvt) {
+                                    try isel.emit(.fcvt(rhs_mat.ra.s(), rhs_mat.ra.h()));
+                                    try isel.emit(.fcvt(rem_ra.s(), rem_ra.h()));
+                                }
+                                try isel.emit(.orr(temp1_ra.@"8b"(), temp1_ra.@"8b"(), .{
+                                    .register = temp2_ra.@"8b"(),
+                                }));
+                                try isel.emit(switch (bits) {
+                                    else => unreachable,
+                                    16 => .cmge(temp1_ra.@"4h"(), temp1_ra.@"4h"(), .zero),
+                                    32 => .cmge(temp1_ra.@"2s"(), temp1_ra.@"2s"(), .zero),
+                                    64 => .cmge(temp1_ra.d(), temp1_ra.d(), .zero),
+                                });
+                                try isel.emit(switch (bits) {
+                                    else => unreachable,
+                                    16 => .fcmeq(temp2_ra.h(), rem_ra.h(), .zero),
+                                    32 => .fcmeq(temp2_ra.s(), rem_ra.s(), .zero),
+                                    64 => .fcmeq(temp2_ra.d(), rem_ra.d(), .zero),
+                                });
+                                try isel.emit(.eor(temp1_ra.@"8b"(), rem_ra.@"8b"(), .{
+                                    .register = rhs_mat.ra.@"8b"(),
+                                }));
+                                try rhs_mat.finish(isel);
+                                try call.finishReturn(isel);
+                            },
+                            80, 128 => {
+                                if (!res_vi.value.isUsed(isel)) break :unused;
+                                try call.prepareReturn(isel);
+                                switch (bits) {
+                                    else => unreachable,
+                                    16, 32, 64, 128 => try call.returnLiveIn(isel, res_vi.value, .v0),
+                                    80 => {
+                                        var res_hi16_it = res_vi.value.field(ty, 8, 8);
+                                        const res_hi16_vi = try res_hi16_it.only(isel);
+                                        try call.returnLiveIn(isel, res_hi16_vi.?, .r1);
+                                        var res_lo64_it = res_vi.value.field(ty, 0, 8);
+                                        const res_lo64_vi = try res_lo64_it.only(isel);
+                                        try call.returnLiveIn(isel, res_lo64_vi.?, .r0);
+                                    },
+                                }
+                                const skip_label = isel.instructions.items.len;
+                                try isel.global_relocs.append(gpa, .{
+                                    .name = switch (bits) {
+                                        else => unreachable,
+                                        16 => "__addhf3",
+                                        32 => "__addsf3",
+                                        64 => "__adddf3",
+                                        80 => "__addxf3",
+                                        128 => "__addtf3",
+                                    },
+                                    .reloc = .{ .label = @intCast(isel.instructions.items.len) },
+                                });
+                                try isel.emit(.bl(0));
+                                const rhs_vi = try isel.use(bin_op.rhs);
+                                switch (bits) {
+                                    else => unreachable,
+                                    80 => {
+                                        const lhs_lo64_ra: Register.Alias = .r0;
+                                        const lhs_hi16_ra: Register.Alias = .r1;
+                                        const rhs_lo64_ra: Register.Alias = .r2;
+                                        const rhs_hi16_ra: Register.Alias = .r3;
+                                        const temp_ra: Register.Alias = .r4;
+                                        var rhs_hi16_it = rhs_vi.field(ty, 8, 8);
+                                        const rhs_hi16_vi = try rhs_hi16_it.only(isel);
+                                        try call.paramLiveOut(isel, rhs_hi16_vi.?, rhs_hi16_ra);
+                                        var rhs_lo64_it = rhs_vi.field(ty, 0, 8);
+                                        const rhs_lo64_vi = try rhs_lo64_it.only(isel);
+                                        try call.paramLiveOut(isel, rhs_lo64_vi.?, rhs_lo64_ra);
+                                        try isel.emit(.cbz(
+                                            temp_ra.x(),
+                                            @intCast((isel.instructions.items.len + 1 - skip_label) << 2),
+                                        ));
+                                        try isel.emit(.orr(temp_ra.x(), lhs_lo64_ra.x(), .{ .shifted_register = .{
+                                            .register = lhs_hi16_ra.x(),
+                                            .shift = .{ .lsl = 64 - 15 },
+                                        } }));
+                                        try isel.emit(.tbz(
+                                            temp_ra.w(),
+                                            15,
+                                            @intCast((isel.instructions.items.len + 1 - skip_label) << 2),
+                                        ));
+                                        try isel.emit(.eor(temp_ra.w(), lhs_hi16_ra.w(), .{
+                                            .register = rhs_hi16_ra.w(),
+                                        }));
+                                    },
+                                    128 => {
+                                        const lhs_ra: Register.Alias = .v0;
+                                        const rhs_ra: Register.Alias = .v1;
+                                        const temp1_ra: Register.Alias = .r0;
+                                        const temp2_ra: Register.Alias = .r1;
+                                        try call.paramLiveOut(isel, rhs_vi, rhs_ra);
+                                        try isel.emit(.@"b."(
+                                            .pl,
+                                            @intCast((isel.instructions.items.len + 1 - skip_label) << 2),
+                                        ));
+                                        try isel.emit(.cbz(
+                                            temp1_ra.x(),
+                                            @intCast((isel.instructions.items.len + 1 - skip_label) << 2),
+                                        ));
+                                        try isel.emit(.orr(temp1_ra.x(), temp1_ra.x(), .{ .shifted_register = .{
+                                            .register = temp2_ra.x(),
+                                            .shift = .{ .lsl = 1 },
+                                        } }));
+                                        try isel.emit(.fmov(temp1_ra.x(), .{
+                                            .register = rhs_ra.d(),
+                                        }));
+                                        try isel.emit(.tbz(
+                                            temp1_ra.x(),
+                                            63,
+                                            @intCast((isel.instructions.items.len + 1 - skip_label) << 2),
+                                        ));
+                                        try isel.emit(.eor(temp1_ra.x(), temp1_ra.x(), .{
+                                            .register = temp2_ra.x(),
+                                        }));
+                                        try isel.emit(.fmov(temp2_ra.x(), .{
+                                            .register = rhs_ra.@"d[]"(1),
+                                        }));
+                                        try isel.emit(.fmov(temp1_ra.x(), .{
+                                            .register = lhs_ra.@"d[]"(1),
+                                        }));
+                                    },
+                                }
+                                try call.finishReturn(isel);
+                            },
                         },
                     }
-                    try call.finishReturn(isel);
 
                     try call.prepareCallee(isel);
                     try isel.global_relocs.append(gpa, .{
@@ -9517,12 +9720,12 @@ pub const Value = struct {
                             const part_mat = try part_vi.matReg(isel);
                             try isel.emit(if (part_vi.isVector(isel)) emit: {
                                 assert(part_offset == 0 and part_size == vi_size);
-                                break :emit size: switch (vi_size) {
+                                break :emit switch (vi_size) {
                                     else => unreachable,
                                     2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
                                         .fmov(ra.h(), .{ .register = part_mat.ra.h() })
                                     else
-                                        continue :size 4,
+                                        .dup(ra.h(), part_mat.ra.@"h[]"(0)),
                                     4 => .fmov(ra.s(), .{ .register = part_mat.ra.s() }),
                                     8 => .fmov(ra.d(), .{ .register = part_mat.ra.d() }),
                                     16 => .orr(ra.@"16b"(), part_mat.ra.@"16b"(), .{ .register = part_mat.ra.@"16b"() }),
@@ -9642,21 +9845,30 @@ pub const Value = struct {
                         },
                         true => switch (vi.size(isel)) {
                             else => unreachable,
-                            2 => .fmov(dst_ra.w(), .{ .register = src_ra.h() }),
+                            2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                                .fmov(dst_ra.w(), .{ .register = src_ra.h() })
+                            else
+                                .umov(dst_ra.w(), src_ra.@"h[]"(0)),
                             4 => .fmov(dst_ra.w(), .{ .register = src_ra.s() }),
                             8 => .fmov(dst_ra.x(), .{ .register = src_ra.d() }),
                         },
                     },
                     true => switch (src_ra.isVector()) {
-                        false => switch (vi.size(isel)) {
+                        false => size: switch (vi.size(isel)) {
                             else => unreachable,
-                            2 => .fmov(dst_ra.h(), .{ .register = src_ra.w() }),
+                            2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                                .fmov(dst_ra.h(), .{ .register = src_ra.w() })
+                            else
+                                continue :size 4,
                             4 => .fmov(dst_ra.s(), .{ .register = src_ra.w() }),
                             8 => .fmov(dst_ra.d(), .{ .register = src_ra.x() }),
                         },
                         true => switch (vi.size(isel)) {
                             else => unreachable,
-                            2 => .fmov(dst_ra.h(), .{ .register = src_ra.h() }),
+                            2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                                .fmov(dst_ra.h(), .{ .register = src_ra.h() })
+                            else
+                                .dup(dst_ra.h(), src_ra.@"h[]"(0)),
                             4 => .fmov(dst_ra.s(), .{ .register = src_ra.s() }),
                             8 => .fmov(dst_ra.d(), .{ .register = src_ra.d() }),
                             16 => .orr(dst_ra.@"16b"(), src_ra.@"16b"(), .{ .register = src_ra.@"16b"() }),
@@ -9713,9 +9925,12 @@ pub const Value = struct {
                 const part_size = part_vi.size(isel);
                 const part_ra = if (part_vi.isVector(isel)) try isel.allocIntReg() else dst_ra;
                 defer if (part_ra != dst_ra) isel.freeReg(part_ra);
-                if (part_ra != dst_ra) try isel.emit(switch (part_size) {
+                if (part_ra != dst_ra) try isel.emit(part_size: switch (part_size) {
                     else => unreachable,
-                    2 => .fmov(dst_ra.h(), .{ .register = part_ra.w() }),
+                    2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                        .fmov(dst_ra.h(), .{ .register = part_ra.w() })
+                    else
+                        continue :part_size 4,
                     4 => .fmov(dst_ra.s(), .{ .register = part_ra.w() }),
                     8 => .fmov(dst_ra.d(), .{ .register = part_ra.x() }),
                 });
@@ -10360,7 +10575,10 @@ pub const Value = struct {
                 if (vi.register(isel)) |ra| {
                     if (ra != mat.ra) break :free try isel.emit(if (vi == mat.vi) if (mat.ra.isVector()) switch (size) {
                         else => unreachable,
-                        2 => .fmov(mat.ra.h(), .{ .register = ra.h() }),
+                        2 => if (isel.target.cpu.has(.aarch64, .fullfp16))
+                            .fmov(mat.ra.h(), .{ .register = ra.h() })
+                        else
+                            .dup(mat.ra.h(), ra.@"h[]"(0)),
                         4 => .fmov(mat.ra.s(), .{ .register = ra.s() }),
                         8 => .fmov(mat.ra.d(), .{ .register = ra.d() }),
                         16 => .orr(mat.ra.@"16b"(), ra.@"16b"(), .{ .register = ra.@"16b"() }),
