@@ -4034,8 +4034,8 @@ const AutoIndentingStream = struct {
     /// Writes ' ' bytes if the current line is empty
     fn applyIndent(ais: *AutoIndentingStream) Error!void {
         const current_indent = ais.currentIndent();
-        if (ais.current_line_empty and current_indent > 0) {
-            if (ais.disabled_offset == null) {
+        if (ais.current_line_empty) {
+            if (current_indent > 0 and ais.disabled_offset == null) {
                 try ais.underlying_writer.splatByteAll(' ', current_indent);
             }
             ais.applied_indent = current_indent;

@@ -6704,6 +6704,23 @@ test "zig fmt: doc comments on fn parameters" {
     );
 }
 
+test "zig fmt: proper tracking of indentation" {
+    try testCanonical(
+        \\const a = {
+        \\    {}
+        \\};
+        \\const b = if (x) {};
+        \\const c = .{
+        \\    {
+        \\        {}
+        \\    } //
+        \\    ,
+        \\    if (x) {},
+        \\};
+        \\
+    );
+}
+
 test "zig fmt: canonicalize stray backslashes in identifiers" {
     try testTransform(
         \\const @"\x" = undefined;
