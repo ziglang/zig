@@ -6110,6 +6110,15 @@ test "zig fmt: do not canonicalize invalid cast builtins" {
     );
 }
 
+test "zig fmt: field accesses on number literals" {
+    try testCanonical(
+        \\const a = 0xF .A;
+        \\const a = 0xF
+        \\    .A;
+        \\
+    );
+}
+
 test "zig fmt: whitespace with multiline strings" {
     try testCanonical(
         \\const a = .{
