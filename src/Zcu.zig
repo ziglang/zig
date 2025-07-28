@@ -3891,6 +3891,29 @@ pub fn typeToPackedStruct(zcu: *const Zcu, ty: Type) ?InternPool.LoadedStructTyp
     return s;
 }
 
+/// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
+/// into the packed struct InternPool data rather than computing this on the
+/// fly, however it was found to perform worse when measured on real world
+/// projects.
+pub fn structPackedFieldBitOffset(
+    zcu: *Zcu,
+    struct_type: InternPool.LoadedStructType,
+    field_index: u32,
+) u16 {
+    const ip = &zcu.intern_pool;
+    assert(struct_type.layout == .@"packed");
+    assert(struct_type.haveLayout(ip));
+    var bit_sum: u64 = 0;
+    for (0..struct_type.field_types.len) |i| {
+        if (i == field_index) {
+            return @intCast(bit_sum);
+        }
+        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
+        bit_sum += field_ty.bitSize(zcu);
+    }
+    unreachable; // index out of bounds
+}
+
 pub fn typeToUnion(zcu: *const Zcu, ty: Type) ?InternPool.LoadedUnionType {
     if (ty.ip_index == .none) return null;
     const ip = &zcu.intern_pool;
@@ -4436,11 +4459,7 @@ pub fn callconvSupported(zcu: *Zcu, cc: std.builtin.CallingConvention) union(enu
             else => false,
         },
         .stage2_aarch64 => switch (cc) {
-            .aarch64_aapcs,
-            .aarch64_aapcs_darwin,
-            .aarch64_aapcs_win,
-            => |opts| opts.incoming_stack_alignment == null,
-            .naked => true,
+            .aarch64_aapcs, .aarch64_aapcs_darwin, .naked => true,
             else => false,
         },
         .stage2_x86 => switch (cc) {

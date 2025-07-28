@@ -780,8 +780,7 @@ fn resolveRelocInner(
                 };
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
-            const pages = @as(u21, @bitCast(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target))));
-            aarch64.writeAdrpInst(pages, code[rel_offset..][0..4]);
+            aarch64.writeAdrInst(try aarch64.calcNumberOfPages(@intCast(source), @intCast(target)), code[rel_offset..][0..aarch64.encoding.Instruction.size]);
         },
 
         .pageoff => {
@@ -789,26 +788,18 @@ fn resolveRelocInner(
             assert(rel.meta.length == 2);
             assert(!rel.meta.pcrel);
             const target = math.cast(u64, S + A) orelse return error.Overflow;
-            const inst_code = code[rel_offset..][0..4];
-            if (aarch64.isArithmeticOp(inst_code)) {
-                aarch64.writeAddImmInst(@truncate(target), inst_code);
-            } else {
-                var inst = aarch64.Instruction{
-                    .load_store_register = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.load_store_register),
-                    ), inst_code),
-                };
-                inst.load_store_register.offset = switch (inst.load_store_register.size) {
-                    0 => if (inst.load_store_register.v == 1)
-                        try divExact(self, rel, @truncate(target), 16, macho_file)
-                    else
-                        @truncate(target),
-                    1 => try divExact(self, rel, @truncate(target), 2, macho_file),
-                    2 => try divExact(self, rel, @truncate(target), 4, macho_file),
-                    3 => try divExact(self, rel, @truncate(target), 8, macho_file),
-                };
-                try writer.writeInt(u32, inst.toU32(), .little);
+            const inst_code = code[rel_offset..][0..aarch64.encoding.Instruction.size];
+            var inst: aarch64.encoding.Instruction = .read(inst_code);
+            switch (inst.decode()) {
+                else => unreachable,
+                .data_processing_immediate => aarch64.writeAddImmInst(@truncate(target), inst_code),
+                .load_store => |load_store| {
+                    inst.load_store.register_unsigned_immediate.group.imm12 = switch (load_store.register_unsigned_immediate.decode()) {
+                        .integer => |integer| try divExact(self, rel, @truncate(target), @as(u4, 1) << @intFromEnum(integer.group.size), macho_file),
+                        .vector => |vector| try divExact(self, rel, @truncate(target), @as(u5, 1) << @intFromEnum(vector.group.opc1.decode(vector.group.size)), macho_file),
+                    };
+                    try writer.writeInt(u32, @bitCast(inst), .little);
+                },
             }
         },
 
@@ -834,59 +825,26 @@ fn resolveRelocInner(
                 break :target math.cast(u64, target) orelse return error.Overflow;
             };
 
-            const RegInfo = struct {
-                rd: u5,
-                rn: u5,
-                size: u2,
-            };
-
             const inst_code = code[rel_offset..][0..4];
-            const reg_info: RegInfo = blk: {
-                if (aarch64.isArithmeticOp(inst_code)) {
-                    const inst = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.add_subtract_immediate),
-                    ), inst_code);
-                    break :blk .{
-                        .rd = inst.rd,
-                        .rn = inst.rn,
-                        .size = inst.sf,
-                    };
-                } else {
-                    const inst = mem.bytesToValue(@FieldType(
-                        aarch64.Instruction,
-                        @tagName(aarch64.Instruction.load_store_register),
-                    ), inst_code);
-                    break :blk .{
-                        .rd = inst.rt,
-                        .rn = inst.rn,
-                        .size = inst.size,
-                    };
-                }
+            const rd, const rn = switch (aarch64.encoding.Instruction.read(inst_code).decode()) {
+                else => unreachable,
+                .data_processing_immediate => |decoded| .{
+                    decoded.add_subtract_immediate.group.Rd.decodeInteger(.doubleword, .{ .sp = true }),
+                    decoded.add_subtract_immediate.group.Rn.decodeInteger(.doubleword, .{ .sp = true }),
+                },
+                .load_store => |decoded| .{
+                    decoded.register_unsigned_immediate.integer.group.Rt.decodeInteger(.doubleword, .{}),
+                    decoded.register_unsigned_immediate.group.Rn.decodeInteger(.doubleword, .{ .sp = true }),
+                },
             };
 
-            var inst = if (sym.getSectionFlags().tlv_ptr) aarch64.Instruction{
-                .load_store_register = .{
-                    .rt = reg_info.rd,
-                    .rn = reg_info.rn,
-                    .offset = try divExact(self, rel, @truncate(target), 8, macho_file),
-                    .opc = 0b01,
-                    .op1 = 0b01,
-                    .v = 0,
-                    .size = reg_info.size,
-                },
-            } else aarch64.Instruction{
-                .add_subtract_immediate = .{
-                    .rd = reg_info.rd,
-                    .rn = reg_info.rn,
-                    .imm12 = @truncate(target),
-                    .sh = 0,
-                    .s = 0,
-                    .op = 0,
-                    .sf = @as(u1, @truncate(reg_info.size)),
-                },
-            };
-            try writer.writeInt(u32, inst.toU32(), .little);
+            try writer.writeInt(u32, @bitCast(@as(
+                aarch64.encoding.Instruction,
+                if (sym.getSectionFlags().tlv_ptr) .ldr(rd, .{ .unsigned_offset = .{
+                    .base = rn,
+                    .offset = try divExact(self, rel, @truncate(target), 8, macho_file) * 8,
+                } }) else .add(rd, rn, .{ .immediate = @truncate(target) }),
+            )), .little);
         },
     }
 }

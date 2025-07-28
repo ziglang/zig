@@ -100,7 +100,12 @@ pub const Adapter = struct {
 
     fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         _ = splat;
-        const a: *@This() = @fieldParentPtr("new_interface", w);
+        const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
+        const buffered = w.buffered();
+        if (buffered.len != 0) return w.consume(a.derp_writer.write(buffered) catch |err| {
+            a.err = err;
+            return error.WriteFailed;
+        });
         return a.derp_writer.write(data[0]) catch |err| {
             a.err = err;
             return error.WriteFailed;

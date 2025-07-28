@@ -696,8 +696,11 @@ fn runStepNames(
         .failures, .none => true,
         else => false,
     };
-    if (failure_count == 0 and failures_only) {
-        return run.cleanExit();
+    if (failure_count == 0) {
+        std.Progress.setStatus(.success);
+        if (failures_only) return run.cleanExit();
+    } else {
+        std.Progress.setStatus(.failure);
     }
 
     const ttyconf = run.ttyconf;
@@ -708,7 +711,7 @@ fn runStepNames(
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(w, .cyan) catch {};
-        w.writeAll("Build Summary:") catch {};
+        w.writeAll("\nBuild Summary:") catch {};
         ttyconf.setColor(w, .reset) catch {};
         w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
         if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};
@@ -1149,6 +1152,7 @@ fn workerMakeOneStep(
         } else |err| switch (err) {
             error.MakeFailed => {
                 @atomicStore(Step.State, &s.state, .failure, .seq_cst);
+                std.Progress.setStatus(.failure_working);
                 break :handle_result;
             },
             error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),

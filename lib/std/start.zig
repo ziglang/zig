@@ -101,17 +101,11 @@ comptime {
 // Simplified start code for stage2 until it supports more language features ///
 
 fn main2() callconv(.c) c_int {
-    root.main();
-    return 0;
+    return callMain();
 }
 
 fn _start2() callconv(.withStackAlign(.c, 1)) noreturn {
-    callMain2();
-}
-
-fn callMain2() noreturn {
-    root.main();
-    exit2(0);
+    std.posix.exit(callMain());
 }
 
 fn spirvMain2() callconv(.kernel) void {
@@ -119,51 +113,7 @@ fn spirvMain2() callconv(.kernel) void {
 }
 
 fn wWinMainCRTStartup2() callconv(.c) noreturn {
-    root.main();
-    exit2(0);
-}
-
-fn exit2(code: usize) noreturn {
-    switch (native_os) {
-        .linux => switch (builtin.cpu.arch) {
-            .x86_64 => {
-                asm volatile ("syscall"
-                    :
-                    : [number] "{rax}" (231),
-                      [arg1] "{rdi}" (code),
-                    : .{ .rcx = true, .r11 = true, .memory = true });
-            },
-            .arm => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{r7}" (1),
-                      [arg1] "{r0}" (code),
-                    : .{ .memory = true });
-            },
-            .aarch64 => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{x8}" (93),
-                      [arg1] "{x0}" (code),
-                    : .{ .memory = true });
-            },
-            .sparc64 => {
-                asm volatile ("ta 0x6d"
-                    :
-                    : [number] "{g1}" (1),
-                      [arg1] "{o0}" (code),
-                    : .{ .o0 = true, .o1 = true, .o2 = true, .o3 = true, .o4 = true, .o5 = true, .o6 = true, .o7 = true, .memory = true });
-            },
-            else => @compileError("TODO"),
-        },
-        // exits(0)
-        .plan9 => std.os.plan9.exits(null),
-        .windows => {
-            std.os.windows.ntdll.RtlExitUserProcess(@truncate(code));
-        },
-        else => @compileError("TODO"),
-    }
-    unreachable;
+    std.posix.exit(callMain());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -676,10 +626,11 @@ pub inline fn callMain() u8 {
 
             const result = root.main() catch |err| {
                 switch (builtin.zig_backend) {
+                    .stage2_aarch64,
                     .stage2_powerpc,
                     .stage2_riscv64,
                     => {
-                        std.debug.print("error: failed with error\n", .{});
+                        _ = std.posix.write(std.posix.STDERR_FILENO, "error: failed with error\n") catch {};
                         return 1;
                     },
                     else => {},

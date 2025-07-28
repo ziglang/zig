@@ -15,6 +15,6 @@ pub fn main() void {
 
 // error
 // backend=stage2
-// target=native
+// target=x86_64-linux
 //
 // :9:28: error: incompatible types: 'builtin.Type.EnumField' and 'void'

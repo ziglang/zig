@@ -328,6 +328,7 @@ pub fn deinit(self: *MachO) void {
     self.unwind_info.deinit(gpa);
     self.data_in_code.deinit(gpa);
 
+    for (self.thunks.items) |*thunk| thunk.deinit(gpa);
     self.thunks.deinit(gpa);
 }
 
@@ -612,7 +613,6 @@ pub fn flush(
         };
         const emit = self.base.emit;
         invalidateKernelCache(emit.root_dir.handle, emit.sub_path) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
             else => |e| return diags.fail("failed to invalidate kernel cache: {s}", .{@errorName(e)}),
         };
     }
@@ -5374,7 +5374,7 @@ const mem = std.mem;
 const meta = std.meta;
 const Writer = std.io.Writer;
 
-const aarch64 = @import("../arch/aarch64/bits.zig");
+const aarch64 = codegen.aarch64.encoding;
 const bind = @import("MachO/dyld_info/bind.zig");
 const calcUuid = @import("MachO/uuid.zig").calcUuid;
 const codegen = @import("../codegen.zig");

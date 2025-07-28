@@ -25,12 +25,12 @@ pub const Env = enum {
     /// - `zig build-* -fno-emit-bin`
     sema,
 
+    /// - sema
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target aarch64-linux --listen=-`
+    @"aarch64-linux",
+
     /// - `zig build-* -ofmt=c`
     cbe,
-
-    /// - sema
-    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
-    @"x86_64-linux",
 
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target powerpc(64)(le)-linux --listen=-`
@@ -47,6 +47,10 @@ pub const Env = enum {
     /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
     wasm,
+
+    /// - sema
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
+    @"x86_64-linux",
 
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
@@ -153,20 +157,19 @@ pub const Env = enum {
                 => true,
                 else => Env.ast_gen.supports(feature),
             },
+            .@"aarch64-linux" => switch (feature) {
+                .build_command,
+                .stdio_listen,
+                .incremental,
+                .aarch64_backend,
+                .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
             .cbe => switch (feature) {
                 .legalize,
                 .c_backend,
                 .c_linker,
-                => true,
-                else => Env.sema.supports(feature),
-            },
-            .@"x86_64-linux" => switch (feature) {
-                .build_command,
-                .stdio_listen,
-                .incremental,
-                .legalize,
-                .x86_64_backend,
-                .elf_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },
@@ -196,6 +199,16 @@ pub const Env = enum {
                 .incremental,
                 .wasm_backend,
                 .wasm_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .@"x86_64-linux" => switch (feature) {
+                .build_command,
+                .stdio_listen,
+                .incremental,
+                .legalize,
+                .x86_64_backend,
+                .elf_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },

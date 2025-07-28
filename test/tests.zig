@@ -116,8 +116,6 @@ const test_targets = blk: {
                 .abi = .eabihf,
             },
             .link_libc = true,
-            // https://github.com/ziglang/zig/issues/23949
-            .skip_modules = &.{"std"},
         },
 
         .{
@@ -189,6 +187,30 @@ const test_targets = blk: {
                 .abi = .gnu,
             },
             .link_libc = true,
+        },
+
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
+        },
+        .{
+            .target = .{
+                .cpu_arch = .aarch64,
+                .cpu_model = .{ .explicit = &std.Target.aarch64.cpu.neoverse_n1 },
+                .os_tag = .linux,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
         },
 
         .{
@@ -1184,6 +1206,18 @@ const test_targets = blk: {
 
         .{
             .target = .{
+                .cpu_arch = .aarch64,
+                .os_tag = .macos,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+            .optimize_mode = .ReleaseFast,
+            .strip = true,
+        },
+
+        .{
+            .target = .{
                 .cpu_arch = .x86_64,
                 .os_tag = .macos,
                 .abi = .none,
@@ -1335,16 +1369,15 @@ const test_targets = blk: {
 
         // WASI Targets
 
-        // TODO: lowerTry for pointers
-        //.{
-        //    .target = .{
-        //        .cpu_arch = .wasm32,
-        //        .os_tag = .wasi,
-        //        .abi = .none,
-        //    },
-        //    .use_llvm = false,
-        //    .use_lld = false,
-        //},
+        .{
+            .target = .{
+                .cpu_arch = .wasm32,
+                .os_tag = .wasi,
+                .abi = .none,
+            },
+            .use_llvm = false,
+            .use_lld = false,
+        },
         .{
             .target = .{
                 .cpu_arch = .wasm32,
@@ -1983,6 +2016,16 @@ pub fn addCliTests(b: *std.Build) *Step {
         step.dependOn(&cleanup.step);
     }
 
+    {
+        // Test `zig init -m`.
+        const tmp_path = b.makeTempPath();
+        const init_exe = b.addSystemCommand(&.{ b.graph.zig_exe, "init", "-m" });
+        init_exe.setCwd(.{ .cwd_relative = tmp_path });
+        init_exe.setName("zig init -m");
+        init_exe.expectStdOutEqual("");
+        init_exe.expectStdErrEqual("info: successfully populated 'build.zig.zon' and 'build.zig'\n");
+    }
+
     // Test Godbolt API
     if (builtin.os.tag == .linux and builtin.cpu.arch == .x86_64) {
         const tmp_path = b.makeTempPath();
@@ -2260,7 +2303,7 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
             continue;
 
         // TODO get compiler-rt tests passing for self-hosted backends.
-        if ((target.cpu.arch != .x86_64 or target.ofmt != .elf) and
+        if (((target.cpu.arch != .x86_64 and target.cpu.arch != .aarch64) or target.ofmt == .coff) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
             continue;
 
@@ -2328,10 +2371,10 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         } else "";
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
-        for (options.include_paths) |include_path| these_tests.addIncludePath(b.path(include_path));
+        for (options.include_paths) |include_path| these_tests.root_module.addIncludePath(b.path(include_path));
 
         if (target.os.tag == .windows) {
-            for (options.windows_libs) |lib| these_tests.linkSystemLibrary(lib);
+            for (options.windows_libs) |lib| these_tests.root_module.linkSystemLibrary(lib, .{});
         }
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}{s}", .{

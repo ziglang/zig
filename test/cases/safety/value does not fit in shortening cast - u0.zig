@@ -18,4 +18,4 @@ fn shorten_cast(x: u8) u0 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

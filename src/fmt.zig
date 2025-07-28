@@ -348,10 +348,10 @@ fn fmtPathFile(
         try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
+        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode, .write_buffer = &.{} });
         defer af.deinit();
 
-        try af.file.writeAll(fmt.out_buffer.getWritten());
+        try af.file_writer.interface.writeAll(fmt.out_buffer.getWritten());
         try af.finish();
         try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }

@@ -7147,7 +7147,7 @@ pub const dirent = switch (native_os) {
         off: off_t,
         reclen: c_ushort,
         type: u8,
-        name: [256:0]u8,
+        name: [255:0]u8,
     },
     else => void,
 };
@@ -10497,9 +10497,9 @@ pub const sysconf = switch (native_os) {
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        headers: [*]const iovec_const,
+        headers: ?[*]const iovec_const,
         hdr_cnt: c_int,
-        trailers: [*]const iovec_const,
+        trailers: ?[*]const iovec_const,
         trl_cnt: c_int,
     },
     else => void,

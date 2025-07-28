@@ -7556,12 +7556,18 @@ fn extraFuncCoerced(ip: *const InternPool, extra: Local.Extra, extra_index: u32)
 fn indexToKeyBigInt(ip: *const InternPool, tid: Zcu.PerThread.Id, limb_index: u32, positive: bool) Key {
     const limbs_items = ip.getLocalShared(tid).getLimbs().view().items(.@"0");
     const int: Int = @bitCast(limbs_items[limb_index..][0..Int.limbs_items_len].*);
+    const big_int: BigIntConst = .{
+        .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
+        .positive = positive,
+    };
     return .{ .int = .{
         .ty = int.ty,
-        .storage = .{ .big_int = .{
-            .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
-            .positive = positive,
-        } },
+        .storage = if (big_int.toInt(u64)) |x|
+            .{ .u64 = x }
+        else |_| if (big_int.toInt(i64)) |x|
+            .{ .i64 = x }
+        else |_|
+            .{ .big_int = big_int },
     } };
 }
 

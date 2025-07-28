@@ -1173,7 +1173,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
-    liveness: *const Air.Liveness,
+    liveness: *const ?Air.Liveness,
 ) Error!Mir {
     _ = src_loc;
     _ = bin_file;
@@ -1194,7 +1194,7 @@ pub fn generate(
         .gpa = gpa,
         .pt = pt,
         .air = air.*,
-        .liveness = liveness.*,
+        .liveness = liveness.*.?,
         .owner_nav = cg.owner_nav,
         .target = target,
         .ptr_size = switch (target.cpu.arch) {
@@ -1886,8 +1886,10 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .call_never_tail => cg.airCall(inst, .never_tail),
         .call_never_inline => cg.airCall(inst, .never_inline),
 
-        .is_err => cg.airIsErr(inst, .i32_ne),
-        .is_non_err => cg.airIsErr(inst, .i32_eq),
+        .is_err => cg.airIsErr(inst, .i32_ne, .value),
+        .is_non_err => cg.airIsErr(inst, .i32_eq, .value),
+        .is_err_ptr => cg.airIsErr(inst, .i32_ne, .ptr),
+        .is_non_err_ptr => cg.airIsErr(inst, .i32_eq, .ptr),
 
         .is_null => cg.airIsNull(inst, .i32_eq, .value),
         .is_non_null => cg.airIsNull(inst, .i32_ne, .value),
@@ -1970,8 +1972,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .runtime_nav_ptr => cg.airRuntimeNavPtr(inst),
 
         .assembly,
-        .is_err_ptr,
-        .is_non_err_ptr,
 
         .err_return_trace,
         .set_err_return_trace,
@@ -3776,7 +3776,7 @@ fn structFieldPtr(
                     break :offset @as(u32, 0);
                 }
                 const struct_type = zcu.typeToStruct(struct_ty).?;
-                break :offset @divExact(pt.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                break :offset @divExact(zcu.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .@"union" => 0,
             else => unreachable,
@@ -3812,7 +3812,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
             .@"struct" => result: {
                 const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
-                const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
+                const offset = zcu.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
                 const host_bits = backing_ty.intInfo(zcu).bits;
 
@@ -4105,7 +4105,7 @@ fn airSwitchDispatch(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .none, &.{br.operand});
 }
 
-fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerError!void {
+fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
     const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
@@ -4122,7 +4122,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerEr
         }
 
         try cg.emitWValue(operand);
-        if (pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (op_kind == .ptr or pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             try cg.addMemArg(.i32_load16_u, .{
                 .offset = operand.offset() + @as(u32, @intCast(errUnionErrorOffset(pl_ty, zcu))),
                 .alignment = @intCast(Type.anyerror.abiAlignment(zcu).toByteUnits().?),
@@ -5696,7 +5696,7 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .auto, .@"extern" => parent_ty.structFieldOffset(field_index, zcu),
         .@"packed" => offset: {
             const parent_ptr_offset = parent_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
-            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
+            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| zcu.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
             const field_ptr_offset = field_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
             break :offset @divExact(parent_ptr_offset + field_offset - field_ptr_offset, 8);
         },
@@ -6462,9 +6462,6 @@ fn lowerTry(
     operand_is_ptr: bool,
 ) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    if (operand_is_ptr) {
-        return cg.fail("TODO: lowerTry for pointers", .{});
-    }
 
     const pl_ty = err_union_ty.errorUnionPayload(zcu);
     const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(zcu);
@@ -6475,7 +6472,7 @@ fn lowerTry(
 
         // check if the error tag is set for the error union.
         try cg.emitWValue(err_union);
-        if (pl_has_bits) {
+        if (pl_has_bits or operand_is_ptr) {
             const err_offset: u32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
             try cg.addMemArg(.i32_load16_u, .{
                 .offset = err_union.offset() + err_offset,
@@ -6497,12 +6494,12 @@ fn lowerTry(
     }
 
     // if we reach here it means error was not set, and we want the payload
-    if (!pl_has_bits) {
+    if (!pl_has_bits and !operand_is_ptr) {
         return .none;
     }
 
     const pl_offset: u32 = @intCast(errUnionPayloadOffset(pl_ty, zcu));
-    if (isByRef(pl_ty, zcu, cg.target)) {
+    if (operand_is_ptr or isByRef(pl_ty, zcu, cg.target)) {
         return buildPointerOffset(cg, err_union, pl_offset, .new);
     }
     const payload = try cg.load(err_union, pl_ty, pl_offset);

@@ -321,6 +321,27 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidCharacter, parse("0xfoobbb"));
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
+
+    pub fn format(id: BuildId, writer: *std.io.Writer) std.io.Writer.Error!void {
+        switch (id) {
+            .none, .fast, .uuid, .sha1, .md5 => {
+                try writer.writeAll(@tagName(id));
+            },
+            .hexstring => |hs| {
+                try writer.print("0x{x}", .{hs.toSlice()});
+            },
+        }
+    }
+
+    test format {
+        try std.testing.expectFmt("none", "{f}", .{@as(BuildId, .none)});
+        try std.testing.expectFmt("fast", "{f}", .{@as(BuildId, .fast)});
+        try std.testing.expectFmt("uuid", "{f}", .{@as(BuildId, .uuid)});
+        try std.testing.expectFmt("sha1", "{f}", .{@as(BuildId, .sha1)});
+        try std.testing.expectFmt("md5", "{f}", .{@as(BuildId, .md5)});
+        try std.testing.expectFmt("0x", "{f}", .{BuildId.initHexString("")});
+        try std.testing.expectFmt("0x1234cdef", "{f}", .{BuildId.initHexString("\x12\x34\xcd\xef")});
+    }
 };
 
 pub const LtoMode = enum { none, full, thin };
@@ -364,23 +385,23 @@ pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtIdFlags`.
-pub fn fmtId(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{} } };
+pub fn fmtId(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{} };
 }
 
 /// Return a Formatter for a Zig identifier, escaping it with `@""` syntax if needed.
 ///
 /// See also `fmtId`.
-pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = flags } };
+pub fn fmtIdFlags(bytes: []const u8, flags: FormatId.Flags) FormatId {
+    return .{ .bytes = bytes, .flags = flags };
 }
 
-pub fn fmtIdPU(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } } };
+pub fn fmtIdPU(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true, .allow_underscore = true } };
 }
 
-pub fn fmtIdP(bytes: []const u8) std.fmt.Formatter(FormatId, FormatId.render) {
-    return .{ .data = .{ .bytes = bytes, .flags = .{ .allow_primitive = true } } };
+pub fn fmtIdP(bytes: []const u8) FormatId {
+    return .{ .bytes = bytes, .flags = .{ .allow_primitive = true } };
 }
 
 test fmtId {
@@ -426,7 +447,7 @@ pub const FormatId = struct {
     };
 
     /// Print the string as a Zig identifier, escaping it with `@""` syntax if needed.
-    fn render(ctx: FormatId, writer: *Writer) Writer.Error!void {
+    pub fn format(ctx: FormatId, writer: *Writer) Writer.Error!void {
         const bytes = ctx.bytes;
         if (isValidId(bytes) and
             (ctx.flags.allow_primitive or !std.zig.isPrimitive(bytes)) and

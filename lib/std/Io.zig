@@ -1,16 +1,11 @@
-const std = @import("std.zig");
 const builtin = @import("builtin");
-const root = @import("root");
-const c = std.c;
 const is_windows = builtin.os.tag == .windows;
+
+const std = @import("std.zig");
 const windows = std.os.windows;
 const posix = std.posix;
 const math = std.math;
 const assert = std.debug.assert;
-const fs = std.fs;
-const mem = std.mem;
-const meta = std.meta;
-const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
@@ -314,11 +309,11 @@ pub fn GenericReader(
         }
 
         /// Helper for bridging to the new `Reader` API while upgrading.
-        pub fn adaptToNewApi(self: *const Self) Adapter {
+        pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
             return .{
                 .derp_reader = self.*,
                 .new_interface = .{
-                    .buffer = &.{},
+                    .buffer = buffer,
                     .vtable = &.{ .stream = Adapter.stream },
                     .seek = 0,
                     .end = 0,
@@ -334,10 +329,12 @@ pub fn GenericReader(
             fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
                 const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
                 const buf = limit.slice(try w.writableSliceGreedy(1));
-                return a.derp_reader.read(buf) catch |err| {
+                const n = a.derp_reader.read(buf) catch |err| {
                     a.err = err;
                     return error.ReadFailed;
                 };
+                w.advance(n);
+                return n;
             }
         };
     };
@@ -419,9 +416,14 @@ pub fn GenericWriter(
             new_interface: Writer,
             err: ?Error = null,
 
-            fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
+            fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
                 _ = splat;
                 const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
+                const buffered = w.buffered();
+                if (buffered.len != 0) return w.consume(a.derp_writer.write(buffered) catch |err| {
+                    a.err = err;
+                    return error.WriteFailed;
+                });
                 return a.derp_writer.write(data[0]) catch |err| {
                     a.err = err;
                     return error.WriteFailed;
@@ -435,32 +437,34 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-
+/// Deprecated in favor of `File.Reader` and `File.Writer`.
 pub const SeekableStream = @import("Io/seekable_stream.zig").SeekableStream;
-
+/// Deprecated in favor of `Writer`.
 pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
+/// Deprecated in favor of `Writer`.
 pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
-
+/// Deprecated in favor of `Reader`.
 pub const BufferedReader = @import("Io/buffered_reader.zig").BufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReader = @import("Io/buffered_reader.zig").bufferedReader;
+/// Deprecated in favor of `Reader`.
 pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderSize;
-
+/// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
+/// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-
-pub const CWriter = @import("Io/c_writer.zig").CWriter;
-pub const cWriter = @import("Io/c_writer.zig").cWriter;
-
+/// Deprecated in favor of `Reader.Limited`.
 pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
+/// Deprecated in favor of `Reader.Limited`.
 pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
-
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingWriter = @import("Io/counting_writer.zig").countingWriter;
+/// Deprecated with no replacement; inefficient pattern
 pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
+/// Deprecated with no replacement; inefficient pattern
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
-
-pub const MultiWriter = @import("Io/multi_writer.zig").MultiWriter;
-pub const multiWriter = @import("Io/multi_writer.zig").multiWriter;
 
 pub const BitReader = @import("Io/bit_reader.zig").BitReader;
 pub const bitReader = @import("Io/bit_reader.zig").bitReader;
@@ -468,21 +472,11 @@ pub const bitReader = @import("Io/bit_reader.zig").bitReader;
 pub const BitWriter = @import("Io/bit_writer.zig").BitWriter;
 pub const bitWriter = @import("Io/bit_writer.zig").bitWriter;
 
-pub const ChangeDetectionStream = @import("Io/change_detection_stream.zig").ChangeDetectionStream;
-pub const changeDetectionStream = @import("Io/change_detection_stream.zig").changeDetectionStream;
-
-pub const FindByteWriter = @import("Io/find_byte_writer.zig").FindByteWriter;
-pub const findByteWriter = @import("Io/find_byte_writer.zig").findByteWriter;
-
-pub const BufferedAtomicFile = @import("Io/buffered_atomic_file.zig").BufferedAtomicFile;
-
-pub const StreamSource = @import("Io/stream_source.zig").StreamSource;
-
 pub const tty = @import("Io/tty.zig");
 
-/// A Writer that doesn't write to anything.
+/// Deprecated in favor of `Writer.Discarding`.
 pub const null_writer: NullWriter = .{ .context = {} };
-
+/// Deprecated in favor of `Writer.Discarding`.
 pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
 fn dummyWrite(context: void, data: []const u8) error{}!usize {
     _ = context;
@@ -494,54 +488,51 @@ test null_writer {
 }
 
 pub fn poll(
-    allocator: Allocator,
+    gpa: Allocator,
     comptime StreamEnum: type,
     files: PollFiles(StreamEnum),
 ) Poller(StreamEnum) {
     const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
-    var result: Poller(StreamEnum) = undefined;
-
-    if (is_windows) result.windows = .{
-        .first_read_done = false,
-        .overlapped = [1]windows.OVERLAPPED{
-            mem.zeroes(windows.OVERLAPPED),
-        } ** enum_fields.len,
-        .small_bufs = undefined,
-        .active = .{
-            .count = 0,
-            .handles_buf = undefined,
-            .stream_map = undefined,
-        },
+    var result: Poller(StreamEnum) = .{
+        .gpa = gpa,
+        .readers = @splat(.failing),
+        .poll_fds = undefined,
+        .windows = if (is_windows) .{
+            .first_read_done = false,
+            .overlapped = [1]windows.OVERLAPPED{
+                std.mem.zeroes(windows.OVERLAPPED),
+            } ** enum_fields.len,
+            .small_bufs = undefined,
+            .active = .{
+                .count = 0,
+                .handles_buf = undefined,
+                .stream_map = undefined,
+            },
+        } else {},
     };
 
-    inline for (0..enum_fields.len) |i| {
-        result.fifos[i] = .{
-            .allocator = allocator,
-            .buf = &.{},
-            .head = 0,
-            .count = 0,
-        };
+    inline for (enum_fields, 0..) |field, i| {
         if (is_windows) {
-            result.windows.active.handles_buf[i] = @field(files, enum_fields[i].name).handle;
+            result.windows.active.handles_buf[i] = @field(files, field.name).handle;
         } else {
             result.poll_fds[i] = .{
-                .fd = @field(files, enum_fields[i].name).handle,
+                .fd = @field(files, field.name).handle,
                 .events = posix.POLL.IN,
                 .revents = undefined,
             };
         }
     }
+
     return result;
 }
-
-pub const PollFifo = std.fifo.LinearFifo(u8, .Dynamic);
 
 pub fn Poller(comptime StreamEnum: type) type {
     return struct {
         const enum_fields = @typeInfo(StreamEnum).@"enum".fields;
         const PollFd = if (is_windows) void else posix.pollfd;
 
-        fifos: [enum_fields.len]PollFifo,
+        gpa: Allocator,
+        readers: [enum_fields.len]Reader,
         poll_fds: [enum_fields.len]PollFd,
         windows: if (is_windows) struct {
             first_read_done: bool,
@@ -553,7 +544,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 stream_map: [enum_fields.len]StreamEnum,
 
                 pub fn removeAt(self: *@This(), index: u32) void {
-                    std.debug.assert(index < self.count);
+                    assert(index < self.count);
                     for (index + 1..self.count) |i| {
                         self.handles_buf[i - 1] = self.handles_buf[i];
                         self.stream_map[i - 1] = self.stream_map[i];
@@ -566,13 +557,14 @@ pub fn Poller(comptime StreamEnum: type) type {
         const Self = @This();
 
         pub fn deinit(self: *Self) void {
+            const gpa = self.gpa;
             if (is_windows) {
                 // cancel any pending IO to prevent clobbering OVERLAPPED value
                 for (self.windows.active.handles_buf[0..self.windows.active.count]) |h| {
                     _ = windows.kernel32.CancelIo(h);
                 }
             }
-            inline for (&self.fifos) |*q| q.deinit();
+            inline for (&self.readers) |*r| gpa.free(r.buffer);
             self.* = undefined;
         }
 
@@ -592,21 +584,40 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
         }
 
-        pub inline fn fifo(self: *Self, comptime which: StreamEnum) *PollFifo {
-            return &self.fifos[@intFromEnum(which)];
+        pub fn reader(self: *Self, which: StreamEnum) *Reader {
+            return &self.readers[@intFromEnum(which)];
+        }
+
+        pub fn toOwnedSlice(self: *Self, which: StreamEnum) error{OutOfMemory}![]u8 {
+            const gpa = self.gpa;
+            const r = reader(self, which);
+            if (r.seek == 0) {
+                const new = try gpa.realloc(r.buffer, r.end);
+                r.buffer = &.{};
+                r.end = 0;
+                return new;
+            }
+            const new = try gpa.dupe(u8, r.buffered());
+            gpa.free(r.buffer);
+            r.buffer = &.{};
+            r.seek = 0;
+            r.end = 0;
+            return new;
         }
 
         fn pollWindows(self: *Self, nanoseconds: ?u64) !bool {
             const bump_amt = 512;
+            const gpa = self.gpa;
 
             if (!self.windows.first_read_done) {
                 var already_read_data = false;
                 for (0..enum_fields.len) |i| {
                     const handle = self.windows.active.handles_buf[i];
                     switch (try windowsAsyncReadToFifoAndQueueSmallRead(
+                        gpa,
                         handle,
                         &self.windows.overlapped[i],
-                        &self.fifos[i],
+                        &self.readers[i],
                         &self.windows.small_bufs[i],
                         bump_amt,
                     )) {
@@ -653,7 +664,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 const handle = self.windows.active.handles_buf[active_idx];
 
                 const overlapped = &self.windows.overlapped[stream_idx];
-                const stream_fifo = &self.fifos[stream_idx];
+                const stream_reader = &self.readers[stream_idx];
                 const small_buf = &self.windows.small_bufs[stream_idx];
 
                 const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
@@ -664,12 +675,16 @@ pub fn Poller(comptime StreamEnum: type) type {
                     },
                     .aborted => unreachable,
                 };
-                try stream_fifo.write(small_buf[0..num_bytes_read]);
+                const buf = small_buf[0..num_bytes_read];
+                const dest = try writableSliceGreedyAlloc(stream_reader, gpa, buf.len);
+                @memcpy(dest[0..buf.len], buf);
+                advanceBufferEnd(stream_reader, buf.len);
 
                 switch (try windowsAsyncReadToFifoAndQueueSmallRead(
+                    gpa,
                     handle,
                     overlapped,
-                    stream_fifo,
+                    stream_reader,
                     small_buf,
                     bump_amt,
                 )) {
@@ -684,6 +699,7 @@ pub fn Poller(comptime StreamEnum: type) type {
         }
 
         fn pollPosix(self: *Self, nanoseconds: ?u64) !bool {
+            const gpa = self.gpa;
             // We ask for ensureUnusedCapacity with this much extra space. This
             // has more of an effect on small reads because once the reads
             // start to get larger the amount of space an ArrayList will
@@ -703,18 +719,18 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
 
             var keep_polling = false;
-            inline for (&self.poll_fds, &self.fifos) |*poll_fd, *q| {
+            for (&self.poll_fds, &self.readers) |*poll_fd, *r| {
                 // Try reading whatever is available before checking the error
                 // conditions.
                 // It's still possible to read after a POLL.HUP is received,
                 // always check if there's some data waiting to be read first.
                 if (poll_fd.revents & posix.POLL.IN != 0) {
-                    const buf = try q.writableWithSize(bump_amt);
+                    const buf = try writableSliceGreedyAlloc(r, gpa, bump_amt);
                     const amt = posix.read(poll_fd.fd, buf) catch |err| switch (err) {
                         error.BrokenPipe => 0, // Handle the same as EOF.
                         else => |e| return e,
                     };
-                    q.update(amt);
+                    advanceBufferEnd(r, amt);
                     if (amt == 0) {
                         // Remove the fd when the EOF condition is met.
                         poll_fd.fd = -1;
@@ -730,146 +746,181 @@ pub fn Poller(comptime StreamEnum: type) type {
             }
             return keep_polling;
         }
-    };
-}
 
-/// The `ReadFile` docuementation states that `lpNumberOfBytesRead` does not have a meaningful
-/// result when using overlapped I/O, but also that it cannot be `null` on Windows 7. For
-/// compatibility, we point it to this dummy variables, which we never otherwise access.
-/// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
-var win_dummy_bytes_read: u32 = undefined;
-
-/// Read as much data as possible from `handle` with `overlapped`, and write it to the FIFO. Before
-/// returning, queue a read into `small_buf` so that `WaitForMultipleObjects` returns when more data
-/// is available. `handle` must have no pending asynchronous operation.
-fn windowsAsyncReadToFifoAndQueueSmallRead(
-    handle: windows.HANDLE,
-    overlapped: *windows.OVERLAPPED,
-    fifo: *PollFifo,
-    small_buf: *[128]u8,
-    bump_amt: usize,
-) !enum { empty, populated, closed_populated, closed } {
-    var read_any_data = false;
-    while (true) {
-        const fifo_read_pending = while (true) {
-            const buf = try fifo.writableWithSize(bump_amt);
-            const buf_len = math.cast(u32, buf.len) orelse math.maxInt(u32);
-
-            if (0 == windows.kernel32.ReadFile(
-                handle,
-                buf.ptr,
-                buf_len,
-                &win_dummy_bytes_read,
-                overlapped,
-            )) switch (windows.GetLastError()) {
-                .IO_PENDING => break true,
-                .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
-                else => |err| return windows.unexpectedError(err),
-            };
-
-            const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
-                .success => |n| n,
-                .closed => return if (read_any_data) .closed_populated else .closed,
-                .aborted => unreachable,
-            };
-
-            read_any_data = true;
-            fifo.update(num_bytes_read);
-
-            if (num_bytes_read == buf_len) {
-                // We filled the buffer, so there's probably more data available.
-                continue;
-            } else {
-                // We didn't fill the buffer, so assume we're out of data.
-                // There is no pending read.
-                break false;
+        /// Returns a slice into the unused capacity of `buffer` with at least
+        /// `min_len` bytes, extending `buffer` by resizing it with `gpa` as necessary.
+        ///
+        /// After calling this function, typically the caller will follow up with a
+        /// call to `advanceBufferEnd` to report the actual number of bytes buffered.
+        fn writableSliceGreedyAlloc(r: *Reader, allocator: Allocator, min_len: usize) Allocator.Error![]u8 {
+            {
+                const unused = r.buffer[r.end..];
+                if (unused.len >= min_len) return unused;
             }
-        };
-
-        if (fifo_read_pending) cancel_read: {
-            // Cancel the pending read into the FIFO.
-            _ = windows.kernel32.CancelIo(handle);
-
-            // We have to wait for the handle to be signalled, i.e. for the cancellation to complete.
-            switch (windows.kernel32.WaitForSingleObject(handle, windows.INFINITE)) {
-                windows.WAIT_OBJECT_0 => {},
-                windows.WAIT_FAILED => return windows.unexpectedError(windows.GetLastError()),
-                else => unreachable,
+            if (r.seek > 0) r.rebase(r.buffer.len) catch unreachable;
+            {
+                var list: std.ArrayListUnmanaged(u8) = .{
+                    .items = r.buffer[0..r.end],
+                    .capacity = r.buffer.len,
+                };
+                defer r.buffer = list.allocatedSlice();
+                try list.ensureUnusedCapacity(allocator, min_len);
             }
-
-            // If it completed before we canceled, make sure to tell the FIFO!
-            const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, true)) {
-                .success => |n| n,
-                .closed => return if (read_any_data) .closed_populated else .closed,
-                .aborted => break :cancel_read,
-            };
-            read_any_data = true;
-            fifo.update(num_bytes_read);
+            const unused = r.buffer[r.end..];
+            assert(unused.len >= min_len);
+            return unused;
         }
 
-        // Try to queue the 1-byte read.
-        if (0 == windows.kernel32.ReadFile(
-            handle,
-            small_buf,
-            small_buf.len,
-            &win_dummy_bytes_read,
-            overlapped,
-        )) switch (windows.GetLastError()) {
-            .IO_PENDING => {
-                // 1-byte read pending as intended
-                return if (read_any_data) .populated else .empty;
-            },
-            .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
-            else => |err| return windows.unexpectedError(err),
-        };
+        /// After writing directly into the unused capacity of `buffer`, this function
+        /// updates `end` so that users of `Reader` can receive the data.
+        fn advanceBufferEnd(r: *Reader, n: usize) void {
+            assert(n <= r.buffer.len - r.end);
+            r.end += n;
+        }
 
-        // We got data back this time. Write it to the FIFO and run the main loop again.
-        const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
-            .success => |n| n,
-            .closed => return if (read_any_data) .closed_populated else .closed,
-            .aborted => unreachable,
-        };
-        try fifo.write(small_buf[0..num_bytes_read]);
-        read_any_data = true;
-    }
-}
+        /// The `ReadFile` docuementation states that `lpNumberOfBytesRead` does not have a meaningful
+        /// result when using overlapped I/O, but also that it cannot be `null` on Windows 7. For
+        /// compatibility, we point it to this dummy variables, which we never otherwise access.
+        /// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
+        var win_dummy_bytes_read: u32 = undefined;
 
-/// Simple wrapper around `GetOverlappedResult` to determine the result of a `ReadFile` operation.
-/// If `!allow_aborted`, then `aborted` is never returned (`OPERATION_ABORTED` is considered unexpected).
-///
-/// The `ReadFile` documentation states that the number of bytes read by an overlapped `ReadFile` must be determined using `GetOverlappedResult`, even if the
-/// operation immediately returns data:
-/// "Use NULL for [lpNumberOfBytesRead] if this is an asynchronous operation to avoid potentially
-/// erroneous results."
-/// "If `hFile` was opened with `FILE_FLAG_OVERLAPPED`, the following conditions are in effect: [...]
-/// The lpNumberOfBytesRead parameter should be set to NULL. Use the GetOverlappedResult function to
-/// get the actual number of bytes read."
-/// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
-fn windowsGetReadResult(
-    handle: windows.HANDLE,
-    overlapped: *windows.OVERLAPPED,
-    allow_aborted: bool,
-) !union(enum) {
-    success: u32,
-    closed,
-    aborted,
-} {
-    var num_bytes_read: u32 = undefined;
-    if (0 == windows.kernel32.GetOverlappedResult(
-        handle,
-        overlapped,
-        &num_bytes_read,
-        0,
-    )) switch (windows.GetLastError()) {
-        .BROKEN_PIPE => return .closed,
-        .OPERATION_ABORTED => |err| if (allow_aborted) {
-            return .aborted;
-        } else {
-            return windows.unexpectedError(err);
-        },
-        else => |err| return windows.unexpectedError(err),
+        /// Read as much data as possible from `handle` with `overlapped`, and write it to the FIFO. Before
+        /// returning, queue a read into `small_buf` so that `WaitForMultipleObjects` returns when more data
+        /// is available. `handle` must have no pending asynchronous operation.
+        fn windowsAsyncReadToFifoAndQueueSmallRead(
+            gpa: Allocator,
+            handle: windows.HANDLE,
+            overlapped: *windows.OVERLAPPED,
+            r: *Reader,
+            small_buf: *[128]u8,
+            bump_amt: usize,
+        ) !enum { empty, populated, closed_populated, closed } {
+            var read_any_data = false;
+            while (true) {
+                const fifo_read_pending = while (true) {
+                    const buf = try writableSliceGreedyAlloc(r, gpa, bump_amt);
+                    const buf_len = math.cast(u32, buf.len) orelse math.maxInt(u32);
+
+                    if (0 == windows.kernel32.ReadFile(
+                        handle,
+                        buf.ptr,
+                        buf_len,
+                        &win_dummy_bytes_read,
+                        overlapped,
+                    )) switch (windows.GetLastError()) {
+                        .IO_PENDING => break true,
+                        .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
+                        else => |err| return windows.unexpectedError(err),
+                    };
+
+                    const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
+                        .success => |n| n,
+                        .closed => return if (read_any_data) .closed_populated else .closed,
+                        .aborted => unreachable,
+                    };
+
+                    read_any_data = true;
+                    advanceBufferEnd(r, num_bytes_read);
+
+                    if (num_bytes_read == buf_len) {
+                        // We filled the buffer, so there's probably more data available.
+                        continue;
+                    } else {
+                        // We didn't fill the buffer, so assume we're out of data.
+                        // There is no pending read.
+                        break false;
+                    }
+                };
+
+                if (fifo_read_pending) cancel_read: {
+                    // Cancel the pending read into the FIFO.
+                    _ = windows.kernel32.CancelIo(handle);
+
+                    // We have to wait for the handle to be signalled, i.e. for the cancellation to complete.
+                    switch (windows.kernel32.WaitForSingleObject(handle, windows.INFINITE)) {
+                        windows.WAIT_OBJECT_0 => {},
+                        windows.WAIT_FAILED => return windows.unexpectedError(windows.GetLastError()),
+                        else => unreachable,
+                    }
+
+                    // If it completed before we canceled, make sure to tell the FIFO!
+                    const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, true)) {
+                        .success => |n| n,
+                        .closed => return if (read_any_data) .closed_populated else .closed,
+                        .aborted => break :cancel_read,
+                    };
+                    read_any_data = true;
+                    advanceBufferEnd(r, num_bytes_read);
+                }
+
+                // Try to queue the 1-byte read.
+                if (0 == windows.kernel32.ReadFile(
+                    handle,
+                    small_buf,
+                    small_buf.len,
+                    &win_dummy_bytes_read,
+                    overlapped,
+                )) switch (windows.GetLastError()) {
+                    .IO_PENDING => {
+                        // 1-byte read pending as intended
+                        return if (read_any_data) .populated else .empty;
+                    },
+                    .BROKEN_PIPE => return if (read_any_data) .closed_populated else .closed,
+                    else => |err| return windows.unexpectedError(err),
+                };
+
+                // We got data back this time. Write it to the FIFO and run the main loop again.
+                const num_bytes_read = switch (try windowsGetReadResult(handle, overlapped, false)) {
+                    .success => |n| n,
+                    .closed => return if (read_any_data) .closed_populated else .closed,
+                    .aborted => unreachable,
+                };
+                const buf = small_buf[0..num_bytes_read];
+                const dest = try writableSliceGreedyAlloc(r, gpa, buf.len);
+                @memcpy(dest[0..buf.len], buf);
+                advanceBufferEnd(r, buf.len);
+                read_any_data = true;
+            }
+        }
+
+        /// Simple wrapper around `GetOverlappedResult` to determine the result of a `ReadFile` operation.
+        /// If `!allow_aborted`, then `aborted` is never returned (`OPERATION_ABORTED` is considered unexpected).
+        ///
+        /// The `ReadFile` documentation states that the number of bytes read by an overlapped `ReadFile` must be determined using `GetOverlappedResult`, even if the
+        /// operation immediately returns data:
+        /// "Use NULL for [lpNumberOfBytesRead] if this is an asynchronous operation to avoid potentially
+        /// erroneous results."
+        /// "If `hFile` was opened with `FILE_FLAG_OVERLAPPED`, the following conditions are in effect: [...]
+        /// The lpNumberOfBytesRead parameter should be set to NULL. Use the GetOverlappedResult function to
+        /// get the actual number of bytes read."
+        /// See: https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-readfile
+        fn windowsGetReadResult(
+            handle: windows.HANDLE,
+            overlapped: *windows.OVERLAPPED,
+            allow_aborted: bool,
+        ) !union(enum) {
+            success: u32,
+            closed,
+            aborted,
+        } {
+            var num_bytes_read: u32 = undefined;
+            if (0 == windows.kernel32.GetOverlappedResult(
+                handle,
+                overlapped,
+                &num_bytes_read,
+                0,
+            )) switch (windows.GetLastError()) {
+                .BROKEN_PIPE => return .closed,
+                .OPERATION_ABORTED => |err| if (allow_aborted) {
+                    return .aborted;
+                } else {
+                    return windows.unexpectedError(err);
+                },
+                else => |err| return windows.unexpectedError(err),
+            };
+            return .{ .success = num_bytes_read };
+        }
     };
-    return .{ .success = num_bytes_read };
 }
 
 /// Given an enum, returns a struct with fields of that enum, each field
@@ -880,10 +931,10 @@ pub fn PollFiles(comptime StreamEnum: type) type {
     for (&struct_fields, enum_fields) |*struct_field, enum_field| {
         struct_field.* = .{
             .name = enum_field.name,
-            .type = fs.File,
+            .type = std.fs.File,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = @alignOf(fs.File),
+            .alignment = @alignOf(std.fs.File),
         };
     }
     return @Type(.{ .@"struct" = .{
@@ -898,16 +949,14 @@ test {
     _ = Reader;
     _ = Reader.Limited;
     _ = Writer;
-    _ = @import("Io/bit_reader.zig");
-    _ = @import("Io/bit_writer.zig");
-    _ = @import("Io/buffered_atomic_file.zig");
-    _ = @import("Io/buffered_reader.zig");
-    _ = @import("Io/buffered_writer.zig");
-    _ = @import("Io/c_writer.zig");
-    _ = @import("Io/counting_writer.zig");
-    _ = @import("Io/counting_reader.zig");
-    _ = @import("Io/fixed_buffer_stream.zig");
-    _ = @import("Io/seekable_stream.zig");
-    _ = @import("Io/stream_source.zig");
+    _ = BitReader;
+    _ = BitWriter;
+    _ = BufferedReader;
+    _ = BufferedWriter;
+    _ = CountingWriter;
+    _ = CountingReader;
+    _ = FixedBufferStream;
+    _ = SeekableStream;
+    _ = tty;
     _ = @import("Io/test.zig");
 }

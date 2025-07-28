@@ -69,7 +69,6 @@ pub const ArrayHashMap = @import("json/hashmap.zig").ArrayHashMap;
 pub const Scanner = @import("json/Scanner.zig");
 pub const validate = Scanner.validate;
 pub const Error = Scanner.Error;
-pub const reader = Scanner.reader;
 pub const default_buffer_size = Scanner.default_buffer_size;
 pub const Token = Scanner.Token;
 pub const TokenType = Scanner.TokenType;

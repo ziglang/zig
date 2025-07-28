@@ -676,6 +676,7 @@ test lessThan {
 
 const eqlBytes_allowed = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     => false,
@@ -4482,7 +4483,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
                 );
                 asm volatile (""
                     :
-                    : [val2] "r" (val2),
+                    : [_] "r" (val2),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4490,7 +4491,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             if ((t.float.bits == 32 or t.float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
-                    : [val] "rm" (val),
+                    : [_] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4500,7 +4501,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else {
                 asm volatile (""
                     :
-                    : [val] "m" (val),
+                    : [_] "m" (val),
                     : .{ .memory = true });
             }
         },

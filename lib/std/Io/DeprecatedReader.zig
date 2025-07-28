@@ -373,11 +373,11 @@ pub fn discard(self: Self) anyerror!u64 {
 }
 
 /// Helper for bridging to the new `Reader` API while upgrading.
-pub fn adaptToNewApi(self: *const Self) Adapter {
+pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
     return .{
         .derp_reader = self.*,
         .new_interface = .{
-            .buffer = &.{},
+            .buffer = buffer,
             .vtable = &.{ .stream = Adapter.stream },
             .seek = 0,
             .end = 0,
@@ -393,10 +393,12 @@ pub const Adapter = struct {
     fn stream(r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
         const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
         const buf = limit.slice(try w.writableSliceGreedy(1));
-        return a.derp_reader.read(buf) catch |err| {
+        const n = a.derp_reader.read(buf) catch |err| {
             a.err = err;
             return error.ReadFailed;
         };
+        w.advance(n);
+        return n;
     }
 };
 

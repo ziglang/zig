@@ -20,6 +20,7 @@ const Package = @import("../Package.zig");
 const Air = @import("../Air.zig");
 const Value = @import("../Value.zig");
 const Type = @import("../Type.zig");
+const codegen = @import("../codegen.zig");
 const x86_64_abi = @import("../arch/x86_64/abi.zig");
 const wasm_c_abi = @import("wasm/abi.zig");
 const aarch64_c_abi = @import("aarch64/abi.zig");
@@ -1131,7 +1132,7 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: *const Air,
-        liveness: *const Air.Liveness,
+        liveness: *const ?Air.Liveness,
     ) !void {
         const zcu = pt.zcu;
         const comp = zcu.comp;
@@ -1489,7 +1490,7 @@ pub const Object = struct {
         var fg: FuncGen = .{
             .gpa = gpa,
             .air = air.*,
-            .liveness = liveness.*,
+            .liveness = liveness.*.?,
             .ng = &ng,
             .wip = wip,
             .is_naked = fn_info.cc == .naked,
@@ -4210,7 +4211,7 @@ pub const Object = struct {
             .eu_payload => |eu_ptr| try o.lowerPtr(
                 pt,
                 eu_ptr,
-                offset + @import("../codegen.zig").errUnionPayloadOffset(
+                offset + codegen.errUnionPayloadOffset(
                     Value.fromInterned(eu_ptr).typeOf(zcu).childType(zcu),
                     zcu,
                 ),
@@ -6050,10 +6051,10 @@ pub const FuncGen = struct {
             const target_blocks = dispatch_info.case_blocks[0..target_blocks_len];
 
             // Make sure to cast the index to a usize so it's not treated as negative!
-            const table_index = try self.wip.cast(
-                .zext,
+            const table_index = try self.wip.conv(
+                .unsigned,
                 try self.wip.bin(.@"sub nuw", cond, jmp_table.min.toValue(), ""),
-                try o.lowerType(pt, Type.usize),
+                try o.lowerType(pt, .usize),
                 "",
             );
             const target_ptr_ptr = try self.wip.gep(
@@ -6969,7 +6970,7 @@ pub const FuncGen = struct {
                 .@"struct" => switch (struct_ty.containerLayout(zcu)) {
                     .@"packed" => {
                         const struct_type = zcu.typeToStruct(struct_ty).?;
-                        const bit_offset = pt.structPackedFieldBitOffset(struct_type, field_index);
+                        const bit_offset = zcu.structPackedFieldBitOffset(struct_type, field_index);
                         const containing_int = struct_llvm_val;
                         const shift_amt =
                             try o.builder.intValue(containing_int.typeOfWip(&self.wip), bit_offset);
@@ -11364,7 +11365,7 @@ pub const FuncGen = struct {
 
                     // We have a pointer to a packed struct field that happens to be byte-aligned.
                     // Offset our operand pointer by the correct number of bytes.
-                    const byte_offset = @divExact(pt.structPackedFieldBitOffset(struct_type, field_index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                    const byte_offset = @divExact(zcu.structPackedFieldBitOffset(struct_type, field_index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
                     if (byte_offset == 0) return struct_ptr;
                     const usize_ty = try o.lowerType(pt, Type.usize);
                     const llvm_index = try o.builder.intValue(usize_ty, byte_offset);

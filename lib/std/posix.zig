@@ -192,10 +192,27 @@ pub const iovec_const = extern struct {
     len: usize,
 };
 
-pub const ACCMODE = enum(u2) {
-    RDONLY = 0,
-    WRONLY = 1,
-    RDWR = 2,
+pub const ACCMODE = switch (native_os) {
+    // POSIX has a note about the access mode values:
+    //
+    // In historical implementations the value of O_RDONLY is zero. Because of
+    // that, it is not possible to detect the presence of O_RDONLY and another
+    // option. Future implementations should encode O_RDONLY and O_WRONLY as
+    // bit flags so that: O_RDONLY | O_WRONLY == O_RDWR
+    //
+    // In practice SerenityOS is the only system supported by Zig that
+    // implements this suggestion.
+    // https://github.com/SerenityOS/serenity/blob/4adc51fdf6af7d50679c48b39362e062f5a3b2cb/Kernel/API/POSIX/fcntl.h#L28-L30
+    .serenity => enum(u2) {
+        RDONLY = 1,
+        WRONLY = 2,
+        RDWR = 3,
+    },
+    else => enum(u2) {
+        RDONLY = 0,
+        WRONLY = 1,
+        RDWR = 2,
+    },
 };
 
 pub const TCSA = enum(c_uint) {
@@ -1035,6 +1052,7 @@ pub const TruncateError = error{
     FileBusy,
     AccessDenied,
     PermissionDenied,
+    NonResizable,
 } || UnexpectedError;
 
 /// Length must be positive when treated as an i64.
@@ -1074,7 +1092,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
+            .INVAL => return error.NonResizable,
             .NOTCAPABLE => return error.AccessDenied,
             else => |err| return unexpectedErrno(err),
         }
@@ -1090,7 +1108,7 @@ pub fn ftruncate(fd: fd_t, length: u64) TruncateError!void {
             .PERM => return error.PermissionDenied,
             .TXTBSY => return error.FileBusy,
             .BADF => unreachable, // Handle not open for writing
-            .INVAL => unreachable, // Handle not open for writing, negative length, or non-resizable handle
+            .INVAL => return error.NonResizable, // This is returned for /dev/null for example.
             else => |err| return unexpectedErrno(err),
         }
     }
@@ -6324,295 +6342,6 @@ pub fn send(
         error.UnreachableAddress => unreachable,
         else => |e| return e,
     };
-}
-
-pub const SendFileError = PReadError || WriteError || SendError;
-
-/// Transfer data between file descriptors, with optional headers and trailers.
-///
-/// Returns the number of bytes written, which can be zero.
-///
-/// The `sendfile` call copies `in_len` bytes from one file descriptor to another. When possible,
-/// this is done within the operating system kernel, which can provide better performance
-/// characteristics than transferring data from kernel to user space and back, such as with
-/// `read` and `write` calls. When `in_len` is `0`, it means to copy until the end of the input file has been
-/// reached. Note, however, that partial writes are still possible in this case.
-///
-/// `in_fd` must be a file descriptor opened for reading, and `out_fd` must be a file descriptor
-/// opened for writing. They may be any kind of file descriptor; however, if `in_fd` is not a regular
-/// file system file, it may cause this function to fall back to calling `read` and `write`, in which case
-/// atomicity guarantees no longer apply.
-///
-/// Copying begins reading at `in_offset`. The input file descriptor seek position is ignored and not updated.
-/// If the output file descriptor has a seek position, it is updated as bytes are written. When
-/// `in_offset` is past the end of the input file, it successfully reads 0 bytes.
-///
-/// `flags` has different meanings per operating system; refer to the respective man pages.
-///
-/// These systems support atomically sending everything, including headers and trailers:
-/// * macOS
-/// * FreeBSD
-///
-/// These systems support in-kernel data copying, but headers and trailers are not sent atomically:
-/// * Linux
-///
-/// Other systems fall back to calling `read` / `write`.
-///
-/// Linux has a limit on how many bytes may be transferred in one `sendfile` call, which is `0x7ffff000`
-/// on both 64-bit and 32-bit systems. This is due to using a signed C int as the return value, as
-/// well as stuffing the errno codes into the last `4096` values. This is noted on the `sendfile` man page.
-/// The limit on Darwin is `0x7fffffff`, trying to write more than that returns EINVAL.
-/// The corresponding POSIX limit on this is `maxInt(isize)`.
-pub fn sendfile(
-    out_fd: fd_t,
-    in_fd: fd_t,
-    in_offset: u64,
-    in_len: u64,
-    headers: []const iovec_const,
-    trailers: []const iovec_const,
-    flags: u32,
-) SendFileError!usize {
-    var header_done = false;
-    var total_written: usize = 0;
-
-    // Prevents EOVERFLOW.
-    const size_t = std.meta.Int(.unsigned, @typeInfo(usize).int.bits - 1);
-    const max_count = switch (native_os) {
-        .linux => 0x7ffff000,
-        .macos, .ios, .watchos, .tvos, .visionos => maxInt(i32),
-        else => maxInt(size_t),
-    };
-
-    switch (native_os) {
-        .linux => sf: {
-            if (headers.len != 0) {
-                const amt = try writev(out_fd, headers);
-                total_written += amt;
-                if (amt < count_iovec_bytes(headers)) return total_written;
-                header_done = true;
-            }
-
-            // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-            const adjusted_count = if (in_len == 0) max_count else @min(in_len, max_count);
-
-            const sendfile_sym = if (lfs64_abi) system.sendfile64 else system.sendfile;
-            while (true) {
-                var offset: off_t = @bitCast(in_offset);
-                const rc = sendfile_sym(out_fd, in_fd, &offset, adjusted_count);
-                switch (errno(rc)) {
-                    .SUCCESS => {
-                        const amt: usize = @bitCast(rc);
-                        total_written += amt;
-                        if (in_len == 0 and amt == 0) {
-                            // We have detected EOF from `in_fd`.
-                            break;
-                        } else if (amt < in_len) {
-                            return total_written;
-                        } else {
-                            break;
-                        }
-                    },
-
-                    .BADF => unreachable, // Always a race condition.
-                    .FAULT => unreachable, // Segmentation fault.
-                    .OVERFLOW => unreachable, // We avoid passing too large of a `count`.
-                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
-
-                    .INVAL => {
-                        // EINVAL could be any of the following situations:
-                        // * Descriptor is not valid or locked
-                        // * an mmap(2)-like operation is  not  available  for in_fd
-                        // * count is negative
-                        // * out_fd has the APPEND flag set
-                        // Because of the "mmap(2)-like operation" possibility, we fall back to doing read/write
-                        // manually.
-                        break :sf;
-                    },
-                    .AGAIN => return error.WouldBlock,
-                    .IO => return error.InputOutput,
-                    .PIPE => return error.BrokenPipe,
-                    .NOMEM => return error.SystemResources,
-                    .NXIO => return error.Unseekable,
-                    .SPIPE => return error.Unseekable,
-                    else => |err| {
-                        unexpectedErrno(err) catch {};
-                        break :sf;
-                    },
-                }
-            }
-
-            if (trailers.len != 0) {
-                total_written += try writev(out_fd, trailers);
-            }
-
-            return total_written;
-        },
-        .freebsd => sf: {
-            var hdtr_data: std.c.sf_hdtr = undefined;
-            var hdtr: ?*std.c.sf_hdtr = null;
-            if (headers.len != 0 or trailers.len != 0) {
-                // Here we carefully avoid `@intCast` by returning partial writes when
-                // too many io vectors are provided.
-                const hdr_cnt = cast(u31, headers.len) orelse maxInt(u31);
-                if (headers.len > hdr_cnt) return writev(out_fd, headers);
-
-                const trl_cnt = cast(u31, trailers.len) orelse maxInt(u31);
-
-                hdtr_data = std.c.sf_hdtr{
-                    .headers = headers.ptr,
-                    .hdr_cnt = hdr_cnt,
-                    .trailers = trailers.ptr,
-                    .trl_cnt = trl_cnt,
-                };
-                hdtr = &hdtr_data;
-            }
-
-            while (true) {
-                var sbytes: off_t = undefined;
-                const err = errno(system.sendfile(in_fd, out_fd, @bitCast(in_offset), @min(in_len, max_count), hdtr, &sbytes, flags));
-                const amt: usize = @bitCast(sbytes);
-                switch (err) {
-                    .SUCCESS => return amt,
-
-                    .BADF => unreachable, // Always a race condition.
-                    .FAULT => unreachable, // Segmentation fault.
-                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
-
-                    .INVAL, .OPNOTSUPP, .NOTSOCK, .NOSYS => {
-                        // EINVAL could be any of the following situations:
-                        // * The fd argument is not a regular file.
-                        // * The s argument is not a SOCK.STREAM type socket.
-                        // * The offset argument is negative.
-                        // Because of some of these possibilities, we fall back to doing read/write
-                        // manually, the same as ENOSYS.
-                        break :sf;
-                    },
-
-                    .INTR => if (amt != 0) return amt else continue,
-
-                    .AGAIN => if (amt != 0) {
-                        return amt;
-                    } else {
-                        return error.WouldBlock;
-                    },
-
-                    .BUSY => if (amt != 0) {
-                        return amt;
-                    } else {
-                        return error.WouldBlock;
-                    },
-
-                    .IO => return error.InputOutput,
-                    .NOBUFS => return error.SystemResources,
-                    .PIPE => return error.BrokenPipe,
-
-                    else => {
-                        unexpectedErrno(err) catch {};
-                        if (amt != 0) {
-                            return amt;
-                        } else {
-                            break :sf;
-                        }
-                    },
-                }
-            }
-        },
-        .macos, .ios, .tvos, .watchos, .visionos => sf: {
-            var hdtr_data: std.c.sf_hdtr = undefined;
-            var hdtr: ?*std.c.sf_hdtr = null;
-            if (headers.len != 0 or trailers.len != 0) {
-                // Here we carefully avoid `@intCast` by returning partial writes when
-                // too many io vectors are provided.
-                const hdr_cnt = cast(u31, headers.len) orelse maxInt(u31);
-                if (headers.len > hdr_cnt) return writev(out_fd, headers);
-
-                const trl_cnt = cast(u31, trailers.len) orelse maxInt(u31);
-
-                hdtr_data = std.c.sf_hdtr{
-                    .headers = headers.ptr,
-                    .hdr_cnt = hdr_cnt,
-                    .trailers = trailers.ptr,
-                    .trl_cnt = trl_cnt,
-                };
-                hdtr = &hdtr_data;
-            }
-
-            while (true) {
-                var sbytes: off_t = @min(in_len, max_count);
-                const err = errno(system.sendfile(in_fd, out_fd, @bitCast(in_offset), &sbytes, hdtr, flags));
-                const amt: usize = @bitCast(sbytes);
-                switch (err) {
-                    .SUCCESS => return amt,
-
-                    .BADF => unreachable, // Always a race condition.
-                    .FAULT => unreachable, // Segmentation fault.
-                    .INVAL => unreachable,
-                    .NOTCONN => return error.BrokenPipe, // `out_fd` is an unconnected socket
-
-                    .OPNOTSUPP, .NOTSOCK, .NOSYS => break :sf,
-
-                    .INTR => if (amt != 0) return amt else continue,
-
-                    .AGAIN => if (amt != 0) {
-                        return amt;
-                    } else {
-                        return error.WouldBlock;
-                    },
-
-                    .IO => return error.InputOutput,
-                    .PIPE => return error.BrokenPipe,
-
-                    else => {
-                        unexpectedErrno(err) catch {};
-                        if (amt != 0) {
-                            return amt;
-                        } else {
-                            break :sf;
-                        }
-                    },
-                }
-            }
-        },
-        else => {}, // fall back to read/write
-    }
-
-    if (headers.len != 0 and !header_done) {
-        const amt = try writev(out_fd, headers);
-        total_written += amt;
-        if (amt < count_iovec_bytes(headers)) return total_written;
-    }
-
-    rw: {
-        var buf: [8 * 4096]u8 = undefined;
-        // Here we match BSD behavior, making a zero count value send as many bytes as possible.
-        const adjusted_count = if (in_len == 0) buf.len else @min(buf.len, in_len);
-        const amt_read = try pread(in_fd, buf[0..adjusted_count], in_offset);
-        if (amt_read == 0) {
-            if (in_len == 0) {
-                // We have detected EOF from `in_fd`.
-                break :rw;
-            } else {
-                return total_written;
-            }
-        }
-        const amt_written = try write(out_fd, buf[0..amt_read]);
-        total_written += amt_written;
-        if (amt_written < in_len or in_len == 0) return total_written;
-    }
-
-    if (trailers.len != 0) {
-        total_written += try writev(out_fd, trailers);
-    }
-
-    return total_written;
-}
-
-fn count_iovec_bytes(iovs: []const iovec_const) usize {
-    var count: usize = 0;
-    for (iovs) |iov| {
-        count += iov.len;
-    }
-    return count;
 }
 
 pub const CopyFileRangeError = error{

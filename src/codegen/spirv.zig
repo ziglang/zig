@@ -251,11 +251,11 @@ pub const Object = struct {
         pt: Zcu.PerThread,
         func_index: InternPool.Index,
         air: *const Air,
-        liveness: *const Air.Liveness,
+        liveness: *const ?Air.Liveness,
     ) !void {
         const nav = pt.zcu.funcInfo(func_index).owner_nav;
         // TODO: Separate types for generating decls and functions?
-        try self.genNav(pt, nav, air.*, liveness.*, true);
+        try self.genNav(pt, nav, air.*, liveness.*.?, true);
     }
 
     pub fn updateNav(
@@ -5134,7 +5134,7 @@ const NavGen = struct {
             .@"struct" => switch (object_ty.containerLayout(zcu)) {
                 .@"packed" => {
                     const struct_ty = zcu.typeToPackedStruct(object_ty).?;
-                    const bit_offset = pt.structPackedFieldBitOffset(struct_ty, field_index);
+                    const bit_offset = zcu.structPackedFieldBitOffset(struct_ty, field_index);
                     const bit_offset_id = try self.constInt(.u16, bit_offset);
                     const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
                     const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));

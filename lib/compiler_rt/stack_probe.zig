@@ -4,7 +4,6 @@ const common = @import("common.zig");
 const os_tag = builtin.os.tag;
 const arch = builtin.cpu.arch;
 const abi = builtin.abi;
-const is_test = builtin.is_test;
 
 pub const panic = common.panic;
 

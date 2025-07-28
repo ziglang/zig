@@ -34,7 +34,7 @@ fn divmod(q: ?[]u32, r: ?[]u32, u: []u32, v: []u32) !void {
 }
 
 pub fn __divei4(q_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(common.test_safety);
     const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const q: []u32 = @ptrCast(@alignCast(q_p[0..byte_size]));
     const u: []u32 = @ptrCast(@alignCast(u_p[0..byte_size]));
@@ -43,7 +43,7 @@ pub fn __divei4(q_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) vo
 }
 
 pub fn __modei4(r_p: [*]u8, u_p: [*]u8, v_p: [*]u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(common.test_safety);
     const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const r: []u32 = @ptrCast(@alignCast(r_p[0..byte_size]));
     const u: []u32 = @ptrCast(@alignCast(u_p[0..byte_size]));

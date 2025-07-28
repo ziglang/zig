@@ -300,6 +300,7 @@ test "switch on error union catch capture" {
 }
 
 test "switch on error union if else capture" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 

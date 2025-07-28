@@ -3737,30 +3737,6 @@ pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
     }
 }
 
-/// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
-/// into the packed struct InternPool data rather than computing this on the
-/// fly, however it was found to perform worse when measured on real world
-/// projects.
-pub fn structPackedFieldBitOffset(
-    pt: Zcu.PerThread,
-    struct_type: InternPool.LoadedStructType,
-    field_index: u32,
-) u16 {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    assert(struct_type.layout == .@"packed");
-    assert(struct_type.haveLayout(ip));
-    var bit_sum: u64 = 0;
-    for (0..struct_type.field_types.len) |i| {
-        if (i == field_index) {
-            return @intCast(bit_sum);
-        }
-        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
-        bit_sum += field_ty.bitSize(zcu);
-    }
-    unreachable; // index out of bounds
-}
-
 pub fn navPtrType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Allocator.Error!Type {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -4381,8 +4357,11 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         try air.legalize(pt, features);
     }
 
-    var liveness: Air.Liveness = try .analyze(zcu, air.*, ip);
-    defer liveness.deinit(gpa);
+    var liveness: ?Air.Liveness = if (codegen.wantsLiveness(pt, nav))
+        try .analyze(zcu, air.*, ip)
+    else
+        null;
+    defer if (liveness) |*l| l.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         const stderr = std.debug.lockStderrWriter(&.{});
@@ -4392,12 +4371,12 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         stderr.print("# End Function AIR: {f}\n\n", .{fqn.fmt(ip)}) catch {};
     }
 
-    if (std.debug.runtime_safety) {
+    if (std.debug.runtime_safety) verify_liveness: {
         var verify: Air.Liveness.Verify = .{
             .gpa = gpa,
             .zcu = zcu,
             .air = air.*,
-            .liveness = liveness,
+            .liveness = liveness orelse break :verify_liveness,
             .intern_pool = ip,
         };
         defer verify.deinit();

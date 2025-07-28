@@ -273,21 +273,17 @@ fn buildWasmBinary(
     try sendMessage(child.stdin.?, .update);
     try sendMessage(child.stdin.?, .exit);
 
-    const Header = std.zig.Server.Message.Header;
     var result: ?Path = null;
     var result_error_bundle = std.zig.ErrorBundle.empty;
 
-    const stdout = poller.fifo(.stdout);
+    const stdout = poller.reader(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const body = stdout.readableSliceOfLen(header.bytes_len);
+        const Header = std.zig.Server.Message.Header;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
             .zig_version => {
@@ -325,15 +321,11 @@ fn buildWasmBinary(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
-    const stderr = poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        const owned_stderr = try stderr.toOwnedSlice();
-        defer gpa.free(owned_stderr);
-        std.debug.print("{s}", .{owned_stderr});
+    const stderr_contents = try poller.toOwnedSlice(.stderr);
+    if (stderr_contents.len > 0) {
+        std.debug.print("{s}", .{stderr_contents});
     }
 
     // Send EOF to stdin.
@@ -522,7 +514,9 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
 
     var cwd_cache: ?[]const u8 = null;
 
-    var archiver = std.tar.writer(response.writer());
+    var adapter = response.writer().adaptToNewApi();
+    var archiver: std.tar.Writer = .{ .underlying_writer = &adapter.new_interface };
+    var read_buffer: [1024]u8 = undefined;
 
     for (deduped_paths) |joined_path| {
         var file = joined_path.root_dir.handle.openFile(joined_path.sub_path, .{}) catch |err| {
@@ -530,13 +524,14 @@ fn serveSourcesTar(ws: *WebServer, request: *std.http.Server.Request) !void {
             continue;
         };
         defer file.close();
-
+        const stat = try file.stat();
+        var file_reader: std.fs.File.Reader = .initSize(file, &read_buffer, stat.size);
         archiver.prefix = joined_path.root_dir.path orelse try memoizedCwd(arena, &cwd_cache);
-        try archiver.writeFile(joined_path.sub_path, file);
+        try archiver.writeFile(joined_path.sub_path, &file_reader, stat.mtime);
     }
 
-    // intentionally omitting the pointless trailer
-    //try archiver.finish();
+    // intentionally not calling `archiver.finishPedantically`
+    try adapter.new_interface.flush();
     try response.end();
 }
 

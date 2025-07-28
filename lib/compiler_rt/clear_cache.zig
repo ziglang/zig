@@ -97,8 +97,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
             .nbytes = end - start,
             .whichcache = 3, // ICACHE | DCACHE
         };
-        asm volatile (
-            \\ syscall
+        asm volatile ("syscall"
             :
             : [_] "{$2}" (165), // nr = SYS_sysarch
               [_] "{$4}" (0), // op = MIPS_CACHEFLUSH
@@ -116,11 +115,8 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
     } else if (arm64 and !apple) {
         // Get Cache Type Info.
         // TODO memoize this?
-        var ctr_el0: u64 = 0;
-        asm volatile (
-            \\mrs %[x], ctr_el0
-            \\
-            : [x] "=r" (ctr_el0),
+        const ctr_el0 = asm volatile ("mrs %[ctr_el0], ctr_el0"
+            : [ctr_el0] "=r" (-> u64),
         );
         // The DC and IC instructions must use 64-bit registers so we don't use
         // uintptr_t in case this runs in an IPL32 environment.
@@ -187,9 +183,7 @@ fn clear_cache(start: usize, end: usize) callconv(.c) void {
         exportIt();
     } else if (os == .linux and loongarch) {
         // See: https://github.com/llvm/llvm-project/blob/cf54cae26b65fc3201eff7200ffb9b0c9e8f9a13/compiler-rt/lib/builtins/clear_cache.c#L94-L95
-        asm volatile (
-            \\ ibar 0
-        );
+        asm volatile ("ibar 0");
         exportIt();
     }
 
