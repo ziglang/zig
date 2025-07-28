@@ -694,6 +694,12 @@ pub const invalid_cast_type: Diagnostic = .{
     .kind = .@"error",
 };
 
+pub const cast_to_same_type: Diagnostic = .{
+    .fmt = "C99 forbids casting nonscalar type {qt} to the same type",
+    .kind = .off,
+    .extension = true,
+};
+
 pub const invalid_cast_operand_type: Diagnostic = .{
     .fmt = "operand of type {qt} where arithmetic or pointer type is required",
     .kind = .@"error",
@@ -1484,9 +1490,10 @@ pub const duplicate_member: Diagnostic = .{
 };
 
 pub const binary_integer_literal: Diagnostic = .{
-    .fmt = "binary integer literals are a GNU extension",
+    .fmt = "binary integer literals are a C23 extension",
+    .opt = .@"c23-extensions",
     .kind = .off,
-    .opt = .@"gnu-binary-literal",
+    .suppress_version = .c23,
     .extension = true,
 };
 

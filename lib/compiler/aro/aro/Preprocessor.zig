@@ -7,6 +7,7 @@ const Attribute = @import("Attribute.zig");
 const Compilation = @import("Compilation.zig");
 const Error = Compilation.Error;
 const Diagnostics = @import("Diagnostics.zig");
+const DepFile = @import("DepFile.zig");
 const features = @import("features.zig");
 const Hideset = @import("Hideset.zig");
 const Parser = @import("Parser.zig");
@@ -157,6 +158,9 @@ hideset: Hideset,
 source_epoch: SourceEpoch,
 m_times: std.AutoHashMapUnmanaged(Source.Id, u64) = .{},
 
+/// The dependency file tracking all includes and embeds.
+dep_file: ?*DepFile = null,
+
 pub const parse = Parser.parse;
 
 pub const Linemarkers = enum {
@@ -169,7 +173,7 @@ pub const Linemarkers = enum {
 };
 
 pub fn init(comp: *Compilation, source_epoch: SourceEpoch) Preprocessor {
-    const pp = Preprocessor{
+    const pp: Preprocessor = .{
         .comp = comp,
         .diagnostics = comp.diagnostics,
         .gpa = comp.gpa,
@@ -1616,13 +1620,18 @@ fn handleBuiltinMacro(pp: *Preprocessor, builtin: RawToken.Id, param_toks: []con
                 else => unreachable,
             };
             const filename = include_str[1 .. include_str.len - 1];
-            if (builtin == .macro_param_has_include or pp.include_depth == 0) {
-                if (builtin == .macro_param_has_include_next) {
-                    try pp.err(src_loc, .include_next_outside_header, .{});
+            const res = res: {
+                if (builtin == .macro_param_has_include or pp.include_depth == 0) {
+                    if (builtin == .macro_param_has_include_next) {
+                        try pp.err(src_loc, .include_next_outside_header, .{});
+                    }
+                    break :res try pp.comp.hasInclude(filename, src_loc.id, include_type, .first);
                 }
-                return pp.comp.hasInclude(filename, src_loc.id, include_type, .first);
-            }
-            return pp.comp.hasInclude(filename, src_loc.id, include_type, .next);
+                break :res try pp.comp.hasInclude(filename, src_loc.id, include_type, .next);
+            };
+
+            if (res) if (pp.dep_file) |dep_file| try dep_file.addDependencyDupe(pp.gpa, pp.comp.arena, filename);
+            return res;
         },
         else => unreachable,
     }
@@ -1931,7 +1940,7 @@ fn expandFuncMacro(
                         else => unreachable,
                     };
                     const filename = include_str[1 .. include_str.len - 1];
-                    const contents = (try pp.comp.findEmbed(filename, arg[0].loc.id, include_type, .limited(1))) orelse
+                    const contents = (try pp.comp.findEmbed(filename, arg[0].loc.id, include_type, .limited(1), pp.dep_file)) orelse
                         break :res not_found;
 
                     defer pp.comp.gpa.free(contents);
@@ -2539,7 +2548,7 @@ fn expandedSliceExtra(pp: *const Preprocessor, tok: anytype, macro_ws_handling: 
     if (tok.id.lexeme()) |some| {
         if (!tok.id.allowsDigraphs(pp.comp.langopts) and !(tok.id == .macro_ws and macro_ws_handling == .preserve_macro_ws)) return some;
     }
-    var tmp_tokenizer = Tokenizer{
+    var tmp_tokenizer: Tokenizer = .{
         .buf = pp.comp.getSource(tok.loc.id).buf,
         .langopts = pp.comp.langopts,
         .index = tok.loc.byte_offset,
@@ -3089,7 +3098,7 @@ fn embed(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!void {
         }
     }
 
-    const embed_bytes = (try pp.comp.findEmbed(filename, first.source, include_type, limit orelse .unlimited)) orelse
+    const embed_bytes = (try pp.comp.findEmbed(filename, first.source, include_type, limit orelse .unlimited, pp.dep_file)) orelse
         return pp.fatalNotFound(filename_tok, filename);
     defer pp.comp.gpa.free(embed_bytes);
 
@@ -3145,6 +3154,7 @@ fn include(pp: *Preprocessor, tokenizer: *Tokenizer, which: Compilation.WhichInc
         if (pp.defines.contains(guard)) return;
     }
 
+    if (pp.dep_file) |dep| try dep.addDependency(pp.gpa, new_source.path);
     if (pp.verbose) {
         pp.verboseLog(first, "include file {s}", .{new_source.path});
     }
