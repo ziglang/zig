@@ -11,8 +11,8 @@ pub const history_len = 32768;
 /// of LZ77 and Huffman coding.
 pub const Compress = @import("flate/Compress.zig");
 
-/// Inflate is the decoding process that takes a Deflate bitstream for
-/// decompression and correctly produces the original full-size data or file.
+/// Inflate is the decoding process that consumes a Deflate bitstream and
+/// produces the original full-size data.
 pub const Decompress = @import("flate/Decompress.zig");
 
 /// Compression without Lempel-Ziv match searching. Faster compression, less
