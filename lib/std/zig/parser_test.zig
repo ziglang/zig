@@ -6739,6 +6739,19 @@ test "zig fmt: canonicalize stray backslashes in identifiers" {
     );
 }
 
+test "zig fmt: asm_legacy conversion with quoted identifier" {
+    try testTransform(
+        \\const a = asm (x :: [L] "" (q) : "");
+    ,
+        \\const a = asm (x
+        \\    :
+        \\    : [L] "" (q),
+        \\    : .{ .@"" = true }
+        \\);
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}

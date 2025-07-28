@@ -3632,7 +3632,7 @@ fn tokenSliceForRender(tree: Ast, token_index: Ast.TokenIndex) []const u8 {
     return ret;
 }
 
-fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) !usize {
+fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) Error!usize {
     const tree = r.tree;
     const ais = r.ais;
     assert(tree.tokenTag(token_index) == .string_literal);
@@ -3640,12 +3640,11 @@ fn writeStringLiteralAsIdentifier(r: *Render, token_index: Ast.TokenIndex) !usiz
     const unquoted = lexeme[1..][0 .. lexeme.len - 2];
     if (std.zig.isValidId(unquoted)) {
         try ais.writeAll(unquoted);
-        return unquoted.len;
     } else {
         try ais.writeByte('@');
         try ais.writeAll(lexeme);
-        return lexeme.len + 1;
     }
+    return lexeme.len;
 }
 
 fn hasSameLineComment(tree: Ast, token_index: Ast.TokenIndex) bool {
