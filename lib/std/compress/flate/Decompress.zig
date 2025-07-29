@@ -219,7 +219,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
             const block_type: BlockType = @enumFromInt(try d.takeBits(u2));
             switch (block_type) {
                 .stored => {
-                    d.alignBitsToByte(); // skip padding until byte boundary
+                    d.alignBitsDiscarding();
                     // everything after this is byte aligned in stored block
                     const len = try in.takeInt(u16, .little);
                     const nlen = try in.takeInt(u16, .little);
@@ -333,20 +333,23 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
             return @intFromEnum(limit) - remaining;
         },
         .protocol_footer => {
-            d.alignBitsToByte();
             switch (d.container_metadata) {
                 .gzip => |*gzip| {
+                    d.alignBitsDiscarding();
                     gzip.* = .{
                         .crc = try in.takeInt(u32, .little),
                         .count = try in.takeInt(u32, .little),
                     };
                 },
                 .zlib => |*zlib| {
+                    d.alignBitsDiscarding();
                     zlib.* = .{
                         .adler = try in.takeInt(u32, .little),
                     };
                 },
-                .raw => {},
+                .raw => {
+                    d.alignBitsPreserving();
+                },
             }
             d.state = .end;
             return 0;
@@ -475,22 +478,16 @@ fn tossBits(d: *Decompress, n: u6) !void {
 fn tossBitsEnding(d: *Decompress, n: u6) !void {
     const remaining_bits = d.remaining_bits;
     const in = d.input;
-    var remaining_needed_bits = n - remaining_bits;
-    while (remaining_needed_bits >= 8) {
-        try in.discardAll(1);
-        remaining_needed_bits -= 8;
-    }
-    if (remaining_needed_bits == 0) {
-        d.next_bits = 0;
-        d.remaining_bits = 0;
-        return;
-    }
-    const byte = in.takeByte() catch |err| switch (err) {
+    const buffered_n = in.bufferedLen();
+    if (buffered_n == 0) return error.EndOfStream;
+    assert(buffered_n < @sizeOf(usize));
+    const needed_bits = n - remaining_bits;
+    const next_int = in.takeVarInt(usize, .little, buffered_n) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => if (remaining_bits == 0) return error.EndOfStream else 0,
+        error.EndOfStream => unreachable,
     };
-    d.next_bits = @as(usize, byte) >> remaining_needed_bits;
-    d.remaining_bits = @intCast(8 - remaining_needed_bits);
+    d.next_bits = next_int >> needed_bits;
+    d.remaining_bits = @intCast(@as(usize, n) * 8 -| @as(usize, needed_bits));
 }
 
 fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
@@ -501,7 +498,7 @@ fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
     return u;
 }
 
-fn alignBitsToByte(d: *Decompress) void {
+fn alignBitsDiscarding(d: *Decompress) void {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     if (remaining_bits == 0) return;
@@ -510,6 +507,21 @@ fn alignBitsToByte(d: *Decompress) void {
     var put_back_bits = next_bits >> discard_bits;
     const in = d.input;
     in.seek -= n_bytes;
+    for (in.buffer[in.seek..][0..n_bytes]) |*b| {
+        b.* = @truncate(put_back_bits);
+        put_back_bits >>= 8;
+    }
+    d.remaining_bits = 0;
+    d.next_bits = 0;
+}
+
+fn alignBitsPreserving(d: *Decompress) void {
+    const remaining_bits: usize = d.remaining_bits;
+    if (remaining_bits == 0) return;
+    const n_bytes = (remaining_bits + 7) / 8;
+    const in = d.input;
+    in.seek -= n_bytes;
+    var put_back_bits = d.next_bits;
     for (in.buffer[in.seek..][0..n_bytes]) |*b| {
         b.* = @truncate(put_back_bits);
         put_back_bits >>= 8;
