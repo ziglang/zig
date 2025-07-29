@@ -10869,8 +10869,7 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd or builtin.target.os.tag == .haiku)
-{} // libc does not implement getcontext
+pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd or builtin.target.os.tag == .haiku) {} // libc does not implement getcontext
     else if (native_os == .linux and builtin.target.abi.isMusl())
         linux.getcontext
     else

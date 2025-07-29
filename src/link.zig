@@ -1944,7 +1944,8 @@ fn resolveLibInput(
         const test_path: Path = .{
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "{s}{s}{s}", .{
-                target.libPrefix(), lib_name, switch (link_mode) {
+                target.libPrefix(), lib_name,
+                switch (link_mode) {
                     .static => target.staticLibSuffix(),
                     .dynamic => target.dynamicLibSuffix(),
                 },

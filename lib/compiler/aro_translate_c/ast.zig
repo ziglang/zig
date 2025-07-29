@@ -1817,7 +1817,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                 .tag = .switch_comma,
                 .main_token = switch_tok,
                 .data = .{ .node_and_extra = .{
-                    cond, try c.addExtra(NodeSubRange{
+                    cond,
+                    try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
                     }),
@@ -2083,7 +2084,8 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
                         .tag = .struct_init_comma,
                         .main_token = l_brace,
                         .data = .{ .node_and_extra = .{
-                            lhs, try c.addExtra(NodeSubRange{
+                            lhs,
+                            try c.addExtra(NodeSubRange{
                                 .start = span.start,
                                 .end = span.end,
                             }),
@@ -2155,7 +2157,8 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
             .tag = .container_field,
             .main_token = name_tok,
             .data = .{ .node_and_extra = .{
-                type_expr, try c.addExtra(std.zig.Ast.Node.ContainerField{
+                type_expr,
+                try c.addExtra(std.zig.Ast.Node.ContainerField{
                     .align_expr = align_expr.?,
                     .value_expr = value_expr.?,
                 }),
@@ -2242,7 +2245,8 @@ fn renderArrayInit(c: *Context, lhs: NodeIndex, inits: []const Node) !NodeIndex 
                 .tag = .array_init_comma,
                 .main_token = l_brace,
                 .data = .{ .node_and_extra = .{
-                    lhs, try c.addExtra(NodeSubRange{
+                    lhs,
+                    try c.addExtra(NodeSubRange{
                         .start = span.start,
                         .end = span.end,
                     }),
