@@ -829,21 +829,21 @@ fn resolveRelocInner(
             const rd, const rn = switch (aarch64.encoding.Instruction.read(inst_code).decode()) {
                 else => unreachable,
                 .data_processing_immediate => |decoded| .{
-                    decoded.add_subtract_immediate.group.Rd.decodeInteger(.doubleword, .{ .sp = true }),
-                    decoded.add_subtract_immediate.group.Rn.decodeInteger(.doubleword, .{ .sp = true }),
+                    decoded.add_subtract_immediate.group.Rd.decode(.{ .sp = true }),
+                    decoded.add_subtract_immediate.group.Rn.decode(.{ .sp = true }),
                 },
                 .load_store => |decoded| .{
-                    decoded.register_unsigned_immediate.integer.group.Rt.decodeInteger(.doubleword, .{}),
-                    decoded.register_unsigned_immediate.group.Rn.decodeInteger(.doubleword, .{ .sp = true }),
+                    decoded.register_unsigned_immediate.integer.group.Rt.decode(.{}),
+                    decoded.register_unsigned_immediate.group.Rn.decode(.{ .sp = true }),
                 },
             };
 
             try writer.writeInt(u32, @bitCast(@as(
                 aarch64.encoding.Instruction,
-                if (sym.getSectionFlags().tlv_ptr) .ldr(rd, .{ .unsigned_offset = .{
-                    .base = rn,
+                if (sym.getSectionFlags().tlv_ptr) .ldr(rd.x(), .{ .unsigned_offset = .{
+                    .base = rn.x(),
                     .offset = try divExact(self, rel, @truncate(target), 8, macho_file) * 8,
-                } }) else .add(rd, rn, .{ .immediate = @truncate(target) }),
+                } }) else .add(rd.x(), rn.x(), .{ .immediate = @truncate(target) }),
             )), .little);
         },
     }

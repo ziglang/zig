@@ -4,57 +4,75 @@ pub const Register = struct {
     format: Format,
 
     pub const Format = union(enum) {
-        alias,
-        integer: IntegerSize,
-        scalar: VectorSize,
+        alias: Format.Alias,
+        general: GeneralSize,
+        scalar: ScalarSize,
         vector: Arrangement,
-        element: struct { size: VectorSize, index: u4 },
+        element: struct { size: ScalarSize, index: u4 },
+        scalable,
+
+        pub const Alias = enum { general, other, vector, predicate };
     };
 
-    pub const IntegerSize = enum(u1) {
+    pub const GeneralSize = enum(u1) {
         word = 0b0,
         doubleword = 0b1,
 
-        pub fn prefix(is: IntegerSize) u8 {
-            return (comptime std.enums.EnumArray(IntegerSize, u8).init(.{
+        pub fn prefix(gs: GeneralSize) u8 {
+            return (comptime std.enums.EnumArray(GeneralSize, u8).init(.{
                 .word = 'w',
                 .doubleword = 'x',
-            })).get(is);
+            })).get(gs);
         }
     };
 
-    pub const VectorSize = enum(u3) {
+    pub const ScalarSize = enum(u3) {
         byte = 0,
         half = 1,
         single = 2,
         double = 3,
         quad = 4,
-        scalable,
-        predicate,
 
-        pub fn prefix(vs: VectorSize) u8 {
-            return (comptime std.enums.EnumArray(VectorSize, u8).init(.{
+        pub fn n(ss: ScalarSize) ScalarSize {
+            return @enumFromInt(@intFromEnum(ss) - 1);
+        }
+
+        pub fn w(ss: ScalarSize) ScalarSize {
+            return @enumFromInt(@intFromEnum(ss) + 1);
+        }
+
+        pub fn prefix(ss: ScalarSize) u8 {
+            return (comptime std.enums.EnumArray(ScalarSize, u8).init(.{
                 .byte = 'b',
                 .half = 'h',
                 .single = 's',
                 .double = 'd',
                 .quad = 'q',
-                .scalable = 'z',
-                .predicate = 'p',
-            })).get(vs);
+            })).get(ss);
         }
     };
 
-    pub const Arrangement = enum {
-        @"2d",
-        @"4s",
-        @"8h",
-        @"16b",
+    pub const Arrangement = enum(u3) {
+        @"2d" = @bitCast(Unwrapped{ .size = .quad, .elem_size = .double }),
+        @"4s" = @bitCast(Unwrapped{ .size = .quad, .elem_size = .single }),
+        @"8h" = @bitCast(Unwrapped{ .size = .quad, .elem_size = .half }),
+        @"16b" = @bitCast(Unwrapped{ .size = .quad, .elem_size = .byte }),
 
-        @"1d",
-        @"2s",
-        @"4h",
-        @"8b",
+        @"1d" = @bitCast(Unwrapped{ .size = .double, .elem_size = .double }),
+        @"2s" = @bitCast(Unwrapped{ .size = .double, .elem_size = .single }),
+        @"4h" = @bitCast(Unwrapped{ .size = .double, .elem_size = .half }),
+        @"8b" = @bitCast(Unwrapped{ .size = .double, .elem_size = .byte }),
+
+        pub const Unwrapped = packed struct {
+            size: Instruction.DataProcessingVector.Q,
+            elem_size: Instruction.DataProcessingVector.Size,
+        };
+        pub fn wrap(unwrapped: Unwrapped) Arrangement {
+            return @enumFromInt(@as(@typeInfo(Arrangement).@"enum".tag_type, @bitCast(unwrapped)));
+        }
+        pub fn unwrap(arrangement: Arrangement) Unwrapped {
+            return @bitCast(@intFromEnum(arrangement));
+        }
 
         pub fn len(arrangement: Arrangement) u5 {
             return switch (arrangement) {
@@ -67,625 +85,319 @@ pub const Register = struct {
         }
 
         pub fn size(arrangement: Arrangement) Instruction.DataProcessingVector.Q {
-            return switch (arrangement) {
-                .@"2d", .@"4s", .@"8h", .@"16b" => .quad,
-                .@"1d", .@"2s", .@"4h", .@"8b" => .double,
-            };
+            return arrangement.unwrap().size;
         }
-
         pub fn elemSize(arrangement: Arrangement) Instruction.DataProcessingVector.Size {
-            return switch (arrangement) {
-                .@"2d", .@"1d" => .double,
-                .@"4s", .@"2s" => .single,
-                .@"8h", .@"4h" => .half,
-                .@"16b", .@"8b" => .byte,
-            };
+            return arrangement.unwrap().elem_size;
         }
-
         pub fn elemSz(arrangement: Arrangement) Instruction.DataProcessingVector.Sz {
-            return switch (arrangement) {
-                else => unreachable,
-                .@"2d", .@"1d" => .double,
-                .@"4s", .@"2s" => .single,
-            };
+            return arrangement.elemSize().toSz();
         }
     };
 
-    pub const x0: Register = .{ .alias = .r0, .format = .{ .integer = .doubleword } };
-    pub const x1: Register = .{ .alias = .r1, .format = .{ .integer = .doubleword } };
-    pub const x2: Register = .{ .alias = .r2, .format = .{ .integer = .doubleword } };
-    pub const x3: Register = .{ .alias = .r3, .format = .{ .integer = .doubleword } };
-    pub const x4: Register = .{ .alias = .r4, .format = .{ .integer = .doubleword } };
-    pub const x5: Register = .{ .alias = .r5, .format = .{ .integer = .doubleword } };
-    pub const x6: Register = .{ .alias = .r6, .format = .{ .integer = .doubleword } };
-    pub const x7: Register = .{ .alias = .r7, .format = .{ .integer = .doubleword } };
-    pub const x8: Register = .{ .alias = .r8, .format = .{ .integer = .doubleword } };
-    pub const x9: Register = .{ .alias = .r9, .format = .{ .integer = .doubleword } };
-    pub const x10: Register = .{ .alias = .r10, .format = .{ .integer = .doubleword } };
-    pub const x11: Register = .{ .alias = .r11, .format = .{ .integer = .doubleword } };
-    pub const x12: Register = .{ .alias = .r12, .format = .{ .integer = .doubleword } };
-    pub const x13: Register = .{ .alias = .r13, .format = .{ .integer = .doubleword } };
-    pub const x14: Register = .{ .alias = .r14, .format = .{ .integer = .doubleword } };
-    pub const x15: Register = .{ .alias = .r15, .format = .{ .integer = .doubleword } };
-    pub const x16: Register = .{ .alias = .r16, .format = .{ .integer = .doubleword } };
-    pub const x17: Register = .{ .alias = .r17, .format = .{ .integer = .doubleword } };
-    pub const x18: Register = .{ .alias = .r18, .format = .{ .integer = .doubleword } };
-    pub const x19: Register = .{ .alias = .r19, .format = .{ .integer = .doubleword } };
-    pub const x20: Register = .{ .alias = .r20, .format = .{ .integer = .doubleword } };
-    pub const x21: Register = .{ .alias = .r21, .format = .{ .integer = .doubleword } };
-    pub const x22: Register = .{ .alias = .r22, .format = .{ .integer = .doubleword } };
-    pub const x23: Register = .{ .alias = .r23, .format = .{ .integer = .doubleword } };
-    pub const x24: Register = .{ .alias = .r24, .format = .{ .integer = .doubleword } };
-    pub const x25: Register = .{ .alias = .r25, .format = .{ .integer = .doubleword } };
-    pub const x26: Register = .{ .alias = .r26, .format = .{ .integer = .doubleword } };
-    pub const x27: Register = .{ .alias = .r27, .format = .{ .integer = .doubleword } };
-    pub const x28: Register = .{ .alias = .r28, .format = .{ .integer = .doubleword } };
-    pub const x29: Register = .{ .alias = .r29, .format = .{ .integer = .doubleword } };
-    pub const x30: Register = .{ .alias = .r30, .format = .{ .integer = .doubleword } };
-    pub const xzr: Register = .{ .alias = .zr, .format = .{ .integer = .doubleword } };
-    pub const sp: Register = .{ .alias = .sp, .format = .{ .integer = .doubleword } };
+    pub const x0 = Alias.r0.x();
+    pub const x1 = Alias.r1.x();
+    pub const x2 = Alias.r2.x();
+    pub const x3 = Alias.r3.x();
+    pub const x4 = Alias.r4.x();
+    pub const x5 = Alias.r5.x();
+    pub const x6 = Alias.r6.x();
+    pub const x7 = Alias.r7.x();
+    pub const x8 = Alias.r8.x();
+    pub const x9 = Alias.r9.x();
+    pub const x10 = Alias.r10.x();
+    pub const x11 = Alias.r11.x();
+    pub const x12 = Alias.r12.x();
+    pub const x13 = Alias.r13.x();
+    pub const x14 = Alias.r14.x();
+    pub const x15 = Alias.r15.x();
+    pub const x16 = Alias.r16.x();
+    pub const x17 = Alias.r17.x();
+    pub const x18 = Alias.r18.x();
+    pub const x19 = Alias.r19.x();
+    pub const x20 = Alias.r20.x();
+    pub const x21 = Alias.r21.x();
+    pub const x22 = Alias.r22.x();
+    pub const x23 = Alias.r23.x();
+    pub const x24 = Alias.r24.x();
+    pub const x25 = Alias.r25.x();
+    pub const x26 = Alias.r26.x();
+    pub const x27 = Alias.r27.x();
+    pub const x28 = Alias.r28.x();
+    pub const x29 = Alias.r29.x();
+    pub const x30 = Alias.r30.x();
+    pub const xzr = Alias.zr.x();
+    pub const sp = Alias.sp.x();
 
-    pub const w0: Register = .{ .alias = .r0, .format = .{ .integer = .word } };
-    pub const w1: Register = .{ .alias = .r1, .format = .{ .integer = .word } };
-    pub const w2: Register = .{ .alias = .r2, .format = .{ .integer = .word } };
-    pub const w3: Register = .{ .alias = .r3, .format = .{ .integer = .word } };
-    pub const w4: Register = .{ .alias = .r4, .format = .{ .integer = .word } };
-    pub const w5: Register = .{ .alias = .r5, .format = .{ .integer = .word } };
-    pub const w6: Register = .{ .alias = .r6, .format = .{ .integer = .word } };
-    pub const w7: Register = .{ .alias = .r7, .format = .{ .integer = .word } };
-    pub const w8: Register = .{ .alias = .r8, .format = .{ .integer = .word } };
-    pub const w9: Register = .{ .alias = .r9, .format = .{ .integer = .word } };
-    pub const w10: Register = .{ .alias = .r10, .format = .{ .integer = .word } };
-    pub const w11: Register = .{ .alias = .r11, .format = .{ .integer = .word } };
-    pub const w12: Register = .{ .alias = .r12, .format = .{ .integer = .word } };
-    pub const w13: Register = .{ .alias = .r13, .format = .{ .integer = .word } };
-    pub const w14: Register = .{ .alias = .r14, .format = .{ .integer = .word } };
-    pub const w15: Register = .{ .alias = .r15, .format = .{ .integer = .word } };
-    pub const w16: Register = .{ .alias = .r16, .format = .{ .integer = .word } };
-    pub const w17: Register = .{ .alias = .r17, .format = .{ .integer = .word } };
-    pub const w18: Register = .{ .alias = .r18, .format = .{ .integer = .word } };
-    pub const w19: Register = .{ .alias = .r19, .format = .{ .integer = .word } };
-    pub const w20: Register = .{ .alias = .r20, .format = .{ .integer = .word } };
-    pub const w21: Register = .{ .alias = .r21, .format = .{ .integer = .word } };
-    pub const w22: Register = .{ .alias = .r22, .format = .{ .integer = .word } };
-    pub const w23: Register = .{ .alias = .r23, .format = .{ .integer = .word } };
-    pub const w24: Register = .{ .alias = .r24, .format = .{ .integer = .word } };
-    pub const w25: Register = .{ .alias = .r25, .format = .{ .integer = .word } };
-    pub const w26: Register = .{ .alias = .r26, .format = .{ .integer = .word } };
-    pub const w27: Register = .{ .alias = .r27, .format = .{ .integer = .word } };
-    pub const w28: Register = .{ .alias = .r28, .format = .{ .integer = .word } };
-    pub const w29: Register = .{ .alias = .r29, .format = .{ .integer = .word } };
-    pub const w30: Register = .{ .alias = .r30, .format = .{ .integer = .word } };
-    pub const wzr: Register = .{ .alias = .zr, .format = .{ .integer = .word } };
-    pub const wsp: Register = .{ .alias = .sp, .format = .{ .integer = .word } };
+    pub const w0 = Alias.r0.w();
+    pub const w1 = Alias.r1.w();
+    pub const w2 = Alias.r2.w();
+    pub const w3 = Alias.r3.w();
+    pub const w4 = Alias.r4.w();
+    pub const w5 = Alias.r5.w();
+    pub const w6 = Alias.r6.w();
+    pub const w7 = Alias.r7.w();
+    pub const w8 = Alias.r8.w();
+    pub const w9 = Alias.r9.w();
+    pub const w10 = Alias.r10.w();
+    pub const w11 = Alias.r11.w();
+    pub const w12 = Alias.r12.w();
+    pub const w13 = Alias.r13.w();
+    pub const w14 = Alias.r14.w();
+    pub const w15 = Alias.r15.w();
+    pub const w16 = Alias.r16.w();
+    pub const w17 = Alias.r17.w();
+    pub const w18 = Alias.r18.w();
+    pub const w19 = Alias.r19.w();
+    pub const w20 = Alias.r20.w();
+    pub const w21 = Alias.r21.w();
+    pub const w22 = Alias.r22.w();
+    pub const w23 = Alias.r23.w();
+    pub const w24 = Alias.r24.w();
+    pub const w25 = Alias.r25.w();
+    pub const w26 = Alias.r26.w();
+    pub const w27 = Alias.r27.w();
+    pub const w28 = Alias.r28.w();
+    pub const w29 = Alias.r29.w();
+    pub const w30 = Alias.r30.w();
+    pub const wzr = Alias.zr.w();
+    pub const wsp = Alias.sp.w();
 
     pub const ip = x16;
     pub const ip0 = x16;
     pub const ip1 = x17;
     pub const fp = x29;
     pub const lr = x30;
-    pub const pc: Register = .{ .alias = .pc, .format = .{ .integer = .doubleword } };
+    pub const pc = Alias.pc.alias(.other);
 
-    pub const q0: Register = .{ .alias = .v0, .format = .{ .scalar = .quad } };
-    pub const q1: Register = .{ .alias = .v1, .format = .{ .scalar = .quad } };
-    pub const q2: Register = .{ .alias = .v2, .format = .{ .scalar = .quad } };
-    pub const q3: Register = .{ .alias = .v3, .format = .{ .scalar = .quad } };
-    pub const q4: Register = .{ .alias = .v4, .format = .{ .scalar = .quad } };
-    pub const q5: Register = .{ .alias = .v5, .format = .{ .scalar = .quad } };
-    pub const q6: Register = .{ .alias = .v6, .format = .{ .scalar = .quad } };
-    pub const q7: Register = .{ .alias = .v7, .format = .{ .scalar = .quad } };
-    pub const q8: Register = .{ .alias = .v8, .format = .{ .scalar = .quad } };
-    pub const q9: Register = .{ .alias = .v9, .format = .{ .scalar = .quad } };
-    pub const q10: Register = .{ .alias = .v10, .format = .{ .scalar = .quad } };
-    pub const q11: Register = .{ .alias = .v11, .format = .{ .scalar = .quad } };
-    pub const q12: Register = .{ .alias = .v12, .format = .{ .scalar = .quad } };
-    pub const q13: Register = .{ .alias = .v13, .format = .{ .scalar = .quad } };
-    pub const q14: Register = .{ .alias = .v14, .format = .{ .scalar = .quad } };
-    pub const q15: Register = .{ .alias = .v15, .format = .{ .scalar = .quad } };
-    pub const q16: Register = .{ .alias = .v16, .format = .{ .scalar = .quad } };
-    pub const q17: Register = .{ .alias = .v17, .format = .{ .scalar = .quad } };
-    pub const q18: Register = .{ .alias = .v18, .format = .{ .scalar = .quad } };
-    pub const q19: Register = .{ .alias = .v19, .format = .{ .scalar = .quad } };
-    pub const q20: Register = .{ .alias = .v20, .format = .{ .scalar = .quad } };
-    pub const q21: Register = .{ .alias = .v21, .format = .{ .scalar = .quad } };
-    pub const q22: Register = .{ .alias = .v22, .format = .{ .scalar = .quad } };
-    pub const q23: Register = .{ .alias = .v23, .format = .{ .scalar = .quad } };
-    pub const q24: Register = .{ .alias = .v24, .format = .{ .scalar = .quad } };
-    pub const q25: Register = .{ .alias = .v25, .format = .{ .scalar = .quad } };
-    pub const q26: Register = .{ .alias = .v26, .format = .{ .scalar = .quad } };
-    pub const q27: Register = .{ .alias = .v27, .format = .{ .scalar = .quad } };
-    pub const q28: Register = .{ .alias = .v28, .format = .{ .scalar = .quad } };
-    pub const q29: Register = .{ .alias = .v29, .format = .{ .scalar = .quad } };
-    pub const q30: Register = .{ .alias = .v30, .format = .{ .scalar = .quad } };
-    pub const q31: Register = .{ .alias = .v31, .format = .{ .scalar = .quad } };
+    pub const q0 = Alias.v0.q();
+    pub const q1 = Alias.v1.q();
+    pub const q2 = Alias.v2.q();
+    pub const q3 = Alias.v3.q();
+    pub const q4 = Alias.v4.q();
+    pub const q5 = Alias.v5.q();
+    pub const q6 = Alias.v6.q();
+    pub const q7 = Alias.v7.q();
+    pub const q8 = Alias.v8.q();
+    pub const q9 = Alias.v9.q();
+    pub const q10 = Alias.v10.q();
+    pub const q11 = Alias.v11.q();
+    pub const q12 = Alias.v12.q();
+    pub const q13 = Alias.v13.q();
+    pub const q14 = Alias.v14.q();
+    pub const q15 = Alias.v15.q();
+    pub const q16 = Alias.v16.q();
+    pub const q17 = Alias.v17.q();
+    pub const q18 = Alias.v18.q();
+    pub const q19 = Alias.v19.q();
+    pub const q20 = Alias.v20.q();
+    pub const q21 = Alias.v21.q();
+    pub const q22 = Alias.v22.q();
+    pub const q23 = Alias.v23.q();
+    pub const q24 = Alias.v24.q();
+    pub const q25 = Alias.v25.q();
+    pub const q26 = Alias.v26.q();
+    pub const q27 = Alias.v27.q();
+    pub const q28 = Alias.v28.q();
+    pub const q29 = Alias.v29.q();
+    pub const q30 = Alias.v30.q();
+    pub const q31 = Alias.v31.q();
 
-    pub const d0: Register = .{ .alias = .v0, .format = .{ .scalar = .double } };
-    pub const d1: Register = .{ .alias = .v1, .format = .{ .scalar = .double } };
-    pub const d2: Register = .{ .alias = .v2, .format = .{ .scalar = .double } };
-    pub const d3: Register = .{ .alias = .v3, .format = .{ .scalar = .double } };
-    pub const d4: Register = .{ .alias = .v4, .format = .{ .scalar = .double } };
-    pub const d5: Register = .{ .alias = .v5, .format = .{ .scalar = .double } };
-    pub const d6: Register = .{ .alias = .v6, .format = .{ .scalar = .double } };
-    pub const d7: Register = .{ .alias = .v7, .format = .{ .scalar = .double } };
-    pub const d8: Register = .{ .alias = .v8, .format = .{ .scalar = .double } };
-    pub const d9: Register = .{ .alias = .v9, .format = .{ .scalar = .double } };
-    pub const d10: Register = .{ .alias = .v10, .format = .{ .scalar = .double } };
-    pub const d11: Register = .{ .alias = .v11, .format = .{ .scalar = .double } };
-    pub const d12: Register = .{ .alias = .v12, .format = .{ .scalar = .double } };
-    pub const d13: Register = .{ .alias = .v13, .format = .{ .scalar = .double } };
-    pub const d14: Register = .{ .alias = .v14, .format = .{ .scalar = .double } };
-    pub const d15: Register = .{ .alias = .v15, .format = .{ .scalar = .double } };
-    pub const d16: Register = .{ .alias = .v16, .format = .{ .scalar = .double } };
-    pub const d17: Register = .{ .alias = .v17, .format = .{ .scalar = .double } };
-    pub const d18: Register = .{ .alias = .v18, .format = .{ .scalar = .double } };
-    pub const d19: Register = .{ .alias = .v19, .format = .{ .scalar = .double } };
-    pub const d20: Register = .{ .alias = .v20, .format = .{ .scalar = .double } };
-    pub const d21: Register = .{ .alias = .v21, .format = .{ .scalar = .double } };
-    pub const d22: Register = .{ .alias = .v22, .format = .{ .scalar = .double } };
-    pub const d23: Register = .{ .alias = .v23, .format = .{ .scalar = .double } };
-    pub const d24: Register = .{ .alias = .v24, .format = .{ .scalar = .double } };
-    pub const d25: Register = .{ .alias = .v25, .format = .{ .scalar = .double } };
-    pub const d26: Register = .{ .alias = .v26, .format = .{ .scalar = .double } };
-    pub const d27: Register = .{ .alias = .v27, .format = .{ .scalar = .double } };
-    pub const d28: Register = .{ .alias = .v28, .format = .{ .scalar = .double } };
-    pub const d29: Register = .{ .alias = .v29, .format = .{ .scalar = .double } };
-    pub const d30: Register = .{ .alias = .v30, .format = .{ .scalar = .double } };
-    pub const d31: Register = .{ .alias = .v31, .format = .{ .scalar = .double } };
+    pub const d0 = Alias.v0.d();
+    pub const d1 = Alias.v1.d();
+    pub const d2 = Alias.v2.d();
+    pub const d3 = Alias.v3.d();
+    pub const d4 = Alias.v4.d();
+    pub const d5 = Alias.v5.d();
+    pub const d6 = Alias.v6.d();
+    pub const d7 = Alias.v7.d();
+    pub const d8 = Alias.v8.d();
+    pub const d9 = Alias.v9.d();
+    pub const d10 = Alias.v10.d();
+    pub const d11 = Alias.v11.d();
+    pub const d12 = Alias.v12.d();
+    pub const d13 = Alias.v13.d();
+    pub const d14 = Alias.v14.d();
+    pub const d15 = Alias.v15.d();
+    pub const d16 = Alias.v16.d();
+    pub const d17 = Alias.v17.d();
+    pub const d18 = Alias.v18.d();
+    pub const d19 = Alias.v19.d();
+    pub const d20 = Alias.v20.d();
+    pub const d21 = Alias.v21.d();
+    pub const d22 = Alias.v22.d();
+    pub const d23 = Alias.v23.d();
+    pub const d24 = Alias.v24.d();
+    pub const d25 = Alias.v25.d();
+    pub const d26 = Alias.v26.d();
+    pub const d27 = Alias.v27.d();
+    pub const d28 = Alias.v28.d();
+    pub const d29 = Alias.v29.d();
+    pub const d30 = Alias.v30.d();
+    pub const d31 = Alias.v31.d();
 
-    pub const s0: Register = .{ .alias = .v0, .format = .{ .scalar = .single } };
-    pub const s1: Register = .{ .alias = .v1, .format = .{ .scalar = .single } };
-    pub const s2: Register = .{ .alias = .v2, .format = .{ .scalar = .single } };
-    pub const s3: Register = .{ .alias = .v3, .format = .{ .scalar = .single } };
-    pub const s4: Register = .{ .alias = .v4, .format = .{ .scalar = .single } };
-    pub const s5: Register = .{ .alias = .v5, .format = .{ .scalar = .single } };
-    pub const s6: Register = .{ .alias = .v6, .format = .{ .scalar = .single } };
-    pub const s7: Register = .{ .alias = .v7, .format = .{ .scalar = .single } };
-    pub const s8: Register = .{ .alias = .v8, .format = .{ .scalar = .single } };
-    pub const s9: Register = .{ .alias = .v9, .format = .{ .scalar = .single } };
-    pub const s10: Register = .{ .alias = .v10, .format = .{ .scalar = .single } };
-    pub const s11: Register = .{ .alias = .v11, .format = .{ .scalar = .single } };
-    pub const s12: Register = .{ .alias = .v12, .format = .{ .scalar = .single } };
-    pub const s13: Register = .{ .alias = .v13, .format = .{ .scalar = .single } };
-    pub const s14: Register = .{ .alias = .v14, .format = .{ .scalar = .single } };
-    pub const s15: Register = .{ .alias = .v15, .format = .{ .scalar = .single } };
-    pub const s16: Register = .{ .alias = .v16, .format = .{ .scalar = .single } };
-    pub const s17: Register = .{ .alias = .v17, .format = .{ .scalar = .single } };
-    pub const s18: Register = .{ .alias = .v18, .format = .{ .scalar = .single } };
-    pub const s19: Register = .{ .alias = .v19, .format = .{ .scalar = .single } };
-    pub const s20: Register = .{ .alias = .v20, .format = .{ .scalar = .single } };
-    pub const s21: Register = .{ .alias = .v21, .format = .{ .scalar = .single } };
-    pub const s22: Register = .{ .alias = .v22, .format = .{ .scalar = .single } };
-    pub const s23: Register = .{ .alias = .v23, .format = .{ .scalar = .single } };
-    pub const s24: Register = .{ .alias = .v24, .format = .{ .scalar = .single } };
-    pub const s25: Register = .{ .alias = .v25, .format = .{ .scalar = .single } };
-    pub const s26: Register = .{ .alias = .v26, .format = .{ .scalar = .single } };
-    pub const s27: Register = .{ .alias = .v27, .format = .{ .scalar = .single } };
-    pub const s28: Register = .{ .alias = .v28, .format = .{ .scalar = .single } };
-    pub const s29: Register = .{ .alias = .v29, .format = .{ .scalar = .single } };
-    pub const s30: Register = .{ .alias = .v30, .format = .{ .scalar = .single } };
-    pub const s31: Register = .{ .alias = .v31, .format = .{ .scalar = .single } };
+    pub const s0 = Alias.v0.s();
+    pub const s1 = Alias.v1.s();
+    pub const s2 = Alias.v2.s();
+    pub const s3 = Alias.v3.s();
+    pub const s4 = Alias.v4.s();
+    pub const s5 = Alias.v5.s();
+    pub const s6 = Alias.v6.s();
+    pub const s7 = Alias.v7.s();
+    pub const s8 = Alias.v8.s();
+    pub const s9 = Alias.v9.s();
+    pub const s10 = Alias.v10.s();
+    pub const s11 = Alias.v11.s();
+    pub const s12 = Alias.v12.s();
+    pub const s13 = Alias.v13.s();
+    pub const s14 = Alias.v14.s();
+    pub const s15 = Alias.v15.s();
+    pub const s16 = Alias.v16.s();
+    pub const s17 = Alias.v17.s();
+    pub const s18 = Alias.v18.s();
+    pub const s19 = Alias.v19.s();
+    pub const s20 = Alias.v20.s();
+    pub const s21 = Alias.v21.s();
+    pub const s22 = Alias.v22.s();
+    pub const s23 = Alias.v23.s();
+    pub const s24 = Alias.v24.s();
+    pub const s25 = Alias.v25.s();
+    pub const s26 = Alias.v26.s();
+    pub const s27 = Alias.v27.s();
+    pub const s28 = Alias.v28.s();
+    pub const s29 = Alias.v29.s();
+    pub const s30 = Alias.v30.s();
+    pub const s31 = Alias.v31.s();
 
-    pub const h0: Register = .{ .alias = .v0, .format = .{ .scalar = .half } };
-    pub const h1: Register = .{ .alias = .v1, .format = .{ .scalar = .half } };
-    pub const h2: Register = .{ .alias = .v2, .format = .{ .scalar = .half } };
-    pub const h3: Register = .{ .alias = .v3, .format = .{ .scalar = .half } };
-    pub const h4: Register = .{ .alias = .v4, .format = .{ .scalar = .half } };
-    pub const h5: Register = .{ .alias = .v5, .format = .{ .scalar = .half } };
-    pub const h6: Register = .{ .alias = .v6, .format = .{ .scalar = .half } };
-    pub const h7: Register = .{ .alias = .v7, .format = .{ .scalar = .half } };
-    pub const h8: Register = .{ .alias = .v8, .format = .{ .scalar = .half } };
-    pub const h9: Register = .{ .alias = .v9, .format = .{ .scalar = .half } };
-    pub const h10: Register = .{ .alias = .v10, .format = .{ .scalar = .half } };
-    pub const h11: Register = .{ .alias = .v11, .format = .{ .scalar = .half } };
-    pub const h12: Register = .{ .alias = .v12, .format = .{ .scalar = .half } };
-    pub const h13: Register = .{ .alias = .v13, .format = .{ .scalar = .half } };
-    pub const h14: Register = .{ .alias = .v14, .format = .{ .scalar = .half } };
-    pub const h15: Register = .{ .alias = .v15, .format = .{ .scalar = .half } };
-    pub const h16: Register = .{ .alias = .v16, .format = .{ .scalar = .half } };
-    pub const h17: Register = .{ .alias = .v17, .format = .{ .scalar = .half } };
-    pub const h18: Register = .{ .alias = .v18, .format = .{ .scalar = .half } };
-    pub const h19: Register = .{ .alias = .v19, .format = .{ .scalar = .half } };
-    pub const h20: Register = .{ .alias = .v20, .format = .{ .scalar = .half } };
-    pub const h21: Register = .{ .alias = .v21, .format = .{ .scalar = .half } };
-    pub const h22: Register = .{ .alias = .v22, .format = .{ .scalar = .half } };
-    pub const h23: Register = .{ .alias = .v23, .format = .{ .scalar = .half } };
-    pub const h24: Register = .{ .alias = .v24, .format = .{ .scalar = .half } };
-    pub const h25: Register = .{ .alias = .v25, .format = .{ .scalar = .half } };
-    pub const h26: Register = .{ .alias = .v26, .format = .{ .scalar = .half } };
-    pub const h27: Register = .{ .alias = .v27, .format = .{ .scalar = .half } };
-    pub const h28: Register = .{ .alias = .v28, .format = .{ .scalar = .half } };
-    pub const h29: Register = .{ .alias = .v29, .format = .{ .scalar = .half } };
-    pub const h30: Register = .{ .alias = .v30, .format = .{ .scalar = .half } };
-    pub const h31: Register = .{ .alias = .v31, .format = .{ .scalar = .half } };
+    pub const h0 = Alias.v0.h();
+    pub const h1 = Alias.v1.h();
+    pub const h2 = Alias.v2.h();
+    pub const h3 = Alias.v3.h();
+    pub const h4 = Alias.v4.h();
+    pub const h5 = Alias.v5.h();
+    pub const h6 = Alias.v6.h();
+    pub const h7 = Alias.v7.h();
+    pub const h8 = Alias.v8.h();
+    pub const h9 = Alias.v9.h();
+    pub const h10 = Alias.v10.h();
+    pub const h11 = Alias.v11.h();
+    pub const h12 = Alias.v12.h();
+    pub const h13 = Alias.v13.h();
+    pub const h14 = Alias.v14.h();
+    pub const h15 = Alias.v15.h();
+    pub const h16 = Alias.v16.h();
+    pub const h17 = Alias.v17.h();
+    pub const h18 = Alias.v18.h();
+    pub const h19 = Alias.v19.h();
+    pub const h20 = Alias.v20.h();
+    pub const h21 = Alias.v21.h();
+    pub const h22 = Alias.v22.h();
+    pub const h23 = Alias.v23.h();
+    pub const h24 = Alias.v24.h();
+    pub const h25 = Alias.v25.h();
+    pub const h26 = Alias.v26.h();
+    pub const h27 = Alias.v27.h();
+    pub const h28 = Alias.v28.h();
+    pub const h29 = Alias.v29.h();
+    pub const h30 = Alias.v30.h();
+    pub const h31 = Alias.v31.h();
 
-    pub const b0: Register = .{ .alias = .v0, .format = .{ .scalar = .byte } };
-    pub const b1: Register = .{ .alias = .v1, .format = .{ .scalar = .byte } };
-    pub const b2: Register = .{ .alias = .v2, .format = .{ .scalar = .byte } };
-    pub const b3: Register = .{ .alias = .v3, .format = .{ .scalar = .byte } };
-    pub const b4: Register = .{ .alias = .v4, .format = .{ .scalar = .byte } };
-    pub const b5: Register = .{ .alias = .v5, .format = .{ .scalar = .byte } };
-    pub const b6: Register = .{ .alias = .v6, .format = .{ .scalar = .byte } };
-    pub const b7: Register = .{ .alias = .v7, .format = .{ .scalar = .byte } };
-    pub const b8: Register = .{ .alias = .v8, .format = .{ .scalar = .byte } };
-    pub const b9: Register = .{ .alias = .v9, .format = .{ .scalar = .byte } };
-    pub const b10: Register = .{ .alias = .v10, .format = .{ .scalar = .byte } };
-    pub const b11: Register = .{ .alias = .v11, .format = .{ .scalar = .byte } };
-    pub const b12: Register = .{ .alias = .v12, .format = .{ .scalar = .byte } };
-    pub const b13: Register = .{ .alias = .v13, .format = .{ .scalar = .byte } };
-    pub const b14: Register = .{ .alias = .v14, .format = .{ .scalar = .byte } };
-    pub const b15: Register = .{ .alias = .v15, .format = .{ .scalar = .byte } };
-    pub const b16: Register = .{ .alias = .v16, .format = .{ .scalar = .byte } };
-    pub const b17: Register = .{ .alias = .v17, .format = .{ .scalar = .byte } };
-    pub const b18: Register = .{ .alias = .v18, .format = .{ .scalar = .byte } };
-    pub const b19: Register = .{ .alias = .v19, .format = .{ .scalar = .byte } };
-    pub const b20: Register = .{ .alias = .v20, .format = .{ .scalar = .byte } };
-    pub const b21: Register = .{ .alias = .v21, .format = .{ .scalar = .byte } };
-    pub const b22: Register = .{ .alias = .v22, .format = .{ .scalar = .byte } };
-    pub const b23: Register = .{ .alias = .v23, .format = .{ .scalar = .byte } };
-    pub const b24: Register = .{ .alias = .v24, .format = .{ .scalar = .byte } };
-    pub const b25: Register = .{ .alias = .v25, .format = .{ .scalar = .byte } };
-    pub const b26: Register = .{ .alias = .v26, .format = .{ .scalar = .byte } };
-    pub const b27: Register = .{ .alias = .v27, .format = .{ .scalar = .byte } };
-    pub const b28: Register = .{ .alias = .v28, .format = .{ .scalar = .byte } };
-    pub const b29: Register = .{ .alias = .v29, .format = .{ .scalar = .byte } };
-    pub const b30: Register = .{ .alias = .v30, .format = .{ .scalar = .byte } };
-    pub const b31: Register = .{ .alias = .v31, .format = .{ .scalar = .byte } };
+    pub const b0 = Alias.v0.b();
+    pub const b1 = Alias.v1.b();
+    pub const b2 = Alias.v2.b();
+    pub const b3 = Alias.v3.b();
+    pub const b4 = Alias.v4.b();
+    pub const b5 = Alias.v5.b();
+    pub const b6 = Alias.v6.b();
+    pub const b7 = Alias.v7.b();
+    pub const b8 = Alias.v8.b();
+    pub const b9 = Alias.v9.b();
+    pub const b10 = Alias.v10.b();
+    pub const b11 = Alias.v11.b();
+    pub const b12 = Alias.v12.b();
+    pub const b13 = Alias.v13.b();
+    pub const b14 = Alias.v14.b();
+    pub const b15 = Alias.v15.b();
+    pub const b16 = Alias.v16.b();
+    pub const b17 = Alias.v17.b();
+    pub const b18 = Alias.v18.b();
+    pub const b19 = Alias.v19.b();
+    pub const b20 = Alias.v20.b();
+    pub const b21 = Alias.v21.b();
+    pub const b22 = Alias.v22.b();
+    pub const b23 = Alias.v23.b();
+    pub const b24 = Alias.v24.b();
+    pub const b25 = Alias.v25.b();
+    pub const b26 = Alias.v26.b();
+    pub const b27 = Alias.v27.b();
+    pub const b28 = Alias.v28.b();
+    pub const b29 = Alias.v29.b();
+    pub const b30 = Alias.v30.b();
+    pub const b31 = Alias.v31.b();
 
-    pub const fpcr: Register = .{ .alias = .fpcr, .format = .{ .integer = .doubleword } };
-    pub const fpsr: Register = .{ .alias = .fpsr, .format = .{ .integer = .doubleword } };
+    pub const fpcr = Alias.fpcr.alias(.other);
+    pub const fpsr = Alias.fpsr.alias(.other);
 
-    pub const z0: Register = .{ .alias = .v0, .format = .{ .scalar = .scalable } };
-    pub const z1: Register = .{ .alias = .v1, .format = .{ .scalar = .scalable } };
-    pub const z2: Register = .{ .alias = .v2, .format = .{ .scalar = .scalable } };
-    pub const z3: Register = .{ .alias = .v3, .format = .{ .scalar = .scalable } };
-    pub const z4: Register = .{ .alias = .v4, .format = .{ .scalar = .scalable } };
-    pub const z5: Register = .{ .alias = .v5, .format = .{ .scalar = .scalable } };
-    pub const z6: Register = .{ .alias = .v6, .format = .{ .scalar = .scalable } };
-    pub const z7: Register = .{ .alias = .v7, .format = .{ .scalar = .scalable } };
-    pub const z8: Register = .{ .alias = .v8, .format = .{ .scalar = .scalable } };
-    pub const z9: Register = .{ .alias = .v9, .format = .{ .scalar = .scalable } };
-    pub const z10: Register = .{ .alias = .v10, .format = .{ .scalar = .scalable } };
-    pub const z11: Register = .{ .alias = .v11, .format = .{ .scalar = .scalable } };
-    pub const z12: Register = .{ .alias = .v12, .format = .{ .scalar = .scalable } };
-    pub const z13: Register = .{ .alias = .v13, .format = .{ .scalar = .scalable } };
-    pub const z14: Register = .{ .alias = .v14, .format = .{ .scalar = .scalable } };
-    pub const z15: Register = .{ .alias = .v15, .format = .{ .scalar = .scalable } };
-    pub const z16: Register = .{ .alias = .v16, .format = .{ .scalar = .scalable } };
-    pub const z17: Register = .{ .alias = .v17, .format = .{ .scalar = .scalable } };
-    pub const z18: Register = .{ .alias = .v18, .format = .{ .scalar = .scalable } };
-    pub const z19: Register = .{ .alias = .v19, .format = .{ .scalar = .scalable } };
-    pub const z20: Register = .{ .alias = .v20, .format = .{ .scalar = .scalable } };
-    pub const z21: Register = .{ .alias = .v21, .format = .{ .scalar = .scalable } };
-    pub const z22: Register = .{ .alias = .v22, .format = .{ .scalar = .scalable } };
-    pub const z23: Register = .{ .alias = .v23, .format = .{ .scalar = .scalable } };
-    pub const z24: Register = .{ .alias = .v24, .format = .{ .scalar = .scalable } };
-    pub const z25: Register = .{ .alias = .v25, .format = .{ .scalar = .scalable } };
-    pub const z26: Register = .{ .alias = .v26, .format = .{ .scalar = .scalable } };
-    pub const z27: Register = .{ .alias = .v27, .format = .{ .scalar = .scalable } };
-    pub const z28: Register = .{ .alias = .v28, .format = .{ .scalar = .scalable } };
-    pub const z29: Register = .{ .alias = .v29, .format = .{ .scalar = .scalable } };
-    pub const z30: Register = .{ .alias = .v30, .format = .{ .scalar = .scalable } };
-    pub const z31: Register = .{ .alias = .v31, .format = .{ .scalar = .scalable } };
+    pub const z0 = Alias.v0.z();
+    pub const z1 = Alias.v1.z();
+    pub const z2 = Alias.v2.z();
+    pub const z3 = Alias.v3.z();
+    pub const z4 = Alias.v4.z();
+    pub const z5 = Alias.v5.z();
+    pub const z6 = Alias.v6.z();
+    pub const z7 = Alias.v7.z();
+    pub const z8 = Alias.v8.z();
+    pub const z9 = Alias.v9.z();
+    pub const z10 = Alias.v10.z();
+    pub const z11 = Alias.v11.z();
+    pub const z12 = Alias.v12.z();
+    pub const z13 = Alias.v13.z();
+    pub const z14 = Alias.v14.z();
+    pub const z15 = Alias.v15.z();
+    pub const z16 = Alias.v16.z();
+    pub const z17 = Alias.v17.z();
+    pub const z18 = Alias.v18.z();
+    pub const z19 = Alias.v19.z();
+    pub const z20 = Alias.v20.z();
+    pub const z21 = Alias.v21.z();
+    pub const z22 = Alias.v22.z();
+    pub const z23 = Alias.v23.z();
+    pub const z24 = Alias.v24.z();
+    pub const z25 = Alias.v25.z();
+    pub const z26 = Alias.v26.z();
+    pub const z27 = Alias.v27.z();
+    pub const z28 = Alias.v28.z();
+    pub const z29 = Alias.v29.z();
+    pub const z30 = Alias.v30.z();
+    pub const z31 = Alias.v31.z();
 
-    pub const p0: Register = .{ .alias = .v0, .format = .{ .scalar = .predicate } };
-    pub const p1: Register = .{ .alias = .v1, .format = .{ .scalar = .predicate } };
-    pub const p2: Register = .{ .alias = .v2, .format = .{ .scalar = .predicate } };
-    pub const p3: Register = .{ .alias = .v3, .format = .{ .scalar = .predicate } };
-    pub const p4: Register = .{ .alias = .v4, .format = .{ .scalar = .predicate } };
-    pub const p5: Register = .{ .alias = .v5, .format = .{ .scalar = .predicate } };
-    pub const p6: Register = .{ .alias = .v6, .format = .{ .scalar = .predicate } };
-    pub const p7: Register = .{ .alias = .v7, .format = .{ .scalar = .predicate } };
-    pub const p8: Register = .{ .alias = .v8, .format = .{ .scalar = .predicate } };
-    pub const p9: Register = .{ .alias = .v9, .format = .{ .scalar = .predicate } };
-    pub const p10: Register = .{ .alias = .v10, .format = .{ .scalar = .predicate } };
-    pub const p11: Register = .{ .alias = .v11, .format = .{ .scalar = .predicate } };
-    pub const p12: Register = .{ .alias = .v12, .format = .{ .scalar = .predicate } };
-    pub const p13: Register = .{ .alias = .v13, .format = .{ .scalar = .predicate } };
-    pub const p14: Register = .{ .alias = .v14, .format = .{ .scalar = .predicate } };
-    pub const p15: Register = .{ .alias = .v15, .format = .{ .scalar = .predicate } };
+    pub const p0 = Alias.p0.p();
+    pub const p1 = Alias.p1.p();
+    pub const p2 = Alias.p2.p();
+    pub const p3 = Alias.p3.p();
+    pub const p4 = Alias.p4.p();
+    pub const p5 = Alias.p5.p();
+    pub const p6 = Alias.p6.p();
+    pub const p7 = Alias.p7.p();
+    pub const p8 = Alias.p8.p();
+    pub const p9 = Alias.p9.p();
+    pub const p10 = Alias.p10.p();
+    pub const p11 = Alias.p11.p();
+    pub const p12 = Alias.p12.p();
+    pub const p13 = Alias.p13.p();
+    pub const p14 = Alias.p14.p();
+    pub const p15 = Alias.p15.p();
 
-    pub const ffr: Register = .{ .alias = .ffr, .format = .{ .integer = .doubleword } };
+    pub const ffr = Alias.ffr.alias(.other);
 
     pub const Encoded = enum(u5) {
         _,
 
-        pub fn decodeInteger(enc: Encoded, sf_enc: IntegerSize, opts: struct { sp: bool = false }) Register {
-            return switch (sf_enc) {
-                .word => switch (@intFromEnum(enc)) {
-                    0 => .w0,
-                    1 => .w1,
-                    2 => .w2,
-                    3 => .w3,
-                    4 => .w4,
-                    5 => .w5,
-                    6 => .w6,
-                    7 => .w7,
-                    8 => .w8,
-                    9 => .w9,
-                    10 => .w10,
-                    11 => .w11,
-                    12 => .w12,
-                    13 => .w13,
-                    14 => .w14,
-                    15 => .w15,
-                    16 => .w16,
-                    17 => .w17,
-                    18 => .w18,
-                    19 => .w19,
-                    20 => .w20,
-                    21 => .w21,
-                    22 => .w22,
-                    23 => .w23,
-                    24 => .w24,
-                    25 => .w25,
-                    26 => .w26,
-                    27 => .w27,
-                    28 => .w28,
-                    29 => .w29,
-                    30 => .w30,
-                    31 => if (opts.sp) .wsp else .wzr,
-                },
-                .doubleword => switch (@intFromEnum(enc)) {
-                    0 => .x0,
-                    1 => .x1,
-                    2 => .x2,
-                    3 => .x3,
-                    4 => .x4,
-                    5 => .x5,
-                    6 => .x6,
-                    7 => .x7,
-                    8 => .x8,
-                    9 => .x9,
-                    10 => .x10,
-                    11 => .x11,
-                    12 => .x12,
-                    13 => .x13,
-                    14 => .x14,
-                    15 => .x15,
-                    16 => .x16,
-                    17 => .x17,
-                    18 => .x18,
-                    19 => .x19,
-                    20 => .x20,
-                    21 => .x21,
-                    22 => .x22,
-                    23 => .x23,
-                    24 => .x24,
-                    25 => .x25,
-                    26 => .x26,
-                    27 => .x27,
-                    28 => .x28,
-                    29 => .x29,
-                    30 => .x30,
-                    31 => if (opts.sp) .sp else .xzr,
-                },
-            };
-        }
-
-        pub fn decodeVector(enc: Encoded, vs_enc: VectorSize) Register {
-            return switch (vs_enc) {
-                .byte => switch (@intFromEnum(enc)) {
-                    0 => .b0,
-                    1 => .b1,
-                    2 => .b2,
-                    3 => .b3,
-                    4 => .b4,
-                    5 => .b5,
-                    6 => .b6,
-                    7 => .b7,
-                    8 => .b8,
-                    9 => .b9,
-                    10 => .b10,
-                    11 => .b11,
-                    12 => .b12,
-                    13 => .b13,
-                    14 => .b14,
-                    15 => .b15,
-                    16 => .b16,
-                    17 => .b17,
-                    18 => .b18,
-                    19 => .b19,
-                    20 => .b20,
-                    21 => .b21,
-                    22 => .b22,
-                    23 => .b23,
-                    24 => .b24,
-                    25 => .b25,
-                    26 => .b26,
-                    27 => .b27,
-                    28 => .b28,
-                    29 => .b29,
-                    30 => .b30,
-                    31 => .b31,
-                },
-                .half => switch (@intFromEnum(enc)) {
-                    0 => .h0,
-                    1 => .h1,
-                    2 => .h2,
-                    3 => .h3,
-                    4 => .h4,
-                    5 => .h5,
-                    6 => .h6,
-                    7 => .h7,
-                    8 => .h8,
-                    9 => .h9,
-                    10 => .h10,
-                    11 => .h11,
-                    12 => .h12,
-                    13 => .h13,
-                    14 => .h14,
-                    15 => .h15,
-                    16 => .h16,
-                    17 => .h17,
-                    18 => .h18,
-                    19 => .h19,
-                    20 => .h20,
-                    21 => .h21,
-                    22 => .h22,
-                    23 => .h23,
-                    24 => .h24,
-                    25 => .h25,
-                    26 => .h26,
-                    27 => .h27,
-                    28 => .h28,
-                    29 => .h29,
-                    30 => .h30,
-                    31 => .h31,
-                },
-                .single => switch (@intFromEnum(enc)) {
-                    0 => .s0,
-                    1 => .s1,
-                    2 => .s2,
-                    3 => .s3,
-                    4 => .s4,
-                    5 => .s5,
-                    6 => .s6,
-                    7 => .s7,
-                    8 => .s8,
-                    9 => .s9,
-                    10 => .s10,
-                    11 => .s11,
-                    12 => .s12,
-                    13 => .s13,
-                    14 => .s14,
-                    15 => .s15,
-                    16 => .s16,
-                    17 => .s17,
-                    18 => .s18,
-                    19 => .s19,
-                    20 => .s20,
-                    21 => .s21,
-                    22 => .s22,
-                    23 => .s23,
-                    24 => .s24,
-                    25 => .s25,
-                    26 => .s26,
-                    27 => .s27,
-                    28 => .s28,
-                    29 => .s29,
-                    30 => .s30,
-                    31 => .s31,
-                },
-                .double => switch (@intFromEnum(enc)) {
-                    0 => .d0,
-                    1 => .d1,
-                    2 => .d2,
-                    3 => .d3,
-                    4 => .d4,
-                    5 => .d5,
-                    6 => .d6,
-                    7 => .d7,
-                    8 => .d8,
-                    9 => .d9,
-                    10 => .d10,
-                    11 => .d11,
-                    12 => .d12,
-                    13 => .d13,
-                    14 => .d14,
-                    15 => .d15,
-                    16 => .d16,
-                    17 => .d17,
-                    18 => .d18,
-                    19 => .d19,
-                    20 => .d20,
-                    21 => .d21,
-                    22 => .d22,
-                    23 => .d23,
-                    24 => .d24,
-                    25 => .d25,
-                    26 => .d26,
-                    27 => .d27,
-                    28 => .d28,
-                    29 => .d29,
-                    30 => .d30,
-                    31 => .d31,
-                },
-                .quad => switch (@intFromEnum(enc)) {
-                    0 => .q0,
-                    1 => .q1,
-                    2 => .q2,
-                    3 => .q3,
-                    4 => .q4,
-                    5 => .q5,
-                    6 => .q6,
-                    7 => .q7,
-                    8 => .q8,
-                    9 => .q9,
-                    10 => .q10,
-                    11 => .q11,
-                    12 => .q12,
-                    13 => .q13,
-                    14 => .q14,
-                    15 => .q15,
-                    16 => .q16,
-                    17 => .q17,
-                    18 => .q18,
-                    19 => .q19,
-                    20 => .q20,
-                    21 => .q21,
-                    22 => .q22,
-                    23 => .q23,
-                    24 => .q24,
-                    25 => .q25,
-                    26 => .q26,
-                    27 => .q27,
-                    28 => .q28,
-                    29 => .q29,
-                    30 => .q30,
-                    31 => .q31,
-                },
-                .scalable => switch (@intFromEnum(enc)) {
-                    0 => .z0,
-                    1 => .z1,
-                    2 => .z2,
-                    3 => .z3,
-                    4 => .z4,
-                    5 => .z5,
-                    6 => .z6,
-                    7 => .z7,
-                    8 => .z8,
-                    9 => .z9,
-                    10 => .z10,
-                    11 => .z11,
-                    12 => .z12,
-                    13 => .z13,
-                    14 => .z14,
-                    15 => .z15,
-                    16 => .z16,
-                    17 => .z17,
-                    18 => .z18,
-                    19 => .z19,
-                    20 => .z20,
-                    21 => .z21,
-                    22 => .z22,
-                    23 => .z23,
-                    24 => .z24,
-                    25 => .z25,
-                    26 => .z26,
-                    27 => .z27,
-                    28 => .z28,
-                    29 => .z29,
-                    30 => .z30,
-                    31 => .z31,
-                },
-                .predicate => switch (@as(u4, @intCast(@intFromEnum(enc)))) {
-                    0 => .p0,
-                    1 => .p1,
-                    2 => .p2,
-                    3 => .p3,
-                    4 => .p4,
-                    5 => .p5,
-                    6 => .p6,
-                    7 => .p7,
-                    8 => .p8,
-                    9 => .p9,
-                    10 => .p10,
-                    11 => .p11,
-                    12 => .p12,
-                    13 => .p13,
-                    14 => .p14,
-                    15 => .p15,
-                },
+        pub fn decode(enc: Encoded, opts: struct { sp: bool = false, V: bool = false }) Alias {
+            return switch (opts.V) {
+                false => @enumFromInt(@intFromEnum(Alias.r0) + @intFromEnum(enc) +
+                    @intFromBool(opts.sp and enc == comptime Alias.sp.encode(.{ .sp = true }))),
+                true => @enumFromInt(@intFromEnum(Alias.v0) + @intFromEnum(enc)),
             };
         }
     };
@@ -789,97 +501,105 @@ pub const Register = struct {
         pub const fp: Alias = .r29;
         pub const lr: Alias = .r30;
 
-        pub fn r(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.r0) and @intFromEnum(ra) <= @intFromEnum(Alias.pc));
-            return .{ .alias = ra, .format = .alias };
+        pub fn alias(ra: Alias, fa: Format.Alias) Register {
+            switch (fa) {
+                .general => assert(@intFromEnum(ra) >= @intFromEnum(Alias.r0) and @intFromEnum(ra) <= @intFromEnum(Alias.sp)),
+                .other => switch (ra) {
+                    else => unreachable,
+                    .pc, .fpcr, .fpsr, .ffr => {},
+                },
+                .vector => assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31)),
+                .predicate => assert(@intFromEnum(ra) >= @intFromEnum(Alias.p0) and @intFromEnum(ra) <= @intFromEnum(Alias.p15)),
+            }
+            return .{ .alias = ra, .format = .{ .alias = fa } };
         }
-        pub fn x(ra: Alias) Register {
+        pub fn general(ra: Alias, gs: GeneralSize) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.r0) and @intFromEnum(ra) <= @intFromEnum(Alias.sp));
-            return .{ .alias = ra, .format = .{ .integer = .doubleword } };
+            return .{ .alias = ra, .format = .{ .general = gs } };
         }
-        pub fn w(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.r0) and @intFromEnum(ra) <= @intFromEnum(Alias.sp));
-            return .{ .alias = ra, .format = .{ .integer = .word } };
-        }
-        pub fn v(ra: Alias) Register {
+        pub fn scalar(ra: Alias, ss: ScalarSize) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .alias };
+            return .{ .alias = ra, .format = .{ .scalar = ss } };
         }
-        pub fn q(ra: Alias) Register {
+        pub fn vector(ra: Alias, arrangement: Arrangement) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .quad } };
+            return .{ .alias = ra, .format = .{ .vector = arrangement } };
         }
-        pub fn d(ra: Alias) Register {
+        pub fn element(ra: Alias, ss: ScalarSize, index: u4) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .double } };
-        }
-        pub fn s(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .single } };
-        }
-        pub fn h(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .half } };
-        }
-        pub fn b(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .byte } };
+            return .{ .alias = ra, .format = .{ .element = .{ .size = ss, .index = index } } };
         }
         pub fn z(ra: Alias) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .scalar = .scalable } };
+            return .{ .alias = ra, .format = .scalable };
         }
         pub fn p(ra: Alias) Register {
             assert(@intFromEnum(ra) >= @intFromEnum(Alias.p0) and @intFromEnum(ra) <= @intFromEnum(Alias.p15));
             return .{ .alias = ra, .format = .{ .scalar = .predicate } };
         }
+
+        pub fn r(ra: Alias) Register {
+            return ra.alias(.general);
+        }
+        pub fn x(ra: Alias) Register {
+            return ra.general(.doubleword);
+        }
+        pub fn w(ra: Alias) Register {
+            return ra.general(.word);
+        }
+        pub fn v(ra: Alias) Register {
+            return ra.alias(.vector);
+        }
+        pub fn q(ra: Alias) Register {
+            return ra.scalar(.quad);
+        }
+        pub fn d(ra: Alias) Register {
+            return ra.scalar(.double);
+        }
+        pub fn s(ra: Alias) Register {
+            return ra.scalar(.single);
+        }
+        pub fn h(ra: Alias) Register {
+            return ra.scalar(.half);
+        }
+        pub fn b(ra: Alias) Register {
+            return ra.scalar(.byte);
+        }
         pub fn @"2d"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"2d" } };
+            return ra.vector(.@"2d");
         }
         pub fn @"4s"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"4s" } };
+            return ra.vector(.@"4s");
         }
         pub fn @"8h"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"8h" } };
+            return ra.vector(.@"8h");
         }
         pub fn @"16b"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"16b" } };
+            return ra.vector(.@"16b");
         }
         pub fn @"1d"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"1d" } };
+            return ra.vector(.@"1d");
         }
         pub fn @"2s"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"2s" } };
+            return ra.vector(.@"2s");
         }
         pub fn @"4h"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"4h" } };
+            return ra.vector(.@"4h");
         }
         pub fn @"8b"(ra: Alias) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .vector = .@"8b" } };
+            return ra.vector(.@"8b");
         }
         pub fn @"d[]"(ra: Alias, index: u1) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .element = .{ .size = .double, .index = index } } };
+            return ra.element(.double, index);
         }
         pub fn @"s[]"(ra: Alias, index: u2) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .element = .{ .size = .single, .index = index } } };
+            return ra.element(.single, index);
         }
         pub fn @"h[]"(ra: Alias, index: u3) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .element = .{ .size = .half, .index = index } } };
+            return ra.element(.half, index);
         }
         pub fn @"b[]"(ra: Alias, index: u4) Register {
-            assert(@intFromEnum(ra) >= @intFromEnum(Alias.v0) and @intFromEnum(ra) <= @intFromEnum(Alias.v31));
-            return .{ .alias = ra, .format = .{ .element = .{ .size = .byte, .index = index } } };
+            return ra.element(.byte, index);
         }
 
         pub fn isVector(ra: Alias) bool {
@@ -1061,23 +781,23 @@ pub const Register = struct {
     pub fn size(reg: Register) ?u5 {
         return format: switch (reg.format) {
             .alias => unreachable,
-            .integer => |sf| switch (sf) {
+            .general => |sf| switch (sf) {
                 .word => 4,
                 .doubleword => 8,
             },
-            .vector => |vs| switch (vs) {
+            .scalar => |elem_size| switch (elem_size) {
                 .byte => 1,
-                .word => 2,
+                .half => 2,
                 .single => 4,
                 .double => 8,
                 .quad => 16,
-                .scalable, .predicate => null,
             },
-            .arrangement => |arrangement| switch (arrangement) {
+            .vector => |arrangement| switch (arrangement) {
                 .@"2d", .@"4s", .@"8h", .@"16b" => 16,
                 .@"1d", .@"2s", .@"4h", .@"8b" => 8,
             },
-            .element => |element| continue :format .{ .vector = element.size },
+            .element => |element| continue :format .{ .scalar = element.size },
+            .scalable => null,
         };
     }
 
@@ -1087,21 +807,21 @@ pub const Register = struct {
             'r' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| switch (n) {
                 0...30 => .{
                     .alias = @enumFromInt(@intFromEnum(Alias.r0) + n),
-                    .format = .alias,
+                    .format = .{ .alias = .general },
                 },
                 31 => null,
             } else |_| null,
             'x' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| switch (n) {
                 0...30 => .{
                     .alias = @enumFromInt(@intFromEnum(Alias.r0) + n),
-                    .format = .{ .integer = .doubleword },
+                    .format = .{ .general = .doubleword },
                 },
                 31 => null,
             } else |_| if (toLowerEqlAssertLower(reg, "xzr")) .xzr else null,
             'w' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| switch (n) {
                 0...30 => .{
                     .alias = @enumFromInt(@intFromEnum(Alias.r0) + n),
-                    .format = .{ .integer = .word },
+                    .format = .{ .general = .word },
                 },
                 31 => null,
             } else |_| if (toLowerEqlAssertLower(reg, "wzr"))
@@ -1120,7 +840,7 @@ pub const Register = struct {
             'p' => return if (toLowerEqlAssertLower(reg, "pc")) .pc else null,
             'v' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| .{
                 .alias = @enumFromInt(@intFromEnum(Alias.v0) + n),
-                .format = .alias,
+                .format = .{ .alias = .vector },
             } else |_| null,
             'q' => if (std.fmt.parseInt(u5, reg[1..], 10)) |n| .{
                 .alias = @enumFromInt(@intFromEnum(Alias.v0) + n),
@@ -1788,6 +1508,17 @@ pub const Instruction = packed union {
                 adr = 0b0,
                 adrp = 0b1,
             };
+
+            pub const Decoded = union(enum) {
+                adr: Adr,
+                adrp: Adrp,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    .adr => .{ .adr = inst.adr },
+                    .adrp => .{ .adrp = inst.adrp },
+                };
+            }
         };
 
         /// Add/subtract (immediate)
@@ -1806,7 +1537,7 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100010,
                 S: bool,
                 op: AddSubtractOp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.4 ADD (immediate)
@@ -1818,7 +1549,7 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100010,
                 S: bool = false,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.8 ADDS (immediate)
@@ -1830,7 +1561,7 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100010,
                 S: bool = true,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.357 SUB (immediate)
@@ -1842,7 +1573,7 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100010,
                 S: bool = false,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.363 SUBS (immediate)
@@ -1854,18 +1585,39 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100010,
                 S: bool = true,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Shift = enum(u1) {
                 @"0" = 0b0,
                 @"12" = 0b1,
             };
+
+            pub const Decoded = union(enum) {
+                add: Add,
+                adds: Adds,
+                sub: Sub,
+                subs: Subs,
+            };
+            pub fn decode(inst: @This()) @This().Decaded {
+                return switch (inst.group.op) {
+                    .add => switch (inst.group.S) {
+                        false => .{ .add = inst.add },
+                        true => .{ .addc = inst.addc },
+                    },
+                    .sub => switch (inst.group.S) {
+                        false => .{ .sub = inst.sub },
+                        true => .{ .subc = inst.subc },
+                    },
+                };
+            }
         };
 
         /// Add/subtract (immediate, with tags)
         pub const AddSubtractImmediateWithTags = packed union {
             group: @This().Group,
+            addg: Addg,
+            subg: Subg,
 
             pub const Group = packed struct {
                 Rd: Register.Encoded,
@@ -1877,8 +1629,57 @@ pub const Instruction = packed union {
                 decoded23: u6 = 0b100011,
                 S: bool,
                 op: AddSubtractOp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
+
+            /// C6.2.6 ADDG
+            pub const Addg = packed struct {
+                Xd: Register.Encoded,
+                Xn: Register.Encoded,
+                uimm4: u4,
+                op3: u2 = 0b00,
+                uimm6: u6,
+                o2: u1 = 0b0,
+                decoded23: u6 = 0b100011,
+                S: bool = false,
+                op: AddSubtractOp = .add,
+                sf: Register.GeneralSize = .doubleword,
+            };
+
+            /// C6.2.359 SUBG
+            pub const Subg = packed struct {
+                Xd: Register.Encoded,
+                Xn: Register.Encoded,
+                uimm4: u4,
+                op3: u2 = 0b00,
+                uimm6: u6,
+                o2: u1 = 0b0,
+                decoded23: u6 = 0b100011,
+                S: bool = false,
+                op: AddSubtractOp = .sub,
+                sf: Register.GeneralSize = .doubleword,
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                addg: Addg,
+                subg: Subg,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.o2) {
+                    0b1 => .unallocated,
+                    0b0 => switch (inst.group.sf) {
+                        .word => .unallocated,
+                        .doubleword => switch (inst.group.S) {
+                            true => .unallocated,
+                            false => switch (inst.group.op) {
+                                .add => .{ .addg = inst.addg },
+                                .sub => .{ .subg = inst.subg },
+                            },
+                        },
+                    },
+                };
+            }
         };
 
         /// Logical (immediate)
@@ -1895,7 +1696,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100100,
                 opc: LogicalOpc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.12 AND (immediate)
@@ -1905,7 +1706,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100100,
                 opc: LogicalOpc = .@"and",
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.240 ORR (immediate)
@@ -1915,7 +1716,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100100,
                 opc: LogicalOpc = .orr,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.119 EOR (immediate)
@@ -1925,7 +1726,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100100,
                 opc: LogicalOpc = .eor,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.14 ANDS (immediate)
@@ -1935,7 +1736,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100100,
                 opc: LogicalOpc = .ands,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -1970,7 +1771,7 @@ pub const Instruction = packed union {
                 hw: Hw,
                 decoded23: u6 = 0b100101,
                 opc: Opc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.226 MOVN
@@ -1980,7 +1781,7 @@ pub const Instruction = packed union {
                 hw: Hw,
                 decoded23: u6 = 0b100101,
                 opc: Opc = .movn,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.227 MOVZ
@@ -1990,7 +1791,7 @@ pub const Instruction = packed union {
                 hw: Hw,
                 decoded23: u6 = 0b100101,
                 opc: Opc = .movz,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.225 MOVK
@@ -2000,7 +1801,7 @@ pub const Instruction = packed union {
                 hw: Hw,
                 decoded23: u6 = 0b100101,
                 opc: Opc = .movk,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Hw = enum(u2) {
@@ -2018,7 +1819,7 @@ pub const Instruction = packed union {
                     };
                 }
 
-                pub fn sf(hw: Hw) Register.IntegerSize {
+                pub fn sf(hw: Hw) Register.GeneralSize {
                     return switch (hw) {
                         .@"0", .@"16" => .word,
                         .@"32", .@"48" => .doubleword,
@@ -2064,7 +1865,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100110,
                 opc: Opc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Sbfm = packed struct {
@@ -2073,7 +1874,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100110,
                 opc: Opc = .sbfm,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Bfm = packed struct {
@@ -2082,7 +1883,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100110,
                 opc: Opc = .bfm,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Ubfm = packed struct {
@@ -2091,7 +1892,7 @@ pub const Instruction = packed union {
                 imm: Bitmask,
                 decoded23: u6 = 0b100110,
                 opc: Opc = .ubfm,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Opc = enum(u2) {
@@ -2130,10 +1931,10 @@ pub const Instruction = packed union {
                 imms: u6,
                 Rm: Register.Encoded,
                 o0: u1,
-                N: Register.IntegerSize,
+                N: Register.GeneralSize,
                 decoded23: u6 = 0b100111,
                 op21: u2,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Extr = packed struct {
@@ -2142,10 +1943,10 @@ pub const Instruction = packed union {
                 imms: u6,
                 Rm: Register.Encoded,
                 o0: u1 = 0b0,
-                N: Register.IntegerSize,
+                N: Register.GeneralSize,
                 decoded23: u6 = 0b100111,
                 op21: u2 = 0b00,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -2170,22 +1971,22 @@ pub const Instruction = packed union {
         pub const Bitmask = packed struct {
             imms: u6,
             immr: u6,
-            N: Register.IntegerSize,
+            N: Register.GeneralSize,
 
             fn lenHsb(bitmask: Bitmask) u7 {
                 return @bitCast(packed struct {
                     not_imms: u6,
-                    N: Register.IntegerSize,
+                    N: Register.GeneralSize,
                 }{ .not_imms = ~bitmask.imms, .N = bitmask.N });
             }
 
-            fn validImmediate(bitmask: Bitmask, sf: Register.IntegerSize) bool {
+            fn validImmediate(bitmask: Bitmask, sf: Register.GeneralSize) bool {
                 if (sf == .word and bitmask.N == .doubleword) return false;
                 const len_hsb = bitmask.lenHsb();
                 return (len_hsb -% 1) & len_hsb != 0b0_000000;
             }
 
-            fn validBitfield(bitmask: Bitmask, sf: Register.IntegerSize) bool {
+            fn validBitfield(bitmask: Bitmask, sf: Register.GeneralSize) bool {
                 if (sf != bitmask.N) return false;
                 if (sf == .word and (@as(u1, @truncate(bitmask.immr >> 5)) != 0b0 or
                     @as(u1, @truncate(bitmask.imms >> 5)) != 0b0)) return false;
@@ -2193,7 +1994,7 @@ pub const Instruction = packed union {
                 return len_hsb >= 0b0_000010;
             }
 
-            fn decode(bitmask: Bitmask, sf: Register.IntegerSize) struct { u64, u64 } {
+            fn decode(bitmask: Bitmask, sf: Register.GeneralSize) struct { u64, u64 } {
                 const esize = @as(u7, 1 << 6) >> @clz(bitmask.lenHsb());
                 const levels: u6 = @intCast(esize - 1);
                 const s = bitmask.imms & levels;
@@ -2211,18 +2012,18 @@ pub const Instruction = packed union {
                 };
             }
 
-            pub fn decodeImmediate(bitmask: Bitmask, sf: Register.IntegerSize) u64 {
+            pub fn decodeImmediate(bitmask: Bitmask, sf: Register.GeneralSize) u64 {
                 assert(bitmask.validImmediate(sf));
                 const imm, _ = bitmask.decode(sf);
                 return imm;
             }
 
-            pub fn decodeBitfield(bitmask: Bitmask, sf: Register.IntegerSize) struct { u64, u64 } {
+            pub fn decodeBitfield(bitmask: Bitmask, sf: Register.GeneralSize) struct { u64, u64 } {
                 assert(bitmask.validBitfield(sf));
                 return bitmask.decode(sf);
             }
 
-            pub fn moveWidePreferred(bitmask: Bitmask, sf: Register.IntegerSize) bool {
+            pub fn moveWidePreferred(bitmask: Bitmask, sf: Register.GeneralSize) bool {
                 const s = bitmask.imms;
                 const r = bitmask.immr;
                 const width: u7 = switch (sf) {
@@ -2646,7 +2447,7 @@ pub const Instruction = packed union {
 
             /// C6.2.56 CLREX
             pub const Clrex = packed struct {
-                Rt: Register.Encoded = @enumFromInt(0b11111),
+                Rt: Register.Encoded = no_reg,
                 op2: u3 = 0b010,
                 CRm: u4,
                 decoded12: u4 = 0b0011,
@@ -2658,7 +2459,7 @@ pub const Instruction = packed union {
 
             /// C6.2.116 DSB
             pub const Dsb = packed struct {
-                Rt: Register.Encoded = @enumFromInt(0b11111),
+                Rt: Register.Encoded = no_reg,
                 opc: u2 = 0b00,
                 decoded7: u1 = 0b1,
                 CRm: Option,
@@ -2671,7 +2472,7 @@ pub const Instruction = packed union {
 
             /// C6.2.114 DMB
             pub const Dmb = packed struct {
-                Rt: Register.Encoded = @enumFromInt(0b11111),
+                Rt: Register.Encoded = no_reg,
                 opc: u2 = 0b01,
                 decoded7: u1 = 0b1,
                 CRm: Option,
@@ -2684,7 +2485,7 @@ pub const Instruction = packed union {
 
             /// C6.2.131 ISB
             pub const Isb = packed struct {
-                Rt: Register.Encoded = @enumFromInt(0b11111),
+                Rt: Register.Encoded = no_reg,
                 opc: u2 = 0b10,
                 decoded7: u1 = 0b1,
                 CRm: Option,
@@ -2697,7 +2498,7 @@ pub const Instruction = packed union {
 
             /// C6.2.264 SB
             pub const Sb = packed struct {
-                Rt: Register.Encoded = @enumFromInt(0b11111),
+                Rt: Register.Encoded = no_reg,
                 opc: u2 = 0b11,
                 decoded7: u1 = 0b1,
                 CRm: u4 = 0b0000,
@@ -2723,16 +2524,115 @@ pub const Instruction = packed union {
                 sy = 0b1111,
                 _,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                clrex: Clrex,
+                dsb: Dsb,
+                dmb: Dmb,
+                isb: Isb,
+                sb: Sb,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op2) {
+                    0b000, 0b001 => .unallocated,
+                    0b010 => switch (inst.group.Rt) {
+                        no_reg => .{ .clrex = inst.clrex },
+                        else => .unallocated,
+                    },
+                    0b100 => switch (inst.group.Rt) {
+                        no_reg => .{ .dsb = inst.dsb },
+                        else => .unallocated,
+                    },
+                    0b101 => switch (inst.group.Rt) {
+                        no_reg => .{ .dmb = inst.dmb },
+                        else => .unallocated,
+                    },
+                    0b110 => switch (inst.group.Rt) {
+                        no_reg => .{ .isb = inst.isb },
+                        else => .unallocated,
+                    },
+                    0b111 => switch (inst.group.Rt) {
+                        no_reg => .{ .sb = inst.sb },
+                        else => .unallocated,
+                    },
+                };
+            }
         };
 
         /// PSTATE
-        pub const Pstate = packed struct {
-            Rt: Register.Encoded,
-            op2: u3,
-            CRm: u4,
-            decoded12: u4 = 0b0100,
-            op1: u3,
-            decoded19: u13 = 0b1101010100000,
+        pub const Pstate = packed union {
+            group: @This().Group,
+
+            pub const Group = packed struct {
+                Rt: Register.Encoded,
+                op2: u3,
+                CRm: u4,
+                decoded12: u4 = 0b0100,
+                op1: u3,
+                decoded19: u13 = 0b1101010100000,
+            };
+
+            /// C6.2.229 MSR (immediate)
+            pub const Msr = packed struct {
+                Rt: Register.Encoded = no_reg,
+                op2: u3,
+                CRm: u4,
+                decoded12: u4 = 0b0100,
+                op1: u3,
+                decoded19: u13 = 0b1101010100000,
+            };
+
+            /// C6.2.52 CFINV
+            pub const Cfinv = packed struct {
+                Rt: Register.Encoded = no_reg,
+                op2: u3 = 0b000,
+                CRm: u4 = 0b0000,
+                decoded12: u4 = 0b0100,
+                op1: u3 = 0b000,
+                decoded19: u13 = 0b1101010100000,
+            };
+
+            /// C6.2.400 XAFLAG
+            pub const Xaflag = packed struct {
+                Rt: Register.Encoded = no_reg,
+                op2: u3 = 0b001,
+                CRm: u4 = 0b0000,
+                decoded12: u4 = 0b0100,
+                op1: u3 = 0b000,
+                decoded19: u13 = 0b1101010100000,
+            };
+
+            /// C6.2.24 AXFLAG
+            pub const Axflag = packed struct {
+                Rt: Register.Encoded = no_reg,
+                op2: u3 = 0b010,
+                CRm: u4 = 0b0000,
+                decoded12: u4 = 0b0100,
+                op1: u3 = 0b000,
+                decoded19: u13 = 0b1101010100000,
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                cfinv: Cfinv,
+                xaflag: Xaflag,
+                axflag: Axflag,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.Rt) {
+                    else => .unallocated,
+                    no_reg => switch (inst.group.op1) {
+                        else => .{ .msr = inst.msr },
+                        0b000 => switch (inst.group.op2) {
+                            else => .{ .msr = inst.msr },
+                            0b000 => .{ .cfinv = inst.cfinv },
+                            0b001 => .{ .xaflag = inst.xaflag },
+                            0b010 => .{ .axflag = inst.axflag },
+                        },
+                    },
+                };
+            }
         };
 
         /// System with result
@@ -2965,6 +2865,17 @@ pub const Instruction = packed union {
                 b = 0b0,
                 bl = 0b1,
             };
+
+            pub const Decoded = union(enum) {
+                b: B,
+                bl: Bl,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    .b => .{ .b = inst.b },
+                    .bl => .{ .bl = inst.bl },
+                };
+            }
         };
 
         /// Compare and branch (immediate)
@@ -2978,7 +2889,7 @@ pub const Instruction = packed union {
                 imm19: i19,
                 op: Op,
                 decoded25: u6 = 0b011010,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.47 CBZ
@@ -2987,7 +2898,7 @@ pub const Instruction = packed union {
                 imm19: i19,
                 op: Op = .cbz,
                 decoded25: u6 = 0b011010,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.46 CBNZ
@@ -2996,13 +2907,24 @@ pub const Instruction = packed union {
                 imm19: i19,
                 op: Op = .cbnz,
                 decoded25: u6 = 0b011010,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Op = enum(u1) {
                 cbz = 0b0,
                 cbnz = 0b1,
             };
+
+            pub const Decoded = union(enum) {
+                cbz: Cbz,
+                cbnz: Cbnz,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    .cbz => .{ .cbz = inst.cbz },
+                    .cbnz => .{ .cbnz = inst.cbnz },
+                };
+            }
         };
 
         /// Test and branch (immediate)
@@ -3044,7 +2966,20 @@ pub const Instruction = packed union {
                 tbz = 0b0,
                 tbnz = 0b1,
             };
+
+            pub const Decoded = union(enum) {
+                tbz: Tbz,
+                tbnz: Tbnz,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.op) {
+                    .tbz => .{ .tbz = inst.tbz },
+                    .tbnz => .{ .tbnz = inst.tbnz },
+                };
+            }
         };
+
+        pub const no_reg: Register.Encoded = Register.Alias.zr.encode(.{});
 
         pub const Decoded = union(enum) {
             unallocated,
@@ -3168,7 +3103,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b011,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     opc1: u1 = 0b0,
                 };
 
@@ -3241,7 +3176,7 @@ pub const Instruction = packed union {
             decoded24: u2 = 0b01,
             o0: u1,
             decoded27: u3 = 0b011,
-            size: IntegerSize,
+            size: Size,
         };
 
         /// Load/store no-allocate pair (offset)
@@ -3304,7 +3239,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.164 LDP
@@ -3318,7 +3253,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.165 LDPSW
@@ -3473,7 +3408,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.164 LDP
@@ -3487,7 +3422,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.165 LDPSW
@@ -3642,7 +3577,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.164 LDP
@@ -3656,7 +3591,7 @@ pub const Instruction = packed union {
                     V: bool = false,
                     decoded27: u3 = 0b101,
                     opc0: u1 = 0b0,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                 };
 
                 /// C6.2.165 LDPSW
@@ -3806,7 +3741,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize,
+                    size: Size,
                 };
 
                 /// C6.2.347 STURB
@@ -3820,7 +3755,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.203 LDURB
@@ -3834,7 +3769,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.205 LDURSB
@@ -3849,7 +3784,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.348 STURH
@@ -3863,7 +3798,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.204 LDURH
@@ -3877,7 +3812,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.206 LDURSH
@@ -3892,7 +3827,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.346 STUR
@@ -3906,7 +3841,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -3921,7 +3856,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -3936,7 +3871,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .word,
+                    size: Size = .word,
                 };
 
                 /// C6.2.250 PRFUM
@@ -3950,7 +3885,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .doubleword,
+                    size: Size = .doubleword,
                 };
 
                 pub const Decoded = union(enum) {
@@ -4022,7 +3957,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.333 STUR (SIMD&FP)
@@ -4037,7 +3972,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.194 LDUR (SIMD&FP)
@@ -4052,21 +3987,20 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 pub const Opc1 = packed struct {
                     encoded: u1,
 
-                    pub fn encode(vs: Register.VectorSize) Opc1 {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Opc1 {
+                        return .{ .encoded = switch (ss) {
                             .byte, .half, .single, .double => 0b0,
                             .quad => 0b1,
-                            else => unreachable,
                         } };
                     }
 
-                    pub fn decode(enc_opc1: Opc1, enc_size: Size) Register.VectorSize {
+                    pub fn decode(enc_opc1: Opc1, enc_size: Vector.Size) Register.ScalarSize {
                         return switch (enc_size.encoded) {
                             0b00 => switch (enc_opc1.encoded) {
                                 0b0 => .byte,
@@ -4091,13 +4025,12 @@ pub const Instruction = packed union {
                 pub const Size = packed struct {
                     encoded: u2,
 
-                    pub fn encode(vs: Register.VectorSize) Size {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Vector.Size {
+                        return .{ .encoded = switch (ss) {
                             .byte, .quad => 0b00,
                             .half => 0b01,
                             .single => 0b10,
                             .double => 0b11,
-                            else => unreachable,
                         } };
                     }
                 };
@@ -4177,7 +4110,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize,
+                    size: Size,
                 };
 
                 /// C6.2.324 STRB (immediate)
@@ -4191,7 +4124,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.170 LDRB (immediate)
@@ -4205,7 +4138,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.174 LDRSB (immediate)
@@ -4220,7 +4153,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.326 STRH (immediate)
@@ -4234,7 +4167,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.172 LDRH (immediate)
@@ -4248,7 +4181,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.176 LDRSH (immediate)
@@ -4263,7 +4196,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.322 STR (immediate)
@@ -4277,7 +4210,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -4292,7 +4225,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -4307,7 +4240,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .word,
+                    size: Size = .word,
                 };
 
                 pub const Decoded = union(enum) {
@@ -4377,7 +4310,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.331 STR (immediate, SIMD&FP)
@@ -4392,7 +4325,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.191 LDR (immediate, SIMD&FP)
@@ -4407,21 +4340,20 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 pub const Opc1 = packed struct {
                     encoded: u1,
 
-                    pub fn encode(vs: Register.VectorSize) Opc1 {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Opc1 {
+                        return .{ .encoded = switch (ss) {
                             .byte, .half, .single, .double => 0b0,
                             .quad => 0b1,
-                            else => unreachable,
                         } };
                     }
 
-                    pub fn decode(enc_opc1: Opc1, enc_size: Size) Register.VectorSize {
+                    pub fn decode(enc_opc1: Opc1, enc_size: Vector.Size) Register.ScalarSize {
                         return switch (enc_size.encoded) {
                             0b00 => switch (enc_opc1.encoded) {
                                 0b0 => .byte,
@@ -4446,13 +4378,12 @@ pub const Instruction = packed union {
                 pub const Size = packed struct {
                     encoded: u2,
 
-                    pub fn encode(vs: Register.VectorSize) Size {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Vector.Size {
+                        return .{ .encoded = switch (ss) {
                             .byte, .quad => 0b00,
                             .half => 0b01,
                             .single => 0b10,
                             .double => 0b11,
-                            else => unreachable,
                         } };
                     }
                 };
@@ -4502,7 +4433,7 @@ pub const Instruction = packed union {
             decoded24: u2 = 0b00,
             V: bool,
             decoded27: u3 = 0b111,
-            size: IntegerSize,
+            size: Size,
         };
 
         /// Load/store register (immediate pre-indexed)
@@ -4546,7 +4477,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize,
+                    size: Size,
                 };
 
                 /// C6.2.324 STRB (immediate)
@@ -4560,7 +4491,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.170 LDRB (immediate)
@@ -4574,7 +4505,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.174 LDRSB (immediate)
@@ -4589,7 +4520,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.326 STRH (immediate)
@@ -4603,7 +4534,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.172 LDRH (immediate)
@@ -4617,7 +4548,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.176 LDRSH (immediate)
@@ -4632,7 +4563,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.322 STR (immediate)
@@ -4646,7 +4577,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -4661,7 +4592,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -4676,7 +4607,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .word,
+                    size: Size = .word,
                 };
 
                 pub const Decoded = union(enum) {
@@ -4734,7 +4665,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.331 STR (immediate, SIMD&FP)
@@ -4749,7 +4680,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.191 LDR (immediate, SIMD&FP)
@@ -4764,21 +4695,20 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 pub const Opc1 = packed struct {
                     encoded: u1,
 
-                    pub fn encode(vs: Register.VectorSize) Opc1 {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Opc1 {
+                        return .{ .encoded = switch (ss) {
                             .byte, .half, .single, .double => 0b0,
                             .quad => 0b1,
-                            else => unreachable,
                         } };
                     }
 
-                    pub fn decode(enc_opc1: Opc1, enc_size: Size) Register.VectorSize {
+                    pub fn decode(enc_opc1: Opc1, enc_size: Vector.Size) Register.ScalarSize {
                         return switch (enc_size.encoded) {
                             0b00 => switch (enc_opc1.encoded) {
                                 0b0 => .byte,
@@ -4803,13 +4733,12 @@ pub const Instruction = packed union {
                 pub const Size = packed struct {
                     encoded: u2,
 
-                    pub fn encode(vs: Register.VectorSize) Size {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Vector.Size {
+                        return .{ .encoded = switch (ss) {
                             .byte, .quad => 0b00,
                             .half => 0b01,
                             .single => 0b10,
                             .double => 0b11,
-                            else => unreachable,
                         } };
                     }
                 };
@@ -4894,7 +4823,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize,
+                    size: Size,
                 };
 
                 /// C6.2.325 STRB (register)
@@ -4910,7 +4839,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.171 LDRB (register)
@@ -4926,7 +4855,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.175 LDRSB (register)
@@ -4943,7 +4872,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.327 STRH (register)
@@ -4959,7 +4888,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.173 LDRH (register)
@@ -4975,7 +4904,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.177 LDRSH (register)
@@ -4992,7 +4921,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.323 STR (register)
@@ -5008,7 +4937,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -5025,7 +4954,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -5042,7 +4971,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .word,
+                    size: Size = .word,
                 };
 
                 /// C6.2.249 PRFM (register)
@@ -5058,7 +4987,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .doubleword,
+                    size: Size = .doubleword,
                 };
 
                 pub const Decoded = union(enum) {
@@ -5131,7 +5060,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.332 STR (register, SIMD&FP)
@@ -5148,7 +5077,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.193 LDR (register, SIMD&FP)
@@ -5165,21 +5094,20 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b00,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 pub const Opc1 = packed struct {
                     encoded: u1,
 
-                    pub fn encode(vs: Register.VectorSize) Opc1 {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Opc1 {
+                        return .{ .encoded = switch (ss) {
                             .byte, .half, .single, .double => 0b0,
                             .quad => 0b1,
-                            else => unreachable,
                         } };
                     }
 
-                    pub fn decode(enc_opc1: Opc1, enc_size: Size) Register.VectorSize {
+                    pub fn decode(enc_opc1: Opc1, enc_size: Vector.Size) Register.ScalarSize {
                         return switch (enc_size.encoded) {
                             0b00 => switch (enc_opc1.encoded) {
                                 0b0 => .byte,
@@ -5204,13 +5132,12 @@ pub const Instruction = packed union {
                 pub const Size = packed struct {
                     encoded: u2,
 
-                    pub fn encode(vs: Register.VectorSize) Size {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Vector.Size {
+                        return .{ .encoded = switch (ss) {
                             .byte, .quad => 0b00,
                             .half => 0b01,
                             .single => 0b10,
                             .double => 0b11,
-                            else => unreachable,
                         } };
                     }
                 };
@@ -5223,7 +5150,7 @@ pub const Instruction = packed union {
                 sxtx = 0b111,
                 _,
 
-                pub fn sf(option: Option) Register.IntegerSize {
+                pub fn sf(option: Option) Register.GeneralSize {
                     return switch (option) {
                         .uxtw, .sxtw => .word,
                         .lsl, .sxtx => .doubleword,
@@ -5291,7 +5218,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize,
+                    size: Size,
                 };
 
                 /// C6.2.324 STRB (immediate)
@@ -5303,7 +5230,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.170 LDRB (immediate)
@@ -5315,7 +5242,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.174 LDRSB (immediate)
@@ -5328,7 +5255,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .byte,
+                    size: Size = .byte,
                 };
 
                 /// C6.2.326 STRH (immediate)
@@ -5340,7 +5267,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.172 LDRH (immediate)
@@ -5352,7 +5279,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.176 LDRSH (immediate)
@@ -5365,7 +5292,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .halfword,
+                    size: Size = .halfword,
                 };
 
                 /// C6.2.322 STR (immediate)
@@ -5377,7 +5304,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -5390,7 +5317,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    sf: Register.IntegerSize,
+                    sf: Register.GeneralSize,
                     size1: u1 = 0b1,
                 };
 
@@ -5403,7 +5330,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .word,
+                    size: Size = .word,
                 };
 
                 /// C6.2.247 PRFM (immediate)
@@ -5415,7 +5342,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = false,
                     decoded27: u3 = 0b111,
-                    size: IntegerSize = .doubleword,
+                    size: Size = .doubleword,
                 };
 
                 pub const Decoded = union(enum) {
@@ -5485,7 +5412,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.331 STR (immediate, SIMD&FP)
@@ -5498,7 +5425,7 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 /// C7.2.191 LDR (immediate, SIMD&FP)
@@ -5511,21 +5438,20 @@ pub const Instruction = packed union {
                     decoded24: u2 = 0b01,
                     V: bool = true,
                     decoded27: u3 = 0b111,
-                    size: Size,
+                    size: Vector.Size,
                 };
 
                 pub const Opc1 = packed struct {
                     encoded: u1,
 
-                    pub fn encode(vs: Register.VectorSize) Opc1 {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Opc1 {
+                        return .{ .encoded = switch (ss) {
                             .byte, .half, .single, .double => 0b0,
                             .quad => 0b1,
-                            else => unreachable,
                         } };
                     }
 
-                    pub fn decode(enc_opc1: Opc1, enc_size: Size) Register.VectorSize {
+                    pub fn decode(enc_opc1: Opc1, enc_size: Vector.Size) Register.ScalarSize {
                         return switch (enc_size.encoded) {
                             0b00 => switch (enc_opc1.encoded) {
                                 0b0 => .byte,
@@ -5550,13 +5476,12 @@ pub const Instruction = packed union {
                 pub const Size = packed struct {
                     encoded: u2,
 
-                    pub fn encode(vs: Register.VectorSize) Size {
-                        return .{ .encoded = switch (vs) {
+                    pub fn encode(ss: Register.ScalarSize) Vector.Size {
+                        return .{ .encoded = switch (ss) {
                             .byte, .quad => 0b00,
                             .half => 0b01,
                             .single => 0b10,
                             .double => 0b11,
-                            else => unreachable,
                         } };
                     }
                 };
@@ -5600,7 +5525,7 @@ pub const Instruction = packed union {
             load = 0b1,
         };
 
-        pub const IntegerSize = enum(u2) {
+        pub const Size = enum(u2) {
             byte = 0b00,
             halfword = 0b01,
             word = 0b10,
@@ -5613,7 +5538,7 @@ pub const Instruction = packed union {
             quad = 0b10,
             _,
 
-            pub fn decode(vs: VectorSize) Register.VectorSize {
+            pub fn decode(vs: VectorSize) Register.ScalarSize {
                 return switch (vs) {
                     .single => .single,
                     .double => .double,
@@ -5622,8 +5547,8 @@ pub const Instruction = packed union {
                 };
             }
 
-            pub fn encode(vs: Register.VectorSize) VectorSize {
-                return switch (vs) {
+            pub fn encode(ss: Register.ScalarSize) VectorSize {
+                return switch (ss) {
                     else => unreachable,
                     .single => .single,
                     .double => .double,
@@ -5767,7 +5692,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.388 UDIV
@@ -5780,7 +5705,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.270 SDIV
@@ -5793,7 +5718,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.214 LSLV
@@ -5806,7 +5731,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.217 LSRV
@@ -5819,7 +5744,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.18 ASRV
@@ -5832,7 +5757,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.263 RORV
@@ -5845,7 +5770,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const DivOp = enum(u1) {
@@ -5903,7 +5828,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.253 RBIT
@@ -5916,7 +5841,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.257 REV16
@@ -5929,7 +5854,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.258 REV32
@@ -5942,21 +5867,21 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.256 REV
             pub const Rev = packed struct {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
-                opc0: Register.IntegerSize,
+                opc0: Register.GeneralSize,
                 opc1: u1 = 0b1,
                 decoded12: u4 = 0b0000,
                 decoded16: u5 = 0b00000,
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.58 CLZ
@@ -5969,7 +5894,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.57 CLS
@@ -5982,7 +5907,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010110,
                 S: bool = false,
                 decoded30: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -6040,7 +5965,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.13 AND (shifted register)
@@ -6053,7 +5978,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .@"and",
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.32 BIC (shifted register)
@@ -6066,7 +5991,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .@"and",
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.241 ORR (shifted register)
@@ -6079,7 +6004,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .orr,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.239 ORN (shifted register)
@@ -6092,7 +6017,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .orr,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.120 EOR (shifted register)
@@ -6105,7 +6030,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .eor,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.118 EON (shifted register)
@@ -6118,7 +6043,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .eor,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.15 ANDS (shifted register)
@@ -6131,7 +6056,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .ands,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.33 BICS (shifted register)
@@ -6144,7 +6069,7 @@ pub const Instruction = packed union {
                 shift: Shift.Op,
                 decoded24: u5 = 0b01010,
                 opc: LogicalOpc = .ands,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -6200,7 +6125,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool,
                 op: AddSubtractOp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.5 ADD (shifted register)
@@ -6214,7 +6139,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = false,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.9 ADDS (shifted register)
@@ -6228,7 +6153,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = true,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.5 SUB (shifted register)
@@ -6242,7 +6167,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = false,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.9 SUBS (shifted register)
@@ -6256,7 +6181,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = true,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -6304,7 +6229,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool,
                 op: AddSubtractOp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.3 ADD (extended register)
@@ -6319,7 +6244,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = false,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.7 ADDS (extended register)
@@ -6334,7 +6259,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = true,
                 op: AddSubtractOp = .add,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.356 SUB (extended register)
@@ -6349,7 +6274,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = false,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.362 SUBS (extended register)
@@ -6364,7 +6289,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b01011,
                 S: bool = true,
                 op: AddSubtractOp = .sub,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Option = enum(u3) {
@@ -6377,7 +6302,7 @@ pub const Instruction = packed union {
                 sxtw = 0b110,
                 sxtx = 0b111,
 
-                pub fn sf(option: Option) Register.IntegerSize {
+                pub fn sf(option: Option) Register.GeneralSize {
                     return switch (option) {
                         .uxtb, .uxth, .uxtw, .sxtb, .sxth, .sxtw => .word,
                         .uxtx, .sxtx => .doubleword,
@@ -6443,7 +6368,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool,
                 op: Op,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.1 ADC
@@ -6455,7 +6380,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool = false,
                 op: Op = .adc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.2 ADCS
@@ -6467,7 +6392,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool = true,
                 op: Op = .adc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.265 SBC
@@ -6479,7 +6404,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool = false,
                 op: Op = .sbc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.266 SBCS
@@ -6491,7 +6416,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool = true,
                 op: Op = .sbc,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Op = enum(u1) {
@@ -6532,7 +6457,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool,
                 op: u1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
         };
 
@@ -6553,7 +6478,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010000,
                 S: bool,
                 op: u1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
         };
 
@@ -6574,7 +6499,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool,
                 op: Op,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.49 CCMN (register)
@@ -6589,7 +6514,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool = true,
                 op: Op = .ccmn,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.51 CCMP (register)
@@ -6604,7 +6529,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool = true,
                 op: Op = .ccmp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Op = enum(u1) {
@@ -6630,7 +6555,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool,
                 op: Op,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.48 CCMN (immediate)
@@ -6645,7 +6570,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool = true,
                 op: Op = .ccmn,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.50 CCMP (immediate)
@@ -6660,7 +6585,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010010,
                 S: bool = true,
                 op: Op = .ccmp,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Op = enum(u1) {
@@ -6686,7 +6611,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010100,
                 S: bool,
                 op: u1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.103 CSEL
@@ -6699,7 +6624,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010100,
                 S: bool = false,
                 op: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.106 CSINC
@@ -6712,7 +6637,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010100,
                 S: bool = false,
                 op: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.107 CSINV
@@ -6725,7 +6650,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010100,
                 S: bool = false,
                 op: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.108 CSNEG
@@ -6738,7 +6663,7 @@ pub const Instruction = packed union {
                 decoded21: u8 = 0b11010100,
                 S: bool = false,
                 op: u1 = 0b1,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             pub const Decoded = union(enum) {
@@ -6788,7 +6713,7 @@ pub const Instruction = packed union {
                 op31: u3,
                 decoded24: u5 = 0b11011,
                 op54: u2,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.218 MADD
@@ -6801,7 +6726,7 @@ pub const Instruction = packed union {
                 op31: u3 = 0b000,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.231 MSUB
@@ -6814,7 +6739,7 @@ pub const Instruction = packed union {
                 op31: u3 = 0b000,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C6.2.282 SMADDL
@@ -6828,7 +6753,7 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.287 SMSUBL
@@ -6842,21 +6767,21 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.288 SMULH
             pub const Smulh = packed struct {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
-                Ra: Register.Encoded = @enumFromInt(0b11111),
+                Ra: Register.Encoded = Register.Alias.zr.encode(.{}),
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b10,
                 U: std.builtin.Signedness = .signed,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.389 UMADDL
@@ -6870,7 +6795,7 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.391 UMSUBL
@@ -6884,21 +6809,21 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             /// C6.2.392 UMULH
             pub const Umulh = packed struct {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
-                Ra: Register.Encoded = @enumFromInt(0b11111),
+                Ra: Register.Encoded = Register.Alias.zr.encode(.{}),
                 o0: AddSubtractOp = .add,
                 Rm: Register.Encoded,
                 op21: u2 = 0b10,
                 U: std.builtin.Signedness = .unsigned,
                 decoded24: u5 = 0b11011,
                 op54: u2 = 0b00,
-                sf: Register.IntegerSize = .doubleword,
+                sf: Register.GeneralSize = .doubleword,
             };
 
             pub const Decoded = union(enum) {
@@ -6965,8 +6890,6 @@ pub const Instruction = packed union {
             pub const none: Shift = .{ .lsl = 0 };
         };
 
-        pub const Nzcv = packed struct { v: bool, c: bool, z: bool, n: bool };
-
         pub const Decoded = union(enum) {
             unallocated,
             data_processing_two_source: DataProcessingTwoSource,
@@ -7027,10 +6950,12 @@ pub const Instruction = packed union {
         simd_across_lanes: SimdAcrossLanes,
         simd_three_same: SimdThreeSame,
         simd_modified_immediate: SimdModifiedImmediate,
+        convert_float_fixed: ConvertFloatFixed,
         convert_float_integer: ConvertFloatInteger,
         float_data_processing_one_source: FloatDataProcessingOneSource,
         float_compare: FloatCompare,
         float_immediate: FloatImmediate,
+        float_conditional_compare: FloatConditionalCompare,
         float_data_processing_two_source: FloatDataProcessingTwoSource,
         float_conditional_select: FloatConditionalSelect,
         float_data_processing_three_source: FloatDataProcessingThreeSource,
@@ -7385,6 +7310,70 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .unsigned,
                 decoded30: u2 = 0b01,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fcvtns: Fcvtns,
+                fcvtms: Fcvtms,
+                fcvtas: Fcvtas,
+                scvtf: Scvtf,
+                fcmgt: Fcmgt,
+                fcmeq: Fcmeq,
+                fcmlt: Fcmlt,
+                fcvtps: Fcvtps,
+                fcvtzs: Fcvtzs,
+                frecpe: Frecpe,
+                frecpx: Frecpx,
+                fcvtnu: Fcvtnu,
+                fcvtmu: Fcvtmu,
+                fcvtau: Fcvtau,
+                ucvtf: Ucvtf,
+                fcmge: Fcmge,
+                fcmle: Fcmle,
+                fcvtpu: Fcvtpu,
+                fcvtzu: Fcvtzu,
+                frsqrte: Frsqrte,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.a) {
+                        0b0 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b11010 => .{ .fcvtns = inst.fcvtns },
+                            0b11011 => .{ .fcvtms = inst.fcvtms },
+                            0b11100 => .{ .fcvtas = inst.fcvtas },
+                            0b11101 => .{ .scvtf = inst.scvtf },
+                        },
+                        0b1 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b01100 => .{ .fcmgt = inst.fcmgt },
+                            0b01101 => .{ .fcmeq = inst.fcmeq },
+                            0b01110 => .{ .fcmlt = inst.fcmlt },
+                            0b11010 => .{ .fcvtps = inst.fcvtps },
+                            0b11011 => .{ .fcvtzs = inst.fcvtzs },
+                            0b11101 => .{ .frecpe = inst.frecpe },
+                            0b11111 => .{ .frecpx = inst.frecpx },
+                        },
+                    },
+                    .unsigned => switch (inst.group.a) {
+                        0b0 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b11010 => .{ .fcvtnu = inst.fcvtnu },
+                            0b11011 => .{ .fcvtmu = inst.fcvtmu },
+                            0b11100 => .{ .fcvtau = inst.fcvtau },
+                            0b11101 => .{ .ucvtf = inst.ucvtf },
+                        },
+                        0b1 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b01100 => .{ .fcmge = inst.fcmge },
+                            0b01101 => .{ .fcmle = inst.fcmle },
+                            0b11010 => .{ .fcvtpu = inst.fcvtpu },
+                            0b11011 => .{ .fcvtzu = inst.fcvtzu },
+                            0b11101 => .{ .frsqrte = inst.frsqrte },
+                        },
+                    },
+                };
+            }
         };
 
         /// Advanced SIMD scalar two-register miscellaneous
@@ -7913,6 +7902,129 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .unsigned,
                 decoded30: u2 = 0b01,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                suqadd: Suqadd,
+                sqabs: Sqabs,
+                cmgt: Cmgt,
+                cmeq: Cmeq,
+                cmlt: Cmlt,
+                abs: Abs,
+                sqxtn: Sqxtn,
+                fcvtns: Fcvtns,
+                fcvtms: Fcvtms,
+                fcvtas: Fcvtas,
+                scvtf: Scvtf,
+                fcmgt: Fcmgt,
+                fcmeq: Fcmeq,
+                fcmlt: Fcmlt,
+                fcvtps: Fcvtps,
+                fcvtzs: Fcvtzs,
+                frecpe: Frecpe,
+                frecpx: Frecpx,
+                usqadd: Usqadd,
+                sqneg: Sqneg,
+                cmge: Cmge,
+                cmle: Cmle,
+                neg: Neg,
+                sqxtun: Sqxtun,
+                uqxtn: Uqxtn,
+                fcvtxn: Fcvtxn,
+                fcvtnu: Fcvtnu,
+                fcvtmu: Fcvtmu,
+                fcvtau: Fcvtau,
+                ucvtf: Ucvtf,
+                fcmge: Fcmge,
+                fcmle: Fcmle,
+                fcvtpu: Fcvtpu,
+                fcvtzu: Fcvtzu,
+                frsqrte: Frsqrte,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b00011 => .{ .suqadd = inst.suqadd },
+                        0b00111 => .{ .sqabs = inst.sqabs },
+                        0b01000 => .{ .cmgt = inst.cmgt },
+                        0b01001 => .{ .cmeq = inst.cmeq },
+                        0b01010 => .{ .cmlt = inst.cmlt },
+                        0b01011 => .{ .abs = inst.abs },
+                        0b10100 => .{ .sqxtn = inst.sqxtn },
+                        0b11010 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtns = inst.fcvtns },
+                            .single, .double => .{ .fcvtps = inst.fcvtps },
+                        },
+                        0b11011 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtms = inst.fcvtms },
+                            .single, .double => .{ .fcvtzs = inst.fcvtzs },
+                        },
+                        0b11100 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtas = inst.fcvtas },
+                            .single, .double => .unallocated,
+                        },
+                        0b11101 => switch (inst.group.size) {
+                            .byte, .half => .{ .scvtf = inst.scvtf },
+                            .single, .double => .{ .frecpe = inst.frecpe },
+                        },
+                        0b01100 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmgt = inst.fcmgt },
+                        },
+                        0b01101 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmeq = inst.fcmeq },
+                        },
+                        0b01110 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmlt = inst.fcmlt },
+                        },
+                        0b11111 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .frecpx = inst.frecpx },
+                        },
+                    },
+                    .unsigned => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b00011 => .{ .usqadd = inst.usqadd },
+                        0b00111 => .{ .sqneg = inst.sqneg },
+                        0b01000 => .{ .cmge = inst.cmge },
+                        0b01001 => .{ .cmle = inst.cmle },
+                        0b01011 => .{ .neg = inst.neg },
+                        0b10010 => .{ .sqxtun = inst.sqxtun },
+                        0b10100 => .{ .uqxtn = inst.uqxtn },
+                        0b10110 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtxn = inst.fcvtxn },
+                            .single, .double => .unallocated,
+                        },
+                        0b11010 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtnu = inst.fcvtnu },
+                            .single, .double => .{ .fcvtpu = inst.fcvtpu },
+                        },
+                        0b11011 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtmu = inst.fcvtmu },
+                            .single, .double => .{ .fcvtzu = inst.fcvtzu },
+                        },
+                        0b11100 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtau = inst.fcvtau },
+                            .single, .double => .unallocated,
+                        },
+                        0b11101 => switch (inst.group.size) {
+                            .byte, .half => .{ .ucvtf = inst.ucvtf },
+                            .single, .double => .{ .frsqrte = inst.frsqrte },
+                        },
+                        0b01100 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmge = inst.fcmge },
+                        },
+                        0b01101 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmle = inst.fcmle },
+                        },
+                    },
+                };
+            }
         };
 
         /// Advanced SIMD scalar pairwise
@@ -7944,6 +8056,20 @@ pub const Instruction = packed union {
                 U: std.builtin.Signedness = .signed,
                 decoded30: u2 = 0b01,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                addp: Addp,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b11011 => .{ .addp = inst.addp },
+                    },
+                    .unsigned => .unallocated,
+                };
+            }
         };
 
         /// Advanced SIMD copy
@@ -7998,7 +8124,7 @@ pub const Instruction = packed union {
                 imm5: u5,
                 decoded21: u8 = 0b01110000,
                 op: u1 = 0b0,
-                Q: Register.IntegerSize,
+                Q: Register.GeneralSize,
                 decoded31: u1 = 0b0,
             };
 
@@ -8012,7 +8138,7 @@ pub const Instruction = packed union {
                 imm5: u5,
                 decoded21: u8 = 0b01110000,
                 op: u1 = 0b0,
-                Q: Register.IntegerSize,
+                Q: Register.GeneralSize,
                 decoded31: u1 = 0b0,
             };
 
@@ -8031,8 +8157,8 @@ pub const Instruction = packed union {
                 decoded31: u1 = 0b0,
 
                 pub const Imm4 = packed union {
-                    general: General,
                     element: u4,
+                    general: General,
 
                     pub const General = enum(u4) {
                         general = 0b0011,
@@ -8076,6 +8202,10 @@ pub const Instruction = packed union {
                                 0b0 => .unallocated,
                             },
                             else => .unallocated,
+                        },
+                        0b0011 => switch (inst.group.Q) {
+                            0b0 => .unallocated,
+                            0b1 => .{ .ins = inst.ins },
                         },
                     },
                     0b1 => switch (inst.group.Q) {
@@ -8537,6 +8667,88 @@ pub const Instruction = packed union {
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                frintn: Frintn,
+                frintm: Frintm,
+                fcvtns: Fcvtns,
+                fcvtms: Fcvtms,
+                fcvtas: Fcvtas,
+                scvtf: Scvtf,
+                fcmgt: Fcmgt,
+                fcmeq: Fcmeq,
+                fcmlt: Fcmlt,
+                fabs: Fabs,
+                frintp: Frintp,
+                frintz: Frintz,
+                fcvtps: Fcvtps,
+                fcvtzs: Fcvtzs,
+                frecpe: Frecpe,
+                frinta: Frinta,
+                frintx: Frintx,
+                fcvtnu: Fcvtnu,
+                fcvtmu: Fcvtmu,
+                fcvtau: Fcvtau,
+                ucvtf: Ucvtf,
+                fcmge: Fcmge,
+                fcmle: Fcmle,
+                fneg: Fneg,
+                frinti: Frinti,
+                fcvtpu: Fcvtpu,
+                fcvtzu: Fcvtzu,
+                frsqrte: Frsqrte,
+                fsqrt: Fsqrt,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.a) {
+                        0b0 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b11000 => .{ .frintn = inst.frintn },
+                            0b11001 => .{ .frintm = inst.frintm },
+                            0b11010 => .{ .fcvtns = inst.fcvtns },
+                            0b11011 => .{ .fcvtms = inst.fcvtms },
+                            0b11100 => .{ .fcvtas = inst.fcvtas },
+                            0b11101 => .{ .scvtf = inst.scvtf },
+                        },
+                        0b1 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b01100 => .{ .fcmgt = inst.fcmgt },
+                            0b01101 => .{ .fcmeq = inst.fcmeq },
+                            0b01110 => .{ .fcmlt = inst.fcmlt },
+                            0b01111 => .{ .fabs = inst.fabs },
+                            0b11000 => .{ .frintp = inst.frintp },
+                            0b11001 => .{ .frintz = inst.frintz },
+                            0b11010 => .{ .fcvtps = inst.fcvtps },
+                            0b11011 => .{ .fcvtzs = inst.fcvtzs },
+                            0b11101 => .{ .frecpe = inst.frecpe },
+                        },
+                    },
+                    .unsigned => switch (inst.group.a) {
+                        0b0 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b11000 => .{ .frinta = inst.frinta },
+                            0b11001 => .{ .frintx = inst.frintx },
+                            0b11010 => .{ .fcvtnu = inst.fcvtnu },
+                            0b11011 => .{ .fcvtmu = inst.fcvtmu },
+                            0b11100 => .{ .fcvtau = inst.fcvtau },
+                            0b11101 => .{ .ucvtf = inst.ucvtf },
+                        },
+                        0b1 => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b01100 => .{ .fcmge = inst.fcmge },
+                            0b01101 => .{ .fcmle = inst.fcmle },
+                            0b01111 => .{ .fneg = inst.fneg },
+                            0b11001 => .{ .frinti = inst.frinti },
+                            0b11010 => .{ .fcvtpu = inst.fcvtpu },
+                            0b11011 => .{ .fcvtzu = inst.fcvtzu },
+                            0b11101 => .{ .frsqrte = inst.frsqrte },
+                            0b11111 => .{ .fsqrt = inst.fsqrt },
+                        },
+                    },
+                };
+            }
         };
 
         /// Advanced SIMD two-register miscellaneous
@@ -8700,7 +8912,7 @@ pub const Instruction = packed union {
                 decoded31: u1 = 0b0,
             };
 
-            /// C7.2.308 SQXTN
+            /// C7.2.308 SQXTN, SQXTN2
             pub const Sqxtn = packed struct {
                 Rd: Register.Encoded,
                 Rn: Register.Encoded,
@@ -9275,6 +9487,169 @@ pub const Instruction = packed union {
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                suqadd: Suqadd,
+                cnt: Cnt,
+                sqabs: Sqabs,
+                cmgt: Cmgt,
+                cmeq: Cmeq,
+                cmlt: Cmlt,
+                abs: Abs,
+                sqxtn: Sqxtn,
+                frintn: Frintn,
+                frintm: Frintm,
+                fcvtns: Fcvtns,
+                fcvtms: Fcvtms,
+                fcvtas: Fcvtas,
+                scvtf: Scvtf,
+                fcmgt: Fcmgt,
+                fcmeq: Fcmeq,
+                fcmlt: Fcmlt,
+                fabs: Fabs,
+                frintp: Frintp,
+                frintz: Frintz,
+                fcvtps: Fcvtps,
+                fcvtzs: Fcvtzs,
+                frecpe: Frecpe,
+                usqadd: Usqadd,
+                sqneg: Sqneg,
+                cmge: Cmge,
+                cmle: Cmle,
+                neg: Neg,
+                sqxtun: Sqxtun,
+                uqxtn: Uqxtn,
+                fcvtxn: Fcvtxn,
+                frinta: Frinta,
+                frintx: Frintx,
+                fcvtnu: Fcvtnu,
+                fcvtmu: Fcvtmu,
+                fcvtau: Fcvtau,
+                ucvtf: Ucvtf,
+                not: Not,
+                fcmge: Fcmge,
+                fcmle: Fcmle,
+                fneg: Fneg,
+                frinti: Frinti,
+                fcvtpu: Fcvtpu,
+                fcvtzu: Fcvtzu,
+                frsqrte: Frsqrte,
+                fsqrt: Fsqrt,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b00011 => .{ .suqadd = inst.suqadd },
+                        0b00101 => .{ .cnt = inst.cnt },
+                        0b00111 => .{ .sqabs = inst.sqabs },
+                        0b01000 => .{ .cmgt = inst.cmgt },
+                        0b01001 => .{ .cmeq = inst.cmeq },
+                        0b01010 => .{ .cmlt = inst.cmlt },
+                        0b01011 => .{ .abs = inst.abs },
+                        0b10100 => .{ .sqxtn = inst.sqxtn },
+                        0b11000 => switch (inst.group.size) {
+                            .byte, .half => .{ .frintn = inst.frintn },
+                            .single, .double => .{ .frintp = inst.frintp },
+                        },
+                        0b11001 => switch (inst.group.size) {
+                            .byte, .half => .{ .frintm = inst.frintm },
+                            .single, .double => .{ .frintz = inst.frintz },
+                        },
+                        0b11010 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtns = inst.fcvtns },
+                            .single, .double => .{ .fcvtps = inst.fcvtps },
+                        },
+                        0b11011 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtms = inst.fcvtms },
+                            .single, .double => .{ .fcvtzs = inst.fcvtzs },
+                        },
+                        0b11100 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtas = inst.fcvtas },
+                            .single, .double => .unallocated,
+                        },
+                        0b11101 => switch (inst.group.size) {
+                            .byte, .half => .{ .scvtf = inst.scvtf },
+                            .single, .double => .{ .frecpe = inst.frecpe },
+                        },
+                        0b01100 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmgt = inst.fcmgt },
+                        },
+                        0b01101 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmeq = inst.fcmeq },
+                        },
+                        0b01110 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmlt = inst.fcmlt },
+                        },
+                        0b01111 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fabs = inst.fabs },
+                        },
+                    },
+                    .unsigned => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b00011 => .{ .usqadd = inst.usqadd },
+                        0b00111 => .{ .sqneg = inst.sqneg },
+                        0b01000 => .{ .cmge = inst.cmge },
+                        0b01001 => .{ .cmle = inst.cmle },
+                        0b01011 => .{ .neg = inst.neg },
+                        0b10010 => .{ .sqxtun = inst.sqxtun },
+                        0b10100 => .{ .uqxtn = inst.uqxtn },
+                        0b10110 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtxn = inst.fcvtxn },
+                            .single, .double => .unallocated,
+                        },
+                        0b11000 => switch (inst.group.size) {
+                            .byte, .half => .{ .frinta = inst.frinta },
+                            .single, .double => .unallocated,
+                        },
+                        0b11001 => switch (inst.group.size) {
+                            .byte, .half => .{ .frintx = inst.frintx },
+                            .single, .double => .{ .frinti = inst.frinti },
+                        },
+                        0b11010 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtnu = inst.fcvtnu },
+                            .single, .double => .{ .fcvtpu = inst.fcvtpu },
+                        },
+                        0b11011 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtmu = inst.fcvtmu },
+                            .single, .double => .{ .fcvtzu = inst.fcvtzu },
+                        },
+                        0b11100 => switch (inst.group.size) {
+                            .byte, .half => .{ .fcvtau = inst.fcvtau },
+                            .single, .double => .unallocated,
+                        },
+                        0b11101 => switch (inst.group.size) {
+                            .byte, .half => .{ .ucvtf = inst.ucvtf },
+                            .single, .double => .{ .frsqrte = inst.frsqrte },
+                        },
+                        0b00101 => switch (inst.group.size) {
+                            .byte => .{ .not = inst.not },
+                            .half, .single, .double => .unallocated,
+                        },
+                        0b01100 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmge = inst.fcmge },
+                        },
+                        0b01101 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fcmle = inst.fcmle },
+                        },
+                        0b01111 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fneg = inst.fneg },
+                        },
+                        0b11111 => switch (inst.group.size) {
+                            .byte, .half => .unallocated,
+                            .single, .double => .{ .fsqrt = inst.fsqrt },
+                        },
+                    },
+                };
+            }
         };
 
         /// Advanced SIMD across lanes
@@ -9308,6 +9683,20 @@ pub const Instruction = packed union {
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                addv: Addv,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b11011 => .{ .addv = inst.addv },
+                    },
+                    .unsigned => .unallocated,
+                };
+            }
         };
 
         /// Advanced SIMD three same
@@ -9471,6 +9860,42 @@ pub const Instruction = packed union {
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                addp: Addp,
+                @"and": And,
+                bic: Bic,
+                orr: Orr,
+                orn: Orn,
+                eor: Eor,
+                bsl: Bsl,
+                bit: Bit,
+                bif: Bif,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.U) {
+                    .signed => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b10111 => .{ .addp = inst.addp },
+                        0b00011 => switch (inst.group.size) {
+                            .byte => .{ .@"and" = inst.@"and" },
+                            .half => .{ .bic = inst.bic },
+                            .single => .{ .orr = inst.orr },
+                            .double => .{ .orn = inst.orn },
+                        },
+                    },
+                    .unsigned => switch (inst.group.opcode) {
+                        else => .unallocated,
+                        0b00011 => switch (inst.group.size) {
+                            .byte => .{ .eor = inst.eor },
+                            .half => .{ .bsl = inst.bsl },
+                            .single => .{ .bit = inst.bit },
+                            .double => .{ .bif = inst.bif },
+                        },
+                    },
+                };
+            }
         };
 
         /// Advanced SIMD modified immediate
@@ -9529,11 +9954,11 @@ pub const Instruction = packed union {
                 Rd: Register.Encoded,
                 imm5: u5,
                 decoded10: u1 = 0b1,
-                o2: u1 = 0b1,
+                o2: u1,
                 cmode: u4 = 0b1111,
                 imm3: u3,
                 decoded19: u10 = 0b0111100000,
-                op: u1 = 0b0,
+                op: u1,
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
@@ -9566,6 +9991,45 @@ pub const Instruction = packed union {
                 Q: Q,
                 decoded31: u1 = 0b0,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fmov: Fmov,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.cmode) {
+                    else => .unallocated,
+                    0b1111 => switch (inst.group.op) {
+                        0b0 => .{ .fmov = inst.fmov },
+                        0b1 => switch (inst.group.Q) {
+                            .double => .unallocated,
+                            .quad => switch (inst.group.o2) {
+                                0b1 => .unallocated,
+                                0b0 => .{ .fmov = inst.fmov },
+                            },
+                        },
+                    },
+                };
+            }
+        };
+
+        /// Conversion between floating-point and fixed-point
+        pub const ConvertFloatFixed = packed union {
+            group: @This().Group,
+
+            pub const Group = packed struct {
+                Rd: Register.Encoded,
+                Rn: Register.Encoded,
+                scale: u6,
+                opcode: u3,
+                rmode: u2,
+                decoded21: u1 = 0b0,
+                ptype: Ftype,
+                decoded24: u5 = 0b11110,
+                S: bool,
+                decoded30: u1 = 0b0,
+                sf: Register.GeneralSize,
+            };
         };
 
         /// Conversion between floating-point and integer
@@ -9597,7 +10061,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.81 FCVTNS (scalar)
@@ -9612,7 +10076,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.83 FCVTNU (scalar)
@@ -9627,7 +10091,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.236 SCVTF (scalar, integer)
@@ -9642,7 +10106,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.355 UCVTF (scalar, integer)
@@ -9657,7 +10121,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.71 FCVTAS (scalar)
@@ -9672,7 +10136,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.73 FCVTAU (scalar)
@@ -9687,7 +10151,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.131 FMOV (general)
@@ -9702,7 +10166,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
 
                 pub const Opcode = enum(u3) {
                     float_to_integer = 0b110,
@@ -9729,7 +10193,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.87 FCVTPU (scalar)
@@ -9744,7 +10208,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.76 FCVTMS (scalar)
@@ -9759,7 +10223,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.78 FCVTMU (scalar)
@@ -9774,7 +10238,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.92 FCVTZS (scalar, integer)
@@ -9789,7 +10253,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.96 FCVTZU (scalar, integer)
@@ -9804,7 +10268,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize,
+                sf: Register.GeneralSize,
             };
 
             /// C7.2.99 FJCVTZS
@@ -9819,7 +10283,7 @@ pub const Instruction = packed union {
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
-                sf: Register.IntegerSize = .word,
+                sf: Register.GeneralSize = .word,
             };
 
             pub const Rmode = enum(u2) {
@@ -9832,6 +10296,84 @@ pub const Instruction = packed union {
                 /// toward zero
                 z = 0b11,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fcvtns: Fcvtns,
+                fcvtnu: Fcvtnu,
+                scvtf: Scvtf,
+                ucvtf: Ucvtf,
+                fcvtas: Fcvtas,
+                fcvtau: Fcvtau,
+                fmov: Fmov,
+                fcvtps: Fcvtps,
+                fcvtpu: Fcvtpu,
+                fcvtms: Fcvtms,
+                fcvtmu: Fcvtmu,
+                fcvtzs: Fcvtzs,
+                fcvtzu: Fcvtzu,
+                fjcvtzs: Fjcvtzs,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.S) {
+                    true => .unallocated,
+                    false => switch (inst.group.ptype) {
+                        .single, .double, .half => switch (inst.group.opcode) {
+                            0b000 => switch (inst.group.rmode) {
+                                0b00 => .{ .fcvtns = inst.fcvtns },
+                                0b01 => .{ .fcvtps = inst.fcvtps },
+                                0b10 => .{ .fcvtms = inst.fcvtms },
+                                0b11 => .{ .fcvtzs = inst.fcvtzs },
+                            },
+                            0b001 => switch (inst.group.rmode) {
+                                0b00 => .{ .fcvtnu = inst.fcvtnu },
+                                0b01 => .{ .fcvtpu = inst.fcvtpu },
+                                0b10 => .{ .fcvtmu = inst.fcvtmu },
+                                0b11 => .{ .fcvtzu = inst.fcvtzu },
+                            },
+                            0b010 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .scvtf = inst.scvtf },
+                            },
+                            0b011 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .ucvtf = inst.ucvtf },
+                            },
+                            0b100 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .fcvtas = inst.fcvtas },
+                            },
+                            0b101 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .fcvtau = inst.fcvtau },
+                            },
+                            0b110 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .fmov = inst.fmov },
+                                0b11 => switch (inst.group.ptype) {
+                                    .single, .double => .unallocated,
+                                    .quad => unreachable,
+                                    .half => .{ .fjcvtzs = inst.fjcvtzs },
+                                },
+                            },
+                            0b111 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b00 => .{ .fmov = inst.fmov },
+                            },
+                        },
+                        .quad => switch (inst.group.opcode) {
+                            else => .unallocated,
+                            0b110, 0b111 => switch (inst.group.rmode) {
+                                else => .unallocated,
+                                0b01 => switch (inst.group.sf) {
+                                    .word => .unallocated,
+                                    .doubleword => .{ .fmov = inst.fmov },
+                                },
+                            },
+                        },
+                    },
+                };
+            }
         };
 
         /// Floating-point data-processing (1 source)
@@ -10060,6 +10602,48 @@ pub const Instruction = packed union {
                 i = 0b111,
                 _,
             };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fmov: Fmov,
+                fabs: Fabs,
+                fneg: Fneg,
+                fsqrt: Fsqrt,
+                fcvt: Fcvt,
+                frintn: Frintn,
+                frintp: Frintp,
+                frintm: Frintm,
+                frintz: Frintz,
+                frinta: Frinta,
+                frintx: Frintx,
+                frinti: Frinti,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.M) {
+                    0b0 => switch (inst.group.S) {
+                        true => .unallocated,
+                        false => switch (inst.group.ptype) {
+                            .single, .double, .half => switch (inst.group.opcode) {
+                                else => .unallocated,
+                                0b000000 => .{ .fmov = inst.fmov },
+                                0b000001 => .{ .fabs = inst.fabs },
+                                0b000010 => .{ .fneg = inst.fneg },
+                                0b000011 => .{ .fsqrt = inst.fsqrt },
+                                0b000101, 0b000111 => .{ .fcvt = inst.fcvt },
+                                0b001000 => .{ .frintn = inst.frintn },
+                                0b001001 => .{ .frintp = inst.frintp },
+                                0b001010 => .{ .frintm = inst.frintm },
+                                0b001011 => .{ .frintz = inst.frintz },
+                                0b001100 => .{ .frinta = inst.frinta },
+                                0b001110 => .{ .frintx = inst.frintx },
+                                0b001111 => .{ .frinti = inst.frinti },
+                            },
+                            .quad => .unallocated,
+                        },
+                    },
+                    0b1 => .unallocated,
+                };
+            }
         };
 
         /// Floating-point compare
@@ -10145,13 +10729,77 @@ pub const Instruction = packed union {
                 Rd: Register.Encoded,
                 imm5: u5 = 0b00000,
                 decoded10: u3 = 0b100,
-                imm8: u8,
+                imm8: Imm8,
                 decoded21: u1 = 0b1,
                 ftype: Ftype,
                 decoded24: u5 = 0b11110,
                 S: bool = false,
                 decoded30: u1 = 0b0,
                 M: u1 = 0b0,
+
+                pub const Imm8 = packed struct(u8) {
+                    mantissa: u4,
+                    exponent: i3,
+                    sign: std.math.Sign,
+
+                    pub const Modified = packed struct(u8) { imm5: u5, imm3: u3 };
+
+                    pub fn fromModified(mod: Modified) Imm8 {
+                        return @bitCast(mod);
+                    }
+
+                    pub fn toModified(imm8: Imm8) Modified {
+                        return @bitCast(imm8);
+                    }
+
+                    pub fn decode(imm8: Imm8) f16 {
+                        const Normalized = std.math.FloatRepr(f16).Normalized;
+                        return Normalized.reconstruct(.{
+                            .fraction = @as(Normalized.Fraction, imm8.mantissa) << 6,
+                            .exponent = @as(Normalized.Exponent, imm8.exponent) + 1,
+                        }, imm8.sign);
+                    }
+                };
+            };
+
+            pub const Decoded = union(enum) {
+                unallocated,
+                fmov: Fmov,
+            };
+            pub fn decode(inst: @This()) @This().Decoded {
+                return switch (inst.group.M) {
+                    0b0 => switch (inst.group.S) {
+                        true => .unallocated,
+                        false => switch (inst.group.imm5) {
+                            else => .unallocated,
+                            0b00000 => switch (inst.group.ptype) {
+                                .quad => .unallocated,
+                                .single, .double, .half => .{ .fmov = inst.fmov },
+                            },
+                        },
+                    },
+                    0b1 => .unallocated,
+                };
+            }
+        };
+
+        /// Floating-point conditional compare
+        pub const FloatConditionalCompare = packed union {
+            group: @This().Group,
+
+            pub const Group = packed struct {
+                nzcv: Nzcv,
+                op: u1,
+                Rn: Register.Encoded,
+                decoded10: u2 = 0b01,
+                cond: ConditionCode,
+                Rm: Register.Encoded,
+                decoded21: u1 = 0b1,
+                ptype: Ftype,
+                decoded24: u5 = 0b11110,
+                S: bool,
+                decoded30: u1 = 0b0,
+                M: u1,
             };
         };
 
@@ -10477,7 +11125,15 @@ pub const Instruction = packed union {
             single = 0b10,
             double = 0b11,
 
-            pub fn toVectorSize(s: Size) Register.VectorSize {
+            pub fn n(s: Size) Size {
+                return @enumFromInt(@intFromEnum(s) - 1);
+            }
+
+            pub fn w(s: Size) Size {
+                return @enumFromInt(@intFromEnum(s) + 1);
+            }
+
+            pub fn toScalarSize(s: Size) Register.ScalarSize {
                 return switch (s) {
                     .byte => .byte,
                     .half => .half,
@@ -10486,11 +11142,19 @@ pub const Instruction = packed union {
                 };
             }
 
-            pub fn fromVectorSize(vs: Register.VectorSize) Size {
-                return switch (vs) {
+            pub fn fromScalarSize(ss: Register.ScalarSize) Size {
+                return switch (ss) {
                     else => unreachable,
                     .byte => .byte,
                     .half => .half,
+                    .single => .single,
+                    .double => .double,
+                };
+            }
+
+            pub fn toSz(s: Size) Sz {
+                return switch (s) {
+                    else => unreachable,
                     .single => .single,
                     .double => .double,
                 };
@@ -10501,16 +11165,23 @@ pub const Instruction = packed union {
             single = 0b0,
             double = 0b1,
 
-            pub fn toVectorSize(sz: Sz) Register.VectorSize {
+            pub fn toScalarSize(sz: Sz) Register.ScalarSize {
                 return switch (sz) {
                     .single => .single,
                     .double => .double,
                 };
             }
 
-            pub fn fromVectorSize(vs: Register.VectorSize) Sz {
-                return switch (vs) {
+            pub fn fromScalarSize(ss: Register.ScalarSize) Sz {
+                return switch (ss) {
                     else => unreachable,
+                    .single => .single,
+                    .double => .double,
+                };
+            }
+
+            pub fn toSize(sz: Sz) Size {
+                return switch (sz) {
                     .single => .single,
                     .double => .double,
                 };
@@ -10528,24 +11199,104 @@ pub const Instruction = packed union {
             quad = 0b10,
             half = 0b11,
 
-            pub fn toVectorSize(ftype: Ftype) Register.VectorSize {
+            pub fn toScalarSize(ftype: Ftype) Register.ScalarSize {
                 return switch (ftype) {
-                    _ => unreachable,
                     .single => .single,
                     .double => .double,
+                    .quad => .quad,
                     .half => .half,
                 };
             }
 
-            pub fn fromVectorSize(vs: Register.VectorSize) Ftype {
-                return switch (vs) {
+            pub fn fromScalarSize(ss: Register.ScalarSize) Ftype {
+                return switch (ss) {
                     else => unreachable,
                     .single => .single,
                     .double => .double,
+                    .quad => .quad,
                     .half => .half,
                 };
             }
         };
+
+        pub const Decoded = union(enum) {
+            unallocated,
+            simd_scalar_copy: SimdScalarCopy,
+            simd_scalar_two_register_miscellaneous_fp16: SimdScalarTwoRegisterMiscellaneousFp16,
+            simd_scalar_two_register_miscellaneous: SimdScalarTwoRegisterMiscellaneous,
+            simd_scalar_pairwise: SimdScalarPairwise,
+            simd_copy: SimdCopy,
+            simd_two_register_miscellaneous_fp16: SimdTwoRegisterMiscellaneousFp16,
+            simd_two_register_miscellaneous: SimdTwoRegisterMiscellaneous,
+            simd_across_lanes: SimdAcrossLanes,
+            simd_three_same: SimdThreeSame,
+            simd_modified_immediate: SimdModifiedImmediate,
+            convert_float_fixed: ConvertFloatFixed,
+            convert_float_integer: ConvertFloatInteger,
+            float_data_processing_one_source: FloatDataProcessingOneSource,
+            float_compare: FloatCompare,
+            float_immediate: FloatImmediate,
+            float_conditional_compare: FloatConditionalCompare,
+            float_data_processing_two_source: FloatDataProcessingTwoSource,
+            float_conditional_select: FloatConditionalSelect,
+            float_data_processing_three_source: FloatDataProcessingThreeSource,
+        };
+        pub fn decode(inst: @This()) @This().Decoded {
+            return switch (inst.group.op0) {
+                else => .unallocated,
+                0b0101, 0b0111 => switch (inst.group.op1) {
+                    0b00...0b01 => if (inst.group.op3 & 0b000100001 == 0b000000001)
+                        if (inst.group.op1 == 0b00 and inst.group.op2 & 0b1100 == 0b0000)
+                            .{ .simd_scalar_copy = inst.simd_scalar_copy }
+                        else
+                            .unallocated
+                    else if (inst.group.op3 & 0b110000011 == 0b000000010) switch (inst.group.op2) {
+                        else => .unallocated,
+                        0b1111 => .{ .simd_scalar_two_register_miscellaneous_fp16 = inst.simd_scalar_two_register_miscellaneous_fp16 },
+                        0b0100, 0b1100 => .{ .simd_scalar_two_register_miscellaneous = inst.simd_scalar_two_register_miscellaneous },
+                        0b0110, 0b1110 => .{ .simd_scalar_pairwise = inst.simd_scalar_pairwise },
+                    } else .unallocated,
+                    0b10, 0b11 => switch (@as(u1, @truncate(inst.group.op3 >> 0))) {
+                        0b1 => switch (inst.group.op1) {
+                            0b10 => .unallocated,
+                            else => .unallocated,
+                        },
+                        0b0 => .unallocated,
+                    },
+                },
+                0b0000, 0b0010, 0b0100, 0b0110 => if (inst.group.op1 == 0b00 and inst.group.op2 & 0b1100 == 0b0000 and inst.group.op3 & 0b000100001 == 0b0000000001)
+                    .{ .simd_copy = inst.simd_copy }
+                else if (inst.group.op1 & 0b10 == 0b00 and inst.group.op2 == 0b1111 and inst.group.op3 & 0b110000011 == 0b000000010)
+                    .{ .simd_two_register_miscellaneous_fp16 = inst.simd_two_register_miscellaneous_fp16 }
+                else if (inst.group.op1 & 0b10 == 0b00 and inst.group.op2 & 0b0111 == 0b0100 and inst.group.op3 & 0b110000011 == 0b000000010)
+                    .{ .simd_two_register_miscellaneous = inst.simd_two_register_miscellaneous }
+                else if (inst.group.op1 & 0b10 == 0b00 and inst.group.op2 & 0b0111 == 0b0110 and inst.group.op3 & 0b110000011 == 0b000000010)
+                    .{ .simd_across_lanes = inst.simd_across_lanes }
+                else if (inst.group.op1 & 0b10 == 0b00 and inst.group.op2 & 0b0100 == 0b0100 and inst.group.op3 & 0b000000001 == 0b000000001)
+                    .{ .simd_three_same = inst.simd_three_same }
+                else if (inst.group.op1 == 0b10 and inst.group.op2 == 0b0000 and inst.group.op3 & 0b000000001 == 0b000000001)
+                    .{ .simd_modified_immediate = inst.simd_modified_immediate }
+                else
+                    .unallocated,
+                0b0001, 0b0011, 0b1001, 0b1011 => switch (@as(u1, @truncate(inst.group.op1 >> 1))) {
+                    0b0 => switch (@as(u1, @truncate(inst.group.op2 >> 2))) {
+                        0b0 => .{ .convert_float_fixed = inst.convert_float_fixed },
+                        0b1 => switch (@ctz(inst.group.op3)) {
+                            else => .{ .convert_float_integer = inst.convert_float_integer },
+                            4 => .{ .float_data_processing_one_source = inst.float_data_processing_one_source },
+                            3 => .{ .float_compare = inst.float_compare },
+                            2 => .{ .float_immediate = inst.float_immediate },
+                            1 => .{ .float_data_processing_two_source = inst.float_data_processing_two_source },
+                            0 => switch (@as(u1, @truncate(inst.group.op3 >> 1))) {
+                                0b0 => .unallocated,
+                                0b1 => .{ .float_conditional_select = inst.float_conditional_select },
+                            },
+                        },
+                    },
+                    0b1 => .unallocated,
+                },
+            };
+        }
     };
 
     pub const AddSubtractOp = enum(u1) {
@@ -10559,6 +11310,8 @@ pub const Instruction = packed union {
         eor = 0b10,
         ands = 0b11,
     };
+
+    pub const Nzcv = packed struct { v: bool, c: bool, z: bool, n: bool };
 
     pub const Decoded = union(enum) {
         unallocated,
@@ -10588,7 +11341,7 @@ pub const Instruction = packed union {
         };
     }
 
-    /// C7.2.1 ABS (zero)
+    /// C7.2.1 ABS
     pub fn abs(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
@@ -10598,7 +11351,7 @@ pub const Instruction = packed union {
                     .abs = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .size = .fromVectorSize(elem_size),
+                        .size = .fromScalarSize(elem_size),
                     },
                 } } };
             },
@@ -10617,8 +11370,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.1 ADC
     pub fn adc(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .add_subtract_with_carry = .{
             .adc = .{
                 .Rd = d.alias.encode(.{}),
@@ -10630,8 +11383,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.2 ADCS
     pub fn adcs(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .add_subtract_with_carry = .{
             .adcs = .{
                 .Rd = d.alias.encode(.{}),
@@ -10657,11 +11410,11 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .add = .{
                         .Rd = d.alias.encode(.{ .sp = true }),
@@ -10703,7 +11456,7 @@ pub const Instruction = packed union {
             else
                 .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .add_subtract_shifted_register = .{
                     .add = .{
                         .Rd = d.alias.encode(.{}),
@@ -10779,11 +11532,11 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .adds = .{
                         .Rd = d.alias.encode(.{}),
@@ -10825,7 +11578,7 @@ pub const Instruction = packed union {
             else
                 .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .add_subtract_shifted_register = .{
                     .adds = .{
                         .Rd = d.alias.encode(.{}),
@@ -10856,7 +11609,7 @@ pub const Instruction = packed union {
     /// C7.2.6 ADDV
     pub fn addv(d: Register, n: Register) Instruction {
         const arrangement = n.format.vector;
-        assert(arrangement.len() > 2 and d.format.scalar == arrangement.elemSize().toVectorSize());
+        assert(arrangement.len() > 2 and d.format.scalar == arrangement.elemSize().toScalarSize());
         return .{ .data_processing_vector = .{ .simd_across_lanes = .{
             .addv = .{
                 .Rd = d.alias.encode(.{ .V = true }),
@@ -10868,7 +11621,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.10 ADR
     pub fn adr(d: Register, label: i21) Instruction {
-        assert(d.format.integer == .doubleword);
+        assert(d.format.general == .doubleword);
         return .{ .data_processing_immediate = .{ .pc_relative_addressing = .{
             .adr = .{
                 .Rd = d.alias.encode(.{}),
@@ -10879,7 +11632,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.11 ADRP
     pub fn adrp(d: Register, label: i33) Instruction {
-        assert(d.format.integer == .doubleword);
+        assert(d.format.general == .doubleword);
         const imm: i21 = @intCast(@shrExact(label, 12));
         return .{ .data_processing_immediate = .{ .pc_relative_addressing = .{
             .adrp = .{
@@ -10900,8 +11653,8 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(n.format.integer == sf);
+            .general => |sf| {
+                assert(n.format.general == sf);
                 form: switch (form) {
                     .immediate => |bitmask| {
                         assert(bitmask.validImmediate(sf));
@@ -10916,7 +11669,7 @@ pub const Instruction = packed union {
                     },
                     .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
                     .shifted_register_explicit => |shifted_register_explicit| {
-                        assert(shifted_register_explicit.register.format.integer == sf);
+                        assert(shifted_register_explicit.register.format.general == sf);
                         return .{ .data_processing_register = .{ .logical_shifted_register = .{
                             .@"and" = .{
                                 .Rd = d.alias.encode(.{}),
@@ -10962,8 +11715,8 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .immediate => |bitmask| {
                 assert(bitmask.validImmediate(sf));
@@ -10978,7 +11731,7 @@ pub const Instruction = packed union {
             },
             .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .logical_shifted_register = .{
                     .ands = .{
                         .Rd = d.alias.encode(.{}),
@@ -11004,8 +11757,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.18 ASRV
     pub fn asrv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .asrv = .{
                 .Rd = d.alias.encode(.{}),
@@ -11041,8 +11794,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.30 BFM
     pub fn bfm(d: Register, n: Register, bitmask: DataProcessingImmediate.Bitmask) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and bitmask.validBitfield(sf));
+        const sf = d.format.general;
+        assert(n.format.general == sf and bitmask.validBitfield(sf));
         return .{ .data_processing_immediate = .{ .bitfield = .{
             .bfm = .{
                 .Rd = d.alias.encode(.{}),
@@ -11063,13 +11816,13 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(n.format.integer == sf);
+            .general => |sf| {
+                assert(n.format.general == sf);
                 form: switch (form) {
                     else => unreachable,
                     .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
                     .shifted_register_explicit => |shifted_register_explicit| {
-                        assert(shifted_register_explicit.register.format.integer == sf);
+                        assert(shifted_register_explicit.register.format.general == sf);
                         return .{ .data_processing_register = .{ .logical_shifted_register = .{
                             .bic = .{
                                 .Rd = d.alias.encode(.{}),
@@ -11133,12 +11886,12 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .logical_shifted_register = .{
                     .bics = .{
                         .Rd = d.alias.encode(.{}),
@@ -11209,14 +11962,14 @@ pub const Instruction = packed union {
     }
     /// C6.2.35 BLR
     pub fn blr(n: Register) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .unconditional_branch_register = .{
             .blr = .{ .Rn = n.alias.encode(.{}) },
         } } };
     }
     /// C6.2.37 BR
     pub fn br(n: Register) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .unconditional_branch_register = .{
             .br = .{ .Rn = n.alias.encode(.{}) },
         } } };
@@ -11233,7 +11986,7 @@ pub const Instruction = packed union {
             .cbnz = .{
                 .Rt = t.alias.encode(.{}),
                 .imm19 = @intCast(@shrExact(label, 2)),
-                .sf = t.format.integer,
+                .sf = t.format.general,
             },
         } } };
     }
@@ -11243,7 +11996,7 @@ pub const Instruction = packed union {
             .cbz = .{
                 .Rt = t.alias.encode(.{}),
                 .imm19 = @intCast(@shrExact(label, 2)),
-                .sf = t.format.integer,
+                .sf = t.format.general,
             },
         } } };
     }
@@ -11252,13 +12005,13 @@ pub const Instruction = packed union {
     pub fn ccmn(
         n: Register,
         form: union(enum) { register: Register, immediate: u5 },
-        nzcv: DataProcessingRegister.Nzcv,
+        nzcv: Nzcv,
         cond: ConditionCode,
     ) Instruction {
-        const sf = n.format.integer;
+        const sf = n.format.general;
         switch (form) {
             .register => |m| {
-                assert(m.format.integer == sf);
+                assert(m.format.general == sf);
                 return .{ .data_processing_register = .{ .conditional_compare_register = .{
                     .ccmn = .{
                         .nzcv = nzcv,
@@ -11285,13 +12038,13 @@ pub const Instruction = packed union {
     pub fn ccmp(
         n: Register,
         form: union(enum) { register: Register, immediate: u5 },
-        nzcv: DataProcessingRegister.Nzcv,
+        nzcv: Nzcv,
         cond: ConditionCode,
     ) Instruction {
-        const sf = n.format.integer;
+        const sf = n.format.general;
         switch (form) {
             .register => |m| {
-                assert(m.format.integer == sf);
+                assert(m.format.general == sf);
                 return .{ .data_processing_register = .{ .conditional_compare_register = .{
                     .ccmp = .{
                         .nzcv = nzcv,
@@ -11321,10 +12074,22 @@ pub const Instruction = packed union {
             },
         } } };
     }
+    /// C6.2.57 CLS
+    pub fn cls(d: Register, n: Register) Instruction {
+        const sf = d.format.general;
+        assert(n.format.general == sf);
+        return .{ .data_processing_register = .{ .data_processing_one_source = .{
+            .cls = .{
+                .Rd = d.alias.encode(.{}),
+                .Rn = n.alias.encode(.{}),
+                .sf = sf,
+            },
+        } } };
+    }
     /// C6.2.58 CLZ
     pub fn clz(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_one_source = .{
             .clz = .{
                 .Rd = d.alias.encode(.{}),
@@ -11344,7 +12109,7 @@ pub const Instruction = packed union {
                         .cmeq = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{ .V = true }),
-                            .size = .fromVectorSize(elem_size),
+                            .size = .fromScalarSize(elem_size),
                         },
                     } } };
                 },
@@ -11373,7 +12138,7 @@ pub const Instruction = packed union {
                         .cmge = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{ .V = true }),
-                            .size = .fromVectorSize(elem_size),
+                            .size = .fromScalarSize(elem_size),
                         },
                     } } };
                 },
@@ -11402,7 +12167,7 @@ pub const Instruction = packed union {
                         .cmgt = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{ .V = true }),
-                            .size = .fromVectorSize(elem_size),
+                            .size = .fromScalarSize(elem_size),
                         },
                     } } };
                 },
@@ -11431,7 +12196,7 @@ pub const Instruction = packed union {
                         .cmle = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{ .V = true }),
-                            .size = .fromVectorSize(elem_size),
+                            .size = .fromScalarSize(elem_size),
                         },
                     } } };
                 },
@@ -11460,7 +12225,7 @@ pub const Instruction = packed union {
                         .cmlt = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{ .V = true }),
-                            .size = .fromVectorSize(elem_size),
+                            .size = .fromScalarSize(elem_size),
                         },
                     } } };
                 },
@@ -11493,8 +12258,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.103 CSEL
     pub fn csel(d: Register, n: Register, m: Register, cond: ConditionCode) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .conditional_select = .{
             .csel = .{
                 .Rd = d.alias.encode(.{}),
@@ -11507,8 +12272,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.106 CSINC
     pub fn csinc(d: Register, n: Register, m: Register, cond: ConditionCode) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .conditional_select = .{
             .csinc = .{
                 .Rd = d.alias.encode(.{}),
@@ -11521,8 +12286,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.107 CSINV
     pub fn csinv(d: Register, n: Register, m: Register, cond: ConditionCode) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .conditional_select = .{
             .csinv = .{
                 .Rd = d.alias.encode(.{}),
@@ -11535,8 +12300,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.108 CSNEG
     pub fn csneg(d: Register, n: Register, m: Register, cond: ConditionCode) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .conditional_select = .{
             .csneg = .{
                 .Rd = d.alias.encode(.{}),
@@ -11579,7 +12344,7 @@ pub const Instruction = packed union {
         switch (d.format) {
             else => unreachable,
             .scalar => |elem_size| {
-                assert(@intFromEnum(elem_size) <= @intFromEnum(Register.VectorSize.double) and elem_size == n.format.element.size);
+                assert(@intFromEnum(elem_size) <= @intFromEnum(Register.ScalarSize.double) and elem_size == n.format.element.size);
                 return .{ .data_processing_vector = .{ .simd_scalar_copy = .{
                     .dup = .{
                         .Rd = d.alias.encode(.{ .V = true }),
@@ -11594,7 +12359,7 @@ pub const Instruction = packed union {
                 switch (n.format) {
                     else => unreachable,
                     .element => |element| {
-                        assert(elem_size.toVectorSize() == element.size);
+                        assert(elem_size.toScalarSize() == element.size);
                         return .{ .data_processing_vector = .{ .simd_copy = .{
                             .dup = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
@@ -11605,8 +12370,8 @@ pub const Instruction = packed union {
                             },
                         } } };
                     },
-                    .integer => |sf| {
-                        assert(sf == @as(Register.IntegerSize, switch (elem_size) {
+                    .general => |sf| {
+                        assert(sf == @as(Register.GeneralSize, switch (elem_size) {
                             .byte, .half, .single => .word,
                             .double => .doubleword,
                         }));
@@ -11630,12 +12395,12 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .logical_shifted_register = .{
                     .eon = .{
                         .Rd = d.alias.encode(.{}),
@@ -11670,8 +12435,8 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(n.format.integer == sf);
+            .general => |sf| {
+                assert(n.format.general == sf);
                 form: switch (form) {
                     .immediate => |bitmask| {
                         assert(bitmask.validImmediate(sf));
@@ -11686,7 +12451,7 @@ pub const Instruction = packed union {
                     },
                     .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
                     .shifted_register_explicit => |shifted_register_explicit| {
-                        assert(shifted_register_explicit.register.format.integer == sf);
+                        assert(shifted_register_explicit.register.format.general == sf);
                         return .{ .data_processing_register = .{ .logical_shifted_register = .{
                             .eor = .{
                                 .Rd = d.alias.encode(.{}),
@@ -11726,8 +12491,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.124 EXTR
     pub fn extr(d: Register, n: Register, m: Register, lsb: u6) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_immediate = .{ .extract = .{
             .extr = .{
                 .Rd = d.alias.encode(.{}),
@@ -11774,7 +12539,7 @@ pub const Instruction = packed union {
                     .fabs = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -11789,7 +12554,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -11814,7 +12579,7 @@ pub const Instruction = packed union {
                                 .fcmeq = .{
                                     .Rd = d.alias.encode(.{ .V = true }),
                                     .Rn = n.alias.encode(.{ .V = true }),
-                                    .sz = .fromVectorSize(ftype),
+                                    .sz = .fromScalarSize(ftype),
                                 },
                             } } },
                         }
@@ -11865,7 +12630,7 @@ pub const Instruction = packed union {
                                 .fcmge = .{
                                     .Rd = d.alias.encode(.{ .V = true }),
                                     .Rn = n.alias.encode(.{ .V = true }),
-                                    .sz = .fromVectorSize(ftype),
+                                    .sz = .fromScalarSize(ftype),
                                 },
                             } } },
                         }
@@ -11916,7 +12681,7 @@ pub const Instruction = packed union {
                                 .fcmgt = .{
                                     .Rd = d.alias.encode(.{ .V = true }),
                                     .Rn = n.alias.encode(.{ .V = true }),
-                                    .sz = .fromVectorSize(ftype),
+                                    .sz = .fromScalarSize(ftype),
                                 },
                             } } },
                         }
@@ -11967,7 +12732,7 @@ pub const Instruction = packed union {
                                 .fcmle = .{
                                     .Rd = d.alias.encode(.{ .V = true }),
                                     .Rn = n.alias.encode(.{ .V = true }),
-                                    .sz = .fromVectorSize(ftype),
+                                    .sz = .fromScalarSize(ftype),
                                 },
                             } } },
                         }
@@ -12018,7 +12783,7 @@ pub const Instruction = packed union {
                                 .fcmlt = .{
                                     .Rd = d.alias.encode(.{ .V = true }),
                                     .Rn = n.alias.encode(.{ .V = true }),
-                                    .sz = .fromVectorSize(ftype),
+                                    .sz = .fromScalarSize(ftype),
                                 },
                             } } },
                         }
@@ -12059,7 +12824,7 @@ pub const Instruction = packed union {
                         .opc0 = .register,
                         .Rn = n.alias.encode(.{ .V = true }),
                         .Rm = m.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -12068,7 +12833,7 @@ pub const Instruction = packed union {
                     .opc0 = .register,
                     .Rn = n.alias.encode(.{ .V = true }),
                     .Rm = @enumFromInt(0b00000),
-                    .ftype = .fromVectorSize(ftype),
+                    .ftype = .fromScalarSize(ftype),
                 },
             } } },
         }
@@ -12084,7 +12849,7 @@ pub const Instruction = packed union {
                         .opc0 = .zero,
                         .Rn = n.alias.encode(.{ .V = true }),
                         .Rm = m.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -12093,7 +12858,7 @@ pub const Instruction = packed union {
                     .opc0 = .zero,
                     .Rn = n.alias.encode(.{ .V = true }),
                     .Rm = @enumFromInt(0b00000),
-                    .ftype = .fromVectorSize(ftype),
+                    .ftype = .fromScalarSize(ftype),
                 },
             } } },
         }
@@ -12108,7 +12873,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .cond = cond,
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12125,7 +12890,7 @@ pub const Instruction = packed union {
                     .double => .double,
                     .half => .half,
                 },
-                .ftype = .fromVectorSize(n.format.scalar),
+                .ftype = .fromScalarSize(n.format.scalar),
             },
         } } };
     }
@@ -12134,11 +12899,11 @@ pub const Instruction = packed union {
     pub fn fcvtas(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtas = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12158,7 +12923,7 @@ pub const Instruction = packed union {
                             .fcvtas = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12192,11 +12957,11 @@ pub const Instruction = packed union {
     pub fn fcvtau(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtau = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12216,7 +12981,7 @@ pub const Instruction = packed union {
                             .fcvtau = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12250,11 +13015,11 @@ pub const Instruction = packed union {
     pub fn fcvtms(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtms = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12274,7 +13039,7 @@ pub const Instruction = packed union {
                             .fcvtms = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12308,11 +13073,11 @@ pub const Instruction = packed union {
     pub fn fcvtmu(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtmu = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12332,7 +13097,7 @@ pub const Instruction = packed union {
                             .fcvtmu = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12366,11 +13131,11 @@ pub const Instruction = packed union {
     pub fn fcvtns(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtns = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12390,7 +13155,7 @@ pub const Instruction = packed union {
                             .fcvtns = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12424,11 +13189,11 @@ pub const Instruction = packed union {
     pub fn fcvtnu(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtnu = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12448,7 +13213,7 @@ pub const Instruction = packed union {
                             .fcvtnu = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12482,11 +13247,11 @@ pub const Instruction = packed union {
     pub fn fcvtps(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtps = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12506,7 +13271,7 @@ pub const Instruction = packed union {
                             .fcvtps = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12540,11 +13305,11 @@ pub const Instruction = packed union {
     pub fn fcvtpu(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtpu = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12564,7 +13329,7 @@ pub const Instruction = packed union {
                             .fcvtpu = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12598,11 +13363,11 @@ pub const Instruction = packed union {
     pub fn fcvtzs(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtzs = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12622,7 +13387,7 @@ pub const Instruction = packed union {
                             .fcvtzs = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12656,11 +13421,11 @@ pub const Instruction = packed union {
     pub fn fcvtzu(d: Register, n: Register) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+            .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                 .fcvtzu = .{
                     .Rd = d.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .V = true }),
-                    .ftype = .fromVectorSize(n.format.scalar),
+                    .ftype = .fromScalarSize(n.format.scalar),
                     .sf = sf,
                 },
             } } },
@@ -12680,7 +13445,7 @@ pub const Instruction = packed union {
                             .fcvtzu = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(elem_size),
+                                .sz = .fromScalarSize(elem_size),
                             },
                         } } },
                     }
@@ -12718,13 +13483,13 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
     /// C7.2.99 FJCVTZS
     pub fn fjcvtzs(d: Register, n: Register) Instruction {
-        assert(d.format.integer == .word);
+        assert(d.format.general == .word);
         assert(n.format.scalar == .double);
         return .{ .data_processing_vector = .{ .convert_float_integer = .{
             .fjcvtzs = .{
@@ -12743,7 +13508,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12756,7 +13521,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12769,7 +13534,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12782,7 +13547,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12795,7 +13560,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12807,31 +13572,39 @@ pub const Instruction = packed union {
         switch (form) {
             .immediate => |immediate| {
                 const repr: std.math.FloatRepr(f16) = @bitCast(immediate);
-                const imm: u8 = @bitCast(@as(packed struct(u8) {
-                    mantissa: u4,
-                    exponent: i3,
-                    sign: std.math.Sign,
-                }, .{
+                const imm: DataProcessingVector.FloatImmediate.Fmov.Imm8 = .{
                     .mantissa = @intCast(@shrExact(repr.mantissa, 6)),
                     .exponent = @intCast(repr.exponent.unbias() - 1),
                     .sign = repr.sign,
-                }));
+                };
                 switch (d.format) {
                     else => unreachable,
                     .scalar => |ftype| return .{ .data_processing_vector = .{ .float_immediate = .{
                         .fmov = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .imm8 = imm,
-                            .ftype = .fromVectorSize(ftype),
+                            .ftype = .fromScalarSize(ftype),
                         },
                     } } },
                     .vector => |arrangement| {
-                        assert(arrangement.len() > 1 and arrangement.elemSize() != .byte);
+                        const elem_size = arrangement.elemSize();
+                        assert(arrangement.len() > 1);
+                        const mod_imm = imm.toModified();
                         return .{ .data_processing_vector = .{ .simd_modified_immediate = .{
                             .fmov = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
-                                .imm5 = @truncate(imm >> 0),
-                                .imm3 = @intCast(imm >> 5),
+                                .imm5 = mod_imm.imm5,
+                                .o2 = switch (elem_size) {
+                                    .byte => unreachable,
+                                    .half => 0b1,
+                                    .single, .double => 0b0,
+                                },
+                                .imm3 = mod_imm.imm3,
+                                .op = switch (elem_size) {
+                                    .byte => unreachable,
+                                    .half, .single => 0b0,
+                                    .double => 0b1,
+                                },
                                 .Q = arrangement.size(),
                             },
                         } } };
@@ -12840,7 +13613,7 @@ pub const Instruction = packed union {
             },
             .register => |n| switch (d.format) {
                 else => unreachable,
-                .integer => |sf| switch (n.format) {
+                .general => |sf| switch (n.format) {
                     else => unreachable,
                     .scalar => |ftype| {
                         switch (ftype) {
@@ -12855,7 +13628,7 @@ pub const Instruction = packed union {
                                 .Rn = n.alias.encode(.{ .V = true }),
                                 .opcode = .float_to_integer,
                                 .rmode = .@"0",
-                                .ftype = .fromVectorSize(ftype),
+                                .ftype = .fromScalarSize(ftype),
                                 .sf = sf,
                             },
                         } } };
@@ -12879,8 +13652,7 @@ pub const Instruction = packed union {
                 },
                 .scalar => |ftype| switch (n.format) {
                     else => unreachable,
-                    .integer => {
-                        const sf = n.format.integer;
+                    .general => |sf| {
                         switch (ftype) {
                             else => unreachable,
                             .half => {},
@@ -12893,7 +13665,7 @@ pub const Instruction = packed union {
                                 .Rn = n.alias.encode(.{}),
                                 .opcode = .integer_to_float,
                                 .rmode = .@"0",
-                                .ftype = .fromVectorSize(ftype),
+                                .ftype = .fromScalarSize(ftype),
                                 .sf = sf,
                             },
                         } } };
@@ -12904,14 +13676,14 @@ pub const Instruction = packed union {
                             .fmov = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .ftype = .fromVectorSize(ftype),
+                                .ftype = .fromScalarSize(ftype),
                             },
                         } } };
                     },
                 },
                 .element => |element| switch (n.format) {
                     else => unreachable,
-                    .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                    .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                         .fmov = .{
                             .Rd = d.alias.encode(.{ .V = true }),
                             .Rn = n.alias.encode(.{}),
@@ -12941,7 +13713,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12954,7 +13726,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -12990,7 +13762,7 @@ pub const Instruction = packed union {
                     .fneg = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13006,7 +13778,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -13020,7 +13792,7 @@ pub const Instruction = packed union {
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
                 .Ra = a.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -13033,7 +13805,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -13069,7 +13841,7 @@ pub const Instruction = packed union {
                     .frinta = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13107,7 +13879,7 @@ pub const Instruction = packed union {
                     .frinti = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13145,7 +13917,7 @@ pub const Instruction = packed union {
                     .frintm = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13183,7 +13955,7 @@ pub const Instruction = packed union {
                     .frintn = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13221,7 +13993,7 @@ pub const Instruction = packed union {
                     .frintp = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13259,7 +14031,7 @@ pub const Instruction = packed union {
                     .frintx = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13297,7 +14069,7 @@ pub const Instruction = packed union {
                     .frintz = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13335,7 +14107,7 @@ pub const Instruction = packed union {
                     .fsqrt = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                     },
                 } } };
             },
@@ -13350,7 +14122,7 @@ pub const Instruction = packed union {
                 .Rd = d.alias.encode(.{ .V = true }),
                 .Rn = n.alias.encode(.{ .V = true }),
                 .Rm = m.alias.encode(.{ .V = true }),
-                .ftype = .fromVectorSize(ftype),
+                .ftype = .fromScalarSize(ftype),
             },
         } } };
     }
@@ -13375,6 +14147,42 @@ pub const Instruction = packed union {
             .hvc = .{ .imm16 = imm },
         } } };
     }
+    /// C7.2.175 INS (element)
+    /// C7.2.176 INS (general)
+    pub fn ins(d: Register, n: Register) Instruction {
+        const elem_size = d.format.element.size;
+        switch (n.format) {
+            else => unreachable,
+            .element => |element| {
+                assert(elem_size == element.size);
+                return .{ .data_processing_vector = .{ .simd_copy = .{
+                    .ins = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{ .V = true }),
+                        .imm4 = .{ .element = element.index << @intCast(@intFromEnum(elem_size)) },
+                        .imm5 = (@as(u5, d.format.element.index) << 1 | @as(u5, 0b1) << 0) << @intFromEnum(elem_size),
+                        .op = .element,
+                    },
+                } } };
+            },
+            .general => |general| {
+                assert(general == @as(Register.GeneralSize, switch (elem_size) {
+                    else => unreachable,
+                    .byte, .half, .single => .word,
+                    .double => .doubleword,
+                }));
+                return .{ .data_processing_vector = .{ .simd_copy = .{
+                    .ins = .{
+                        .Rd = d.alias.encode(.{ .V = true }),
+                        .Rn = n.alias.encode(.{}),
+                        .imm4 = .{ .general = .general },
+                        .imm5 = (@as(u5, d.format.element.index) << 1 | @as(u5, 0b1) << 0) << @intFromEnum(elem_size),
+                        .op = .general,
+                    },
+                } } };
+            },
+        }
+    }
     /// C6.2.131 ISB
     pub fn isb(option: BranchExceptionGeneratingSystem.Barriers.Option) Instruction {
         return .{ .branch_exception_generating_system = .{ .barriers = .{
@@ -13393,11 +14201,11 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (t1.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(t2.format.integer == sf);
+            .general => |sf| {
+                assert(t2.format.general == sf);
                 form: switch (form) {
                     .post_index => |post_index| {
-                        assert(post_index.base.format.integer == .doubleword);
+                        assert(post_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_post_indexed = .{ .integer = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -13409,7 +14217,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .pre_index => |pre_index| {
-                        assert(pre_index.base.format.integer == .doubleword);
+                        assert(pre_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .integer = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -13421,7 +14229,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
+                        assert(signed_offset.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -13439,7 +14247,7 @@ pub const Instruction = packed union {
                 assert(t2.format.scalar == vs);
                 form: switch (form) {
                     .post_index => |post_index| {
-                        assert(post_index.base.format.integer == .doubleword);
+                        assert(post_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_post_indexed = .{ .vector = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -13451,7 +14259,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
+                        assert(signed_offset.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_offset = .{ .vector = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -13463,7 +14271,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .pre_index => |pre_index| {
-                        assert(pre_index.base.format.integer == .doubleword);
+                        assert(pre_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .vector = .{
                             .ldp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -13505,9 +14313,9 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (t.format) {
             else => unreachable,
-            .integer => |sf| form: switch (form) {
+            .general => |sf| form: switch (form) {
                 .post_index => |post_index| {
-                    assert(post_index.base.format.integer == .doubleword);
+                    assert(post_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{}),
@@ -13518,7 +14326,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .pre_index => |pre_index| {
-                    assert(pre_index.base.format.integer == .doubleword);
+                    assert(pre_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{}),
@@ -13529,7 +14337,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .unsigned_offset => |unsigned_offset| {
-                    assert(unsigned_offset.base.format.integer == .doubleword);
+                    assert(unsigned_offset.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{}),
@@ -13548,8 +14356,8 @@ pub const Instruction = packed union {
                     },
                 } } } },
                 .extended_register_explicit => |extended_register_explicit| {
-                    assert(extended_register_explicit.base.format.integer == .doubleword and
-                        extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                    assert(extended_register_explicit.base.format.general == .doubleword and
+                        extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                     return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{}),
@@ -13583,7 +14391,7 @@ pub const Instruction = packed union {
             },
             .scalar => |vs| form: switch (form) {
                 .post_index => |post_index| {
-                    assert(post_index.base.format.integer == .doubleword);
+                    assert(post_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_post_indexed = .{ .vector = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -13595,7 +14403,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .pre_index => |pre_index| {
-                    assert(pre_index.base.format.integer == .doubleword);
+                    assert(pre_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .vector = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -13607,7 +14415,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .unsigned_offset => |unsigned_offset| {
-                    assert(unsigned_offset.base.format.integer == .doubleword);
+                    assert(unsigned_offset.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_unsigned_immediate = .{ .vector = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -13627,14 +14435,13 @@ pub const Instruction = packed union {
                     },
                 } } } },
                 .extended_register_explicit => |extended_register_explicit| {
-                    assert(extended_register_explicit.base.format.integer == .doubleword and
-                        extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                    assert(extended_register_explicit.base.format.general == .doubleword and
+                        extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                     return .{ .load_store = .{ .register_register_offset = .{ .vector = .{
                         .ldr = .{
                             .Rt = t.alias.encode(.{ .V = true }),
                             .Rn = extended_register_explicit.base.alias.encode(.{ .sp = true }),
                             .S = switch (vs) {
-                                else => unreachable,
                                 .byte => switch (extended_register_explicit.amount) {
                                     0 => false,
                                     else => unreachable,
@@ -13697,10 +14504,10 @@ pub const Instruction = packed union {
             extend: LoadStore.RegisterRegisterOffset.Extend,
         },
     }) Instruction {
-        assert(t.format.integer == .word);
+        assert(t.format.general == .word);
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .ldrb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13710,7 +14517,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .ldrb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13720,7 +14527,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .ldrb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13731,8 +14538,8 @@ pub const Instruction = packed union {
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .ldrb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13775,10 +14582,10 @@ pub const Instruction = packed union {
             extend: LoadStore.RegisterRegisterOffset.Extend,
         },
     }) Instruction {
-        assert(t.format.integer == .word);
+        assert(t.format.general == .word);
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .ldrh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13788,7 +14595,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .ldrh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13798,7 +14605,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .ldrh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13809,8 +14616,8 @@ pub const Instruction = packed union {
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .ldrh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13854,10 +14661,10 @@ pub const Instruction = packed union {
             extend: LoadStore.RegisterRegisterOffset.Extend,
         },
     }) Instruction {
-        const sf = t.format.integer;
+        const sf = t.format.general;
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .ldrsb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13868,7 +14675,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .ldrsb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13879,7 +14686,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .ldrsb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13891,8 +14698,8 @@ pub const Instruction = packed union {
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .ldrsb = .{
                         .Rt = t.alias.encode(.{}),
@@ -13936,10 +14743,10 @@ pub const Instruction = packed union {
             extend: LoadStore.RegisterRegisterOffset.Extend,
         },
     }) Instruction {
-        const sf = t.format.integer;
+        const sf = t.format.general;
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .ldrsh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13950,7 +14757,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .ldrsh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13961,7 +14768,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .ldrsh = .{
                         .Rt = t.alias.encode(.{}),
@@ -13973,8 +14780,8 @@ pub const Instruction = packed union {
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .ldrsh = .{
                         .Rt = t.alias.encode(.{}),
@@ -14012,29 +14819,29 @@ pub const Instruction = packed union {
         extended_register_explicit: struct {
             base: Register,
             index: Register,
-            option: LoadStore.RegisterRegisterOffset.Integer.Option,
-            amount: LoadStore.RegisterRegisterOffset.Integer.Extend.Amount,
+            option: LoadStore.RegisterRegisterOffset.Option,
+            amount: LoadStore.RegisterRegisterOffset.Extend.Amount,
         },
         extended_register: struct {
             base: Register,
             index: Register,
-            extend: LoadStore.RegisterRegisterOffset.Integer.Extend,
+            extend: LoadStore.RegisterRegisterOffset.Extend,
         },
     }) Instruction {
-        assert(t.format.integer == .doubleword);
+        assert(t.format.general == .doubleword);
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
-                return .{ .load_store = .{ .register_immediate_post_indexed = .{
+                assert(post_index.base.format.general == .doubleword);
+                return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .ldrsw = .{
                         .Rt = t.alias.encode(.{}),
                         .Rn = post_index.base.alias.encode(.{ .sp = true }),
                         .imm9 = post_index.index,
                     },
-                } } };
+                } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .ldrsw = .{
                         .Rt = t.alias.encode(.{}),
@@ -14044,32 +14851,32 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
-                return .{ .load_store = .{ .register_unsigned_immediate = .{
+                assert(unsigned_offset.base.format.general == .doubleword);
+                return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .ldrsw = .{
                         .Rt = t.alias.encode(.{}),
                         .Rn = unsigned_offset.base.alias.encode(.{ .sp = true }),
                         .imm12 = @intCast(@shrExact(unsigned_offset.offset, 2)),
                     },
-                } } };
+                } } } };
             },
             .base => |base| continue :form .{ .unsigned_offset = .{ .base = base } },
-            .literal => |offset| return .{ .load_store = .{ .register_literal = .{
+            .literal => |offset| return .{ .load_store = .{ .register_literal = .{ .integer = .{
                 .ldrsw = .{
                     .Rt = t.alias.encode(.{}),
                     .imm19 = @intCast(@shrExact(offset, 2)),
                 },
-            } } },
+            } } } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .ldrsw = .{
                         .Rt = t.alias.encode(.{}),
                         .Rn = extended_register_explicit.base.alias.encode(.{ .sp = true }),
                         .S = switch (extended_register_explicit.amount) {
-                            0 => 0b0,
-                            2 => 0b1,
+                            0 => false,
+                            2 => true,
                             else => unreachable,
                         },
                         .option = extended_register_explicit.option,
@@ -14090,10 +14897,10 @@ pub const Instruction = packed union {
     /// C6.2.202 LDUR
     /// C7.2.194 LDUR (SIMD&FP)
     pub fn ldur(t: Register, n: Register, simm: i9) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         switch (t.format) {
             else => unreachable,
-            .integer => |sf| return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
+            .general => |sf| return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
                 .ldur = .{
                     .Rt = t.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .sp = true }),
@@ -14114,7 +14921,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.203 LDURB
     pub fn ldurb(t: Register, n: Register, simm: i9) Instruction {
-        assert(t.format.integer == .word and n.format.integer == .doubleword);
+        assert(t.format.general == .word and n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .ldurb = .{
                 .Rt = t.alias.encode(.{}),
@@ -14125,7 +14932,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.204 LDURH
     pub fn ldurh(t: Register, n: Register, simm: i9) Instruction {
-        assert(t.format.integer == .word and n.format.integer == .doubleword);
+        assert(t.format.general == .word and n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .ldurh = .{
                 .Rt = t.alias.encode(.{}),
@@ -14136,31 +14943,31 @@ pub const Instruction = packed union {
     }
     /// C6.2.205 LDURSB
     pub fn ldursb(t: Register, n: Register, simm: i9) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .ldursb = .{
                 .Rt = t.alias.encode(.{}),
                 .Rn = n.alias.encode(.{ .sp = true }),
                 .imm9 = simm,
-                .opc0 = ~@intFromEnum(t.format.integer),
+                .opc0 = ~@intFromEnum(t.format.general),
             },
         } } } };
     }
     /// C6.2.206 LDURSH
     pub fn ldursh(t: Register, n: Register, simm: i9) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .ldursh = .{
                 .Rt = t.alias.encode(.{}),
                 .Rn = n.alias.encode(.{ .sp = true }),
                 .imm9 = simm,
-                .opc0 = ~@intFromEnum(t.format.integer),
+                .opc0 = ~@intFromEnum(t.format.general),
             },
         } } } };
     }
     /// C6.2.207 LDURSW
     pub fn ldursw(t: Register, n: Register, simm: i9) Instruction {
-        assert(t.format.integer == .doubleword and n.format.integer == .doubleword);
+        assert(t.format.general == .doubleword and n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .ldursw = .{
                 .Rt = t.alias.encode(.{}),
@@ -14171,8 +14978,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.214 LSLV
     pub fn lslv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .lslv = .{
                 .Rd = d.alias.encode(.{}),
@@ -14184,8 +14991,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.217 LSRV
     pub fn lsrv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .lsrv = .{
                 .Rd = d.alias.encode(.{}),
@@ -14197,8 +15004,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.218 MADD
     pub fn madd(d: Register, n: Register, m: Register, a: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf and a.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf and a.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .madd = .{
                 .Rd = d.alias.encode(.{}),
@@ -14261,7 +15068,7 @@ pub const Instruction = packed union {
         imm: u16,
         shift: struct { lsl: DataProcessingImmediate.MoveWideImmediate.Hw = .@"0" },
     ) Instruction {
-        const sf = d.format.integer;
+        const sf = d.format.general;
         assert(sf == .doubleword or shift.lsl.sf() == .word);
         return .{ .data_processing_immediate = .{ .move_wide_immediate = .{
             .movk = .{
@@ -14278,7 +15085,7 @@ pub const Instruction = packed union {
         imm: u16,
         shift: struct { lsl: DataProcessingImmediate.MoveWideImmediate.Hw = .@"0" },
     ) Instruction {
-        const sf = d.format.integer;
+        const sf = d.format.general;
         assert(sf == .doubleword or shift.lsl.sf() == .word);
         return .{ .data_processing_immediate = .{ .move_wide_immediate = .{
             .movn = .{
@@ -14295,7 +15102,7 @@ pub const Instruction = packed union {
         imm: u16,
         shift: struct { lsl: DataProcessingImmediate.MoveWideImmediate.Hw = .@"0" },
     ) Instruction {
-        const sf = d.format.integer;
+        const sf = d.format.general;
         assert(sf == .doubleword or shift.lsl.sf() == .word);
         return .{ .data_processing_immediate = .{ .move_wide_immediate = .{
             .movz = .{
@@ -14308,7 +15115,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.228 MRS
     pub fn mrs(t: Register, systemreg: Register.System) Instruction {
-        assert(t.format.integer == .doubleword and systemreg.op0 >= 0b10);
+        assert(t.format.general == .doubleword and systemreg.op0 >= 0b10);
         return .{ .branch_exception_generating_system = .{ .system_register_move = .{
             .mrs = .{
                 .Rt = t.alias.encode(.{}),
@@ -14318,7 +15125,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.230 MSR (register)
     pub fn msr(systemreg: Register.System, t: Register) Instruction {
-        assert(systemreg.op0 >= 0b10 and t.format.integer == .doubleword);
+        assert(systemreg.op0 >= 0b10 and t.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .system_register_move = .{
             .msr = .{
                 .Rt = t.alias.encode(.{}),
@@ -14328,8 +15135,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.231 MSUB
     pub fn msub(d: Register, n: Register, m: Register, a: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf and a.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf and a.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .msub = .{
                 .Rd = d.alias.encode(.{}),
@@ -14350,7 +15157,7 @@ pub const Instruction = packed union {
                     .neg = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .size = .fromVectorSize(elem_size),
+                        .size = .fromScalarSize(elem_size),
                     },
                 } } };
             },
@@ -14395,12 +15202,12 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(n.format.integer == sf);
+            .general => |sf| {
+                assert(n.format.general == sf);
                 form: switch (form) {
                     .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
                     .shifted_register_explicit => |shifted_register_explicit| {
-                        assert(shifted_register_explicit.register.format.integer == sf);
+                        assert(shifted_register_explicit.register.format.general == sf);
                         return .{ .data_processing_register = .{ .logical_shifted_register = .{
                             .orn = .{
                                 .Rd = d.alias.encode(.{}),
@@ -14451,8 +15258,8 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (d.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(n.format.integer == sf);
+            .general => |sf| {
+                assert(n.format.general == sf);
                 form: switch (form) {
                     .immediate => |bitmask| {
                         assert(bitmask.validImmediate(sf));
@@ -14468,7 +15275,7 @@ pub const Instruction = packed union {
                     .shifted_immediate => unreachable,
                     .register => |register| continue :form .{ .shifted_register = .{ .register = register } },
                     .shifted_register_explicit => |shifted_register_explicit| {
-                        assert(shifted_register_explicit.register.format.integer == sf);
+                        assert(shifted_register_explicit.register.format.general == sf);
                         return .{ .data_processing_register = .{ .logical_shifted_register = .{
                             .orr = .{
                                 .Rd = d.alias.encode(.{}),
@@ -14547,7 +15354,7 @@ pub const Instruction = packed union {
     }) Instruction {
         form: switch (form) {
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .prfm = .{
                         .prfop = prfop,
@@ -14564,8 +15371,8 @@ pub const Instruction = packed union {
                 },
             } } } },
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.base.format.integer == .doubleword and
-                    extended_register_explicit.index.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.base.format.general == .doubleword and
+                    extended_register_explicit.index.format.general == extended_register_explicit.option.sf());
                 return .{ .load_store = .{ .register_register_offset = .{ .integer = .{
                     .prfm = .{
                         .prfop = prfop,
@@ -14592,8 +15399,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.253 RBIT
     pub fn rbit(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_one_source = .{
             .rbit = .{
                 .Rd = d.alias.encode(.{}),
@@ -14604,15 +15411,15 @@ pub const Instruction = packed union {
     }
     /// C6.2.254 RET
     pub fn ret(n: Register) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .unconditional_branch_register = .{
             .ret = .{ .Rn = n.alias.encode(.{}) },
         } } };
     }
     /// C6.2.256 REV
     pub fn rev(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_one_source = .{
             .rev = .{
                 .Rd = d.alias.encode(.{}),
@@ -14624,8 +15431,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.257 REV16
     pub fn rev16(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_one_source = .{
             .rev16 = .{
                 .Rd = d.alias.encode(.{}),
@@ -14636,7 +15443,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.258 REV32
     pub fn rev32(d: Register, n: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_one_source = .{
             .rev32 = .{
                 .Rd = d.alias.encode(.{}),
@@ -14646,8 +15453,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.263 RORV
     pub fn rorv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .rorv = .{
                 .Rd = d.alias.encode(.{}),
@@ -14665,8 +15472,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.265 SBC
     pub fn sbc(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .add_subtract_with_carry = .{
             .sbc = .{
                 .Rd = d.alias.encode(.{}),
@@ -14678,8 +15485,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.266 SBCS
     pub fn sbcs(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .add_subtract_with_carry = .{
             .sbcs = .{
                 .Rd = d.alias.encode(.{}),
@@ -14691,8 +15498,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.268 SBFM
     pub fn sbfm(d: Register, n: Register, bitmask: DataProcessingImmediate.Bitmask) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and bitmask.validBitfield(sf));
+        const sf = d.format.general;
+        assert(n.format.general == sf and bitmask.validBitfield(sf));
         return .{ .data_processing_immediate = .{ .bitfield = .{
             .sbfm = .{
                 .Rd = d.alias.encode(.{}),
@@ -14723,16 +15530,16 @@ pub const Instruction = packed union {
                             .scvtf = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(ftype),
+                                .sz = .fromScalarSize(ftype),
                             },
                         } } },
                     }
                 },
-                .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                     .scvtf = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{}),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                         .sf = sf,
                     },
                 } } },
@@ -14762,8 +15569,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.270 SDIV
     pub fn sdiv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .sdiv = .{
                 .Rd = d.alias.encode(.{}),
@@ -14787,7 +15594,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.282 SMADDL
     pub fn smaddl(d: Register, n: Register, m: Register, a: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .word and m.format.integer == .word and a.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .word and m.format.general == .word and a.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .smaddl = .{
                 .Rd = d.alias.encode(.{}),
@@ -14805,7 +15612,7 @@ pub const Instruction = packed union {
     }
     /// C7.2.279 SMOV
     pub fn smov(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
+        const sf = d.format.general;
         const vs = n.format.element.size;
         switch (vs) {
             else => unreachable,
@@ -14828,7 +15635,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.287 SMSUBL
     pub fn smsubl(d: Register, n: Register, m: Register, a: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .word and m.format.integer == .word and a.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .word and m.format.general == .word and a.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .smsubl = .{
                 .Rd = d.alias.encode(.{}),
@@ -14840,7 +15647,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.288 SMULH
     pub fn smulh(d: Register, n: Register, m: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .doubleword and m.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .doubleword and m.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .smulh = .{
                 .Rd = d.alias.encode(.{}),
@@ -14859,7 +15666,7 @@ pub const Instruction = packed union {
                     .sqabs = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .size = .fromVectorSize(elem_size),
+                        .size = .fromScalarSize(elem_size),
                     },
                 } } };
             },
@@ -14881,17 +15688,17 @@ pub const Instruction = packed union {
         switch (d.format) {
             else => unreachable,
             .scalar => |elem_size| {
-                assert(elem_size == n.format.scalar);
+                assert(elem_size == n.format.scalar.n());
                 return .{ .data_processing_vector = .{ .simd_scalar_two_register_miscellaneous = .{
                     .sqxtn = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .size = .fromVectorSize(elem_size),
+                        .size = .fromScalarSize(elem_size),
                     },
                 } } };
             },
             .vector => |arrangement| {
-                assert(arrangement != .@"1d" and n.format.vector == arrangement);
+                assert(arrangement.len() == n.format.vector.len() and arrangement.elemSize() == n.format.vector.elemSize().n());
                 return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
                     .sqxtn = .{
                         .Rd = d.alias.encode(.{ .V = true }),
@@ -14903,6 +15710,19 @@ pub const Instruction = packed union {
             },
         }
     }
+    /// C7.2.308 SQXTN2
+    pub fn sqxtn2(d: Register, n: Register) Instruction {
+        const arrangement = d.format.vector;
+        assert(arrangement.len() == n.format.vector.len() * 2 and arrangement.elemSize() == n.format.vector.elemSize().n());
+        return .{ .data_processing_vector = .{ .simd_two_register_miscellaneous = .{
+            .sqxtn = .{
+                .Rd = d.alias.encode(.{ .V = true }),
+                .Rn = n.alias.encode(.{ .V = true }),
+                .size = arrangement.elemSize(),
+                .Q = arrangement.size(),
+            },
+        } } };
+    }
     /// C6.2.321 STP
     /// C7.2.330 STP (SIMD&FP)
     pub fn stp(t1: Register, t2: Register, form: union(enum) {
@@ -14913,11 +15733,11 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (t1.format) {
             else => unreachable,
-            .integer => |sf| {
-                assert(t2.format.integer == sf);
+            .general => |sf| {
+                assert(t2.format.general == sf);
                 form: switch (form) {
                     .post_index => |post_index| {
-                        assert(post_index.base.format.integer == .doubleword);
+                        assert(post_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_post_indexed = .{ .integer = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -14929,7 +15749,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .pre_index => |pre_index| {
-                        assert(pre_index.base.format.integer == .doubleword);
+                        assert(pre_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .integer = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -14941,7 +15761,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
+                        assert(signed_offset.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_offset = .{ .integer = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{}),
@@ -14959,7 +15779,7 @@ pub const Instruction = packed union {
                 assert(t2.format.scalar == vs);
                 form: switch (form) {
                     .post_index => |post_index| {
-                        assert(post_index.base.format.integer == .doubleword);
+                        assert(post_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_post_indexed = .{ .vector = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -14971,7 +15791,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .signed_offset => |signed_offset| {
-                        assert(signed_offset.base.format.integer == .doubleword);
+                        assert(signed_offset.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_offset = .{ .vector = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -14983,7 +15803,7 @@ pub const Instruction = packed union {
                         } } } };
                     },
                     .pre_index => |pre_index| {
-                        assert(pre_index.base.format.integer == .doubleword);
+                        assert(pre_index.base.format.general == .doubleword);
                         return .{ .load_store = .{ .register_pair_pre_indexed = .{ .vector = .{
                             .stp = .{
                                 .Rt = t1.alias.encode(.{ .V = true }),
@@ -15009,9 +15829,9 @@ pub const Instruction = packed union {
     }) Instruction {
         switch (t.format) {
             else => unreachable,
-            .integer => |sf| form: switch (form) {
+            .general => |sf| form: switch (form) {
                 .post_index => |post_index| {
-                    assert(post_index.base.format.integer == .doubleword);
+                    assert(post_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                         .str = .{
                             .Rt = t.alias.encode(.{}),
@@ -15022,7 +15842,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .pre_index => |pre_index| {
-                    assert(pre_index.base.format.integer == .doubleword);
+                    assert(pre_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                         .str = .{
                             .Rt = t.alias.encode(.{}),
@@ -15033,7 +15853,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .unsigned_offset => |unsigned_offset| {
-                    assert(unsigned_offset.base.format.integer == .doubleword);
+                    assert(unsigned_offset.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                         .str = .{
                             .Rt = t.alias.encode(.{}),
@@ -15047,7 +15867,7 @@ pub const Instruction = packed union {
             },
             .scalar => |vs| form: switch (form) {
                 .post_index => |post_index| {
-                    assert(post_index.base.format.integer == .doubleword);
+                    assert(post_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_post_indexed = .{ .vector = .{
                         .str = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -15059,7 +15879,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .pre_index => |pre_index| {
-                    assert(pre_index.base.format.integer == .doubleword);
+                    assert(pre_index.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .vector = .{
                         .str = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -15071,7 +15891,7 @@ pub const Instruction = packed union {
                     } } } };
                 },
                 .unsigned_offset => |unsigned_offset| {
-                    assert(unsigned_offset.base.format.integer == .doubleword);
+                    assert(unsigned_offset.base.format.general == .doubleword);
                     return .{ .load_store = .{ .register_unsigned_immediate = .{ .vector = .{
                         .str = .{
                             .Rt = t.alias.encode(.{ .V = true }),
@@ -15093,10 +15913,10 @@ pub const Instruction = packed union {
         unsigned_offset: struct { base: Register, offset: u12 = 0 },
         base: Register,
     }) Instruction {
-        assert(t.format.integer == .word);
+        assert(t.format.general == .word);
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .strb = .{
                         .Rt = t.alias.encode(.{}),
@@ -15106,7 +15926,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .strb = .{
                         .Rt = t.alias.encode(.{}),
@@ -15116,7 +15936,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .strb = .{
                         .Rt = t.alias.encode(.{}),
@@ -15135,10 +15955,10 @@ pub const Instruction = packed union {
         unsigned_offset: struct { base: Register, offset: u13 = 0 },
         base: Register,
     }) Instruction {
-        assert(t.format.integer == .word);
+        assert(t.format.general == .word);
         form: switch (form) {
             .post_index => |post_index| {
-                assert(post_index.base.format.integer == .doubleword);
+                assert(post_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_post_indexed = .{ .integer = .{
                     .strh = .{
                         .Rt = t.alias.encode(.{}),
@@ -15148,7 +15968,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .pre_index => |pre_index| {
-                assert(pre_index.base.format.integer == .doubleword);
+                assert(pre_index.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_immediate_pre_indexed = .{ .integer = .{
                     .strh = .{
                         .Rt = t.alias.encode(.{}),
@@ -15158,7 +15978,7 @@ pub const Instruction = packed union {
                 } } } };
             },
             .unsigned_offset => |unsigned_offset| {
-                assert(unsigned_offset.base.format.integer == .doubleword);
+                assert(unsigned_offset.base.format.general == .doubleword);
                 return .{ .load_store = .{ .register_unsigned_immediate = .{ .integer = .{
                     .strh = .{
                         .Rt = t.alias.encode(.{}),
@@ -15173,10 +15993,10 @@ pub const Instruction = packed union {
     /// C6.2.346 STUR
     /// C7.2.333 STUR (SIMD&FP)
     pub fn stur(t: Register, n: Register, simm: i9) Instruction {
-        assert(n.format.integer == .doubleword);
+        assert(n.format.general == .doubleword);
         switch (t.format) {
             else => unreachable,
-            .integer => |sf| return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
+            .general => |sf| return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
                 .stur = .{
                     .Rt = t.alias.encode(.{}),
                     .Rn = n.alias.encode(.{ .sp = true }),
@@ -15197,7 +16017,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.347 STURB
     pub fn sturb(t: Register, n: Register, simm: i9) Instruction {
-        assert(t.format.integer == .word and n.format.integer == .doubleword);
+        assert(t.format.general == .word and n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .sturb = .{
                 .Rt = t.alias.encode(.{}),
@@ -15208,7 +16028,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.348 STURH
     pub fn sturh(t: Register, n: Register, simm: i9) Instruction {
-        assert(t.format.integer == .word and n.format.integer == .doubleword);
+        assert(t.format.general == .word and n.format.general == .doubleword);
         return .{ .load_store = .{ .register_unscaled_immediate = .{ .integer = .{
             .sturh = .{
                 .Rt = t.alias.encode(.{}),
@@ -15233,11 +16053,11 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .sub = .{
                         .Rd = d.alias.encode(.{ .sp = true }),
@@ -15279,7 +16099,7 @@ pub const Instruction = packed union {
             else
                 .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .add_subtract_shifted_register = .{
                     .sub = .{
                         .Rd = d.alias.encode(.{}),
@@ -15323,11 +16143,11 @@ pub const Instruction = packed union {
         shifted_register_explicit: struct { register: Register, shift: DataProcessingRegister.Shift.Op, amount: u6 },
         shifted_register: struct { register: Register, shift: DataProcessingRegister.Shift = .none },
     }) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.integer == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .subs = .{
                         .Rd = d.alias.encode(.{}),
@@ -15369,7 +16189,7 @@ pub const Instruction = packed union {
             else
                 .{ .shifted_register = .{ .register = register } },
             .shifted_register_explicit => |shifted_register_explicit| {
-                assert(shifted_register_explicit.register.format.integer == sf);
+                assert(shifted_register_explicit.register.format.general == sf);
                 return .{ .data_processing_register = .{ .add_subtract_shifted_register = .{
                     .subs = .{
                         .Rd = d.alias.encode(.{}),
@@ -15407,7 +16227,7 @@ pub const Instruction = packed union {
                     .suqadd = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{ .V = true }),
-                        .size = .fromVectorSize(elem_size),
+                        .size = .fromScalarSize(elem_size),
                     },
                 } } };
             },
@@ -15432,7 +16252,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.372 SYS
     pub fn sys(op1: u3, n: u4, m: u4, op2: u3, t: Register) Instruction {
-        assert(t.format.integer == .doubleword);
+        assert(t.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .system = .{
             .sys = .{
                 .Rt = t.alias.encode(.{}),
@@ -15445,7 +16265,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.373 SYSL
     pub fn sysl(t: Register, op1: u3, n: u4, m: u4, op2: u3) Instruction {
-        assert(t.format.integer == .doubleword);
+        assert(t.format.general == .doubleword);
         return .{ .branch_exception_generating_system = .{ .system = .{
             .sysl = .{
                 .Rt = t.alias.encode(.{}),
@@ -15462,7 +16282,7 @@ pub const Instruction = packed union {
             .tbnz = .{
                 .Rt = t.alias.encode(.{}),
                 .imm14 = @intCast(@shrExact(label, 2)),
-                .b40 = @truncate(switch (t.format.integer) {
+                .b40 = @truncate(switch (t.format.general) {
                     .word => @as(u5, @intCast(imm)),
                     .doubleword => imm,
                 }),
@@ -15476,7 +16296,7 @@ pub const Instruction = packed union {
             .tbz = .{
                 .Rt = t.alias.encode(.{}),
                 .imm14 = @intCast(@shrExact(label, 2)),
-                .b40 = @truncate(switch (t.format.integer) {
+                .b40 = @truncate(switch (t.format.general) {
                     .word => @as(u5, @intCast(imm)),
                     .doubleword => imm,
                 }),
@@ -15492,8 +16312,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.385 UBFM
     pub fn ubfm(d: Register, n: Register, bitmask: DataProcessingImmediate.Bitmask) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and bitmask.validBitfield(sf));
+        const sf = d.format.general;
+        assert(n.format.general == sf and bitmask.validBitfield(sf));
         return .{ .data_processing_immediate = .{ .bitfield = .{
             .ubfm = .{
                 .Rd = d.alias.encode(.{}),
@@ -15524,16 +16344,16 @@ pub const Instruction = packed union {
                             .ucvtf = .{
                                 .Rd = d.alias.encode(.{ .V = true }),
                                 .Rn = n.alias.encode(.{ .V = true }),
-                                .sz = .fromVectorSize(ftype),
+                                .sz = .fromScalarSize(ftype),
                             },
                         } } },
                     }
                 },
-                .integer => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
+                .general => |sf| return .{ .data_processing_vector = .{ .convert_float_integer = .{
                     .ucvtf = .{
                         .Rd = d.alias.encode(.{ .V = true }),
                         .Rn = n.alias.encode(.{}),
-                        .ftype = .fromVectorSize(ftype),
+                        .ftype = .fromScalarSize(ftype),
                         .sf = sf,
                     },
                 } } },
@@ -15569,8 +16389,8 @@ pub const Instruction = packed union {
     }
     /// C6.2.388 UDIV
     pub fn udiv(d: Register, n: Register, m: Register) Instruction {
-        const sf = d.format.integer;
-        assert(n.format.integer == sf and m.format.integer == sf);
+        const sf = d.format.general;
+        assert(n.format.general == sf and m.format.general == sf);
         return .{ .data_processing_register = .{ .data_processing_two_source = .{
             .udiv = .{
                 .Rd = d.alias.encode(.{}),
@@ -15582,7 +16402,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.389 UMADDL
     pub fn umaddl(d: Register, n: Register, m: Register, a: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .word and m.format.integer == .word and a.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .word and m.format.general == .word and a.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .umaddl = .{
                 .Rd = d.alias.encode(.{}),
@@ -15594,7 +16414,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.391 UMSUBL
     pub fn umsubl(d: Register, n: Register, m: Register, a: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .word and m.format.integer == .word and a.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .word and m.format.general == .word and a.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .umsubl = .{
                 .Rd = d.alias.encode(.{}),
@@ -15606,7 +16426,7 @@ pub const Instruction = packed union {
     }
     /// C7.2.371 UMOV
     pub fn umov(d: Register, n: Register) Instruction {
-        const sf = d.format.integer;
+        const sf = d.format.general;
         const vs = n.format.element.size;
         switch (vs) {
             else => unreachable,
@@ -15630,7 +16450,7 @@ pub const Instruction = packed union {
     }
     /// C6.2.392 UMULH
     pub fn umulh(d: Register, n: Register, m: Register) Instruction {
-        assert(d.format.integer == .doubleword and n.format.integer == .doubleword and m.format.integer == .doubleword);
+        assert(d.format.general == .doubleword and n.format.general == .doubleword and m.format.general == .doubleword);
         return .{ .data_processing_register = .{ .data_processing_three_source = .{
             .umulh = .{
                 .Rd = d.alias.encode(.{}),
