@@ -8186,7 +8186,7 @@ fn fail(isel: *Select, comptime format: []const u8, args: anytype) error{ OutOfM
 
 /// dst = src
 fn movImmediate(isel: *Select, dst_reg: Register, src_imm: u64) !void {
-    const sf = dst_reg.format.integer;
+    const sf = dst_reg.format.general;
     if (src_imm == 0) {
         const zr: Register = switch (sf) {
             .word => .wzr,
