@@ -500,17 +500,10 @@ fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
 
 fn alignBitsDiscarding(d: *Decompress) void {
     const remaining_bits = d.remaining_bits;
-    const next_bits = d.next_bits;
     if (remaining_bits == 0) return;
-    const discard_bits = remaining_bits % 8;
     const n_bytes = remaining_bits / 8;
-    var put_back_bits = next_bits >> discard_bits;
     const in = d.input;
     in.seek -= n_bytes;
-    for (in.buffer[in.seek..][0..n_bytes]) |*b| {
-        b.* = @truncate(put_back_bits);
-        put_back_bits >>= 8;
-    }
     d.remaining_bits = 0;
     d.next_bits = 0;
 }
@@ -521,11 +514,6 @@ fn alignBitsPreserving(d: *Decompress) void {
     const n_bytes = (remaining_bits + 7) / 8;
     const in = d.input;
     in.seek -= n_bytes;
-    var put_back_bits = d.next_bits;
-    for (in.buffer[in.seek..][0..n_bytes]) |*b| {
-        b.* = @truncate(put_back_bits);
-        put_back_bits >>= 8;
-    }
     d.remaining_bits = 0;
     d.next_bits = 0;
 }
