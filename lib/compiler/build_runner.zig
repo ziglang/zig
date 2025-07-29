@@ -511,7 +511,7 @@ pub fn main() !void {
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
-            w.dir_table.entries.len, countSubProcesses(run.step_stack.keys()),
+            w.dir_count, countSubProcesses(run.step_stack.keys()),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
         var in_debounce = false;

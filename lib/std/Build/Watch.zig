@@ -1,13 +1,18 @@
 const builtin = @import("builtin");
 const std = @import("../std.zig");
-const Watch = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
+const Watch = @This();
+const FsEvents = @import("Watch/FsEvents.zig");
 
-dir_table: DirTable,
 os: Os,
+/// The number to show as the number of directories being watched.
+dir_count: usize,
+// These fields are common to most implementations so are kept here for simplicity.
+// They are `undefined` on implementations which do not utilize then.
+dir_table: DirTable,
 generation: Generation,
 
 pub const have_impl = Os != void;
@@ -97,6 +102,7 @@ const Os = switch (builtin.os.tag) {
         fn init() !Watch {
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = switch (builtin.os.tag) {
                     .linux => .{
                         .handle_table = .{},
@@ -273,6 +279,7 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
@@ -408,6 +415,7 @@ const Os = switch (builtin.os.tag) {
         fn init() !Watch {
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = switch (builtin.os.tag) {
                     .windows => .{
                         .handle_table = .{},
@@ -572,6 +580,7 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
@@ -605,7 +614,7 @@ const Os = switch (builtin.os.tag) {
             };
         }
     },
-    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .macos, .tvos, .visionos, .watchos => struct {
+    .dragonfly, .freebsd, .netbsd, .openbsd, .ios, .tvos, .visionos, .watchos => struct {
         const posix = std.posix;
 
         kq_fd: i32,
@@ -639,6 +648,7 @@ const Os = switch (builtin.os.tag) {
             errdefer posix.close(kq_fd);
             return .{
                 .dir_table = .{},
+                .dir_count = 0,
                 .os = .{
                     .kq_fd = kq_fd,
                     .handles = .empty,
@@ -769,6 +779,7 @@ const Os = switch (builtin.os.tag) {
                 }
                 w.generation +%= 1;
             }
+            w.dir_count = w.dir_table.count();
         }
 
         fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
@@ -810,6 +821,28 @@ const Os = switch (builtin.os.tag) {
                 }
             }
             return any_dirty;
+        }
+    },
+    .macos => struct {
+        fse: FsEvents,
+
+        fn init() !Watch {
+            return .{
+                .os = .{ .fse = try .init() },
+                .dir_count = 0,
+                .dir_table = undefined,
+                .generation = undefined,
+            };
+        }
+        fn update(w: *Watch, gpa: Allocator, steps: []const *Step) !void {
+            try w.os.fse.setPaths(gpa, steps);
+            w.dir_count = w.os.fse.watch_roots.len;
+        }
+        fn wait(w: *Watch, gpa: Allocator, timeout: Timeout) !WaitResult {
+            return w.os.fse.wait(gpa, switch (timeout) {
+                .none => null,
+                .ms => |ms| @as(u64, ms) * std.time.ns_per_ms,
+            });
         }
     },
     else => void,
