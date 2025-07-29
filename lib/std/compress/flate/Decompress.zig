@@ -397,23 +397,17 @@ fn takeBitsEnding(d: *Decompress, comptime U: type) !U {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     const in = d.input;
-    var u: U = 0;
-    var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
-    while (@bitSizeOf(U) >= 8 and remaining_needed_bits >= 8) {
-        const byte = try in.takeByte();
-        u = (u << 8) | byte;
-        remaining_needed_bits -= 8;
-    }
-    if (remaining_needed_bits == 0) {
-        d.next_bits = 0;
-        d.remaining_bits = 0;
-    } else {
-        const byte = try in.takeByte();
-        u = @intCast((@as(usize, u) << remaining_needed_bits) | (byte & ((@as(usize, 1) << remaining_needed_bits) - 1)));
-        d.next_bits = @as(usize, byte) >> remaining_needed_bits;
-        d.remaining_bits = @intCast(8 - remaining_needed_bits);
-    }
-    u = @intCast((@as(usize, u) << remaining_bits) | next_bits);
+    const n = in.bufferedLen();
+    assert(n < @sizeOf(usize));
+    const needed_bits = @bitSizeOf(U) - remaining_bits;
+    if (n * 8 < needed_bits) return error.EndOfStream;
+    const next_int = in.takeVarInt(usize, .little, n) catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => unreachable,
+    };
+    const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
+    d.next_bits = next_int >> needed_bits;
+    d.remaining_bits = @intCast(n * 8 - @as(usize, needed_bits));
     return u;
 }
 
