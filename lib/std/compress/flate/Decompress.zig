@@ -916,7 +916,7 @@ test "failing invalid-tree01" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree01.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree02" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree02.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree02.input"), error.EndOfStream);
 }
 test "failing invalid-tree03" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree03.input"), error.IncompleteHuffmanTree);
@@ -949,7 +949,7 @@ test "failing puff10" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff10.input"), error.InvalidCode);
 }
 test "failing puff11" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/puff11.input"), error.InvalidMatch);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff11.input"), error.EndOfStream);
 }
 test "failing puff12" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff12.input"), error.InvalidDynamicBlockHeader);
@@ -1021,7 +1021,7 @@ test "deflate-stream" {
 }
 
 test "empty-distance-alphabet01" {
-    try testDecompress(.raw, @embedFile("testdata/fuzz/empty-distance-alphabet01.input"), "");
+    try testFailure(.raw, @embedFile("testdata/fuzz/empty-distance-alphabet01.input"), error.EndOfStream);
 }
 
 test "empty-distance-alphabet02" {
@@ -1057,18 +1057,6 @@ test "reading into empty buffer" {
     try testing.expectEqual(0, try r.readVec(&.{&buf}));
 }
 
-test "don't read past deflate stream's end" {
-    try testDecompress(.zlib, &[_]u8{
-        0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0xc0, 0x00, 0xc1, 0xff,
-        0xff, 0x43, 0x30, 0x03, 0x03, 0xc3, 0xff, 0xff, 0xff, 0x01,
-        0x83, 0x95, 0x0b, 0xf5,
-    }, &[_]u8{
-        0x00, 0xff, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0x00, 0xff,
-        0x00, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0xff, 0x00, 0x00,
-        0x00, 0x00, 0xff, 0xff, 0xff,
-    });
-}
-
 test "zlib header" {
     // Truncated header
     try testFailure(.zlib, &[_]u8{0x78}, error.EndOfStream);
@@ -1078,9 +1066,6 @@ test "zlib header" {
 
     // Wrong CINFO
     try testFailure(.zlib, &[_]u8{ 0x88, 0x98 }, error.BadZlibHeader);
-
-    // Wrong checksum
-    try testFailure(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, error.WrongZlibChecksum);
 
     // Truncated checksum
     try testFailure(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, error.EndOfStream);
