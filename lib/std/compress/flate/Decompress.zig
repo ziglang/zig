@@ -44,14 +44,13 @@ const State = union(enum) {
 pub const Error = Container.Error || error{
     InvalidCode,
     InvalidMatch,
-    InvalidBlockType,
     WrongStoredBlockNlen,
     InvalidDynamicBlockHeader,
-    EndOfStream,
     ReadFailed,
     OversubscribedHuffmanTree,
     IncompleteHuffmanTree,
     MissingEndOfBlockCode,
+    EndOfStream,
 };
 
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
@@ -153,7 +152,14 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 pub fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     return readInner(d, w, limit) catch |err| switch (err) {
-        error.EndOfStream => return error.EndOfStream,
+        error.EndOfStream => {
+            if (d.state == .end) {
+                return error.EndOfStream;
+            } else {
+                d.read_err = error.EndOfStream;
+                return error.ReadFailed;
+            }
+        },
         error.WriteFailed => return error.WriteFailed,
         else => |e| {
             // In the event of an error, state is unmodified so that it can be
@@ -922,120 +928,109 @@ test "zlib decompress non compressed block (type 0)" {
 }
 
 test "failing end-of-stream" {
-    try testFailure(@embedFile("testdata/fuzz/end-of-stream.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/end-of-stream.input"), error.EndOfStream);
 }
 test "failing invalid-distance" {
-    try testFailure(@embedFile("testdata/fuzz/invalid-distance.input"), error.InvalidMatch);
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-distance.input"), error.InvalidMatch);
 }
 test "failing invalid-tree01" {
-    try testFailure(@embedFile("testdata/fuzz/invalid-tree01.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree01.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree02" {
-    try testFailure(@embedFile("testdata/fuzz/invalid-tree02.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree02.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree03" {
-    try testFailure(@embedFile("testdata/fuzz/invalid-tree03.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree03.input"), error.IncompleteHuffmanTree);
 }
 test "failing lengths-overflow" {
-    try testFailure(@embedFile("testdata/fuzz/lengths-overflow.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/lengths-overflow.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing out-of-codes" {
-    try testFailure(@embedFile("testdata/fuzz/out-of-codes.input"), error.InvalidCode);
+    try testFailure(.raw, @embedFile("testdata/fuzz/out-of-codes.input"), error.InvalidCode);
 }
 test "failing puff01" {
-    try testFailure(@embedFile("testdata/fuzz/puff01.input"), error.WrongStoredBlockNlen);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff01.input"), error.WrongStoredBlockNlen);
 }
 test "failing puff02" {
-    try testFailure(@embedFile("testdata/fuzz/puff02.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff02.input"), error.EndOfStream);
 }
 test "failing puff04" {
-    try testFailure(@embedFile("testdata/fuzz/puff04.input"), error.InvalidCode);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff04.input"), error.InvalidCode);
 }
 test "failing puff05" {
-    try testFailure(@embedFile("testdata/fuzz/puff05.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff05.input"), error.EndOfStream);
 }
 test "failing puff06" {
-    try testFailure(@embedFile("testdata/fuzz/puff06.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff06.input"), error.EndOfStream);
 }
 test "failing puff08" {
-    try testFailure(@embedFile("testdata/fuzz/puff08.input"), error.InvalidCode);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff08.input"), error.InvalidCode);
 }
 test "failing puff10" {
-    try testFailure(@embedFile("testdata/fuzz/puff10.input"), error.InvalidCode);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff10.input"), error.InvalidCode);
 }
 test "failing puff11" {
-    try testFailure(@embedFile("testdata/fuzz/puff11.input"), error.InvalidMatch);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff11.input"), error.InvalidMatch);
 }
 test "failing puff12" {
-    try testFailure(@embedFile("testdata/fuzz/puff12.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff12.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing puff13" {
-    try testFailure(@embedFile("testdata/fuzz/puff13.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff13.input"), error.IncompleteHuffmanTree);
 }
 test "failing puff14" {
-    try testFailure(@embedFile("testdata/fuzz/puff14.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff14.input"), error.EndOfStream);
 }
 test "failing puff15" {
-    try testFailure(@embedFile("testdata/fuzz/puff15.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff15.input"), error.IncompleteHuffmanTree);
 }
 test "failing puff16" {
-    try testFailure(@embedFile("testdata/fuzz/puff16.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff16.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing puff17" {
-    try testFailure(@embedFile("testdata/fuzz/puff17.input"), error.MissingEndOfBlockCode);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff17.input"), error.MissingEndOfBlockCode);
 }
 test "failing fuzz1" {
-    try testFailure(@embedFile("testdata/fuzz/fuzz1.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/fuzz1.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing fuzz2" {
-    try testFailure(@embedFile("testdata/fuzz/fuzz2.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/fuzz2.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing fuzz3" {
-    try testFailure(@embedFile("testdata/fuzz/fuzz3.input"), error.InvalidMatch);
+    try testFailure(.raw, @embedFile("testdata/fuzz/fuzz3.input"), error.InvalidMatch);
 }
 test "failing fuzz4" {
-    try testFailure(@embedFile("testdata/fuzz/fuzz4.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/fuzz4.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff18" {
-    try testFailure(@embedFile("testdata/fuzz/puff18.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff18.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff19" {
-    try testFailure(@embedFile("testdata/fuzz/puff19.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff19.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff20" {
-    try testFailure(@embedFile("testdata/fuzz/puff20.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff20.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff21" {
-    try testFailure(@embedFile("testdata/fuzz/puff21.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff21.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff22" {
-    try testFailure(@embedFile("testdata/fuzz/puff22.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff22.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff23" {
-    try testFailure(@embedFile("testdata/fuzz/puff23.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff23.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff24" {
-    try testFailure(@embedFile("testdata/fuzz/puff24.input"), error.IncompleteHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff24.input"), error.IncompleteHuffmanTree);
 }
 test "failing puff25" {
-    try testFailure(@embedFile("testdata/fuzz/puff25.input"), error.OversubscribedHuffmanTree);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff25.input"), error.OversubscribedHuffmanTree);
 }
 test "failing puff26" {
-    try testFailure(@embedFile("testdata/fuzz/puff26.input"), error.InvalidDynamicBlockHeader);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff26.input"), error.InvalidDynamicBlockHeader);
 }
 test "failing puff27" {
-    try testFailure(@embedFile("testdata/fuzz/puff27.input"), error.InvalidDynamicBlockHeader);
-}
-
-fn testFailure(in: []const u8, expected_err: anyerror) !void {
-    var reader: Reader = .fixed(in);
-    var aw: Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
-    defer aw.deinit();
-
-    var decompress: Decompress = .init(&reader, .raw, &.{});
-    try testing.expectError(error.ReadFailed, decompress.reader.streamRemaining(&aw.writer));
-    try testing.expectEqual(expected_err, decompress.read_err orelse return error.TestFailed);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff27.input"), error.InvalidDynamicBlockHeader);
 }
 
 test "deflate-stream" {
@@ -1097,82 +1092,57 @@ test "don't read past deflate stream's end" {
 
 test "zlib header" {
     // Truncated header
-    try testing.expectError(
-        error.EndOfStream,
-        testDecompress(.zlib, &[_]u8{0x78}, ""),
-    );
+    try testFailure(.zlib, &[_]u8{0x78}, error.EndOfStream);
+
     // Wrong CM
-    try testing.expectError(
-        error.BadZlibHeader,
-        testDecompress(.zlib, &[_]u8{ 0x79, 0x94 }, ""),
-    );
+    try testFailure(.zlib, &[_]u8{ 0x79, 0x94 }, error.BadZlibHeader);
+
     // Wrong CINFO
-    try testing.expectError(
-        error.BadZlibHeader,
-        testDecompress(.zlib, &[_]u8{ 0x88, 0x98 }, ""),
-    );
+    try testFailure(.zlib, &[_]u8{ 0x88, 0x98 }, error.BadZlibHeader);
+
     // Wrong checksum
-    try testing.expectError(
-        error.WrongZlibChecksum,
-        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, ""),
-    );
+    try testFailure(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00 }, error.WrongZlibChecksum);
+
     // Truncated checksum
-    try testing.expectError(
-        error.EndOfStream,
-        testDecompress(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, ""),
-    );
+    try testFailure(.zlib, &[_]u8{ 0x78, 0xda, 0x03, 0x00, 0x00 }, error.EndOfStream);
 }
 
 test "gzip header" {
     // Truncated header
-    try testing.expectError(
-        error.EndOfStream,
-        testDecompress(.gzip, &[_]u8{ 0x1f, 0x8B }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{ 0x1f, 0x8B }, error.EndOfStream);
+
     // Wrong CM
-    try testing.expectError(
-        error.BadGzipHeader,
-        testDecompress(.gzip, &[_]u8{
-            0x1f, 0x8b, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x03,
-        }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{
+        0x1f, 0x8b, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x03,
+    }, error.BadGzipHeader);
 
     // Wrong checksum
-    try testing.expectError(
-        error.WrongGzipChecksum,
-        testDecompress(.gzip, &[_]u8{
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01,
-            0x00, 0x00, 0x00, 0x00,
-        }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01,
+        0x00, 0x00, 0x00, 0x00,
+    }, error.WrongGzipChecksum);
+
     // Truncated checksum
-    try testing.expectError(
-        error.EndOfStream,
-        testDecompress(.gzip, &[_]u8{
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
-        }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00,
+    }, error.EndOfStream);
+
     // Wrong initial size
-    try testing.expectError(
-        error.WrongGzipSize,
-        testDecompress(.gzip, &[_]u8{
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x01,
-        }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x01,
+    }, error.WrongGzipSize);
+
     // Truncated initial size field
-    try testing.expectError(
-        error.EndOfStream,
-        testDecompress(.gzip, &[_]u8{
-            0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00,
-        }, undefined),
-    );
+    try testFailure(.gzip, &[_]u8{
+        0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x03, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00,
+    }, error.EndOfStream);
 
     try testDecompress(.gzip, &[_]u8{
         // GZIP header
@@ -1182,17 +1152,6 @@ test "gzip header" {
         // GZIP data
         0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     }, "");
-}
-
-fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
-    var in: std.Io.Reader = .fixed(compressed);
-    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
-    defer aw.deinit();
-
-    var decompress: Decompress = .init(&in, container, &.{});
-    _ = try decompress.reader.streamRemaining(&aw.writer);
-    try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
 }
 
 test "zlib should not overshoot" {
@@ -1219,4 +1178,26 @@ test "zlib should not overshoot" {
     const n = try reader.readSliceShort(&out);
     try std.testing.expectEqual(n, 4);
     try std.testing.expectEqualSlices(u8, data[data.len - 4 .. data.len], out[0..n]);
+}
+
+fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !void {
+    var reader: Reader = .fixed(in);
+    var aw: Writer.Allocating = .init(testing.allocator);
+    try aw.ensureUnusedCapacity(flate.history_len);
+    defer aw.deinit();
+
+    var decompress: Decompress = .init(&reader, container, &.{});
+    try testing.expectError(error.ReadFailed, decompress.reader.streamRemaining(&aw.writer));
+    try testing.expectEqual(expected_err, decompress.read_err orelse return error.TestFailed);
+}
+
+fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
+    var in: std.Io.Reader = .fixed(compressed);
+    var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    try aw.ensureUnusedCapacity(flate.history_len);
+    defer aw.deinit();
+
+    var decompress: Decompress = .init(&in, container, &.{});
+    _ = try decompress.reader.streamRemaining(&aw.writer);
+    try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
 }
