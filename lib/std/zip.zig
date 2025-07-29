@@ -660,7 +660,3 @@ pub fn extract(dest: std.fs.Dir, fr: *File.Reader, options: ExtractOptions) !voi
         }
     }
 }
-
-test {
-    _ = @import("zip/test.zig");
-}

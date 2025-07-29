@@ -1564,9 +1564,12 @@ fn runRepositoryTest(comptime format: Oid.Format, head_commit: []const u8) !void
     defer pack_file.close();
     try pack_file.writeAll(testrepo_pack);
 
+    var pack_file_buffer: [4096]u8 = undefined;
+    var pack_file_reader = pack_file.reader(&pack_file_buffer);
+
     var index_file = try git_dir.dir.createFile("testrepo.idx", .{ .read = true });
     defer index_file.close();
-    try indexPack(testing.allocator, format, pack_file, index_file.deprecatedWriter());
+    try indexPack(testing.allocator, format, &pack_file_reader, index_file.deprecatedWriter());
 
     // Arbitrary size limit on files read while checking the repository contents
     // (all files in the test repo are known to be smaller than this)
@@ -1580,7 +1583,7 @@ fn runRepositoryTest(comptime format: Oid.Format, head_commit: []const u8) !void
     const testrepo_idx = @embedFile("git/testdata/testrepo-" ++ @tagName(format) ++ ".idx");
     try testing.expectEqualSlices(u8, testrepo_idx, index_file_data);
 
-    var repository = try Repository.init(testing.allocator, format, pack_file, index_file);
+    var repository = try Repository.init(testing.allocator, format, &pack_file_reader, index_file);
     defer repository.deinit();
 
     var worktree = testing.tmpDir(.{ .iterate = true });
@@ -1673,6 +1676,9 @@ pub fn main() !void {
 
     var pack_file = try std.fs.cwd().openFile(args[2], .{});
     defer pack_file.close();
+    var pack_file_buffer: [4096]u8 = undefined;
+    var pack_file_reader = pack_file.reader(&pack_file_buffer);
+
     const commit = try Oid.parse(format, args[3]);
     var worktree = try std.fs.cwd().makeOpenPath(args[4], .{});
     defer worktree.close();
@@ -1684,11 +1690,11 @@ pub fn main() !void {
     var index_file = try git_dir.createFile("idx", .{ .read = true });
     defer index_file.close();
     var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
-    try indexPack(allocator, format, pack_file, index_buffered_writer.writer());
+    try indexPack(allocator, format, &pack_file_reader, index_buffered_writer.writer());
     try index_buffered_writer.flush();
 
     std.debug.print("Starting checkout...\n", .{});
-    var repository = try Repository.init(allocator, format, pack_file, index_file);
+    var repository = try Repository.init(allocator, format, &pack_file_reader, index_file);
     defer repository.deinit();
     var diagnostics: Diagnostics = .{ .allocator = allocator };
     defer diagnostics.deinit();
