@@ -4113,14 +4113,13 @@ fn finishResolveComptimeKnownAllocPtr(
     // We're almost done - we have the resolved comptime value. We just need to
     // eliminate the now-dead runtime instructions.
 
-    // We will rewrite the AIR to eliminate the alloc and all stores to it.
-    // This will cause instructions deriving field pointers etc of the alloc to
-    // become invalid, however, since we are removing all stores to those pointers,
-    // they will be eliminated by Liveness before they reach codegen.
-
-    // The specifics of this instruction aren't really important: we just want
-    // Liveness to elide it.
-    const nop_inst: Air.Inst = .{ .tag = .bitcast, .data = .{ .ty_op = .{ .ty = .u8_type, .operand = .zero_u8 } } };
+    // This instruction has type `alloc_ty`, meaning we can rewrite the `alloc` AIR instruction to
+    // this one to drop the side effect. We also need to rewrite the stores; we'll turn them to this
+    // too because it doesn't really matter what they become.
+    const nop_inst: Air.Inst = .{ .tag = .bitcast, .data = .{ .ty_op = .{
+        .ty = .fromIntern(alloc_ty.toIntern()),
+        .operand = .zero_usize,
+    } } };
 
     sema.air_instructions.set(@intFromEnum(alloc_inst), nop_inst);
     for (comptime_info.stores.items(.inst)) |store_inst| {
