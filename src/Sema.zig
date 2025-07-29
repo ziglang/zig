@@ -5328,8 +5328,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const pt = sema.pt;
-    const zcu = pt.zcu;
     const zir_tags = sema.code.instructions.items(.tag);
     const zir_datas = sema.code.instructions.items(.data);
     const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
@@ -5342,16 +5340,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
         zir_tags[@intFromEnum(ptr_index)] == .ret_ptr
     else
         false;
-
-    // Check for the possibility of this pattern:
-    //   %a = ret_ptr
-    //   %b = store(%a, %c)
-    // Where %c is an error union or error set. In such case we need to add
-    // to the current function's inferred error set, if any.
-    if (is_ret and sema.fn_ret_ty_ies != null) switch (sema.typeOf(operand).zigTypeTag(zcu)) {
-        .error_union, .error_set => try sema.addToInferredErrorSet(operand),
-        else => {},
-    };
 
     const ptr_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
     const operand_src = block.src(.{ .node_offset_store_operand = inst_data.src_node });
