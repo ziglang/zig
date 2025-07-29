@@ -24,7 +24,10 @@ using parser::string_view_t;
 //                            path definitions
 ///////////////////////////////////////////////////////////////////////////////
 
+_LIBCPP_DIAGNOSTIC_PUSH
+_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wdeprecated")
 constexpr path::value_type path::preferred_separator;
+_LIBCPP_DIAGNOSTIC_POP
 
 path& path::replace_extension(path const& replacement) {
   path p = extension();
@@ -267,7 +270,7 @@ path path::lexically_relative(const path& base) const {
   // Find the first mismatching element
   auto PP     = PathParser::CreateBegin(__pn_);
   auto PPBase = PathParser::CreateBegin(base.__pn_);
-  while (PP && PPBase && PP.State_ == PPBase.State_ && *PP == *PPBase) {
+  while (PP && PPBase && PP.State_ == PPBase.State_ && (*PP == *PPBase || PP.inRootDir())) {
     ++PP;
     ++PPBase;
   }
@@ -368,7 +371,8 @@ size_t hash_value(const path& __p) noexcept {
   size_t hash_value = 0;
   hash<string_view_t> hasher;
   while (PP) {
-    hash_value = __hash_combine(hash_value, hasher(*PP));
+    string_view_t Part = PP.inRootDir() ? PATHSTR("/") : *PP;
+    hash_value         = __hash_combine(hash_value, hasher(Part));
     ++PP;
   }
   return hash_value;

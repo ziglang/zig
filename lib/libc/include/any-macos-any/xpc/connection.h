@@ -89,7 +89,7 @@ const struct _xpc_dictionary_s _xpc_error_termination_imminent;
  */
 #define XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT \
 	XPC_GLOBAL_OBJECT(_xpc_error_peer_code_signing_requirement)
-__API_AVAILABLE(macos(12.0))
+__API_AVAILABLE(macos(12.0), macCatalyst(15.0))
 XPC_EXPORT
 const struct _xpc_dictionary_s _xpc_error_peer_code_signing_requirement;
 
@@ -198,7 +198,8 @@ xpc_connection_create(const char * _Nullable name,
  * because the Mach namespace is not queried for the service name until the
  * connection has been activated. See {@link xpc_connection_activate()}.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7), macCatalyst(5.0))
+API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_MALLOC XPC_RETURNS_RETAINED XPC_WARN_RESULT XPC_NONNULL1
 xpc_connection_t
 xpc_connection_create_mach_service(const char *name,
@@ -668,7 +669,8 @@ xpc_connection_get_egid(xpc_connection_t connection);
  * away, but there are no guarantees as to the timing of this notification's
  * delivery either at the kernel layer or at the XPC layer.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7))
+API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 pid_t
 xpc_connection_get_pid(xpc_connection_t connection);
@@ -683,7 +685,8 @@ xpc_connection_get_pid(xpc_connection_t connection);
  * @result
  * The audit session ID of the remote peer at the time the connection was made.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7))
+API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 au_asid_t
 xpc_connection_get_asid(xpc_connection_t connection);
@@ -778,17 +781,222 @@ xpc_connection_set_finalizer_f(xpc_connection_t connection,
  * All messages received on this connection will be checked to ensure they come from a peer who satisfies
  * the code signing requirement. For a listener connection, requests that do not satisfy the requirement
  * are dropped. When a reply is expected on the connection and the peer does not satisfy the requirement
- * XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT will be delivered instead of the reply.
+ * `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT` will be delivered instead of the reply.
  *
  * This API is not supported on embedded platforms and will return ENOTSUP. 
  *
  * @see https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements
  */
-__API_AVAILABLE(macos(12.0))
+__API_AVAILABLE(macos(12.0), macCatalyst(15.0))
+API_UNAVAILABLE(ios, tvos, watchos)
 XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
 int
 xpc_connection_set_peer_code_signing_requirement(xpc_connection_t connection, const char *requirement);
 
+/*!
+ * @function xpc_connection_set_peer_entitlement_exists_requirement
+ * Requires that the connection peer has the specified entitlement
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param entitlement
+ * The entitlement the peer must have
+ * It is safe to deallocate the entitlement string after calling `xpc_connection_set_peer_entitlement_exists_requirement`
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the entitlement requirement is invalid.
+ *
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection. If more complex combinations of requirements are required, use
+ * `xpc_connection_set_peer_lightweight_code_requirement`.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(14.4), ios(17.4))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
+int
+xpc_connection_set_peer_entitlement_exists_requirement(xpc_connection_t connection, const char *entitlement);
+
+/*!
+ * @function xpc_connection_set_peer_entitlement_matches_value_requirement
+ * Requires that the connection peer has the specified entitlement with the matching value
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param entitlement
+ * The entitlement the peer must have
+ * It is safe to deallocate the entitlement string after calling `xpc_connection_set_peer_entitlement_matches_value_requirement`
+ *
+ * @param value
+ * The value that the entitlement must match
+ * It is safe to deallocate the value object after calling
+ * `xpc_connection_set_peer_entitlement_matches_value_requirement`.
+ * Valid xpc types for this object are `XPC_TYPE_BOOL`, `XPC_TYPE_STRING` and `XPC_TYPE_INT64`.
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the entitlement requirement is invalid.
+ *
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection. If more complex combinations of requirements are required, use
+ * `xpc_connection_set_peer_lightweight_code_requirement`.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(14.4), ios(17.4))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
+int
+xpc_connection_set_peer_entitlement_matches_value_requirement(xpc_connection_t connection, const char *entitlement, xpc_object_t value);
+
+/*!
+ * @function xpc_connection_set_peer_team_identity_requirement
+ * Requires that the connection peer has the specified identity and is signed with the same team identifier
+ * as the current process
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param signing_identifier
+ * The optional signing identifier the peer must have
+ * It is safe to deallocate the signing identifier string after calling `xpc_connection_set_peer_identity_requirement`
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the identity requirement is invalid.
+ *
+ * The peer process must be signed as either a Testflight app or an App store app,
+ * or be signed by an apple issued development certificate, an enterprise distributed
+ * certificate (embedded only), or a Developer ID certificate (macOS only)
+ *
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection. If more complex combinations of requirements are required, use
+ * `xpc_connection_set_peer_lightweight_code_requirement`.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(14.4), ios(17.4))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_NONNULL1 XPC_WARN_RESULT
+int
+xpc_connection_set_peer_team_identity_requirement(xpc_connection_t connection, const char * _Nullable signing_identifier);
+
+/*!
+ * @function xpc_connection_set_peer_platform_identity_requirement
+ * Requires that the connection peer has the specified identity and is signed by Apple
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param signing_identifier
+ * The optional signing identifier the peer must have. If not specified, this function ensures that the peer is signed by Apple
+ * It is safe to deallocate the signing identifier string after calling `xpc_connection_set_peer_identity_requirement`
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the identity requirement is invalid.
+ *
+ * The peer process must be signed by Apple. Use `xpc_connection_set_peer_identity_requirement` if the peer
+ * is not part of the OS.
+ *
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection. If more complex combinations of requirements are required, use
+ * `xpc_connection_set_peer_lightweight_code_requirement`.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(14.4), ios(17.4))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_NONNULL1 XPC_WARN_RESULT
+int
+xpc_connection_set_peer_platform_identity_requirement(xpc_connection_t connection, const char * _Nullable signing_identifier);
+
+/*!
+ * @function xpc_connection_set_peer_lightweight_code_requirement
+ * Requires that the connection peer has the specified lightweight code requirement
+ *
+ * @param connection
+ * The connection object which is to be modified
+ *
+ * @param lwcr
+ * The lightweight code requirement the peer must have
+ * It is safe to deallocate the lightweight code requirement object after calling `xpc_connection_set_peer_lightweight_code_requirement`
+ *
+ * @result
+ * 0 on success, non-zero on error
+ *
+ * @discussion
+ * This function will return an error promptly if the lightweight code requirement is invalid.
+ *
+ * The lightweight code requirement must be an `xpc_dictionary_t` equivalent of an LWCR constraint (see
+ * https://developer.apple.com/documentation/security/defining_launch_environment_and_library_constraints
+ * for details on the contents of the dictionary)
+ *
+ * The lightweight code requirement in the example below uses the $or operator to require that an
+ * executable’s either signed with the Team ID 8XCUU22SN2, or is an operating system executable:
+ * ```c
+ * xpc_object_t or_val = xpc_dictionary_create_empty();
+ * xpc_dictionary_set_string(or_val, "team-identifier", "8XCUU22SN2");
+ * xpc_dictionary_set_int64(or_val, "validation-category", 1);
+ *
+ * xpc_object_t lwcr = xpc_dictionary_create_empty();
+ * xpc_dictionary_set_value(lwcr, "$or", or_val);
+ *
+ * xpc_connection_set_peer_lightweight_code_requirement(connection, lwcr);
+ * ```
+ *
+ * It is a programming error to call multiple of the `xpc_connection_set_peer_*_requirement` family of functions on the same
+ * connection.
+ *
+ * All messages received on this connection will be checked to ensure that they come from a peer who satisfies the
+ * requirement. For a listener connection, requests that do not satisfy the requirement are dropped. When a reply
+ * is expected on the connection and the peer does not satisfy the requirement `XPC_ERROR_PEER_CODE_SIGNING_REQUIREMENT`
+ * will be delivered instead of the reply.
+ */
+API_AVAILABLE(macos(14.4), ios(17.4))
+API_UNAVAILABLE(tvos, watchos)
+XPC_EXPORT XPC_NONNULL_ALL XPC_WARN_RESULT
+int
+xpc_connection_set_peer_lightweight_code_requirement(xpc_connection_t connection, xpc_object_t lwcr);
+
+/*!
+ * @function xpc_connection_copy_invalidation_reason
+ * Returns a description of why the connection was invalidated.
+ *
+ * @param connection
+ * The connection object to inspect
+ *
+ * @result
+ * Null if the connection has not been invalidated, otherwise a description for why the connection was invalidated.
+ */
+API_AVAILABLE(macos(12.0), ios(15.0), tvos(15.0), watchos(8.0))
+XPC_EXPORT XPC_NONNULL1 XPC_WARN_RESULT
+char * _Nullable
+xpc_connection_copy_invalidation_reason(xpc_connection_t connection);
 
 __END_DECLS
 XPC_ASSUME_NONNULL_END

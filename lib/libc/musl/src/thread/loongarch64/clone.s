@@ -22,6 +22,7 @@ __clone:
 	beqz    $a0, 1f         # whether child process
 	jirl    $zero, $ra, 0   # parent process return
 1:
+	move    $fp, $zero
 	ld.d    $t8, $sp, 0     # function pointer
 	ld.d    $a0, $sp, 8     # argument pointer
 	jirl    $ra, $t8, 0     # call the user's function

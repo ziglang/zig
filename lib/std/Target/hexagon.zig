@@ -23,6 +23,8 @@ pub const Feature = enum {
     hvxv69,
     hvxv71,
     hvxv73,
+    hvxv75,
+    hvxv79,
     long_calls,
     mem_noshuf,
     memops,
@@ -46,6 +48,8 @@ pub const Feature = enum {
     v69,
     v71,
     v73,
+    v75,
+    v79,
     zreg,
 };
 
@@ -171,6 +175,20 @@ pub const all_features = blk: {
             .hvxv71,
         }),
     };
+    result[@intFromEnum(Feature.hvxv75)] = .{
+        .llvm_name = "hvxv75",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv73,
+        }),
+    };
+    result[@intFromEnum(Feature.hvxv79)] = .{
+        .llvm_name = "hvxv79",
+        .description = "Hexagon HVX instructions",
+        .dependencies = featureSet(&[_]Feature{
+            .hvxv75,
+        }),
+    };
     result[@intFromEnum(Feature.long_calls)] = .{
         .llvm_name = "long-calls",
         .description = "Use constant-extended calls",
@@ -290,6 +308,16 @@ pub const all_features = blk: {
         .description = "Enable Hexagon V73 architecture",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.v75)] = .{
+        .llvm_name = "v75",
+        .description = "Enable Hexagon V75 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.v79)] = .{
+        .llvm_name = "v79",
+        .description = "Enable Hexagon V79 architecture",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.zreg)] = .{
         .llvm_name = "zreg",
         .description = "Hexagon ZReg extension instructions",
@@ -304,7 +332,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
@@ -321,7 +349,7 @@ pub const cpu = struct {
             .v60,
         }),
     };
-    pub const hexagonv5 = CpuModel{
+    pub const hexagonv5: CpuModel = .{
         .name = "hexagonv5",
         .llvm_name = "hexagonv5",
         .features = featureSet(&[_]Feature{
@@ -336,7 +364,7 @@ pub const cpu = struct {
             .v5,
         }),
     };
-    pub const hexagonv55 = CpuModel{
+    pub const hexagonv55: CpuModel = .{
         .name = "hexagonv55",
         .llvm_name = "hexagonv55",
         .features = featureSet(&[_]Feature{
@@ -352,7 +380,7 @@ pub const cpu = struct {
             .v55,
         }),
     };
-    pub const hexagonv60 = CpuModel{
+    pub const hexagonv60: CpuModel = .{
         .name = "hexagonv60",
         .llvm_name = "hexagonv60",
         .features = featureSet(&[_]Feature{
@@ -369,7 +397,7 @@ pub const cpu = struct {
             .v60,
         }),
     };
-    pub const hexagonv62 = CpuModel{
+    pub const hexagonv62: CpuModel = .{
         .name = "hexagonv62",
         .llvm_name = "hexagonv62",
         .features = featureSet(&[_]Feature{
@@ -387,7 +415,7 @@ pub const cpu = struct {
             .v62,
         }),
     };
-    pub const hexagonv65 = CpuModel{
+    pub const hexagonv65: CpuModel = .{
         .name = "hexagonv65",
         .llvm_name = "hexagonv65",
         .features = featureSet(&[_]Feature{
@@ -406,7 +434,7 @@ pub const cpu = struct {
             .v65,
         }),
     };
-    pub const hexagonv66 = CpuModel{
+    pub const hexagonv66: CpuModel = .{
         .name = "hexagonv66",
         .llvm_name = "hexagonv66",
         .features = featureSet(&[_]Feature{
@@ -426,7 +454,7 @@ pub const cpu = struct {
             .v66,
         }),
     };
-    pub const hexagonv67 = CpuModel{
+    pub const hexagonv67: CpuModel = .{
         .name = "hexagonv67",
         .llvm_name = "hexagonv67",
         .features = featureSet(&[_]Feature{
@@ -447,7 +475,7 @@ pub const cpu = struct {
             .v67,
         }),
     };
-    pub const hexagonv67t = CpuModel{
+    pub const hexagonv67t: CpuModel = .{
         .name = "hexagonv67t",
         .llvm_name = "hexagonv67t",
         .features = featureSet(&[_]Feature{
@@ -467,7 +495,7 @@ pub const cpu = struct {
             .v67,
         }),
     };
-    pub const hexagonv68 = CpuModel{
+    pub const hexagonv68: CpuModel = .{
         .name = "hexagonv68",
         .llvm_name = "hexagonv68",
         .features = featureSet(&[_]Feature{
@@ -489,7 +517,7 @@ pub const cpu = struct {
             .v68,
         }),
     };
-    pub const hexagonv69 = CpuModel{
+    pub const hexagonv69: CpuModel = .{
         .name = "hexagonv69",
         .llvm_name = "hexagonv69",
         .features = featureSet(&[_]Feature{
@@ -512,7 +540,7 @@ pub const cpu = struct {
             .v69,
         }),
     };
-    pub const hexagonv71 = CpuModel{
+    pub const hexagonv71: CpuModel = .{
         .name = "hexagonv71",
         .llvm_name = "hexagonv71",
         .features = featureSet(&[_]Feature{
@@ -536,7 +564,7 @@ pub const cpu = struct {
             .v71,
         }),
     };
-    pub const hexagonv71t = CpuModel{
+    pub const hexagonv71t: CpuModel = .{
         .name = "hexagonv71t",
         .llvm_name = "hexagonv71t",
         .features = featureSet(&[_]Feature{
@@ -559,7 +587,7 @@ pub const cpu = struct {
             .v71,
         }),
     };
-    pub const hexagonv73 = CpuModel{
+    pub const hexagonv73: CpuModel = .{
         .name = "hexagonv73",
         .llvm_name = "hexagonv73",
         .features = featureSet(&[_]Feature{
@@ -581,6 +609,57 @@ pub const cpu = struct {
             .v69,
             .v71,
             .v73,
+        }),
+    };
+    pub const hexagonv75: CpuModel = .{
+        .name = "hexagonv75",
+        .llvm_name = "hexagonv75",
+        .features = featureSet(&[_]Feature{
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+            .v73,
+            .v75,
+        }),
+    };
+    pub const hexagonv79: CpuModel = .{
+        .name = "hexagonv79",
+        .llvm_name = "hexagonv79",
+        .features = featureSet(&[_]Feature{
+            .compound,
+            .duplex,
+            .mem_noshuf,
+            .memops,
+            .nvj,
+            .nvs,
+            .small_data,
+            .v5,
+            .v55,
+            .v60,
+            .v62,
+            .v65,
+            .v66,
+            .v67,
+            .v68,
+            .v69,
+            .v71,
+            .v73,
+            .v75,
+            .v79,
         }),
     };
 };

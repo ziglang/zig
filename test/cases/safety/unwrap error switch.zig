@@ -17,5 +17,5 @@ fn bar() !void {
     return error.Whatever;
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux,aarch64-linux

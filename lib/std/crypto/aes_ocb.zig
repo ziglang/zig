@@ -28,7 +28,7 @@ fn AesOcb(comptime Aes: anytype) type {
             table: [56]Block align(16) = undefined,
             upto: usize,
 
-            inline fn double(l: Block) Block {
+            fn double(l: Block) Block {
                 const l_ = mem.readInt(u128, &l, .big);
                 const l_2 = (l_ << 1) ^ (0x87 & -%(l_ >> 127));
                 var l2: Block = undefined;
@@ -101,8 +101,8 @@ fn AesOcb(comptime Aes: anytype) type {
             return offset;
         }
 
-        const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
-        const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
+        const has_aesni = builtin.cpu.has(.x86, .aes);
+        const has_armaes = builtin.cpu.has(.aarch64, .aes);
         const wb: usize = if ((builtin.cpu.arch == .x86_64 and has_aesni) or (builtin.cpu.arch == .aarch64 and has_armaes)) 4 else 0;
 
         /// c: ciphertext: output buffer should be of size m.len
@@ -244,7 +244,7 @@ fn AesOcb(comptime Aes: anytype) type {
     };
 }
 
-inline fn xorBlocks(x: Block, y: Block) Block {
+fn xorBlocks(x: Block, y: Block) Block {
     var z: Block = x;
     for (&z, 0..) |*v, i| {
         v.* = x[i] ^ y[i];
@@ -252,7 +252,7 @@ inline fn xorBlocks(x: Block, y: Block) Block {
     return z;
 }
 
-inline fn xorWith(x: *Block, y: Block) void {
+fn xorWith(x: *Block, y: Block) void {
     for (x, 0..) |*v, i| {
         v.* ^= y[i];
     }

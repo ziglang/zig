@@ -201,23 +201,26 @@ template <class Key, class T, class Hash, class Pred, class Alloc>
 
 */
 
-#include <__config>
-#include <__hash_table>
-#include <algorithm>
-#include <ext/__hash>
-#include <functional>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/ext/hash_map>
+#else
+#  include <__config>
+#  include <__hash_table>
+#  include <algorithm>
+#  include <ext/__hash>
+#  include <functional>
 
-#if defined(__DEPRECATED) && __DEPRECATED
-#  if defined(_LIBCPP_WARNING)
+#  if defined(__DEPRECATED) && __DEPRECATED
+#    if defined(_LIBCPP_WARNING)
 _LIBCPP_WARNING("Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>")
-#  else
-#    warning Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>
+#    else
+#      warning Use of the header <ext/hash_map> is deprecated.  Migrate to <unordered_map>
+#    endif
 #  endif
-#endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 namespace __gnu_cxx {
 
@@ -312,17 +315,17 @@ public:
   _LIBCPP_HIDE_FROM_ABI explicit __hash_map_node_destructor(allocator_type& __na)
       : __na_(__na), __first_constructed(false), __second_constructed(false) {}
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __hash_map_node_destructor(std::__hash_node_destructor<allocator_type>&& __x)
       : __na_(__x.__na_), __first_constructed(__x.__value_constructed), __second_constructed(__x.__value_constructed) {
     __x.__value_constructed = false;
   }
-#else  // _LIBCPP_CXX03_LANG
+#  else  // _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI __hash_map_node_destructor(const std::__hash_node_destructor<allocator_type>& __x)
       : __na_(__x.__na_), __first_constructed(__x.__value_constructed), __second_constructed(__x.__value_constructed) {
     const_cast<bool&>(__x.__value_constructed) = false;
   }
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI void operator()(pointer __p) {
     if (__second_constructed)
@@ -863,10 +866,11 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const hash_multimap<_Key, _Tp, _Has
 
 } // namespace __gnu_cxx
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <concepts>
-#  include <iterator>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <concepts>
+#    include <iterator>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_HASH_MAP

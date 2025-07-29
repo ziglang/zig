@@ -155,6 +155,7 @@ ferror
 fflush
 fgetc
 fgetpos
+fgetpos64 == fgetpos
 fgets
 fgetwc
 fgetws
@@ -170,6 +171,7 @@ freopen
 freopen_s
 fseek
 fsetpos
+fsetpos64 == fsetpos
 ftell
 fwrite
 getc

@@ -9,7 +9,6 @@ export fn entry() usize {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :4:27: error: comptime call of extern function
+// :4:14: note: initializer of container-level variable must be comptime-known

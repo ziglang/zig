@@ -130,7 +130,7 @@ const SingleThreadedImpl = struct {
             unreachable; // deadlock detected
         };
 
-        std.time.sleep(timeout_ns);
+        std.Thread.sleep(timeout_ns);
         return error.Timeout;
     }
 
@@ -161,17 +161,17 @@ const WindowsImpl = struct {
             }
         }
 
-        if (comptime builtin.mode == .Debug) {
+        if (builtin.mode == .Debug) {
             // The internal state of the DebugMutex needs to be handled here as well.
             mutex.impl.locking_thread.store(0, .unordered);
         }
         const rc = os.windows.kernel32.SleepConditionVariableSRW(
             &self.condition,
-            if (comptime builtin.mode == .Debug) &mutex.impl.impl.srwlock else &mutex.impl.srwlock,
+            if (builtin.mode == .Debug) &mutex.impl.impl.srwlock else &mutex.impl.srwlock,
             timeout_ms,
             0, // the srwlock was assumed to acquired in exclusive mode not shared
         );
-        if (comptime builtin.mode == .Debug) {
+        if (builtin.mode == .Debug) {
             // The internal state of the DebugMutex needs to be handled here as well.
             mutex.impl.locking_thread.store(std.Thread.getCurrentId(), .unordered);
         }
@@ -348,7 +348,7 @@ test "wait and signal" {
     }
 
     while (true) {
-        std.time.sleep(100 * std.time.ns_per_ms);
+        std.Thread.sleep(100 * std.time.ns_per_ms);
 
         multi_wait.mutex.lock();
         defer multi_wait.mutex.unlock();
@@ -405,7 +405,7 @@ test signal {
     }
 
     while (true) {
-        std.time.sleep(10 * std.time.ns_per_ms);
+        std.Thread.sleep(10 * std.time.ns_per_ms);
 
         signal_test.mutex.lock();
         defer signal_test.mutex.unlock();

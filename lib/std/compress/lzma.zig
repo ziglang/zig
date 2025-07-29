@@ -30,7 +30,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             Allocator.Error ||
             error{ CorruptInput, EndOfStream, Overflow };
 
-        pub const Reader = std.io.Reader(*Self, Error, read);
+        pub const Reader = std.io.GenericReader(*Self, Error, read);
 
         allocator: Allocator,
         in_reader: ReaderType,
@@ -77,7 +77,7 @@ pub fn Decompress(comptime ReaderType: type) type {
             const input = self.to_read.items;
             const n = @min(input.len, output.len);
             @memcpy(output[0..n], input[0..n]);
-            @memcpy(input[0 .. input.len - n], input[n..]);
+            std.mem.copyForwards(u8, input[0 .. input.len - n], input[n..]);
             self.to_read.shrinkRetainingCapacity(input.len - n);
             return n;
         }

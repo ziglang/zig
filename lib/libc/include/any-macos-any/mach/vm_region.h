@@ -71,6 +71,7 @@ typedef int     *vm_region_recurse_info_64_t;
 typedef int      vm_region_flavor_t;
 typedef int      vm_region_info_data_t[VM_REGION_INFO_MAX];
 
+
 #define VM_REGION_BASIC_INFO_64         9
 struct vm_region_basic_info_64 {
 	vm_prot_t               protection;

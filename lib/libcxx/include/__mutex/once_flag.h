@@ -11,7 +11,7 @@
 
 #include <__config>
 #include <__functional/invoke.h>
-#include <__memory/shared_ptr.h> // __libcpp_acquire_load
+#include <__memory/shared_count.h> // __libcpp_acquire_load
 #include <__tuple/tuple_indices.h>
 #include <__tuple/tuple_size.h>
 #include <__utility/forward.h>

@@ -30,17 +30,25 @@ inline namespace fundamentals_v1 {
 
  */
 
-#include <experimental/__config>
-#include <utility>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/experimental/utility>
+#else
+#  include <__config>
+#  include <utility>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
 struct _LIBCPP_TEMPLATE_VIS erased_type {};
 
 _LIBCPP_END_NAMESPACE_LFTS
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif /* _LIBCPP_EXPERIMENTAL_UTILITY */

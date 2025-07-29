@@ -1,7 +1,7 @@
 const std = @import("std");
 const build_options = @import("build_options");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .keep_sigpipe = build_options.keep_sigpipe,
 };
 
@@ -10,7 +10,7 @@ pub fn main() !void {
     std.posix.close(pipe[0]);
     _ = std.posix.write(pipe[1], "a") catch |err| switch (err) {
         error.BrokenPipe => {
-            try std.io.getStdOut().writer().writeAll("BrokenPipe\n");
+            try std.fs.File.stdout().writeAll("BrokenPipe\n");
             std.posix.exit(123);
         },
         else => |e| return e,

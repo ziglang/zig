@@ -27,7 +27,7 @@ using __type_identity_t _LIBCPP_NODEBUG = typename __type_identity<_Tp>::type;
 
 #if _LIBCPP_STD_VER >= 20
 template <class _Tp>
-struct type_identity {
+struct _LIBCPP_NO_SPECIALIZATIONS type_identity {
   typedef _Tp type;
 };
 template <class _Tp>

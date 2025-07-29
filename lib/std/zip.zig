@@ -1,8 +1,8 @@
-/// The .ZIP File Format Specification is found here:
-///    https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt
-///
-/// Note that this file uses the abbreviation "cd" for "central directory"
-///
+//! The .ZIP File Format Specification is found here:
+//!    https://pkwaredownloads.blob.core.windows.net/pem/APPNOTE.txt
+//!
+//! Note that this file uses the abbreviation "cd" for "central directory"
+
 const builtin = @import("builtin");
 const std = @import("std");
 const testing = std.testing;
@@ -106,7 +106,7 @@ pub const EndRecord = extern struct {
 /// Find and return the end record for the given seekable zip stream.
 /// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
 /// its context must also have a `.reader()` method that returns an instance of
-/// `std.io.Reader`.
+/// `std.io.GenericReader`.
 pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
     var buf: [@sizeOf(EndRecord) + std.math.maxInt(u16)]u8 = undefined;
     const record_len_max = @min(stream_len, buf.len);
@@ -124,7 +124,7 @@ pub fn findEndRecord(seekable_stream: anytype, stream_len: u64) !EndRecord {
 
             try seekable_stream.seekTo(stream_len - @as(u64, new_loaded_len));
             const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
-            const len = try seekable_stream.context.reader().readAll(read_buf);
+            const len = try (if (@TypeOf(seekable_stream.context) == std.fs.File) seekable_stream.context.deprecatedReader() else seekable_stream.context.reader()).readAll(read_buf);
             if (len != read_len)
                 return error.ZipTruncated;
             loaded_len = new_loaded_len;
@@ -162,7 +162,7 @@ pub fn decompress(
     var total_uncompressed: u64 = 0;
     switch (method) {
         .store => {
-            var buf: [std.mem.page_size]u8 = undefined;
+            var buf: [4096]u8 = undefined;
             while (true) {
                 const len = try reader.read(&buf);
                 if (len == 0) break;
@@ -215,7 +215,7 @@ const FileExtents = struct {
     local_file_header_offset: u64,
 };
 
-fn readZip64FileExtents(header: CentralDirectoryFileHeader, extents: *FileExtents, data: []u8) !void {
+fn readZip64FileExtents(comptime T: type, header: T, extents: *FileExtents, data: []u8) !void {
     var data_offset: usize = 0;
     if (isMaxInt(header.uncompressed_size)) {
         if (data_offset + 8 > data.len)
@@ -229,22 +229,28 @@ fn readZip64FileExtents(header: CentralDirectoryFileHeader, extents: *FileExtent
         extents.compressed_size = std.mem.readInt(u64, data[data_offset..][0..8], .little);
         data_offset += 8;
     }
-    if (isMaxInt(header.local_file_header_offset)) {
-        if (data_offset + 8 > data.len)
-            return error.ZipBadCd64Size;
-        extents.local_file_header_offset = std.mem.readInt(u64, data[data_offset..][0..8], .little);
-        data_offset += 8;
+
+    switch (T) {
+        CentralDirectoryFileHeader => {
+            if (isMaxInt(header.local_file_header_offset)) {
+                if (data_offset + 8 > data.len)
+                    return error.ZipBadCd64Size;
+                extents.local_file_header_offset = std.mem.readInt(u64, data[data_offset..][0..8], .little);
+                data_offset += 8;
+            }
+            if (isMaxInt(header.disk_number)) {
+                if (data_offset + 4 > data.len)
+                    return error.ZipInvalid;
+                const disk_number = std.mem.readInt(u32, data[data_offset..][0..4], .little);
+                if (disk_number != 0)
+                    return error.ZipMultiDiskUnsupported;
+                data_offset += 4;
+            }
+            if (data_offset > data.len)
+                return error.ZipBadCd64Size;
+        },
+        else => {},
     }
-    if (isMaxInt(header.disk_number)) {
-        if (data_offset + 4 > data.len)
-            return error.ZipInvalid;
-        const disk_number = std.mem.readInt(u32, data[data_offset..][0..4], .little);
-        if (disk_number != 0)
-            return error.ZipMultiDiskUnsupported;
-        data_offset += 4;
-    }
-    if (data_offset > data.len)
-        return error.ZipBadCd64Size;
 }
 
 pub fn Iterator(comptime SeekableStream: type) type {
@@ -289,7 +295,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
             if (locator_end_offset > stream_len)
                 return error.ZipTruncated;
             try stream.seekTo(stream_len - locator_end_offset);
-            const locator = try stream.context.reader().readStructEndian(EndLocator64, .little);
+            const locator = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(EndLocator64, .little);
             if (!std.mem.eql(u8, &locator.signature, &end_locator64_sig))
                 return error.ZipBadLocatorSig;
             if (locator.zip64_disk_count != 0)
@@ -299,7 +305,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
             try stream.seekTo(locator.record_file_offset);
 
-            const record64 = try stream.context.reader().readStructEndian(EndRecord64, .little);
+            const record64 = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(EndRecord64, .little);
 
             if (!std.mem.eql(u8, &record64.signature, &end_record64_sig))
                 return error.ZipBadEndRecord64Sig;
@@ -351,7 +357,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
             const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
             try self.stream.seekTo(header_zip_offset);
-            const header = try self.stream.context.reader().readStructEndian(CentralDirectoryFileHeader, .little);
+            const header = try (if (@TypeOf(self.stream.context) == std.fs.File) self.stream.context.deprecatedReader() else self.stream.context.reader()).readStructEndian(CentralDirectoryFileHeader, .little);
             if (!std.mem.eql(u8, &header.signature, &central_file_header_sig))
                 return error.ZipBadCdOffset;
 
@@ -380,7 +386,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
 
                 {
                     try self.stream.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
-                    const len = try self.stream.context.reader().readAll(extra);
+                    const len = try (if (@TypeOf(self.stream.context) == std.fs.File) self.stream.context.deprecatedReader() else self.stream.context.reader()).readAll(extra);
                     if (len != extra.len)
                         return error.ZipTruncated;
                 }
@@ -394,7 +400,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         return error.ZipBadExtraFieldSize;
                     const data = extra[extra_offset + 4 .. end];
                     switch (@as(ExtraHeader, @enumFromInt(header_id))) {
-                        .zip64_info => try readZip64FileExtents(header, &extents, data),
+                        .zip64_info => try readZip64FileExtents(CentralDirectoryFileHeader, header, &extents, data),
                         else => {}, // ignore
                     }
                     extra_offset = end;
@@ -443,7 +449,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
 
                 {
-                    const len = try stream.context.reader().readAll(filename);
+                    const len = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readAll(filename);
                     if (len != filename.len)
                         return error.ZipBadFileOffset;
                 }
@@ -451,7 +457,7 @@ pub fn Iterator(comptime SeekableStream: type) type {
                 const local_data_header_offset: u64 = local_data_header_offset: {
                     const local_header = blk: {
                         try stream.seekTo(self.file_offset);
-                        break :blk try stream.context.reader().readStructEndian(LocalFileHeader, .little);
+                        break :blk try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readStructEndian(LocalFileHeader, .little);
                     };
                     if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
                         return error.ZipBadFileOffset;
@@ -466,12 +472,45 @@ pub fn Iterator(comptime SeekableStream: type) type {
                         return error.ZipMismatchFlags;
                     if (local_header.crc32 != 0 and local_header.crc32 != self.crc32)
                         return error.ZipMismatchCrc32;
-                    if (local_header.compressed_size != 0 and
-                        local_header.compressed_size != self.compressed_size)
+                    var extents: FileExtents = .{
+                        .uncompressed_size = local_header.uncompressed_size,
+                        .compressed_size = local_header.compressed_size,
+                        .local_file_header_offset = 0,
+                    };
+                    if (local_header.extra_len > 0) {
+                        var extra_buf: [std.math.maxInt(u16)]u8 = undefined;
+                        const extra = extra_buf[0..local_header.extra_len];
+
+                        {
+                            try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
+                            const len = try (if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()).readAll(extra);
+                            if (len != extra.len)
+                                return error.ZipTruncated;
+                        }
+
+                        var extra_offset: usize = 0;
+                        while (extra_offset + 4 <= local_header.extra_len) {
+                            const header_id = std.mem.readInt(u16, extra[extra_offset..][0..2], .little);
+                            const data_size = std.mem.readInt(u16, extra[extra_offset..][2..4], .little);
+                            const end = extra_offset + 4 + data_size;
+                            if (end > local_header.extra_len)
+                                return error.ZipBadExtraFieldSize;
+                            const data = extra[extra_offset + 4 .. end];
+                            switch (@as(ExtraHeader, @enumFromInt(header_id))) {
+                                .zip64_info => try readZip64FileExtents(LocalFileHeader, local_header, &extents, data),
+                                else => {}, // ignore
+                            }
+                            extra_offset = end;
+                        }
+                    }
+
+                    if (extents.compressed_size != 0 and
+                        extents.compressed_size != self.compressed_size)
                         return error.ZipMismatchCompLen;
-                    if (local_header.uncompressed_size != 0 and
-                        local_header.uncompressed_size != self.uncompressed_size)
+                    if (extents.uncompressed_size != 0 and
+                        extents.uncompressed_size != self.uncompressed_size)
                         return error.ZipMismatchUncompLen;
+
                     if (local_header.filename_len != self.filename_len)
                         return error.ZipMismatchFilenameLen;
 
@@ -513,12 +552,12 @@ pub fn Iterator(comptime SeekableStream: type) type {
                     @as(u64, @sizeOf(LocalFileHeader)) +
                     local_data_header_offset;
                 try stream.seekTo(local_data_file_offset);
-                var limited_reader = std.io.limitedReader(stream.context.reader(), self.compressed_size);
+                var limited_reader = std.io.limitedReader((if (@TypeOf(stream.context) == std.fs.File) stream.context.deprecatedReader() else stream.context.reader()), self.compressed_size);
                 const crc = try decompress(
                     self.compression_method,
                     self.uncompressed_size,
                     limited_reader.reader(),
-                    out_file.writer(),
+                    out_file.deprecatedWriter(),
                 );
                 if (limited_reader.bytes_left != 0)
                     return error.ZipDecompressTruncated;
@@ -578,7 +617,7 @@ pub const ExtractOptions = struct {
 /// Extract the zipped files inside `seekable_stream` to the given `dest` directory.
 /// Note that `seekable_stream` must be an instance of `std.io.SeekableStream` and
 /// its context must also have a `.reader()` method that returns an instance of
-/// `std.io.Reader`.
+/// `std.io.GenericReader`.
 pub fn extract(dest: std.fs.Dir, seekable_stream: anytype, options: ExtractOptions) !void {
     const SeekableStream = @TypeOf(seekable_stream);
     var iter = try Iterator(SeekableStream).init(seekable_stream);
@@ -693,6 +732,20 @@ test "zip64" {
         .end = .{
             .zip64 = .{},
             .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+    });
+    try testZip(.{}, &test_files, .{
+        .end = .{
+            .zip64 = .{},
+            .central_directory_offset = std.math.maxInt(u32), // trigger zip64
+        },
+        .local_header = .{
+            .zip64 = .{ // trigger local header zip64
+                .data_size = 16,
+            },
+            .compressed_size = std.math.maxInt(u32),
+            .uncompressed_size = std.math.maxInt(u32),
+            .extra_len = 20,
         },
     });
 }

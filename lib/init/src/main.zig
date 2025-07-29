@@ -1,22 +1,10 @@
-//! By convention, main.zig is where your main function lives in the case that
-//! you are building an executable. If you are making a library, the convention
-//! is to delete this file and start with root.zig instead.
 const std = @import("std");
+const _NAME = @import(".NAME");
 
 pub fn main() !void {
-    // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
+    // Prints to stderr, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    // stdout is for the actual output of your application, for example if you
-    // are implementing gzip, then only the compressed bytes should be sent to
-    // stdout, not any debugging messages.
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush(); // Don't forget to flush!
+    try _NAME.bufferedPrint();
 }
 
 test "simple test" {
@@ -27,11 +15,12 @@ test "simple test" {
 }
 
 test "fuzz example" {
-    const global = struct {
-        fn testOne(input: []const u8) anyerror!void {
+    const Context = struct {
+        fn testOne(context: @This(), input: []const u8) anyerror!void {
+            _ = context;
             // Try passing `--fuzz` to `zig build test` and see if it manages to fail this test case!
             try std.testing.expect(!std.mem.eql(u8, "canyoufindme", input));
         }
     };
-    try std.testing.fuzz(global.testOne, .{});
+    try std.testing.fuzz(Context{}, Context.testOne, .{});
 }

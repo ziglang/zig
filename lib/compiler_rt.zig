@@ -27,6 +27,11 @@ comptime {
     _ = @import("compiler_rt/absvti2.zig");
     _ = @import("compiler_rt/negv.zig");
 
+    _ = @import("compiler_rt/addvsi3.zig");
+    _ = @import("compiler_rt/subvsi3.zig");
+    _ = @import("compiler_rt/subvdi3.zig");
+    _ = @import("compiler_rt/mulvsi3.zig");
+
     _ = @import("compiler_rt/addo.zig");
     _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
@@ -61,33 +66,43 @@ comptime {
     _ = @import("compiler_rt/fixhfsi.zig");
     _ = @import("compiler_rt/fixhfdi.zig");
     _ = @import("compiler_rt/fixhfti.zig");
+    _ = @import("compiler_rt/fixhfei.zig");
     _ = @import("compiler_rt/fixsfsi.zig");
     _ = @import("compiler_rt/fixsfdi.zig");
     _ = @import("compiler_rt/fixsfti.zig");
+    _ = @import("compiler_rt/fixsfei.zig");
     _ = @import("compiler_rt/fixdfsi.zig");
     _ = @import("compiler_rt/fixdfdi.zig");
     _ = @import("compiler_rt/fixdfti.zig");
+    _ = @import("compiler_rt/fixdfei.zig");
     _ = @import("compiler_rt/fixtfsi.zig");
     _ = @import("compiler_rt/fixtfdi.zig");
     _ = @import("compiler_rt/fixtfti.zig");
+    _ = @import("compiler_rt/fixtfei.zig");
     _ = @import("compiler_rt/fixxfsi.zig");
     _ = @import("compiler_rt/fixxfdi.zig");
     _ = @import("compiler_rt/fixxfti.zig");
+    _ = @import("compiler_rt/fixxfei.zig");
     _ = @import("compiler_rt/fixunshfsi.zig");
     _ = @import("compiler_rt/fixunshfdi.zig");
     _ = @import("compiler_rt/fixunshfti.zig");
+    _ = @import("compiler_rt/fixunshfei.zig");
     _ = @import("compiler_rt/fixunssfsi.zig");
     _ = @import("compiler_rt/fixunssfdi.zig");
     _ = @import("compiler_rt/fixunssfti.zig");
+    _ = @import("compiler_rt/fixunssfei.zig");
     _ = @import("compiler_rt/fixunsdfsi.zig");
     _ = @import("compiler_rt/fixunsdfdi.zig");
     _ = @import("compiler_rt/fixunsdfti.zig");
+    _ = @import("compiler_rt/fixunsdfei.zig");
     _ = @import("compiler_rt/fixunstfsi.zig");
     _ = @import("compiler_rt/fixunstfdi.zig");
     _ = @import("compiler_rt/fixunstfti.zig");
+    _ = @import("compiler_rt/fixunstfei.zig");
     _ = @import("compiler_rt/fixunsxfsi.zig");
     _ = @import("compiler_rt/fixunsxfdi.zig");
     _ = @import("compiler_rt/fixunsxfti.zig");
+    _ = @import("compiler_rt/fixunsxfei.zig");
 
     _ = @import("compiler_rt/float_from_int.zig");
     _ = @import("compiler_rt/floatsihf.zig");
@@ -105,21 +120,31 @@ comptime {
     _ = @import("compiler_rt/floattidf.zig");
     _ = @import("compiler_rt/floattitf.zig");
     _ = @import("compiler_rt/floattixf.zig");
-    _ = @import("compiler_rt/floatundihf.zig");
-    _ = @import("compiler_rt/floatundisf.zig");
-    _ = @import("compiler_rt/floatundidf.zig");
-    _ = @import("compiler_rt/floatunditf.zig");
-    _ = @import("compiler_rt/floatundixf.zig");
+    _ = @import("compiler_rt/floateihf.zig");
+    _ = @import("compiler_rt/floateisf.zig");
+    _ = @import("compiler_rt/floateidf.zig");
+    _ = @import("compiler_rt/floateitf.zig");
+    _ = @import("compiler_rt/floateixf.zig");
     _ = @import("compiler_rt/floatunsihf.zig");
     _ = @import("compiler_rt/floatunsisf.zig");
     _ = @import("compiler_rt/floatunsidf.zig");
     _ = @import("compiler_rt/floatunsitf.zig");
     _ = @import("compiler_rt/floatunsixf.zig");
+    _ = @import("compiler_rt/floatundihf.zig");
+    _ = @import("compiler_rt/floatundisf.zig");
+    _ = @import("compiler_rt/floatundidf.zig");
+    _ = @import("compiler_rt/floatunditf.zig");
+    _ = @import("compiler_rt/floatundixf.zig");
     _ = @import("compiler_rt/floatuntihf.zig");
     _ = @import("compiler_rt/floatuntisf.zig");
     _ = @import("compiler_rt/floatuntidf.zig");
     _ = @import("compiler_rt/floatuntitf.zig");
     _ = @import("compiler_rt/floatuntixf.zig");
+    _ = @import("compiler_rt/floatuneihf.zig");
+    _ = @import("compiler_rt/floatuneisf.zig");
+    _ = @import("compiler_rt/floatuneidf.zig");
+    _ = @import("compiler_rt/floatuneitf.zig");
+    _ = @import("compiler_rt/floatuneixf.zig");
 
     // comparison
     _ = @import("compiler_rt/comparef.zig");
@@ -210,6 +235,7 @@ comptime {
     _ = @import("compiler_rt/trunc.zig");
 
     // BigInt. Alphabetically sorted.
+    _ = @import("compiler_rt/divmodei4.zig");
     _ = @import("compiler_rt/udivmodei4.zig");
     _ = @import("compiler_rt/udivmodti4.zig");
 
@@ -220,14 +246,15 @@ comptime {
     _ = @import("compiler_rt/aulldiv.zig");
     _ = @import("compiler_rt/aullrem.zig");
     _ = @import("compiler_rt/clear_cache.zig");
+    _ = @import("compiler_rt/hexagon.zig");
 
     if (@import("builtin").object_format != .c) {
-        _ = @import("compiler_rt/atomics.zig");
+        if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.zig");
         _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
-            _ = @import("compiler_rt/aarch64_outline_atomics.zig");
+            if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.zig");
         }
 
         _ = @import("compiler_rt/memcpy.zig");
@@ -238,7 +265,8 @@ comptime {
         _ = @import("compiler_rt/ssp.zig");
     }
 
-    if (!builtin.link_libc and builtin.abi == .msvc) {
+    // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+    if (!builtin.link_libc and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi == .none or builtin.abi == .msvc)) {
         @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

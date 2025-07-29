@@ -7,7 +7,7 @@ intptr_t __cdecl _wfindfirst64i32(const wchar_t *_Filename,struct _wfinddata64i3
   struct _wfinddata64_t fd;
   intptr_t ret = _wfindfirst64(_Filename,&fd);
   if (ret == -1) {
-    memset(_FindData,0,sizeof(struct _wfinddata64i32_t));
+    *_FindData = (struct _wfinddata64i32_t){0};
     return -1;
   }
   _FindData->attrib=fd.attrib;

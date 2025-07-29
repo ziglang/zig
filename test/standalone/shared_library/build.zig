@@ -6,25 +6,31 @@ pub fn build(b: *std.Build) void {
 
     const optimize: std.builtin.OptimizeMode = .Debug;
     const target = b.graph.host;
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "mathtest",
-        .root_source_file = b.path("mathtest.zig"),
         .version = .{ .major = 1, .minor = 0, .patch = 0 },
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("mathtest.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const exe = b.addExecutable(.{
         .name = "test",
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = target,
+            .optimize = optimize,
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{
+    exe.root_module.addCSourceFile(.{
         .file = b.path("test.c"),
         .flags = &[_][]const u8{"-std=c99"},
     });
-    exe.linkLibrary(lib);
-    exe.linkSystemLibrary("c");
+    exe.root_module.linkLibrary(lib);
 
     const run_cmd = b.addRunArtifact(exe);
     test_step.dependOn(&run_cmd.step);

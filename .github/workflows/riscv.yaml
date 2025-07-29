@@ -1,0 +1,22 @@
+name: riscv
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  riscv64-linux-debug:
+    timeout-minutes: 1020
+    runs-on: [self-hosted, Linux, riscv64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/riscv64-linux-debug.sh
+  riscv64-linux-release:
+    timeout-minutes: 900
+    runs-on: [self-hosted, Linux, riscv64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Build and Test
+        run: sh ci/riscv64-linux-release.sh

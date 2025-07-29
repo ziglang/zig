@@ -14,12 +14,13 @@
 #include <__algorithm/iterator_operations.h>
 #include <__config>
 #include <__functional/identity.h>
-#include <__functional/invoke.h>
 #include <__iterator/concepts.h>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
-#include <__iterator/next.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_callable.h>
+#include <__type_traits/is_same.h>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -113,7 +114,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation_impl(
 
 // 2+1 iterators, predicate. Not used by range algorithms.
 template <class _AlgPolicy, class _ForwardIterator1, class _Sentinel1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
     _ForwardIterator1 __first1, _Sentinel1 __last1, _ForwardIterator2 __first2, _BinaryPredicate&& __pred) {
   // Shorten sequences as much as possible by lopping of any equal prefix.
   for (; __first1 != __last1; ++__first1, (void)++__first2) {
@@ -247,17 +248,17 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool __is_permutation(
 
 // 2+1 iterators, predicate
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
+[[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
     _ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _BinaryPredicate __pred) {
-  static_assert(__is_callable<_BinaryPredicate, decltype(*__first1), decltype(*__first2)>::value,
-                "The predicate has to be callable");
+  static_assert(__is_callable<_BinaryPredicate&, decltype(*__first1), decltype(*__first2)>::value,
+                "The comparator has to be callable");
 
   return std::__is_permutation<_ClassicAlgPolicy>(std::move(__first1), std::move(__last1), std::move(__first2), __pred);
 }
 
 // 2+1 iterators
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
 is_permutation(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2) {
   return std::is_permutation(__first1, __last1, __first2, __equal_to());
 }
@@ -266,7 +267,7 @@ is_permutation(_ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIt
 
 // 2+2 iterators
 template <class _ForwardIterator1, class _ForwardIterator2>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
     _ForwardIterator1 __first1, _ForwardIterator1 __last1, _ForwardIterator2 __first2, _ForwardIterator2 __last2) {
   return std::__is_permutation<_ClassicAlgPolicy>(
       std::move(__first1),
@@ -280,14 +281,14 @@ _LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 boo
 
 // 2+2 iterators, predicate
 template <class _ForwardIterator1, class _ForwardIterator2, class _BinaryPredicate>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool is_permutation(
     _ForwardIterator1 __first1,
     _ForwardIterator1 __last1,
     _ForwardIterator2 __first2,
     _ForwardIterator2 __last2,
     _BinaryPredicate __pred) {
-  static_assert(__is_callable<_BinaryPredicate, decltype(*__first1), decltype(*__first2)>::value,
-                "The predicate has to be callable");
+  static_assert(__is_callable<_BinaryPredicate&, decltype(*__first1), decltype(*__first2)>::value,
+                "The comparator has to be callable");
 
   return std::__is_permutation<_ClassicAlgPolicy>(
       std::move(__first1),

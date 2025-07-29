@@ -20,6 +20,7 @@
 # include <sys/stat.h>
 
 # include <rtld-malloc.h>
+# include <internal-sigset.h>
 
 extern __typeof (strtol_l) __strtol_l;
 extern __typeof (strtoul_l) __strtoul_l;
@@ -76,6 +77,12 @@ libc_hidden_proto (__isoc23_strtoull_l)
 # undef strtoull_l
 # define strtoull_l __isoc23_strtoull_l
 #endif
+
+extern void __abort_fork_reset_child (void) attribute_hidden;
+extern void __abort_lock_rdlock (internal_sigset_t *set) attribute_hidden;
+extern void __abort_lock_wrlock (internal_sigset_t *set) attribute_hidden;
+extern void __abort_lock_unlock (const internal_sigset_t *set)
+     attribute_hidden;
 
 libc_hidden_proto (exit)
 libc_hidden_proto (abort)

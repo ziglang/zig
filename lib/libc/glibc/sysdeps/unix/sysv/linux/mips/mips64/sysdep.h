@@ -1,4 +1,4 @@
-/* Copyright (C) 2000-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2000-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -44,15 +44,7 @@
 #undef HAVE_INTERNAL_BRK_ADDR_SYMBOL
 #define HAVE_INTERNAL_BRK_ADDR_SYMBOL 1
 
-#if _MIPS_SIM == _ABIN32
-/* Convert X to a long long, without losing any bits if it is one
-   already or warning if it is a 32-bit pointer.  */
-# define ARGIFY(X) ((long long int) (__typeof__ ((X) - (X))) (X))
-typedef long long int __syscall_arg_t;
-#else
-# define ARGIFY(X) ((long int) (X))
-typedef long int __syscall_arg_t;
-#endif
+#include <syscall_types.h>
 
 /* Note that the original Linux syscall restart convention required the
    instruction immediately preceding SYSCALL to initialize $v0 with the
@@ -120,7 +112,7 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\
@@ -144,8 +136,8 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
-	__syscall_arg_t _arg2 = ARGIFY (arg2);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
+	__syscall_arg_t _arg2 = __SSC (arg2);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\
@@ -170,9 +162,9 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
-	__syscall_arg_t _arg2 = ARGIFY (arg2);				\
-	__syscall_arg_t _arg3 = ARGIFY (arg3);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
+	__syscall_arg_t _arg2 = __SSC (arg2);				\
+	__syscall_arg_t _arg3 = __SSC (arg3);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\
@@ -199,10 +191,10 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
-	__syscall_arg_t _arg2 = ARGIFY (arg2);				\
-	__syscall_arg_t _arg3 = ARGIFY (arg3);				\
-	__syscall_arg_t _arg4 = ARGIFY (arg4);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
+	__syscall_arg_t _arg2 = __SSC (arg2);				\
+	__syscall_arg_t _arg3 = __SSC (arg3);				\
+	__syscall_arg_t _arg4 = __SSC (arg4);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\
@@ -229,11 +221,11 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
-	__syscall_arg_t _arg2 = ARGIFY (arg2);				\
-	__syscall_arg_t _arg3 = ARGIFY (arg3);				\
-	__syscall_arg_t _arg4 = ARGIFY (arg4);				\
-	__syscall_arg_t _arg5 = ARGIFY (arg5);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
+	__syscall_arg_t _arg2 = __SSC (arg2);				\
+	__syscall_arg_t _arg3 = __SSC (arg3);				\
+	__syscall_arg_t _arg4 = __SSC (arg4);				\
+	__syscall_arg_t _arg5 = __SSC (arg5);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\
@@ -261,12 +253,12 @@ typedef long int __syscall_arg_t;
 	long int _sys_result;						\
 									\
 	{								\
-	__syscall_arg_t _arg1 = ARGIFY (arg1);				\
-	__syscall_arg_t _arg2 = ARGIFY (arg2);				\
-	__syscall_arg_t _arg3 = ARGIFY (arg3);				\
-	__syscall_arg_t _arg4 = ARGIFY (arg4);				\
-	__syscall_arg_t _arg5 = ARGIFY (arg5);				\
-	__syscall_arg_t _arg6 = ARGIFY (arg6);				\
+	__syscall_arg_t _arg1 = __SSC (arg1);				\
+	__syscall_arg_t _arg2 = __SSC (arg2);				\
+	__syscall_arg_t _arg3 = __SSC (arg3);				\
+	__syscall_arg_t _arg4 = __SSC (arg4);				\
+	__syscall_arg_t _arg5 = __SSC (arg5);				\
+	__syscall_arg_t _arg6 = __SSC (arg6);				\
 	register __syscall_arg_t __s0 asm ("$16") __attribute__ ((unused))\
 	  = (number);							\
 	register __syscall_arg_t __v0 asm ("$2");			\

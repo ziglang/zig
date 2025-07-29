@@ -7,4 +7,4 @@ export fn foobar() void {
 
 // error
 //
-// :4:5: error: value with comptime-only type '@TypeOf(.enum_literal)' depends on runtime control flow
+// :4:5: error: value with comptime-only type '@Type(.enum_literal)' depends on runtime control flow

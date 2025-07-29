@@ -52,21 +52,24 @@ int feupdateenv(const fenv_t* envp);
 }  // std
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/cfenv>
+#else
+#  include <__config>
 
-#include <fenv.h>
+#  include <fenv.h>
 
-#ifndef _LIBCPP_FENV_H
+#  ifndef _LIBCPP_FENV_H
 #   error <cfenv> tried including <fenv.h> but didn't find libc++'s <fenv.h> header. \
           This usually means that your header search paths are not configured properly. \
           The header search paths should contain the C++ Standard Library headers before \
           any C Standard Library, and you are probably using compiler flags that make that \
           not be the case.
-#endif
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -86,5 +89,7 @@ using ::fesetenv _LIBCPP_USING_IF_EXISTS;
 using ::feupdateenv _LIBCPP_USING_IF_EXISTS;
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CFENV

@@ -21,7 +21,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class>
-inline constexpr bool is_execution_policy_v = false;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_execution_policy_v = false;
 
 template <class>
 inline constexpr bool __is_unsequenced_execution_policy_impl = false;
@@ -50,7 +50,7 @@ __remove_parallel_policy(const _ExecutionPolicy& = _ExecutionPolicy{execution::_
 // Removes the "parallel" part of an execution policy.
 // For example, turns par_unseq into unseq, and par into seq.
 template <class _ExecutionPolicy>
-using __remove_parallel_policy_t = decltype(std::__remove_parallel_policy<_ExecutionPolicy>());
+using __remove_parallel_policy_t _LIBCPP_NODEBUG = decltype(std::__remove_parallel_policy<_ExecutionPolicy>());
 
 _LIBCPP_END_NAMESPACE_STD
 

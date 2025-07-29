@@ -1,0 +1,5 @@
+LIBRARY "VCRUNTIME140.dll"
+EXPORTS
+
+#include "func.def.in"
+#include "vcruntime140-common.def.in"

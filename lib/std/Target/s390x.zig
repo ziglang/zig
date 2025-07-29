@@ -7,6 +7,7 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     backchain,
     bear_enhancement,
+    concurrent_functions,
     deflate_conversion,
     dfp_packed_conversion,
     dfp_zoned_conversion,
@@ -24,6 +25,7 @@ pub const Feature = enum {
     load_and_zero_rightmost_byte,
     load_store_on_cond,
     load_store_on_cond_2,
+    message_security_assist_extension12,
     message_security_assist_extension3,
     message_security_assist_extension4,
     message_security_assist_extension5,
@@ -33,6 +35,7 @@ pub const Feature = enum {
     miscellaneous_extensions,
     miscellaneous_extensions_2,
     miscellaneous_extensions_3,
+    miscellaneous_extensions_4,
     nnp_assist,
     population_count,
     processor_activity_instrumentation,
@@ -46,9 +49,11 @@ pub const Feature = enum {
     vector,
     vector_enhancements_1,
     vector_enhancements_2,
+    vector_enhancements_3,
     vector_packed_decimal,
     vector_packed_decimal_enhancement,
     vector_packed_decimal_enhancement_2,
+    vector_packed_decimal_enhancement_3,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -68,6 +73,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.bear_enhancement)] = .{
         .llvm_name = "bear-enhancement",
         .description = "Assume that the BEAR-enhancement facility is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.concurrent_functions)] = .{
+        .llvm_name = "concurrent-functions",
+        .description = "Assume that the concurrent-functions facility is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.deflate_conversion)] = .{
@@ -155,6 +165,11 @@ pub const all_features = blk: {
         .description = "Assume that the load/store-on-condition facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.message_security_assist_extension12)] = .{
+        .llvm_name = "message-security-assist-extension12",
+        .description = "Assume that the message-security-assist extension facility 12 is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.message_security_assist_extension3)] = .{
         .llvm_name = "message-security-assist-extension3",
         .description = "Assume that the message-security-assist extension facility 3 is installed",
@@ -198,6 +213,11 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.miscellaneous_extensions_3)] = .{
         .llvm_name = "miscellaneous-extensions-3",
         .description = "Assume that the miscellaneous-extensions facility 3 is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.miscellaneous_extensions_4)] = .{
+        .llvm_name = "miscellaneous-extensions-4",
+        .description = "Assume that the miscellaneous-extensions facility 4 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.nnp_assist)] = .{
@@ -265,6 +285,11 @@ pub const all_features = blk: {
         .description = "Assume that the vector enhancements facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.vector_enhancements_3)] = .{
+        .llvm_name = "vector-enhancements-3",
+        .description = "Assume that the vector enhancements facility 3 is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.vector_packed_decimal)] = .{
         .llvm_name = "vector-packed-decimal",
         .description = "Assume that the vector packed decimal facility is installed",
@@ -280,6 +305,11 @@ pub const all_features = blk: {
         .description = "Assume that the vector packed decimal enhancement facility 2 is installed",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.vector_packed_decimal_enhancement_3)] = .{
+        .llvm_name = "vector-packed-decimal-enhancement-3",
+        .description = "Assume that the vector packed decimal enhancement facility 3 is installed",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -289,7 +319,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const arch10 = CpuModel{
+    pub const arch10: CpuModel = .{
         .name = "arch10",
         .llvm_name = "arch10",
         .features = featureSet(&[_]Feature{
@@ -312,7 +342,7 @@ pub const cpu = struct {
             .transactional_execution,
         }),
     };
-    pub const arch11 = CpuModel{
+    pub const arch11: CpuModel = .{
         .name = "arch11",
         .llvm_name = "arch11",
         .features = featureSet(&[_]Feature{
@@ -340,7 +370,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const arch12 = CpuModel{
+    pub const arch12: CpuModel = .{
         .name = "arch12",
         .llvm_name = "arch12",
         .features = featureSet(&[_]Feature{
@@ -376,7 +406,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const arch13 = CpuModel{
+    pub const arch13: CpuModel = .{
         .name = "arch13",
         .llvm_name = "arch13",
         .features = featureSet(&[_]Feature{
@@ -418,7 +448,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement,
         }),
     };
-    pub const arch14 = CpuModel{
+    pub const arch14: CpuModel = .{
         .name = "arch14",
         .llvm_name = "arch14",
         .features = featureSet(&[_]Feature{
@@ -465,12 +495,64 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement_2,
         }),
     };
-    pub const arch8 = CpuModel{
+    pub const arch15: CpuModel = .{
+        .name = "arch15",
+        .llvm_name = "arch15",
+        .features = featureSet(&[_]Feature{
+            .bear_enhancement,
+            .concurrent_functions,
+            .deflate_conversion,
+            .dfp_packed_conversion,
+            .dfp_zoned_conversion,
+            .distinct_ops,
+            .enhanced_dat_2,
+            .enhanced_sort,
+            .execution_hint,
+            .fast_serialization,
+            .fp_extension,
+            .guarded_storage,
+            .high_word,
+            .insert_reference_bits_multiple,
+            .interlocked_access1,
+            .load_and_trap,
+            .load_and_zero_rightmost_byte,
+            .load_store_on_cond,
+            .load_store_on_cond_2,
+            .message_security_assist_extension12,
+            .message_security_assist_extension3,
+            .message_security_assist_extension4,
+            .message_security_assist_extension5,
+            .message_security_assist_extension7,
+            .message_security_assist_extension8,
+            .message_security_assist_extension9,
+            .miscellaneous_extensions,
+            .miscellaneous_extensions_2,
+            .miscellaneous_extensions_3,
+            .miscellaneous_extensions_4,
+            .nnp_assist,
+            .population_count,
+            .processor_activity_instrumentation,
+            .processor_assist,
+            .reset_dat_protection,
+            .reset_reference_bits_multiple,
+            .test_pending_external_interruption,
+            .transactional_execution,
+            .vector,
+            .vector_enhancements_1,
+            .vector_enhancements_2,
+            .vector_enhancements_3,
+            .vector_packed_decimal,
+            .vector_packed_decimal_enhancement,
+            .vector_packed_decimal_enhancement_2,
+            .vector_packed_decimal_enhancement_3,
+        }),
+    };
+    pub const arch8: CpuModel = .{
         .name = "arch8",
         .llvm_name = "arch8",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const arch9 = CpuModel{
+    pub const arch9: CpuModel = .{
         .name = "arch9",
         .llvm_name = "arch9",
         .features = featureSet(&[_]Feature{
@@ -486,17 +568,17 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z10 = CpuModel{
+    pub const z10: CpuModel = .{
         .name = "z10",
         .llvm_name = "z10",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const z13 = CpuModel{
+    pub const z13: CpuModel = .{
         .name = "z13",
         .llvm_name = "z13",
         .features = featureSet(&[_]Feature{
@@ -524,7 +606,7 @@ pub const cpu = struct {
             .vector,
         }),
     };
-    pub const z14 = CpuModel{
+    pub const z14: CpuModel = .{
         .name = "z14",
         .llvm_name = "z14",
         .features = featureSet(&[_]Feature{
@@ -560,7 +642,7 @@ pub const cpu = struct {
             .vector_packed_decimal,
         }),
     };
-    pub const z15 = CpuModel{
+    pub const z15: CpuModel = .{
         .name = "z15",
         .llvm_name = "z15",
         .features = featureSet(&[_]Feature{
@@ -602,7 +684,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement,
         }),
     };
-    pub const z16 = CpuModel{
+    pub const z16: CpuModel = .{
         .name = "z16",
         .llvm_name = "z16",
         .features = featureSet(&[_]Feature{
@@ -649,7 +731,7 @@ pub const cpu = struct {
             .vector_packed_decimal_enhancement_2,
         }),
     };
-    pub const z196 = CpuModel{
+    pub const z196: CpuModel = .{
         .name = "z196",
         .llvm_name = "z196",
         .features = featureSet(&[_]Feature{
@@ -665,7 +747,7 @@ pub const cpu = struct {
             .reset_reference_bits_multiple,
         }),
     };
-    pub const zEC12 = CpuModel{
+    pub const zEC12: CpuModel = .{
         .name = "zEC12",
         .llvm_name = "zEC12",
         .features = featureSet(&[_]Feature{

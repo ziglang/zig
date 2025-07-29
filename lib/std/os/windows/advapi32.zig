@@ -8,7 +8,6 @@ const LPCWSTR = windows.LPCWSTR;
 const LSTATUS = windows.LSTATUS;
 const REGSAM = windows.REGSAM;
 const ULONG = windows.ULONG;
-const WINAPI = windows.WINAPI;
 
 pub extern "advapi32" fn RegOpenKeyExW(
     hKey: HKEY,
@@ -16,7 +15,7 @@ pub extern "advapi32" fn RegOpenKeyExW(
     ulOptions: DWORD,
     samDesired: REGSAM,
     phkResult: *HKEY,
-) callconv(WINAPI) LSTATUS;
+) callconv(.winapi) LSTATUS;
 
 pub extern "advapi32" fn RegQueryValueExW(
     hKey: HKEY,
@@ -25,13 +24,13 @@ pub extern "advapi32" fn RegQueryValueExW(
     lpType: ?*DWORD,
     lpData: ?*BYTE,
     lpcbData: ?*DWORD,
-) callconv(WINAPI) LSTATUS;
+) callconv(.winapi) LSTATUS;
 
-pub extern "advapi32" fn RegCloseKey(hKey: HKEY) callconv(WINAPI) LSTATUS;
+pub extern "advapi32" fn RegCloseKey(hKey: HKEY) callconv(.winapi) LSTATUS;
 
 // RtlGenRandom is known as SystemFunction036 under advapi32
 // http://msdn.microsoft.com/en-us/library/windows/desktop/aa387694.aspx */
-pub extern "advapi32" fn SystemFunction036(output: [*]u8, length: ULONG) callconv(WINAPI) BOOL;
+pub extern "advapi32" fn SystemFunction036(output: [*]u8, length: ULONG) callconv(.winapi) BOOL;
 pub const RtlGenRandom = SystemFunction036;
 
 pub const RRF = struct {
@@ -62,7 +61,7 @@ pub extern "advapi32" fn RegGetValueW(
     pdwType: ?*DWORD,
     pvData: ?*anyopaque,
     pcbData: ?*DWORD,
-) callconv(WINAPI) LSTATUS;
+) callconv(.winapi) LSTATUS;
 
 pub extern "advapi32" fn RegLoadAppKeyW(
     lpFile: LPCWSTR,
@@ -70,4 +69,4 @@ pub extern "advapi32" fn RegLoadAppKeyW(
     samDesired: REGSAM,
     dwOptions: DWORD,
     reserved: DWORD,
-) callconv(WINAPI) LSTATUS;
+) callconv(.winapi) LSTATUS;

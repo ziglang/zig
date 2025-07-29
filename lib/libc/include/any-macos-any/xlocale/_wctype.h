@@ -24,9 +24,12 @@
 #ifndef _XLOCALE__WCTYPE_H_
 #define _XLOCALE__WCTYPE_H_
 
-#include <__wctype.h>
+#include <_bounds.h>
+#include <___wctype.h>
 #include <_types/_wctrans_t.h>
 #include <xlocale/_ctype.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #if !defined(_DONT_USE_CTYPE_INLINE_) && \
     (defined(_USE_CTYPE_INLINE_) || defined(__GNUC__) || defined(__cplusplus))

@@ -2,9 +2,9 @@ const std = @import("../std.zig");
 const builtin = @import("builtin");
 const testing = std.testing;
 
-const has_aesni = std.Target.x86.featureSetHas(builtin.cpu.features, .aes);
-const has_avx = std.Target.x86.featureSetHas(builtin.cpu.features, .avx);
-const has_armaes = std.Target.aarch64.featureSetHas(builtin.cpu.features, .aes);
+const has_aesni = builtin.cpu.has(.x86, .aes);
+const has_avx = builtin.cpu.has(.x86, .avx);
+const has_armaes = builtin.cpu.has(.aarch64, .aes);
 // C backend doesn't currently support passing vectors to inline asm.
 const impl = if (builtin.cpu.arch == .x86_64 and builtin.zig_backend != .stage2_c and has_aesni and has_avx) impl: {
     break :impl @import("aes/aesni.zig");
@@ -22,6 +22,7 @@ pub const has_hardware_support =
     (builtin.cpu.arch == .aarch64 and has_armaes);
 
 pub const Block = impl.Block;
+pub const BlockVec = impl.BlockVec;
 pub const AesEncryptCtx = impl.AesEncryptCtx;
 pub const AesDecryptCtx = impl.AesDecryptCtx;
 pub const Aes128 = impl.Aes128;

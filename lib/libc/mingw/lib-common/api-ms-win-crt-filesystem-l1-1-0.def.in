@@ -1,0 +1,122 @@
+LIBRARY api-ms-win-crt-filesystem-l1-1-0
+
+EXPORTS
+
+#include "func.def.in"
+
+_access
+; access is provided as an alias for __mingw_access
+; access == _access
+_access_s
+_chdir
+chdir == _chdir
+_chdrive
+_chmod
+chmod == _chmod
+_findclose
+F32(_findfirst == _findfirst32)
+F64(_findfirst == _findfirst64i32)
+F32(_findfirsti64 == _findfirst32i64)
+F64(_findfirsti64 == _findfirst64)
+_findfirst32
+_findfirst32i64
+_findfirst64
+_findfirst64i32
+F32(_findnext == _findnext32)
+F64(_findnext == _findnext64i32)
+F32(_findnexti64 == _findnext32i64)
+F64(_findnexti64 == _findnext64)
+_findnext32
+_findnext32i64
+_findnext64
+_findnext64i32
+F32(fstat == _fstat32)
+F64(fstat == _fstat64i32)
+F32(_fstat == _fstat32)
+F64(_fstat == _fstat64i32)
+F32(_fstati64 == _fstat32i64)
+F64(_fstati64 == _fstat64)
+_fstat32
+_fstat32i64
+_fstat64
+fstat64 == _fstat64
+_fstat64i32
+_fullpath
+_getdiskfree
+_getdrive
+_getdrives
+_lock_file
+_makepath
+_makepath_s
+_mkdir
+mkdir == _mkdir
+_rmdir
+rmdir == _rmdir
+_splitpath
+_splitpath_s
+F32(stat == _stat32)
+F64(stat == _stat64i32)
+F32(_stat == _stat32)
+F64(_stat == _stat64i32)
+F32(_stati64 == _stat32i64)
+F64(_stati64 == _stat64)
+_stat32
+stat32 == _stat32
+_stat32i64
+stat32i64 == _stat32i64
+_stat64
+stat64 == _stat64
+_stat64i32
+stat64i32 == _stat64i32
+_umask
+umask == _umask
+_umask_s
+_unlink
+unlink == _unlink
+_unlock_file
+_waccess
+_waccess_s
+_wchdir
+_wchmod
+F32(_wfindfirst == _wfindfirst32)
+F64(_wfindfirst == _wfindfirst64i32)
+F32(_wfindfirsti64 == _wfindfirst32i64)
+F64(_wfindfirsti64 == _wfindfirst64)
+_wfindfirst32
+_wfindfirst32i64
+_wfindfirst64
+_wfindfirst64i32
+F32(_wfindnext == _wfindnext32)
+F64(_wfindnext == _wfindnext64i32)
+F32(_wfindnexti64 == _wfindnext32i64)
+F64(_wfindnexti64 == _wfindnext64)
+_wfindnext32
+_wfindnext32i64
+_wfindnext64
+_wfindnext64i32
+_wfullpath
+_wmakepath
+_wmakepath_s
+_wmkdir
+_wremove
+_wrename
+_wrmdir
+_wsplitpath
+_wsplitpath_s
+F32(wstat == _wstat32)
+F64(wstat == _wstat64i32)
+F32(_wstat == _wstat32)
+F64(_wstat == _wstat64i32)
+F32(_wstati64 == _wstat32i64)
+F64(_wstati64 == _wstat64)
+_wstat32
+wstat32 == _wstat32
+_wstat32i64
+wstat32i64 == _wstat32i64
+_wstat64
+wstat64 == _wstat64
+_wstat64i32
+wstat64i32 == _wstat64i32
+_wunlink
+remove
+rename

@@ -8,9 +8,11 @@ pub fn build(b: *std.Build) void {
 
     const obj = b.addObject(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.graph.host,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.graph.host,
+        }),
     });
     _ = obj.getEmittedLlvmIr();
     _ = obj.getEmittedLlvmBc();

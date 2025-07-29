@@ -7,50 +7,100 @@ pub fn doClientRequest(default: usize, request: usize, a1: usize, a2: usize, a3:
         return default;
     }
 
-    switch (builtin.target.cpu.arch) {
-        .x86 => {
-            return asm volatile (
-                \\ roll $3,  %%edi ; roll $13, %%edi
-                \\ roll $29, %%edi ; roll $19, %%edi
-                \\ xchgl %%ebx,%%ebx
-                : [_] "={edx}" (-> usize),
-                : [_] "{eax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        .x86_64 => {
-            return asm volatile (
-                \\ rolq $3,  %%rdi ; rolq $13, %%rdi
-                \\ rolq $61, %%rdi ; rolq $51, %%rdi
-                \\ xchgq %%rbx,%%rbx
-                : [_] "={rdx}" (-> usize),
-                : [_] "{rax}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        .aarch64 => {
-            return asm volatile (
-                \\ ror x12, x12, #3  ;  ror x12, x12, #13
-                \\ ror x12, x12, #51 ;  ror x12, x12, #61
-                \\ orr x10, x10, x10
-                : [_] "={x3}" (-> usize),
-                : [_] "{x4}" (&[_]usize{ request, a1, a2, a3, a4, a5 }),
-                  [_] "0" (default),
-                : "cc", "memory"
-            );
-        },
-        // ppc32
-        // ppc64
-        // arm
-        // s390x
-        // mips32
-        // mips64
-        else => {
-            return default;
-        },
-    }
+    const args = &[_]usize{ request, a1, a2, a3, a4, a5 };
+
+    return switch (builtin.cpu.arch) {
+        .arm, .armeb, .thumb, .thumbeb => asm volatile (
+            \\ mov r12, r12, ror #3  ; mov r12, r12, ror #13
+            \\ mov r12, r12, ror #29 ; mov r12, r12, ror #19
+            \\ orr r10, r10, r10
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : .{ .memory = true }),
+        .aarch64, .aarch64_be => asm volatile (
+            \\ ror x12, x12, #3  ; ror x12, x12, #13
+            \\ ror x12, x12, #51 ; ror x12, x12, #61
+            \\ orr x10, x10, x10
+            : [_] "={x3}" (-> usize),
+            : [_] "{x4}" (args),
+              [_] "{x3}" (default),
+            : .{ .memory = true }),
+        .mips, .mipsel => asm volatile (
+            \\ srl $0,  $0,  13
+            \\ srl $0,  $0,  29
+            \\ srl $0,  $0,  3
+            \\ srl $0,  $0,  19
+            \\ or  $13, $13, $13
+            : [_] "={$11}" (-> usize),
+            : [_] "{$12}" (args),
+              [_] "{$11}" (default),
+            : .{ .memory = true }),
+        .mips64, .mips64el => asm volatile (
+            \\ dsll $0,  $0,  3   ; dsll $0, $0, 13
+            \\ dsll $0,  $0,  29  ; dsll $0, $0, 19
+            \\ or   $13, $13, $13
+            : [_] "={$11}" (-> usize),
+            : [_] "{$12}" (args),
+              [_] "{$11}" (default),
+            : .{ .memory = true }),
+        .powerpc, .powerpcle => asm volatile (
+            \\ rlwinm 0, 0, 3,  0, 31 ; rlwinm 0, 0, 13, 0, 31
+            \\ rlwinm 0, 0, 29, 0, 31 ; rlwinm 0, 0, 19, 0, 31
+            \\ or     1, 1, 1
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : .{ .memory = true }),
+        .powerpc64, .powerpc64le => asm volatile (
+            \\ rotldi 0, 0, 3  ; rotldi 0, 0, 13
+            \\ rotldi 0, 0, 61 ; rotldi 0, 0, 51
+            \\ or     1, 1, 1
+            : [_] "={r3}" (-> usize),
+            : [_] "{r4}" (args),
+              [_] "{r3}" (default),
+            : .{ .memory = true }),
+        .riscv64 => asm volatile (
+            \\ .option push
+            \\ .option norvc
+            \\ srli zero, zero, 3
+            \\ srli zero, zero, 13
+            \\ srli zero, zero, 51
+            \\ srli zero, zero, 61
+            \\ or   a0,   a0,   a0
+            \\ .option pop
+            : [_] "={a3}" (-> usize),
+            : [_] "{a4}" (args),
+              [_] "{a3}" (default),
+            : .{ .memory = true }),
+        .s390x => asm volatile (
+            \\ lr %%r15, %%r15
+            \\ lr %%r1,  %%r1
+            \\ lr %%r2,  %%r2
+            \\ lr %%r3,  %%r3
+            \\ lr %%r2,  %%r2
+            : [_] "={r3}" (-> usize),
+            : [_] "{r2}" (args),
+              [_] "{r3}" (default),
+            : .{ .memory = true }),
+        .x86 => asm volatile (
+            \\ roll  $3,    %%edi ; roll $13, %%edi
+            \\ roll  $29,   %%edi ; roll $19, %%edi
+            \\ xchgl %%ebx, %%ebx
+            : [_] "={edx}" (-> usize),
+            : [_] "{eax}" (args),
+              [_] "{edx}" (default),
+            : .{ .memory = true }),
+        .x86_64 => asm volatile (
+            \\ rolq  $3,    %%rdi ; rolq $13, %%rdi
+            \\ rolq  $61,   %%rdi ; rolq $51, %%rdi
+            \\ xchgq %%rbx, %%rbx
+            : [_] "={rdx}" (-> usize),
+            : [_] "{rax}" (args),
+              [_] "{rdx}" (default),
+            : .{ .memory = true }),
+        else => default,
+    };
 }
 
 pub const ClientRequest = enum(u32) {
@@ -121,7 +171,7 @@ pub fn discardTranslations(qzz: []const u8) void {
 }
 
 pub fn innerThreads(qzz: [*]u8) void {
-    doClientRequestStmt(.InnerThreads, qzz, 0, 0, 0, 0);
+    doClientRequestStmt(.InnerThreads, @intFromPtr(qzz), 0, 0, 0, 0);
 }
 
 pub fn nonSimdCall0(func: fn (usize) usize) usize {
@@ -139,18 +189,6 @@ pub fn nonSimdCall2(func: fn (usize, usize, usize) usize, a1: usize, a2: usize) 
 pub fn nonSimdCall3(func: fn (usize, usize, usize, usize) usize, a1: usize, a2: usize, a3: usize) usize {
     return doClientRequestExpr(0, .ClientCall3, @intFromPtr(func), a1, a2, a3, 0);
 }
-
-/// Deprecated: use `nonSimdCall0`
-pub const nonSIMDCall0 = nonSimdCall0;
-
-/// Deprecated: use `nonSimdCall1`
-pub const nonSIMDCall1 = nonSimdCall1;
-
-/// Deprecated: use `nonSimdCall2`
-pub const nonSIMDCall2 = nonSimdCall2;
-
-/// Deprecated: use `nonSimdCall3`
-pub const nonSIMDCall3 = nonSimdCall3;
 
 /// Counts the number of errors that have been recorded by a tool.  Nb:
 /// the tool must record the errors with VG_(maybe_record_error)() or
@@ -273,7 +311,7 @@ pub fn enableErrorReporting() void {
 /// If no connection is opened, output will go to the log output.
 /// Returns 1 if command not recognised, 0 otherwise.
 pub fn monitorCommand(command: [*]u8) bool {
-    return doClientRequestExpr(0, .GdbMonitorCommand, @intFromPtr(command.ptr), 0, 0, 0, 0) != 0;
+    return doClientRequestExpr(0, .GdbMonitorCommand, @intFromPtr(command), 0, 0, 0, 0) != 0;
 }
 
 pub const memcheck = @import("valgrind/memcheck.zig");

@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
-const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
+const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-dwarf] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
 
 pub fn main() !void {
     const fatal = std.process.fatal;
@@ -16,6 +16,7 @@ pub fn main() !void {
     var opt_lib_dir: ?[]const u8 = null;
     var opt_cc_zig: ?[]const u8 = null;
     var debug_zcu = false;
+    var debug_dwarf = false;
     var debug_link = false;
     var preserve_tmp = false;
 
@@ -27,6 +28,8 @@ pub fn main() !void {
                 opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
             } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
                 debug_zcu = true;
+            } else if (std.mem.eql(u8, arg, "--debug-dwarf")) {
+                debug_dwarf = true;
             } else if (std.mem.eql(u8, arg, "--debug-link")) {
                 debug_link = true;
             } else if (std.mem.eql(u8, arg, "--preserve-tmp")) {
@@ -85,7 +88,7 @@ pub fn main() !void {
 
     const host = try std.zig.system.resolveTargetQuery(.{});
 
-    const debug_log_verbose = debug_zcu or debug_link;
+    const debug_log_verbose = debug_zcu or debug_dwarf or debug_link;
 
     for (case.targets) |target| {
         const target_prog_node = node: {
@@ -103,8 +106,8 @@ pub fn main() !void {
         try child_args.appendSlice(arena, &.{
             resolved_zig_exe,
             "build-exe",
-            case.root_source_file,
             "-fincremental",
+            "-fno-ubsan-rt",
             "-target",
             target.query,
             "--cache-dir",
@@ -125,8 +128,18 @@ pub fn main() !void {
         if (debug_zcu) {
             try child_args.appendSlice(arena, &.{ "--debug-log", "zcu" });
         }
+        if (debug_dwarf) {
+            try child_args.appendSlice(arena, &.{ "--debug-log", "dwarf" });
+        }
         if (debug_link) {
             try child_args.appendSlice(arena, &.{ "--debug-log", "link", "--debug-log", "link_state", "--debug-log", "link_relocs" });
+        }
+        for (case.modules) |mod| {
+            try child_args.appendSlice(arena, &.{ "--dep", mod.name });
+        }
+        try child_args.append(arena, try std.fmt.allocPrint(arena, "-Mroot={s}", .{case.root_source_file}));
+        for (case.modules) |mod| {
+            try child_args.append(arena, try std.fmt.allocPrint(arena, "-M{s}={s}", .{ mod.name, mod.file }));
         }
 
         const zig_prog_node = target_prog_node.start("zig build-exe", 0);
@@ -173,7 +186,7 @@ pub fn main() !void {
 
         try child.spawn();
 
-        var poller = std.io.poll(arena, Eval.StreamEnum, .{
+        var poller = std.Io.poll(arena, Eval.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         });
@@ -234,19 +247,15 @@ const Eval = struct {
 
     fn check(eval: *Eval, poller: *Poller, update: Case.Update, prog_node: std.Progress.Node) !void {
         const arena = eval.arena;
-        const Header = std.zig.Server.Message.Header;
-        const stdout = poller.fifo(.stdout);
-        const stderr = poller.fifo(.stderr);
+        const stdout = poller.reader(.stdout);
+        const stderr = poller.reader(.stderr);
 
         poll: while (true) {
-            while (stdout.readableLength() < @sizeOf(Header)) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const header = stdout.reader().readStruct(Header) catch unreachable;
-            while (stdout.readableLength() < header.bytes_len) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const body = stdout.readableSliceOfLen(header.bytes_len);
+            const Header = std.zig.Server.Message.Header;
+            while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+            const header = stdout.takeStruct(Header, .little) catch unreachable;
+            while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+            const body = stdout.take(header.bytes_len) catch unreachable;
 
             switch (header.tag) {
                 .error_bundle => {
@@ -264,8 +273,8 @@ const Eval = struct {
                         .string_bytes = try arena.dupe(u8, string_bytes),
                         .extra = extra_array,
                     };
-                    if (stderr.readableLength() > 0) {
-                        const stderr_data = try stderr.toOwnedSlice();
+                    if (stderr.bufferedLen() > 0) {
+                        const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
                             std.log.info("error_bundle included stderr:\n{s}", .{stderr_data});
                         } else {
@@ -276,15 +285,14 @@ const Eval = struct {
                         try eval.checkErrorOutcome(update, result_error_bundle);
                     }
                     // This message indicates the end of the update.
-                    stdout.discard(body.len);
                     return;
                 },
                 .emit_digest => {
                     const EbpHdr = std.zig.Server.Message.EmitDigest;
                     const ebp_hdr = @as(*align(1) const EbpHdr, @ptrCast(body));
                     _ = ebp_hdr;
-                    if (stderr.readableLength() > 0) {
-                        const stderr_data = try stderr.toOwnedSlice();
+                    if (stderr.bufferedLen() > 0) {
+                        const stderr_data = try poller.toOwnedSlice(.stderr);
                         if (eval.allow_stderr) {
                             std.log.info("emit_digest included stderr:\n{s}", .{stderr_data});
                         } else {
@@ -295,37 +303,32 @@ const Eval = struct {
                     if (eval.target.backend == .sema) {
                         try eval.checkSuccessOutcome(update, null, prog_node);
                         // This message indicates the end of the update.
-                        stdout.discard(body.len);
                     }
 
                     const digest = body[@sizeOf(EbpHdr)..][0..Cache.bin_digest_len];
                     const result_dir = ".local-cache" ++ std.fs.path.sep_str ++ "o" ++ std.fs.path.sep_str ++ Cache.binToHex(digest.*);
 
-                    const name = std.fs.path.stem(std.fs.path.basename(eval.case.root_source_file));
-                    const bin_name = try std.zig.binNameAlloc(arena, .{
-                        .root_name = name,
-                        .target = eval.target.resolved,
+                    const bin_name = try std.zig.EmitArtifact.bin.cacheName(arena, .{
+                        .root_name = "root", // corresponds to the module name "root"
+                        .target = &eval.target.resolved,
                         .output_mode = .Exe,
                     });
                     const bin_path = try std.fs.path.join(arena, &.{ result_dir, bin_name });
 
                     try eval.checkSuccessOutcome(update, bin_path, prog_node);
                     // This message indicates the end of the update.
-                    stdout.discard(body.len);
                 },
                 else => {
                     // Ignore other messages.
-                    stdout.discard(body.len);
                 },
             }
         }
 
-        if (stderr.readableLength() > 0) {
-            const stderr_data = try stderr.toOwnedSlice();
+        if (stderr.bufferedLen() > 0) {
             if (eval.allow_stderr) {
-                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr_data });
+                std.log.info("update '{s}' included stderr:\n{s}", .{ update.name, stderr.buffered() });
             } else {
-                eval.fatal("update '{s}' failed:\n{s}", .{ update.name, stderr_data });
+                eval.fatal("update '{s}' failed:\n{s}", .{ update.name, stderr.buffered() });
             }
         }
 
@@ -334,19 +337,77 @@ const Eval = struct {
     }
 
     fn checkErrorOutcome(eval: *Eval, update: Case.Update, error_bundle: std.zig.ErrorBundle) !void {
-        switch (update.outcome) {
+        const expected = switch (update.outcome) {
             .unknown => return,
-            .compile_errors => |expected_errors| {
-                for (expected_errors) |expected_error| {
-                    _ = expected_error;
-                    @panic("TODO check if the expected error matches the compile errors");
-                }
-            },
+            .compile_errors => |ce| ce,
             .stdout, .exit_code => {
                 const color: std.zig.Color = .auto;
                 error_bundle.renderToStdErr(color.renderOptions());
                 eval.fatal("update '{s}': unexpected compile errors", .{update.name});
             },
+        };
+
+        var expected_idx: usize = 0;
+
+        for (error_bundle.getMessages()) |err_idx| {
+            if (expected_idx == expected.errors.len) {
+                const color: std.zig.Color = .auto;
+                error_bundle.renderToStdErr(color.renderOptions());
+                eval.fatal("update '{s}': more errors than expected", .{update.name});
+            }
+            try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], false, err_idx);
+            expected_idx += 1;
+
+            for (error_bundle.getNotes(err_idx)) |note_idx| {
+                if (expected_idx == expected.errors.len) {
+                    const color: std.zig.Color = .auto;
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    eval.fatal("update '{s}': more error notes than expected", .{update.name});
+                }
+                try eval.checkOneError(update, error_bundle, expected.errors[expected_idx], true, note_idx);
+                expected_idx += 1;
+            }
+        }
+
+        if (!std.mem.eql(u8, error_bundle.getCompileLogOutput(), expected.compile_log_output)) {
+            const color: std.zig.Color = .auto;
+            error_bundle.renderToStdErr(color.renderOptions());
+            eval.fatal("update '{s}': unexpected compile log output", .{update.name});
+        }
+    }
+
+    fn checkOneError(
+        eval: *Eval,
+        update: Case.Update,
+        eb: std.zig.ErrorBundle,
+        expected: Case.ExpectedError,
+        is_note: bool,
+        err_idx: std.zig.ErrorBundle.MessageIndex,
+    ) Allocator.Error!void {
+        const err = eb.getErrorMessage(err_idx);
+        if (err.src_loc == .none) @panic("TODO error message with no source location");
+        if (err.count != 1) @panic("TODO error message with count>1");
+        const msg = eb.nullTerminatedString(err.msg);
+        const src = eb.getSourceLocation(err.src_loc);
+        const raw_filename = eb.nullTerminatedString(src.src_path);
+
+        // We need to replace backslashes for consistency between platforms.
+        const filename = name: {
+            if (std.mem.indexOfScalar(u8, raw_filename, '\\') == null) break :name raw_filename;
+            const copied = try eval.arena.dupe(u8, raw_filename);
+            std.mem.replaceScalar(u8, copied, '\\', '/');
+            break :name copied;
+        };
+
+        if (expected.is_note != is_note or
+            !std.mem.eql(u8, expected.filename, filename) or
+            expected.line != src.line + 1 or
+            expected.column != src.column + 1 or
+            !std.mem.eql(u8, expected.msg, msg))
+        {
+            const color: std.zig.Color = .auto;
+            eb.renderToStdErr(color.renderOptions());
+            eval.fatal("update '{s}': compile error did not match expected error", .{update.name});
         }
     }
 
@@ -374,7 +435,7 @@ const Eval = struct {
 
         var argv_buf: [2][]const u8 = undefined;
         const argv: []const []const u8, const is_foreign: bool = switch (std.zig.system.getExternalExecutor(
-            eval.host,
+            &eval.host,
             &eval.target.resolved,
             .{ .link_libc = eval.target.backend == .cbe },
         )) {
@@ -467,25 +528,19 @@ const Eval = struct {
     fn end(eval: *Eval, poller: *Poller) !void {
         requestExit(eval.child, eval);
 
-        const Header = std.zig.Server.Message.Header;
-        const stdout = poller.fifo(.stdout);
-        const stderr = poller.fifo(.stderr);
+        const stdout = poller.reader(.stdout);
+        const stderr = poller.reader(.stderr);
 
         poll: while (true) {
-            while (stdout.readableLength() < @sizeOf(Header)) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const header = stdout.reader().readStruct(Header) catch unreachable;
-            while (stdout.readableLength() < header.bytes_len) {
-                if (!(try poller.poll())) break :poll;
-            }
-            const body = stdout.readableSliceOfLen(header.bytes_len);
-            stdout.discard(body.len);
+            const Header = std.zig.Server.Message.Header;
+            while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll;
+            const header = stdout.takeStruct(Header, .little) catch unreachable;
+            while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+            stdout.toss(header.bytes_len);
         }
 
-        if (stderr.readableLength() > 0) {
-            const stderr_data = try stderr.toOwnedSlice();
-            eval.fatal("unexpected stderr:\n{s}", .{stderr_data});
+        if (stderr.bufferedLen() > 0) {
+            eval.fatal("unexpected stderr:\n{s}", .{stderr.buffered()});
         }
     }
 
@@ -548,6 +603,7 @@ const Case = struct {
     updates: []Update,
     root_source_file: []const u8,
     targets: []const Target,
+    modules: []const Module,
 
     const Target = struct {
         query: []const u8,
@@ -569,6 +625,11 @@ const Case = struct {
         };
     };
 
+    const Module = struct {
+        name: []const u8,
+        file: []const u8,
+    };
+
     const Update = struct {
         name: []const u8,
         outcome: Outcome,
@@ -583,25 +644,30 @@ const Case = struct {
 
     const Outcome = union(enum) {
         unknown,
-        compile_errors: []const ExpectedError,
+        compile_errors: struct {
+            errors: []const ExpectedError,
+            compile_log_output: []const u8,
+        },
         stdout: []const u8,
         exit_code: u8,
     };
 
     const ExpectedError = struct {
-        file_name: ?[]const u8 = null,
-        line: ?u32 = null,
-        column: ?u32 = null,
-        msg_exact: ?[]const u8 = null,
-        msg_substring: ?[]const u8 = null,
+        is_note: bool,
+        filename: []const u8,
+        line: u32,
+        column: u32,
+        msg: []const u8,
     };
 
     fn parse(arena: Allocator, bytes: []const u8) !Case {
         const fatal = std.process.fatal;
 
         var targets: std.ArrayListUnmanaged(Target) = .empty;
+        var modules: std.ArrayListUnmanaged(Module) = .empty;
         var updates: std.ArrayListUnmanaged(Update) = .empty;
         var changes: std.ArrayListUnmanaged(FullContents) = .empty;
+        var deletes: std.ArrayListUnmanaged([]const u8) = .empty;
         var it = std.mem.splitScalar(u8, bytes, '\n');
         var line_n: usize = 1;
         var root_source_file: ?[]const u8 = null;
@@ -609,7 +675,7 @@ const Case = struct {
             if (std.mem.startsWith(u8, line, "#")) {
                 var line_it = std.mem.splitScalar(u8, line, '=');
                 const key = line_it.first()[1..];
-                const val = std.mem.trimRight(u8, line_it.rest(), "\r"); // windows moment
+                const val = std.mem.trimEnd(u8, line_it.rest(), "\r"); // windows moment
                 if (val.len == 0) {
                     fatal("line {d}: missing value", .{line_n});
                 } else if (std.mem.eql(u8, key, "target")) {
@@ -637,37 +703,55 @@ const Case = struct {
                         .resolved = resolved,
                         .backend = backend,
                     });
+                } else if (std.mem.eql(u8, key, "module")) {
+                    const split_idx = std.mem.indexOfScalar(u8, val, '=') orelse
+                        fatal("line {d}: module does not include file", .{line_n});
+                    const name = val[0..split_idx];
+                    const file = val[split_idx + 1 ..];
+                    try modules.append(arena, .{
+                        .name = name,
+                        .file = file,
+                    });
                 } else if (std.mem.eql(u8, key, "update")) {
                     if (updates.items.len > 0) {
                         const last_update = &updates.items[updates.items.len - 1];
                         last_update.changes = try changes.toOwnedSlice(arena);
+                        last_update.deletes = try deletes.toOwnedSlice(arena);
                     }
                     try updates.append(arena, .{
                         .name = val,
                         .outcome = .unknown,
                     });
                 } else if (std.mem.eql(u8, key, "file")) {
-                    if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
+                    if (updates.items.len == 0) fatal("line {d}: file directive before update", .{line_n});
 
                     if (root_source_file == null)
                         root_source_file = val;
 
-                    const start_index = it.index.?;
-                    const src = while (true) : (line_n += 1) {
-                        const old = it;
-                        const next_line = it.next() orelse fatal("line {d}: unexpected EOF", .{line_n});
-                        if (std.mem.startsWith(u8, next_line, "#")) {
-                            const end_index = old.index.?;
-                            const src = bytes[start_index..end_index];
-                            it = old;
-                            break src;
-                        }
-                    };
+                    // Because Windows is so excellent, we need to convert CRLF to LF, so
+                    // can't just slice into the input here. How delightful!
+                    var src: std.ArrayListUnmanaged(u8) = .empty;
+
+                    while (true) {
+                        const next_line_raw = it.peek() orelse fatal("line {d}: unexpected EOF", .{line_n});
+                        const next_line = std.mem.trimEnd(u8, next_line_raw, "\r");
+                        if (std.mem.startsWith(u8, next_line, "#")) break;
+
+                        _ = it.next();
+                        line_n += 1;
+
+                        try src.ensureUnusedCapacity(arena, next_line.len + 1);
+                        src.appendSliceAssumeCapacity(next_line);
+                        src.appendAssumeCapacity('\n');
+                    }
 
                     try changes.append(arena, .{
                         .name = val,
-                        .bytes = src,
+                        .bytes = src.items,
                     });
+                } else if (std.mem.eql(u8, key, "rm_file")) {
+                    if (updates.items.len == 0) fatal("line {d}: rm_file directive before update", .{line_n});
+                    try deletes.append(arena, val);
                 } else if (std.mem.eql(u8, key, "expect_stdout")) {
                     if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
                     const last_update = &updates.items[updates.items.len - 1];
@@ -681,7 +765,46 @@ const Case = struct {
                     if (updates.items.len == 0) fatal("line {d}: expect directive before update", .{line_n});
                     const last_update = &updates.items[updates.items.len - 1];
                     if (last_update.outcome != .unknown) fatal("line {d}: conflicting expect directive", .{line_n});
-                    last_update.outcome = .{ .compile_errors = &.{} };
+
+                    var errors: std.ArrayListUnmanaged(ExpectedError) = .empty;
+                    try errors.append(arena, parseExpectedError(val, line_n));
+                    while (true) {
+                        const next_line = it.peek() orelse break;
+                        if (!std.mem.startsWith(u8, next_line, "#")) break;
+                        var new_line_it = std.mem.splitScalar(u8, next_line, '=');
+                        const new_key = new_line_it.first()[1..];
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
+                        if (new_val.len == 0) break;
+                        if (!std.mem.eql(u8, new_key, "expect_error")) break;
+
+                        _ = it.next();
+                        line_n += 1;
+                        try errors.append(arena, parseExpectedError(new_val, line_n));
+                    }
+
+                    var compile_log_output: std.ArrayListUnmanaged(u8) = .empty;
+                    while (true) {
+                        const next_line = it.peek() orelse break;
+                        if (!std.mem.startsWith(u8, next_line, "#")) break;
+                        var new_line_it = std.mem.splitScalar(u8, next_line, '=');
+                        const new_key = new_line_it.first()[1..];
+                        const new_val = std.mem.trimEnd(u8, new_line_it.rest(), "\r");
+                        if (new_val.len == 0) break;
+                        if (!std.mem.eql(u8, new_key, "expect_compile_log")) break;
+
+                        _ = it.next();
+                        line_n += 1;
+                        try compile_log_output.ensureUnusedCapacity(arena, new_val.len + 1);
+                        compile_log_output.appendSliceAssumeCapacity(new_val);
+                        compile_log_output.appendAssumeCapacity('\n');
+                    }
+
+                    last_update.outcome = .{ .compile_errors = .{
+                        .errors = errors.items,
+                        .compile_log_output = compile_log_output.items,
+                    } };
+                } else if (std.mem.eql(u8, key, "expect_compile_log")) {
+                    fatal("line {d}: 'expect_compile_log' must immediately follow 'expect_error'", .{line_n});
                 } else {
                     fatal("line {d}: unrecognized key '{s}'", .{ line_n, key });
                 }
@@ -695,12 +818,14 @@ const Case = struct {
         if (changes.items.len > 0) {
             const last_update = &updates.items[updates.items.len - 1];
             last_update.changes = changes.items; // arena so no need for toOwnedSlice
+            last_update.deletes = deletes.items;
         }
 
         return .{
             .updates = updates.items,
             .root_source_file = root_source_file orelse fatal("missing root source file", .{}),
             .targets = targets.items, // arena so no need for toOwnedSlice
+            .modules = modules.items,
         };
     }
 };
@@ -729,4 +854,44 @@ fn waitChild(child: *std.process.Child, eval: *Eval) void {
         .Exited => |code| if (code != 0) eval.fatal("compiler failed with code {d}", .{code}),
         .Signal, .Stopped, .Unknown => eval.fatal("compiler terminated unexpectedly", .{}),
     }
+}
+
+fn parseExpectedError(str: []const u8, l: usize) Case.ExpectedError {
+    // #expect_error=foo.zig:1:2: error: the error message
+    // #expect_error=foo.zig:1:2: note: and a note
+
+    const fatal = std.process.fatal;
+
+    var it = std.mem.splitScalar(u8, str, ':');
+    const filename = it.first();
+    const line_str = it.next() orelse fatal("line {d}: incomplete error specification", .{l});
+    const column_str = it.next() orelse fatal("line {d}: incomplete error specification", .{l});
+    const error_or_note_str = std.mem.trim(
+        u8,
+        it.next() orelse fatal("line {d}: incomplete error specification", .{l}),
+        " ",
+    );
+    const message = std.mem.trim(u8, it.rest(), " ");
+    if (filename.len == 0) fatal("line {d}: empty filename", .{l});
+    if (message.len == 0) fatal("line {d}: empty error message", .{l});
+    const is_note = if (std.mem.eql(u8, error_or_note_str, "error"))
+        false
+    else if (std.mem.eql(u8, error_or_note_str, "note"))
+        true
+    else
+        fatal("line {d}: expeted 'error' or 'note', found '{s}'", .{ l, error_or_note_str });
+
+    const line = std.fmt.parseInt(u32, line_str, 10) catch
+        fatal("line {d}: invalid line number '{s}'", .{ l, line_str });
+
+    const column = std.fmt.parseInt(u32, column_str, 10) catch
+        fatal("line {d}: invalid column number '{s}'", .{ l, column_str });
+
+    return .{
+        .is_note = is_note,
+        .filename = filename,
+        .line = line,
+        .column = column,
+        .msg = message,
+    };
 }

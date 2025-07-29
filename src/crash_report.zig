@@ -18,18 +18,12 @@ const dev = @import("dev.zig");
 /// To use these crash report diagnostics, publish this panic in your main file
 /// and add `pub const enable_segfault_handler = false;` to your `std_options`.
 /// You will also need to call initialize() on startup, preferably as the very first operation in your program.
-pub const Panic = if (build_options.enable_debug_extensions) struct {
-    pub const call = compilerPanic;
-    pub const sentinelMismatch = std.debug.FormattedPanic.sentinelMismatch;
-    pub const unwrapError = std.debug.FormattedPanic.unwrapError;
-    pub const outOfBounds = std.debug.FormattedPanic.outOfBounds;
-    pub const startGreaterThanEnd = std.debug.FormattedPanic.startGreaterThanEnd;
-    pub const inactiveUnionField = std.debug.FormattedPanic.inactiveUnionField;
-    pub const messages = std.debug.FormattedPanic.messages;
-} else if (dev.env == .bootstrap)
-    std.debug.SimplePanic
+pub const panic = if (build_options.enable_debug_extensions)
+    std.debug.FullPanic(compilerPanic)
+else if (dev.env == .bootstrap)
+    std.debug.simple_panic
 else
-    std.debug.FormattedPanic;
+    std.debug.FullPanic(std.debug.defaultPanic);
 
 /// Install signal handlers to identify crashes and report diagnostics.
 pub fn initialize() void {
@@ -86,21 +80,19 @@ fn dumpStatusReport() !void {
     var fba = std.heap.FixedBufferAllocator.init(&crash_heap);
     const allocator = fba.allocator();
 
-    const stderr = io.getStdErr().writer();
+    var stderr_fw = std.fs.File.stderr().writer(&.{});
+    const stderr = &stderr_fw.interface;
     const block: *Sema.Block = anal.block;
     const zcu = anal.sema.pt.zcu;
 
     const file, const src_base_node = Zcu.LazySrcLoc.resolveBaseNode(block.src_base_inst, zcu) orelse {
         const file = zcu.fileByIndex(block.src_base_inst.resolveFile(&zcu.intern_pool));
-        try stderr.writeAll("Analyzing lost instruction in file '");
-        try writeFilePath(file, stderr);
-        try stderr.writeAll("'. This should not happen!\n\n");
+        try stderr.print("Analyzing lost instruction in file '{f}'. This should not happen!\n\n", .{file.path.fmt(zcu.comp)});
         return;
     };
 
     try stderr.writeAll("Analyzing ");
-    try writeFilePath(file, stderr);
-    try stderr.writeAll("\n");
+    try stderr.print("Analyzing '{f}'\n", .{file.path.fmt(zcu.comp)});
 
     print_zir.renderInstructionContext(
         allocator,
@@ -114,23 +106,24 @@ fn dumpStatusReport() !void {
         error.OutOfMemory => try stderr.writeAll("  <out of memory dumping zir>\n"),
         else => |e| return e,
     };
-    try stderr.writeAll("    For full context, use the command\n      zig ast-check -t ");
-    try writeFilePath(file, stderr);
-    try stderr.writeAll("\n\n");
+    try stderr.print(
+        \\    For full context, use the command
+        \\      zig ast-check -t {f}
+        \\
+        \\
+    , .{file.path.fmt(zcu.comp)});
 
     var parent = anal.parent;
     while (parent) |curr| {
         fba.reset();
-        try stderr.writeAll("  in ");
-        const cur_block_file, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
-            const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
-            try writeFilePath(cur_block_file, stderr);
-            try stderr.writeAll("\n    > [lost instruction; this should not happen]\n");
+        const cur_block_file = zcu.fileByIndex(curr.block.src_base_inst.resolveFile(&zcu.intern_pool));
+        try stderr.print("  in {f}\n", .{cur_block_file.path.fmt(zcu.comp)});
+        _, const cur_block_src_base_node = Zcu.LazySrcLoc.resolveBaseNode(curr.block.src_base_inst, zcu) orelse {
+            try stderr.writeAll("    > [lost instruction; this should not happen]\n");
             parent = curr.parent;
             continue;
         };
-        try writeFilePath(cur_block_file, stderr);
-        try stderr.writeAll("\n    > ");
+        try stderr.writeAll("    > ");
         print_zir.renderSingleInstruction(
             allocator,
             curr.body[curr.body_index],
@@ -147,29 +140,17 @@ fn dumpStatusReport() !void {
         parent = curr.parent;
     }
 
-    try stderr.writeAll("\n");
+    try stderr.writeByte('\n');
 }
 
 var crash_heap: [16 * 4096]u8 = undefined;
 
-fn writeFilePath(file: *Zcu.File, writer: anytype) !void {
-    if (file.mod.root.root_dir.path) |path| {
-        try writer.writeAll(path);
-        try writer.writeAll(std.fs.path.sep_str);
-    }
-    if (file.mod.root.sub_path.len > 0) {
-        try writer.writeAll(file.mod.root.sub_path);
-        try writer.writeAll(std.fs.path.sep_str);
-    }
-    try writer.writeAll(file.sub_file_path);
-}
-
-pub fn compilerPanic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace, maybe_ret_addr: ?usize) noreturn {
+pub fn compilerPanic(msg: []const u8, maybe_ret_addr: ?usize) noreturn {
     @branchHint(.cold);
     PanicSwitch.preDispatch();
     const ret_addr = maybe_ret_addr orelse @returnAddress();
     const stack_ctx: StackContext = .{ .current = .{ .ret_addr = ret_addr } };
-    PanicSwitch.dispatch(error_return_trace, stack_ctx, msg);
+    PanicSwitch.dispatch(@errorReturnTrace(), stack_ctx, msg);
 }
 
 /// Attaches a global SIGSEGV handler
@@ -181,16 +162,15 @@ pub fn attachSegfaultHandler() void {
         _ = windows.kernel32.AddVectoredExceptionHandler(0, handleSegfaultWindows);
         return;
     }
-    var act: posix.Sigaction = .{
+    const act: posix.Sigaction = .{
         .handler = .{ .sigaction = handleSegfaultPosix },
-        .mask = posix.empty_sigset,
+        .mask = posix.sigemptyset(),
         .flags = (posix.SA.SIGINFO | posix.SA.RESTART | posix.SA.RESETHAND),
     };
-
     debug.updateSegfaultHandler(&act);
 }
 
-fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.C) noreturn {
+fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) noreturn {
     // TODO: use alarm() here to prevent infinite loops
     PanicSwitch.preDispatch();
 
@@ -229,7 +209,7 @@ const WindowsSegfaultMessage = union(enum) {
     illegal_instruction: void,
 };
 
-fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(windows.WINAPI) c_long {
+fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_long {
     switch (info.ExceptionRecord.ExceptionCode) {
         windows.EXCEPTION_DATATYPE_MISALIGNMENT => handleSegfaultWindowsExtra(info, .{ .literal = "Unaligned Memory Access" }),
         windows.EXCEPTION_ACCESS_VIOLATION => handleSegfaultWindowsExtra(info, .segfault),
@@ -289,11 +269,12 @@ const StackContext = union(enum) {
                 debug.dumpCurrentStackTrace(ct.ret_addr);
             },
             .exception => |context| {
-                debug.dumpStackTraceFromBase(context);
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
+                debug.dumpStackTraceFromBase(context, stderr);
             },
             .not_supported => {
-                const stderr = io.getStdErr().writer();
-                stderr.writeAll("Stack trace not supported on this platform.\n") catch {};
+                std.fs.File.stderr().writeAll("Stack trace not supported on this platform.\n") catch {};
             },
         }
     }
@@ -400,7 +381,8 @@ const PanicSwitch = struct {
 
         state.recover_stage = .release_mutex;
 
-        const stderr = io.getStdErr().writer();
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
         if (builtin.single_threaded) {
             stderr.print("panic: ", .{}) catch goTo(releaseMutex, .{state});
         } else {
@@ -427,7 +409,8 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .release_mutex;
-        const stderr = io.getStdErr().writer();
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
         stderr.writeAll("\nOriginal Error:\n") catch {};
         goTo(reportStack, .{state});
     }
@@ -498,7 +481,8 @@ const PanicSwitch = struct {
         recover(state, trace, stack, msg);
 
         state.recover_stage = .silent_abort;
-        const stderr = io.getStdErr().writer();
+        var stderr_fw = std.fs.File.stderr().writer(&.{});
+        const stderr = &stderr_fw.interface;
         stderr.writeAll("Aborting...\n") catch {};
         goTo(abort, .{});
     }
@@ -526,7 +510,8 @@ const PanicSwitch = struct {
                 // lower the verbosity, and restore it at the end if we don't panic.
                 state.recover_verbosity = .message_only;
 
-                const stderr = io.getStdErr().writer();
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
                 stderr.writeAll("\nPanicked during a panic: ") catch {};
                 stderr.writeAll(msg) catch {};
                 stderr.writeAll("\nInner panic stack:\n") catch {};
@@ -540,10 +525,11 @@ const PanicSwitch = struct {
             .message_only => {
                 state.recover_verbosity = .silent;
 
-                const stderr = io.getStdErr().writer();
+                var stderr_fw = std.fs.File.stderr().writer(&.{});
+                const stderr = &stderr_fw.interface;
                 stderr.writeAll("\nPanicked while dumping inner panic stack: ") catch {};
                 stderr.writeAll(msg) catch {};
-                stderr.writeAll("\n") catch {};
+                stderr.writeByte('\n') catch {};
 
                 // If we succeed, restore all the way to dumping the stack.
                 state.recover_verbosity = .message_and_stack;

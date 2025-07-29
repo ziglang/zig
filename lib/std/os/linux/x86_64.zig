@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -19,8 +20,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("syscall"
         : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (@intFromEnum(number)),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -28,8 +28,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={rax}" (-> usize),
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -38,8 +37,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{rax}" (@intFromEnum(number)),
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -49,8 +47,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{rdi}" (arg1),
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -61,8 +58,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{rsi}" (arg2),
           [arg3] "{rdx}" (arg3),
           [arg4] "{r10}" (arg4),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -74,8 +70,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{rdx}" (arg3),
           [arg4] "{r10}" (arg4),
           [arg5] "{r8}" (arg5),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
 pub fn syscall6(
@@ -96,11 +91,10 @@ pub fn syscall6(
           [arg4] "{r10}" (arg4),
           [arg5] "{r8}" (arg5),
           [arg6] "{r9}" (arg6),
-        : "rcx", "r11", "memory"
-    );
+        : .{ .rcx = true, .r11 = true, .memory = true });
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     asm volatile (
         \\      movl $56,%%eax // SYS_clone
         \\      movq %%rdi,%%r11
@@ -116,8 +110,15 @@ pub fn clone() callconv(.Naked) usize {
         \\      testq %%rax,%%rax
         \\      jz 1f
         \\      retq
-        \\1:    .cfi_undefined %%rip
+        \\
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\      .cfi_undefined %%rip
+    );
+    asm volatile (
         \\      xorl %%ebp,%%ebp
+        \\
         \\      popq %%rdi
         \\      callq *%%r9
         \\      movl %%eax,%%edi
@@ -129,21 +130,19 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ movl %[number], %%eax
             \\ syscall
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : "rcx", "r11", "memory"
-        ),
+            : .{ .rcx = true, .r11 = true, .memory = true }),
         else => asm volatile (
             \\ syscall
             :
             : [number] "{rax}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "rcx", "r11", "memory"
-        ),
+            : .{ .rcx = true, .r11 = true, .memory = true }),
     }
 }
 
@@ -223,30 +222,6 @@ pub const Flock = extern struct {
     start: off_t,
     len: off_t,
     pid: pid_t,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
 };
 
 pub const off_t = i64;
@@ -361,20 +336,28 @@ pub const mcontext_t = extern struct {
     reserved1: [8]usize = undefined,
 };
 
+/// ucontext_t is part of the state pushed on the stack by the kernel for
+/// a signal handler.  And also a subset of the state returned from the
+/// makecontext/getcontext/swapcontext POSIX APIs.
+///
+/// Currently this structure matches the glibc/musl layout.  It contains a
+/// 1024-bit signal mask, and `fpregs_mem`.  This structure should be
+/// split into one for the kernel ABI and c.zig should define a glibc/musl
+/// compatible structure.
 pub const ucontext_t = extern struct {
     flags: usize,
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
-    fpregs_mem: [64]usize,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a glibc-compatible (1024-bit) sigmask.
+    fpregs_mem: [64]usize, // Not part of kernel ABI, only part of glibc ucontext_t
 };
 
 fn gpRegisterOffset(comptime reg_index: comptime_int) usize {
     return @offsetOf(ucontext_t, "mcontext") + @offsetOf(mcontext_t, "gregs") + @sizeOf(usize) * reg_index;
 }
 
-fn getContextInternal() callconv(.Naked) usize {
+fn getContextInternal() callconv(.naked) usize {
     // TODO: Read GS/FS registers?
     asm volatile (
         \\ movq $0, %[flags_offset:c](%%rdi)
@@ -447,9 +430,8 @@ fn getContextInternal() callconv(.Naked) usize {
           [stack_offset] "i" (@offsetOf(ucontext_t, "stack")),
           [sigprocmask] "i" (@intFromEnum(linux.SYS.rt_sigprocmask)),
           [sigmask_offset] "i" (@offsetOf(ucontext_t, "sigmask")),
-          [sigset_size] "i" (linux.NSIG / 8),
-        : "cc", "memory", "rax", "rcx", "rdx", "rdi", "rsi", "r8", "r10", "r11"
-    );
+          [sigset_size] "i" (@sizeOf(sigset_t)),
+        : .{ .cc = true, .memory = true, .rax = true, .rcx = true, .rdx = true, .rdi = true, .rsi = true, .r8 = true, .r10 = true, .r11 = true });
 }
 
 pub inline fn getcontext(context: *ucontext_t) usize {
@@ -463,6 +445,5 @@ pub inline fn getcontext(context: *ucontext_t) usize {
           [_] "={rdi}" (clobber_rdi),
         : [_] "{rdi}" (context),
           [getContextInternal] "X" (&getContextInternal),
-        : "cc", "memory", "rcx", "rdx", "rsi", "r8", "r10", "r11"
-    );
+        : .{ .cc = true, .memory = true, .rcx = true, .rdx = true, .rsi = true, .r8 = true, .r10 = true, .r11 = true });
 }

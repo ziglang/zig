@@ -26,8 +26,11 @@
 
 #ifndef _REGEX_H_
 #include <_regex.h>
-#endif // _REGEX_H_
-#include <_xlocale.h>
+#include <__xlocale.h>
+#endif
+
+#include <_bounds.h>
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 
@@ -37,14 +40,14 @@ int	regcomp_l(regex_t * __restrict, const char * __restrict, int,
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
 
-int	regncomp_l(regex_t * __restrict, const char * __restrict, size_t,
-	    int, locale_t __restrict)
+int	regncomp_l(regex_t * __restrict, const char * __restrict _LIBC_COUNT(__len),
+	    size_t __len, int, locale_t __restrict)
 	    __OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_NA);
 int	regwcomp_l(regex_t * __restrict, const wchar_t * __restrict,
 	    int, locale_t __restrict)
 	    __OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_NA);
-int	regwnexec_l(const regex_t * __restrict, const wchar_t * __restrict,
-	    size_t, size_t, regmatch_t __pmatch[ __restrict], int,
+int	regwnexec_l(const regex_t * __restrict, const wchar_t * __restrict _LIBC_COUNT(__len),
+	    size_t __len, size_t __nmatch, regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int,
 	    locale_t __restrict)
 	    __OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_NA);
 

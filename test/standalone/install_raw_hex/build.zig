@@ -16,9 +16,11 @@ pub fn build(b: *std.Build) void {
 
     const elf = b.addExecutable(.{
         .name = "zig-nrf52-blink.elf",
-        .root_source_file = b.path("main.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
 
     const hex_step = elf.addObjCopy(.{

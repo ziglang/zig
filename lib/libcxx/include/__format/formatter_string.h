@@ -59,44 +59,26 @@ public:
 // Formatter const char*.
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<const _CharT*, _CharT> : public __formatter_string<_CharT> {
-  using _Base = __formatter_string<_CharT>;
+  using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator format(const _CharT* __str, _FormatContext& __ctx) const {
     _LIBCPP_ASSERT_INTERNAL(__str, "The basic_format_arg constructor should have prevented an invalid pointer.");
-
-    __format_spec::__parsed_specifications<_CharT> __specs = _Base::__parser_.__get_parsed_std_specifications(__ctx);
-#  if _LIBCPP_STD_VER >= 23
-    if (_Base::__parser_.__type_ == __format_spec::__type::__debug)
-      return __formatter::__format_escaped_string(basic_string_view<_CharT>{__str}, __ctx.out(), __specs);
-#  endif
-
-    // When using a center or right alignment and the width option the length
-    // of __str must be known to add the padding upfront. This case is handled
-    // by the base class by converting the argument to a basic_string_view.
+    // Converting the input to a basic_string_view means the data is looped over twice;
+    // - once to determine the length, and
+    // - once to process the data.
     //
-    // When using left alignment and the width option the padding is added
-    // after outputting __str so the length can be determined while outputting
-    // __str. The same holds true for the precision, during outputting __str it
-    // can be validated whether the precision threshold has been reached. For
-    // now these optimizations aren't implemented. Instead the base class
-    // handles these options.
-    // TODO FMT Implement these improvements.
-    if (__specs.__has_width() || __specs.__has_precision())
-      return __formatter::__write_string(basic_string_view<_CharT>{__str}, __ctx.out(), __specs);
-
-    // No formatting required, copy the string to the output.
-    auto __out_it = __ctx.out();
-    while (*__str)
-      *__out_it++ = *__str++;
-    return __out_it;
+    // This sounds slower than writing the output directly. However internally
+    // the output algorithms have optimizations for "bulk" operations, which
+    // makes this faster than a single-pass character-by-character output.
+    return _Base::format(basic_string_view<_CharT>(__str), __ctx);
   }
 };
 
 // Formatter char*.
 template <__fmt_char_type _CharT>
 struct _LIBCPP_TEMPLATE_VIS formatter<_CharT*, _CharT> : public formatter<const _CharT*, _CharT> {
-  using _Base = formatter<const _CharT*, _CharT>;
+  using _Base _LIBCPP_NODEBUG = formatter<const _CharT*, _CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator format(_CharT* __str, _FormatContext& __ctx) const {
@@ -107,7 +89,7 @@ struct _LIBCPP_TEMPLATE_VIS formatter<_CharT*, _CharT> : public formatter<const 
 // Formatter char[].
 template <__fmt_char_type _CharT, size_t _Size>
 struct _LIBCPP_TEMPLATE_VIS formatter<_CharT[_Size], _CharT> : public __formatter_string<_CharT> {
-  using _Base = __formatter_string<_CharT>;
+  using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator
@@ -120,7 +102,7 @@ struct _LIBCPP_TEMPLATE_VIS formatter<_CharT[_Size], _CharT> : public __formatte
 template <__fmt_char_type _CharT, class _Traits, class _Allocator>
 struct _LIBCPP_TEMPLATE_VIS formatter<basic_string<_CharT, _Traits, _Allocator>, _CharT>
     : public __formatter_string<_CharT> {
-  using _Base = __formatter_string<_CharT>;
+  using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator
@@ -133,7 +115,7 @@ struct _LIBCPP_TEMPLATE_VIS formatter<basic_string<_CharT, _Traits, _Allocator>,
 // Formatter std::string_view.
 template <__fmt_char_type _CharT, class _Traits>
 struct _LIBCPP_TEMPLATE_VIS formatter<basic_string_view<_CharT, _Traits>, _CharT> : public __formatter_string<_CharT> {
-  using _Base = __formatter_string<_CharT>;
+  using _Base _LIBCPP_NODEBUG = __formatter_string<_CharT>;
 
   template <class _FormatContext>
   _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator
@@ -143,7 +125,32 @@ struct _LIBCPP_TEMPLATE_VIS formatter<basic_string_view<_CharT, _Traits>, _CharT
   }
 };
 
-#endif //_LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 23
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<char*> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<const char*> = true;
+template <size_t _Size>
+inline constexpr bool enable_nonlocking_formatter_optimization<char[_Size]> = true;
+template <class _Traits, class _Allocator>
+inline constexpr bool enable_nonlocking_formatter_optimization<basic_string<char, _Traits, _Allocator>> = true;
+template <class _Traits>
+inline constexpr bool enable_nonlocking_formatter_optimization<basic_string_view<char, _Traits>> = true;
+
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<wchar_t*> = true;
+template <>
+inline constexpr bool enable_nonlocking_formatter_optimization<const wchar_t*> = true;
+template <size_t _Size>
+inline constexpr bool enable_nonlocking_formatter_optimization<wchar_t[_Size]> = true;
+template <class _Traits, class _Allocator>
+inline constexpr bool enable_nonlocking_formatter_optimization<basic_string<wchar_t, _Traits, _Allocator>> = true;
+template <class _Traits>
+inline constexpr bool enable_nonlocking_formatter_optimization<basic_string_view<wchar_t, _Traits>> = true;
+#    endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif   // _LIBCPP_STD_VER >= 23
+#endif     // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

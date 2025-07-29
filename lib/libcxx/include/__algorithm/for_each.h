@@ -14,7 +14,6 @@
 #include <__config>
 #include <__iterator/segmented_iterator.h>
 #include <__ranges/movable_box.h>
-#include <__type_traits/enable_if.h>
 #include <__utility/in_place.h>
 #include <__utility/move.h>
 

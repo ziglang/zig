@@ -1,5 +1,5 @@
 /* Macros to control TS 18661-3 glibc features on x86.
-   Copyright (C) 2017-2024 Free Software Foundation, Inc.
+   Copyright (C) 2017-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -28,7 +28,8 @@
    support, for x86_64 and x86.  */
 #if (defined __x86_64__							\
      ? __GNUC_PREREQ (4, 3)						\
-     : (defined __GNU__ ? __GNUC_PREREQ (4, 5) : __GNUC_PREREQ (4, 4)))
+     : (defined __GNU__ ? __GNUC_PREREQ (4, 5) : __GNUC_PREREQ (4, 4))) \
+    || __glibc_clang_prereq (3, 4)
 # define __HAVE_FLOAT128 1
 #else
 # define __HAVE_FLOAT128 0
@@ -58,7 +59,9 @@
 /* Defined to concatenate the literal suffix to be used with _Float128
    types, if __HAVE_FLOAT128 is 1. */
 # if __HAVE_FLOAT128
-#  if !__GNUC_PREREQ (7, 0) || (defined __cplusplus && !__GNUC_PREREQ (13, 0))
+#  if !__GNUC_PREREQ (7, 0) \
+      || (defined __cplusplus && !__GNUC_PREREQ (13, 0)) \
+      || defined __clang__
 /* The literal suffix f128 exists only since GCC 7.0.  */
 #   define __f128(x) x##q
 #  else
@@ -68,7 +71,9 @@
 
 /* Defined to a complex binary128 type if __HAVE_FLOAT128 is 1.  */
 # if __HAVE_FLOAT128
-#  if !__GNUC_PREREQ (7, 0) || (defined __cplusplus && !__GNUC_PREREQ (13, 0))
+#  if !__GNUC_PREREQ (7, 0) \
+      || (defined __cplusplus && !__GNUC_PREREQ (13, 0)) \
+      || defined __clang__
 /* Add a typedef for older GCC compilers which don't natively support
    _Complex _Float128.  */
 typedef _Complex float __cfloat128 __attribute__ ((__mode__ (__TC__)));
@@ -82,12 +87,14 @@ typedef _Complex float __cfloat128 __attribute__ ((__mode__ (__TC__)));
 # if __HAVE_FLOAT128
 
 /* The type _Float128 exists only since GCC 7.0.  */
-#  if !__GNUC_PREREQ (7, 0) || (defined __cplusplus && !__GNUC_PREREQ (13, 0))
+#  if !__GNUC_PREREQ (7, 0) \
+      || (defined __cplusplus && !__GNUC_PREREQ (13, 0)) \
+      || __glibc_clang_prereq (3, 4)
 typedef __float128 _Float128;
 #  endif
 
-/* __builtin_huge_valf128 doesn't exist before GCC 7.0.  */
-#  if !__GNUC_PREREQ (7, 0)
+/* __builtin_huge_valf128 doesn't exist before GCC 7.0 nor Clang 7.0.  */
+#  if !__GNUC_PREREQ (7, 0) && !__glibc_clang_prereq (7, 0)
 #   define __builtin_huge_valf128() ((_Float128) __builtin_huge_val ())
 #  endif
 
@@ -96,7 +103,7 @@ typedef __float128 _Float128;
    Converting a narrower sNaN to _Float128 produces a quiet NaN, so
    attempts to use _Float128 sNaNs will not work properly with older
    compilers.  */
-#  if !__GNUC_PREREQ (7, 0)
+#  if !__GNUC_PREREQ (7, 0) && !defined __clang__
 #   define __builtin_copysignf128 __builtin_copysignq
 #   define __builtin_fabsf128 __builtin_fabsq
 #   define __builtin_inff128() ((_Float128) __builtin_inf ())
@@ -107,7 +114,8 @@ typedef __float128 _Float128;
 /* In math/math.h, __MATH_TG will expand signbit to __builtin_signbit*,
    e.g.: __builtin_signbitf128, before GCC 6.  However, there has never
    been a __builtin_signbitf128 in GCC and the type-generic builtin is
-   only available since GCC 6.  */
+   only available since GCC 6.  signbit is expanded to __builtin_signbit
+   after Clang 3.3.  */
 #  if !__GNUC_PREREQ (6, 0)
 #   define __builtin_signbitf128 __signbitf128
 #  endif

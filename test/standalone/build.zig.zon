@@ -1,9 +1,13 @@
 .{
-    .name = "standalone_test_cases",
+    .name = .standalone_test_cases,
+    .fingerprint = 0xc0dbdf9c3b92810b,
     .version = "0.0.0",
     .dependencies = .{
         .simple = .{
             .path = "simple",
+        },
+        .test_obj_link_run = .{
+            .path = "test_obj_link_run",
         },
         .test_runner_path = .{
             .path = "test_runner_path",
@@ -44,9 +48,6 @@
         },
         .pkg_import = .{
             .path = "pkg_import",
-        },
-        .use_alias = .{
-            .path = "use_alias",
         },
         .install_raw_hex = .{
             .path = "install_raw_hex",
@@ -96,11 +97,17 @@
         .empty_env = .{
             .path = "empty_env",
         },
+        .env_vars = .{
+            .path = "env_vars",
+        },
         .issue_11595 = .{
             .path = "issue_11595",
         },
         .libcxx = .{
             .path = "libcxx",
+        },
+        .libfuzzer = .{
+            .path = "libfuzzer",
         },
         .load_dynamic_library = .{
             .path = "load_dynamic_library",
@@ -125,6 +132,9 @@
         },
         .c_compiler = .{
             .path = "c_compiler",
+        },
+        .c_embed_path = .{
+            .path = "c_embed_path",
         },
         .pie = .{
             .path = "pie",
@@ -171,6 +181,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .dependency_options = .{
+            .path = "dependency_options",
+        },
         .dependencyFromBuildZig = .{
             .path = "dependencyFromBuildZig",
         },
@@ -179,6 +192,21 @@
         },
         .run_output_caching = .{
             .path = "run_output_caching",
+        },
+        .empty_global_error_set = .{
+            .path = "empty_global_error_set",
+        },
+        .omit_cfi = .{
+            .path = "omit_cfi",
+        },
+        .config_header = .{
+            .path = "config_header",
+        },
+        .entry_point = .{
+            .path = "entry_point",
+        },
+        .run_cwd = .{
+            .path = "run_cwd",
         },
     },
     .paths = .{

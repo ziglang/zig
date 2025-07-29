@@ -1,6 +1,6 @@
 const builtin = @import("builtin");
 const std = @import("std");
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 const mem = std.mem;
 const fs = std.fs;
 const process = std.process;
@@ -44,7 +44,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                try std.io.getStdOut().writeAll(usage);
+                try std.fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "-i")) {
                 opt_input = args_it.next() orelse fatal("expected parameter after -i", .{});
@@ -85,11 +85,22 @@ pub fn main() !void {
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
 
-    var bw = std.io.bufferedWriter(out_file.writer());
+    var bw = std.io.bufferedWriter(out_file.deprecatedWriter());
     const out = bw.writer();
 
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));
-    try printOutput(arena, out, code, input_path, zig_path, opt_zig_lib_dir, tmp_dir_path);
+    try printOutput(
+        arena,
+        out,
+        code,
+        tmp_dir_path,
+        try std.fs.path.relative(arena, tmp_dir_path, zig_path),
+        try std.fs.path.relative(arena, tmp_dir_path, input_path),
+        if (opt_zig_lib_dir) |zig_lib_dir|
+            try std.fs.path.relative(arena, tmp_dir_path, zig_lib_dir)
+        else
+            null,
+    );
 
     try bw.flush();
 }
@@ -98,10 +109,14 @@ fn printOutput(
     arena: Allocator,
     out: anytype,
     code: Code,
-    input_path: []const u8,
-    zig_exe: []const u8,
-    opt_zig_lib_dir: ?[]const u8,
+    /// Relative to this process' cwd.
     tmp_dir_path: []const u8,
+    /// Relative to `tmp_dir_path`.
+    zig_exe: []const u8,
+    /// Relative to `tmp_dir_path`.
+    input_path: []const u8,
+    /// Relative to `tmp_dir_path`.
+    opt_zig_lib_dir: ?[]const u8,
 ) !void {
     var env_map = try process.getEnvMap(arena);
     try env_map.put("CLICOLOR_FORCE", "1");
@@ -153,6 +168,15 @@ fn printOutput(
                 try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try build_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try build_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
             if (code.verbose_cimport) {
                 try build_args.append("--verbose-cimport");
                 try shell_out.print("--verbose-cimport ", .{});
@@ -203,13 +227,12 @@ fn printOutput(
                 if (mem.startsWith(u8, triple, "wasm32") or
                     mem.startsWith(u8, triple, "riscv64-linux") or
                     (mem.startsWith(u8, triple, "x86_64-linux") and
-                    builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
+                        builtin.os.tag != .linux or builtin.cpu.arch != .x86_64))
                 {
                     // skip execution
                     break :code_block;
                 }
             }
-
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
@@ -294,7 +317,7 @@ fn printOutput(
                 const target = try std.zig.system.resolveTargetQuery(
                     target_query,
                 );
-                switch (getExternalExecutor(host, &target, .{
+                switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,
                 })) {
                     .native => {},
@@ -304,7 +327,17 @@ fn printOutput(
                     },
                 }
             }
-            const result = run(arena, &env_map, null, test_args.items) catch
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try test_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try test_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
+
+            const result = run(arena, &env_map, tmp_dir_path, test_args.items) catch
                 fatal("test failed", .{});
             const escaped_stderr = try escapeHtml(arena, result.stderr);
             const escaped_stdout = try escapeHtml(arena, result.stdout);
@@ -339,6 +372,7 @@ fn printOutput(
                 .allocator = arena,
                 .argv = test_args.items,
                 .env_map = &env_map,
+                .cwd = tmp_dir_path,
                 .max_output_bytes = max_doc_file_size,
             });
             switch (result.term) {
@@ -395,6 +429,7 @@ fn printOutput(
                 .allocator = arena,
                 .argv = test_args.items,
                 .env_map = &env_map,
+                .cwd = tmp_dir_path,
                 .max_output_bytes = max_doc_file_size,
             });
             switch (result.term) {
@@ -432,10 +467,7 @@ fn printOutput(
                 zig_exe,    "build-obj",
                 "--color",  "on",
                 "--name",   code_name,
-                input_path,
-                try std.fmt.allocPrint(arena, "-femit-bin={s}{c}{s}", .{
-                    tmp_dir_path, fs.path.sep, name_plus_obj_ext,
-                }),
+                input_path, try std.fmt.allocPrint(arena, "-femit-bin={s}", .{name_plus_obj_ext}),
             });
             if (opt_zig_lib_dir) |zig_lib_dir| {
                 try build_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
@@ -455,6 +487,15 @@ fn printOutput(
                 try build_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try build_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try build_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
             for (code.additional_options) |option| {
                 try build_args.append(option);
                 try shell_out.print("{s} ", .{option});
@@ -465,6 +506,7 @@ fn printOutput(
                     .allocator = arena,
                     .argv = build_args.items,
                     .env_map = &env_map,
+                    .cwd = tmp_dir_path,
                     .max_output_bytes = max_doc_file_size,
                 });
                 switch (result.term) {
@@ -489,14 +531,14 @@ fn printOutput(
                 const colored_stderr = try termColor(arena, escaped_stderr);
                 try shell_out.print("\n{s} ", .{colored_stderr});
             } else {
-                _ = run(arena, &env_map, null, build_args.items) catch fatal("example failed to compile", .{});
+                _ = run(arena, &env_map, tmp_dir_path, build_args.items) catch fatal("example failed to compile", .{});
             }
             try shell_out.writeAll("\n");
         },
         .lib => {
             const bin_basename = try std.zig.binNameAlloc(arena, .{
                 .root_name = code_name,
-                .target = builtin.target,
+                .target = &builtin.target,
                 .output_mode = .Lib,
             });
 
@@ -505,10 +547,7 @@ fn printOutput(
 
             try test_args.appendSlice(&[_][]const u8{
                 zig_exe,    "build-lib",
-                input_path,
-                try std.fmt.allocPrint(arena, "-femit-bin={s}{s}{s}", .{
-                    tmp_dir_path, fs.path.sep_str, bin_basename,
-                }),
+                input_path, try std.fmt.allocPrint(arena, "-femit-bin={s}", .{bin_basename}),
             });
             if (opt_zig_lib_dir) |zig_lib_dir| {
                 try test_args.appendSlice(&.{ "--zig-lib-dir", zig_lib_dir });
@@ -526,6 +565,15 @@ fn printOutput(
                 try test_args.appendSlice(&[_][]const u8{ "-target", triple });
                 try shell_out.print("-target {s} ", .{triple});
             }
+            if (code.use_llvm) |use_llvm| {
+                if (use_llvm) {
+                    try test_args.append("-fllvm");
+                    try shell_out.print("-fllvm", .{});
+                } else {
+                    try test_args.append("-fno-llvm");
+                    try shell_out.print("-fno-llvm", .{});
+                }
+            }
             if (code.link_mode) |link_mode| {
                 switch (link_mode) {
                     .static => {
@@ -542,7 +590,7 @@ fn printOutput(
                 try test_args.append(option);
                 try shell_out.print("{s} ", .{option});
             }
-            const result = run(arena, &env_map, null, test_args.items) catch fatal("test failed", .{});
+            const result = run(arena, &env_map, tmp_dir_path, test_args.items) catch fatal("test failed", .{});
             const escaped_stderr = try escapeHtml(arena, result.stderr);
             const escaped_stdout = try escapeHtml(arena, result.stdout);
             try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
@@ -605,8 +653,6 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,
@@ -643,7 +689,6 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,
@@ -815,6 +860,7 @@ const Code = struct {
     verbose_cimport: bool,
     just_check_syntax: bool,
     additional_options: []const []const u8,
+    use_llvm: ?bool,
 
     const Id = union(enum) {
         @"test",
@@ -874,6 +920,7 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     var link_libc = false;
     var disable_cache = false;
     var verbose_cimport = false;
+    var use_llvm: ?bool = null;
 
     while (it.next()) |prefixed_line| {
         const line = skipPrefix(prefixed_line);
@@ -889,6 +936,10 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
             try additional_options.append(arena, line["additional_option=".len..]);
         } else if (mem.startsWith(u8, line, "target=")) {
             target_str = line["target=".len..];
+        } else if (mem.eql(u8, line, "llvm=true")) {
+            use_llvm = true;
+        } else if (mem.eql(u8, line, "llvm=false")) {
+            use_llvm = false;
         } else if (mem.eql(u8, line, "link_libc")) {
             link_libc = true;
         } else if (mem.eql(u8, line, "disable_cache")) {
@@ -911,6 +962,7 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
         .disable_cache = disable_cache,
         .verbose_cimport = verbose_cimport,
         .just_check_syntax = just_check_syntax,
+        .use_llvm = use_llvm,
     };
 }
 
@@ -1076,7 +1128,7 @@ fn in(slice: []const u8, number: u8) bool {
 fn run(
     allocator: Allocator,
     env_map: *process.EnvMap,
-    cwd: ?[]const u8,
+    cwd: []const u8,
     args: []const []const u8,
 ) !process.Child.RunResult {
     const result = try process.Child.run(.{
@@ -1109,10 +1161,10 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     var cmd_cont: bool = false;
     var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
-        const line = mem.trimRight(u8, orig_line, " \r");
+        const line = mem.trimEnd(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
@@ -1121,7 +1173,7 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
             try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {

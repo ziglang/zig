@@ -8,7 +8,6 @@ const expectEqual = std.testing.expectEqual;
 
 test "tuple concatenation" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -51,10 +50,9 @@ test "tuple multiplication" {
 }
 
 test "more tuple concatenation" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct {
         fn consume_tuple(tuple: anytype, len: usize) !void {
@@ -129,8 +127,8 @@ test "tuple initializer for var" {
 }
 
 test "array-like initializer for tuple types" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = @Type(.{
         .@"struct" = .{
@@ -141,16 +139,16 @@ test "array-like initializer for tuple types" {
                 .{
                     .name = "0",
                     .type = i32,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = @alignOf(i32),
                 },
                 .{
                     .name = "1",
                     .type = u8,
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = @alignOf(i32),
+                    .alignment = @alignOf(u8),
                 },
             },
         },
@@ -215,10 +213,10 @@ test "initializing anon struct with explicit type" {
 }
 
 test "fieldParentPtr of tuple" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: u32 = 0;
     _ = &x;
@@ -227,10 +225,10 @@ test "fieldParentPtr of tuple" {
 }
 
 test "fieldParentPtr of anon struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: u32 = 0;
     _ = &x;
@@ -253,8 +251,7 @@ test "offsetOf anon struct" {
 }
 
 test "initializing tuple with mixed comptime-runtime fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: u32 = 15;
     _ = &x;
@@ -265,8 +262,7 @@ test "initializing tuple with mixed comptime-runtime fields" {
 }
 
 test "initializing anon struct with mixed comptime-runtime fields" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var x: u32 = 15;
     _ = &x;
@@ -277,9 +273,9 @@ test "initializing anon struct with mixed comptime-runtime fields" {
 }
 
 test "tuple in tuple passed to generic function" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn pair(x: f32, y: f32) std.meta.Tuple(&.{ f32, f32 }) {
@@ -296,9 +292,9 @@ test "tuple in tuple passed to generic function" {
 }
 
 test "coerce tuple to tuple" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = std.meta.Tuple(&.{u8});
     const S = struct {
@@ -310,9 +306,9 @@ test "coerce tuple to tuple" {
 }
 
 test "tuple type with void field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = std.meta.Tuple(&[_]type{void});
     const x = T{{}};
@@ -330,7 +326,7 @@ test "zero sized struct in tuple handled correctly" {
                 .fields = &.{.{
                     .name = "0",
                     .type = struct {},
-                    .default_value = null,
+                    .default_value_ptr = null,
                     .is_comptime = false,
                     .alignment = 0,
                 }},
@@ -347,8 +343,8 @@ test "zero sized struct in tuple handled correctly" {
 }
 
 test "tuple type with void field and a runtime field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = std.meta.Tuple(&[_]type{ usize, void });
     var t: T = .{ 5, {} };
@@ -357,7 +353,6 @@ test "tuple type with void field and a runtime field" {
 }
 
 test "branching inside tuple literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -376,6 +371,7 @@ test "tuple initialized with a runtime known value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const E = union(enum) { e: []const u8 };
     const W = union(enum) { w: E };
@@ -389,22 +385,22 @@ test "tuple of struct concatenation and coercion to array" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const StructWithDefault = struct { value: f32 = 42 };
     const SomeStruct = struct { array: [4]StructWithDefault };
 
     const value1 = SomeStruct{ .array = .{StructWithDefault{}} ++ [_]StructWithDefault{.{}} ** 3 };
-    const value2 = SomeStruct{ .array = .{.{}} ++ [_]StructWithDefault{.{}} ** 3 };
+    const value2 = SomeStruct{ .array = .{ .{}, .{}, .{}, .{} } };
 
     try expectEqual(value1, value2);
 }
 
 test "nested runtime conditionals in tuple initializer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var data: u8 = 0;
     _ = &data;
@@ -437,9 +433,9 @@ test "sentinel slice in tuple" {
 }
 
 test "tuple pointer is indexable" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct { u32, bool };
 
@@ -460,7 +456,6 @@ test "tuple pointer is indexable" {
 }
 
 test "coerce anon tuple to tuple" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -486,18 +481,16 @@ test "empty tuple type" {
 }
 
 test "tuple with comptime fields with non empty initializer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const a: struct { comptime comptime_int = 0 } = .{0};
     _ = a;
 }
 
 test "tuple with runtime value coerced into a slice with a sentinel" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn f(a: [:null]const ?u8) !void {
@@ -566,16 +559,45 @@ test "comptime fields in tuple can be initialized" {
     _ = &a;
 }
 
-test "tuple default values" {
-    const T = struct {
-        usize,
-        usize = 123,
-        usize = 456,
+test "empty struct in tuple" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const T = struct { struct {} };
+    const info = @typeInfo(T);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"struct");
+}
+
+test "empty union in tuple" {
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const T = struct { union {} };
+    const info = @typeInfo(T);
+    try std.testing.expectEqual(@as(usize, 1), info.@"struct".fields.len);
+    try std.testing.expectEqualStrings("0", info.@"struct".fields[0].name);
+    try std.testing.expect(@typeInfo(info.@"struct".fields[0].type) == .@"union");
+}
+
+test "field pointer of underaligned tuple" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTheTest() !void {
+            const T = struct { u8, u32 };
+            var val: T align(2) = .{ 1, 2 };
+
+            comptime assert(@TypeOf(&val[0]) == *u8); // `u8` field pointer isn't overaligned
+            comptime assert(@TypeOf(&val[1]) == *align(2) u32); // `u32` field pointer is correctly underaligned
+
+            try expect(val[0] == 1);
+            try expect(val[1] == 2);
+        }
     };
-
-    const t: T = .{1};
-
-    try expectEqual(1, t[0]);
-    try expectEqual(123, t[1]);
-    try expectEqual(456, t[2]);
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

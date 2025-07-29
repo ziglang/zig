@@ -5,4 +5,4 @@ test "integer cast panic" {
     _ = b;
 }
 
-// test_error=cast truncated bits
+// test_error=integer does not fit in destination type

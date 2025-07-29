@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const DebugSymbols = @import("DebugSymbols.zig");

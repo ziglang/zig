@@ -11,11 +11,11 @@ comptime {
     }
 }
 
-fn __subsf3(a: f32, b: f32) callconv(.C) f32 {
+fn __subsf3(a: f32, b: f32) callconv(.c) f32 {
     return sub(a, b);
 }
 
-fn __aeabi_fsub(a: f32, b: f32) callconv(.AAPCS) f32 {
+fn __aeabi_fsub(a: f32, b: f32) callconv(.{ .arm_aapcs = .{} }) f32 {
     return sub(a, b);
 }
 

@@ -132,6 +132,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
             .SHARING_VIOLATION => return error.AccessDenied,
             .ACCESS_DENIED => return error.AccessDenied,
             .PIPE_BUSY => return error.PipeBusy,
+            .PIPE_NOT_AVAILABLE => return error.NoDevice,
             .OBJECT_PATH_SYNTAX_BAD => unreachable,
             .OBJECT_NAME_COLLISION => return error.PathAlreadyExists,
             .FILE_IS_A_DIRECTORY => return error.IsDir,
@@ -145,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
+                std.Thread.sleep(std.time.ns_per_ms);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -601,6 +602,10 @@ pub const ReadFileError = error{
     OperationAborted,
     /// Unable to read file due to lock.
     LockViolation,
+    /// Known to be possible when:
+    /// - Unable to read from disconnected virtual com port (Windows)
+    AccessDenied,
+    NotOpenForReading,
     Unexpected,
 };
 
@@ -633,6 +638,8 @@ pub fn ReadFile(in_hFile: HANDLE, buffer: []u8, offset: ?u64) ReadFileError!usiz
                 .HANDLE_EOF => return 0,
                 .NETNAME_DELETED => return error.ConnectionResetByPeer,
                 .LOCK_VIOLATION => return error.LockViolation,
+                .ACCESS_DENIED => return error.AccessDenied,
+                .INVALID_HANDLE => return error.NotOpenForReading,
                 else => |err| return unexpectedError(err),
             }
         }
@@ -650,6 +657,9 @@ pub const WriteFileError = error{
     LockViolation,
     /// The specified network name is no longer available.
     ConnectionResetByPeer,
+    /// Known to be possible when:
+    /// - Unable to write to disconnected virtual com port (Windows)
+    AccessDenied,
     Unexpected,
 };
 
@@ -682,10 +692,12 @@ pub fn WriteFile(
             .OPERATION_ABORTED => return error.OperationAborted,
             .NOT_ENOUGH_QUOTA => return error.SystemResources,
             .IO_PENDING => unreachable,
-            .BROKEN_PIPE => return error.BrokenPipe,
+            .NO_DATA => return error.BrokenPipe,
             .INVALID_HANDLE => return error.NotOpenForWriting,
             .LOCK_VIOLATION => return error.LockViolation,
             .NETNAME_DELETED => return error.ConnectionResetByPeer,
+            .ACCESS_DENIED => return error.AccessDenied,
+            .WORKING_SET_QUOTA => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -801,6 +813,7 @@ pub fn CreateSymbolicLink(
         error.NotDir => return error.Unexpected,
         error.WouldBlock => return error.Unexpected,
         error.PipeBusy => return error.Unexpected,
+        error.NoDevice => return error.Unexpected,
         error.AntivirusInterference => return error.Unexpected,
         else => |e| return e,
     };
@@ -1110,7 +1123,7 @@ pub fn DeleteFile(sub_path_w: []const u16, options: DeleteFileOptions) DeleteFil
 
 pub const MoveFileError = error{ FileNotFound, AccessDenied, Unexpected };
 
-pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) MoveFileError!void {
+pub fn MoveFileEx(old_path: []const u8, new_path: []const u8, flags: DWORD) (MoveFileError || Wtf8ToPrefixedFileWError)!void {
     const old_path_w = try sliceToPrefixedFileW(null, old_path);
     const new_path_w = try sliceToPrefixedFileW(null, new_path);
     return MoveFileExW(old_path_w.span().ptr, new_path_w.span().ptr, flags);
@@ -1141,7 +1154,10 @@ pub fn GetStdHandle(handle_id: DWORD) GetStdHandleError!HANDLE {
     return handle;
 }
 
-pub const SetFilePointerError = error{Unexpected};
+pub const SetFilePointerError = error{
+    Unseekable,
+    Unexpected,
+};
 
 /// The SetFilePointerEx function with the `dwMoveMethod` parameter set to `FILE_BEGIN`.
 pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!void {
@@ -1151,6 +1167,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
     const ipos = @as(LARGE_INTEGER, @bitCast(offset));
     if (kernel32.SetFilePointerEx(handle, ipos, null, FILE_BEGIN) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1162,6 +1180,8 @@ pub fn SetFilePointerEx_BEGIN(handle: HANDLE, offset: u64) SetFilePointerError!v
 pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1173,6 +1193,8 @@ pub fn SetFilePointerEx_CURRENT(handle: HANDLE, offset: i64) SetFilePointerError
 pub fn SetFilePointerEx_END(handle: HANDLE, offset: i64) SetFilePointerError!void {
     if (kernel32.SetFilePointerEx(handle, offset, null, FILE_END) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1185,6 +1207,8 @@ pub fn SetFilePointerEx_CURRENT_get(handle: HANDLE) SetFilePointerError!u64 {
     var result: LARGE_INTEGER = undefined;
     if (kernel32.SetFilePointerEx(handle, 0, &result, FILE_CURRENT) == 0) {
         switch (GetLastError()) {
+            .INVALID_FUNCTION => return error.Unseekable,
+            .NEGATIVE_SEEK => return error.Unseekable,
             .INVALID_PARAMETER => unreachable,
             .INVALID_HANDLE => unreachable,
             else => |err| return unexpectedError(err),
@@ -1466,6 +1490,7 @@ fn mountmgrIsVolumeName(name: []const u16) bool {
 }
 
 test mountmgrIsVolumeName {
+    @setEvalBranchQuota(2000);
     const L = std.unicode.utf8ToUtf16LeStringLiteral;
     try std.testing.expect(mountmgrIsVolumeName(L("\\\\?\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
     try std.testing.expect(mountmgrIsVolumeName(L("\\??\\Volume{383da0b0-717f-41b6-8c36-00500992b58d}")));
@@ -1514,11 +1539,11 @@ pub fn GetFileSizeEx(hFile: HANDLE) GetFileSizeError!u64 {
 
 pub const GetFileAttributesError = error{
     FileNotFound,
-    PermissionDenied,
+    AccessDenied,
     Unexpected,
 };
 
-pub fn GetFileAttributes(filename: []const u8) GetFileAttributesError!DWORD {
+pub fn GetFileAttributes(filename: []const u8) (GetFileAttributesError || Wtf8ToPrefixedFileWError)!DWORD {
     const filename_w = try sliceToPrefixedFileW(null, filename);
     return GetFileAttributesW(filename_w.span().ptr);
 }
@@ -1529,7 +1554,7 @@ pub fn GetFileAttributesW(lpFileName: [*:0]const u16) GetFileAttributesError!DWO
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
-            .ACCESS_DENIED => return error.PermissionDenied,
+            .ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
@@ -1667,7 +1692,7 @@ pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
 
 pub fn sendmsg(
     s: ws2_32.SOCKET,
-    msg: *const ws2_32.WSAMSG,
+    msg: *ws2_32.WSAMSG_const,
     flags: u32,
 ) i32 {
     var bytes_send: DWORD = undefined;
@@ -1744,15 +1769,47 @@ pub fn GetModuleFileNameW(hModule: ?HMODULE, buf_ptr: [*]u16, buf_len: DWORD) Ge
     return buf_ptr[0..rc :0];
 }
 
-pub const TerminateProcessError = error{ PermissionDenied, Unexpected };
+pub const TerminateProcessError = error{ AccessDenied, Unexpected };
 
 pub fn TerminateProcess(hProcess: HANDLE, uExitCode: UINT) TerminateProcessError!void {
     if (kernel32.TerminateProcess(hProcess, uExitCode) == 0) {
         switch (GetLastError()) {
-            Win32Error.ACCESS_DENIED => return error.PermissionDenied,
+            Win32Error.ACCESS_DENIED => return error.AccessDenied,
             else => |err| return unexpectedError(err),
         }
     }
+}
+
+pub const NtAllocateVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    NoMemory,
+    Unexpected,
+};
+
+pub fn NtAllocateVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, zero_bits: ULONG_PTR, size: ?*SIZE_T, alloc_type: ULONG, protect: ULONG) NtAllocateVirtualMemoryError!void {
+    return switch (ntdll.NtAllocateVirtualMemory(hProcess, addr, zero_bits, size, alloc_type, protect)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtAllocateVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtAllocateVirtualMemoryError.InvalidParameter,
+        .NO_MEMORY => NtAllocateVirtualMemoryError.NoMemory,
+        else => |st| unexpectedStatus(st),
+    };
+}
+
+pub const NtFreeVirtualMemoryError = error{
+    AccessDenied,
+    InvalidParameter,
+    Unexpected,
+};
+
+pub fn NtFreeVirtualMemory(hProcess: HANDLE, addr: ?*PVOID, size: *SIZE_T, free_type: ULONG) NtFreeVirtualMemoryError!void {
+    return switch (ntdll.NtFreeVirtualMemory(hProcess, addr, size, free_type)) {
+        .SUCCESS => return,
+        .ACCESS_DENIED => NtFreeVirtualMemoryError.AccessDenied,
+        .INVALID_PARAMETER => NtFreeVirtualMemoryError.InvalidParameter,
+        else => NtFreeVirtualMemoryError.Unexpected,
+    };
 }
 
 pub const VirtualAllocError = error{Unexpected};
@@ -1848,39 +1905,49 @@ pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
     }
 }
 
-pub const GetEnvironmentStringsError = error{OutOfMemory};
-
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
-    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-}
-
-pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
-    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
-}
-
-pub const GetEnvironmentVariableError = error{
-    EnvironmentVariableNotFound,
-    Unexpected,
-};
-
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
-    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
-}
-
 pub const CreateProcessError = error{
     FileNotFound,
     AccessDenied,
     InvalidName,
     NameTooLong,
     InvalidExe,
+    SystemResources,
     Unexpected,
+};
+
+pub const CreateProcessFlags = packed struct(u32) {
+    debug_process: bool = false,
+    debug_only_this_process: bool = false,
+    create_suspended: bool = false,
+    detached_process: bool = false,
+    create_new_console: bool = false,
+    normal_priority_class: bool = false,
+    idle_priority_class: bool = false,
+    high_priority_class: bool = false,
+    realtime_priority_class: bool = false,
+    create_new_process_group: bool = false,
+    create_unicode_environment: bool = false,
+    create_separate_wow_vdm: bool = false,
+    create_shared_wow_vdm: bool = false,
+    create_forcedos: bool = false,
+    below_normal_priority_class: bool = false,
+    above_normal_priority_class: bool = false,
+    inherit_parent_affinity: bool = false,
+    inherit_caller_priority: bool = false,
+    create_protected_process: bool = false,
+    extended_startupinfo_present: bool = false,
+    process_mode_background_begin: bool = false,
+    process_mode_background_end: bool = false,
+    create_secure_process: bool = false,
+    _reserved: bool = false,
+    create_breakaway_from_job: bool = false,
+    create_preserve_code_authz_level: bool = false,
+    create_default_error_mode: bool = false,
+    create_no_window: bool = false,
+    profile_user: bool = false,
+    profile_kernel: bool = false,
+    profile_server: bool = false,
+    create_ignore_system_default: bool = false,
 };
 
 pub fn CreateProcessW(
@@ -1889,7 +1956,7 @@ pub fn CreateProcessW(
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
+    dwCreationFlags: CreateProcessFlags,
     lpEnvironment: ?*anyopaque,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
@@ -1910,6 +1977,7 @@ pub fn CreateProcessW(
         switch (GetLastError()) {
             .FILE_NOT_FOUND => return error.FileNotFound,
             .PATH_NOT_FOUND => return error.FileNotFound,
+            .DIRECTORY => return error.FileNotFound,
             .ACCESS_DENIED => return error.AccessDenied,
             .INVALID_PARAMETER => unreachable,
             .INVALID_NAME => return error.InvalidName,
@@ -1938,6 +2006,7 @@ pub fn CreateProcessW(
             // when calling CreateProcessW on a plain text file with a .exe extension
             .EXE_MACHINE_TYPE_MISMATCH,
             => return error.InvalidExe,
+            .COMMITMENT_LIMIT => return error.SystemResources,
             else => |err| return unexpectedError(err),
         }
     }
@@ -2011,18 +2080,6 @@ pub fn QueryPerformanceCounter() u64 {
 
 pub fn InitOnceExecuteOnce(InitOnce: *INIT_ONCE, InitFn: INIT_ONCE_FN, Parameter: ?*anyopaque, Context: ?*anyopaque) void {
     assert(kernel32.InitOnceExecuteOnce(InitOnce, InitFn, Parameter, Context) != 0);
-}
-
-pub fn HeapFree(hHeap: HANDLE, dwFlags: DWORD, lpMem: *anyopaque) void {
-    assert(kernel32.HeapFree(hHeap, dwFlags, lpMem) != 0);
-}
-
-pub fn HeapDestroy(hHeap: HANDLE) void {
-    assert(kernel32.HeapDestroy(hHeap) != 0);
-}
-
-pub fn LocalFree(hMem: HLOCAL) void {
-    assert(kernel32.LocalFree(hMem) == null);
 }
 
 pub const SetFileTimeError = error{Unexpected};
@@ -2101,39 +2158,41 @@ pub fn UnlockFile(
 
 /// This is a workaround for the C backend until zig has the ability to put
 /// C code in inline assembly.
-extern fn zig_x86_windows_teb() callconv(.C) *anyopaque;
-extern fn zig_x86_64_windows_teb() callconv(.C) *anyopaque;
+extern fn zig_thumb_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_aarch64_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_x86_windows_teb() callconv(.c) *anyopaque;
+extern fn zig_x86_64_windows_teb() callconv(.c) *anyopaque;
 
 pub fn teb() *TEB {
     return switch (native_arch) {
-        .x86 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movl %%fs:0x18, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .x86_64 => blk: {
-            if (builtin.zig_backend == .stage2_c) {
-                break :blk @ptrCast(@alignCast(zig_x86_64_windows_teb()));
-            } else {
-                break :blk asm (
-                    \\ movq %%gs:0x30, %[ptr]
-                    : [ptr] "=r" (-> *TEB),
-                );
-            }
-        },
-        .thumb => asm (
-            \\ mrc p15, 0, %[ptr], c13, c0, 2
-            : [ptr] "=r" (-> *TEB),
-        ),
-        .aarch64 => asm (
-            \\ mov %[ptr], x18
-            : [ptr] "=r" (-> *TEB),
-        ),
+        .thumb => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_thumb_windows_teb()))
+        else
+            asm (
+                \\ mrc p15, 0, %[ptr], c13, c0, 2
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .aarch64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_aarch64_windows_teb()))
+        else
+            asm (
+                \\ mov %[ptr], x18
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_windows_teb()))
+        else
+            asm (
+                \\ movl %%fs:0x18, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
+        .x86_64 => if (builtin.zig_backend == .stage2_c)
+            @ptrCast(@alignCast(zig_x86_64_windows_teb()))
+        else
+            asm (
+                \\ movq %%gs:0x30, %[ptr]
+                : [ptr] "=r" (-> *TEB),
+            ),
         else => @compileError("unsupported arch"),
     };
 }
@@ -2787,9 +2846,8 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
             buf_wstr.len,
             null,
         );
-        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
-            @intFromEnum(err),
-            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
+            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
@@ -2823,8 +2881,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
-pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;
@@ -3545,6 +3601,8 @@ pub const MEM_LARGE_PAGES = 0x20000000;
 pub const MEM_PHYSICAL = 0x400000;
 pub const MEM_TOP_DOWN = 0x100000;
 pub const MEM_WRITE_WATCH = 0x200000;
+pub const MEM_RESERVE_PLACEHOLDER = 0x00040000;
+pub const MEM_PRESERVE_PLACEHOLDER = 0x00000400;
 
 // Protect values
 pub const PAGE_EXECUTE = 0x10;
@@ -3567,7 +3625,7 @@ pub const MEM_RESERVE_PLACEHOLDERS = 0x2;
 pub const MEM_DECOMMIT = 0x4000;
 pub const MEM_RELEASE = 0x8000;
 
-pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.C) DWORD;
+pub const PTHREAD_START_ROUTINE = *const fn (LPVOID) callconv(.winapi) DWORD;
 pub const LPTHREAD_START_ROUTINE = PTHREAD_START_ROUTINE;
 
 pub const WIN32_FIND_DATAW = extern struct {
@@ -3745,7 +3803,7 @@ pub const IMAGE_TLS_DIRECTORY = extern struct {
 pub const IMAGE_TLS_DIRECTORY64 = IMAGE_TLS_DIRECTORY;
 pub const IMAGE_TLS_DIRECTORY32 = IMAGE_TLS_DIRECTORY;
 
-pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.C) void;
+pub const PIMAGE_TLS_CALLBACK = ?*const fn (PVOID, DWORD, PVOID) callconv(.winapi) void;
 
 pub const PROV_RSA_FULL = 1;
 
@@ -3843,7 +3901,7 @@ pub const RTL_QUERY_REGISTRY_ROUTINE = ?*const fn (
     ULONG,
     ?*anyopaque,
     ?*anyopaque,
-) callconv(WINAPI) NTSTATUS;
+) callconv(.winapi) NTSTATUS;
 
 /// Path is a full path
 pub const RTL_REGISTRY_ABSOLUTE = 0;
@@ -3940,7 +3998,7 @@ pub const FILE_ACTION_MODIFIED = 0x00000003;
 pub const FILE_ACTION_RENAMED_OLD_NAME = 0x00000004;
 pub const FILE_ACTION_RENAMED_NEW_NAME = 0x00000005;
 
-pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.C) void;
+pub const LPOVERLAPPED_COMPLETION_ROUTINE = ?*const fn (DWORD, DWORD, *OVERLAPPED) callconv(.winapi) void;
 
 pub const FileNotifyChangeFilter = packed struct(DWORD) {
     file_name: bool = false,
@@ -4003,7 +4061,7 @@ pub const RTL_CRITICAL_SECTION = extern struct {
 pub const CRITICAL_SECTION = RTL_CRITICAL_SECTION;
 pub const INIT_ONCE = RTL_RUN_ONCE;
 pub const INIT_ONCE_STATIC_INIT = RTL_RUN_ONCE_INIT;
-pub const INIT_ONCE_FN = *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.C) BOOL;
+pub const INIT_ONCE_FN = *const fn (InitOnce: *INIT_ONCE, Parameter: ?*anyopaque, Context: ?*anyopaque) callconv(.winapi) BOOL;
 
 pub const RTL_RUN_ONCE = extern struct {
     Ptr: ?*anyopaque,
@@ -4467,7 +4525,7 @@ pub const EXCEPTION_POINTERS = extern struct {
     ContextRecord: *CONTEXT,
 };
 
-pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(WINAPI) c_long;
+pub const VECTORED_EXCEPTION_HANDLER = *const fn (ExceptionInfo: *EXCEPTION_POINTERS) callconv(.winapi) c_long;
 
 pub const EXCEPTION_DISPOSITION = i32;
 pub const EXCEPTION_ROUTINE = *const fn (
@@ -4475,7 +4533,7 @@ pub const EXCEPTION_ROUTINE = *const fn (
     EstablisherFrame: PVOID,
     ContextRecord: *(Self.CONTEXT),
     DispatcherContext: PVOID,
-) callconv(WINAPI) EXCEPTION_DISPOSITION;
+) callconv(.winapi) EXCEPTION_DISPOSITION;
 
 pub const UNWIND_HISTORY_TABLE_SIZE = 12;
 pub const UNWIND_HISTORY_TABLE_ENTRY = extern struct {
@@ -4797,14 +4855,14 @@ pub const PEB_LDR_DATA = extern struct {
 ///  - https://docs.microsoft.com/en-us/windows/win32/api/winternl/ns-winternl-peb_ldr_data
 ///  - https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntldr/ldr_data_table_entry.htm
 pub const LDR_DATA_TABLE_ENTRY = extern struct {
-    Reserved1: [2]PVOID,
+    InLoadOrderLinks: LIST_ENTRY,
     InMemoryOrderLinks: LIST_ENTRY,
-    Reserved2: [2]PVOID,
+    InInitializationOrderLinks: LIST_ENTRY,
     DllBase: PVOID,
     EntryPoint: PVOID,
     SizeOfImage: ULONG,
     FullDllName: UNICODE_STRING,
-    Reserved4: [8]BYTE,
+    BaseDllName: UNICODE_STRING,
     Reserved5: [3]PVOID,
     DUMMYUNIONNAME: extern union {
         CheckSum: ULONG,
@@ -4827,6 +4885,10 @@ pub const RTL_USER_PROCESS_PARAMETERS = extern struct {
     DllPath: UNICODE_STRING,
     ImagePathName: UNICODE_STRING,
     CommandLine: UNICODE_STRING,
+    /// Points to a NUL-terminated sequence of NUL-terminated
+    /// WTF-16 LE encoded `name=value` sequences.
+    /// Example using string literal syntax:
+    /// `"NAME=value\x00foo=bar\x00\x00"`
     Environment: [*:0]WCHAR,
     dwX: ULONG,
     dwY: ULONG,
@@ -4851,7 +4913,7 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
     DosPath: UNICODE_STRING,
 };
 
-pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.C) void;
+pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.winapi) void;
 
 pub const FILE_DIRECTORY_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
@@ -4905,7 +4967,7 @@ pub fn FileInformationIterator(comptime FileInformationType: type) type {
     };
 }
 
-pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.C) void;
+pub const IO_APC_ROUTINE = *const fn (PVOID, *IO_STATUS_BLOCK, ULONG) callconv(.winapi) void;
 
 pub const CURDIR = extern struct {
     DosPath: UNICODE_STRING,
@@ -5009,8 +5071,8 @@ pub const ENUM_PAGE_FILE_INFORMATION = extern struct {
     PeakUsage: SIZE_T,
 };
 
-pub const PENUM_PAGE_FILE_CALLBACKW = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.C) BOOL;
-pub const PENUM_PAGE_FILE_CALLBACKA = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.C) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKW = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCWSTR) callconv(.winapi) BOOL;
+pub const PENUM_PAGE_FILE_CALLBACKA = ?*const fn (?LPVOID, *ENUM_PAGE_FILE_INFORMATION, LPCSTR) callconv(.winapi) BOOL;
 
 pub const PSAPI_WS_WATCH_INFORMATION_EX = extern struct {
     BasicInfo: PSAPI_WS_WATCH_INFORMATION,
@@ -5122,7 +5184,7 @@ pub const CTRL_CLOSE_EVENT: DWORD = 2;
 pub const CTRL_LOGOFF_EVENT: DWORD = 5;
 pub const CTRL_SHUTDOWN_EVENT: DWORD = 6;
 
-pub const HANDLER_ROUTINE = *const fn (dwCtrlType: DWORD) callconv(WINAPI) BOOL;
+pub const HANDLER_ROUTINE = *const fn (dwCtrlType: DWORD) callconv(.winapi) BOOL;
 
 /// Processor feature enumeration.
 pub const PF = enum(DWORD) {
@@ -5252,6 +5314,9 @@ pub const PF = enum(DWORD) {
 
     /// This ARM processor implements the ARM v8.3 JavaScript conversion (JSCVT) instructions.
     ARM_V83_JSCVT_INSTRUCTIONS_AVAILABLE = 44,
+
+    /// This Arm processor implements the Arm v8.3 LRCPC instructions (for example, LDAPR). Note that certain Arm v8.2 CPUs may optionally support the LRCPC instructions.
+    ARM_V83_LRCPC_INSTRUCTIONS_AVAILABLE,
 };
 
 pub const MAX_WOW64_SHARED_ENTRIES = 16;

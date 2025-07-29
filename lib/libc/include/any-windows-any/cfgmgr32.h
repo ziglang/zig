@@ -740,6 +740,9 @@ extern "C" {
 #define CM_REMOVE_UI_OK 0x00000000
 #define CM_REMOVE_UI_NOT_OK 0x00000001
 #define CM_REMOVE_NO_RESTART 0x00000002
+#if (WINVER >= _WIN32_WINNT_WIN10)
+#define CM_REMOVE_DISABLE 0x00000004
+#endif
 #define CM_REMOVE_BITS 0x00000003
 
 #define CM_QUERY_REMOVE_UI_OK (CM_REMOVE_UI_OK)
@@ -1044,10 +1047,20 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
 #define CM_Get_DevInst_Custom_PropertyA CM_Get_DevNode_Custom_PropertyA
 #define CM_Get_DevInst_Custom_Property_ExW CM_Get_DevNode_Custom_Property_ExW
 #define CM_Get_DevInst_Custom_Property_ExA CM_Get_DevNode_Custom_Property_ExA
-  CMAPI CONFIGRET WINAPI CM_Get_DevNode_PropertyW(DEVINST dnDevInst, const DEVPROPKEY *PropertyKey, DEVPROPTYPE *PropertyType, PBYTE PropertyBuffer, PULONG PropertyBufferSize, ULONG ulFlags);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Get_DevNode_PropertyW(DEVINST dnDevInst,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags);
 #ifdef UNICODE
 #define CM_Get_DevNode_Property CM_Get_DevNode_PropertyW
 #endif
+  CMAPI CONFIGRET WINAPI CM_Get_DevNode_Property_ExW(DEVINST dnDevInst,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Get_DevNode_Property_Ex CM_Get_DevNode_Property_ExW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_DevNode_Property_Keys(DEVINST dnDevInst,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Get_DevNode_Property_Keys_Ex(DEVINST dnDevInst,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags,HMACHINE hMachine);
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Get_DevNode_Status(PULONG pulStatus,PULONG pulProblemNumber,DEVINST dnDevInst,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_DevNode_Status_Ex(PULONG pulStatus,PULONG pulProblemNumber,DEVINST dnDevInst,ULONG ulFlags,HMACHINE hMachine);
 #define CM_Get_DevInst_Status CM_Get_DevNode_Status
@@ -1056,6 +1069,16 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Get_First_Log_Conf_Ex(PLOG_CONF plcLogConf,DEVINST dnDevInst,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Global_State(PULONG pulState,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Global_State_Ex(PULONG pulState,ULONG ulFlags,HMACHINE hMachine);
+
+#define CM_GLOBAL_STATE_CAN_DO_UI (0x00000001)
+#define CM_GLOBAL_STATE_ON_BIG_STACK (0x00000002)
+#define CM_GLOBAL_STATE_SERVICES_AVAILABLE (0x00000004)
+#define CM_GLOBAL_STATE_SHUTTING_DOWN (0x00000008)
+#define CM_GLOBAL_STATE_DETECTION_PENDING (0x00000010)
+#if (WINVER >= _WIN32_WINNT_WIN7)
+#define CM_GLOBAL_STATE_REBOOT_REQUIRED (0x00000020)
+#endif
+
   CMAPI CONFIGRET WINAPI CM_Get_Hardware_Profile_InfoA(ULONG ulIndex,PHWPROFILEINFO_A pHWProfileInfo,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Hardware_Profile_Info_ExA(ULONG ulIndex,PHWPROFILEINFO_A pHWProfileInfo,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Hardware_Profile_InfoW(ULONG ulIndex,PHWPROFILEINFO_W pHWProfileInfo,ULONG ulFlags);
@@ -1072,6 +1095,26 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_ExW(LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,PWCHAR Buffer,ULONG BufferLen,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_Size_ExA(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_A pDeviceID,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_List_Size_ExW(PULONG pulLen,LPGUID InterfaceClassGuid,DEVINSTID_W pDeviceID,ULONG ulFlags,HMACHINE hMachine);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_PropertyW(LPCWSTR pszDeviceInterface,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Get_Device_Interface_Property CM_Get_Device_Interface_PropertyW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_Property_ExW(LPCWSTR pszDeviceInterface,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Get_Device_Interface_Property_Ex CM_Get_Device_Interface_Property_ExW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_Property_KeysW(LPCWSTR pszDeviceInterface,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Get_Device_Interface_Property_Keys CM_Get_Device_Interface_Property_KeysW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_Device_Interface_Property_Keys_ExW(LPCWSTR pszDeviceInterface,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Get_Device_Interface_Property_Keys_Ex CM_Get_Device_Interface_Property_Keys_ExW
+#endif
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Get_Log_Conf_Priority(LOG_CONF lcLogConf,PPRIORITY pPriority,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Get_Log_Conf_Priority_Ex(LOG_CONF lcLogConf,PPRIORITY pPriority,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Next_Log_Conf(PLOG_CONF plcLogConf,LOG_CONF lcLogConf,ULONG ulFlags);
@@ -1116,6 +1159,22 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Open_DevNode_Key_Ex(DEVINST dnDevNode,REGSAM samDesired,ULONG ulHardwareProfile,REGDISPOSITION Disposition,PHKEY phkDevice,ULONG ulFlags,HMACHINE hMachine);
 #define CM_Open_DevInst_Key CM_Open_DevNode_Key
 #define CM_Open_DevInst_Key_Ex CM_Open_DevNode_Key_Ex
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Open_Device_Interface_KeyA(LPCSTR pszDeviceInterface,REGSAM samDesired,REGDISPOSITION Disposition,PHKEY phkDeviceInterface,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Open_Device_Interface_KeyW(LPCWSTR pszDeviceInterface,REGSAM samDesired,REGDISPOSITION Disposition,PHKEY phkDeviceInterface,ULONG ulFlags);
+#define CM_Open_Device_Interface_Key __MINGW_NAME_AW(CM_Open_Device_Interface_Key)
+  CMAPI CONFIGRET WINAPI CM_Open_Device_Interface_Key_ExA(LPCSTR pszDeviceInterface,REGSAM samDesired,REGDISPOSITION Disposition,PHKEY phkDeviceInterface,ULONG ulFlags,HMACHINE hMachine);
+  CMAPI CONFIGRET WINAPI CM_Open_Device_Interface_Key_ExW(LPCWSTR pszDeviceInterface,REGSAM samDesired,REGDISPOSITION Disposition,PHKEY phkDeviceInterface,ULONG ulFlags,HMACHINE hMachine);
+#define CM_Open_Device_Interface_Key_Ex __MINGW_NAME_AW(CM_Open_Device_Interface_Key_Ex)
+  CMAPI CONFIGRET WINAPI CM_Delete_Device_Interface_KeyA(LPCSTR pszDeviceInterface,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Delete_Device_Interface_KeyW(LPCWSTR pszDeviceInterface,ULONG ulFlags);
+#define CM_Delete_Device_Interface_Key __MINGW_NAME_AW(CM_Delete_Device_Interface_Key)
+  CMAPI CONFIGRET WINAPI CM_Delete_Device_Interface_Key_ExA(LPCSTR pszDeviceInterface,ULONG ulFlags,HMACHINE hMachine);
+  CMAPI CONFIGRET WINAPI CM_Delete_Device_Interface_Key_ExW(LPCWSTR pszDeviceInterface,ULONG ulFlags,HMACHINE hMachine);
+#define CM_Delete_Device_Interface_Key_Ex __MINGW_NAME_AW(CM_Delete_Device_Interface_Key_Ex)
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Query_Arbitrator_Free_Data(PVOID pData,ULONG DataLen,DEVINST dnDevInst,RESOURCEID ResourceID,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Query_Arbitrator_Free_Data_Ex(PVOID pData,ULONG DataLen,DEVINST dnDevInst,RESOURCEID ResourceID,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Query_Arbitrator_Free_Size(PULONG pulSize,DEVINST dnDevInst,RESOURCEID ResourceID,ULONG ulFlags);
@@ -1150,10 +1209,34 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Register_Device_Driver_Ex(DEVINST dnDevInst,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Remove_SubTree(DEVINST dnAncestor,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Remove_SubTree_Ex(DEVINST dnAncestor,ULONG ulFlags,HMACHINE hMachine);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Set_DevNode_PropertyW(DEVINST dnDevInst,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Set_DevNode_Property CM_Set_DevNode_PropertyW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Set_DevNode_Property_ExW(DEVINST dnDevInst,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Set_DevNode_Property_Ex CM_Set_DevNode_Property_ExW
+#endif
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Set_DevNode_Registry_PropertyA(DEVINST dnDevInst,ULONG ulProperty,PCVOID Buffer,ULONG ulLength,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Set_DevNode_Registry_PropertyW(DEVINST dnDevInst,ULONG ulProperty,PCVOID Buffer,ULONG ulLength,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Set_DevNode_Registry_Property_ExA(DEVINST dnDevInst,ULONG ulProperty,PCVOID Buffer,ULONG ulLength,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Set_DevNode_Registry_Property_ExW(DEVINST dnDevInst,ULONG ulProperty,PCVOID Buffer,ULONG ulLength,ULONG ulFlags,HMACHINE hMachine);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Set_Device_Interface_PropertyW(LPCWSTR pszDeviceInterface,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Set_Device_Interface_Property CM_Set_Device_Interface_PropertyW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Set_Device_Interface_Property_ExW(LPCWSTR pszDeviceInterface,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Set_Device_Interface_Property_Ex CM_Set_Device_Interface_Property_ExW
+#endif
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
 #define CM_Set_DevInst_Registry_PropertyW CM_Set_DevNode_Registry_PropertyW
 #define CM_Set_DevInst_Registry_PropertyA CM_Set_DevNode_Registry_PropertyA
 #define CM_Set_DevInst_Registry_Property_ExW CM_Set_DevNode_Registry_Property_ExW
@@ -1177,6 +1260,18 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
 #define CM_Uninstall_DevInst_Ex CM_Uninstall_DevNode_Ex
   CMAPI CONFIGRET WINAPI CM_Run_Detection(ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Run_Detection_Ex(ULONG ulFlags,HMACHINE hMachine);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CONFIGRET CM_Apply_PowerScheme(VOID);
+  CONFIGRET CM_Write_UserPowerKey(const GUID *SchemeGuid,const GUID *SubGroupOfPowerSettingsGuid,const GUID *PowerSettingGuid,ULONG AccessFlags,ULONG Type,UCHAR *Buffer,DWORD BufferSize,PDWORD Error);
+  CONFIGRET CM_Set_ActiveScheme(const GUID *SchemeGuid,PDWORD Error);
+  CONFIGRET CM_Restore_DefaultPowerScheme(const GUID *SchemeGuid,PDWORD Error);
+  CONFIGRET CM_RestoreAll_DefaultPowerSchemes(PDWORD Error);
+  CONFIGRET CM_Duplicate_PowerScheme(const GUID *SourceSchemeGuid,GUID **DestinationSchemeGuid,PDWORD Error);
+  CONFIGRET CM_Delete_PowerScheme(const GUID *SchemeGuid,PDWORD Error);
+  CONFIGRET CM_Import_PowerScheme(LPCWSTR ImportFileNamePath,GUID **DestinationSchemeGuid,PDWORD Error);
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Set_HW_Prof(ULONG ulHardwareProfile,ULONG ulFlags);
   CMAPI CONFIGRET WINAPI CM_Set_HW_Prof_Ex(ULONG ulHardwareProfile,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Query_Resource_Conflict_List(PCONFLICT_LIST pclConflictList,DEVINST dnDevInst,RESOURCEID ResourceID,PCVOID ResourceData,ULONG ResourceLen,ULONG ulFlags,HMACHINE hMachine);
@@ -1184,6 +1279,28 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Get_Resource_Conflict_Count(CONFLICT_LIST clConflictList,PULONG pulCount);
   CMAPI CONFIGRET WINAPI CM_Get_Resource_Conflict_DetailsA(CONFLICT_LIST clConflictList,ULONG ulIndex,PCONFLICT_DETAILS_A pConflictDetails);
   CMAPI CONFIGRET WINAPI CM_Get_Resource_Conflict_DetailsW(CONFLICT_LIST clConflictList,ULONG ulIndex,PCONFLICT_DETAILS_W pConflictDetails);
+
+#if (WINVER >= _WIN32_WINNT_LONGHORN)
+  CMAPI CONFIGRET WINAPI CM_Get_Class_PropertyW(LPCGUID ClassGUID,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Get_Class_Property CM_Get_Class_PropertyW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_Class_Property_ExW(LPCGUID ClassGUID,const DEVPROPKEY *PropertyKey,DEVPROPTYPE *PropertyType,PBYTE PropertyBuffer,PULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Get_Class_Property_Ex CM_Get_Class_Property_ExW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Get_Class_Property_Keys(LPCGUID ClassGUID,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags);
+  CMAPI CONFIGRET WINAPI CM_Get_Class_Property_Keys_Ex(LPCGUID ClassGUID,DEVPROPKEY *PropertyKeyArray,PULONG PropertyKeyCount,ULONG ulFlags,HMACHINE hMachine);
+  CMAPI CONFIGRET WINAPI CM_Set_Class_PropertyW(LPCGUID ClassGUID,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags);
+#ifdef UNICODE
+#define CM_Set_Class_Property CM_Set_Class_PropertyW
+#endif
+  CMAPI CONFIGRET WINAPI CM_Set_Class_Property_ExW(LPCGUID ClassGUID,const DEVPROPKEY *PropertyKey,DEVPROPTYPE PropertyType,const PBYTE PropertyBuffer,ULONG PropertyBufferSize,ULONG ulFlags,HMACHINE hMachine);
+#ifdef UNICODE
+#define CM_Set_Class_Property_Ex CM_Set_Class_Property_ExW
+#endif
+#endif /* (WINVER >= _WIN32_WINNT_LONGHORN) */
+
   CMAPI CONFIGRET WINAPI CM_Get_Class_Registry_PropertyW(LPGUID ClassGUID,ULONG ulProperty,PULONG pulRegDataType,PVOID Buffer,PULONG pulLength,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Set_Class_Registry_PropertyW(LPGUID ClassGUID,ULONG ulProperty,PCVOID Buffer,ULONG ulLength,ULONG ulFlags,HMACHINE hMachine);
   CMAPI CONFIGRET WINAPI CM_Get_Class_Registry_PropertyA(LPGUID ClassGUID,ULONG ulProperty,PULONG pulRegDataType,PVOID Buffer,PULONG pulLength,ULONG ulFlags,HMACHINE hMachine);
@@ -1197,6 +1314,10 @@ typedef DWORD (CALLBACK *PCM_NOTIFY_CALLBACK)(HCMNOTIFICATION hNotify, PVOID Con
   CMAPI CONFIGRET WINAPI CM_Unregister_Notification(HCMNOTIFICATION NotifyContext);
 
 #endif /* WINVER >= _WIN32_WINNT_WIN8 */
+
+#if (WINVER >= _WIN32_WINNT_WIN7)
+  CMAPI DWORD WINAPI CM_MapCrToWin32Err(CONFIGRET CmReturnCode,DWORD DefaultErr);
+#endif
 
 #define CR_SUCCESS (0x00000000)
 #define CR_DEFAULT (0x00000001)

@@ -175,12 +175,21 @@ typedef enum
   __attribute__((__always_inline__, __nodebug__,                               \
                  __target__("avx512f,no-evex512")))
 
+#if defined(__cplusplus) && (__cplusplus >= 201103L)
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS constexpr
+#define __DEFAULT_FN_ATTRS512_CONSTEXPR __DEFAULT_FN_ATTRS512 constexpr
+#define __DEFAULT_FN_ATTRS128_CONSTEXPR __DEFAULT_FN_ATTRS128 constexpr
+#else
+#define __DEFAULT_FN_ATTRS_CONSTEXPR __DEFAULT_FN_ATTRS128
+#define __DEFAULT_FN_ATTRS512_CONSTEXPR __DEFAULT_FN_ATTRS512
+#define __DEFAULT_FN_ATTRS128_CONSTEXPR __DEFAULT_FN_ATTRS
+#endif
+
 /* Create vectors with repeated elements */
 
-static  __inline __m512i __DEFAULT_FN_ATTRS512
-_mm512_setzero_si512(void)
-{
-  return __extension__ (__m512i)(__v8di){ 0, 0, 0, 0, 0, 0, 0, 0 };
+static __inline __m512i __DEFAULT_FN_ATTRS512_CONSTEXPR
+_mm512_setzero_si512(void) {
+  return __extension__(__m512i)(__v8di){0, 0, 0, 0, 0, 0, 0, 0};
 }
 
 #define _mm512_setzero_epi32 _mm512_setzero_si512
@@ -256,20 +265,16 @@ _mm512_maskz_broadcastq_epi64 (__mmask8 __M, __m128i __A)
                                              (__v8di) _mm512_setzero_si512());
 }
 
-
-static __inline __m512 __DEFAULT_FN_ATTRS512
-_mm512_setzero_ps(void)
-{
-  return __extension__ (__m512){ 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
-                                 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
+static __inline __m512 __DEFAULT_FN_ATTRS512_CONSTEXPR _mm512_setzero_ps(void) {
+  return __extension__(__m512){0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f,
+                               0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 #define _mm512_setzero _mm512_setzero_ps
 
-static  __inline __m512d __DEFAULT_FN_ATTRS512
-_mm512_setzero_pd(void)
-{
-  return __extension__ (__m512d){ 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+static __inline __m512d __DEFAULT_FN_ATTRS512_CONSTEXPR
+_mm512_setzero_pd(void) {
+  return __extension__(__m512d){0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
 }
 
 static __inline __m512 __DEFAULT_FN_ATTRS512
@@ -9775,5 +9780,8 @@ _mm512_cvtsi512_si32(__m512i __A) {
 #undef __DEFAULT_FN_ATTRS512
 #undef __DEFAULT_FN_ATTRS128
 #undef __DEFAULT_FN_ATTRS
+#undef __DEFAULT_FN_ATTRS512_CONSTEXPR
+#undef __DEFAULT_FN_ATTRS128_CONSTEXPR
+#undef __DEFAULT_FN_ATTRS_CONSTEXPR
 
 #endif /* __AVX512FINTRIN_H */

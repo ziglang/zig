@@ -10,8 +10,8 @@ export fn f() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :7:23: error: unable to resolve comptime value
-// :7:23: note: initializer of comptime only struct must be comptime-known
+// :7:23: note: initializer of comptime-only struct 'tmp.Foo' must be comptime-known
+// :3:10: note: struct requires comptime because of this field
+// :3:10: note: types are not available at runtime

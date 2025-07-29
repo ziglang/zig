@@ -90,7 +90,7 @@ private:
   _LIBCPP_NO_UNIQUE_ADDRESS __movable_box<_Pred> __pred_;
 
   static constexpr bool _UseCache = forward_range<_View>;
-  using _Cache                    = _If<_UseCache, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
+  using _Cache _LIBCPP_NODEBUG    = _If<_UseCache, __non_propagating_cache<iterator_t<_View>>, __empty_cache>;
   _LIBCPP_NO_UNIQUE_ADDRESS _Cache __cached_begin_ = _Cache();
 };
 
@@ -115,7 +115,7 @@ struct __fn {
     requires constructible_from<decay_t<_Pred>, _Pred>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr auto operator()(_Pred&& __pred) const
       noexcept(is_nothrow_constructible_v<decay_t<_Pred>, _Pred>) {
-    return __range_adaptor_closure_t(std::__bind_back(*this, std::forward<_Pred>(__pred)));
+    return __pipeable(std::__bind_back(*this, std::forward<_Pred>(__pred)));
   }
 };
 

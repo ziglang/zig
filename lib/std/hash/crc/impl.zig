@@ -100,13 +100,3 @@ pub fn Crc(comptime W: type, comptime algorithm: Algorithm(W)) type {
         }
     };
 }
-
-pub const Polynomial = enum(u32) {
-    IEEE = @compileError("use Crc with algorithm .Crc32IsoHdlc"),
-    Castagnoli = @compileError("use Crc with algorithm .Crc32Iscsi"),
-    Koopman = @compileError("use Crc with algorithm .Crc32Koopman"),
-    _,
-};
-
-pub const Crc32WithPoly = @compileError("use Crc instead");
-pub const Crc32SmallWithPoly = @compileError("use Crc instead");

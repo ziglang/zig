@@ -1,12 +1,9 @@
-const std = @import("std");
-
 pub const Tag = enum {
     add_with_overflow,
     addrspace_cast,
     align_cast,
     align_of,
     as,
-    async_call,
     atomic_load,
     atomic_rmw,
     atomic_store,
@@ -17,6 +14,7 @@ pub const Tag = enum {
     branch_hint,
     breakpoint,
     disable_instrumentation,
+    disable_intrinsics,
     mul_add,
     byte_swap,
     bit_reverse,
@@ -56,7 +54,6 @@ pub const Tag = enum {
     frame,
     Frame,
     frame_address,
-    frame_size,
     has_decl,
     has_field,
     import,
@@ -69,6 +66,7 @@ pub const Tag = enum {
     max,
     memcpy,
     memset,
+    memmove,
     min,
     wasm_memory_size,
     wasm_memory_grow,
@@ -124,17 +122,6 @@ pub const Tag = enum {
     work_group_id,
 };
 
-pub const MemLocRequirement = enum {
-    /// The builtin never needs a memory location.
-    never,
-    /// The builtin always needs a memory location.
-    always,
-    /// The builtin forwards the question to argument at index 0.
-    forward0,
-    /// The builtin forwards the question to argument at index 1.
-    forward1,
-};
-
 pub const EvalToError = enum {
     /// The builtin cannot possibly evaluate to an error.
     never,
@@ -146,8 +133,6 @@ pub const EvalToError = enum {
 
 tag: Tag,
 
-/// Info about the builtin call's ability to take advantage of a result location pointer.
-needs_mem_loc: MemLocRequirement = .never,
 /// Info about the builtin call's possibility of returning an error.
 eval_to_error: EvalToError = .never,
 /// `true` if the builtin call can be the left-hand side of an expression (assigned to).
@@ -160,7 +145,7 @@ param_count: ?u8,
 
 pub const list = list: {
     @setEvalBranchQuota(3000);
-    break :list std.StaticStringMap(@This()).initComptime(.{
+    break :list std.StaticStringMap(BuiltinFn).initComptime([_]struct { []const u8, BuiltinFn }{
         .{
             "@addWithOverflow",
             .{
@@ -193,16 +178,8 @@ pub const list = list: {
             "@as",
             .{
                 .tag = .as,
-                .needs_mem_loc = .forward1,
                 .eval_to_error = .maybe,
                 .param_count = 2,
-            },
-        },
-        .{
-            "@asyncCall",
-            .{
-                .tag = .async_call,
-                .param_count = 4,
             },
         },
         .{
@@ -230,7 +207,6 @@ pub const list = list: {
             "@bitCast",
             .{
                 .tag = .bit_cast,
-                .needs_mem_loc = .forward0,
                 .param_count = 1,
             },
         },
@@ -280,6 +256,14 @@ pub const list = list: {
             },
         },
         .{
+            "@disableIntrinsics",
+            .{
+                .tag = .disable_intrinsics,
+                .param_count = 0,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
             "@mulAdd",
             .{
                 .tag = .mul_add,
@@ -311,7 +295,6 @@ pub const list = list: {
             "@call",
             .{
                 .tag = .call,
-                .needs_mem_loc = .always,
                 .eval_to_error = .maybe,
                 .param_count = 3,
             },
@@ -503,7 +486,6 @@ pub const list = list: {
             "@field",
             .{
                 .tag = .field,
-                .needs_mem_loc = .always,
                 .eval_to_error = .maybe,
                 .param_count = 2,
                 .allows_lvalue = true,
@@ -557,13 +539,6 @@ pub const list = list: {
                 .tag = .frame_address,
                 .param_count = 0,
                 .illegal_outside_function = true,
-            },
-        },
-        .{
-            "@frameSize",
-            .{
-                .tag = .frame_size,
-                .param_count = 1,
             },
         },
         .{
@@ -648,6 +623,13 @@ pub const list = list: {
             "@memset",
             .{
                 .tag = .memset,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@memmove",
+            .{
+                .tag = .memmove,
                 .param_count = 2,
             },
         },
@@ -817,7 +799,6 @@ pub const list = list: {
             "@src",
             .{
                 .tag = .src,
-                .needs_mem_loc = .always,
                 .param_count = 0,
                 .illegal_outside_function = true,
             },
@@ -987,7 +968,6 @@ pub const list = list: {
             "@unionInit",
             .{
                 .tag = .union_init,
-                .needs_mem_loc = .always,
                 .param_count = 3,
             },
         },
@@ -1030,3 +1010,6 @@ pub const list = list: {
         },
     });
 };
+
+const std = @import("std");
+const BuiltinFn = @This();

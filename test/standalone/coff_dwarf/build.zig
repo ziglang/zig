@@ -3,6 +3,14 @@ const builtin = @import("builtin");
 
 /// This tests the path where DWARF information is embedded in a COFF binary
 pub fn build(b: *std.Build) void {
+    switch (builtin.cpu.arch) {
+        .aarch64,
+        .x86,
+        .x86_64,
+        => {},
+        else => return,
+    }
+
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
@@ -14,19 +22,25 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
-    const lib = b.addSharedLibrary(.{
+    const lib = b.addLibrary(.{
+        .linkage = .dynamic,
         .name = "shared_lib",
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .optimize = optimize,
+            .target = target,
+            .link_libc = true,
+        }),
     });
-    lib.addCSourceFile(.{ .file = b.path("shared_lib.c"), .flags = &.{"-gdwarf"} });
-    lib.linkLibC();
-    exe.linkLibrary(lib);
+    lib.root_module.addCSourceFile(.{ .file = b.path("shared_lib.c"), .flags = &.{"-gdwarf"} });
+    exe.root_module.linkLibrary(lib);
 
     const run = b.addRunArtifact(exe);
     run.expectExitCode(0);

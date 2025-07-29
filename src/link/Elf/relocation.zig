@@ -94,14 +94,18 @@ pub fn encode(comptime kind: Kind, cpu_arch: std.Target.Cpu.Arch) u32 {
 pub const dwarf = struct {
     pub fn crossSectionRelocType(format: DW.Format, cpu_arch: std.Target.Cpu.Arch) u32 {
         return switch (cpu_arch) {
-            .x86_64 => @intFromEnum(switch (format) {
-                .@"32" => elf.R_X86_64.@"32",
+            .x86_64 => @intFromEnum(@as(elf.R_X86_64, switch (format) {
+                .@"32" => .@"32",
                 .@"64" => .@"64",
-            }),
-            .riscv64 => @intFromEnum(switch (format) {
-                .@"32" => elf.R_RISCV.@"32",
+            })),
+            .aarch64 => @intFromEnum(@as(elf.R_AARCH64, switch (format) {
+                .@"32" => .ABS32,
+                .@"64" => .ABS64,
+            })),
+            .riscv64 => @intFromEnum(@as(elf.R_RISCV, switch (format) {
+                .@"32" => .@"32",
                 .@"64" => .@"64",
-            }),
+            })),
             else => @panic("TODO unhandled cpu arch"),
         };
     }
@@ -120,6 +124,14 @@ pub const dwarf = struct {
                     else => unreachable,
                 },
                 .debug_frame => .PC32,
+            })),
+            .aarch64 => @intFromEnum(@as(elf.R_AARCH64, switch (source_section) {
+                else => switch (address_size) {
+                    .@"32" => .ABS32,
+                    .@"64" => .ABS64,
+                    else => unreachable,
+                },
+                .debug_frame => .PREL32,
             })),
             .riscv64 => @intFromEnum(@as(elf.R_RISCV, switch (source_section) {
                 else => switch (address_size) {
@@ -141,21 +153,14 @@ const FormatRelocTypeCtx = struct {
     cpu_arch: std.Target.Cpu.Arch,
 };
 
-pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(formatRelocType) {
+pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(FormatRelocTypeCtx, formatRelocType) {
     return .{ .data = .{
         .r_type = r_type,
         .cpu_arch = cpu_arch,
     } };
 }
 
-fn formatRelocType(
-    ctx: FormatRelocTypeCtx,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatRelocType(ctx: FormatRelocTypeCtx, writer: *std.io.Writer) std.io.Writer.Error!void {
     const r_type = ctx.r_type;
     switch (ctx.cpu_arch) {
         .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),

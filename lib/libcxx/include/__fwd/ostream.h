@@ -23,7 +23,7 @@ class _LIBCPP_TEMPLATE_VIS basic_ostream;
 
 using ostream = basic_ostream<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wostream = basic_ostream<wchar_t>;
 #endif
 

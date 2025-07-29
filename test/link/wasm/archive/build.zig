@@ -1,7 +1,5 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
@@ -17,10 +15,12 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
     // and therefore link with its archive file.
     const lib = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .strip = false,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .strip = false,
+        }),
     });
     lib.entry = .disabled;
     lib.use_llvm = false;

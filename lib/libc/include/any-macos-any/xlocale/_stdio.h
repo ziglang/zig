@@ -24,8 +24,11 @@
 #ifndef _XLOCALE__STDIO_H_
 #define _XLOCALE__STDIO_H_
 
+#include <_bounds.h>
 #include <_stdio.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 
@@ -37,25 +40,25 @@ int	 printf_l(locale_t __restrict, const char * __restrict, ...)
         __printflike(2, 3);
 int	 scanf_l(locale_t __restrict, const char * __restrict, ...)
         __scanflike(2, 3);
-int	 sprintf_l(char * __restrict, locale_t __restrict, const char * __restrict, ...)
-        __printflike(3, 4) __swift_unavailable("Use snprintf_l instead.");
+int	 sprintf_l(char * __restrict _LIBC_UNSAFE_INDEXABLE, locale_t __restrict, const char * __restrict, ...)
+        __printflike(3, 4) __swift_unavailable("Use snprintf_l instead.") _LIBC_PTRCHECK_REPLACED("snprintf_l");
 int	 sscanf_l(const char * __restrict, locale_t __restrict, const char * __restrict, ...) 
         __scanflike(3, 4);
 int	 vfprintf_l(FILE * __restrict, locale_t __restrict, const char * __restrict, va_list)
         __printflike(3, 0);
 int	 vprintf_l(locale_t __restrict, const char * __restrict, va_list)
         __printflike(2, 0);
-int	 vsprintf_l(char * __restrict, locale_t __restrict, const char * __restrict, va_list)
-        __printflike(3, 0) __swift_unavailable("Use vsnprintf_l instead.");
+int	 vsprintf_l(char * __restrict _LIBC_UNSAFE_INDEXABLE, locale_t __restrict, const char * __restrict, va_list)
+        __printflike(3, 0) __swift_unavailable("Use vsnprintf_l instead.") _LIBC_PTRCHECK_REPLACED("vsnprintf_l");
 
 #if __DARWIN_C_LEVEL >= 200112L || defined(__cplusplus)
-int	 snprintf_l(char * __restrict, size_t, locale_t __restrict, const char * __restrict, ...)
+int	 snprintf_l(char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, locale_t __restrict, const char * __restrict, ...)
         __printflike(4, 5);
 int	 vfscanf_l(FILE * __restrict, locale_t __restrict, const char * __restrict, va_list)
         __scanflike(3, 0);
 int	 vscanf_l(locale_t __restrict, const char * __restrict, va_list)
         __scanflike(2, 0);
-int	 vsnprintf_l(char * __restrict, size_t, locale_t __restrict, const char * __restrict, va_list)
+int	 vsnprintf_l(char * __restrict _LIBC_COUNT(__maxlen), size_t __maxlen, locale_t __restrict, const char * __restrict, va_list)
         __printflike(4, 0);
 int	 vsscanf_l(const char * __restrict, locale_t __restrict, const char * __restrict, va_list)
         __scanflike(3, 0);
@@ -70,9 +73,9 @@ int	 vdprintf_l(int, locale_t __restrict, const char * __restrict, va_list)
 
 
 #if __DARWIN_C_LEVEL >= __DARWIN_C_FULL || defined(__cplusplus)
-int	 asprintf_l(char ** __restrict, locale_t __restrict, const char * __restrict, ...)
+int	 asprintf_l(char *_LIBC_CSTR * __restrict, locale_t __restrict, const char * __restrict, ...)
         __printflike(3, 4);
-int	 vasprintf_l(char ** __restrict, locale_t __restrict, const char * __restrict, va_list)
+int	 vasprintf_l(char *_LIBC_CSTR * __restrict, locale_t __restrict, const char * __restrict, va_list)
         __printflike(3, 0);
 #endif
 

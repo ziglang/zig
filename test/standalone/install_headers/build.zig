@@ -6,20 +6,27 @@ pub fn build(b: *std.Build) void {
 
     const empty_c = b.addWriteFiles().add("empty.c", "");
 
-    const libfoo = b.addStaticLibrary(.{
+    const libfoo = b.addLibrary(.{
+        .linkage = .static,
         .name = "foo",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+        }),
     });
-    libfoo.addCSourceFile(.{ .file = empty_c });
+    libfoo.root_module.addCSourceFile(.{ .file = empty_c });
 
     const exe = b.addExecutable(.{
         .name = "exe",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
-        .link_libc = true,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+            .link_libc = true,
+        }),
     });
-    exe.addCSourceFile(.{ .file = b.addWriteFiles().add("main.c",
+    exe.root_module.addCSourceFile(.{ .file = b.addWriteFiles().add("main.c",
         \\#include <stdio.h>
         \\#include <foo/a.h>
         \\#include <foo/sub_dir/b.h>
@@ -40,9 +47,10 @@ pub fn build(b: *std.Build) void {
 
     if (libfoo.installed_headers_include_tree != null) std.debug.panic("include tree step was created before linking", .{});
 
-    // Link before we have registered all headers for installation,
+    // Link (and get the include tree) before we have registered all headers for installation,
     // to verify that the lazily created write files step is properly taken into account.
-    exe.linkLibrary(libfoo);
+    exe.root_module.linkLibrary(libfoo);
+    _ = libfoo.getEmittedIncludeTree();
 
     if (libfoo.installed_headers_include_tree == null) std.debug.panic("include tree step was not created after linking", .{});
 
@@ -54,12 +62,16 @@ pub fn build(b: *std.Build) void {
         .FOO_CONFIG_2 = "2",
     }));
 
-    const libbar = b.addStaticLibrary(.{
+    const libbar = b.addLibrary(.{
+        .linkage = .static,
         .name = "bar",
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+        }),
     });
-    libbar.addCSourceFile(.{ .file = empty_c });
+    libbar.root_module.addCSourceFile(.{ .file = empty_c });
     libbar.installHeader(b.addWriteFiles().add("bar.h",
         \\#define BAR_X "X"
         \\
@@ -78,9 +90,11 @@ pub fn build(b: *std.Build) void {
     });
     const check_exists = b.addExecutable(.{
         .name = "check_exists",
-        .root_source_file = b.path("check_exists.zig"),
-        .target = b.resolveTargetQuery(.{}),
-        .optimize = .Debug,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("check_exists.zig"),
+            .target = b.resolveTargetQuery(.{}),
+            .optimize = .Debug,
+        }),
     });
     const run_check_exists = b.addRunArtifact(check_exists);
     run_check_exists.addArgs(&.{

@@ -1181,7 +1181,7 @@ extern "C" {
 
   typedef enum _NDIS_802_11_MEDIA_STREAM_MODE {
     Ndis802_11MediaStreamOff,
-    Ndis802_11MediaStreamOn,
+    Ndis802_11MediaStreamOn
   } NDIS_802_11_MEDIA_STREAM_MODE, *PNDIS_802_11_MEDIA_STREAM_MODE;
 
   typedef UCHAR NDIS_802_11_PMKID_VALUE[16];
@@ -2457,7 +2457,7 @@ extern "C" {
 #if NDIS_SUPPORT_NDIS630
     NdisPortTypeNdisImPlatform,
 #endif
-    NdisPortTypeMax,
+    NdisPortTypeMax
   } NDIS_PORT_TYPE, *PNDIS_PORT_TYPE;
 
   typedef enum _NDIS_PORT_AUTHORIZATION_STATE {
@@ -2923,7 +2923,7 @@ extern "C" {
     NdisWakeReasonWlan4WayHandshakeRequest = 0x1003,
     NdisWakeReasonWwanRegisterState = 0x2000,
     NdisWakeReasonWwanSMSReceive = 0x2001,
-    NdisWakeReasonWwanUSSDReceive = 0x2002,
+    NdisWakeReasonWwanUSSDReceive = 0x2002
   } NDIS_PM_WAKE_REASON_TYPE, *PNDIS_PM_WAKE_REASON_TYPE;
 
   typedef struct _NDIS_PM_WAKE_REASON {
@@ -3445,7 +3445,7 @@ extern "C" {
     NdisRssProfileNuma,
     NdisRssProfileNumaStatic,
     NdisRssProfileConservative,
-    NdisRssProfileMaximum,
+    NdisRssProfileMaximum
   } NDIS_RSS_PROFILE, *PNDIS_RSS_PROFILE;
 #endif
 
@@ -3977,7 +3977,7 @@ extern "C" {
     NdisNicSwitchVPortInterruptModerationOff = 2,
     NdisNicSwitchVPortInterruptModerationLow = 100,
     NdisNicSwitchVPortInterruptModerationMedium = 200,
-    NdisNicSwitchVPortInterruptModerationHigh = 300,
+    NdisNicSwitchVPortInterruptModerationHigh = 300
   } NDIS_NIC_SWITCH_VPORT_INTERRUPT_MODERATION, *PNDIS_NIC_SWITCH_VPORT_INTERRUPT_MODERATION;
 
   typedef struct _NDIS_NIC_SWITCH_VPORT_PARAMETERS {

@@ -1,4 +1,4 @@
-/* Copyright (C) 2001-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2001-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -376,6 +376,7 @@
 # define HAVE_TIME_VSYSCALL             "__vdso_time"
 # define HAVE_GETCPU_VSYSCALL		"__vdso_getcpu"
 # define HAVE_CLOCK_GETRES64_VSYSCALL   "__vdso_clock_getres"
+# define HAVE_GETRANDOM_VSYSCALL        "__vdso_getrandom"
 
 # define HAVE_CLONE3_WRAPPER			1
 

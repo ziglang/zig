@@ -88,6 +88,10 @@
 #define LINK_MAX                32767   /* max file link count */
 #define MAX_CANON                1024   /* max bytes in term canon input line */
 #define MAX_INPUT                1024   /* max bytes in terminal input */
+/*
+ * NOTE: Many filesystems (including HFS & APFS) may support names longer than `NAME_MAX` bytes.
+ * See manpage for `getdirentries` and `readdir` for details.
+ */
 #define NAME_MAX                  255   /* max bytes in a file name */
 #define NGROUPS_MAX                16   /* max supplemental group id's */
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
@@ -120,6 +124,8 @@
                                         /* range: -20 - 20 */
                                         /* (PRIO_MIN - PRIO_MAX) */
 #endif /* __DARWIN_UNIX03 */
+
+
 #endif /* !_ANSI_SOURCE */
 
 #endif /* !_SYS_SYSLIMITS_H_ */

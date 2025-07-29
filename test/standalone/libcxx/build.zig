@@ -11,12 +11,14 @@ pub fn build(b: *std.Build) void {
     {
         const exe = b.addExecutable(.{
             .name = "mt",
-            .root_source_file = b.path("mt.zig"),
-            .target = target,
-            .optimize = optimize,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("mt.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libcpp = true,
+            }),
         });
-        exe.linkLibCpp();
-        exe.addCSourceFile(.{ .file = b.path("mt_doit.cpp") });
+        exe.root_module.addCSourceFile(.{ .file = b.path("mt_doit.cpp") });
         link_step.dependOn(&exe.step);
         b.installArtifact(exe);
         run_step.dependOn(&b.addRunArtifact(exe).step);
@@ -24,13 +26,15 @@ pub fn build(b: *std.Build) void {
     {
         const exe = b.addExecutable(.{
             .name = "st",
-            .root_source_file = b.path("st.zig"),
-            .target = target,
-            .optimize = optimize,
-            .single_threaded = true,
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("st.zig"),
+                .target = target,
+                .optimize = optimize,
+                .link_libcpp = true,
+                .single_threaded = true,
+            }),
         });
-        exe.linkLibCpp();
-        exe.addCSourceFile(.{ .file = b.path("st_doit.cpp") });
+        exe.root_module.addCSourceFile(.{ .file = b.path("st_doit.cpp") });
         link_step.dependOn(&exe.step);
         b.installArtifact(exe);
         run_step.dependOn(&b.addRunArtifact(exe).step);

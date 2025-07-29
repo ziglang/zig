@@ -35,3 +35,4 @@ pub export fn entry() usize {
 
 // compile
 // output_mode=Obj
+// emit_bin=false

@@ -156,7 +156,7 @@ pub const E = enum(u16) {
 
 pub const BADSIG = SIG.ERR;
 
-pub const sig_t = *const fn (i32) callconv(.C) void;
+pub const sig_t = *const fn (i32) callconv(.c) void;
 
 pub const cmsghdr = extern struct {
     len: socklen_t,

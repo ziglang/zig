@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2017 Apple Inc. All rights reserved.
+ * Copyright (c) 2017, 2023 Apple Inc. All rights reserved.
  *
  * @APPLE_LICENSE_HEADER_START@
  *
@@ -21,7 +21,7 @@
  * @APPLE_LICENSE_HEADER_END@
  */
 
-#ifndef _STRINGS_H_
+#ifndef __STRINGS_H_
 # error "Never use <secure/_strings.h> directly; include <strings.h> instead."
 #endif
 

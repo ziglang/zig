@@ -76,6 +76,10 @@ typedef unsigned int            vm_inherit_t;   /* might want to change this */
 
 /*
  *	Enumeration of valid values for vm_inherit_t.
+ *
+ *  When making a new VM_INHERIT_*, update tests vm_parameter_validation_[user|kern]
+ *  and their expected results; they deliberately call VM functions with invalid
+ *  inherit values and you may be turning one of those invalid inherits valid.
  */
 
 #define VM_INHERIT_SHARE        ((vm_inherit_t) 0)      /* share with child */

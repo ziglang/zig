@@ -12,17 +12,23 @@ pub fn build(b: *std.Build) !void {
 
     const echo_args = b.addExecutable(.{
         .name = "echo-args",
-        .root_source_file = b.path("echo-args.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("echo-args.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const test_exe = b.addExecutable(.{
         .name = "test",
-        .root_source_file = b.path("test.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("test.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
+
+    test_exe.root_module.linkSystemLibrary("advapi32", .{});
 
     const run = b.addRunArtifact(test_exe);
     run.addArtifactArg(echo_args);
@@ -33,10 +39,14 @@ pub fn build(b: *std.Build) !void {
 
     const fuzz = b.addExecutable(.{
         .name = "fuzz",
-        .root_source_file = b.path("fuzz.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("fuzz.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
+
+    fuzz.root_module.linkSystemLibrary("advapi32", .{});
 
     const fuzz_max_iterations = b.option(u64, "iterations", "The max fuzz iterations (default: 100)") orelse 100;
     const fuzz_iterations_arg = std.fmt.allocPrint(b.allocator, "{}", .{fuzz_max_iterations}) catch @panic("oom");

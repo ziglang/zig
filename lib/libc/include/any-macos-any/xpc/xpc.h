@@ -326,23 +326,6 @@ XPC_EXPORT
 const char * const _xpc_event_key_name;
 
 /*!
- * @define XPC_TYPE_SESSION
- *
- * @discussion
- * Sessions represent a stateful connection between a client and a service. When either end of the connection
- * disconnects, the entire session will be invalidated. In this case the system will make no attempt to
- * reestablish the connection or relaunch the service.
- *
- * Clients can initiate a session with a service that accepts xpc_connection_t connections but session
- * semantics will be maintained.
- *
- */
-#define XPC_TYPE_SESSION (&_xpc_type_session)
-XPC_EXPORT
-XPC_TYPE(_xpc_type_session);
-XPC_DECL(xpc_session);
-
-/*!
  * @define XPC_TYPE_RICH_ERROR
  *
  * @discussion
@@ -367,7 +350,9 @@ XPC_ASSUME_NONNULL_END
 #include <xpc/listener.h>
 #endif // __BLOCKS__
 #undef __XPC_INDIRECT__
+#if __has_include(<launch.h>)
 #include <launch.h>
+#endif // __has_include(<launch.h>)
 #endif // !defined(__XPC_BUILDING_XPC__) || !__XPC_BUILDING_XPC__
 XPC_ASSUME_NONNULL_BEGIN
 __BEGIN_DECLS
@@ -2342,6 +2327,32 @@ void
 xpc_dictionary_set_connection(xpc_object_t xdict, const char *key,
 	xpc_connection_t connection);
 
+/*!
+ * @function xpc_dictionary_set_mach_send
+ *
+ * @abstract
+ * Inserts a send right into a dictionary.
+ *
+ * @param xdict
+ * The dictionary which is to be manipulated.
+ *
+ * @param key
+ * The key for which the primitive value shall be set.
+ *
+ * @param p
+ * The port to insert. After calling this method, the XPC object
+ * corresponding to the primitive value inserted may be safely retrieved
+ * with {@link xpc_dictionary_copy_mach_send()}.
+ *
+ * @discussion
+ * The XPC runtime sends the port with disposition `MACH_MSG_TYPE_COPY_SEND`
+ */
+__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+XPC_EXPORT XPC_NONNULL1 XPC_NONNULL2
+void
+xpc_dictionary_set_mach_send(xpc_object_t xdict, const char *key,
+	mach_port_t p);
+
 #pragma mark Dictionary Primitive Getters
 /*!
  * @function xpc_dictionary_get_bool
@@ -2625,6 +2636,33 @@ XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL_ALL
 xpc_object_t _Nullable
 xpc_dictionary_get_array(xpc_object_t xdict, const char *key);
 
+/*!
+ * @function xpc_dictionary_copy_mach_send
+ *
+ * @abstract
+ * Returns a send right to the mach port.
+ *
+ * @param xdict
+ * The dictionary object which is to be examined.
+ *
+ * @param key
+ * The key whose value is to be obtained.
+ *
+ * @result
+ * The object for the specified key within the dictionary. `MACH_PORT_NULL`
+ * if there is no value associated with the specified key, if the given object
+ * was not an XPC dictionary, or if the object for the specified key is not a send
+ * right.
+ *
+ * @discussion
+ * The XPC runtime will copy the send right using `mach_port_mod_refs`
+ * before returning the port
+ */
+__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+XPC_EXPORT XPC_WARN_RESULT XPC_NONNULL1 XPC_NONNULL2
+mach_port_t
+xpc_dictionary_copy_mach_send(xpc_object_t xdict, const char *key);
+
 #pragma mark Runtime
 /*!
  * @function xpc_main
@@ -2637,7 +2675,8 @@ xpc_dictionary_get_array(xpc_object_t xdict, const char *key);
  * @param handler
  * The handler with which to accept new connections.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7), macCatalyst(5.0))
+API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_NORETURN XPC_NONNULL1
 void
 xpc_main(xpc_connection_handler_t handler);
@@ -2673,7 +2712,8 @@ xpc_main(xpc_connection_handler_t handler);
  * connection's event handler, no more messages will be delivered to the
  * connection.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7))
+API_UNAVAILABLE(ios)
 XPC_TRANSACTION_DEPRECATED
 XPC_EXPORT
 void
@@ -2690,7 +2730,8 @@ xpc_transaction_begin(void);
  * See the discussion for {@link xpc_transaction_begin()} for details regarding
  * the XPC runtime's idle-exit policy.
  */
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7))
+API_UNAVAILABLE(ios)
 XPC_TRANSACTION_DEPRECATED
 XPC_EXPORT
 void
@@ -2725,7 +2766,8 @@ xpc_transaction_end(void);
  * between the event handler running and the process exiting.
  */
 #if __BLOCKS__
-__OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_5_0)
+API_AVAILABLE(macos(10.7))
+API_UNAVAILABLE(ios)
 XPC_EXPORT XPC_NONNULL1 XPC_NONNULL3
 void
 xpc_set_event_stream_handler(const char *stream,

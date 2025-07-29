@@ -17,5 +17,5 @@ fn shl(a: i16, b: u4) i16 {
     return @shlExact(a, b);
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux

@@ -1,16 +1,29 @@
 //! Cryptography.
 
-const root = @import("root");
+const std = @import("std.zig");
 
 pub const timing_safe = @import("crypto/timing_safe.zig");
 
 /// Authenticated Encryption with Associated Data
 pub const aead = struct {
     pub const aegis = struct {
-        pub const Aegis128L = @import("crypto/aegis.zig").Aegis128L;
-        pub const Aegis128L_256 = @import("crypto/aegis.zig").Aegis128L_256;
-        pub const Aegis256 = @import("crypto/aegis.zig").Aegis256;
-        pub const Aegis256_256 = @import("crypto/aegis.zig").Aegis256_256;
+        const variants = @import("crypto/aegis.zig");
+
+        pub const Aegis128X4 = variants.Aegis128X4;
+        pub const Aegis128X2 = variants.Aegis128X2;
+        pub const Aegis128L = variants.Aegis128L;
+
+        pub const Aegis256X4 = variants.Aegis256X4;
+        pub const Aegis256X2 = variants.Aegis256X2;
+        pub const Aegis256 = variants.Aegis256;
+
+        pub const Aegis128X4_256 = variants.Aegis128X4_256;
+        pub const Aegis128X2_256 = variants.Aegis128X2_256;
+        pub const Aegis128L_256 = variants.Aegis128L_256;
+
+        pub const Aegis256X4_256 = variants.Aegis256X4_256;
+        pub const Aegis256X2_256 = variants.Aegis256X2_256;
+        pub const Aegis256_256 = variants.Aegis256_256;
     };
 
     pub const aes_gcm = struct {
@@ -44,10 +57,22 @@ pub const auth = struct {
     pub const hmac = @import("crypto/hmac.zig");
     pub const siphash = @import("crypto/siphash.zig");
     pub const aegis = struct {
-        pub const Aegis128LMac = @import("crypto/aegis.zig").Aegis128LMac;
-        pub const Aegis128LMac_128 = @import("crypto/aegis.zig").Aegis128LMac_128;
-        pub const Aegis256Mac = @import("crypto/aegis.zig").Aegis256Mac;
-        pub const Aegis256Mac_128 = @import("crypto/aegis.zig").Aegis256Mac_128;
+        const variants = @import("crypto/aegis.zig");
+        pub const Aegis128X4Mac = variants.Aegis128X4Mac;
+        pub const Aegis128X2Mac = variants.Aegis128X2Mac;
+        pub const Aegis128LMac = variants.Aegis128LMac;
+
+        pub const Aegis256X4Mac = variants.Aegis256X4Mac;
+        pub const Aegis256X2Mac = variants.Aegis256X2Mac;
+        pub const Aegis256Mac = variants.Aegis256Mac;
+
+        pub const Aegis128X4Mac_128 = variants.Aegis128X4Mac_128;
+        pub const Aegis128X2Mac_128 = variants.Aegis128X2Mac_128;
+        pub const Aegis128LMac_128 = variants.Aegis128LMac_128;
+
+        pub const Aegis256X4Mac_128 = variants.Aegis256X4Mac_128;
+        pub const Aegis256X2Mac_128 = variants.Aegis256X2Mac_128;
+        pub const Aegis256Mac_128 = variants.Aegis256Mac_128;
     };
     pub const cmac = @import("crypto/cmac.zig");
 };
@@ -76,7 +101,6 @@ pub const dh = struct {
 pub const kem = struct {
     pub const kyber_d00 = @import("crypto/ml_kem.zig").d00;
     pub const ml_kem = @import("crypto/ml_kem.zig").nist;
-    pub const ml_kem_01 = @compileError("deprecated: final version of the specification has been published, use ml_kem instead");
 };
 
 /// Elliptic-curve arithmetic.
@@ -94,7 +118,7 @@ pub const hash = struct {
     pub const blake2 = @import("crypto/blake2.zig");
     pub const Blake3 = @import("crypto/blake3.zig").Blake3;
     pub const Md5 = @import("crypto/md5.zig").Md5;
-    pub const Sha1 = @import("crypto/sha1.zig").Sha1;
+    pub const Sha1 = @import("crypto/Sha1.zig");
     pub const sha2 = @import("crypto/sha2.zig");
     pub const sha3 = @import("crypto/sha3.zig");
     pub const composition = @import("crypto/hash_composition.zig");
@@ -189,7 +213,8 @@ pub const ff = @import("crypto/ff.zig");
 /// This is a thread-local, cryptographically secure pseudo random number generator.
 pub const random = @import("crypto/tlcsprng.zig").interface;
 
-const std = @import("std.zig");
+/// Encoding and decoding
+pub const codecs = @import("crypto/codecs.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
@@ -309,6 +334,7 @@ test {
     _ = errors;
     _ = tls;
     _ = Certificate;
+    _ = codecs;
 }
 
 test "CSPRNG" {
@@ -358,7 +384,7 @@ test "issue #4532: no index out of bounds" {
 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
-pub inline fn secureZero(comptime T: type, s: []volatile T) void {
+pub fn secureZero(comptime T: type, s: []volatile T) void {
     @memset(s, 0);
 }
 
@@ -371,20 +397,3 @@ test secureZero {
 
     try std.testing.expectEqualSlices(u8, &a, &b);
 }
-
-/// Deprecated in favor of `std.crypto`. To be removed after Zig 0.14.0 is released.
-///
-/// As a reminder, never use "utils" in a namespace (in any programming language).
-/// https://ziglang.org/documentation/0.13.0/#Avoid-Redundancy-in-Names
-pub const utils = struct {
-    /// Deprecated in favor of `std.crypto.secureZero`.
-    pub const secureZero = std.crypto.secureZero;
-    /// Deprecated in favor of `std.crypto.timing_safe.eql`.
-    pub const timingSafeEql = timing_safe.eql;
-    /// Deprecated in favor of `std.crypto.timing_safe.compare`.
-    pub const timingSafeCompare = timing_safe.compare;
-    /// Deprecated in favor of `std.crypto.timing_safe.add`.
-    pub const timingSafeAdd = timing_safe.add;
-    /// Deprecated in favor of `std.crypto.timing_safe.sub`.
-    pub const timingSafeSub = timing_safe.sub;
-};

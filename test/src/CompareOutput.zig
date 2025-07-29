@@ -89,19 +89,22 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
     switch (case.special) {
         Special.Asm => {
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run assemble-and-link {s}", .{
+            const annotated_case_name = b.fmt("run assemble-and-link {s}", .{
                 case.name,
-            }) catch @panic("OOM");
+            });
             for (self.test_filters) |test_filter| {
                 if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (self.test_filters.len > 0) return;
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .target = b.graph.host,
-                .optimize = .Debug,
+                .root_module = b.createModule(.{
+                    .root_source_file = null,
+                    .target = b.graph.host,
+                    .optimize = .Debug,
+                }),
             });
-            exe.addAssemblyFile(first_file);
+            exe.root_module.addAssemblyFile(first_file);
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -112,22 +115,22 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
         },
         Special.None => {
             for (self.optimize_modes) |optimize| {
-                const annotated_case_name = fmt.allocPrint(self.b.allocator, "run compare-output {s} ({s})", .{
+                const annotated_case_name = b.fmt("run compare-output {s} ({s})", .{
                     case.name, @tagName(optimize),
-                }) catch @panic("OOM");
+                });
                 for (self.test_filters) |test_filter| {
                     if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
                 } else if (self.test_filters.len > 0) return;
 
                 const exe = b.addExecutable(.{
                     .name = "test",
-                    .root_source_file = first_file,
-                    .optimize = optimize,
-                    .target = b.graph.host,
+                    .root_module = b.createModule(.{
+                        .root_source_file = first_file,
+                        .optimize = optimize,
+                        .target = b.graph.host,
+                    }),
                 });
-                if (case.link_libc) {
-                    exe.linkSystemLibrary("c");
-                }
+                if (case.link_libc) exe.root_module.link_libc = true;
 
                 const run = b.addRunArtifact(exe);
                 run.setName(annotated_case_name);
@@ -140,20 +143,20 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
         Special.RuntimeSafety => {
             // TODO iterate over self.optimize_modes and test this in both
             // debug and release safe mode
-            const annotated_case_name = fmt.allocPrint(self.b.allocator, "run safety {s}", .{case.name}) catch @panic("OOM");
+            const annotated_case_name = b.fmt("run safety {s}", .{case.name});
             for (self.test_filters) |test_filter| {
                 if (mem.indexOf(u8, annotated_case_name, test_filter)) |_| break;
             } else if (self.test_filters.len > 0) return;
 
             const exe = b.addExecutable(.{
                 .name = "test",
-                .root_source_file = first_file,
-                .target = b.graph.host,
-                .optimize = .Debug,
+                .root_module = b.createModule(.{
+                    .root_source_file = first_file,
+                    .target = b.graph.host,
+                    .optimize = .Debug,
+                }),
             });
-            if (case.link_libc) {
-                exe.linkSystemLibrary("c");
-            }
+            if (case.link_libc) exe.root_module.link_libc = true;
 
             const run = b.addRunArtifact(exe);
             run.setName(annotated_case_name);
@@ -168,7 +171,6 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 const CompareOutput = @This();
 const std = @import("std");
 const ArrayList = std.ArrayList;
-const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;
 const OptimizeMode = std.builtin.OptimizeMode;

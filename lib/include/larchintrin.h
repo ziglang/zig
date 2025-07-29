@@ -228,17 +228,31 @@ extern __inline void
   ((void)__builtin_loongarch_ldpte_d((long int)(_1), (_2)))
 #endif
 
-#define __frecipe_s(/*float*/ _1)                                              \
-  (float)__builtin_loongarch_frecipe_s((float)_1)
+#ifdef __loongarch_frecipe
+extern __inline float
+    __attribute__((__gnu_inline__, __always_inline__, __artificial__))
+    __frecipe_s(float _1) {
+  return __builtin_loongarch_frecipe_s(_1);
+}
 
-#define __frecipe_d(/*double*/ _1)                                             \
-  (double)__builtin_loongarch_frecipe_d((double)_1)
+extern __inline double
+    __attribute__((__gnu_inline__, __always_inline__, __artificial__))
+    __frecipe_d(double _1) {
+  return __builtin_loongarch_frecipe_d(_1);
+}
 
-#define __frsqrte_s(/*float*/ _1)                                              \
-  (float)__builtin_loongarch_frsqrte_s((float)_1)
+extern __inline float
+    __attribute__((__gnu_inline__, __always_inline__, __artificial__))
+    __frsqrte_s(float _1) {
+  return __builtin_loongarch_frsqrte_s(_1);
+}
 
-#define __frsqrte_d(/*double*/ _1)                                             \
-  (double)__builtin_loongarch_frsqrte_d((double)_1)
+extern __inline double
+    __attribute__((__gnu_inline__, __always_inline__, __artificial__))
+    __frsqrte_d(double _1) {
+  return __builtin_loongarch_frsqrte_d(_1);
+}
+#endif
 
 #ifdef __cplusplus
 }

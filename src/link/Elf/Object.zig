@@ -20,8 +20,8 @@ atoms: std.ArrayListUnmanaged(Atom) = .empty,
 atoms_indexes: std.ArrayListUnmanaged(Atom.Index) = .empty,
 atoms_extra: std.ArrayListUnmanaged(u32) = .empty,
 
-comdat_groups: std.ArrayListUnmanaged(Elf.ComdatGroup) = .empty,
-comdat_group_data: std.ArrayListUnmanaged(u32) = .empty,
+groups: std.ArrayListUnmanaged(Elf.Group) = .empty,
+group_data: std.ArrayListUnmanaged(u32) = .empty,
 
 input_merge_sections: std.ArrayListUnmanaged(Merge.InputSection) = .empty,
 input_merge_sections_indexes: std.ArrayListUnmanaged(Merge.InputSection.Index) = .empty,
@@ -49,8 +49,8 @@ pub fn deinit(self: *Object, gpa: Allocator) void {
     self.atoms.deinit(gpa);
     self.atoms_indexes.deinit(gpa);
     self.atoms_extra.deinit(gpa);
-    self.comdat_groups.deinit(gpa);
-    self.comdat_group_data.deinit(gpa);
+    self.groups.deinit(gpa);
+    self.group_data.deinit(gpa);
     self.relocs.deinit(gpa);
     self.fdes.deinit(gpa);
     self.cies.deinit(gpa);
@@ -69,7 +69,7 @@ pub fn parse(
     /// For error reporting purposes only.
     path: Path,
     handle: fs.File,
-    target: std.Target,
+    target: *const std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
 ) !void {
@@ -98,8 +98,7 @@ pub fn parseCommon(
     diags: *Diags,
     path: Path,
     handle: fs.File,
-    target: std.Target,
-    first_eflags: *?elf.Word,
+    target: *const std.Target,
 ) !void {
     const offset = if (self.archive) |ar| ar.offset else 0;
     const file_size = (try handle.stat()).size;
@@ -107,6 +106,9 @@ pub fn parseCommon(
     const header_buffer = try Elf.preadAllAlloc(gpa, handle, offset, @sizeOf(elf.Elf64_Ehdr));
     defer gpa.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
+    if (!mem.eql(u8, self.header.?.e_ident[0..4], elf.MAGIC)) {
+        return diags.failParse(path, "not an ELF file", .{});
+    }
 
     const em = target.toElfMachine();
     if (em != self.header.?.e_machine) {
@@ -114,7 +116,7 @@ pub fn parseCommon(
             @tagName(self.header.?.e_machine),
         });
     }
-    try validateEFlags(diags, path, target, self.header.?.e_flags, first_eflags);
+    try validateEFlags(diags, path, target, self.header.?.e_flags);
 
     if (self.header.?.e_shnum == 0) return;
 
@@ -180,39 +182,80 @@ pub fn parseCommon(
     }
 }
 
-fn validateEFlags(
+pub fn validateEFlags(
     diags: *Diags,
     path: Path,
-    target: std.Target,
+    target: *const std.Target,
     e_flags: elf.Word,
-    first_eflags: *?elf.Word,
-) error{LinkFailure}!void {
-    if (first_eflags.*) |*self_eflags| {
-        switch (target.cpu.arch) {
-            .riscv64 => {
-                if (e_flags != self_eflags.*) {
-                    const riscv_eflags: riscv.RiscvEflags = @bitCast(e_flags);
-                    const self_riscv_eflags: *riscv.RiscvEflags = @ptrCast(self_eflags);
+) !void {
+    switch (target.cpu.arch) {
+        .riscv64 => {
+            const flags: riscv.Eflags = @bitCast(e_flags);
+            var any_errors: bool = false;
 
-                    self_riscv_eflags.rvc = self_riscv_eflags.rvc or riscv_eflags.rvc;
-                    self_riscv_eflags.tso = self_riscv_eflags.tso or riscv_eflags.tso;
+            // For an input object to target an ABI that the target CPU doesn't have enabled
+            // is invalid, and will throw an error.
 
-                    var any_errors: bool = false;
-                    if (self_riscv_eflags.fabi != riscv_eflags.fabi) {
-                        any_errors = true;
-                        diags.addParseError(path, "cannot link object files with different float-point ABIs", .{});
-                    }
-                    if (self_riscv_eflags.rve != riscv_eflags.rve) {
-                        any_errors = true;
-                        diags.addParseError(path, "cannot link object files with different RVEs", .{});
-                    }
-                    if (any_errors) return error.LinkFailure;
-                }
-            },
-            else => {},
-        }
-    } else {
-        first_eflags.* = e_flags;
+            // Invalid when
+            // 1. The input uses C and we do not.
+            if (flags.rvc and !target.cpu.has(.riscv, .c)) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting the C feature without having the C feature enabled",
+                    .{},
+                );
+            }
+
+            // Invalid when
+            // 1. We use E and the input does not.
+            // 2. The input uses E and we do not.
+            if (target.cpu.has(.riscv, .e) != flags.rve) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "{s}",
+                    .{
+                        if (flags.rve)
+                            "cannot link object file targeting the E feature without having the E feature enabled"
+                        else
+                            "cannot link object file not targeting the E feature while having the E feature enabled",
+                    },
+                );
+            }
+
+            // Invalid when
+            // 1. We use total store order and the input does not.
+            // 2. The input uses total store order and we do not.
+            if (flags.tso != target.cpu.has(.riscv, .ztso)) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting the TSO memory model without having the ztso feature enabled",
+                    .{},
+                );
+            }
+
+            const fabi: riscv.Eflags.FloatAbi =
+                if (target.cpu.has(.riscv, .d))
+                    .double
+                else if (target.cpu.has(.riscv, .f))
+                    .single
+                else
+                    .soft;
+
+            if (flags.fabi != fabi) {
+                any_errors = true;
+                diags.addParseError(
+                    path,
+                    "cannot link object file targeting a different floating-point ABI. targeting {s}, found {s}",
+                    .{ @tagName(fabi), @tagName(flags.fabi) },
+                );
+            }
+
+            if (any_errors) return error.LinkFailure;
+        },
+        else => {},
     }
 }
 
@@ -223,7 +266,7 @@ fn initAtoms(
     path: Path,
     handle: fs.File,
     debug_fmt_strip: bool,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const shdrs = self.shdrs.items;
     try self.atoms.ensureTotalCapacityPrecise(gpa, shdrs.len);
@@ -241,7 +284,7 @@ fn initAtoms(
             elf.SHT_GROUP => {
                 if (shdr.sh_info >= self.symtab.items.len) {
                     // TODO convert into an error
-                    log.debug("{}: invalid symbol index in sh_info", .{self.fmtPath()});
+                    log.debug("{f}: invalid symbol index in sh_info", .{self.fmtPath()});
                     continue;
                 }
                 const group_info_sym = self.symtab.items[shdr.sh_info];
@@ -264,22 +307,22 @@ fn initAtoms(
                 }
                 const group_members = @as([*]align(1) const u32, @ptrCast(group_raw_data.ptr))[0..group_nmembers];
 
-                if (group_members[0] != elf.GRP_COMDAT) {
-                    return diags.failParse(path, "corrupt section group: unknown SHT_GROUP format", .{});
+                switch (group_members[0]) {
+                    0, elf.GRP_COMDAT => {
+                        const group_start: u32 = @intCast(self.group_data.items.len);
+                        try self.group_data.appendUnalignedSlice(gpa, group_members[1..]);
+
+                        self.group(try self.addGroup(gpa)).* = .{
+                            .signature_off = group_signature,
+                            .file_index = self.index,
+                            .shndx = shndx,
+                            .members_start = group_start,
+                            .members_len = @intCast(group_nmembers - 1),
+                            .is_comdat = group_members[0] == elf.GRP_COMDAT,
+                        };
+                    },
+                    else => return diags.failParse(path, "corrupt section group: unknown SHT_GROUP format", .{}),
                 }
-
-                const group_start: u32 = @intCast(self.comdat_group_data.items.len);
-                try self.comdat_group_data.appendUnalignedSlice(gpa, group_members[1..]);
-
-                const comdat_group_index = try self.addComdatGroup(gpa);
-                const comdat_group = self.comdatGroup(comdat_group_index);
-                comdat_group.* = .{
-                    .signature_off = group_signature,
-                    .file_index = self.index,
-                    .shndx = shndx,
-                    .members_start = group_start,
-                    .members_len = @intCast(group_nmembers - 1),
-                };
             },
 
             elf.SHT_SYMTAB_SHNDX => @panic("TODO SHT_SYMTAB_SHNDX"),
@@ -380,7 +423,7 @@ fn parseEhFrame(
     gpa: Allocator,
     handle: fs.File,
     shndx: u32,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const relocs_shndx = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u32, @intCast(i)),
@@ -398,6 +441,10 @@ fn parseEhFrame(
     defer gpa.free(relocs);
     const rel_start: u32 = @intCast(self.relocs.items.len);
     try self.relocs.appendUnalignedSlice(gpa, relocs);
+
+    // We expect relocations to be sorted by r_offset as per this comment in mold linker:
+    // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
+    // Except for RISCV and Loongarch which do not seem to be uphold this convention.
     if (target.cpu.arch == .riscv64) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
@@ -444,10 +491,7 @@ fn parseEhFrame(
             if (cie.offset == cie_ptr) break @as(u32, @intCast(cie_index));
         } else {
             // TODO convert into an error
-            log.debug("{s}: no matching CIE found for FDE at offset {x}", .{
-                self.fmtPath(),
-                fde.offset,
-            });
+            log.debug("{f}: no matching CIE found for FDE at offset {x}", .{ self.fmtPath(), fde.offset });
             continue;
         };
         fde.cie_index = cie_index;
@@ -538,7 +582,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
-                    log.debug("{s}: {s}: CIE referencing external data reference", .{
+                    log.debug("{f}: {s}: CIE referencing external data reference", .{
                         self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
@@ -752,7 +796,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 if (!isNull(data[end .. end + sh_entsize])) {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
-                    try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
                 }
                 end += sh_entsize;
@@ -767,7 +811,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             if (shdr.sh_size % sh_entsize != 0) {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
-                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             }
 
@@ -844,8 +888,8 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
         const res = imsec.findSubsection(@intCast(esym.st_value)) orelse {
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
-            try err.addNote("for symbol {s}", .{sym.name(elf_file)});
-            try err.addNote("in {}", .{self.fmtPath()});
+            err.addNote("for symbol {s}", .{sym.name(elf_file)});
+            err.addNote("in {f}", .{self.fmtPath()});
             return error.LinkFailure;
         };
 
@@ -870,7 +914,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
-                try err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             };
 
@@ -942,28 +986,28 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
     }
 }
 
-pub fn resolveComdatGroups(self: *Object, elf_file: *Elf, table: anytype) !void {
-    for (self.comdat_groups.items, 0..) |*cg, cgi| {
-        const signature = cg.signature(elf_file);
+pub fn resolveGroups(self: *Object, elf_file: *Elf, table: anytype) !void {
+    for (self.groups.items, 0..) |*g, gi| {
+        const signature = g.signature(elf_file);
         const gop = try table.getOrPut(signature);
         if (!gop.found_existing) {
-            gop.value_ptr.* = .{ .index = @intCast(cgi), .file = self.index };
+            gop.value_ptr.* = .{ .index = @intCast(gi), .file = self.index };
             continue;
         }
-        const current = elf_file.comdatGroup(gop.value_ptr.*);
-        cg.alive = false;
+        const current = elf_file.group(gop.value_ptr.*);
+        g.alive = false;
         if (self.index < current.file_index) {
             current.alive = false;
-            cg.alive = true;
-            gop.value_ptr.* = .{ .index = @intCast(cgi), .file = self.index };
+            g.alive = true;
+            gop.value_ptr.* = .{ .index = @intCast(gi), .file = self.index };
         }
     }
 }
 
-pub fn markComdatGroupsDead(self: *Object, elf_file: *Elf) void {
-    for (self.comdat_groups.items) |cg| {
-        if (cg.alive) continue;
-        for (cg.comdatGroupMembers(elf_file)) |shndx| {
+pub fn markGroupsDead(self: *Object, elf_file: *Elf) void {
+    for (self.groups.items) |g| {
+        if (g.alive) continue;
+        for (g.members(elf_file)) |shndx| {
             const atom_index = self.atoms_indexes.items[shndx];
             if (self.atom(atom_index)) |atom_ptr| {
                 atom_ptr.alive = false;
@@ -1377,182 +1421,127 @@ fn inputMergeSection(self: *Object, index: Merge.InputSection.Index) ?*Merge.Inp
     return &self.input_merge_sections.items[index];
 }
 
-fn addComdatGroup(self: *Object, gpa: Allocator) !Elf.ComdatGroup.Index {
-    const index = @as(Elf.ComdatGroup.Index, @intCast(self.comdat_groups.items.len));
-    _ = try self.comdat_groups.addOne(gpa);
+fn addGroup(self: *Object, gpa: Allocator) !Elf.Group.Index {
+    const index: Elf.Group.Index = @intCast(self.groups.items.len);
+    _ = try self.groups.addOne(gpa);
     return index;
 }
 
-pub fn comdatGroup(self: *Object, index: Elf.ComdatGroup.Index) *Elf.ComdatGroup {
-    assert(index < self.comdat_groups.items.len);
-    return &self.comdat_groups.items[index];
+pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
+    assert(index < self.groups.items.len);
+    return &self.groups.items[index];
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format objects directly");
-}
-
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     object: *Object,
     elf_file: *Elf,
+
+    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  locals\n");
+        for (object.locals()) |sym| {
+            try writer.print("    {f}\n", .{sym.fmt(elf_file)});
+        }
+        try writer.writeAll("  globals\n");
+        for (object.globals(), 0..) |sym, i| {
+            const first_global = object.first_global.?;
+            const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
+        }
+    }
+
+    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  atoms\n");
+        for (object.atoms_indexes.items) |atom_index| {
+            const atom_ptr = object.atom(atom_index) orelse continue;
+            try writer.print("    {f}\n", .{atom_ptr.fmt(f.elf_file)});
+        }
+    }
+
+    fn cies(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  cies\n");
+        for (object.cies.items, 0..) |cie, i| {
+            try writer.print("    cie({d}) : {f}\n", .{ i, cie.fmt(f.elf_file) });
+        }
+    }
+
+    fn fdes(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  fdes\n");
+        for (object.fdes.items, 0..) |fde, i| {
+            try writer.print("    fde({d}) : {f}\n", .{ i, fde.fmt(f.elf_file) });
+        }
+    }
+
+    fn groups(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  groups\n");
+        for (object.groups.items, 0..) |g, g_index| {
+            try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
+            if (!g.alive) try writer.writeAll(" : [*]");
+            try writer.writeByte('\n');
+            const g_members = g.members(elf_file);
+            for (g_members) |shndx| {
+                const atom_index = object.atoms_indexes.items[shndx];
+                const atom_ptr = object.atom(atom_index) orelse continue;
+                try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
+            }
+        }
+    }
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
-    for (object.locals()) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
-    }
-    try writer.writeAll("  globals\n");
-    for (object.globals(), 0..) |sym, i| {
-        const first_global = object.first_global.?;
-        const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
-        }
-    }
-}
-
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  atoms\n");
-    for (object.atoms_indexes.items) |atom_index| {
-        const atom_ptr = object.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
-    }
-}
-
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  cies\n");
-    for (object.cies.items, 0..) |cie, i| {
-        try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  fdes\n");
-    for (object.fdes.items, 0..) |fde, i| {
-        try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtComdatGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatComdatGroups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatComdatGroups(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  COMDAT groups\n");
-    for (object.comdat_groups.items, 0..) |cg, cg_index| {
-        try writer.print("    COMDAT({d})", .{cg_index});
-        if (!cg.alive) try writer.writeAll(" : [*]");
-        try writer.writeByte('\n');
-        const cg_members = cg.comdatGroupMembers(elf_file);
-        for (cg_members) |shndx| {
-            const atom_index = object.atoms_indexes.items[shndx];
-            const atom_ptr = object.atom(atom_index) orelse continue;
-            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
-        }
-    }
-}
-
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
     if (object.archive) |ar| {
-        try writer.print("{}({})", .{ ar.path, object.path });
+        try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {
-        try writer.print("{}", .{object.path});
+        try writer.print("{f}", .{object.path});
     }
 }
 

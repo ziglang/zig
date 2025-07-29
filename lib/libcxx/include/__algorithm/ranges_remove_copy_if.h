@@ -53,9 +53,7 @@ __remove_copy_if_impl(_InIter __first, _Sent __last, _OutIter __result, _Pred& _
   return {std::move(__first), std::move(__result)};
 }
 
-namespace __remove_copy_if {
-
-struct __fn {
+struct __remove_copy_if {
   template <input_iterator _InIter,
             sentinel_for<_InIter> _Sent,
             weakly_incrementable _OutIter,
@@ -79,10 +77,8 @@ struct __fn {
   }
 };
 
-} // namespace __remove_copy_if
-
 inline namespace __cpo {
-inline constexpr auto remove_copy_if = __remove_copy_if::__fn{};
+inline constexpr auto remove_copy_if = __remove_copy_if{};
 } // namespace __cpo
 } // namespace ranges
 

@@ -587,8 +587,8 @@ __API_AVAILABLE(macos(11.0))
 __API_UNAVAILABLE(ios, tvos, watchos, driverkit)
 void pthread_jit_write_protect_np(int enabled);
 
-__API_AVAILABLE(macos(11.0))
-__API_UNAVAILABLE(ios, tvos, watchos, driverkit)
+__API_AVAILABLE(macos(11.0), ios(17.4))
+__API_UNAVAILABLE(tvos, watchos, driverkit, visionos)
 int pthread_jit_write_protect_supported_np(void);
 
 /*!
@@ -691,8 +691,8 @@ typedef int (*pthread_jit_write_callback_t)(void * _Nullable ctx);
  * abort(3), the latter being encumbered by various conformance requirements) or
  * return a result indicating failure.
  */
-__API_AVAILABLE(macos(11.4))
-__API_UNAVAILABLE(ios, tvos, watchos, driverkit)
+__API_AVAILABLE(macos(11.4), ios(17.4))
+__API_UNAVAILABLE(tvos, watchos, driverkit, visionos)
 __SWIFT_UNAVAILABLE_MSG("This interface cannot be safely used from Swift")
 int pthread_jit_write_with_callback_np(
 		pthread_jit_write_callback_t _Nonnull callback, void * _Nullable ctx);
@@ -722,8 +722,8 @@ int pthread_jit_write_with_callback_np(
  * this function, as this allows the runtime to automatically freeze the set of
  * allowed callbacks early in process initialization.
  */
-__API_AVAILABLE(macos(12.1))
-__API_UNAVAILABLE(ios, tvos, watchos, driverkit)
+__API_AVAILABLE(macos(12.1), ios(17.4))
+__API_UNAVAILABLE(tvos, watchos, driverkit, visionos)
 void pthread_jit_write_freeze_callbacks_np(void);
 
 /*!

@@ -11,10 +11,10 @@
 #define _LIBCPP___RANGES_EMPTY_VIEW_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__ranges/enable_borrowed_range.h>
 #include <__ranges/view_interface.h>
 #include <__type_traits/is_object.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

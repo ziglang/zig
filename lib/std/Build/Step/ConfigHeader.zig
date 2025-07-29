@@ -2,11 +2,14 @@ const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
 
 pub const Style = union(enum) {
-    /// The configure format supported by autotools. It uses `#undef foo` to
+    /// A configure format supported by autotools that uses `#undef foo` to
     /// mark lines that can be substituted with different values.
-    autoconf: std.Build.LazyPath,
+    autoconf_undef: std.Build.LazyPath,
+    /// A configure format supported by autotools that uses `@FOO@` output variables.
+    autoconf_at: std.Build.LazyPath,
     /// The configure format supported by CMake. It uses `@FOO@`, `${}` and
     /// `#cmakedefine` for template substitution.
     cmake: std.Build.LazyPath,
@@ -17,7 +20,7 @@ pub const Style = union(enum) {
 
     pub fn getPath(style: Style) ?std.Build.LazyPath {
         switch (style) {
-            .autoconf, .cmake => |s| return s,
+            .autoconf_undef, .autoconf_at, .cmake => |s| return s,
             .blank, .nasm => return null,
         }
     }
@@ -34,7 +37,8 @@ pub const Value = union(enum) {
 
 step: Step,
 values: std.StringArrayHashMap(Value),
-output_file: std.Build.GeneratedFile,
+/// This directory contains the generated file under the name `include_path`.
+generated_dir: std.Build.GeneratedFile,
 
 style: Style,
 max_bytes: usize,
@@ -81,7 +85,7 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         owner.fmt("configure {s} header to {s}", .{ @tagName(options.style), include_path });
 
     config_header.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = name,
             .owner = owner,
@@ -89,69 +93,78 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
             .first_ret_addr = options.first_ret_addr orelse @returnAddress(),
         }),
         .style = options.style,
-        .values = std.StringArrayHashMap(Value).init(owner.allocator),
+        .values = .init(owner.allocator),
 
         .max_bytes = options.max_bytes,
         .include_path = include_path,
         .include_guard_override = options.include_guard_override,
-        .output_file = .{ .step = &config_header.step },
+        .generated_dir = .{ .step = &config_header.step },
     };
 
+    if (options.style.getPath()) |s| {
+        s.addStepDependencies(&config_header.step);
+    }
     return config_header;
 }
 
+pub fn addValue(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) void {
+    return addValueInner(config_header, name, T, value) catch @panic("OOM");
+}
+
 pub fn addValues(config_header: *ConfigHeader, values: anytype) void {
-    return addValuesInner(config_header, values) catch @panic("OOM");
-}
-
-pub fn getOutput(config_header: *ConfigHeader) std.Build.LazyPath {
-    return .{ .generated = .{ .file = &config_header.output_file } };
-}
-
-fn addValuesInner(config_header: *ConfigHeader, values: anytype) !void {
     inline for (@typeInfo(@TypeOf(values)).@"struct".fields) |field| {
-        try putValue(config_header, field.name, field.type, @field(values, field.name));
+        addValue(config_header, field.name, field.type, @field(values, field.name));
     }
 }
 
-fn putValue(config_header: *ConfigHeader, field_name: []const u8, comptime T: type, v: T) !void {
+pub fn getOutputDir(ch: *ConfigHeader) std.Build.LazyPath {
+    return .{ .generated = .{ .file = &ch.generated_dir } };
+}
+pub fn getOutputFile(ch: *ConfigHeader) std.Build.LazyPath {
+    return ch.getOutputDir().path(ch.step.owner, ch.include_path);
+}
+
+/// Deprecated; use `getOutputFile`.
+pub const getOutput = getOutputFile;
+
+fn addValueInner(config_header: *ConfigHeader, name: []const u8, comptime T: type, value: T) !void {
     switch (@typeInfo(T)) {
         .null => {
-            try config_header.values.put(field_name, .undef);
+            try config_header.values.put(name, .undef);
         },
         .void => {
-            try config_header.values.put(field_name, .defined);
+            try config_header.values.put(name, .defined);
         },
         .bool => {
-            try config_header.values.put(field_name, .{ .boolean = v });
+            try config_header.values.put(name, .{ .boolean = value });
         },
         .int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
         .comptime_int => {
-            try config_header.values.put(field_name, .{ .int = v });
+            try config_header.values.put(name, .{ .int = value });
         },
-        .enum_literal => {
-            try config_header.values.put(field_name, .{ .ident = @tagName(v) });
+        .@"enum", .enum_literal => {
+            try config_header.values.put(name, .{ .ident = @tagName(value) });
         },
         .optional => {
-            if (v) |x| {
-                return putValue(config_header, field_name, @TypeOf(x), x);
+            if (value) |x| {
+                return addValueInner(config_header, name, @TypeOf(x), x);
             } else {
-                try config_header.values.put(field_name, .undef);
+                try config_header.values.put(name, .undef);
             }
         },
         .pointer => |ptr| {
             switch (@typeInfo(ptr.child)) {
                 .array => |array| {
-                    if (ptr.size == .One and array.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                    if (ptr.size == .one and array.child == u8) {
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
                 .int => {
-                    if (ptr.size == .Slice and ptr.child == u8) {
-                        try config_header.values.put(field_name, .{ .string = v });
+                    if (ptr.size == .slice and ptr.child == u8) {
+                        try config_header.values.put(name, .{ .string = value });
                         return;
                     }
                 },
@@ -183,51 +196,55 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     man.hash.addBytes(config_header.include_path);
     man.hash.addOptionalBytes(config_header.include_guard_override);
 
-    var output = std.ArrayList(u8).init(gpa);
-    defer output.deinit();
+    var aw: std.io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
+    const bw = &aw.writer;
 
     const header_text = "This file was generated by ConfigHeader using the Zig Build System.";
     const c_generated_line = "/* " ++ header_text ++ " */\n";
     const asm_generated_line = "; " ++ header_text ++ "\n";
 
     switch (config_header.style) {
-        .autoconf => |file_source| {
-            try output.appendSlice(c_generated_line);
+        .autoconf_undef, .autoconf_at => |file_source| {
+            try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read autoconf input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
-            try render_autoconf(step, contents, &output, config_header.values, src_path);
+            switch (config_header.style) {
+                .autoconf_undef => try render_autoconf_undef(step, contents, bw, config_header.values, src_path),
+                .autoconf_at => try render_autoconf_at(step, contents, &aw, config_header.values, src_path),
+                else => unreachable,
+            }
         },
         .cmake => |file_source| {
-            try output.appendSlice(c_generated_line);
+            try bw.writeAll(c_generated_line);
             const src_path = file_source.getPath2(b, step);
             const contents = std.fs.cwd().readFileAlloc(arena, src_path, config_header.max_bytes) catch |err| {
                 return step.fail("unable to read cmake input file '{s}': {s}", .{
                     src_path, @errorName(err),
                 });
             };
-            try render_cmake(step, contents, &output, config_header.values, src_path);
+            try render_cmake(step, contents, bw, config_header.values, src_path);
         },
         .blank => {
-            try output.appendSlice(c_generated_line);
-            try render_blank(&output, config_header.values, config_header.include_path, config_header.include_guard_override);
+            try bw.writeAll(c_generated_line);
+            try render_blank(gpa, bw, config_header.values, config_header.include_path, config_header.include_guard_override);
         },
         .nasm => {
-            try output.appendSlice(asm_generated_line);
-            try render_nasm(&output, config_header.values);
+            try bw.writeAll(asm_generated_line);
+            try render_nasm(bw, config_header.values);
         },
     }
 
-    man.hash.addBytes(output.items);
+    const output = aw.getWritten();
+    man.hash.addBytes(output);
 
     if (try step.cacheHit(&man)) {
         const digest = man.final();
-        config_header.output_file.path = try b.cache_root.join(arena, &.{
-            "o", &digest, config_header.include_path,
-        });
+        config_header.generated_dir.path = try b.cache_root.join(arena, &.{ "o", &digest });
         return;
     }
 
@@ -242,60 +259,65 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const sub_path_dirname = std.fs.path.dirname(sub_path).?;
 
     b.cache_root.handle.makePath(sub_path_dirname) catch |err| {
-        return step.fail("unable to make path '{}{s}': {s}", .{
+        return step.fail("unable to make path '{f}{s}': {s}", .{
             b.cache_root, sub_path_dirname, @errorName(err),
         });
     };
 
-    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output.items }) catch |err| {
-        return step.fail("unable to write file '{}{s}': {s}", .{
+    b.cache_root.handle.writeFile(.{ .sub_path = sub_path, .data = output }) catch |err| {
+        return step.fail("unable to write file '{f}{s}': {s}", .{
             b.cache_root, sub_path, @errorName(err),
         });
     };
 
-    config_header.output_file.path = try b.cache_root.join(arena, &.{sub_path});
+    config_header.generated_dir.path = try b.cache_root.join(arena, &.{ "o", &digest });
     try man.writeManifest();
 }
 
-fn render_autoconf(
+fn render_autoconf_undef(
     step: *Step,
     contents: []const u8,
-    output: *std.ArrayList(u8),
+    bw: *Writer,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
-    var values_copy = try values.clone();
-    defer values_copy.deinit();
+    const build = step.owner;
+    const allocator = build.allocator;
+
+    var is_used: std.DynamicBitSetUnmanaged = try .initEmpty(allocator, values.count());
+    defer is_used.deinit(allocator);
 
     var any_errors = false;
     var line_index: u32 = 0;
     var line_it = std.mem.splitScalar(u8, contents, '\n');
     while (line_it.next()) |line| : (line_index += 1) {
         if (!std.mem.startsWith(u8, line, "#")) {
-            try output.appendSlice(line);
-            try output.appendSlice("\n");
+            try bw.writeAll(line);
+            try bw.writeByte('\n');
             continue;
         }
         var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
         const undef = it.next().?;
         if (!std.mem.eql(u8, undef, "undef")) {
-            try output.appendSlice(line);
-            try output.appendSlice("\n");
+            try bw.writeAll(line);
+            try bw.writeByte('\n');
             continue;
         }
-        const name = it.rest();
-        const kv = values_copy.fetchSwapRemove(name) orelse {
+        const name = it.next().?;
+        const index = values.getIndex(name) orelse {
             try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                 src_path, line_index + 1, name,
             });
             any_errors = true;
             continue;
         };
-        try renderValueC(output, name, kv.value);
+        is_used.set(index);
+        try renderValueC(bw, name, values.values()[index]);
     }
 
-    for (values_copy.keys()) |name| {
-        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+    var unused_value_it = is_used.iterator(.{ .kind = .unset });
+    while (unused_value_it.next()) |index| {
+        try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, values.keys()[index] });
         any_errors = true;
     }
 
@@ -304,10 +326,63 @@ fn render_autoconf(
     }
 }
 
+fn render_autoconf_at(
+    step: *Step,
+    contents: []const u8,
+    aw: *std.io.Writer.Allocating,
+    values: std.StringArrayHashMap(Value),
+    src_path: []const u8,
+) !void {
+    const build = step.owner;
+    const allocator = build.allocator;
+    const bw = &aw.writer;
+
+    const used = allocator.alloc(bool, values.count()) catch @panic("OOM");
+    for (used) |*u| u.* = false;
+    defer allocator.free(used);
+
+    var any_errors = false;
+    var line_index: u32 = 0;
+    var line_it = std.mem.splitScalar(u8, contents, '\n');
+    while (line_it.next()) |line| : (line_index += 1) {
+        const last_line = line_it.index == line_it.buffer.len;
+
+        const old_len = aw.getWritten().len;
+        expand_variables_autoconf_at(bw, line, values, used) catch |err| switch (err) {
+            error.MissingValue => {
+                const name = aw.getWritten()[old_len..];
+                defer aw.shrinkRetainingCapacity(old_len);
+                try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
+                    src_path, line_index + 1, name,
+                });
+                any_errors = true;
+                continue;
+            },
+            else => {
+                try step.addError("{s}:{d}: unable to substitute variable: error: {s}", .{
+                    src_path, line_index + 1, @errorName(err),
+                });
+                any_errors = true;
+                continue;
+            },
+        };
+        if (!last_line) try bw.writeByte('\n');
+    }
+
+    for (values.unmanaged.entries.slice().items(.key), used) |name, u| {
+        if (!u) {
+            try step.addError("{s}: error: config header value unused: '{s}'", .{ src_path, name });
+            any_errors = true;
+        }
+    }
+
+    if (any_errors) return error.MakeFailed;
+}
+
 fn render_cmake(
     step: *Step,
     contents: []const u8,
-    output: *std.ArrayList(u8),
+    bw: *Writer,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
@@ -342,10 +417,8 @@ fn render_cmake(
         defer allocator.free(line);
 
         if (!std.mem.startsWith(u8, line, "#")) {
-            try output.appendSlice(line);
-            if (!last_line) {
-                try output.appendSlice("\n");
-            }
+            try bw.writeAll(line);
+            if (!last_line) try bw.writeByte('\n');
             continue;
         }
         var it = std.mem.tokenizeAny(u8, line[1..], " \t\r");
@@ -353,10 +426,8 @@ fn render_cmake(
         if (!std.mem.eql(u8, cmakedefine, "cmakedefine") and
             !std.mem.eql(u8, cmakedefine, "cmakedefine01"))
         {
-            try output.appendSlice(line);
-            if (!last_line) {
-                try output.appendSlice("\n");
-            }
+            try bw.writeAll(line);
+            if (!last_line) try bw.writeByte('\n');
             continue;
         }
 
@@ -427,7 +498,7 @@ fn render_cmake(
             value = Value{ .ident = it.rest() };
         }
 
-        try renderValueC(output, name, value);
+        try renderValueC(bw, name, value);
     }
 
     if (any_errors) {
@@ -436,13 +507,14 @@ fn render_cmake(
 }
 
 fn render_blank(
-    output: *std.ArrayList(u8),
+    gpa: std.mem.Allocator,
+    bw: *Writer,
     defines: std.StringArrayHashMap(Value),
     include_path: []const u8,
     include_guard_override: ?[]const u8,
 ) !void {
     const include_guard_name = include_guard_override orelse blk: {
-        const name = try output.allocator.dupe(u8, include_path);
+        const name = try gpa.dupe(u8, include_path);
         for (name) |*byte| {
             switch (byte.*) {
                 'a'...'z' => byte.* = byte.* - 'a' + 'A',
@@ -452,88 +524,96 @@ fn render_blank(
         }
         break :blk name;
     };
+    defer if (include_guard_override == null) gpa.free(include_guard_name);
 
-    try output.appendSlice("#ifndef ");
-    try output.appendSlice(include_guard_name);
-    try output.appendSlice("\n#define ");
-    try output.appendSlice(include_guard_name);
-    try output.appendSlice("\n");
+    try bw.print(
+        \\#ifndef {[0]s}
+        \\#define {[0]s}
+        \\
+    , .{include_guard_name});
 
     const values = defines.values();
-    for (defines.keys(), 0..) |name, i| {
-        try renderValueC(output, name, values[i]);
-    }
+    for (defines.keys(), 0..) |name, i| try renderValueC(bw, name, values[i]);
 
-    try output.appendSlice("#endif /* ");
-    try output.appendSlice(include_guard_name);
-    try output.appendSlice(" */\n");
+    try bw.print(
+        \\#endif /* {s} */
+        \\
+    , .{include_guard_name});
 }
 
-fn render_nasm(output: *std.ArrayList(u8), defines: std.StringArrayHashMap(Value)) !void {
-    const values = defines.values();
-    for (defines.keys(), 0..) |name, i| {
-        try renderValueNasm(output, name, values[i]);
-    }
+fn render_nasm(bw: *Writer, defines: std.StringArrayHashMap(Value)) !void {
+    for (defines.keys(), defines.values()) |name, value| try renderValueNasm(bw, name, value);
 }
 
-fn renderValueC(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
+fn renderValueC(bw: *Writer, name: []const u8, value: Value) !void {
     switch (value) {
-        .undef => {
-            try output.appendSlice("/* #undef ");
-            try output.appendSlice(name);
-            try output.appendSlice(" */\n");
-        },
-        .defined => {
-            try output.appendSlice("#define ");
-            try output.appendSlice(name);
-            try output.appendSlice("\n");
-        },
-        .boolean => |b| {
-            try output.appendSlice("#define ");
-            try output.appendSlice(name);
-            try output.appendSlice(if (b) " 1\n" else " 0\n");
-        },
-        .int => |i| {
-            try output.writer().print("#define {s} {d}\n", .{ name, i });
-        },
-        .ident => |ident| {
-            try output.writer().print("#define {s} {s}\n", .{ name, ident });
-        },
-        .string => |string| {
-            // TODO: use C-specific escaping instead of zig string literals
-            try output.writer().print("#define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
-        },
+        .undef => try bw.print("/* #undef {s} */\n", .{name}),
+        .defined => try bw.print("#define {s}\n", .{name}),
+        .boolean => |b| try bw.print("#define {s} {c}\n", .{ name, @as(u8, '0') + @intFromBool(b) }),
+        .int => |i| try bw.print("#define {s} {d}\n", .{ name, i }),
+        .ident => |ident| try bw.print("#define {s} {s}\n", .{ name, ident }),
+        // TODO: use C-specific escaping instead of zig string literals
+        .string => |string| try bw.print("#define {s} \"{f}\"\n", .{ name, std.zig.fmtString(string) }),
     }
 }
 
-fn renderValueNasm(output: *std.ArrayList(u8), name: []const u8, value: Value) !void {
+fn renderValueNasm(bw: *Writer, name: []const u8, value: Value) !void {
     switch (value) {
-        .undef => {
-            try output.appendSlice("; %undef ");
-            try output.appendSlice(name);
-            try output.appendSlice("\n");
-        },
-        .defined => {
-            try output.appendSlice("%define ");
-            try output.appendSlice(name);
-            try output.appendSlice("\n");
-        },
-        .boolean => |b| {
-            try output.appendSlice("%define ");
-            try output.appendSlice(name);
-            try output.appendSlice(if (b) " 1\n" else " 0\n");
-        },
-        .int => |i| {
-            try output.writer().print("%define {s} {d}\n", .{ name, i });
-        },
-        .ident => |ident| {
-            try output.writer().print("%define {s} {s}\n", .{ name, ident });
-        },
-        .string => |string| {
-            // TODO: use nasm-specific escaping instead of zig string literals
-            try output.writer().print("%define {s} \"{}\"\n", .{ name, std.zig.fmtEscapes(string) });
-        },
+        .undef => try bw.print("; %undef {s}\n", .{name}),
+        .defined => try bw.print("%define {s}\n", .{name}),
+        .boolean => |b| try bw.print("%define {s} {c}\n", .{ name, @as(u8, '0') + @intFromBool(b) }),
+        .int => |i| try bw.print("%define {s} {d}\n", .{ name, i }),
+        .ident => |ident| try bw.print("%define {s} {s}\n", .{ name, ident }),
+        // TODO: use nasm-specific escaping instead of zig string literals
+        .string => |string| try bw.print("%define {s} \"{f}\"\n", .{ name, std.zig.fmtString(string) }),
     }
+}
+
+fn expand_variables_autoconf_at(
+    bw: *Writer,
+    contents: []const u8,
+    values: std.StringArrayHashMap(Value),
+    used: []bool,
+) !void {
+    const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_";
+
+    var curr: usize = 0;
+    var source_offset: usize = 0;
+    while (curr < contents.len) : (curr += 1) {
+        if (contents[curr] != '@') continue;
+        if (std.mem.indexOfScalarPos(u8, contents, curr + 1, '@')) |close_pos| {
+            if (close_pos == curr + 1) {
+                // closed immediately, preserve as a literal
+                continue;
+            }
+            const valid_varname_end = std.mem.indexOfNonePos(u8, contents, curr + 1, valid_varname_chars) orelse 0;
+            if (valid_varname_end != close_pos) {
+                // contains invalid characters, preserve as a literal
+                continue;
+            }
+
+            const key = contents[curr + 1 .. close_pos];
+            const index = values.getIndex(key) orelse {
+                // Report the missing key to the caller.
+                try bw.writeAll(key);
+                return error.MissingValue;
+            };
+            const value = values.unmanaged.entries.slice().items(.value)[index];
+            used[index] = true;
+            try bw.writeAll(contents[source_offset..curr]);
+            switch (value) {
+                .undef, .defined => {},
+                .boolean => |b| try bw.writeByte(@as(u8, '0') + @intFromBool(b)),
+                .int => |i| try bw.print("{d}", .{i}),
+                .ident, .string => |s| try bw.writeAll(s),
+            }
+
+            curr = close_pos;
+            source_offset = close_pos + 1;
+        }
+    }
+
+    try bw.writeAll(contents[source_offset..]);
 }
 
 fn expand_variables_cmake(
@@ -541,7 +621,7 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var result = std.ArrayList(u8).init(allocator);
+    var result: std.ArrayList(u8) = .init(allocator);
     errdefer result.deinit();
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
@@ -553,7 +633,7 @@ fn expand_variables_cmake(
         source: usize,
         target: usize,
     };
-    var var_stack = std.ArrayList(Position).init(allocator);
+    var var_stack: std.ArrayList(Position) = .init(allocator);
     defer var_stack.deinit();
     loop: while (curr < contents.len) : (curr += 1) {
         switch (contents[curr]) {
@@ -579,7 +659,7 @@ fn expand_variables_cmake(
                             try result.append(if (b) '1' else '0');
                         },
                         .int => |i| {
-                            try result.writer().print("{d}", .{i});
+                            try result.print("{d}", .{i});
                         },
                         .ident, .string => |s| {
                             try result.appendSlice(s);
@@ -616,7 +696,7 @@ fn expand_variables_cmake(
                     // no open bracket, preserve as a literal
                     break :blk;
                 }
-                const open_pos = var_stack.pop();
+                const open_pos = var_stack.pop().?;
                 if (source_offset == open_pos.source) {
                     source_offset += open_var.len;
                 }
@@ -636,7 +716,7 @@ fn expand_variables_cmake(
                         try result.append(if (b) '1' else '0');
                     },
                     .int => |i| {
-                        try result.writer().print("{d}", .{i});
+                        try result.print("{d}", .{i});
                     },
                     .ident, .string => |s| {
                         try result.appendSlice(s);
@@ -667,7 +747,26 @@ fn expand_variables_cmake(
     return result.toOwnedSlice();
 }
 
-fn testReplaceVariables(
+fn testReplaceVariablesAutoconfAt(
+    allocator: Allocator,
+    contents: []const u8,
+    expected: []const u8,
+    values: std.StringArrayHashMap(Value),
+) !void {
+    var aw: std.io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+
+    const used = try allocator.alloc(bool, values.count());
+    for (used) |*u| u.* = false;
+    defer allocator.free(used);
+
+    try expand_variables_autoconf_at(&aw.writer, contents, values, used);
+
+    for (used) |u| if (!u) return error.UnusedValue;
+    try std.testing.expectEqualStrings(expected, aw.getWritten());
+}
+
+fn testReplaceVariablesCMake(
     allocator: Allocator,
     contents: []const u8,
     expected: []const u8,
@@ -679,9 +778,121 @@ fn testReplaceVariables(
     try std.testing.expectEqualStrings(expected, actual);
 }
 
+test "expand_variables_autoconf_at simple cases" {
+    const allocator = std.testing.allocator;
+    var values: std.StringArrayHashMap(Value) = .init(allocator);
+    defer values.deinit();
+
+    // empty strings are preserved
+    try testReplaceVariablesAutoconfAt(allocator, "", "", values);
+
+    // line with misc content is preserved
+    try testReplaceVariablesAutoconfAt(allocator, "no substitution", "no substitution", values);
+
+    // empty @ sigils are preserved
+    try testReplaceVariablesAutoconfAt(allocator, "@", "@", values);
+    try testReplaceVariablesAutoconfAt(allocator, "@@", "@@", values);
+    try testReplaceVariablesAutoconfAt(allocator, "@@@", "@@@", values);
+    try testReplaceVariablesAutoconfAt(allocator, "@@@@", "@@@@", values);
+
+    // simple substitution
+    try values.putNoClobber("undef", .undef);
+    try testReplaceVariablesAutoconfAt(allocator, "@undef@", "", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("defined", .defined);
+    try testReplaceVariablesAutoconfAt(allocator, "@defined@", "", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try testReplaceVariablesAutoconfAt(allocator, "@true@", "1", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try testReplaceVariablesAutoconfAt(allocator, "@false@", "0", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try testReplaceVariablesAutoconfAt(allocator, "@int@", "42", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("ident", Value{ .string = "value" });
+    try testReplaceVariablesAutoconfAt(allocator, "@ident@", "value", values);
+    values.clearRetainingCapacity();
+
+    try values.putNoClobber("string", Value{ .string = "text" });
+    try testReplaceVariablesAutoconfAt(allocator, "@string@", "text", values);
+    values.clearRetainingCapacity();
+
+    // double packed substitution
+    try values.putNoClobber("string", Value{ .string = "text" });
+    try testReplaceVariablesAutoconfAt(allocator, "@string@@string@", "texttext", values);
+    values.clearRetainingCapacity();
+
+    // triple packed substitution
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try values.putNoClobber("string", Value{ .string = "text" });
+    try testReplaceVariablesAutoconfAt(allocator, "@string@@int@@string@", "text42text", values);
+    values.clearRetainingCapacity();
+
+    // double separated substitution
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try testReplaceVariablesAutoconfAt(allocator, "@int@.@int@", "42.42", values);
+    values.clearRetainingCapacity();
+
+    // triple separated substitution
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try testReplaceVariablesAutoconfAt(allocator, "@int@.@true@.@int@", "42.1.42", values);
+    values.clearRetainingCapacity();
+
+    // misc prefix is preserved
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try testReplaceVariablesAutoconfAt(allocator, "false is @false@", "false is 0", values);
+    values.clearRetainingCapacity();
+
+    // misc suffix is preserved
+    try values.putNoClobber("true", Value{ .boolean = true });
+    try testReplaceVariablesAutoconfAt(allocator, "@true@ is true", "1 is true", values);
+    values.clearRetainingCapacity();
+
+    // surrounding content is preserved
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try testReplaceVariablesAutoconfAt(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
+    values.clearRetainingCapacity();
+
+    // incomplete key is preserved
+    try testReplaceVariablesAutoconfAt(allocator, "@undef", "@undef", values);
+
+    // unknown key leads to an error
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesAutoconfAt(allocator, "@bad@", "", values));
+
+    // unused key leads to an error
+    try values.putNoClobber("int", Value{ .int = 42 });
+    try values.putNoClobber("false", Value{ .boolean = false });
+    try std.testing.expectError(error.UnusedValue, testReplaceVariablesAutoconfAt(allocator, "@int", "", values));
+    values.clearRetainingCapacity();
+}
+
+test "expand_variables_autoconf_at edge cases" {
+    const allocator = std.testing.allocator;
+    var values: std.StringArrayHashMap(Value) = .init(allocator);
+    defer values.deinit();
+
+    // @-vars resolved only when they wrap valid characters, otherwise considered literals
+    try values.putNoClobber("string", Value{ .string = "text" });
+    try testReplaceVariablesAutoconfAt(allocator, "@@string@@", "@text@", values);
+    values.clearRetainingCapacity();
+
+    // expanded variables are considered strings after expansion
+    try values.putNoClobber("string_at", Value{ .string = "@string@" });
+    try testReplaceVariablesAutoconfAt(allocator, "@string_at@", "@string@", values);
+    values.clearRetainingCapacity();
+}
+
 test "expand_variables_cmake simple cases" {
     const allocator = std.testing.allocator;
-    var values = std.StringArrayHashMap(Value).init(allocator);
+    var values: std.StringArrayHashMap(Value) = .init(allocator);
     defer values.deinit();
 
     try values.putNoClobber("undef", .undef);
@@ -693,83 +904,83 @@ test "expand_variables_cmake simple cases" {
     try values.putNoClobber("string", Value{ .string = "text" });
 
     // empty strings are preserved
-    try testReplaceVariables(allocator, "", "", values);
+    try testReplaceVariablesCMake(allocator, "", "", values);
 
     // line with misc content is preserved
-    try testReplaceVariables(allocator, "no substitution", "no substitution", values);
+    try testReplaceVariablesCMake(allocator, "no substitution", "no substitution", values);
 
     // empty ${} wrapper leads to an error
-    try std.testing.expectError(error.MissingKey, testReplaceVariables(allocator, "${}", "", values));
+    try std.testing.expectError(error.MissingKey, testReplaceVariablesCMake(allocator, "${}", "", values));
 
     // empty @ sigils are preserved
-    try testReplaceVariables(allocator, "@", "@", values);
-    try testReplaceVariables(allocator, "@@", "@@", values);
-    try testReplaceVariables(allocator, "@@@", "@@@", values);
-    try testReplaceVariables(allocator, "@@@@", "@@@@", values);
+    try testReplaceVariablesCMake(allocator, "@", "@", values);
+    try testReplaceVariablesCMake(allocator, "@@", "@@", values);
+    try testReplaceVariablesCMake(allocator, "@@@", "@@@", values);
+    try testReplaceVariablesCMake(allocator, "@@@@", "@@@@", values);
 
     // simple substitution
-    try testReplaceVariables(allocator, "@undef@", "", values);
-    try testReplaceVariables(allocator, "${undef}", "", values);
-    try testReplaceVariables(allocator, "@defined@", "", values);
-    try testReplaceVariables(allocator, "${defined}", "", values);
-    try testReplaceVariables(allocator, "@true@", "1", values);
-    try testReplaceVariables(allocator, "${true}", "1", values);
-    try testReplaceVariables(allocator, "@false@", "0", values);
-    try testReplaceVariables(allocator, "${false}", "0", values);
-    try testReplaceVariables(allocator, "@int@", "42", values);
-    try testReplaceVariables(allocator, "${int}", "42", values);
-    try testReplaceVariables(allocator, "@ident@", "value", values);
-    try testReplaceVariables(allocator, "${ident}", "value", values);
-    try testReplaceVariables(allocator, "@string@", "text", values);
-    try testReplaceVariables(allocator, "${string}", "text", values);
+    try testReplaceVariablesCMake(allocator, "@undef@", "", values);
+    try testReplaceVariablesCMake(allocator, "${undef}", "", values);
+    try testReplaceVariablesCMake(allocator, "@defined@", "", values);
+    try testReplaceVariablesCMake(allocator, "${defined}", "", values);
+    try testReplaceVariablesCMake(allocator, "@true@", "1", values);
+    try testReplaceVariablesCMake(allocator, "${true}", "1", values);
+    try testReplaceVariablesCMake(allocator, "@false@", "0", values);
+    try testReplaceVariablesCMake(allocator, "${false}", "0", values);
+    try testReplaceVariablesCMake(allocator, "@int@", "42", values);
+    try testReplaceVariablesCMake(allocator, "${int}", "42", values);
+    try testReplaceVariablesCMake(allocator, "@ident@", "value", values);
+    try testReplaceVariablesCMake(allocator, "${ident}", "value", values);
+    try testReplaceVariablesCMake(allocator, "@string@", "text", values);
+    try testReplaceVariablesCMake(allocator, "${string}", "text", values);
 
     // double packed substitution
-    try testReplaceVariables(allocator, "@string@@string@", "texttext", values);
-    try testReplaceVariables(allocator, "${string}${string}", "texttext", values);
+    try testReplaceVariablesCMake(allocator, "@string@@string@", "texttext", values);
+    try testReplaceVariablesCMake(allocator, "${string}${string}", "texttext", values);
 
     // triple packed substitution
-    try testReplaceVariables(allocator, "@string@@int@@string@", "text42text", values);
-    try testReplaceVariables(allocator, "@string@${int}@string@", "text42text", values);
-    try testReplaceVariables(allocator, "${string}@int@${string}", "text42text", values);
-    try testReplaceVariables(allocator, "${string}${int}${string}", "text42text", values);
+    try testReplaceVariablesCMake(allocator, "@string@@int@@string@", "text42text", values);
+    try testReplaceVariablesCMake(allocator, "@string@${int}@string@", "text42text", values);
+    try testReplaceVariablesCMake(allocator, "${string}@int@${string}", "text42text", values);
+    try testReplaceVariablesCMake(allocator, "${string}${int}${string}", "text42text", values);
 
     // double separated substitution
-    try testReplaceVariables(allocator, "@int@.@int@", "42.42", values);
-    try testReplaceVariables(allocator, "${int}.${int}", "42.42", values);
+    try testReplaceVariablesCMake(allocator, "@int@.@int@", "42.42", values);
+    try testReplaceVariablesCMake(allocator, "${int}.${int}", "42.42", values);
 
     // triple separated substitution
-    try testReplaceVariables(allocator, "@int@.@true@.@int@", "42.1.42", values);
-    try testReplaceVariables(allocator, "@int@.${true}.@int@", "42.1.42", values);
-    try testReplaceVariables(allocator, "${int}.@true@.${int}", "42.1.42", values);
-    try testReplaceVariables(allocator, "${int}.${true}.${int}", "42.1.42", values);
+    try testReplaceVariablesCMake(allocator, "@int@.@true@.@int@", "42.1.42", values);
+    try testReplaceVariablesCMake(allocator, "@int@.${true}.@int@", "42.1.42", values);
+    try testReplaceVariablesCMake(allocator, "${int}.@true@.${int}", "42.1.42", values);
+    try testReplaceVariablesCMake(allocator, "${int}.${true}.${int}", "42.1.42", values);
 
     // misc prefix is preserved
-    try testReplaceVariables(allocator, "false is @false@", "false is 0", values);
-    try testReplaceVariables(allocator, "false is ${false}", "false is 0", values);
+    try testReplaceVariablesCMake(allocator, "false is @false@", "false is 0", values);
+    try testReplaceVariablesCMake(allocator, "false is ${false}", "false is 0", values);
 
     // misc suffix is preserved
-    try testReplaceVariables(allocator, "@true@ is true", "1 is true", values);
-    try testReplaceVariables(allocator, "${true} is true", "1 is true", values);
+    try testReplaceVariablesCMake(allocator, "@true@ is true", "1 is true", values);
+    try testReplaceVariablesCMake(allocator, "${true} is true", "1 is true", values);
 
     // surrounding content is preserved
-    try testReplaceVariables(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
-    try testReplaceVariables(allocator, "what is 6*7? ${int}!", "what is 6*7? 42!", values);
+    try testReplaceVariablesCMake(allocator, "what is 6*7? @int@!", "what is 6*7? 42!", values);
+    try testReplaceVariablesCMake(allocator, "what is 6*7? ${int}!", "what is 6*7? 42!", values);
 
     // incomplete key is preserved
-    try testReplaceVariables(allocator, "@undef", "@undef", values);
-    try testReplaceVariables(allocator, "${undef", "${undef", values);
-    try testReplaceVariables(allocator, "{undef}", "{undef}", values);
-    try testReplaceVariables(allocator, "undef@", "undef@", values);
-    try testReplaceVariables(allocator, "undef}", "undef}", values);
+    try testReplaceVariablesCMake(allocator, "@undef", "@undef", values);
+    try testReplaceVariablesCMake(allocator, "${undef", "${undef", values);
+    try testReplaceVariablesCMake(allocator, "{undef}", "{undef}", values);
+    try testReplaceVariablesCMake(allocator, "undef@", "undef@", values);
+    try testReplaceVariablesCMake(allocator, "undef}", "undef}", values);
 
     // unknown key leads to an error
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@bad@", "", values));
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${bad}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "@bad@", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${bad}", "", values));
 }
 
 test "expand_variables_cmake edge cases" {
     const allocator = std.testing.allocator;
-    var values = std.StringArrayHashMap(Value).init(allocator);
+    var values: std.StringArrayHashMap(Value) = .init(allocator);
     defer values.deinit();
 
     // special symbols
@@ -791,59 +1002,59 @@ test "expand_variables_cmake edge cases" {
     try values.putNoClobber("nest_proxy", Value{ .string = "nest_underscore_proxy" });
 
     // @-vars resolved only when they wrap valid characters, otherwise considered literals
-    try testReplaceVariables(allocator, "@@string@@", "@text@", values);
-    try testReplaceVariables(allocator, "@${string}@", "@text@", values);
+    try testReplaceVariablesCMake(allocator, "@@string@@", "@text@", values);
+    try testReplaceVariablesCMake(allocator, "@${string}@", "@text@", values);
 
     // @-vars are resolved inside ${}-vars
-    try testReplaceVariables(allocator, "${@string_proxy@}", "text", values);
+    try testReplaceVariablesCMake(allocator, "${@string_proxy@}", "text", values);
 
     // expanded variables are considered strings after expansion
-    try testReplaceVariables(allocator, "@string_at@", "@string@", values);
-    try testReplaceVariables(allocator, "${string_at}", "@string@", values);
-    try testReplaceVariables(allocator, "$@string_curly@", "${string}", values);
-    try testReplaceVariables(allocator, "$${string_curly}", "${string}", values);
-    try testReplaceVariables(allocator, "${string_var}", "${string}", values);
-    try testReplaceVariables(allocator, "@string_var@", "${string}", values);
-    try testReplaceVariables(allocator, "${dollar}{${string}}", "${text}", values);
-    try testReplaceVariables(allocator, "@dollar@{${string}}", "${text}", values);
-    try testReplaceVariables(allocator, "@dollar@{@string@}", "${text}", values);
+    try testReplaceVariablesCMake(allocator, "@string_at@", "@string@", values);
+    try testReplaceVariablesCMake(allocator, "${string_at}", "@string@", values);
+    try testReplaceVariablesCMake(allocator, "$@string_curly@", "${string}", values);
+    try testReplaceVariablesCMake(allocator, "$${string_curly}", "${string}", values);
+    try testReplaceVariablesCMake(allocator, "${string_var}", "${string}", values);
+    try testReplaceVariablesCMake(allocator, "@string_var@", "${string}", values);
+    try testReplaceVariablesCMake(allocator, "${dollar}{${string}}", "${text}", values);
+    try testReplaceVariablesCMake(allocator, "@dollar@{${string}}", "${text}", values);
+    try testReplaceVariablesCMake(allocator, "@dollar@{@string@}", "${text}", values);
 
     // when expanded variables contain invalid characters, they prevent further expansion
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${${string_var}}", "", values));
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${@string_var@}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${${string_var}}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${@string_var@}", "", values));
 
     // nested expanded variables are expanded from the inside out
-    try testReplaceVariables(allocator, "${string${underscore}proxy}", "string", values);
-    try testReplaceVariables(allocator, "${string@underscore@proxy}", "string", values);
+    try testReplaceVariablesCMake(allocator, "${string${underscore}proxy}", "string", values);
+    try testReplaceVariablesCMake(allocator, "${string@underscore@proxy}", "string", values);
 
     // nested vars are only expanded when ${} is closed
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@underscore@proxy@", "", values));
-    try testReplaceVariables(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
-    try testReplaceVariables(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "@nest@underscore@proxy@", "", values));
+    try testReplaceVariablesCMake(allocator, "${nest${underscore}proxy}", "nest_underscore_proxy", values);
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "@nest@@nest_underscore@underscore@proxy@@proxy@", "", values));
+    try testReplaceVariablesCMake(allocator, "${nest${${nest_underscore${underscore}proxy}}proxy}", "nest_underscore_proxy", values);
 
     // invalid characters lead to an error
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str*ing}", "", values));
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str$ing}", "", values));
-    try std.testing.expectError(error.InvalidCharacter, testReplaceVariables(allocator, "${str@ing}", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesCMake(allocator, "${str*ing}", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesCMake(allocator, "${str$ing}", "", values));
+    try std.testing.expectError(error.InvalidCharacter, testReplaceVariablesCMake(allocator, "${str@ing}", "", values));
 }
 
 test "expand_variables_cmake escaped characters" {
     const allocator = std.testing.allocator;
-    var values = std.StringArrayHashMap(Value).init(allocator);
+    var values: std.StringArrayHashMap(Value) = .init(allocator);
     defer values.deinit();
 
     try values.putNoClobber("string", Value{ .string = "text" });
 
     // backslash is an invalid character for @ lookup
-    try testReplaceVariables(allocator, "\\@string\\@", "\\@string\\@", values);
+    try testReplaceVariablesCMake(allocator, "\\@string\\@", "\\@string\\@", values);
 
     // backslash is preserved, but doesn't affect ${} variable expansion
-    try testReplaceVariables(allocator, "\\${string}", "\\text", values);
+    try testReplaceVariablesCMake(allocator, "\\${string}", "\\text", values);
 
     // backslash breaks ${} opening bracket identification
-    try testReplaceVariables(allocator, "$\\{string}", "$\\{string}", values);
+    try testReplaceVariablesCMake(allocator, "$\\{string}", "$\\{string}", values);
 
     // backslash is skipped when checking for invalid characters, yet it mangles the key
-    try std.testing.expectError(error.MissingValue, testReplaceVariables(allocator, "${string\\}", "", values));
+    try std.testing.expectError(error.MissingValue, testReplaceVariablesCMake(allocator, "${string\\}", "", values));
 }

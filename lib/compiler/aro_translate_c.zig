@@ -168,6 +168,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
+    @setEvalBranchQuota(2000);
     inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin_fn = try ZigTag.pub_var_simple.create(arena, .{
             .name = decl.name,
@@ -749,7 +750,7 @@ fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualH
             const is_const = is_fn_proto or child_type.isConst();
             const is_volatile = child_type.qual.@"volatile";
             const elem_type = try transType(c, scope, child_type, qual_handling, source_loc);
-            const ptr_info = .{
+            const ptr_info: @FieldType(ast.Payload.Pointer, "data") = .{
                 .is_const = is_const,
                 .is_volatile = is_volatile,
                 .elem_type = elem_type,
@@ -1205,7 +1206,7 @@ pub const PatternList = struct {
     /// Assumes that `ms` represents a tokenized function-like macro.
     fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
         assert(ms.tokens.len > 2);
-        assert(ms.tokens[0].id == .identifier or ms.tokens[0].id == .extended_identifier);
+        assert(ms.tokens[0].id.isMacroIdentifier());
         assert(ms.tokens[1].id == .l_paren);
 
         var i: usize = 2;
@@ -1501,19 +1502,29 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 return scope.base.parent.?.getAlias(name);
             }
 
-            /// Finds the (potentially) mangled struct name for a locally scoped extern variable given the original declaration name.
+            /// Finds the (potentially) mangled struct name for a locally scoped extern variable or function given the original declaration name.
             ///
             /// Block scoped extern declarations translate to:
             ///     const MangledStructName = struct {extern [qualifiers] original_extern_variable_name: [type]};
             /// This finds MangledStructName given original_extern_variable_name for referencing correctly in transDeclRefExpr()
             pub fn getLocalExternAlias(scope: *Block, name: []const u8) ?[]const u8 {
                 for (scope.statements.items) |node| {
-                    if (node.tag() == .extern_local_var) {
-                        const parent_node = node.castTag(.extern_local_var).?;
-                        const init_node = parent_node.data.init.castTag(.var_decl).?;
-                        if (std.mem.eql(u8, init_node.data.name, name)) {
-                            return parent_node.data.name;
-                        }
+                    switch (node.tag()) {
+                        .extern_local_var => {
+                            const parent_node = node.castTag(.extern_local_var).?;
+                            const init_node = parent_node.data.init.castTag(.var_decl).?;
+                            if (std.mem.eql(u8, init_node.data.name, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        .extern_local_fn => {
+                            const parent_node = node.castTag(.extern_local_fn).?;
+                            const init_node = parent_node.data.init.castTag(.func).?;
+                            if (std.mem.eql(u8, init_node.data.name.?, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        else => {},
                     }
                 }
                 return null;
@@ -1619,7 +1630,11 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 .root => null,
                 .block => ret: {
                     const block = @as(*Block, @fieldParentPtr("base", scope));
-                    break :ret block.getLocalExternAlias(name);
+                    const alias_name = block.getLocalExternAlias(name);
+                    if (alias_name) |_alias_name| {
+                        break :ret _alias_name;
+                    }
+                    break :ret scope.parent.?.getLocalExternAlias(name);
                 },
                 .loop, .do_loop, .condition => scope.parent.?.getLocalExternAlias(name),
             };
@@ -1766,7 +1781,8 @@ test "Macro matching" {
 fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
     defer std.process.exit(1);
 
-    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.io.getStdErr()));
+    var buffer: [1000]u8 = undefined;
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.fs.File.stderr()), &buffer);
     defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
 
     var saw_error = false;
@@ -1804,11 +1820,11 @@ pub fn main() !void {
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
         error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
+        error.StreamTooLong => std.process.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 
-    const formatted = try tree.render(arena);
-    try std.io.getStdOut().writeAll(formatted);
+    const formatted = try tree.renderAlloc(arena);
+    try std.fs.File.stdout().writeAll(formatted);
     return std.process.cleanExit();
 }

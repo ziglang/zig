@@ -15,13 +15,11 @@
 // Patch over lack of extended locale support
 typedef void* locale_t;
 
-inline _LIBCPP_HIDE_FROM_ABI locale_t duplocale(locale_t) { return NULL; }
+inline _LIBCPP_HIDE_FROM_ABI locale_t duplocale(locale_t) { return nullptr; }
 
 inline _LIBCPP_HIDE_FROM_ABI void freelocale(locale_t) {}
 
-inline _LIBCPP_HIDE_FROM_ABI locale_t newlocale(int, const char*, locale_t) { return NULL; }
-
-inline _LIBCPP_HIDE_FROM_ABI locale_t uselocale(locale_t) { return NULL; }
+inline _LIBCPP_HIDE_FROM_ABI locale_t newlocale(int, const char*, locale_t) { return nullptr; }
 
 #define LC_COLLATE_MASK (1 << LC_COLLATE)
 #define LC_CTYPE_MASK (1 << LC_CTYPE)

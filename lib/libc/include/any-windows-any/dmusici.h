@@ -29,7 +29,7 @@
 #include <mmsystem.h>
 #include <dmusicc.h>
 #include <dmplugin.h>
-#include <pshpack8.h>
+#pragma pack(push,8)
 
 #ifdef WINE_NO_UNICODE_MACROS
 #undef AddPort
@@ -1178,7 +1178,7 @@ DECLARE_INTERFACE_(IDirectMusicAudioPath,IUnknown)
     STDMETHOD_(ULONG,AddRef)(THIS) PURE;
     STDMETHOD_(ULONG,Release)(THIS) PURE;
     /*** IDirectMusicAudioPath methods ***/
-    STDMETHOD(GetObjectInPath)(THIS_ DWORD dwPChannel, DWORD dwStage, DWORD dwBuffer, REFGUID guidObject, WORD dwIndex, REFGUID iidInterface, void **ppObject) PURE;
+    STDMETHOD(GetObjectInPath)(THIS_ DWORD dwPChannel, DWORD dwStage, DWORD dwBuffer, REFGUID guidObject, DWORD dwIndex, REFGUID iidInterface, void **ppObject) PURE;
     STDMETHOD(Activate)(THIS_ WINBOOL fActivate) PURE;
     STDMETHOD(SetVolume)(THIS_ LONG lVolume, DWORD dwDuration) PURE;
     STDMETHOD(ConvertPChannel)(THIS_ DWORD dwPChannelIn, DWORD *pdwPChannelOut) PURE;
@@ -1714,6 +1714,6 @@ DECLARE_INTERFACE_(IDirectMusicContainer,IUnknown)
 }
 #endif
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #endif /* __WINE_DMUSIC_PERFORMANCE_H */

@@ -31,6 +31,11 @@
 #include <sys/cdefs.h>
 #include <Availability.h>
 
+#if __has_include(<realtime_safety/realtime_safety.h>)
+#include <realtime_safety/realtime_safety.h>
+REALTIME_SAFE_BEGIN
+#endif
+
 __BEGIN_DECLS
 
 /******************************************************************************
@@ -41,7 +46,7 @@ __BEGIN_DECLS
     taking advantage of GCC's __FLT_EVAL_METHOD__ (which a compiler may
     define anytime and GCC does) that shadows FLT_EVAL_METHOD (which a
     compiler must define only in float.h).                                    */
-#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1
+#if __FLT_EVAL_METHOD__ == 0 || __FLT_EVAL_METHOD__ == -1 || __FLT_EVAL_METHOD__ == 16
     typedef float float_t;
     typedef double double_t;
 #elif __FLT_EVAL_METHOD__ == 1
@@ -79,7 +84,7 @@ __BEGIN_DECLS
 #define FP_SUBNORMAL    5
 #define FP_SUPERNORMAL  6 /* legacy PowerPC support; this is otherwise unused */
 
-#if defined __arm64__ || defined __ARM_VFPV4__
+#if defined __arm64__ || defined __aarch64__ || defined __ARM_VFPV4__
 /*  On these architectures, fma(), fmaf( ), and fmal( ) are generally about as
     fast as (or faster than) separate multiply and add of the same operands.  */
 #   define FP_FAST_FMA     1
@@ -564,12 +569,12 @@ __API_DEPRECATED("use `NAN` instead", macos(10.0, 10.14)) __API_UNAVAILABLE(ios,
  *  Reentrant variants of lgamma[fl]                                          *
  ******************************************************************************/
 
-#ifdef _REENTRANT
+#if defined(_REENTRANT) || defined(__swift__)
 /*  Reentrant variants of the lgamma[fl] functions.                           */
 extern float lgammaf_r(float, int *) __API_AVAILABLE(macos(10.6), ios(3.1));
 extern double lgamma_r(double, int *) __API_AVAILABLE(macos(10.6), ios(3.1));
 extern long double lgammal_r(long double, int *) __API_AVAILABLE(macos(10.6), ios(3.1));
-#endif /* _REENTRANT */
+#endif /* _REENTRANT || __swift__ */
 
 /******************************************************************************
  *  Apple extensions to the C standard                                        *
@@ -609,6 +614,21 @@ extern float __sinpif(float) __API_AVAILABLE(macos(10.9), ios(7.0));
 extern double __sinpi(double) __API_AVAILABLE(macos(10.9), ios(7.0));
 extern float __tanpif(float) __API_AVAILABLE(macos(10.9), ios(7.0));
 extern double __tanpi(double) __API_AVAILABLE(macos(10.9), ios(7.0));
+
+/* half precision math functions */
+extern _Float16 __fabsf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __hypotf16(_Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __sqrtf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __ceilf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __floorf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __rintf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __roundf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __truncf16(_Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __copysignf16(_Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __nextafterf16(_Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __fmaxf16(_Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __fminf16(_Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
+extern _Float16 __fmaf16(_Float16, _Float16, _Float16) __API_AVAILABLE(macos(15.0), ios(18.0), watchos(11.0), tvos(18.0));
 
 #if (defined __MAC_OS_X_VERSION_MIN_REQUIRED && __MAC_OS_X_VERSION_MIN_REQUIRED < 1090) || \
     (defined __IPHONE_OS_VERSION_MIN_REQUIRED && __IPHONE_OS_VERSION_MIN_REQUIRED < 70000)
@@ -773,5 +793,10 @@ struct exception {
 #endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
 
 __END_DECLS
+
+#if __has_include(<realtime_safety/realtime_safety.h>)
+REALTIME_SAFE_END
+#endif
+
 #endif /* __MATH_H__ */
 

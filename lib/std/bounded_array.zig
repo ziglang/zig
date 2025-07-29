@@ -2,6 +2,7 @@ const std = @import("std.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Alignment = std.mem.Alignment;
 
 /// A structure with an array and a length, that can be used as a slice.
 ///
@@ -16,7 +17,7 @@ const testing = std.testing;
 /// var a_clone = a; // creates a copy - the structure doesn't use any internal pointers
 /// ```
 pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
-    return BoundedArrayAligned(T, @alignOf(T), buffer_capacity);
+    return BoundedArrayAligned(T, .of(T), buffer_capacity);
 }
 
 /// A structure with an array, length and alignment, that can be used as a
@@ -34,12 +35,12 @@ pub fn BoundedArray(comptime T: type, comptime buffer_capacity: usize) type {
 /// ```
 pub fn BoundedArrayAligned(
     comptime T: type,
-    comptime alignment: u29,
+    comptime alignment: Alignment,
     comptime buffer_capacity: usize,
 ) type {
     return struct {
         const Self = @This();
-        buffer: [buffer_capacity]T align(alignment) = undefined,
+        buffer: [buffer_capacity]T align(alignment.toByteUnits()) = undefined,
         len: usize = 0,
 
         /// Set the actual length of the slice.
@@ -51,15 +52,15 @@ pub fn BoundedArrayAligned(
 
         /// View the internal array as a slice whose size was previously set.
         pub fn slice(self: anytype) switch (@TypeOf(&self.buffer)) {
-            *align(alignment) [buffer_capacity]T => []align(alignment) T,
-            *align(alignment) const [buffer_capacity]T => []align(alignment) const T,
+            *align(alignment.toByteUnits()) [buffer_capacity]T => []align(alignment.toByteUnits()) T,
+            *align(alignment.toByteUnits()) const [buffer_capacity]T => []align(alignment.toByteUnits()) const T,
             else => unreachable,
         } {
             return self.buffer[0..self.len];
         }
 
         /// View the internal array as a constant slice whose size was previously set.
-        pub fn constSlice(self: *const Self) []align(alignment) const T {
+        pub fn constSlice(self: *const Self) []align(alignment.toByteUnits()) const T {
             return self.slice();
         }
 
@@ -120,7 +121,7 @@ pub fn BoundedArrayAligned(
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a pointer to the array of uninitialized elements.
-        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment) [n]T {
+        pub fn addManyAsArray(self: *Self, comptime n: usize) error{Overflow}!*align(alignment.toByteUnits()) [n]T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
@@ -128,31 +129,25 @@ pub fn BoundedArrayAligned(
 
         /// Resize the slice, adding `n` new elements, which have `undefined` values.
         /// The return value is a slice pointing to the uninitialized elements.
-        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment) T {
+        pub fn addManyAsSlice(self: *Self, n: usize) error{Overflow}![]align(alignment.toByteUnits()) T {
             const prev_len = self.len;
             try self.resize(self.len + n);
             return self.slice()[prev_len..][0..n];
         }
 
-        /// Remove and return the last element from the slice.
-        /// Asserts the slice has at least one item.
-        pub fn pop(self: *Self) T {
+        /// Remove and return the last element from the slice, or return `null` if the slice is empty.
+        pub fn pop(self: *Self) ?T {
+            if (self.len == 0) return null;
             const item = self.get(self.len - 1);
             self.len -= 1;
             return item;
-        }
-
-        /// Remove and return the last element from the slice, or
-        /// return `null` if the slice is empty.
-        pub fn popOrNull(self: *Self) ?T {
-            return if (self.len == 0) null else self.pop();
         }
 
         /// Return a slice of only the extra capacity after items.
         /// This can be useful for writing directly into it.
         /// Note that such an operation must be followed up with a
         /// call to `resize()`
-        pub fn unusedCapacitySlice(self: *Self) []align(alignment) T {
+        pub fn unusedCapacitySlice(self: *Self) []align(alignment.toByteUnits()) T {
             return self.buffer[self.len..];
         }
 
@@ -229,7 +224,7 @@ pub fn BoundedArrayAligned(
         /// This operation is O(N).
         pub fn orderedRemove(self: *Self, i: usize) T {
             const newlen = self.len - 1;
-            if (newlen == i) return self.pop();
+            if (newlen == i) return self.pop().?;
             const old_item = self.get(i);
             for (self.slice()[i..newlen], 0..) |*b, j| b.* = self.get(i + 1 + j);
             self.set(newlen, undefined);
@@ -241,9 +236,9 @@ pub fn BoundedArrayAligned(
         /// The empty slot is filled from the end of the slice.
         /// This operation is O(1).
         pub fn swapRemove(self: *Self, i: usize) T {
-            if (self.len - 1 == i) return self.pop();
+            if (self.len - 1 == i) return self.pop().?;
             const old_item = self.get(i);
-            self.set(i, self.pop());
+            self.set(i, self.pop().?);
             return old_item;
         }
 
@@ -282,7 +277,7 @@ pub fn BoundedArrayAligned(
             @compileError("The Writer interface is only defined for BoundedArray(u8, ...) " ++
                 "but the given type is BoundedArray(" ++ @typeName(T) ++ ", ...)")
         else
-            std.io.Writer(*Self, error{Overflow}, appendWrite);
+            std.io.GenericWriter(*Self, error{Overflow}, appendWrite);
 
         /// Initializes a writer which will write into the array.
         pub fn writer(self: *Self) Writer {
@@ -290,7 +285,7 @@ pub fn BoundedArrayAligned(
         }
 
         /// Same as `appendSlice` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.Writer` API.
+        /// as `m.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
         fn appendWrite(self: *Self, m: []const u8) error{Overflow}!usize {
             try self.appendSlice(m);
             return m.len;
@@ -339,8 +334,8 @@ test BoundedArray {
     try testing.expectEqual(a.pop(), 0xff);
 
     try a.resize(1);
-    try testing.expectEqual(a.popOrNull(), 0);
-    try testing.expectEqual(a.popOrNull(), null);
+    try testing.expectEqual(a.pop(), 0);
+    try testing.expectEqual(a.pop(), null);
     var unused = a.unusedCapacitySlice();
     @memset(unused[0..8], 2);
     unused[8] = 3;
@@ -397,7 +392,7 @@ test BoundedArray {
     try testing.expectEqual(added_slice.len, 3);
     try testing.expectEqual(a.len, 36);
 
-    while (a.popOrNull()) |_| {}
+    while (a.pop()) |_| {}
     const w = a.writer();
     const s = "hello, this is a test string";
     try w.writeAll(s);
@@ -405,7 +400,7 @@ test BoundedArray {
 }
 
 test "BoundedArrayAligned" {
-    var a = try BoundedArrayAligned(u8, 16, 4).init(0);
+    var a = try BoundedArrayAligned(u8, .@"16", 4).init(0);
     try a.append(0);
     try a.append(0);
     try a.append(255);

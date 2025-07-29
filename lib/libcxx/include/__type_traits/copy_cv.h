@@ -22,29 +22,29 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _From>
 struct __copy_cv {
   template <class _To>
-  using __apply = _To;
+  using __apply _LIBCPP_NODEBUG = _To;
 };
 
 template <class _From>
 struct __copy_cv<const _From> {
   template <class _To>
-  using __apply = const _To;
+  using __apply _LIBCPP_NODEBUG = const _To;
 };
 
 template <class _From>
 struct __copy_cv<volatile _From> {
   template <class _To>
-  using __apply = volatile _To;
+  using __apply _LIBCPP_NODEBUG = volatile _To;
 };
 
 template <class _From>
 struct __copy_cv<const volatile _From> {
   template <class _To>
-  using __apply = const volatile _To;
+  using __apply _LIBCPP_NODEBUG = const volatile _To;
 };
 
 template <class _From, class _To>
-using __copy_cv_t = typename __copy_cv<_From>::template __apply<_To>;
+using __copy_cv_t _LIBCPP_NODEBUG = typename __copy_cv<_From>::template __apply<_To>;
 
 _LIBCPP_END_NAMESPACE_STD
 

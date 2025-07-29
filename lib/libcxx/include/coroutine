@@ -38,30 +38,35 @@ struct suspend_always;
 
  */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/coroutine>
+#else
+#  include <__config>
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__coroutine/coroutine_handle.h>
-#  include <__coroutine/coroutine_traits.h>
-#  include <__coroutine/noop_coroutine_handle.h>
-#  include <__coroutine/trivial_awaitables.h>
-#endif // _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
+#    include <__coroutine/coroutine_handle.h>
+#    include <__coroutine/coroutine_traits.h>
+#    include <__coroutine/noop_coroutine_handle.h>
+#    include <__coroutine/trivial_awaitables.h>
+#  endif // _LIBCPP_STD_VER >= 20
 
-#include <version>
+#  include <version>
 
 // standard-mandated includes
 
 // [coroutine.syn]
-#include <compare>
+#  include <compare>
 
-#ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
-#  pragma GCC system_header
-#endif
+#  ifndef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <iosfwd>
-#  include <limits>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#    include <iosfwd>
+#    include <limits>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_COROUTINE

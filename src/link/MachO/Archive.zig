@@ -29,8 +29,8 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            return diags.failParse(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
-                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            return diags.failParse(path, "invalid header delimiter: expected '{f}', found '{f}'", .{
+                std.ascii.hexEscape(ARFMAG, .lower), std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
@@ -71,7 +71,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
+        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
@@ -159,12 +159,12 @@ pub const ar_hdr = extern struct {
     ar_fmag: [2]u8,
 
     fn date(self: ar_hdr) !u64 {
-        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u64, value, 10);
     }
 
     fn size(self: ar_hdr) !u32 {
-        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u32, value, 10);
     }
 
@@ -178,7 +178,7 @@ pub const ar_hdr = extern struct {
     fn nameLength(self: ar_hdr) !?u32 {
         const value = &self.ar_name;
         if (!mem.startsWith(u8, value, "#1/")) return null;
-        const trimmed = mem.trimRight(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
+        const trimmed = mem.trimEnd(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
         return try std.fmt.parseInt(u32, trimmed, 10);
     }
 };
@@ -230,30 +230,23 @@ pub const ArSymtab = struct {
         }
     }
 
-    const FormatContext = struct {
+    const PrintFormat = struct {
         ar: ArSymtab,
         macho_file: *MachO,
+
+        fn default(f: PrintFormat, bw: *Writer) Writer.Error!void {
+            const ar = f.ar;
+            const macho_file = f.macho_file;
+            for (ar.entries.items, 0..) |entry, i| {
+                const name = ar.strtab.getAssumeExists(entry.off);
+                const file = macho_file.getFile(entry.file).?;
+                try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file, file.fmtPath() });
+            }
+        }
     };
 
-    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(PrintFormat, PrintFormat.default) {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
-    }
-
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const ar = ctx.ar;
-        const macho_file = ctx.macho_file;
-        for (ar.entries.items, 0..) |entry, i| {
-            const name = ar.strtab.getAssumeExists(entry.off);
-            const file = macho_file.getFile(entry.file).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file, file.fmtPath() });
-        }
     }
 
     const Entry = struct {
@@ -304,8 +297,9 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const Archive = @This();
 const File = @import("file.zig").File;

@@ -30,9 +30,12 @@
 #define	_ULIMIT_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 
 #define	UL_GETFSIZE	1
 #define	UL_SETFSIZE	2
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 long	ulimit(int, ...);

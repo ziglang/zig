@@ -20,6 +20,9 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Tp>
 class _LIBCPP_TEMPLATE_VIS allocator;
 
+template <class _Tp>
+class _LIBCPP_TEMPLATE_VIS shared_ptr;
+
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP___FWD_MEMORY_H

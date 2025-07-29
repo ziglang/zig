@@ -17,5 +17,5 @@ fn shr(a: i16, b: u4) i16 {
     return @shrExact(a, b);
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux,aarch64-linux

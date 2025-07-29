@@ -28,7 +28,15 @@ extern hidden const struct __locale_struct __c_dot_utf8_locale;
 hidden const struct __locale_map *__get_locale(int, const char *);
 hidden const char *__mo_lookup(const void *, size_t, const char *);
 hidden const char *__lctrans(const char *, const struct __locale_map *);
+#ifdef __wasilibc_unmodified_upstream
 hidden const char *__lctrans_cur(const char *);
+#else
+// We make this visible in the wasi-libc build because
+// libwasi-emulated-signal.so needs to import it from libc.so.  If we ever
+// decide to merge libwasi-emulated-signal.so into libc.so, this will no longer
+// be necessary.
+const char *__lctrans_cur(const char *);
+#endif
 hidden const char *__lctrans_impl(const char *, const struct __locale_map *);
 hidden int __loc_is_allocated(locale_t);
 hidden char *__gettextdomain(void);

@@ -25,7 +25,7 @@ pub fn TrailerFlags(comptime Fields: type) type {
                 fields[i] = Type.StructField{
                     .name = struct_field.name,
                     .type = ?struct_field.type,
-                    .default_value = &@as(?struct_field.type, null),
+                    .default_value_ptr = &@as(?struct_field.type, null),
                     .is_comptime = false,
                     .alignment = @alignOf(?struct_field.type),
                 };
@@ -144,7 +144,7 @@ test TrailerFlags {
         .b = true,
         .c = true,
     });
-    const slice = try testing.allocator.alignedAlloc(u8, 8, flags.sizeInBytes());
+    const slice = try testing.allocator.alignedAlloc(u8, .@"8", flags.sizeInBytes());
     defer testing.allocator.free(slice);
 
     flags.set(slice.ptr, .b, false);

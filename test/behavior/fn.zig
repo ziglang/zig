@@ -70,7 +70,7 @@ fn outer(y: u32) *const fn (u32) u32 {
 }
 
 test "return inner function which references comptime variable of outer function" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const func = outer(10);
     try expect(func(3) == 7);
@@ -78,7 +78,6 @@ test "return inner function which references comptime variable of outer function
 
 test "discard the result of a function that returns a struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -101,9 +100,8 @@ test "discard the result of a function that returns a struct" {
 
 test "inline function call that calls optional function pointer, return pointer at callsite interacts correctly with callsite return type" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         field: u32,
@@ -150,12 +148,12 @@ fn fnWithUnreachable() noreturn {
 test "extern struct with stdcallcc fn pointer" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c and builtin.cpu.arch == .x86) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = extern struct {
-        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .C) i32,
+        ptr: *const fn () callconv(if (builtin.target.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c) i32,
 
-        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .Stdcall else .C) i32 {
+        fn foo() callconv(if (builtin.target.cpu.arch == .x86) .{ .x86_stdcall = .{} } else .c) i32 {
             return 1234;
         }
     };
@@ -169,9 +167,9 @@ const nComplexCallconv = 100;
 fn fComplexCallconvRet(x: u32) callconv(blk: {
     const s: struct { n: u32 } = .{ .n = nComplexCallconv };
     break :blk switch (s.n) {
-        0 => .C,
-        1 => .Inline,
-        else => .Unspecified,
+        0 => .c,
+        1 => .@"inline",
+        else => .auto,
     };
 }) struct { x: u32 } {
     return .{ .x = x * x };
@@ -179,7 +177,6 @@ fn fComplexCallconvRet(x: u32) callconv(blk: {
 
 test "function with complex callconv and return type expressions" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     try expect(fComplexCallconvRet(3).x == 9);
@@ -255,8 +252,8 @@ test "pass by non-copying value as method, at comptime" {
 
 test "implicit cast fn call result to optional in field result" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn entry() !void {
@@ -282,7 +279,6 @@ test "implicit cast fn call result to optional in field result" {
 
 test "void parameters" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     try voidFun(1, void{}, 2, {});
 }
@@ -305,10 +301,9 @@ fn acceptsString(foo: []u8) void {
 }
 
 test "function pointers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const fns = [_]*const @TypeOf(fn1){
         &fn1,
@@ -344,7 +339,6 @@ fn numberLiteralArg(a: anytype) !void {
 
 test "function call with anon list literal" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -364,7 +358,6 @@ test "function call with anon list literal" {
 
 test "function call with anon list literal - 2D" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -425,23 +418,21 @@ test "import passed byref to function in return type" {
 
 test "implicit cast function to function ptr" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and builtin.target.ofmt != .elf and builtin.target.ofmt != .macho) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S1 = struct {
         export fn someFunctionThatReturnsAValue() c_int {
             return 123;
         }
     };
-    var fnPtr1: *const fn () callconv(.C) c_int = S1.someFunctionThatReturnsAValue;
+    var fnPtr1: *const fn () callconv(.c) c_int = S1.someFunctionThatReturnsAValue;
     _ = &fnPtr1;
     try expect(fnPtr1() == 123);
     const S2 = struct {
         extern fn someFunctionThatReturnsAValue() c_int;
     };
-    var fnPtr2: *const fn () callconv(.C) c_int = S2.someFunctionThatReturnsAValue;
+    var fnPtr2: *const fn () callconv(.c) c_int = S2.someFunctionThatReturnsAValue;
     _ = &fnPtr2;
     try expect(fnPtr2() == 123);
 }
@@ -468,6 +459,7 @@ test "method call with optional and error union first param" {
 test "method call with optional pointer first param" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         x: i32 = 1234,
@@ -484,9 +476,8 @@ test "method call with optional pointer first param" {
 
 test "using @ptrCast on function pointers" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         const A = struct { data: [4]u8 };
@@ -523,8 +514,6 @@ test "function returns function returning type" {
 }
 
 test "peer type resolution of inferred error set with non-void payload" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-
     const S = struct {
         fn openDataFile(mode: enum { read, write }) !u32 {
             return switch (mode) {
@@ -581,8 +570,7 @@ test "pass and return comptime-only types" {
 
 test "pointer to alias behaves same as pointer to function" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         fn foo() u32 {
@@ -616,4 +604,141 @@ test "inline function with comptime-known comptime-only return type called at ru
     const T = S.foo(&a, &b);
     try expectEqual(111, a);
     try expectEqual(f32, T);
+}
+
+test "address of function parameter is consistent" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = struct {
+        fn paramAddrMatch(x: u8) bool {
+            return &x == &x;
+        }
+    };
+    try expect(S.paramAddrMatch(0));
+    comptime assert(S.paramAddrMatch(0));
+}
+
+test "address of function parameter is consistent in other parameter type" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8, y: if (&x != &x) unreachable else u8) void {
+            _ = y;
+        }
+    };
+    S.paramAddrMatch(1, 2);
+}
+
+test "address of function parameter is consistent in function return type" {
+    const S = struct {
+        fn paramAddrMatch(comptime x: u8) if (&x != &x) unreachable else void {}
+    };
+    S.paramAddrMatch(1);
+}
+
+test "function parameter self equality" {
+    const S = struct {
+        fn equal(x: u32) bool {
+            return x == x;
+        }
+        fn notEqual(x: u32) bool {
+            return x != x;
+        }
+        fn lessThan(x: u32) bool {
+            return x < x;
+        }
+        fn lessThanOrEqual(x: u32) bool {
+            return x <= x;
+        }
+        fn greaterThan(x: u32) bool {
+            return x > x;
+        }
+        fn greaterThanOrEqual(x: u32) bool {
+            return x >= x;
+        }
+    };
+    try expect(S.equal(42));
+    try expect(!S.notEqual(42));
+    try expect(!S.lessThan(42));
+    try expect(S.lessThanOrEqual(42));
+    try expect(!S.greaterThan(42));
+    try expect(S.greaterThanOrEqual(42));
+}
+
+test "inline call propagates comptime-known argument to generic parameter and return types" {
+    const S = struct {
+        inline fn f(x: bool, y: if (x) u8 else u16) if (x) bool else u32 {
+            if (x) {
+                comptime assert(@TypeOf(y) == u8);
+                return y == 0;
+            } else {
+                comptime assert(@TypeOf(y) == u16);
+                return y * 10;
+            }
+        }
+        fn g(x: bool, y: if (x) u8 else u16) if (x) bool else u32 {
+            if (x) {
+                comptime assert(@TypeOf(y) == u8);
+                return y == 0;
+            } else {
+                comptime assert(@TypeOf(y) == u16);
+                return y * 10;
+            }
+        }
+    };
+
+    const a0 = S.f(true, 200); // false
+    const a1 = S.f(false, 1234); // 12340
+
+    const b0 = @call(.always_inline, S.g, .{ true, 200 }); // false
+    const b1 = @call(.always_inline, S.g, .{ false, 1234 }); // 12340
+
+    comptime assert(@TypeOf(a0) == bool);
+    comptime assert(@TypeOf(b0) == bool);
+    try expect(a0 == false);
+    try expect(b0 == false);
+
+    comptime assert(@TypeOf(a1) == u32);
+    comptime assert(@TypeOf(b1) == u32);
+    try expect(a1 == 12340);
+    try expect(b1 == 12340);
+}
+
+test "inline function return type is evaluated at comptime" {
+    const S = struct {
+        inline fn assertComptimeAndRet(x: anytype) @TypeOf(x) {
+            if (!@inComptime()) comptime unreachable;
+            return x;
+        }
+
+        inline fn foo(val: anytype) assertComptimeAndRet(u16) {
+            return val;
+        }
+    };
+
+    const result = S.foo(123);
+    comptime assert(@TypeOf(result) == u16);
+    try expect(result == 123);
+}
+
+test "coerce generic function making concrete parameter generic" {
+    const S = struct {
+        fn foo(_: anytype, x: u32) u32 {
+            comptime assert(@TypeOf(x) == u32);
+            return x;
+        }
+    };
+    const coerced: fn (anytype, anytype) u32 = S.foo;
+    const result = coerced({}, 123);
+    try expect(result == 123);
+}
+
+test "coerce generic function making generic parameter concrete" {
+    const S = struct {
+        fn foo(_: anytype, x: anytype) u32 {
+            comptime assert(@TypeOf(x) == u32);
+            return x;
+        }
+    };
+    const coerced: fn (anytype, u32) u32 = S.foo;
+    const result = coerced({}, 123);
+    try expect(result == 123);
 }

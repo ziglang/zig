@@ -13,11 +13,10 @@
 #include <__compare/synth_three_way.h>
 #include <__concepts/different_from.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__fwd/array.h>
 #include <__fwd/pair.h>
 #include <__fwd/tuple.h>
-#include <__tuple/sfinae_helpers.h>
-#include <__tuple/tuple_element.h>
 #include <__tuple/tuple_indices.h>
 #include <__tuple/tuple_like_no_subrange.h>
 #include <__tuple/tuple_size.h>
@@ -25,6 +24,7 @@
 #include <__type_traits/common_type.h>
 #include <__type_traits/conditional.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_assignable.h>
 #include <__type_traits/is_constructible.h>
@@ -32,7 +32,6 @@
 #include <__type_traits/is_implicitly_default_constructible.h>
 #include <__type_traits/is_nothrow_assignable.h>
 #include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_reference.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_swappable.h>
 #include <__type_traits/is_trivially_relocatable.h>
@@ -43,7 +42,6 @@
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <__utility/piecewise_construct.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -73,45 +71,13 @@ struct _LIBCPP_TEMPLATE_VIS pair
   _T1 first;
   _T2 second;
 
-  using __trivially_relocatable =
+  using __trivially_relocatable _LIBCPP_NODEBUG =
       __conditional_t<__libcpp_is_trivially_relocatable<_T1>::value && __libcpp_is_trivially_relocatable<_T2>::value,
                       pair,
                       void>;
 
   _LIBCPP_HIDE_FROM_ABI pair(pair const&) = default;
   _LIBCPP_HIDE_FROM_ABI pair(pair&&)      = default;
-
-  // When we are requested for pair to be trivially copyable by the ABI macro, we use defaulted members
-  // if it is both legal to do it (i.e. no references) and we have a way to actually implement it, which requires
-  // the __enable_if__ attribute before C++20.
-#ifdef _LIBCPP_ABI_TRIVIALLY_COPYABLE_PAIR
-  // FIXME: This should really just be a static constexpr variable. It's in a struct to avoid gdb printing the value
-  // when printing a pair
-  struct __has_defaulted_members {
-    static const bool value = !is_reference<first_type>::value && !is_reference<second_type>::value;
-  };
-#  if _LIBCPP_STD_VER >= 20
-  _LIBCPP_HIDE_FROM_ABI constexpr pair& operator=(const pair&)
-    requires __has_defaulted_members::value
-  = default;
-
-  _LIBCPP_HIDE_FROM_ABI constexpr pair& operator=(pair&&)
-    requires __has_defaulted_members::value
-  = default;
-#  elif __has_attribute(__enable_if__)
-  _LIBCPP_HIDE_FROM_ABI pair& operator=(const pair&)
-      __attribute__((__enable_if__(__has_defaulted_members::value, ""))) = default;
-
-  _LIBCPP_HIDE_FROM_ABI pair& operator=(pair&&)
-      __attribute__((__enable_if__(__has_defaulted_members::value, ""))) = default;
-#  else
-#    error "_LIBCPP_ABI_TRIVIALLY_COPYABLE_PAIR isn't supported with this compiler"
-#  endif
-#else
-  struct __has_defaulted_members {
-    static const bool value = false;
-  };
-#endif // defined(_LIBCPP_ABI_TRIVIALLY_COPYABLE_PAIR) && __has_attribute(__enable_if__)
 
 #ifdef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI pair() : first(), second() {}
@@ -164,8 +130,7 @@ struct _LIBCPP_TEMPLATE_VIS pair
   };
 
   template <bool _MaybeEnable>
-  using _CheckArgsDep _LIBCPP_NODEBUG =
-      typename conditional< _MaybeEnable, _CheckArgs, __check_tuple_constructor_fail>::type;
+  using _CheckArgsDep _LIBCPP_NODEBUG = __conditional_t<_MaybeEnable, _CheckArgs, void>;
 
   template <bool _Dummy = true, __enable_if_t<_CheckArgsDep<_Dummy>::__enable_default(), int> = 0>
   explicit(!_CheckArgsDep<_Dummy>::__enable_implicit_default()) _LIBCPP_HIDE_FROM_ABI constexpr pair() noexcept(
@@ -258,8 +223,7 @@ struct _LIBCPP_TEMPLATE_VIS pair
              typename __make_tuple_indices<sizeof...(_Args2) >::type()) {}
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair&
-  operator=(__conditional_t<!__has_defaulted_members::value && is_copy_assignable<first_type>::value &&
-                                is_copy_assignable<second_type>::value,
+  operator=(__conditional_t<is_copy_assignable<first_type>::value && is_copy_assignable<second_type>::value,
                             pair,
                             __nat> const& __p) noexcept(is_nothrow_copy_assignable<first_type>::value &&
                                                         is_nothrow_copy_assignable<second_type>::value) {
@@ -268,12 +232,10 @@ struct _LIBCPP_TEMPLATE_VIS pair
     return *this;
   }
 
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair&
-  operator=(__conditional_t<!__has_defaulted_members::value && is_move_assignable<first_type>::value &&
-                                is_move_assignable<second_type>::value,
-                            pair,
-                            __nat>&& __p) noexcept(is_nothrow_move_assignable<first_type>::value &&
-                                                   is_nothrow_move_assignable<second_type>::value) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 pair& operator=(
+      __conditional_t<is_move_assignable<first_type>::value && is_move_assignable<second_type>::value, pair, __nat>&&
+          __p) noexcept(is_nothrow_move_assignable<first_type>::value &&
+                        is_nothrow_move_assignable<second_type>::value) {
     first  = std::forward<first_type>(__p.first);
     second = std::forward<second_type>(__p.second);
     return *this;
@@ -570,11 +532,9 @@ swap(const pair<_T1, _T2>& __x, const pair<_T1, _T2>& __y) noexcept(noexcept(__x
 #endif
 
 template <class _T1, class _T2>
-inline _LIBCPP_HIDE_FROM_ABI
-_LIBCPP_CONSTEXPR_SINCE_CXX14 pair<typename __unwrap_ref_decay<_T1>::type, typename __unwrap_ref_decay<_T2>::type>
+inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 pair<__unwrap_ref_decay_t<_T1>, __unwrap_ref_decay_t<_T2> >
 make_pair(_T1&& __t1, _T2&& __t2) {
-  return pair<typename __unwrap_ref_decay<_T1>::type, typename __unwrap_ref_decay<_T2>::type>(
-      std::forward<_T1>(__t1), std::forward<_T2>(__t2));
+  return pair<__unwrap_ref_decay_t<_T1>, __unwrap_ref_decay_t<_T2> >(std::forward<_T1>(__t1), std::forward<_T2>(__t2));
 }
 
 template <class _T1, class _T2>

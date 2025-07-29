@@ -91,7 +91,7 @@
 // the former.
 #ifdef BUILDING_CXA_GUARD
 #  include "abort_message.h"
-#  define ABORT_WITH_MESSAGE(...) ::abort_message(__VA_ARGS__)
+#  define ABORT_WITH_MESSAGE(...) ::__abort_message(__VA_ARGS__)
 #elif defined(TESTING_CXA_GUARD)
 #  define ABORT_WITH_MESSAGE(...) ::abort()
 #else
@@ -156,12 +156,12 @@ private:
 //                       PlatformGetThreadID
 //===----------------------------------------------------------------------===//
 
-#if defined(__APPLE__) && defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
+#if defined(__APPLE__) && _LIBCPP_HAS_THREAD_API_PTHREAD
 uint32_t PlatformThreadID() {
   static_assert(sizeof(mach_port_t) == sizeof(uint32_t), "");
   return static_cast<uint32_t>(pthread_mach_thread_np(std::__libcpp_thread_get_current_id()));
 }
-#elif defined(SYS_gettid) && defined(_LIBCPP_HAS_THREAD_API_PTHREAD)
+#elif defined(SYS_gettid) && _LIBCPP_HAS_THREAD_API_PTHREAD
 uint32_t PlatformThreadID() {
   static_assert(sizeof(pid_t) == sizeof(uint32_t), "");
   return static_cast<uint32_t>(syscall(SYS_gettid));
@@ -676,8 +676,8 @@ static_assert(CurrentImplementation != Implementation::Futex || PlatformSupports
 
 using SelectedImplementation = SelectImplementation<CurrentImplementation>::type;
 
-} // end namespace
-} // end namespace __cxxabiv1
+} // namespace
+} // namespace __cxxabiv1
 
 #if defined(__clang__)
 #  pragma clang diagnostic pop

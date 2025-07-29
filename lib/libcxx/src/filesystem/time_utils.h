@@ -299,7 +299,7 @@ inline TimeSpec extract_mtime(StatT const& st) { return st.st_mtim; }
 inline TimeSpec extract_atime(StatT const& st) { return st.st_atim; }
 #endif
 
-#ifndef _LIBCPP_HAS_NO_FILESYSTEM
+#if _LIBCPP_HAS_FILESYSTEM
 
 #  if !defined(_LIBCPP_WIN32API)
 inline bool posix_utimes(const path& p, std::array<TimeSpec, 2> const& TS, error_code& ec) {
@@ -342,9 +342,9 @@ inline file_time_type __extract_last_write_time(const path& p, const StatT& st, 
   return fs_time::convert_from_timespec(ts);
 }
 
-#endif // !_LIBCPP_HAS_NO_FILESYSTEM
+#endif // _LIBCPP_HAS_FILESYSTEM
 
-} // end namespace detail
+} // namespace detail
 
 _LIBCPP_END_NAMESPACE_FILESYSTEM
 

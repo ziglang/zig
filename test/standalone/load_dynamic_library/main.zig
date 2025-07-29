@@ -11,7 +11,7 @@ pub fn main() !void {
     var lib = try std.DynLib.open(dynlib_name);
     defer lib.close();
 
-    const Add = *const fn (i32, i32) callconv(.C) i32;
+    const Add = *const fn (i32, i32) callconv(.c) i32;
     const addFn = lib.lookup(Add, "add") orelse return error.SymbolNotFound;
 
     const result = addFn(12, 34);

@@ -133,6 +133,7 @@ struct res_sym {
 #define RES_NORELOAD    0x02000000 /* No automatic configuration reload.  */
 #define RES_TRUSTAD     0x04000000 /* Request AD bit, keep it in responses.  */
 #define RES_NOAAAA      0x08000000 /* Suppress AAAA queries.  */
+#define RES_STRICTERR   0x10000000 /* Report more DNS errors as errors.  */
 
 #define RES_DEFAULT	(RES_RECURSE|RES_DEFNAMES|RES_DNSRCH)
 

@@ -23,23 +23,25 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  *
+ *	citrus Id: wctype.h,v 1.4 2000/12/21 01:50:21 itojun Exp
+ *	$NetBSD: wctype.h,v 1.3 2000/12/22 14:16:16 itojun Exp $
+ * $FreeBSD: /repoman/r/ncvs/src/include/wctype.h,v 1.10 2002/08/21 16:19:55 mike Exp $
  */
 
-/*
- * Common header for wctype.h and wchar.h
- *
- * Contains everything required by wctype.h except:
- *
- *	#include <_types/_wctrans_t.h>
- *	int iswblank(wint_t);
- *	wint_t towctrans(wint_t, wctrans_t);
- *	wctrans_t wctrans(const char *);
- */
+#ifndef _WCTYPE_H_
+#define	_WCTYPE_H_
 
-#ifndef __WCTYPE_H_
-#define __WCTYPE_H_
+#include <sys/cdefs.h>
+#include <_bounds.h>
+#include <_types.h>
+#include <_types/_wctrans_t.h>
+
+#define __DARWIN_WCTYPE_TOP_inline	__header_inline
 
 #include <__wctype.h>
+#include <ctype.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /*
  * Use inline functions if we are allowed to and the compiler supports them.
@@ -48,117 +50,80 @@
     (defined(_USE_CTYPE_INLINE_) || defined(__GNUC__) || defined(__cplusplus))
 
 __DARWIN_WCTYPE_TOP_inline int
-iswalnum(wint_t _wc)
+iswblank(wint_t _wc)
 {
-	return (__istype(_wc, _CTYPE_A|_CTYPE_D));
+	return (__istype(_wc, _CTYPE_B));
+}
+
+#if !defined(_ANSI_SOURCE)
+__DARWIN_WCTYPE_TOP_inline int
+iswascii(wint_t _wc)
+{
+	return ((_wc & ~0x7F) == 0);
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswalpha(wint_t _wc)
+iswhexnumber(wint_t _wc)
 {
-	return (__istype(_wc, _CTYPE_A));
+	return (__istype(_wc, _CTYPE_X));
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswcntrl(wint_t _wc)
+iswideogram(wint_t _wc)
 {
-	return (__istype(_wc, _CTYPE_C));
+	return (__istype(_wc, _CTYPE_I));
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswctype(wint_t _wc, wctype_t _charclass)
+iswnumber(wint_t _wc)
 {
-	return (__istype(_wc, _charclass));
+	return (__istype(_wc, _CTYPE_D));
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswdigit(wint_t _wc)
+iswphonogram(wint_t _wc)
 {
-	return (__isctype(_wc, _CTYPE_D));
+	return (__istype(_wc, _CTYPE_Q));
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswgraph(wint_t _wc)
+iswrune(wint_t _wc)
 {
-	return (__istype(_wc, _CTYPE_G));
+	return (__istype(_wc, 0xFFFFFFF0L));
 }
 
 __DARWIN_WCTYPE_TOP_inline int
-iswlower(wint_t _wc)
+iswspecial(wint_t _wc)
 {
-	return (__istype(_wc, _CTYPE_L));
+	return (__istype(_wc, _CTYPE_T));
 }
-
-__DARWIN_WCTYPE_TOP_inline int
-iswprint(wint_t _wc)
-{
-	return (__istype(_wc, _CTYPE_R));
-}
-
-__DARWIN_WCTYPE_TOP_inline int
-iswpunct(wint_t _wc)
-{
-	return (__istype(_wc, _CTYPE_P));
-}
-
-__DARWIN_WCTYPE_TOP_inline int
-iswspace(wint_t _wc)
-{
-	return (__istype(_wc, _CTYPE_S));
-}
-
-__DARWIN_WCTYPE_TOP_inline int
-iswupper(wint_t _wc)
-{
-	return (__istype(_wc, _CTYPE_U));
-}
-
-__DARWIN_WCTYPE_TOP_inline int
-iswxdigit(wint_t _wc)
-{
-	return (__isctype(_wc, _CTYPE_X));
-}
-
-__DARWIN_WCTYPE_TOP_inline wint_t
-towlower(wint_t _wc)
-{
-        return (__tolower(_wc));
-}
-
-__DARWIN_WCTYPE_TOP_inline wint_t
-towupper(wint_t _wc)
-{
-        return (__toupper(_wc));
-}
+#endif /* !_ANSI_SOURCE */
 
 #else /* not using inlines */
 
 __BEGIN_DECLS
-int	iswalnum(wint_t);
-int	iswalpha(wint_t);
-int	iswcntrl(wint_t);
-int	iswctype(wint_t, wctype_t);
-int	iswdigit(wint_t);
-int	iswgraph(wint_t);
-int	iswlower(wint_t);
-int	iswprint(wint_t);
-int	iswpunct(wint_t);
-int	iswspace(wint_t);
-int	iswupper(wint_t);
-int	iswxdigit(wint_t);
-wint_t	towlower(wint_t);
-wint_t	towupper(wint_t);
+int	iswblank(wint_t);
+
+#if !defined(_ANSI_SOURCE)
+wint_t	iswascii(wint_t);
+wint_t	iswhexnumber(wint_t);
+wint_t	iswideogram(wint_t);
+wint_t	iswnumber(wint_t);
+wint_t	iswphonogram(wint_t);
+wint_t	iswrune(wint_t);
+wint_t	iswspecial(wint_t);
+#endif
 __END_DECLS
 
 #endif /* using inlines */
 
 __BEGIN_DECLS
-wctype_t
-	wctype(const char *);
+#if !defined(_ANSI_SOURCE) && (!defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE))
+wint_t	nextwctype(wint_t, wctype_t);
+#endif
+wint_t	towctrans(wint_t, wctrans_t);
+wctrans_t
+	wctrans(const char *);
 __END_DECLS
 
-#ifdef _USE_EXTENDED_LOCALES_
-#include <xlocale/__wctype.h>
-#endif /* _USE_EXTENDED_LOCALES_ */
-
-#endif /* __WCTYPE_H_ */
+#endif		/* _WCTYPE_H_ */

@@ -471,6 +471,10 @@ pub const AffineCoordinates = struct {
     /// Identity element in affine coordinates.
     pub const identityElement = AffineCoordinates{ .x = P384.identityElement.x, .y = P384.identityElement.y };
 
+    pub fn neg(p: AffineCoordinates) AffineCoordinates {
+        return .{ .x = p.x, .y = p.y.neg() };
+    }
+
     fn cMov(p: *AffineCoordinates, a: AffineCoordinates, c: u1) void {
         p.x.cMov(a.x, c);
         p.y.cMov(a.y, c);

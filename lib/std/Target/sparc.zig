@@ -7,6 +7,11 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     deprecated_v8,
     detectroundchange,
+    fix_tn0009,
+    fix_tn0010,
+    fix_tn0011,
+    fix_tn0012,
+    fix_tn0013,
     fixallfdivsqrt,
     hard_quad_float,
     hasleoncasa,
@@ -48,6 +53,7 @@ pub const Feature = enum {
     slow_rdpc,
     soft_float,
     soft_mul_div,
+    v8plus,
     v9,
     vis,
     vis2,
@@ -71,6 +77,31 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.detectroundchange)] = .{
         .llvm_name = "detectroundchange",
         .description = "LEON3 erratum detection: Detects any rounding mode change request: use only the round-to-nearest rounding mode",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0009)] = .{
+        .llvm_name = "fix-tn0009",
+        .description = "Enable workaround for errata described in GRLIB-TN-0009",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0010)] = .{
+        .llvm_name = "fix-tn0010",
+        .description = "Enable workaround for errata described in GRLIB-TN-0010",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0011)] = .{
+        .llvm_name = "fix-tn0011",
+        .description = "Enable workaround for errata described in GRLIB-TN-0011",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0012)] = .{
+        .llvm_name = "fix-tn0012",
+        .description = "Enable workaround for errata described in GRLIB-TN-0012",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.fix_tn0013)] = .{
+        .llvm_name = "fix-tn0013",
+        .description = "Enable workaround for errata described in GRLIB-TN-0013",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.fixallfdivsqrt)] = .{
@@ -280,6 +311,11 @@ pub const all_features = blk: {
         .description = "Use software emulation for integer multiply and divide",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.v8plus)] = .{
+        .llvm_name = "v8plus",
+        .description = "Enable V8+ mode, allowing use of 64-bit V9 instructions in 32-bit code",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.v9)] = .{
         .llvm_name = "v9",
         .description = "Enable SPARC-V9 instructions",
@@ -309,7 +345,7 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
-    pub const at697e = CpuModel{
+    pub const at697e: CpuModel = .{
         .name = "at697e",
         .llvm_name = "at697e",
         .features = featureSet(&[_]Feature{
@@ -317,7 +353,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const at697f = CpuModel{
+    pub const at697f: CpuModel = .{
         .name = "at697f",
         .llvm_name = "at697f",
         .features = featureSet(&[_]Feature{
@@ -325,17 +361,17 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const f934 = CpuModel{
+    pub const f934: CpuModel = .{
         .name = "f934",
         .llvm_name = "f934",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const generic = CpuModel{
+    pub const generic: CpuModel = .{
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const gr712rc = CpuModel{
+    pub const gr712rc: CpuModel = .{
         .name = "gr712rc",
         .llvm_name = "gr712rc",
         .features = featureSet(&[_]Feature{
@@ -343,7 +379,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const gr740 = CpuModel{
+    pub const gr740: CpuModel = .{
         .name = "gr740",
         .llvm_name = "gr740",
         .features = featureSet(&[_]Feature{
@@ -354,19 +390,19 @@ pub const cpu = struct {
             .leonpwrpsr,
         }),
     };
-    pub const hypersparc = CpuModel{
+    pub const hypersparc: CpuModel = .{
         .name = "hypersparc",
         .llvm_name = "hypersparc",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const leon2 = CpuModel{
+    pub const leon2: CpuModel = .{
         .name = "leon2",
         .llvm_name = "leon2",
         .features = featureSet(&[_]Feature{
             .leon,
         }),
     };
-    pub const leon3 = CpuModel{
+    pub const leon3: CpuModel = .{
         .name = "leon3",
         .llvm_name = "leon3",
         .features = featureSet(&[_]Feature{
@@ -374,7 +410,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const leon4 = CpuModel{
+    pub const leon4: CpuModel = .{
         .name = "leon4",
         .llvm_name = "leon4",
         .features = featureSet(&[_]Feature{
@@ -383,7 +419,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2080 = CpuModel{
+    pub const ma2080: CpuModel = .{
         .name = "ma2080",
         .llvm_name = "ma2080",
         .features = featureSet(&[_]Feature{
@@ -391,7 +427,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2085 = CpuModel{
+    pub const ma2085: CpuModel = .{
         .name = "ma2085",
         .llvm_name = "ma2085",
         .features = featureSet(&[_]Feature{
@@ -399,7 +435,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2100 = CpuModel{
+    pub const ma2100: CpuModel = .{
         .name = "ma2100",
         .llvm_name = "ma2100",
         .features = featureSet(&[_]Feature{
@@ -407,7 +443,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2150 = CpuModel{
+    pub const ma2150: CpuModel = .{
         .name = "ma2150",
         .llvm_name = "ma2150",
         .features = featureSet(&[_]Feature{
@@ -415,7 +451,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2155 = CpuModel{
+    pub const ma2155: CpuModel = .{
         .name = "ma2155",
         .llvm_name = "ma2155",
         .features = featureSet(&[_]Feature{
@@ -423,7 +459,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2450 = CpuModel{
+    pub const ma2450: CpuModel = .{
         .name = "ma2450",
         .llvm_name = "ma2450",
         .features = featureSet(&[_]Feature{
@@ -431,7 +467,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2455 = CpuModel{
+    pub const ma2455: CpuModel = .{
         .name = "ma2455",
         .llvm_name = "ma2455",
         .features = featureSet(&[_]Feature{
@@ -439,7 +475,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2480 = CpuModel{
+    pub const ma2480: CpuModel = .{
         .name = "ma2480",
         .llvm_name = "ma2480",
         .features = featureSet(&[_]Feature{
@@ -447,7 +483,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2485 = CpuModel{
+    pub const ma2485: CpuModel = .{
         .name = "ma2485",
         .llvm_name = "ma2485",
         .features = featureSet(&[_]Feature{
@@ -455,7 +491,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2x5x = CpuModel{
+    pub const ma2x5x: CpuModel = .{
         .name = "ma2x5x",
         .llvm_name = "ma2x5x",
         .features = featureSet(&[_]Feature{
@@ -463,7 +499,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const ma2x8x = CpuModel{
+    pub const ma2x8x: CpuModel = .{
         .name = "ma2x8x",
         .llvm_name = "ma2x8x",
         .features = featureSet(&[_]Feature{
@@ -471,7 +507,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const myriad2 = CpuModel{
+    pub const myriad2: CpuModel = .{
         .name = "myriad2",
         .llvm_name = "myriad2",
         .features = featureSet(&[_]Feature{
@@ -479,7 +515,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const myriad2_1 = CpuModel{
+    pub const myriad2_1: CpuModel = .{
         .name = "myriad2_1",
         .llvm_name = "myriad2.1",
         .features = featureSet(&[_]Feature{
@@ -487,7 +523,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const myriad2_2 = CpuModel{
+    pub const myriad2_2: CpuModel = .{
         .name = "myriad2_2",
         .llvm_name = "myriad2.2",
         .features = featureSet(&[_]Feature{
@@ -495,7 +531,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const myriad2_3 = CpuModel{
+    pub const myriad2_3: CpuModel = .{
         .name = "myriad2_3",
         .llvm_name = "myriad2.3",
         .features = featureSet(&[_]Feature{
@@ -503,7 +539,7 @@ pub const cpu = struct {
             .leon,
         }),
     };
-    pub const niagara = CpuModel{
+    pub const niagara: CpuModel = .{
         .name = "niagara",
         .llvm_name = "niagara",
         .features = featureSet(&[_]Feature{
@@ -513,7 +549,7 @@ pub const cpu = struct {
             .vis2,
         }),
     };
-    pub const niagara2 = CpuModel{
+    pub const niagara2: CpuModel = .{
         .name = "niagara2",
         .llvm_name = "niagara2",
         .features = featureSet(&[_]Feature{
@@ -524,7 +560,7 @@ pub const cpu = struct {
             .vis2,
         }),
     };
-    pub const niagara3 = CpuModel{
+    pub const niagara3: CpuModel = .{
         .name = "niagara3",
         .llvm_name = "niagara3",
         .features = featureSet(&[_]Feature{
@@ -535,7 +571,7 @@ pub const cpu = struct {
             .vis2,
         }),
     };
-    pub const niagara4 = CpuModel{
+    pub const niagara4: CpuModel = .{
         .name = "niagara4",
         .llvm_name = "niagara4",
         .features = featureSet(&[_]Feature{
@@ -547,32 +583,32 @@ pub const cpu = struct {
             .vis3,
         }),
     };
-    pub const sparclet = CpuModel{
+    pub const sparclet: CpuModel = .{
         .name = "sparclet",
         .llvm_name = "sparclet",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const sparclite = CpuModel{
+    pub const sparclite: CpuModel = .{
         .name = "sparclite",
         .llvm_name = "sparclite",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const sparclite86x = CpuModel{
+    pub const sparclite86x: CpuModel = .{
         .name = "sparclite86x",
         .llvm_name = "sparclite86x",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const supersparc = CpuModel{
+    pub const supersparc: CpuModel = .{
         .name = "supersparc",
         .llvm_name = "supersparc",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const tsc701 = CpuModel{
+    pub const tsc701: CpuModel = .{
         .name = "tsc701",
         .llvm_name = "tsc701",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const ultrasparc = CpuModel{
+    pub const ultrasparc: CpuModel = .{
         .name = "ultrasparc",
         .llvm_name = "ultrasparc",
         .features = featureSet(&[_]Feature{
@@ -581,7 +617,7 @@ pub const cpu = struct {
             .vis,
         }),
     };
-    pub const ultrasparc3 = CpuModel{
+    pub const ultrasparc3: CpuModel = .{
         .name = "ultrasparc3",
         .llvm_name = "ultrasparc3",
         .features = featureSet(&[_]Feature{
@@ -591,7 +627,7 @@ pub const cpu = struct {
             .vis2,
         }),
     };
-    pub const ut699 = CpuModel{
+    pub const ut699: CpuModel = .{
         .name = "ut699",
         .llvm_name = "ut699",
         .features = featureSet(&[_]Feature{
@@ -602,7 +638,7 @@ pub const cpu = struct {
             .no_fsmuld,
         }),
     };
-    pub const v7 = CpuModel{
+    pub const v7: CpuModel = .{
         .name = "v7",
         .llvm_name = "v7",
         .features = featureSet(&[_]Feature{
@@ -610,12 +646,12 @@ pub const cpu = struct {
             .soft_mul_div,
         }),
     };
-    pub const v8 = CpuModel{
+    pub const v8: CpuModel = .{
         .name = "v8",
         .llvm_name = "v8",
         .features = featureSet(&[_]Feature{}),
     };
-    pub const v9 = CpuModel{
+    pub const v9: CpuModel = .{
         .name = "v9",
         .llvm_name = "v9",
         .features = featureSet(&[_]Feature{

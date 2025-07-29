@@ -1,28 +1,29 @@
 const std = @import("../../std.zig");
 const mem = std.mem;
 const debug = std.debug;
-const BlockVec = @Vector(2, u64);
 
 /// A single AES block.
 pub const Block = struct {
+    const Repr = @Vector(2, u64);
+
     pub const block_length: usize = 16;
 
     /// Internal representation of a block.
-    repr: BlockVec,
+    repr: Repr,
 
     /// Convert a byte sequence into an internal representation.
-    pub inline fn fromBytes(bytes: *const [16]u8) Block {
-        const repr = mem.bytesToValue(BlockVec, bytes);
+    pub fn fromBytes(bytes: *const [16]u8) Block {
+        const repr = mem.bytesToValue(Repr, bytes);
         return Block{ .repr = repr };
     }
 
     /// Convert the internal representation of a block into a byte sequence.
-    pub inline fn toBytes(block: Block) [16]u8 {
+    pub fn toBytes(block: Block) [16]u8 {
         return mem.toBytes(block.repr);
     }
 
     /// XOR the block with a byte sequence.
-    pub inline fn xorBytes(block: Block, bytes: *const [16]u8) [16]u8 {
+    pub fn xorBytes(block: Block, bytes: *const [16]u8) [16]u8 {
         const x = block.repr ^ fromBytes(bytes).repr;
         return mem.toBytes(x);
     }
@@ -30,13 +31,13 @@ pub const Block = struct {
     const zero = @Vector(2, u64){ 0, 0 };
 
     /// Encrypt a block with a round key.
-    pub inline fn encrypt(block: Block, round_key: Block) Block {
+    pub fn encrypt(block: Block, round_key: Block) Block {
         return Block{
             .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aese  %[out].16b, %[zero].16b
                 \\ aesmc %[out].16b, %[out].16b
-                : [out] "=&x" (-> BlockVec),
+                : [out] "=&x" (-> Repr),
                 : [in] "x" (block.repr),
                   [zero] "x" (zero),
             )) ^ round_key.repr,
@@ -44,12 +45,12 @@ pub const Block = struct {
     }
 
     /// Encrypt a block with the last round key.
-    pub inline fn encryptLast(block: Block, round_key: Block) Block {
+    pub fn encryptLast(block: Block, round_key: Block) Block {
         return Block{
             .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aese  %[out].16b, %[zero].16b
-                : [out] "=&x" (-> BlockVec),
+                : [out] "=&x" (-> Repr),
                 : [in] "x" (block.repr),
                   [zero] "x" (zero),
             )) ^ round_key.repr,
@@ -57,13 +58,13 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with a round key.
-    pub inline fn decrypt(block: Block, inv_round_key: Block) Block {
+    pub fn decrypt(block: Block, inv_round_key: Block) Block {
         return Block{
             .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aesd  %[out].16b, %[zero].16b
                 \\ aesimc %[out].16b, %[out].16b
-                : [out] "=&x" (-> BlockVec),
+                : [out] "=&x" (-> Repr),
                 : [in] "x" (block.repr),
                   [zero] "x" (zero),
             )) ^ inv_round_key.repr,
@@ -71,12 +72,12 @@ pub const Block = struct {
     }
 
     /// Decrypt a block with the last round key.
-    pub inline fn decryptLast(block: Block, inv_round_key: Block) Block {
+    pub fn decryptLast(block: Block, inv_round_key: Block) Block {
         return Block{
             .repr = (asm (
                 \\ mov   %[out].16b, %[in].16b
                 \\ aesd  %[out].16b, %[zero].16b
-                : [out] "=&x" (-> BlockVec),
+                : [out] "=&x" (-> Repr),
                 : [in] "x" (block.repr),
                   [zero] "x" (zero),
             )) ^ inv_round_key.repr,
@@ -84,17 +85,17 @@ pub const Block = struct {
     }
 
     /// Apply the bitwise XOR operation to the content of two blocks.
-    pub inline fn xorBlocks(block1: Block, block2: Block) Block {
+    pub fn xorBlocks(block1: Block, block2: Block) Block {
         return Block{ .repr = block1.repr ^ block2.repr };
     }
 
     /// Apply the bitwise AND operation to the content of two blocks.
-    pub inline fn andBlocks(block1: Block, block2: Block) Block {
+    pub fn andBlocks(block1: Block, block2: Block) Block {
         return Block{ .repr = block1.repr & block2.repr };
     }
 
     /// Apply the bitwise OR operation to the content of two blocks.
-    pub inline fn orBlocks(block1: Block, block2: Block) Block {
+    pub fn orBlocks(block1: Block, block2: Block) Block {
         return Block{ .repr = block1.repr | block2.repr };
     }
 
@@ -104,7 +105,7 @@ pub const Block = struct {
         pub const optimal_parallel_blocks = 6;
 
         /// Encrypt multiple blocks in parallel, each their own round key.
-        pub inline fn encryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {
+        pub fn encryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -114,7 +115,7 @@ pub const Block = struct {
         }
 
         /// Decrypt multiple blocks in parallel, each their own round key.
-        pub inline fn decryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {
+        pub fn decryptParallel(comptime count: usize, blocks: [count]Block, round_keys: [count]Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -124,7 +125,7 @@ pub const Block = struct {
         }
 
         /// Encrypt multiple blocks in parallel with the same round key.
-        pub inline fn encryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
+        pub fn encryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -134,7 +135,7 @@ pub const Block = struct {
         }
 
         /// Decrypt multiple blocks in parallel with the same round key.
-        pub inline fn decryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
+        pub fn decryptWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -144,7 +145,7 @@ pub const Block = struct {
         }
 
         /// Encrypt multiple blocks in parallel with the same last round key.
-        pub inline fn encryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
+        pub fn encryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -154,7 +155,7 @@ pub const Block = struct {
         }
 
         /// Decrypt multiple blocks in parallel with the same last round key.
-        pub inline fn decryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
+        pub fn decryptLastWide(comptime count: usize, blocks: [count]Block, round_key: Block) [count]Block {
             comptime var i = 0;
             var out: [count]Block = undefined;
             inline while (i < count) : (i += 1) {
@@ -165,6 +166,118 @@ pub const Block = struct {
     };
 };
 
+/// A fixed-size vector of AES blocks.
+/// All operations are performed in parallel, using SIMD instructions when available.
+pub fn BlockVec(comptime blocks_count: comptime_int) type {
+    return struct {
+        const Self = @This();
+
+        /// The number of AES blocks the target architecture can process with a single instruction.
+        pub const native_vector_size = 1;
+
+        /// The size of the AES block vector that the target architecture can process with a single instruction, in bytes.
+        pub const native_word_size = native_vector_size * 16;
+
+        const native_words = blocks_count;
+
+        /// Internal representation of a block vector.
+        repr: [native_words]Block,
+
+        /// Length of the block vector in bytes.
+        pub const block_length: usize = blocks_count * 16;
+
+        /// Convert a byte sequence into an internal representation.
+        pub fn fromBytes(bytes: *const [blocks_count * 16]u8) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = Block.fromBytes(bytes[i * native_word_size ..][0..native_word_size]);
+            }
+            return out;
+        }
+
+        /// Convert the internal representation of a block vector into a byte sequence.
+        pub fn toBytes(block_vec: Self) [blocks_count * 16]u8 {
+            var out: [blocks_count * 16]u8 = undefined;
+            inline for (0..native_words) |i| {
+                out[i * native_word_size ..][0..native_word_size].* = block_vec.repr[i].toBytes();
+            }
+            return out;
+        }
+
+        /// XOR the block vector with a byte sequence.
+        pub fn xorBytes(block_vec: Self, bytes: *const [blocks_count * 16]u8) [32]u8 {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].xorBytes(bytes[i * native_word_size ..][0..native_word_size]);
+            }
+            return out;
+        }
+
+        /// Apply the forward AES operation to the block vector with a vector of round keys.
+        pub fn encrypt(block_vec: Self, round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].encrypt(round_key_vec.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the forward AES operation to the block vector with a vector of last round keys.
+        pub fn encryptLast(block_vec: Self, round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].encryptLast(round_key_vec.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the inverse AES operation to the block vector with a vector of round keys.
+        pub fn decrypt(block_vec: Self, inv_round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].decrypt(inv_round_key_vec.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the inverse AES operation to the block vector with a vector of last round keys.
+        pub fn decryptLast(block_vec: Self, inv_round_key_vec: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec.repr[i].decryptLast(inv_round_key_vec.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the bitwise XOR operation to the content of two block vectors.
+        pub fn xorBlocks(block_vec1: Self, block_vec2: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i].xorBlocks(block_vec2.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the bitwise AND operation to the content of two block vectors.
+        pub fn andBlocks(block_vec1: Self, block_vec2: Self) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i].andBlocks(block_vec2.repr[i]);
+            }
+            return out;
+        }
+
+        /// Apply the bitwise OR operation to the content of two block vectors.
+        pub fn orBlocks(block_vec1: Self, block_vec2: Block) Self {
+            var out: Self = undefined;
+            inline for (0..native_words) |i| {
+                out.repr[i] = block_vec1.repr[i].orBlocks(block_vec2.repr[i]);
+            }
+            return out;
+        }
+    };
+}
+
 fn KeySchedule(comptime Aes: type) type {
     std.debug.assert(Aes.rounds == 10 or Aes.rounds == 14);
     const rounds = Aes.rounds;
@@ -172,17 +285,19 @@ fn KeySchedule(comptime Aes: type) type {
     return struct {
         const Self = @This();
 
+        const Repr = Aes.block.Repr;
+
         const zero = @Vector(2, u64){ 0, 0 };
         const mask1 = @Vector(16, u8){ 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12 };
         const mask2 = @Vector(16, u8){ 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15 };
 
         round_keys: [rounds + 1]Block,
 
-        fn drc128(comptime rc: u8, t: BlockVec) BlockVec {
-            var v1: BlockVec = undefined;
-            var v2: BlockVec = undefined;
-            var v3: BlockVec = undefined;
-            var v4: BlockVec = undefined;
+        fn drc128(comptime rc: u8, t: Repr) Repr {
+            var v1: Repr = undefined;
+            var v2: Repr = undefined;
+            var v3: Repr = undefined;
+            var v4: Repr = undefined;
 
             return asm (
                 \\ movi %[v2].4s, %[rc]
@@ -196,7 +311,7 @@ fn KeySchedule(comptime Aes: type) type {
                 \\ eor  %[v1].16b, %[v1].16b, %[r].16b
                 \\ eor  %[r].16b, %[v1].16b, %[v3].16b
                 \\ eor  %[r].16b, %[r].16b, %[v4].16b
-                : [r] "=&x" (-> BlockVec),
+                : [r] "=&x" (-> Repr),
                   [v1] "=&x" (v1),
                   [v2] "=&x" (v2),
                   [v3] "=&x" (v3),
@@ -208,11 +323,11 @@ fn KeySchedule(comptime Aes: type) type {
             );
         }
 
-        fn drc256(comptime second: bool, comptime rc: u8, t: BlockVec, tx: BlockVec) BlockVec {
-            var v1: BlockVec = undefined;
-            var v2: BlockVec = undefined;
-            var v3: BlockVec = undefined;
-            var v4: BlockVec = undefined;
+        fn drc256(comptime second: bool, comptime rc: u8, t: Repr, tx: Repr) Repr {
+            var v1: Repr = undefined;
+            var v2: Repr = undefined;
+            var v3: Repr = undefined;
+            var v4: Repr = undefined;
 
             return asm (
                 \\ movi %[v2].4s, %[rc]
@@ -226,7 +341,7 @@ fn KeySchedule(comptime Aes: type) type {
                 \\ eor  %[v1].16b, %[v1].16b, %[v2].16b
                 \\ eor  %[v1].16b, %[v1].16b, %[v3].16b
                 \\ eor  %[r].16b, %[v1].16b, %[v4].16b
-                : [r] "=&x" (-> BlockVec),
+                : [r] "=&x" (-> Repr),
                   [v1] "=&x" (v1),
                   [v2] "=&x" (v2),
                   [v3] "=&x" (v3),
@@ -276,7 +391,7 @@ fn KeySchedule(comptime Aes: type) type {
                 inv_round_keys[i] = Block{
                     .repr = asm (
                         \\ aesimc %[inv_rk].16b, %[rk].16b
-                        : [inv_rk] "=x" (-> BlockVec),
+                        : [inv_rk] "=x" (-> Repr),
                         : [rk] "x" (round_keys[rounds - i].repr),
                     ),
                 };

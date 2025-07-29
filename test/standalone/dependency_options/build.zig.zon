@@ -1,0 +1,11 @@
+.{
+    .name = .dependency_options,
+    .fingerprint = 0x3e3ce1c1f92ba47e,
+    .version = "0.0.0",
+    .dependencies = .{
+        .other = .{
+            .path = "other",
+        },
+    },
+    .paths = .{""},
+}

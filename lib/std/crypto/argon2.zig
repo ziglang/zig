@@ -14,7 +14,7 @@ const pwhash = crypto.pwhash;
 
 const Thread = std.Thread;
 const Blake2b512 = blake2.Blake2b512;
-const Blocks = std.ArrayListAligned([block_length]u64, 16);
+const Blocks = std.ArrayListAligned([block_length]u64, .@"16");
 const H0 = [Blake2b512.digest_length + 8]u8;
 
 const EncodingError = crypto.errors.EncodingError;
@@ -496,6 +496,7 @@ pub fn kdf(
     if (password.len > max_int) return KdfError.WeakParameters;
     if (salt.len < 8 or salt.len > max_int) return KdfError.WeakParameters;
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
+    if (params.m / 8 < params.p) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
     const memory = @max(

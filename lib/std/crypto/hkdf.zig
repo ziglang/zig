@@ -88,3 +88,12 @@ test "Hkdf" {
     hkdf.final(&prk2);
     try htest.assertEqual("077709362c2e32df0ddc3f0dc47bba6390b6c73bb50f9c3122ec844ad7c2b3e5", &prk2);
 }
+
+test "Hkdf Sha3-512" {
+    const sha3_512 = std.crypto.hash.sha3.Sha3_512;
+    const hmac_sha3_512 = hmac.Hmac(sha3_512);
+    const hkdf = Hkdf(hmac_sha3_512);
+    const prk = hkdf.extract("", "");
+    var out = [1]u8{0};
+    hkdf.expand(out[0..], "", prk);
+}

@@ -17,9 +17,7 @@ export fn entry4() usize {
 } // no error on purpose
 
 // error
-// backend=stage2
-// target=native
 //
-// :1:23: error: division by zero here causes undefined behavior
-// :2:27: error: division by zero here causes undefined behavior
-// :3:29: error: division by zero here causes undefined behavior
+// :1:23: error: division by zero here causes illegal behavior
+// :2:27: error: division by zero here causes illegal behavior
+// :3:29: error: division by zero here causes illegal behavior

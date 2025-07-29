@@ -15,8 +15,7 @@ parent: Index,
 pub const ExtraInfo = struct {
     is_pub: bool,
     name: []const u8,
-    /// This might not be a doc_comment token in which case there are no doc comments.
-    first_doc_comment: Ast.TokenIndex,
+    first_doc_comment: Ast.OptionalTokenIndex,
 };
 
 pub const Index = enum(u32) {
@@ -34,16 +33,14 @@ pub fn is_pub(d: *const Decl) bool {
 
 pub fn extra_info(d: *const Decl) ExtraInfo {
     const ast = d.file.get_ast();
-    const token_tags = ast.tokens.items(.tag);
-    const node_tags = ast.nodes.items(.tag);
-    switch (node_tags[d.ast_node]) {
+    switch (ast.nodeTag(d.ast_node)) {
         .root => return .{
             .name = "",
             .is_pub = true,
-            .first_doc_comment = if (token_tags[0] == .container_doc_comment)
-                0
+            .first_doc_comment = if (ast.tokenTag(0) == .container_doc_comment)
+                .fromToken(0)
             else
-                token_tags.len - 1,
+                .none,
         },
 
         .global_var_decl,
@@ -53,7 +50,7 @@ pub fn extra_info(d: *const Decl) ExtraInfo {
         => {
             const var_decl = ast.fullVarDecl(d.ast_node).?;
             const name_token = var_decl.ast.mut_token + 1;
-            assert(token_tags[name_token] == .identifier);
+            assert(ast.tokenTag(name_token) == .identifier);
             const ident_name = ast.tokenSlice(name_token);
             return .{
                 .name = ident_name,
@@ -71,7 +68,7 @@ pub fn extra_info(d: *const Decl) ExtraInfo {
             var buf: [1]Ast.Node.Index = undefined;
             const fn_proto = ast.fullFnProto(&buf, d.ast_node).?;
             const name_token = fn_proto.name_token.?;
-            assert(token_tags[name_token] == .identifier);
+            assert(ast.tokenTag(name_token) == .identifier);
             const ident_name = ast.tokenSlice(name_token);
             return .{
                 .name = ident_name,
@@ -89,9 +86,7 @@ pub fn extra_info(d: *const Decl) ExtraInfo {
 
 pub fn value_node(d: *const Decl) ?Ast.Node.Index {
     const ast = d.file.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    const token_tags = ast.tokens.items(.tag);
-    return switch (node_tags[d.ast_node]) {
+    return switch (ast.nodeTag(d.ast_node)) {
         .fn_proto,
         .fn_proto_multi,
         .fn_proto_one,
@@ -106,8 +101,8 @@ pub fn value_node(d: *const Decl) ?Ast.Node.Index {
         .aligned_var_decl,
         => {
             const var_decl = ast.fullVarDecl(d.ast_node).?;
-            if (token_tags[var_decl.ast.mut_token] == .keyword_const)
-                return var_decl.ast.init_node;
+            if (ast.tokenTag(var_decl.ast.mut_token) == .keyword_const)
+                return var_decl.ast.init_node.unwrap();
 
             return null;
         },
@@ -129,6 +124,53 @@ pub fn get_child(decl: *const Decl, name: []const u8) ?Decl.Index {
             const scope = file.scopes.get(node) orelse return null;
             const child_node = scope.get_child(name) orelse return null;
             return file.node_decls.get(child_node);
+        },
+        .type_function => {
+            // Find a decl with this function as the parent, with a name matching `name`
+            for (Walk.decls.items, 0..) |*candidate, i| {
+                if (candidate.parent != .none and candidate.parent.get() == decl and std.mem.eql(u8, candidate.extra_info().name, name)) {
+                    return @enumFromInt(i);
+                }
+            }
+
+            return null;
+        },
+        else => return null,
+    }
+}
+
+/// If the type function returns another type function, return the index of that type function.
+pub fn get_type_fn_return_type_fn(decl: *const Decl) ?Decl.Index {
+    if (decl.get_type_fn_return_expr()) |return_expr| {
+        const ast = decl.file.get_ast();
+        var buffer: [1]Ast.Node.Index = undefined;
+        const call = ast.fullCall(&buffer, return_expr) orelse return null;
+        const token = ast.nodeMainToken(call.ast.fn_expr);
+        const name = ast.tokenSlice(token);
+        if (decl.lookup(name)) |function_decl| {
+            return function_decl;
+        }
+    }
+    return null;
+}
+
+/// Gets the expression after the `return` keyword in a type function declaration.
+pub fn get_type_fn_return_expr(decl: *const Decl) ?Ast.Node.Index {
+    switch (decl.categorize()) {
+        .type_function => {
+            const ast = decl.file.get_ast();
+
+            const body_node = ast.nodeData(decl.ast_node).node_and_node[1];
+
+            var buf: [2]Ast.Node.Index = undefined;
+            const statements = ast.blockStatements(&buf, body_node) orelse return null;
+
+            for (statements) |stmt| {
+                if (ast.nodeTag(stmt) == .@"return") {
+                    return ast.nodeData(stmt).node;
+                }
+            }
+            return null;
         },
         else => return null,
     }
@@ -198,16 +240,15 @@ pub fn append_parent_ns(list: *std.ArrayListUnmanaged(u8), parent: Decl.Index) O
     }
 }
 
-pub fn findFirstDocComment(ast: *const Ast, token: Ast.TokenIndex) Ast.TokenIndex {
-    const token_tags = ast.tokens.items(.tag);
+pub fn findFirstDocComment(ast: *const Ast, token: Ast.TokenIndex) Ast.OptionalTokenIndex {
     var it = token;
     while (it > 0) {
         it -= 1;
-        if (token_tags[it] != .doc_comment) {
-            return it + 1;
+        if (ast.tokenTag(it) != .doc_comment) {
+            return .fromToken(it + 1);
         }
     }
-    return it;
+    return .none;
 }
 
 /// Successively looks up each component.

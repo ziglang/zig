@@ -13,7 +13,6 @@
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_arithmetic.h>
 #include <__type_traits/promote.h>
-#include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -25,16 +24,16 @@ namespace __math {
 
 // copysign
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI float copysign(float __x, float __y) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI float copysign(float __x, float __y) _NOEXCEPT {
   return ::__builtin_copysignf(__x, __y);
 }
 
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI long double copysign(long double __x, long double __y) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI long double copysign(long double __x, long double __y) _NOEXCEPT {
   return ::__builtin_copysignl(__x, __y);
 }
 
 template <class _A1, class _A2, __enable_if_t<is_arithmetic<_A1>::value && is_arithmetic<_A2>::value, int> = 0>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type copysign(_A1 __x, _A2 __y) _NOEXCEPT {
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI typename __promote<_A1, _A2>::type copysign(_A1 __x, _A2 __y) _NOEXCEPT {
   return ::__builtin_copysign(__x, __y);
 }
 

@@ -18,16 +18,15 @@
 #include <__algorithm/rotate.h>
 #include <__algorithm/upper_bound.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__functional/identity.h>
-#include <__iterator/advance.h>
-#include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/reverse_iterator.h>
 #include <__memory/destruct_n.h>
-#include <__memory/temporary_buffer.h>
 #include <__memory/unique_ptr.h>
+#include <__memory/unique_temporary_buffer.h>
+#include <__utility/move.h>
 #include <__utility/pair.h>
-#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -45,17 +44,17 @@ private:
   _Predicate __p_;
 
 public:
-  _LIBCPP_HIDE_FROM_ABI __invert() {}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 __invert() {}
 
-  _LIBCPP_HIDE_FROM_ABI explicit __invert(_Predicate __p) : __p_(__p) {}
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 explicit __invert(_Predicate __p) : __p_(__p) {}
 
   template <class _T1>
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const _T1& __x) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 bool operator()(const _T1& __x) {
     return !__p_(__x);
   }
 
   template <class _T1, class _T2>
-  _LIBCPP_HIDE_FROM_ABI bool operator()(const _T1& __x, const _T2& __y) {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 bool operator()(const _T1& __x, const _T2& __y) {
     return __p_(__y, __x);
   }
 };
@@ -67,7 +66,7 @@ template <class _AlgPolicy,
           class _InputIterator2,
           class _Sent2,
           class _OutputIterator>
-_LIBCPP_HIDE_FROM_ABI void __half_inplace_merge(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 void __half_inplace_merge(
     _InputIterator1 __first1,
     _Sent1 __last1,
     _InputIterator2 __first2,
@@ -92,7 +91,7 @@ _LIBCPP_HIDE_FROM_ABI void __half_inplace_merge(
 }
 
 template <class _AlgPolicy, class _Compare, class _BidirectionalIterator>
-_LIBCPP_HIDE_FROM_ABI void __buffered_inplace_merge(
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 void __buffered_inplace_merge(
     _BidirectionalIterator __first,
     _BidirectionalIterator __middle,
     _BidirectionalIterator __last,
@@ -123,7 +122,7 @@ _LIBCPP_HIDE_FROM_ABI void __buffered_inplace_merge(
 }
 
 template <class _AlgPolicy, class _Compare, class _BidirectionalIterator>
-void __inplace_merge(
+_LIBCPP_CONSTEXPR_SINCE_CXX26 void __inplace_merge(
     _BidirectionalIterator __first,
     _BidirectionalIterator __middle,
     _BidirectionalIterator __last,
@@ -208,16 +207,19 @@ _LIBCPP_HIDE_FROM_ABI void __inplace_merge(
     _BidirectionalIterator __first, _BidirectionalIterator __middle, _BidirectionalIterator __last, _Compare&& __comp) {
   typedef typename iterator_traits<_BidirectionalIterator>::value_type value_type;
   typedef typename iterator_traits<_BidirectionalIterator>::difference_type difference_type;
-  difference_type __len1     = _IterOps<_AlgPolicy>::distance(__first, __middle);
-  difference_type __len2     = _IterOps<_AlgPolicy>::distance(__middle, __last);
-  difference_type __buf_size = std::min(__len1, __len2);
-  // TODO: Remove the use of std::get_temporary_buffer
-  _LIBCPP_SUPPRESS_DEPRECATED_PUSH
-  pair<value_type*, ptrdiff_t> __buf = std::get_temporary_buffer<value_type>(__buf_size);
-  _LIBCPP_SUPPRESS_DEPRECATED_POP
-  unique_ptr<value_type, __return_temporary_buffer> __h(__buf.first);
+  difference_type __len1                             = _IterOps<_AlgPolicy>::distance(__first, __middle);
+  difference_type __len2                             = _IterOps<_AlgPolicy>::distance(__middle, __last);
+  difference_type __buf_size                         = std::min(__len1, __len2);
+  __unique_temporary_buffer<value_type> __unique_buf = std::__allocate_unique_temporary_buffer<value_type>(__buf_size);
   return std::__inplace_merge<_AlgPolicy>(
-      std::move(__first), std::move(__middle), std::move(__last), __comp, __len1, __len2, __buf.first, __buf.second);
+      std::move(__first),
+      std::move(__middle),
+      std::move(__last),
+      __comp,
+      __len1,
+      __len2,
+      __unique_buf.get(),
+      __unique_buf.get_deleter().__count_);
 }
 
 template <class _BidirectionalIterator, class _Compare>

@@ -277,7 +277,7 @@ const SystemVersionTokenizer = struct {
 };
 
 test "detect" {
-    const cases = .{
+    const cases: [5]struct { []const u8, std.SemanticVersion } = .{
         .{
             \\<?xml version="1.0" encoding="UTF-8"?>
             \\<!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -388,8 +388,8 @@ test "detect" {
 
     inline for (cases) |case| {
         const ver0 = try parseSystemVersion(case[0]);
-        const ver1: std.SemanticVersion = case[1];
-        try testing.expectEqual(@as(std.math.Order, .eq), ver0.order(ver1));
+        const ver1 = case[1];
+        try testing.expectEqual(std.math.Order.eq, ver0.order(ver1));
     }
 }
 
@@ -408,22 +408,25 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     switch (current_arch) {
         .aarch64, .aarch64_be => {
             const model = switch (cpu_family) {
-                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_a16,
-                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_a15,
-                .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_a14,
-                .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
-                .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,
-                .ARM_MONSOON_MISTRAL => &Target.aarch64.cpu.apple_a11,
-                .ARM_HURRICANE => &Target.aarch64.cpu.apple_a10,
-                .ARM_TWISTER => &Target.aarch64.cpu.apple_a9,
+                .ARM_CYCLONE => &Target.aarch64.cpu.apple_a7,
                 .ARM_TYPHOON => &Target.aarch64.cpu.apple_a8,
-                .ARM_CYCLONE => &Target.aarch64.cpu.cyclone,
-                else => return null,
-                .ARM_COLL => &Target.aarch64.cpu.apple_a17,
+                .ARM_TWISTER => &Target.aarch64.cpu.apple_a9,
+                .ARM_HURRICANE => &Target.aarch64.cpu.apple_a10,
+                .ARM_MONSOON_MISTRAL => &Target.aarch64.cpu.apple_a11,
+                .ARM_VORTEX_TEMPEST => &Target.aarch64.cpu.apple_a12,
+                .ARM_LIGHTNING_THUNDER => &Target.aarch64.cpu.apple_a13,
+                .ARM_FIRESTORM_ICESTORM => &Target.aarch64.cpu.apple_m1, // a14
+                .ARM_BLIZZARD_AVALANCHE => &Target.aarch64.cpu.apple_m2, // a15
+                .ARM_EVEREST_SAWTOOTH => &Target.aarch64.cpu.apple_m3, // a16
                 .ARM_IBIZA => &Target.aarch64.cpu.apple_m3, // base
-                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
                 .ARM_PALMA => &Target.aarch64.cpu.apple_m3, // max
-                .ARM_DONAN => &Target.aarch64.cpu.apple_m4,
+                .ARM_LOBOS => &Target.aarch64.cpu.apple_m3, // pro
+                .ARM_COLL => &Target.aarch64.cpu.apple_a17, // a17 pro
+                .ARM_DONAN => &Target.aarch64.cpu.apple_m4, // base
+                .ARM_BRAVA => &Target.aarch64.cpu.apple_m4, // pro/max
+                .ARM_TAHITI => &Target.aarch64.cpu.apple_m4, // a18 pro
+                .ARM_TUPAI => &Target.aarch64.cpu.apple_m4, // a18
+                else => return null,
             };
 
             return Target.Cpu{

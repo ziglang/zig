@@ -23,7 +23,7 @@ pub const CallModifier = enum {
     /// If this is not possible, a compile error is emitted instead.
     always_tail,
 
-    /// Guarantees that the call will inlined at the callsite.
+    /// Guarantees that the call will be inlined at the callsite.
     /// If this is not possible, a compile error is emitted instead.
     always_inline,
 

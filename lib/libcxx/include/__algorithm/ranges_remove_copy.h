@@ -38,9 +38,7 @@ namespace ranges {
 template <class _InIter, class _OutIter>
 using remove_copy_result = in_out_result<_InIter, _OutIter>;
 
-namespace __remove_copy {
-
-struct __fn {
+struct __remove_copy {
   template <input_iterator _InIter,
             sentinel_for<_InIter> _Sent,
             weakly_incrementable _OutIter,
@@ -65,10 +63,8 @@ struct __fn {
   }
 };
 
-} // namespace __remove_copy
-
 inline namespace __cpo {
-inline constexpr auto remove_copy = __remove_copy::__fn{};
+inline constexpr auto remove_copy = __remove_copy{};
 } // namespace __cpo
 } // namespace ranges
 

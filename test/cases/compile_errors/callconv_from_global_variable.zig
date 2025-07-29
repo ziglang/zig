@@ -1,4 +1,4 @@
-var cc: @import("std").builtin.CallingConvention = .C;
+var cc: @import("std").builtin.CallingConvention = .c;
 export fn foo() callconv(cc) void {}
 
 // error

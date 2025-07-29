@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2005-2025 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -164,6 +164,7 @@
 # define HAVE_CLOCK_GETRES64_VSYSCALL	"__kernel_clock_getres"
 # define HAVE_CLOCK_GETTIME64_VSYSCALL	"__kernel_clock_gettime"
 # define HAVE_GETTIMEOFDAY_VSYSCALL	"__kernel_gettimeofday"
+# define HAVE_GETRANDOM_VSYSCALL        "__kernel_getrandom"
 
 # define HAVE_CLONE3_WRAPPER		1
 

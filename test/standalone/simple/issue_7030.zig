@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const std_options = .{
+pub const std_options: std.Options = .{
     .logFn = log,
 };
 

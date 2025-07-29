@@ -437,5 +437,9 @@
 #define __NR_lsm_set_self_attr (__NR_Linux + 460)
 #define __NR_lsm_list_modules (__NR_Linux + 461)
 #define __NR_mseal (__NR_Linux + 462)
+#define __NR_setxattrat (__NR_Linux + 463)
+#define __NR_getxattrat (__NR_Linux + 464)
+#define __NR_listxattrat (__NR_Linux + 465)
+#define __NR_removexattrat (__NR_Linux + 466)
 
 #endif /* _ASM_UNISTD_O32_H */

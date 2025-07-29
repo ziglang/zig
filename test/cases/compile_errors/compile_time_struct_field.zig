@@ -4,16 +4,15 @@ const S = struct {
 };
 
 export fn a() void {
-  var value: u32 = 3;
-  const comptimeStruct = S {
-    .normal_ptr = &value,
-  };
-  _ = comptimeStruct;
+    var value: u32 = 3;
+    const comptimeStruct = S{
+        .normal_ptr = &value,
+    };
+    _ = comptimeStruct;
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// 9:6: error: unable to resolve comptime value
-// 9:6: note: initializer of comptime only struct must be comptime-known
+// :9:10: error: unable to resolve comptime value
+// :9:10: note: initializer of comptime-only struct 'tmp.S' must be comptime-known
+// :2:21: note: struct requires comptime because of this field

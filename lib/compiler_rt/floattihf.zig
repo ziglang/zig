@@ -12,10 +12,10 @@ comptime {
     }
 }
 
-pub fn __floattihf(a: i128) callconv(.C) f16 {
+pub fn __floattihf(a: i128) callconv(.c) f16 {
     return floatFromInt(f16, a);
 }
 
-fn __floattihf_windows_x86_64(a: @Vector(2, u64)) callconv(.C) f16 {
+fn __floattihf_windows_x86_64(a: @Vector(2, u64)) callconv(.c) f16 {
     return floatFromInt(f16, @as(i128, @bitCast(a)));
 }

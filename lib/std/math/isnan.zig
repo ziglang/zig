@@ -32,8 +32,9 @@ test isSignalNan {
         // TODO: Signalling NaN values get converted to quiet NaN values in
         //       some cases where they shouldn't such that this can fail.
         //       See https://github.com/ziglang/zig/issues/14366
-        if (!builtin.cpu.arch.isArmOrThumb() and
+        if (!builtin.cpu.arch.isArm() and
             !builtin.cpu.arch.isAARCH64() and
+            !builtin.cpu.arch.isMIPS32() and
             !builtin.cpu.arch.isPowerPC() and
             builtin.zig_backend != .stage2_c)
         {

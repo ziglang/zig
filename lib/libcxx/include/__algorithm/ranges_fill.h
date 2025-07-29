@@ -28,8 +28,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __fill {
-struct __fn {
+struct __fill {
   template <class _Type, output_iterator<const _Type&> _Iter, sentinel_for<_Iter> _Sent>
   _LIBCPP_HIDE_FROM_ABI constexpr _Iter operator()(_Iter __first, _Sent __last, const _Type& __value) const {
     if constexpr (random_access_iterator<_Iter> && sized_sentinel_for<_Sent, _Iter>) {
@@ -46,10 +45,9 @@ struct __fn {
     return (*this)(ranges::begin(__range), ranges::end(__range), __value);
   }
 };
-} // namespace __fill
 
 inline namespace __cpo {
-inline constexpr auto fill = __fill::__fn{};
+inline constexpr auto fill = __fill{};
 } // namespace __cpo
 } // namespace ranges
 

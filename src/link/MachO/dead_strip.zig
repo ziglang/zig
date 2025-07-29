@@ -102,8 +102,8 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
                 const isec = atom.getInputSection(macho_file);
                 if (isec.isDontDeadStripIfReferencesLive() and
                     !(mem.eql(u8, isec.sectName(), "__eh_frame") or
-                    mem.eql(u8, isec.sectName(), "__compact_unwind") or
-                    isec.attrs() & macho.S_ATTR_DEBUG != 0) and
+                        mem.eql(u8, isec.sectName(), "__compact_unwind") or
+                        isec.attrs() & macho.S_ATTR_DEBUG != 0) and
                     !atom.isAlive() and refersLive(atom, macho_file))
                 {
                     markLive(atom, macho_file);
@@ -117,7 +117,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
 fn markLive(atom: *Atom, macho_file: *MachO) void {
     assert(atom.visited.load(.seq_cst));
     atom.setAlive(true);
-    track_live_log.debug("{}marking live atom({d},{s})", .{
+    track_live_log.debug("{f}marking live atom({d},{s})", .{
         track_live_level,
         atom.atom_index,
         atom.getName(macho_file),
@@ -196,15 +196,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.writeByteNTimes(' ', self.value);
+    pub fn format(self: *const @This(), w: *Writer) Writer.Error!void {
+        try w.splatByteAll(' ', self.value);
     }
 };
 
@@ -219,6 +212,7 @@ const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 const track_live_log = std.log.scoped(.dead_strip_track_live);
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

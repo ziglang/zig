@@ -10,10 +10,10 @@
 #define _LIBCPP___TYPE_IS_ALLOCATOR_H
 
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/void_t.h>
 #include <__utility/declval.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

@@ -22,11 +22,7 @@ const SemaError = Zcu.SemaError;
 ip_index: InternPool.Index,
 
 pub fn zigTypeTag(ty: Type, zcu: *const Zcu) std.builtin.TypeId {
-    return ty.zigTypeTagOrPoison(zcu) catch unreachable;
-}
-
-pub fn zigTypeTagOrPoison(ty: Type, zcu: *const Zcu) error{GenericPoison}!std.builtin.TypeId {
-    return zcu.intern_pool.zigTypeTagOrPoison(ty.toIntern());
+    return zcu.intern_pool.zigTypeTag(ty.toIntern());
 }
 
 pub fn baseZigTypeTag(self: Type, mod: *Zcu) std.builtin.TypeId {
@@ -125,15 +121,13 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, comptime unused_fmt_string: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+pub fn format(ty: Type, writer: *std.io.Writer) !void {
     _ = ty;
-    _ = unused_fmt_string;
-    _ = options;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }
 
-pub const Formatter = std.fmt.Formatter(format2);
+pub const Formatter = std.fmt.Formatter(Format, Format.default);
 
 pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
@@ -142,45 +136,32 @@ pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
+
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        return print(f.ty, writer, f.pt);
+    }
 };
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    comptime assert(unused_format_string.len == 0);
-    _ = options;
-    return print(ctx.ty, writer, ctx.pt);
-}
-
-pub fn fmtDebug(ty: Type) std.fmt.Formatter(dump) {
+pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
     return .{ .data = ty };
 }
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(
-    start_type: Type,
-    comptime unused_format_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    _ = options;
-    comptime assert(unused_format_string.len == 0);
+pub fn dump(start_type: Type, writer: *std.io.Writer) std.io.Writer.Error!void {
     return writer.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error!void {
+pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
+        .undef => return writer.writeAll("@as(type, undefined)"),
         .int_type => |int_type| {
             const sign_char: u8 = switch (int_type.signedness) {
                 .signed => 'i',
@@ -192,16 +173,16 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             const info = ty.ptrInfo(zcu);
 
             if (info.sentinel != .none) switch (info.flags.size) {
-                .One, .C => unreachable,
-                .Many => try writer.print("[*:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
-                .Slice => try writer.print("[:{}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .one, .c => unreachable,
+                .many => try writer.print("[*:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
+                .slice => try writer.print("[:{f}]", .{Value.fromInterned(info.sentinel).fmtValue(pt)}),
             } else switch (info.flags.size) {
-                .One => try writer.writeAll("*"),
-                .Many => try writer.writeAll("[*]"),
-                .C => try writer.writeAll("[*c]"),
-                .Slice => try writer.writeAll("[]"),
+                .one => try writer.writeAll("*"),
+                .many => try writer.writeAll("[*]"),
+                .c => try writer.writeAll("[*c]"),
+                .slice => try writer.writeAll("[]"),
             }
-            if (info.flags.is_allowzero and info.flags.size != .C) try writer.writeAll("allowzero ");
+            if (info.flags.is_allowzero and info.flags.size != .c) try writer.writeAll("allowzero ");
             if (info.flags.alignment != .none or
                 info.packed_offset.host_size != 0 or
                 info.flags.vector_index != .none)
@@ -238,7 +219,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                 try writer.print("[{d}]", .{array_type.len});
                 try print(Type.fromInterned(array_type.child), writer, pt);
             } else {
-                try writer.print("[{d}:{}]", .{
+                try writer.print("[{d}:{f}]", .{
                     array_type.len,
                     Value.fromInterned(array_type.sentinel).fmtValue(pt),
                 });
@@ -268,7 +249,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
         .inferred_error_set_type => |func_index| {
             const func_nav = ip.getNav(zcu.funcInfo(func_index).owner_nav);
-            try writer.print("@typeInfo(@typeInfo(@TypeOf({})).@\"fn\".return_type.?).error_union.error_set", .{
+            try writer.print("@typeInfo(@typeInfo(@TypeOf({f})).@\"fn\".return_type.?).error_union.error_set", .{
                 func_nav.fqn.fmt(ip),
             });
         },
@@ -277,7 +258,7 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             try writer.writeAll("error{");
             for (names.get(ip), 0..) |name, i| {
                 if (i != 0) try writer.writeByte(',');
-                try writer.print("{}", .{name.fmt(ip)});
+                try writer.print("{f}", .{name.fmt(ip)});
             }
             try writer.writeAll("}");
         },
@@ -314,52 +295,39 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
             .undefined,
             => try writer.print("@TypeOf({s})", .{@tagName(s)}),
 
-            .enum_literal => try writer.print("@TypeOf(.{s})", .{@tagName(s)}),
+            .enum_literal => try writer.writeAll("@Type(.enum_literal)"),
 
             .generic_poison => unreachable,
         },
         .struct_type => {
             const name = ip.loadStructType(ty.toIntern()).name;
-            if (name == .empty) {
-                try writer.writeAll("@TypeOf(.{})");
-            } else {
-                try writer.print("{}", .{name.fmt(ip)});
-            }
+            try writer.print("{f}", .{name.fmt(ip)});
         },
-        .anon_struct_type => |anon_struct| {
-            if (anon_struct.types.len == 0) {
+        .tuple_type => |tuple| {
+            if (tuple.types.len == 0) {
                 return writer.writeAll("@TypeOf(.{})");
             }
-            try writer.writeAll("struct{");
-            for (anon_struct.types.get(ip), anon_struct.values.get(ip), 0..) |field_ty, val, i| {
-                if (i != 0) try writer.writeAll(", ");
-                if (val != .none) {
-                    try writer.writeAll("comptime ");
-                }
-                if (anon_struct.names.len != 0) {
-                    try writer.print("{}: ", .{anon_struct.names.get(ip)[i].fmt(&zcu.intern_pool)});
-                }
-
+            try writer.writeAll("struct {");
+            for (tuple.types.get(ip), tuple.values.get(ip), 0..) |field_ty, val, i| {
+                try writer.writeAll(if (i == 0) " " else ", ");
+                if (val != .none) try writer.writeAll("comptime ");
                 try print(Type.fromInterned(field_ty), writer, pt);
-
-                if (val != .none) {
-                    try writer.print(" = {}", .{Value.fromInterned(val).fmtValue(pt)});
-                }
+                if (val != .none) try writer.print(" = {f}", .{Value.fromInterned(val).fmtValue(pt)});
             }
-            try writer.writeAll("}");
+            try writer.writeAll(" }");
         },
 
         .union_type => {
             const name = ip.loadUnionType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .opaque_type => {
             const name = ip.loadOpaqueType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .enum_type => {
             const name = ip.loadEnumType(ty.toIntern()).name;
-            try writer.print("{}", .{name.fmt(ip)});
+            try writer.print("{f}", .{name.fmt(ip)});
         },
         .func_type => |fn_info| {
             if (fn_info.is_noinline) {
@@ -398,7 +366,9 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
                     }
                 }
                 switch (fn_info.cc) {
-                    .auto, .@"async", .naked, .@"inline" => try writer.print("callconv(.{}) ", .{std.zig.fmtId(@tagName(fn_info.cc))}),
+                    .auto, .async, .naked, .@"inline" => try writer.print("callconv(.{f}) ", .{
+                        std.zig.fmtId(@tagName(fn_info.cc)),
+                    }),
                     else => try writer.print("callconv({any}) ", .{fn_info.cc}),
                 }
             }
@@ -415,7 +385,6 @@ pub fn print(ty: Type, writer: anytype, pt: Zcu.PerThread) @TypeOf(writer).Error
         },
 
         // values, not types
-        .undef,
         .simple_value,
         .variable,
         .@"extern",
@@ -454,7 +423,7 @@ pub fn toValue(self: Type) Value {
 
 const RuntimeBitsError = SemaError || error{NeedLazy};
 
-pub fn hasRuntimeBits(ty: Type, zcu: *Zcu) bool {
+pub fn hasRuntimeBits(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, false, .eager, zcu, {}) catch unreachable;
 }
 
@@ -465,8 +434,15 @@ pub fn hasRuntimeBitsSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
     };
 }
 
-pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *Zcu) bool {
+pub fn hasRuntimeBitsIgnoreComptime(ty: Type, zcu: *const Zcu) bool {
     return hasRuntimeBitsInner(ty, true, .eager, zcu, {}) catch unreachable;
+}
+
+pub fn hasRuntimeBitsIgnoreComptimeSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
+    return hasRuntimeBitsInner(ty, true, .sema, pt.zcu, pt.tid) catch |err| switch (err) {
+        error.NeedLazy => unreachable, // this would require a resolve strat of lazy
+        else => |e| return e,
+    };
 }
 
 /// true if and only if the type takes up space in memory at runtime.
@@ -484,13 +460,12 @@ pub fn hasRuntimeBitsInner(
     ty: Type,
     ignore_comptime_only: bool,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) RuntimeBitsError!bool {
     const ip = &zcu.intern_pool;
     return switch (ty.toIntern()) {
-        // False because it is a comptime-only type.
-        .empty_struct_type => false,
+        .empty_tuple_type => false,
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.bits != 0,
             .ptr_type => {
@@ -574,7 +549,7 @@ pub fn hasRuntimeBitsInner(
             },
             .struct_type => {
                 const struct_type = ip.loadStructType(ty.toIntern());
-                if (struct_type.assumeRuntimeBitsIfFieldTypesWip(ip)) {
+                if (strat != .eager and struct_type.assumeRuntimeBitsIfFieldTypesWip(ip)) {
                     // In this case, we guess that hasRuntimeBits() for this type is true,
                     // and then later if our guess was incorrect, we emit a compile error.
                     return true;
@@ -593,7 +568,7 @@ pub fn hasRuntimeBitsInner(
                     return false;
                 }
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                     if (val != .none) continue; // comptime field
                     if (try Type.fromInterned(field_ty).hasRuntimeBitsInner(
@@ -610,17 +585,25 @@ pub fn hasRuntimeBitsInner(
                 const union_type = ip.loadUnionType(ty.toIntern());
                 const union_flags = union_type.flagsUnordered(ip);
                 switch (union_flags.runtime_tag) {
-                    .none => {
+                    .none => if (strat != .eager) {
                         // In this case, we guess that hasRuntimeBits() for this type is true,
                         // and then later if our guess was incorrect, we emit a compile error.
                         if (union_type.assumeRuntimeBitsIfFieldTypesWip(ip)) return true;
                     },
+                    .safety, .tagged => {},
+                }
+                switch (strat) {
+                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
+                    .eager => assert(union_flags.status.haveFieldTypes()),
+                    .lazy => if (!union_flags.status.haveFieldTypes())
+                        return error.NeedLazy,
+                }
+                switch (union_flags.runtime_tag) {
+                    .none => {},
                     .safety, .tagged => {
                         const tag_ty = union_type.tagTypeUnordered(ip);
-                        // tag_ty will be `none` if this union's tag type is not resolved yet,
-                        // in which case we want control flow to continue down below.
-                        if (tag_ty != .none and
-                            try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
+                        assert(tag_ty != .none); // tag_ty should have been resolved above
+                        if (try Type.fromInterned(tag_ty).hasRuntimeBitsInner(
                             ignore_comptime_only,
                             strat,
                             zcu,
@@ -629,12 +612,6 @@ pub fn hasRuntimeBitsInner(
                             return true;
                         }
                     },
-                }
-                switch (strat) {
-                    .sema => try ty.resolveFields(strat.pt(zcu, tid)),
-                    .eager => assert(union_flags.status.haveFieldTypes()),
-                    .lazy => if (!union_flags.status.haveFieldTypes())
-                        return error.NeedLazy,
                 }
                 for (0..union_type.field_types.len) |field_index| {
                     const field_ty = Type.fromInterned(union_type.field_types.get(ip)[field_index]);
@@ -691,7 +668,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
         .error_union_type,
         .error_set_type,
         .inferred_error_set_type,
-        .anon_struct_type,
+        .tuple_type,
         .opaque_type,
         .anyframe_type,
         // These are function bodies, not function pointers.
@@ -700,7 +677,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
 
         .array_type => |array_type| Type.fromInterned(array_type.child).hasWellDefinedLayout(zcu),
         .opt_type => ty.isPtrLikeOptional(zcu),
-        .ptr_type => |ptr_type| ptr_type.flags.size != .Slice,
+        .ptr_type => |ptr_type| ptr_type.flags.size != .slice,
 
         .simple_type => |t| switch (t) {
             .f16,
@@ -737,11 +714,7 @@ pub fn hasWellDefinedLayout(ty: Type, zcu: *const Zcu) bool {
             .generic_poison,
             => false,
         },
-        .struct_type => {
-            const struct_type = ip.loadStructType(ty.toIntern());
-            // Struct with no fields have a well-defined layout of no bits.
-            return struct_type.layout != .auto or struct_type.field_types.len == 0;
-        },
+        .struct_type => ip.loadStructType(ty.toIntern()).layout != .auto,
         .union_type => {
             const union_type = ip.loadUnionType(ty.toIntern());
             return switch (union_type.flagsUnordered(ip).runtime_tag) {
@@ -792,7 +765,7 @@ pub fn fnHasRuntimeBitsSema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
 pub fn fnHasRuntimeBitsInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!bool {
     const fn_info = zcu.typeToFunc(ty).?;
@@ -821,7 +794,7 @@ pub fn isNoReturn(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.isNoReturn(ty.toIntern());
 }
 
-/// Returns `none` if the pointer is naturally aligned and the element type is 0-bit.
+/// Never returns `none`. Asserts that all necessary type resolution is already done.
 pub fn ptrAlignment(ty: Type, zcu: *Zcu) Alignment {
     return ptrAlignmentInner(ty, .normal, zcu, {}) catch unreachable;
 }
@@ -833,20 +806,14 @@ pub fn ptrAlignmentSema(ty: Type, pt: Zcu.PerThread) SemaError!Alignment {
 pub fn ptrAlignmentInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) !Alignment {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| {
-            if (ptr_type.flags.alignment != .none)
-                return ptr_type.flags.alignment;
-
-            if (strat == .sema) {
-                const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(.sema, zcu, tid);
-                return res.scalar;
-            }
-
-            return Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+            if (ptr_type.flags.alignment != .none) return ptr_type.flags.alignment;
+            const res = try Type.fromInterned(ptr_type.child).abiAlignmentInner(strat.toLazy(), zcu, tid);
+            return res.scalar;
         },
         .opt_type => |child| Type.fromInterned(child).ptrAlignmentInner(strat, zcu, tid),
         else => unreachable,
@@ -886,14 +853,25 @@ pub const ResolveStratLazy = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn Tid(comptime strat: ResolveStratLazy) type {
+    pub fn Tid(strat: ResolveStratLazy) type {
         return switch (strat) {
             .lazy, .sema => Zcu.PerThread.Id,
             .eager => void,
         };
     }
 
-    pub fn pt(comptime strat: ResolveStratLazy, zcu: *Zcu, tid: strat.Tid()) switch (strat) {
+    pub fn ZcuPtr(strat: ResolveStratLazy) type {
+        return switch (strat) {
+            .eager => *const Zcu,
+            .sema, .lazy => *Zcu,
+        };
+    }
+
+    pub fn pt(
+        comptime strat: ResolveStratLazy,
+        zcu: strat.ZcuPtr(),
+        tid: strat.Tid(),
+    ) switch (strat) {
         .lazy, .sema => Zcu.PerThread,
         .eager => void,
     } {
@@ -905,7 +883,7 @@ pub const ResolveStratLazy = enum {
 };
 
 /// The chosen strategy can be easily optimized away in release builds.
-/// However, in debug builds, it helps to avoid acceidentally resolving types in backends.
+/// However, in debug builds, it helps to avoid accidentally resolving types in backends.
 pub const ResolveStrat = enum {
     /// Assert that all necessary resolution is completed.
     /// Backends should typically use this, since they must not perform type resolution.
@@ -914,14 +892,21 @@ pub const ResolveStrat = enum {
     /// This should typically be used from semantic analysis.
     sema,
 
-    pub fn Tid(comptime strat: ResolveStrat) type {
+    pub fn Tid(strat: ResolveStrat) type {
         return switch (strat) {
             .sema => Zcu.PerThread.Id,
             .normal => void,
         };
     }
 
-    pub fn pt(comptime strat: ResolveStrat, zcu: *Zcu, tid: strat.Tid()) switch (strat) {
+    pub fn ZcuPtr(strat: ResolveStrat) type {
+        return switch (strat) {
+            .normal => *const Zcu,
+            .sema => *Zcu,
+        };
+    }
+
+    pub fn pt(comptime strat: ResolveStrat, zcu: strat.ZcuPtr(), tid: strat.Tid()) switch (strat) {
         .sema => Zcu.PerThread,
         .normal => void,
     } {
@@ -940,7 +925,7 @@ pub const ResolveStrat = enum {
 };
 
 /// Never returns `none`. Asserts that all necessary type resolution is already done.
-pub fn abiAlignment(ty: Type, zcu: *Zcu) Alignment {
+pub fn abiAlignment(ty: Type, zcu: *const Zcu) Alignment {
     return (ty.abiAlignmentInner(.eager, zcu, {}) catch unreachable).scalar;
 }
 
@@ -957,20 +942,19 @@ pub fn abiAlignmentSema(ty: Type, pt: Zcu.PerThread) SemaError!Alignment {
 pub fn abiAlignmentInner(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
-        .empty_struct_type => return .{ .scalar = .@"1" },
+        .empty_tuple_type => return .{ .scalar = .@"1" },
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(int_type.bits, target, use_llvm) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, int_type.bits)) };
             },
             .ptr_type, .anyframe_type => {
                 return .{ .scalar = ptrAbiAlignment(target) };
@@ -995,8 +979,8 @@ pub fn abiAlignmentInner(
                     },
                     .stage2_x86_64 => {
                         if (vector_type.child == .bool_type) {
-                            if (vector_type.len > 256 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                            if (vector_type.len > 128 and std.Target.x86.featureSetHas(target.cpu.features, .avx2)) return .{ .scalar = .@"32" };
+                            if (vector_type.len > 256 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                            if (vector_type.len > 128 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                             if (vector_type.len > 64) return .{ .scalar = .@"16" };
                             const bytes = std.math.divCeil(u32, vector_type.len, 8) catch unreachable;
                             const alignment = std.math.ceilPowerOfTwoAssert(u32, bytes);
@@ -1005,8 +989,8 @@ pub fn abiAlignmentInner(
                         const elem_bytes: u32 = @intCast((try Type.fromInterned(vector_type.child).abiSizeInner(strat, zcu, tid)).scalar);
                         if (elem_bytes == 0) return .{ .scalar = .@"1" };
                         const bytes = elem_bytes * vector_type.len;
-                        if (bytes > 32 and std.Target.x86.featureSetHas(target.cpu.features, .avx512f)) return .{ .scalar = .@"64" };
-                        if (bytes > 16 and std.Target.x86.featureSetHas(target.cpu.features, .avx)) return .{ .scalar = .@"32" };
+                        if (bytes > 32 and target.cpu.has(.x86, .avx512f)) return .{ .scalar = .@"64" };
+                        if (bytes > 16 and target.cpu.has(.x86, .avx)) return .{ .scalar = .@"32" };
                         return .{ .scalar = .@"16" };
                     },
                 }
@@ -1023,7 +1007,7 @@ pub fn abiAlignmentInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = .@"1" };
-                return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
             },
 
             // represents machine code; not a pointer
@@ -1036,7 +1020,7 @@ pub fn abiAlignmentInner(
 
                 .usize,
                 .isize,
-                => return .{ .scalar = intAbiAlignment(target.ptrBitWidth(), target, use_llvm) },
+                => return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())) },
 
                 .c_char => return .{ .scalar = cTypeAlign(target, .char) },
                 .c_short => return .{ .scalar = cTypeAlign(target, .short) },
@@ -1067,7 +1051,7 @@ pub fn abiAlignmentInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = .@"1" };
-                    return .{ .scalar = intAbiAlignment(bits, target, use_llvm) };
+                    return .{ .scalar = .fromByteUnits(std.zig.target.intAlignment(target, bits)) };
                 },
 
                 .void,
@@ -1109,7 +1093,7 @@ pub fn abiAlignmentInner(
 
                 return .{ .scalar = struct_type.flagsUnordered(ip).alignment };
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 var big_align: Alignment = .@"1";
                 for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                     if (val != .none) continue; // comptime field
@@ -1174,7 +1158,7 @@ pub fn abiAlignmentInner(
 fn abiAlignmentInnerErrorUnion(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
     payload_ty: Type,
 ) SemaError!AbiAlignmentInner {
@@ -1216,7 +1200,7 @@ fn abiAlignmentInnerErrorUnion(
 fn abiAlignmentInnerOptional(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiAlignmentInner {
     const pt = strat.pt(zcu, tid);
@@ -1262,7 +1246,7 @@ const AbiSizeInner = union(enum) {
 
 /// Asserts the type has the ABI size already resolved.
 /// Types that return false for hasRuntimeBits() return 0.
-pub fn abiSize(ty: Type, zcu: *Zcu) u64 {
+pub fn abiSize(ty: Type, zcu: *const Zcu) u64 {
     return (abiSizeInner(ty, .eager, zcu, {}) catch unreachable).scalar;
 }
 
@@ -1287,23 +1271,22 @@ pub fn abiSizeSema(ty: Type, pt: Zcu.PerThread) SemaError!u64 {
 pub fn abiSizeInner(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const target = zcu.getTarget();
-    const use_llvm = zcu.comp.config.use_llvm;
     const ip = &zcu.intern_pool;
 
     switch (ty.toIntern()) {
-        .empty_struct_type => return .{ .scalar = 0 },
+        .empty_tuple_type => return .{ .scalar = 0 },
 
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
                 if (int_type.bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(int_type.bits, target, use_llvm) };
+                return .{ .scalar = std.zig.target.intByteSize(target, int_type.bits) };
             },
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
+                .slice => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) * 2 },
                 else => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
             },
             .anyframe_type => return .{ .scalar = @divExact(target.ptrBitWidth(), 8) },
@@ -1362,7 +1345,7 @@ pub fn abiSizeInner(
             .error_set_type, .inferred_error_set_type => {
                 const bits = zcu.errorSetBits();
                 if (bits == 0) return .{ .scalar = 0 };
-                return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                return .{ .scalar = std.zig.target.intByteSize(target, bits) };
             },
 
             .error_union_type => |error_union_type| {
@@ -1455,7 +1438,7 @@ pub fn abiSizeInner(
                 .anyerror, .adhoc_inferred_error_set => {
                     const bits = zcu.errorSetBits();
                     if (bits == 0) return .{ .scalar = 0 };
-                    return .{ .scalar = intAbiSize(bits, target, use_llvm) };
+                    return .{ .scalar = std.zig.target.intByteSize(target, bits) };
                 },
 
                 .noreturn => unreachable,
@@ -1498,7 +1481,7 @@ pub fn abiSizeInner(
                     },
                 }
             },
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 switch (strat) {
                     .sema => try ty.resolveLayout(strat.pt(zcu, tid)),
                     .lazy, .eager => {},
@@ -1560,7 +1543,7 @@ pub fn abiSizeInner(
 fn abiSizeInnerOptional(
     ty: Type,
     comptime strat: ResolveStratLazy,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!AbiSizeInner {
     const child_ty = ty.optionalChild(zcu);
@@ -1605,121 +1588,11 @@ fn abiSizeInnerOptional(
     };
 }
 
-pub fn ptrAbiAlignment(target: Target) Alignment {
+pub fn ptrAbiAlignment(target: *const Target) Alignment {
     return Alignment.fromNonzeroByteUnits(@divExact(target.ptrBitWidth(), 8));
 }
 
-pub fn intAbiSize(bits: u16, target: Target, use_llvm: bool) u64 {
-    return intAbiAlignment(bits, target, use_llvm).forward(@as(u16, @intCast((@as(u17, bits) + 7) / 8)));
-}
-
-pub fn intAbiAlignment(bits: u16, target: Target, use_llvm: bool) Alignment {
-    return switch (target.cpu.arch) {
-        .x86 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => switch (target.os.tag) {
-                .uefi, .windows => .@"8",
-                else => .@"4",
-            },
-            else => .@"16",
-        },
-        .x86_64 => switch (bits) {
-            0 => .none,
-            1...8 => .@"1",
-            9...16 => .@"2",
-            17...32 => .@"4",
-            33...64 => .@"8",
-            else => switch (target_util.zigBackend(target, use_llvm)) {
-                .stage2_x86_64 => .@"8",
-                else => .@"16",
-            },
-        },
-        else => return Alignment.fromByteUnits(@min(
-            std.math.ceilPowerOfTwoPromote(u16, @as(u16, @intCast((@as(u17, bits) + 7) / 8))),
-            maxIntAlignment(target, use_llvm),
-        )),
-    };
-}
-
-pub fn maxIntAlignment(target: std.Target, use_llvm: bool) u16 {
-    return switch (target.cpu.arch) {
-        .avr => 1,
-        .msp430 => 2,
-        .xcore => 4,
-        .propeller1, .propeller2 => 4,
-
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .hexagon,
-        .mips,
-        .mipsel,
-        .powerpc,
-        .powerpcle,
-        .amdgcn,
-        .riscv32,
-        .sparc,
-        .s390x,
-        .lanai,
-        .wasm32,
-        .wasm64,
-        => 8,
-
-        // For these, LLVMABIAlignmentOfType(i128) reports 8. Note that 16
-        // is a relevant number in three cases:
-        // 1. Different machine code instruction when loading into SIMD register.
-        // 2. The C ABI wants 16 for extern structs.
-        // 3. 16-byte cmpxchg needs 16-byte alignment.
-        // Same logic for powerpc64, mips64, sparc64.
-        .powerpc64,
-        .powerpc64le,
-        .mips64,
-        .mips64el,
-        .sparc64,
-        => switch (target.ofmt) {
-            .c => 16,
-            else => 8,
-        },
-
-        .x86_64 => switch (target_util.zigBackend(target, use_llvm)) {
-            .stage2_x86_64 => 8,
-            else => 16,
-        },
-
-        // Even LLVMABIAlignmentOfType(i128) agrees on these targets.
-        .x86,
-        .aarch64,
-        .aarch64_be,
-        .riscv64,
-        .bpfel,
-        .bpfeb,
-        .nvptx,
-        .nvptx64,
-        => 16,
-
-        // Below this comment are unverified but based on the fact that C requires
-        // int128_t to be 16 bytes aligned, it's a safe default.
-        .spu_2,
-        .csky,
-        .arc,
-        .m68k,
-        .kalimba,
-        .spirv,
-        .spirv32,
-        .ve,
-        .spirv64,
-        .loongarch32,
-        .loongarch64,
-        .xtensa,
-        => 16,
-    };
-}
-
-pub fn bitSize(ty: Type, zcu: *Zcu) u64 {
+pub fn bitSize(ty: Type, zcu: *const Zcu) u64 {
     return bitSizeInner(ty, .normal, zcu, {}) catch unreachable;
 }
 
@@ -1730,7 +1603,7 @@ pub fn bitSizeSema(ty: Type, pt: Zcu.PerThread) SemaError!u64 {
 pub fn bitSizeInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!u64 {
     const target = zcu.getTarget();
@@ -1741,7 +1614,7 @@ pub fn bitSizeInner(
     switch (ip.indexToKey(ty.toIntern())) {
         .int_type => |int_type| return int_type.bits,
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .Slice => return target.ptrBitWidth() * 2,
+            .slice => return target.ptrBitWidth() * 2,
             else => return target.ptrBitWidth(),
         },
         .anyframe_type => return target.ptrBitWidth(),
@@ -1749,17 +1622,22 @@ pub fn bitSizeInner(
         .array_type => |array_type| {
             const len = array_type.lenIncludingSentinel();
             if (len == 0) return 0;
-            const elem_ty = Type.fromInterned(array_type.child);
-            const elem_size = @max(
-                (try elem_ty.abiAlignmentInner(strat_lazy, zcu, tid)).scalar.toByteUnits() orelse 0,
-                (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar,
-            );
-            if (elem_size == 0) return 0;
-            const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
-            return (len - 1) * 8 * elem_size + elem_bit_size;
+            const elem_ty: Type = .fromInterned(array_type.child);
+            switch (zcu.comp.getZigBackend()) {
+                else => {
+                    const elem_size = (try elem_ty.abiSizeInner(strat_lazy, zcu, tid)).scalar;
+                    if (elem_size == 0) return 0;
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return (len - 1) * 8 * elem_size + elem_bit_size;
+                },
+                .stage2_x86_64 => {
+                    const elem_bit_size = try elem_ty.bitSizeInner(strat, zcu, tid);
+                    return elem_bit_size * len;
+                },
+            }
         },
         .vector_type => |vector_type| {
-            const child_ty = Type.fromInterned(vector_type.child);
+            const child_ty: Type = .fromInterned(vector_type.child);
             const elem_bit_size = try child_ty.bitSizeInner(strat, zcu, tid);
             return elem_bit_size * vector_type.len;
         },
@@ -1831,8 +1709,7 @@ pub fn bitSizeInner(
             return (try ty.abiSizeInner(strat_lazy, zcu, tid)).scalar * 8;
         },
 
-        .anon_struct_type => {
-            if (strat == .sema) try ty.resolveFields(strat.pt(zcu, tid));
+        .tuple_type => {
             return (try ty.abiSizeInner(strat_lazy, zcu, tid)).scalar * 8;
         },
 
@@ -1904,7 +1781,7 @@ pub fn layoutIsResolved(ty: Type, zcu: *const Zcu) bool {
 
 pub fn isSinglePointer(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_info| ptr_info.flags.size == .One,
+        .ptr_type => |ptr_info| ptr_info.flags.size == .one,
         else => false,
     };
 }
@@ -1924,7 +1801,18 @@ pub fn ptrSizeOrNull(ty: Type, zcu: *const Zcu) ?std.builtin.Type.Pointer.Size {
 
 pub fn isSlice(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .Slice,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
+        else => false,
+    };
+}
+
+pub fn isSliceAtRuntime(ty: Type, zcu: *const Zcu) bool {
+    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
+        .ptr_type => |ptr_type| ptr_type.flags.size == .slice,
+        .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
+            .ptr_type => |ptr_type| !ptr_type.flags.is_allowzero and ptr_type.flags.size == .slice,
+            else => false,
+        },
         else => false,
     };
 }
@@ -1961,7 +1849,7 @@ pub fn isAllowzeroPtr(ty: Type, zcu: *const Zcu) bool {
 
 pub fn isCPtr(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         else => false,
     };
 }
@@ -1969,13 +1857,13 @@ pub fn isCPtr(ty: Type, zcu: *const Zcu) bool {
 pub fn isPtrAtRuntime(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .Slice => false,
-            .One, .Many, .C => true,
+            .slice => false,
+            .one, .many, .c => true,
         },
         .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
             .ptr_type => |p| switch (p.flags.size) {
-                .Slice, .C => false,
-                .Many, .One => !p.flags.is_allowzero,
+                .slice, .c => false,
+                .many, .one => !p.flags.is_allowzero,
             },
             else => false,
         },
@@ -1996,11 +1884,11 @@ pub fn ptrAllowsZero(ty: Type, zcu: *const Zcu) bool {
 pub fn optionalReprIsPayload(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .opt_type => |child_type| child_type == .anyerror_type or switch (zcu.intern_pool.indexToKey(child_type)) {
-            .ptr_type => |ptr_type| ptr_type.flags.size != .C and !ptr_type.flags.is_allowzero,
+            .ptr_type => |ptr_type| ptr_type.flags.size != .c and !ptr_type.flags.is_allowzero,
             .error_set_type, .inferred_error_set_type => true,
             else => false,
         },
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         else => false,
     };
 }
@@ -2010,11 +1898,11 @@ pub fn optionalReprIsPayload(ty: Type, zcu: *const Zcu) bool {
 /// This function must be kept in sync with `Sema.typePtrOrOptionalPtrTy`.
 pub fn isPtrLikeOptional(ty: Type, zcu: *const Zcu) bool {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .ptr_type => |ptr_type| ptr_type.flags.size == .C,
+        .ptr_type => |ptr_type| ptr_type.flags.size == .c,
         .opt_type => |child| switch (zcu.intern_pool.indexToKey(child)) {
             .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-                .Slice, .C => false,
-                .Many, .One => !ptr_type.flags.is_allowzero,
+                .slice, .c => false,
+                .many, .one => !ptr_type.flags.is_allowzero,
             },
             else => false,
         },
@@ -2045,8 +1933,8 @@ pub fn childTypeIp(ty: Type, ip: *const InternPool) Type {
 pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .ptr_type => |ptr_type| switch (ptr_type.flags.size) {
-            .One => Type.fromInterned(ptr_type.child).shallowElemType(zcu),
-            .Many, .C, .Slice => Type.fromInterned(ptr_type.child),
+            .one => Type.fromInterned(ptr_type.child).shallowElemType(zcu),
+            .many, .c, .slice => Type.fromInterned(ptr_type.child),
         },
         .anyframe_type => |child| {
             assert(child != .none);
@@ -2057,6 +1945,22 @@ pub fn elemType2(ty: Type, zcu: *const Zcu) Type {
         .opt_type => |child| Type.fromInterned(zcu.intern_pool.childType(child)),
         else => unreachable,
     };
+}
+
+/// Given that `ty` is an indexable pointer, returns its element type. Specifically:
+/// * for `*[n]T`, returns `T`
+/// * for `[]T`, returns `T`
+/// * for `[*]T`, returns `T`
+/// * for `[*c]T`, returns `T`
+pub fn indexablePtrElem(ty: Type, zcu: *const Zcu) Type {
+    const ip = &zcu.intern_pool;
+    const ptr_type = ip.indexToKey(ty.toIntern()).ptr_type;
+    switch (ptr_type.flags.size) {
+        .many, .slice, .c => return .fromInterned(ptr_type.child),
+        .one => {},
+    }
+    const array_type = ip.indexToKey(ptr_type.child).array_type;
+    return .fromInterned(array_type.child);
 }
 
 fn shallowElemType(child_ty: Type, zcu: *const Zcu) Type {
@@ -2080,7 +1984,7 @@ pub fn optionalChild(ty: Type, zcu: *const Zcu) Type {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .opt_type => |child| Type.fromInterned(child),
         .ptr_type => |ptr_type| b: {
-            assert(ptr_type.flags.size == .C);
+            assert(ptr_type.flags.size == .c);
             break :b ty;
         },
         else => unreachable,
@@ -2167,7 +2071,7 @@ pub fn unionBackingType(ty: Type, pt: Zcu.PerThread) !Type {
     };
 }
 
-pub fn unionGetLayout(ty: Type, zcu: *Zcu) Zcu.UnionLayout {
+pub fn unionGetLayout(ty: Type, zcu: *const Zcu) Zcu.UnionLayout {
     const union_obj = zcu.intern_pool.loadUnionType(ty.toIntern());
     return Type.getUnionLayout(union_obj, zcu);
 }
@@ -2176,7 +2080,7 @@ pub fn containerLayout(ty: Type, zcu: *const Zcu) std.builtin.Type.ContainerLayo
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => ip.loadStructType(ty.toIntern()).layout,
-        .anon_struct_type => .auto,
+        .tuple_type => .auto,
         .union_type => ip.loadUnionType(ty.toIntern()).flagsUnordered(ip).layout,
         else => unreachable,
     };
@@ -2295,7 +2199,7 @@ pub fn arrayLenIncludingSentinel(ty: Type, zcu: *const Zcu) u64 {
 pub fn vectorLen(ty: Type, zcu: *const Zcu) u32 {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .vector_type => |vector_type| vector_type.len,
-        .anon_struct_type => |tuple| @intCast(tuple.types.len),
+        .tuple_type => |tuple| @intCast(tuple.types.len),
         else => unreachable,
     };
 }
@@ -2305,7 +2209,7 @@ pub fn sentinel(ty: Type, zcu: *const Zcu) ?Value {
     return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
         .vector_type,
         .struct_type,
-        .anon_struct_type,
+        .tuple_type,
         => null,
 
         .array_type => |t| if (t.sentinel != .none) Value.fromInterned(t.sentinel) else null,
@@ -2324,7 +2228,7 @@ pub fn isInt(self: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, signed integer.
 pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .signed,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .signed,
         .isize_type, .c_short_type, .c_int_type, .c_long_type, .c_longlong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .signed,
@@ -2336,7 +2240,7 @@ pub fn isSignedInt(ty: Type, zcu: *const Zcu) bool {
 /// Returns true if and only if the type is a fixed-width, unsigned integer.
 pub fn isUnsignedInt(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.toIntern()) {
-        .c_char_type => zcu.getTarget().charSignedness() == .unsigned,
+        .c_char_type => zcu.getTarget().cCharSignedness() == .unsigned,
         .usize_type, .c_ushort_type, .c_uint_type, .c_ulong_type, .c_ulonglong_type => true,
         else => switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
             .int_type => |int_type| int_type.signedness == .unsigned,
@@ -2367,7 +2271,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
         },
         .usize_type => return .{ .signedness = .unsigned, .bits = target.ptrBitWidth() },
         .isize_type => return .{ .signedness = .signed, .bits = target.ptrBitWidth() },
-        .c_char_type => return .{ .signedness = zcu.getTarget().charSignedness(), .bits = target.cTypeBitSize(.char) },
+        .c_char_type => return .{ .signedness = zcu.getTarget().cCharSignedness(), .bits = target.cTypeBitSize(.char) },
         .c_short_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.short) },
         .c_ushort_type => return .{ .signedness = .unsigned, .bits = target.cTypeBitSize(.ushort) },
         .c_int_type => return .{ .signedness = .signed, .bits = target.cTypeBitSize(.int) },
@@ -2386,7 +2290,7 @@ pub fn intInfo(starting_ty: Type, zcu: *const Zcu) InternPool.Key.IntType {
                 return .{ .signedness = .unsigned, .bits = zcu.errorSetBits() };
             },
 
-            .anon_struct_type => unreachable,
+            .tuple_type => unreachable,
 
             .ptr_type => unreachable,
             .anyframe_type => unreachable,
@@ -2477,7 +2381,7 @@ pub fn isAnyFloat(ty: Type) bool {
 
 /// Asserts the type is a fixed-size float or comptime_float.
 /// Returns 128 for comptime_float types.
-pub fn floatBits(ty: Type, target: Target) u16 {
+pub fn floatBits(ty: Type, target: *const Target) u16 {
     return switch (ty.toIntern()) {
         .f16_type => 16,
         .f32_type => 32,
@@ -2501,14 +2405,16 @@ pub fn fnCallingConvention(ty: Type, zcu: *const Zcu) std.builtin.CallingConvent
 }
 
 pub fn isValidParamType(self: Type, zcu: *const Zcu) bool {
-    return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
+    if (self.toIntern() == .generic_poison_type) return true;
+    return switch (self.zigTypeTag(zcu)) {
         .@"opaque", .noreturn => false,
         else => true,
     };
 }
 
 pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
-    return switch (self.zigTypeTagOrPoison(zcu) catch return true) {
+    if (self.toIntern() == .generic_poison_type) return true;
+    return switch (self.zigTypeTag(zcu)) {
         .@"opaque" => false,
         else => true,
     };
@@ -2517,6 +2423,13 @@ pub fn isValidReturnType(self: Type, zcu: *const Zcu) bool {
 /// Asserts the type is a function.
 pub fn fnIsVarArgs(ty: Type, zcu: *const Zcu) bool {
     return zcu.intern_pool.indexToKey(ty.toIntern()).func_type.is_var_args;
+}
+
+pub fn fnPtrMaskOrNull(ty: Type, zcu: *const Zcu) ?u64 {
+    return switch (ty.zigTypeTag(zcu)) {
+        .@"fn" => target_util.functionPointerMask(zcu.getTarget()),
+        else => null,
+    };
 }
 
 pub fn isNumeric(ty: Type, zcu: *const Zcu) bool {
@@ -2556,7 +2469,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
     var ty = starting_type;
     const ip = &zcu.intern_pool;
     while (true) switch (ty.toIntern()) {
-        .empty_struct_type => return Value.empty_struct,
+        .empty_tuple_type => return Value.empty_tuple,
 
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => |int_type| {
@@ -2660,7 +2573,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                 } }));
             },
 
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 for (tuple.values.get(ip)) |val| {
                     if (val == .none) return null;
                 }
@@ -2722,10 +2635,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                                 if (enum_type.values.len == 0) {
                                     const only = try pt.intern(.{ .enum_tag = .{
                                         .ty = ty.toIntern(),
-                                        .int = try pt.intern(.{ .int = .{
-                                            .ty = enum_type.tag_ty,
-                                            .storage = .{ .u64 = 0 },
-                                        } }),
+                                        .int = (try pt.intValue(.fromInterned(enum_type.tag_ty), 0)).toIntern(),
                                     } });
                                     return Value.fromInterned(only);
                                 } else {
@@ -2765,7 +2675,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
 
 /// During semantic analysis, instead call `ty.comptimeOnlySema` which
 /// resolves field types rather than asserting they are already resolved.
-pub fn comptimeOnly(ty: Type, zcu: *Zcu) bool {
+pub fn comptimeOnly(ty: Type, zcu: *const Zcu) bool {
     return ty.comptimeOnlyInner(.normal, zcu, {}) catch unreachable;
 }
 
@@ -2778,12 +2688,12 @@ pub fn comptimeOnlySema(ty: Type, pt: Zcu.PerThread) SemaError!bool {
 pub fn comptimeOnlyInner(
     ty: Type,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!bool {
     const ip = &zcu.intern_pool;
     return switch (ty.toIntern()) {
-        .empty_struct_type => false,
+        .empty_tuple_type => false,
 
         else => switch (ip.indexToKey(ty.toIntern())) {
             .int_type => false,
@@ -2853,45 +2763,49 @@ pub fn comptimeOnlyInner(
                 if (struct_type.layout == .@"packed")
                     return false;
 
-                // A struct with no fields is not comptime-only.
-                return switch (struct_type.setRequiresComptimeWip(ip)) {
-                    .no, .wip => false,
-                    .yes => true,
-                    .unknown => {
-                        // Inlined `assert` so that the resolution calls below are not statically reachable.
-                        if (strat != .sema) unreachable;
-
-                        if (struct_type.flagsUnordered(ip).field_types_wip) {
-                            struct_type.setRequiresComptime(ip, .unknown);
-                            return false;
-                        }
-
-                        errdefer struct_type.setRequiresComptime(ip, .unknown);
-
-                        const pt = strat.pt(zcu, tid);
-                        try ty.resolveFields(pt);
-
-                        for (0..struct_type.field_types.len) |i_usize| {
-                            const i: u32 = @intCast(i_usize);
-                            if (struct_type.fieldIsComptime(ip, i)) continue;
-                            const field_ty = struct_type.field_types.get(ip)[i];
-                            if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
-                                // Note that this does not cause the layout to
-                                // be considered resolved. Comptime-only types
-                                // still maintain a layout of their
-                                // runtime-known fields.
-                                struct_type.setRequiresComptime(ip, .yes);
-                                return true;
+                return switch (strat) {
+                    .normal => switch (struct_type.requiresComptime(ip)) {
+                        .wip => unreachable,
+                        .no => false,
+                        .yes => true,
+                        .unknown => unreachable,
+                    },
+                    .sema => switch (struct_type.setRequiresComptimeWip(ip)) {
+                        .no, .wip => false,
+                        .yes => true,
+                        .unknown => {
+                            if (struct_type.flagsUnordered(ip).field_types_wip) {
+                                struct_type.setRequiresComptime(ip, .unknown);
+                                return false;
                             }
-                        }
 
-                        struct_type.setRequiresComptime(ip, .no);
-                        return false;
+                            errdefer struct_type.setRequiresComptime(ip, .unknown);
+
+                            const pt = strat.pt(zcu, tid);
+                            try ty.resolveFields(pt);
+
+                            for (0..struct_type.field_types.len) |i_usize| {
+                                const i: u32 = @intCast(i_usize);
+                                if (struct_type.fieldIsComptime(ip, i)) continue;
+                                const field_ty = struct_type.field_types.get(ip)[i];
+                                if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
+                                    // Note that this does not cause the layout to
+                                    // be considered resolved. Comptime-only types
+                                    // still maintain a layout of their
+                                    // runtime-known fields.
+                                    struct_type.setRequiresComptime(ip, .yes);
+                                    return true;
+                                }
+                            }
+
+                            struct_type.setRequiresComptime(ip, .no);
+                            return false;
+                        },
                     },
                 };
             },
 
-            .anon_struct_type => |tuple| {
+            .tuple_type => |tuple| {
                 for (tuple.types.get(ip), tuple.values.get(ip)) |field_ty, val| {
                     const have_comptime_val = val != .none;
                     if (!have_comptime_val and try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) return true;
@@ -2901,35 +2815,40 @@ pub fn comptimeOnlyInner(
 
             .union_type => {
                 const union_type = ip.loadUnionType(ty.toIntern());
-                switch (union_type.setRequiresComptimeWip(ip)) {
-                    .no, .wip => return false,
-                    .yes => return true,
-                    .unknown => {
-                        // Inlined `assert` so that the resolution calls below are not statically reachable.
-                        if (strat != .sema) unreachable;
-
-                        if (union_type.flagsUnordered(ip).status == .field_types_wip) {
-                            union_type.setRequiresComptime(ip, .unknown);
-                            return false;
-                        }
-
-                        errdefer union_type.setRequiresComptime(ip, .unknown);
-
-                        const pt = strat.pt(zcu, tid);
-                        try ty.resolveFields(pt);
-
-                        for (0..union_type.field_types.len) |field_idx| {
-                            const field_ty = union_type.field_types.get(ip)[field_idx];
-                            if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
-                                union_type.setRequiresComptime(ip, .yes);
-                                return true;
-                            }
-                        }
-
-                        union_type.setRequiresComptime(ip, .no);
-                        return false;
+                return switch (strat) {
+                    .normal => switch (union_type.requiresComptime(ip)) {
+                        .wip => unreachable,
+                        .no => false,
+                        .yes => true,
+                        .unknown => unreachable,
                     },
-                }
+                    .sema => switch (union_type.setRequiresComptimeWip(ip)) {
+                        .no, .wip => return false,
+                        .yes => return true,
+                        .unknown => {
+                            if (union_type.flagsUnordered(ip).status == .field_types_wip) {
+                                union_type.setRequiresComptime(ip, .unknown);
+                                return false;
+                            }
+
+                            errdefer union_type.setRequiresComptime(ip, .unknown);
+
+                            const pt = strat.pt(zcu, tid);
+                            try ty.resolveFields(pt);
+
+                            for (0..union_type.field_types.len) |field_idx| {
+                                const field_ty = union_type.field_types.get(ip)[field_idx];
+                                if (try Type.fromInterned(field_ty).comptimeOnlyInner(strat, zcu, tid)) {
+                                    union_type.setRequiresComptime(ip, .yes);
+                                    return true;
+                                }
+                            }
+
+                            union_type.setRequiresComptime(ip, .no);
+                            return false;
+                        },
+                    },
+                };
             },
 
             .opaque_type => false,
@@ -2983,8 +2902,8 @@ pub fn isIndexable(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
         .array, .vector => true,
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Slice, .Many, .C => true,
-            .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
+            .slice, .many, .c => true,
+            .one => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .array, .vector => true,
                 .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
@@ -2999,9 +2918,9 @@ pub fn indexableHasLen(ty: Type, zcu: *const Zcu) bool {
     return switch (ty.zigTypeTag(zcu)) {
         .array, .vector => true,
         .pointer => switch (ty.ptrSize(zcu)) {
-            .Many, .C => false,
-            .Slice => true,
-            .One => switch (ty.childType(zcu).zigTypeTag(zcu)) {
+            .many, .c => false,
+            .slice => true,
+            .one => switch (ty.childType(zcu).zigTypeTag(zcu)) {
                 .array, .vector => true,
                 .@"struct" => ty.childType(zcu).isTuple(zcu),
                 else => false,
@@ -3022,7 +2941,7 @@ pub fn getNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .opaque_type => ip.loadOpaqueType(ty.toIntern()).namespace.toOptional(),
-        .struct_type => ip.loadStructType(ty.toIntern()).namespace,
+        .struct_type => ip.loadStructType(ty.toIntern()).namespace.toOptional(),
         .union_type => ip.loadUnionType(ty.toIntern()).namespace.toOptional(),
         .enum_type => ip.loadEnumType(ty.toIntern()).namespace.toOptional(),
         else => .none,
@@ -3181,7 +3100,7 @@ pub fn structFieldName(ty: Type, index: usize, zcu: *const Zcu) InternPool.Optio
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => ip.loadStructType(ty.toIntern()).fieldName(ip, index),
-        .anon_struct_type => |anon_struct| anon_struct.fieldName(ip, index),
+        .tuple_type => .none,
         else => unreachable,
     };
 }
@@ -3190,7 +3109,7 @@ pub fn structFieldCount(ty: Type, zcu: *const Zcu) u32 {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => ip.loadStructType(ty.toIntern()).field_types.len,
-        .anon_struct_type => |anon_struct| anon_struct.types.len,
+        .tuple_type => |tuple| tuple.types.len,
         else => unreachable,
     };
 }
@@ -3204,7 +3123,7 @@ pub fn fieldType(ty: Type, index: usize, zcu: *const Zcu) Type {
             const union_obj = ip.loadUnionType(ty.toIntern());
             return Type.fromInterned(union_obj.field_types.get(ip)[index]);
         },
-        .anon_struct_type => |anon_struct| Type.fromInterned(anon_struct.types.get(ip)[index]),
+        .tuple_type => |tuple| Type.fromInterned(tuple.types.get(ip)[index]),
         else => unreachable,
     };
 }
@@ -3226,7 +3145,7 @@ pub fn fieldAlignmentInner(
     ty: Type,
     index: usize,
     comptime strat: ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     const ip = &zcu.intern_pool;
@@ -3238,8 +3157,8 @@ pub fn fieldAlignmentInner(
             const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[index]);
             return field_ty.structFieldAlignmentInner(explicit_align, struct_type.layout, strat, zcu, tid);
         },
-        .anon_struct_type => |anon_struct| {
-            return (try Type.fromInterned(anon_struct.types.get(ip)[index]).abiAlignmentInner(
+        .tuple_type => |tuple| {
+            return (try Type.fromInterned(tuple.types.get(ip)[index]).abiAlignmentInner(
                 strat.toLazy(),
                 zcu,
                 tid,
@@ -3300,7 +3219,7 @@ pub fn structFieldAlignmentInner(
     explicit_alignment: Alignment,
     layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     assert(layout != .@"packed");
@@ -3342,7 +3261,7 @@ pub fn unionFieldAlignmentInner(
     explicit_alignment: Alignment,
     layout: std.builtin.Type.ContainerLayout,
     comptime strat: Type.ResolveStrat,
-    zcu: *Zcu,
+    zcu: strat.ZcuPtr(),
     tid: strat.Tid(),
 ) SemaError!Alignment {
     assert(layout != .@"packed");
@@ -3361,8 +3280,8 @@ pub fn structFieldDefaultValue(ty: Type, index: usize, zcu: *const Zcu) Value {
             if (val == .none) return Value.@"unreachable";
             return Value.fromInterned(val);
         },
-        .anon_struct_type => |anon_struct| {
-            const val = anon_struct.values.get(ip)[index];
+        .tuple_type => |tuple| {
+            const val = tuple.values.get(ip)[index];
             // TODO: avoid using `unreachable` to indicate this.
             if (val == .none) return Value.@"unreachable";
             return Value.fromInterned(val);
@@ -3384,7 +3303,7 @@ pub fn structFieldValueComptime(ty: Type, pt: Zcu.PerThread, index: usize) !?Val
                 return Type.fromInterned(struct_type.field_types.get(ip)[index]).onePossibleValue(pt);
             }
         },
-        .anon_struct_type => |tuple| {
+        .tuple_type => |tuple| {
             const val = tuple.values.get(ip)[index];
             if (val == .none) {
                 return Type.fromInterned(tuple.types.get(ip)[index]).onePossibleValue(pt);
@@ -3400,7 +3319,7 @@ pub fn structFieldIsComptime(ty: Type, index: usize, zcu: *const Zcu) bool {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => ip.loadStructType(ty.toIntern()).fieldIsComptime(ip, index),
-        .anon_struct_type => |anon_struct| anon_struct.values.get(ip)[index] != .none,
+        .tuple_type => |tuple| tuple.values.get(ip)[index] != .none,
         else => unreachable,
     };
 }
@@ -3411,11 +3330,7 @@ pub const FieldOffset = struct {
 };
 
 /// Supports structs and unions.
-pub fn structFieldOffset(
-    ty: Type,
-    index: usize,
-    zcu: *Zcu,
-) u64 {
+pub fn structFieldOffset(ty: Type, index: usize, zcu: *const Zcu) u64 {
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {
         .struct_type => {
@@ -3425,7 +3340,7 @@ pub fn structFieldOffset(
             return struct_type.offsets.get(ip)[index];
         },
 
-        .anon_struct_type => |tuple| {
+        .tuple_type => |tuple| {
             var offset: u64 = 0;
             var big_align: Alignment = .none;
 
@@ -3472,11 +3387,10 @@ pub fn srcLocOrNull(ty: Type, zcu: *Zcu) ?Zcu.LazySrcLoc {
                 .declared => |d| d.zir_index,
                 .reified => |r| r.zir_index,
                 .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
-                .empty_struct => return null,
             },
             else => return null,
         },
-        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(0),
+        .offset = Zcu.LazySrcLoc.Offset.nodeOffset(.zero),
     };
 }
 
@@ -3491,49 +3405,7 @@ pub fn isGenericPoison(ty: Type) bool {
 pub fn isTuple(ty: Type, zcu: *const Zcu) bool {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => {
-            const struct_type = ip.loadStructType(ty.toIntern());
-            if (struct_type.layout == .@"packed") return false;
-            if (struct_type.cau == .none) return false;
-            return struct_type.flagsUnordered(ip).is_tuple;
-        },
-        .anon_struct_type => |anon_struct| anon_struct.names.len == 0,
-        else => false,
-    };
-}
-
-pub fn isAnonStruct(ty: Type, zcu: *const Zcu) bool {
-    if (ty.toIntern() == .empty_struct_type) return true;
-    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .anon_struct_type => |anon_struct_type| anon_struct_type.names.len > 0,
-        else => false,
-    };
-}
-
-pub fn isTupleOrAnonStruct(ty: Type, zcu: *const Zcu) bool {
-    const ip = &zcu.intern_pool;
-    return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => {
-            const struct_type = ip.loadStructType(ty.toIntern());
-            if (struct_type.layout == .@"packed") return false;
-            if (struct_type.cau == .none) return false;
-            return struct_type.flagsUnordered(ip).is_tuple;
-        },
-        .anon_struct_type => true,
-        else => false,
-    };
-}
-
-pub fn isSimpleTuple(ty: Type, zcu: *const Zcu) bool {
-    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .anon_struct_type => |anon_struct_type| anon_struct_type.names.len == 0,
-        else => false,
-    };
-}
-
-pub fn isSimpleTupleOrAnonStruct(ty: Type, zcu: *const Zcu) bool {
-    return switch (zcu.intern_pool.indexToKey(ty.toIntern())) {
-        .anon_struct_type => true,
+        .tuple_type => true,
         else => false,
     };
 }
@@ -3564,7 +3436,7 @@ pub fn toUnsigned(ty: Type, pt: Zcu.PerThread) !Type {
 pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => ip.loadStructType(ty.toIntern()).zir_index.unwrap(),
+        .struct_type => ip.loadStructType(ty.toIntern()).zir_index,
         .union_type => ip.loadUnionType(ty.toIntern()).zir_index,
         .enum_type => ip.loadEnumType(ty.toIntern()).zir_index.unwrap(),
         .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
@@ -3575,12 +3447,11 @@ pub fn typeDeclInst(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
 pub fn typeDeclInstAllowGeneratedTag(ty: Type, zcu: *const Zcu) ?InternPool.TrackedInst.Index {
     const ip = &zcu.intern_pool;
     return switch (ip.indexToKey(ty.toIntern())) {
-        .struct_type => ip.loadStructType(ty.toIntern()).zir_index.unwrap(),
+        .struct_type => ip.loadStructType(ty.toIntern()).zir_index,
         .union_type => ip.loadUnionType(ty.toIntern()).zir_index,
         .enum_type => |e| switch (e) {
             .declared, .reified => ip.loadEnumType(ty.toIntern()).zir_index.unwrap().?,
             .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
-            .empty_struct => unreachable,
         },
         .opaque_type => ip.loadOpaqueType(ty.toIntern()).zir_index,
         else => null,
@@ -3588,28 +3459,37 @@ pub fn typeDeclInstAllowGeneratedTag(ty: Type, zcu: *const Zcu) ?InternPool.Trac
 }
 
 pub fn typeDeclSrcLine(ty: Type, zcu: *Zcu) ?u32 {
+    // Note that changes to ZIR instruction tracking only need to update this code
+    // if a newly-tracked instruction can be a type's owner `zir_index`.
+    comptime assert(Zir.inst_tracking_version == 0);
+
     const ip = &zcu.intern_pool;
     const tracked = switch (ip.indexToKey(ty.toIntern())) {
         .struct_type, .union_type, .opaque_type, .enum_type => |info| switch (info) {
             .declared => |d| d.zir_index,
             .reified => |r| r.zir_index,
             .generated_tag => |gt| ip.loadUnionType(gt.union_type).zir_index,
-            .empty_struct => return null,
         },
         else => return null,
     };
     const info = tracked.resolveFull(&zcu.intern_pool) orelse return null;
     const file = zcu.fileByIndex(info.file);
-    assert(file.zir_loaded);
-    const zir = file.zir;
+    const zir = switch (file.getMode()) {
+        .zig => file.zir.?,
+        .zon => return 0,
+    };
     const inst = zir.instructions.get(@intFromEnum(info.inst));
-    assert(inst.tag == .extended);
-    return switch (inst.data.extended.opcode) {
-        .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_line,
-        .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
-        .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
-        .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
-        .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+    return switch (inst.tag) {
+        .struct_init, .struct_init_ref => zir.extraData(Zir.Inst.StructInit, inst.data.pl_node.payload_index).data.abs_line,
+        .struct_init_anon => zir.extraData(Zir.Inst.StructInitAnon, inst.data.pl_node.payload_index).data.abs_line,
+        .extended => switch (inst.data.extended.opcode) {
+            .struct_decl => zir.extraData(Zir.Inst.StructDecl, inst.data.extended.operand).data.src_line,
+            .union_decl => zir.extraData(Zir.Inst.UnionDecl, inst.data.extended.operand).data.src_line,
+            .enum_decl => zir.extraData(Zir.Inst.EnumDecl, inst.data.extended.operand).data.src_line,
+            .opaque_decl => zir.extraData(Zir.Inst.OpaqueDecl, inst.data.extended.operand).data.src_line,
+            .reify => zir.extraData(Zir.Inst.Reify, inst.data.extended.operand).data.src_line,
+            else => unreachable,
+        },
         else => unreachable,
     };
 }
@@ -3663,10 +3543,16 @@ pub fn packedStructFieldPtrInfo(struct_ty: Type, parent_ptr_ty: Type, field_idx:
         running_bits += @intCast(f_ty.bitSize(zcu));
     }
 
-    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0)
-        .{ parent_ptr_info.packed_offset.host_size, parent_ptr_info.packed_offset.bit_offset + bit_offset }
-    else
-        .{ (running_bits + 7) / 8, bit_offset };
+    const res_host_size: u16, const res_bit_offset: u16 = if (parent_ptr_info.packed_offset.host_size != 0) .{
+        parent_ptr_info.packed_offset.host_size,
+        parent_ptr_info.packed_offset.bit_offset + bit_offset,
+    } else .{
+        switch (zcu.comp.getZigBackend()) {
+            else => (running_bits + 7) / 8,
+            .stage2_x86_64 => @intCast(struct_ty.abiSize(zcu)),
+        },
+        bit_offset,
+    };
 
     // If the field happens to be byte-aligned, simplify the pointer type.
     // We can only do this if the pointee's bit size matches its ABI byte size,
@@ -3697,8 +3583,8 @@ pub fn resolveLayout(ty: Type, pt: Zcu.PerThread) SemaError!void {
     const ip = &zcu.intern_pool;
     switch (ty.zigTypeTag(zcu)) {
         .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| for (0..anon_struct_type.types.len) |i| {
-                const field_ty = Type.fromInterned(anon_struct_type.types.get(ip)[i]);
+            .tuple_type => |tuple_type| for (0..tuple_type.types.len) |i| {
+                const field_ty = Type.fromInterned(tuple_type.types.get(ip)[i]);
                 try field_ty.resolveLayout(pt);
             },
             .struct_type => return ty.resolveStructInner(pt, .layout),
@@ -3787,24 +3673,27 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .null_type,
         .undefined_type,
         .enum_literal_type,
+        .ptr_usize_type,
+        .ptr_const_comptime_int_type,
         .manyptr_u8_type,
         .manyptr_const_u8_type,
         .manyptr_const_u8_sentinel_0_type,
-        .single_const_pointer_to_comptime_int_type,
         .slice_const_u8_type,
         .slice_const_u8_sentinel_0_type,
         .optional_noreturn_type,
         .anyerror_void_error_union_type,
         .generic_poison_type,
-        .empty_struct_type,
+        .empty_tuple_type,
         => {},
 
         .undef => unreachable,
         .zero => unreachable,
         .zero_usize => unreachable,
+        .zero_u1 => unreachable,
         .zero_u8 => unreachable,
         .one => unreachable,
         .one_usize => unreachable,
+        .one_u1 => unreachable,
         .one_u8 => unreachable,
         .four_u8 => unreachable,
         .negative_one => unreachable,
@@ -3813,8 +3702,7 @@ pub fn resolveFields(ty: Type, pt: Zcu.PerThread) SemaError!void {
         .null_value => unreachable,
         .bool_true => unreachable,
         .bool_false => unreachable,
-        .empty_struct => unreachable,
-        .generic_poison => unreachable,
+        .empty_tuple => unreachable,
 
         else => switch (ty_ip.unwrap(ip).getTag(ip)) {
             .type_struct,
@@ -3868,8 +3756,8 @@ pub fn resolveFully(ty: Type, pt: Zcu.PerThread) SemaError!void {
         },
 
         .@"struct" => switch (ip.indexToKey(ty.toIntern())) {
-            .anon_struct_type => |anon_struct_type| for (0..anon_struct_type.types.len) |i| {
-                const field_ty = Type.fromInterned(anon_struct_type.types.get(ip)[i]);
+            .tuple_type => |tuple_type| for (0..tuple_type.types.len) |i| {
+                const field_ty = Type.fromInterned(tuple_type.types.get(ip)[i]);
                 try field_ty.resolveFully(pt);
             },
             .struct_type => return ty.resolveStructInner(pt, .full),
@@ -3903,10 +3791,15 @@ fn resolveStructInner(
     const gpa = zcu.gpa;
 
     const struct_obj = zcu.typeToStruct(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = struct_obj.cau.unwrap() orelse return });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3915,7 +3808,7 @@ fn resolveStructInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(struct_obj.namespace.unwrap().?).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
@@ -3957,10 +3850,15 @@ fn resolveUnionInner(
     const gpa = zcu.gpa;
 
     const union_obj = zcu.typeToUnion(ty).?;
-    const owner = InternPool.AnalUnit.wrap(.{ .cau = union_obj.cau });
+    const owner: InternPool.AnalUnit = .wrap(.{ .type = ty.toIntern() });
 
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
+    }
+
+    if (zcu.comp.debugIncremental()) {
+        const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
+        info.last_update_gen = zcu.generation;
     }
 
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
@@ -3969,7 +3867,7 @@ fn resolveUnionInner(
     var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
-    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir;
+    const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir.?;
     var sema: Sema = .{
         .pt = pt,
         .gpa = gpa,
@@ -4000,32 +3898,35 @@ fn resolveUnionInner(
     };
 }
 
-pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *Zcu) Zcu.UnionLayout {
+pub fn getUnionLayout(loaded_union: InternPool.LoadedUnionType, zcu: *const Zcu) Zcu.UnionLayout {
     const ip = &zcu.intern_pool;
     assert(loaded_union.haveLayout(ip));
-    var most_aligned_field: u32 = undefined;
-    var most_aligned_field_size: u64 = undefined;
-    var biggest_field: u32 = undefined;
+    var most_aligned_field: u32 = 0;
+    var most_aligned_field_align: InternPool.Alignment = .@"1";
+    var most_aligned_field_size: u64 = 0;
+    var biggest_field: u32 = 0;
     var payload_size: u64 = 0;
     var payload_align: InternPool.Alignment = .@"1";
-    for (loaded_union.field_types.get(ip), 0..) |field_ty, field_index| {
-        if (!Type.fromInterned(field_ty).hasRuntimeBitsIgnoreComptime(zcu)) continue;
+    for (loaded_union.field_types.get(ip), 0..) |field_ty_ip_index, field_index| {
+        const field_ty: Type = .fromInterned(field_ty_ip_index);
+        if (field_ty.isNoReturn(zcu)) continue;
 
         const explicit_align = loaded_union.fieldAlign(ip, field_index);
         const field_align = if (explicit_align != .none)
             explicit_align
         else
-            Type.fromInterned(field_ty).abiAlignment(zcu);
-        const field_size = Type.fromInterned(field_ty).abiSize(zcu);
+            field_ty.abiAlignment(zcu);
+        const field_size = field_ty.abiSize(zcu);
         if (field_size > payload_size) {
             payload_size = field_size;
             biggest_field = @intCast(field_index);
         }
-        if (field_align.compare(.gte, payload_align)) {
-            payload_align = field_align;
+        if (field_size > 0 and field_align.compare(.gte, most_aligned_field_align)) {
             most_aligned_field = @intCast(field_index);
+            most_aligned_field_align = field_align;
             most_aligned_field_size = field_size;
         }
+        payload_align = payload_align.max(field_align);
     }
     const have_tag = loaded_union.flagsUnordered(ip).runtime_tag.hasTag();
     if (!have_tag or !Type.fromInterned(loaded_union.enum_tag_ty).hasRuntimeBits(zcu)) {
@@ -4082,7 +3983,7 @@ pub fn elemPtrType(ptr_ty: Type, offset: ?usize, pt: Zcu.PerThread) !Type {
         host_size: u16 = 0,
         alignment: Alignment = .none,
         vector_index: VI = .none,
-    } = if (parent_ty.isVector(zcu) and ptr_info.flags.size == .One) blk: {
+    } = if (parent_ty.isVector(zcu) and ptr_info.flags.size == .one) blk: {
         const elem_bits = elem_ty.bitSize(zcu);
         if (elem_bits == 0) break :blk .{};
         const is_packed = elem_bits < 8 or !std.math.isPowerOfTwo(elem_bits);
@@ -4144,6 +4045,16 @@ pub fn containerTypeName(ty: Type, ip: *const InternPool) InternPool.NullTermina
     };
 }
 
+/// Returns `true` if a value of this type is always `null`.
+/// Returns `false` if a value of this type is neve `null`.
+/// Returns `null` otherwise.
+pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
+    if (ty.zigTypeTag(zcu) != .optional and !ty.isCPtr(zcu)) return false;
+    const child = ty.optionalChild(zcu);
+    if (child.zigTypeTag(zcu) == .noreturn) return true; // `?noreturn` is always null
+    return null;
+}
+
 pub const @"u1": Type = .{ .ip_index = .u1_type };
 pub const @"u8": Type = .{ .ip_index = .u8_type };
 pub const @"u16": Type = .{ .ip_index = .u16_type };
@@ -4152,6 +4063,7 @@ pub const @"u32": Type = .{ .ip_index = .u32_type };
 pub const @"u64": Type = .{ .ip_index = .u64_type };
 pub const @"u80": Type = .{ .ip_index = .u80_type };
 pub const @"u128": Type = .{ .ip_index = .u128_type };
+pub const @"u256": Type = .{ .ip_index = .u256_type };
 
 pub const @"i8": Type = .{ .ip_index = .i8_type };
 pub const @"i16": Type = .{ .ip_index = .i16_type };
@@ -4178,6 +4090,7 @@ pub const @"anyframe": Type = .{ .ip_index = .anyframe_type };
 pub const @"null": Type = .{ .ip_index = .null_type };
 pub const @"undefined": Type = .{ .ip_index = .undefined_type };
 pub const @"noreturn": Type = .{ .ip_index = .noreturn_type };
+pub const enum_literal: Type = .{ .ip_index = .enum_literal_type };
 
 pub const @"c_char": Type = .{ .ip_index = .c_char_type };
 pub const @"c_short": Type = .{ .ip_index = .c_short_type };
@@ -4190,27 +4103,77 @@ pub const @"c_longlong": Type = .{ .ip_index = .c_longlong_type };
 pub const @"c_ulonglong": Type = .{ .ip_index = .c_ulonglong_type };
 pub const @"c_longdouble": Type = .{ .ip_index = .c_longdouble_type };
 
-pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
+pub const ptr_usize: Type = .{ .ip_index = .ptr_usize_type };
+pub const ptr_const_comptime_int: Type = .{ .ip_index = .ptr_const_comptime_int_type };
 pub const manyptr_u8: Type = .{ .ip_index = .manyptr_u8_type };
-pub const single_const_pointer_to_comptime_int: Type = .{
-    .ip_index = .single_const_pointer_to_comptime_int_type,
-};
+pub const manyptr_const_u8: Type = .{ .ip_index = .manyptr_const_u8_type };
+pub const manyptr_const_u8_sentinel_0: Type = .{ .ip_index = .manyptr_const_u8_sentinel_0_type };
+pub const slice_const_u8: Type = .{ .ip_index = .slice_const_u8_type };
 pub const slice_const_u8_sentinel_0: Type = .{ .ip_index = .slice_const_u8_sentinel_0_type };
-pub const empty_struct_literal: Type = .{ .ip_index = .empty_struct_type };
+
+pub const vector_8_i8: Type = .{ .ip_index = .vector_8_i8_type };
+pub const vector_16_i8: Type = .{ .ip_index = .vector_16_i8_type };
+pub const vector_32_i8: Type = .{ .ip_index = .vector_32_i8_type };
+pub const vector_64_i8: Type = .{ .ip_index = .vector_64_i8_type };
+pub const vector_1_u8: Type = .{ .ip_index = .vector_1_u8_type };
+pub const vector_2_u8: Type = .{ .ip_index = .vector_2_u8_type };
+pub const vector_4_u8: Type = .{ .ip_index = .vector_4_u8_type };
+pub const vector_8_u8: Type = .{ .ip_index = .vector_8_u8_type };
+pub const vector_16_u8: Type = .{ .ip_index = .vector_16_u8_type };
+pub const vector_32_u8: Type = .{ .ip_index = .vector_32_u8_type };
+pub const vector_64_u8: Type = .{ .ip_index = .vector_64_u8_type };
+pub const vector_2_i16: Type = .{ .ip_index = .vector_2_i16_type };
+pub const vector_4_i16: Type = .{ .ip_index = .vector_4_i16_type };
+pub const vector_8_i16: Type = .{ .ip_index = .vector_8_i16_type };
+pub const vector_16_i16: Type = .{ .ip_index = .vector_16_i16_type };
+pub const vector_32_i16: Type = .{ .ip_index = .vector_32_i16_type };
+pub const vector_4_u16: Type = .{ .ip_index = .vector_4_u16_type };
+pub const vector_8_u16: Type = .{ .ip_index = .vector_8_u16_type };
+pub const vector_16_u16: Type = .{ .ip_index = .vector_16_u16_type };
+pub const vector_32_u16: Type = .{ .ip_index = .vector_32_u16_type };
+pub const vector_2_i32: Type = .{ .ip_index = .vector_2_i32_type };
+pub const vector_4_i32: Type = .{ .ip_index = .vector_4_i32_type };
+pub const vector_8_i32: Type = .{ .ip_index = .vector_8_i32_type };
+pub const vector_16_i32: Type = .{ .ip_index = .vector_16_i32_type };
+pub const vector_4_u32: Type = .{ .ip_index = .vector_4_u32_type };
+pub const vector_8_u32: Type = .{ .ip_index = .vector_8_u32_type };
+pub const vector_16_u32: Type = .{ .ip_index = .vector_16_u32_type };
+pub const vector_2_i64: Type = .{ .ip_index = .vector_2_i64_type };
+pub const vector_4_i64: Type = .{ .ip_index = .vector_4_i64_type };
+pub const vector_8_i64: Type = .{ .ip_index = .vector_8_i64_type };
+pub const vector_2_u64: Type = .{ .ip_index = .vector_2_u64_type };
+pub const vector_4_u64: Type = .{ .ip_index = .vector_4_u64_type };
+pub const vector_8_u64: Type = .{ .ip_index = .vector_8_u64_type };
+pub const vector_1_u128: Type = .{ .ip_index = .vector_1_u128_type };
+pub const vector_2_u128: Type = .{ .ip_index = .vector_2_u128_type };
+pub const vector_1_u256: Type = .{ .ip_index = .vector_1_u256_type };
+pub const vector_4_f16: Type = .{ .ip_index = .vector_4_f16_type };
+pub const vector_8_f16: Type = .{ .ip_index = .vector_8_f16_type };
+pub const vector_16_f16: Type = .{ .ip_index = .vector_16_f16_type };
+pub const vector_32_f16: Type = .{ .ip_index = .vector_32_f16_type };
+pub const vector_2_f32: Type = .{ .ip_index = .vector_2_f32_type };
+pub const vector_4_f32: Type = .{ .ip_index = .vector_4_f32_type };
+pub const vector_8_f32: Type = .{ .ip_index = .vector_8_f32_type };
+pub const vector_16_f32: Type = .{ .ip_index = .vector_16_f32_type };
+pub const vector_2_f64: Type = .{ .ip_index = .vector_2_f64_type };
+pub const vector_4_f64: Type = .{ .ip_index = .vector_4_f64_type };
+pub const vector_8_f64: Type = .{ .ip_index = .vector_8_f64_type };
+
+pub const empty_tuple: Type = .{ .ip_index = .empty_tuple_type };
 
 pub const generic_poison: Type = .{ .ip_index = .generic_poison_type };
 
 pub fn smallestUnsignedBits(max: u64) u16 {
-    if (max == 0) return 0;
-    const base = std.math.log2(max);
-    const upper = (@as(u64, 1) << @as(u6, @intCast(base))) - 1;
-    return @as(u16, @intCast(base + @intFromBool(upper < max)));
+    return switch (max) {
+        0 => 0,
+        else => @as(u16, 1) + std.math.log2_int(u64, max),
+    };
 }
 
 /// This is only used for comptime asserts. Bump this number when you make a change
 /// to packed struct layout to find out all the places in the codebase you need to edit!
 pub const packed_struct_layout_version = 2;
 
-fn cTypeAlign(target: Target, c_type: Target.CType) Alignment {
+fn cTypeAlign(target: *const Target, c_type: Target.CType) Alignment {
     return Alignment.fromByteUnits(target.cTypeAlignment(c_type));
 }

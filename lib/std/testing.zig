@@ -7,26 +7,39 @@ const math = std.math;
 /// Initialized on startup. Read-only after that.
 pub var random_seed: u32 = 0;
 
-pub const FailingAllocator = @import("testing/failing_allocator.zig").FailingAllocator;
+pub const FailingAllocator = @import("testing/FailingAllocator.zig");
+pub const failing_allocator = failing_allocator_instance.allocator();
+var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{
+    .fail_index = 0,
+});
+var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// This should only be used in temporary test programs.
 pub const allocator = allocator_instance.allocator();
-pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{}) = b: {
-    if (!builtin.is_test)
-        @compileError("Cannot use testing allocator outside of test block");
+pub var allocator_instance: std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = if (std.debug.sys_can_stack_trace) 10 else 0,
+    .resize_stack_traces = true,
+    // A unique value so that when a default-constructed
+    // GeneralPurposeAllocator is incorrectly passed to testing allocator, or
+    // vice versa, panic occurs.
+    .canary = @truncate(0x2731e675c3a701ba),
+}) = b: {
+    if (!builtin.is_test) @compileError("testing allocator used when not testing");
     break :b .init;
 };
-
-pub const failing_allocator = failing_allocator_instance.allocator();
-pub var failing_allocator_instance = FailingAllocator.init(base_allocator_instance.allocator(), .{ .fail_index = 0 });
-
-pub var base_allocator_instance = std.heap.FixedBufferAllocator.init("");
 
 /// TODO https://github.com/ziglang/zig/issues/5738
 pub var log_level = std.log.Level.warn;
 
 // Disable printing in tests for simple backends.
-pub const backend_can_print = !(builtin.zig_backend == .stage2_spirv64 or builtin.zig_backend == .stage2_riscv64);
+pub const backend_can_print = switch (builtin.zig_backend) {
+    .stage2_aarch64,
+    .stage2_powerpc,
+    .stage2_riscv64,
+    .stage2_spirv,
+    => false,
+    else => true,
+};
 
 fn print(comptime fmt: []const u8, args: anytype) void {
     if (@inComptime()) {
@@ -41,14 +54,14 @@ fn print(comptime fmt: []const u8, args: anytype) void {
 pub fn expectError(expected_error: anyerror, actual_error_union: anytype) !void {
     if (actual_error_union) |actual_payload| {
         print("expected error.{s}, found {any}\n", .{ @errorName(expected_error), actual_payload });
-        return error.TestUnexpectedError;
+        return error.TestExpectedError;
     } else |actual_error| {
         if (expected_error != actual_error) {
             print("expected error.{s}, found error.{s}\n", .{
                 @errorName(expected_error),
                 @errorName(actual_error),
             });
-            return error.TestExpectedError;
+            return error.TestUnexpectedError;
         }
     }
 }
@@ -93,20 +106,20 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .error_set,
         => {
             if (actual != expected) {
-                print("expected {}, found {}\n", .{ expected, actual });
+                print("expected {any}, found {any}\n", .{ expected, actual });
                 return error.TestExpectedEqual;
             }
         },
 
         .pointer => |pointer| {
             switch (pointer.size) {
-                .One, .Many, .C => {
+                .one, .many, .c => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (actual.ptr != expected.ptr) {
                         print("expected slice ptr {*}, found {*}\n", .{ expected.ptr, actual.ptr });
                         return error.TestExpectedEqual;
@@ -125,7 +138,7 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
             var i: usize = 0;
             while (i < info.len) : (i += 1) {
                 if (!std.meta.eql(expected[i], actual[i])) {
-                    print("index {} incorrect. expected {}, found {}\n", .{
+                    print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
                     return error.TestExpectedEqual;
@@ -141,7 +154,18 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                const first_size = @bitSizeOf(union_info.fields[0].type);
+                inline for (union_info.fields) |field| {
+                    if (@bitSizeOf(field.type) != first_size) {
+                        @compileError("Unable to compare untagged unions with varying field sizes for type " ++ @typeName(@TypeOf(actual)));
+                    }
+                }
+
+                const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(T));
+                return expectEqual(
+                    @as(BackingInt, @bitCast(expected)),
+                    @as(BackingInt, @bitCast(actual)),
+                );
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -214,11 +238,43 @@ test "expectEqual union with comptime-only field" {
     try expectEqual(U{ .a = {} }, .a);
 }
 
+test "expectEqual nested array" {
+    const a = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    const b = [2][2]f32{
+        [_]f32{ 1.0, 0.0 },
+        [_]f32{ 0.0, 1.0 },
+    };
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual vector" {
+    const a: @Vector(4, u32) = @splat(4);
+    const b: @Vector(4, u32) = @splat(4);
+
+    try expectEqual(a, b);
+}
+
+test "expectEqual null" {
+    const a = .{null};
+    const b = @Vector(1, ?*u8){null};
+
+    try expectEqual(a, b);
+}
+
 /// This function is intended to be used only in tests. When the formatted result of the template
 /// and its arguments does not equal the expected text, it prints diagnostics to stderr to show how
-/// they are not equal, then returns an error. It depends on `expectEqualStrings()` for printing
+/// they are not equal, then returns an error. It depends on `expectEqualStrings` for printing
 /// diagnostics.
 pub fn expectFmt(expected: []const u8, comptime template: []const u8, args: anytype) !void {
+    if (@inComptime()) {
+        var buffer: [std.fmt.count(template, args)]u8 = undefined;
+        return expectEqualStrings(expected, try std.fmt.bufPrint(&buffer, template, args));
+    }
     const actual = try std.fmt.allocPrint(allocator, template, args);
     defer allocator.free(actual);
     return expectEqualStrings(expected, actual);
@@ -305,9 +361,6 @@ test expectApproxEqRel {
 /// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
-    if (expected.ptr == actual.ptr and expected.len == actual.len) {
-        return;
-    }
     const diff_index: usize = diff_index: {
         const shortest = @min(expected.len, actual.len);
         var index: usize = 0;
@@ -316,12 +369,21 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
         }
         break :diff_index if (expected.len == actual.len) return else shortest;
     };
+    if (!backend_can_print) return error.TestExpectedEqual;
+    const stderr_w = std.debug.lockStderrWriter(&.{});
+    defer std.debug.unlockStderrWriter();
+    failEqualSlices(T, expected, actual, diff_index, stderr_w) catch {};
+    return error.TestExpectedEqual;
+}
 
-    if (!backend_can_print) {
-        return error.TestExpectedEqual;
-    }
-
-    print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
+fn failEqualSlices(
+    comptime T: type,
+    expected: []const T,
+    actual: []const T,
+    diff_index: usize,
+    w: *std.io.Writer,
+) !void {
+    try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
     // TODO: Should this be configurable by the caller?
     const max_lines: usize = 16;
@@ -339,8 +401,7 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const stderr = std.io.getStdErr();
-    const ttyconf = std.io.tty.detectConfig(stderr);
+    const ttyconf = std.io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -356,47 +417,47 @@ pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const 
     // that is usually useful.
     const index_fmt = if (T == u8) "0x{X}" else "{}";
 
-    print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
+    try w.print("\n============ expected this output: =============  len: {} (0x{X})\n\n", .{ expected.len, expected.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(w) catch {};
     if (expected_truncated) {
         const end_offset = window_start + expected_window.len;
         const num_missing_items = expected.len - (window_start + expected_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
 
     // now reverse expected/actual and print again
     differ.expected = actual_window;
     differ.actual = expected_window;
-    print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
+    try w.print("\n============= instead found this: ==============  len: {} (0x{X})\n\n", .{ actual.len, actual.len });
     if (window_start > 0) {
         if (T == u8) {
-            print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
+            try w.print("... truncated, start index: " ++ index_fmt ++ " ...\n", .{window_start});
         } else {
-            print("... truncated ...\n", .{});
+            try w.print("... truncated ...\n", .{});
         }
     }
-    differ.write(stderr.writer()) catch {};
+    differ.write(w) catch {};
     if (actual_truncated) {
         const end_offset = window_start + actual_window.len;
         const num_missing_items = actual.len - (window_start + actual_window.len);
         if (T == u8) {
-            print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
+            try w.print("... truncated, indexes [" ++ index_fmt ++ "..] not shown, remaining bytes: " ++ index_fmt ++ " ...\n", .{ end_offset, num_missing_items });
         } else {
-            print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
+            try w.print("... truncated, remaining items: " ++ index_fmt ++ " ...\n", .{num_missing_items});
         }
     }
-    print("\n================================================\n\n", .{});
+    try w.print("\n================================================\n\n", .{});
 
     return error.TestExpectedEqual;
 }
@@ -410,7 +471,7 @@ fn SliceDiffer(comptime T: type) type {
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: anytype) !void {
+        pub fn write(self: Self, writer: *std.io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -431,7 +492,7 @@ const BytesDiffer = struct {
     actual: []const u8,
     ttyconf: std.io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: anytype) !void {
+    pub fn write(self: BytesDiffer, writer: *std.io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -448,7 +509,7 @@ const BytesDiffer = struct {
             if (chunk.len < 16) {
                 var missing_columns = (16 - chunk.len) * 3;
                 if (chunk.len < 8) missing_columns += 1;
-                try writer.writeByteNTimes(' ', missing_columns);
+                try writer.splatByteAll(' ', missing_columns);
             }
             for (chunk, 0..) |byte, col| {
                 const diff = diffs.isSet(col);
@@ -477,7 +538,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: anytype, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
@@ -584,29 +645,13 @@ pub fn tmpDir(opts: std.fs.Dir.OpenOptions) TmpDir {
     };
 }
 
-test "expectEqual nested array" {
-    const a = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    const b = [2][2]f32{
-        [_]f32{ 1.0, 0.0 },
-        [_]f32{ 0.0, 1.0 },
-    };
-
-    try expectEqual(a, b);
-}
-
-test "expectEqual vector" {
-    const a: @Vector(4, u32) = @splat(4);
-    const b: @Vector(4, u32) = @splat(4);
-
-    try expectEqual(a, b);
-}
-
 pub fn expectEqualStrings(expected: []const u8, actual: []const u8) !void {
     if (std.mem.indexOfDiff(u8, actual, expected)) |diff_index| {
+        if (@inComptime()) {
+            @compileError(std.fmt.comptimePrint("\nexpected:\n{s}\nfound:\n{s}\ndifference starts at index {d}", .{
+                expected, actual, diff_index,
+            }));
+        }
         print("\n====== expected this output: =========\n", .{});
         printWithVisibleNewlines(expected);
         print("\n======== instead found this: =========\n", .{});
@@ -726,13 +771,13 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
         .pointer => |pointer| {
             switch (pointer.size) {
                 // We have no idea what is behind those pointers, so the best we can do is `==` check.
-                .C, .Many => {
+                .c, .many => {
                     if (actual != expected) {
                         print("expected {*}, found {*}\n", .{ expected, actual });
                         return error.TestExpectedEqual;
                     }
                 },
-                .One => {
+                .one => {
                     // Length of those pointers are runtime value, so the best we can do is `==` check.
                     switch (@typeInfo(pointer.child)) {
                         .@"fn", .@"opaque" => {
@@ -744,7 +789,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
                         else => try expectEqualDeep(expected.*, actual.*),
                     }
                 },
-                .Slice => {
+                .slice => {
                     if (expected.len != actual.len) {
                         print("Slice len not the same, expected {d}, found {d}\n", .{ expected.len, actual.len });
                         return error.TestExpectedEqual;
@@ -805,7 +850,7 @@ fn expectEqualDeepInner(comptime T: type, expected: T, actual: T) error{TestExpe
 
         .@"union" => |union_info| {
             if (union_info.tag_type == null) {
-                @compileError("Unable to compare untagged union values");
+                @compileError("Unable to compare untagged union values for type " ++ @typeName(@TypeOf(actual)));
             }
 
             const Tag = std.meta.Tag(@TypeOf(expected));
@@ -919,6 +964,19 @@ test "expectEqualDeep composite type" {
         try expectEqualDeep(a, b);
         try expectEqualDeep(&a, &b);
     }
+
+    // inferred union
+    const TestStruct2 = struct {
+        const A = union(enum) { b: B, c: C };
+        const B = struct {};
+        const C = struct { a: *const A };
+    };
+
+    const union1 = TestStruct2.A{ .b = .{} };
+    try expectEqualDeep(
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+        TestStruct2.A{ .c = .{ .a = &union1 } },
+    );
 }
 
 fn printIndicatorLine(source: []const u8, indicator_index: usize) void {
@@ -1065,7 +1123,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
         const arg_i_str = comptime str: {
             var str_buf: [100]u8 = undefined;
             const args_i = i + 1;
-            const str_len = std.fmt.formatIntBuf(&str_buf, args_i, 10, .lower, .{});
+            const str_len = std.fmt.printInt(&str_buf, args_i, 10, .lower, .{});
             break :str str_buf[0..str_len];
         };
         @field(args, arg_i_str) = @field(extra_args, field.name);
@@ -1095,7 +1153,7 @@ pub fn checkAllAllocationFailures(backing_allocator: std.mem.Allocator, comptime
             error.OutOfMemory => {
                 if (failing_allocator_inst.allocated_bytes != failing_allocator_inst.freed_bytes) {
                     print(
-                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {}",
+                        "\nfail_index: {d}/{d}\nallocated bytes: {d}\nfreed bytes: {d}\nallocations: {d}\ndeallocations: {d}\nallocation that was made to fail: {f}",
                         .{
                             fail_index,
                             needed_alloc_count,
@@ -1143,8 +1201,51 @@ pub const FuzzInputOptions = struct {
 
 /// Inline to avoid coverage instrumentation.
 pub inline fn fuzz(
-    comptime testOne: fn (input: []const u8) anyerror!void,
+    context: anytype,
+    comptime testOne: fn (context: @TypeOf(context), input: []const u8) anyerror!void,
     options: FuzzInputOptions,
 ) anyerror!void {
-    return @import("root").fuzz(testOne, options);
+    return @import("root").fuzz(context, testOne, options);
 }
+
+/// A `std.Io.Reader` that writes a predetermined list of buffers during `stream`.
+pub const Reader = struct {
+    calls: []const Call,
+    interface: std.Io.Reader,
+    next_call_index: usize,
+    next_offset: usize,
+    /// Further reduces how many bytes are written in each `stream` call.
+    artificial_limit: std.Io.Limit = .unlimited,
+
+    pub const Call = struct {
+        buffer: []const u8,
+    };
+
+    pub fn init(buffer: []u8, calls: []const Call) Reader {
+        return .{
+            .next_call_index = 0,
+            .next_offset = 0,
+            .interface = .{
+                .vtable = &.{ .stream = stream },
+                .buffer = buffer,
+                .seek = 0,
+                .end = 0,
+            },
+            .calls = calls,
+        };
+    }
+
+    fn stream(io_r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+        const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
+        if (r.calls.len - r.next_call_index == 0) return error.EndOfStream;
+        const call = r.calls[r.next_call_index];
+        const buffer = r.artificial_limit.sliceConst(limit.sliceConst(call.buffer[r.next_offset..]));
+        const n = try w.write(buffer);
+        r.next_offset += n;
+        if (call.buffer.len - r.next_offset == 0) {
+            r.next_call_index += 1;
+            r.next_offset = 0;
+        }
+        return n;
+    }
+};

@@ -27,11 +27,14 @@
 #ifndef _SYS_STATVFS_H_
 #define	_SYS_STATVFS_H_
 
+#include <_bounds.h>
 #include <sys/_types.h>
 #include <sys/cdefs.h>
 
 #include <sys/_types/_fsblkcnt_t.h>
 #include <sys/_types/_fsfilcnt_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /* Following structure is used as a statvfs/fstatvfs function parameter */
 struct statvfs {

@@ -58,7 +58,7 @@ export fn alloc(n: usize) [*]u8 {
     return slice.ptr;
 }
 
-var message_buffer: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
+var message_buffer: std.ArrayListAlignedUnmanaged(u8, .of(u64)) = .empty;
 
 /// Resizes the message buffer to be the correct length; returns the pointer to
 /// the query string.
@@ -376,7 +376,7 @@ var coverage = Coverage.init;
 /// Index of type `SourceLocationIndex`.
 var coverage_source_locations: std.ArrayListUnmanaged(Coverage.SourceLocation) = .empty;
 /// Contains the most recent coverage update message, unmodified.
-var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, @alignOf(u64)) = .empty;
+var recent_coverage_update: std.ArrayListAlignedUnmanaged(u8, .of(u64)) = .empty;
 
 fn updateCoverage(
     directories: []const Coverage.String,

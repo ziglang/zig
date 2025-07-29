@@ -21,7 +21,7 @@ const c_string = @cImport(
 );
 
 // Version of glibc this test is being built to run against
-const glibc_ver = builtin.target.os.version_range.linux.glibc;
+const glibc_ver = builtin.os.versionRange().gnuLibCVersion().?;
 
 // PR #17034 - fstat moved between libc_nonshared and libc
 fn checkStat() !void {
@@ -95,7 +95,7 @@ fn checkStrlcpy_v2_38() !void {
 }
 
 // atexit is part of libc_nonshared, so ensure its linked in correctly
-fn forceExit0Callback() callconv(.C) void {
+fn forceExit0Callback() callconv(.c) void {
     std.c.exit(0); // Override the main() exit code
 }
 
