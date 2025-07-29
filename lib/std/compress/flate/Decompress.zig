@@ -842,40 +842,29 @@ test "encode/decode literals" {
 }
 
 test "non compressed block (type 0)" {
-    try testBasicCase(&[_]u8{
+    try testDecompress(.raw, &[_]u8{
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
         'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
     }, "Hello world\n");
 }
 
 test "fixed code block (type 1)" {
-    try testBasicCase(&[_]u8{
+    try testDecompress(.raw, &[_]u8{
         0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, // deflate data block type 1
         0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
     }, "Hello world\n");
 }
 
 test "dynamic block (type 2)" {
-    try testBasicCase(&[_]u8{
+    try testDecompress(.raw, &[_]u8{
         0x3d, 0xc6, 0x39, 0x11, 0x00, 0x00, 0x0c, 0x02, // deflate data block type 2
         0x30, 0x2b, 0xb5, 0x52, 0x1e, 0xff, 0x96, 0x38,
         0x16, 0x96, 0x5c, 0x1e, 0x94, 0xcb, 0x6d, 0x01,
     }, "ABCDEABCD ABCDEABCD");
 }
 
-fn testBasicCase(in: []const u8, out: []const u8) !void {
-    var reader: Reader = .fixed(in);
-    var aw: Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
-    defer aw.deinit();
-
-    var decompress: Decompress = .init(&reader, .raw, &.{});
-    _ = try decompress.reader.streamRemaining(&aw.writer);
-    try testing.expectEqualStrings(out, aw.getWritten());
-}
-
 test "gzip non compressed block (type 0)" {
-    try testGzipDecompress(&[_]u8{
+    try testDecompress(.gzip, &[_]u8{
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, // gzip header (10 bytes)
         0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
         'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
@@ -885,7 +874,7 @@ test "gzip non compressed block (type 0)" {
 }
 
 test "gzip fixed code block (type 1)" {
-    try testGzipDecompress(&[_]u8{
+    try testDecompress(.gzip, &[_]u8{
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x03, // gzip header (10 bytes)
         0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, // deflate data block type 1
         0x2f, 0xca, 0x49, 0xe1, 0x02, 0x00,
@@ -894,7 +883,7 @@ test "gzip fixed code block (type 1)" {
 }
 
 test "gzip dynamic block (type 2)" {
-    try testGzipDecompress(&[_]u8{
+    try testDecompress(.gzip, &[_]u8{
         0x1f, 0x8b, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, // gzip header (10 bytes)
         0x3d, 0xc6, 0x39, 0x11, 0x00, 0x00, 0x0c, 0x02, // deflate data block type 2
         0x30, 0x2b, 0xb5, 0x52, 0x1e, 0xff, 0x96, 0x38,
@@ -904,50 +893,20 @@ test "gzip dynamic block (type 2)" {
 }
 
 test "gzip header with name" {
-    try testGzipDecompress(&[_]u8{
+    try testDecompress(.gzip, &[_]u8{
         0x1f, 0x8b, 0x08, 0x08, 0xe5, 0x70, 0xb1, 0x65, 0x00, 0x03, 0x68, 0x65, 0x6c, 0x6c, 0x6f, 0x2e,
         0x74, 0x78, 0x74, 0x00, 0xf3, 0x48, 0xcd, 0xc9, 0xc9, 0x57, 0x28, 0xcf, 0x2f, 0xca, 0x49, 0xe1,
         0x02, 0x00, 0xd5, 0xe0, 0x39, 0xb7, 0x0c, 0x00, 0x00, 0x00,
     }, "Hello world\n");
 }
 
-fn testGzipDecompress(in: []const u8, out: []const u8) !void {
-    var reader: Reader = .fixed(in);
-    var aw: Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
-    defer aw.deinit();
-
-    var decompress: Decompress = .init(&reader, .gzip, &.{});
-    _ = try decompress.reader.streamRemaining(&aw.writer);
-    try testing.expectEqualStrings(out, aw.getWritten());
-}
-
-test "zlib decompress" {
-    const cases = [_]struct {
-        in: []const u8,
-        out: []const u8,
-    }{
-        // non compressed block (type 0)
-        .{
-            .in = &[_]u8{
-                0x78, 0b10_0_11100, // zlib header (2 bytes)
-                0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
-                'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
-                0x1c, 0xf2, 0x04, 0x47, // zlib footer: checksum
-            },
-            .out = "Hello world\n",
-        },
-    };
-    for (cases) |c| {
-        var fb: Reader = .fixed(c.in);
-        var aw: Writer.Allocating = .init(testing.allocator);
-        defer aw.deinit();
-
-        var decompress: Decompress = .init(&fb, .zlib, &.{});
-        const r = &decompress.reader;
-        _ = try r.streamRemaining(&aw.writer);
-        try testing.expectEqualStrings(c.out, aw.getWritten());
-    }
+test "zlib decompress non compressed block (type 0)" {
+    try testDecompress(.zlib, &[_]u8{
+        0x78, 0b10_0_11100, // zlib header (2 bytes)
+        0b0000_0001, 0b0000_1100, 0x00, 0b1111_0011, 0xff, // deflate fixed buffer header len, nlen
+        'H', 'e', 'l', 'l', 'o', ' ', 'w', 'o', 'r', 'l', 'd', 0x0a, // non compressed data
+        0x1c, 0xf2, 0x04, 0x47, // zlib footer: checksum
+    }, "Hello world\n");
 }
 
 test "fuzzing tests" {
@@ -1001,6 +960,7 @@ test "fuzzing tests" {
     inline for (cases) |c| {
         var in: Reader = .fixed(@embedFile("testdata/fuzz/" ++ c.input ++ ".input"));
         var aw: Writer.Allocating = .init(testing.allocator);
+        try aw.ensureUnusedCapacity(flate.history_len);
         defer aw.deinit();
 
         var decompress: Decompress = .init(&in, .raw, &.{});
@@ -1021,6 +981,7 @@ test "bug 18966" {
 
     var in: Reader = .fixed(input);
     var aw: Writer.Allocating = .init(testing.allocator);
+    try aw.ensureUnusedCapacity(flate.history_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, .gzip, &.{});
@@ -1146,6 +1107,7 @@ test "gzip header" {
 fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
     var in: std.Io.Reader = .fixed(compressed);
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    try aw.ensureUnusedCapacity(flate.history_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, container, &.{});
