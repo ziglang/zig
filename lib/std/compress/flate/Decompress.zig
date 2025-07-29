@@ -139,11 +139,8 @@ fn dynamicCodeLength(self: *Decompress, code: u16, lens: []u4, pos: usize) !usiz
     }
 }
 
-// Peek 15 bits from bits reader (maximum code len is 15 bits). Use
-// decoder to find symbol for that code. We then know how many bits is
-// used. Shift bit reader for that much bits, those bits are used. And
-// return symbol.
 fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
+    // Maximum code len is 15 bits.
     const sym = try decoder.find(@bitReverse(try self.peekBits(u15)));
     try self.tossBits(sym.code_bits);
     return sym;
@@ -451,31 +448,30 @@ fn peekBitsEnding(d: *Decompress, comptime U: type) !U {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     const in = d.input;
-    var u: U = 0;
+    var u: usize = 0;
     var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
-    var peek_len: usize = 0;
-    while (@bitSizeOf(U) >= 8 and remaining_needed_bits >= 8) {
-        peek_len += 1;
-        const byte = try specialPeek(in, next_bits, peek_len);
-        u = (u << 8) | byte;
+    var i: usize = 0;
+    while (remaining_needed_bits >= 8) {
+        const byte = try specialPeek(in, next_bits, i);
+        u |= @as(usize, byte) << @intCast(i * 8);
         remaining_needed_bits -= 8;
+        i += 1;
     }
     if (remaining_needed_bits != 0) {
-        peek_len += 1;
-        const byte = try specialPeek(in, next_bits, peek_len);
-        u = @intCast((@as(usize, u) << remaining_needed_bits) | (byte & ((@as(usize, 1) << remaining_needed_bits) - 1)));
+        const byte = try specialPeek(in, next_bits, i);
+        u |= @as(usize, byte) << @intCast((i * 8) + remaining_needed_bits);
     }
-    return @intCast((@as(usize, u) << remaining_bits) | next_bits);
+    return @truncate((u << remaining_bits) | next_bits);
 }
 
 /// If there is any unconsumed data, handles EndOfStream by pretending there
 /// are zeroes afterwards.
-fn specialPeek(in: *Reader, next_bits: usize, n: usize) Reader.Error!u8 {
-    const peeked = in.peek(n) catch |err| switch (err) {
+fn specialPeek(in: *Reader, next_bits: usize, i: usize) Reader.Error!u8 {
+    const peeked = in.peek(i + 1) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => if (next_bits == 0 and n == 0) return error.EndOfStream else return 0,
+        error.EndOfStream => if (next_bits == 0 and i == 0) return error.EndOfStream else return 0,
     };
-    return peeked[n - 1];
+    return peeked[i];
 }
 
 fn tossBits(d: *Decompress, n: u6) !void {
@@ -507,11 +503,14 @@ fn tossBitsEnding(d: *Decompress, n: u6) !void {
     if (remaining_needed_bits == 0) {
         d.next_bits = 0;
         d.remaining_bits = 0;
-    } else {
-        const byte = try in.takeByte();
-        d.next_bits = @as(usize, byte) >> remaining_needed_bits;
-        d.remaining_bits = @intCast(8 - remaining_needed_bits);
+        return;
     }
+    const byte = in.takeByte() catch |err| switch (err) {
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => if (remaining_bits == 0) return error.EndOfStream else 0,
+    };
+    d.next_bits = @as(usize, byte) >> remaining_needed_bits;
+    d.remaining_bits = @intCast(8 - remaining_needed_bits);
 }
 
 fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
