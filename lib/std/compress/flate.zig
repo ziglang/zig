@@ -148,6 +148,29 @@ pub const Container = enum {
             }
         }
     };
+
+    pub const Metadata = union(Container) {
+        raw: void,
+        gzip: struct {
+            crc: u32 = 0,
+            count: u32 = 0,
+        },
+        zlib: struct {
+            adler: u32 = 0,
+        },
+
+        pub fn init(containter: Container) Metadata {
+            return switch (containter) {
+                .gzip => .{ .gzip = .{} },
+                .zlib => .{ .zlib = .{} },
+                .raw => .raw,
+            };
+        }
+
+        pub fn container(m: Metadata) Container {
+            return m;
+        }
+    };
 };
 
 test {

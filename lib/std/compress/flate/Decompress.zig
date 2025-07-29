@@ -15,8 +15,7 @@ remaining_bits: std.math.Log2Int(usize),
 
 reader: Reader,
 
-/// Hashes, produces checksum, of uncompressed data for gzip/zlib footer.
-hasher: Container.Hasher,
+container_metadata: Container.Metadata,
 
 lit_dec: LiteralDecoder,
 dst_dec: DistanceDecoder,
@@ -71,7 +70,7 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
         .input = input,
         .next_bits = 0,
         .remaining_bits = 0,
-        .hasher = .init(container),
+        .container_metadata = .init(container),
         .lit_dec = .{},
         .dst_dec = .{},
         .final_block = false,
@@ -169,7 +168,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
     var remaining = @intFromEnum(limit);
     const in = d.input;
     sw: switch (d.state) {
-        .protocol_header => switch (d.hasher.container()) {
+        .protocol_header => switch (d.container_metadata.container()) {
             .gzip => {
                 const Header = extern struct {
                     magic: u16 align(1),
@@ -258,7 +257,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
                     try d.lit_dec.generate(dec_lens[0..hlit]);
 
                     // distance code lengths to distance decoder
-                    try d.dst_dec.generate(dec_lens[hlit .. hlit + hdist]);
+                    try d.dst_dec.generate(dec_lens[hlit..][0..hdist]);
 
                     continue :sw .dynamic_block;
                 },
@@ -332,14 +331,17 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
         },
         .protocol_footer => {
             d.alignBitsToByte();
-            switch (d.hasher) {
+            switch (d.container_metadata) {
                 .gzip => |*gzip| {
-                    if (try in.takeInt(u32, .little) != gzip.crc.final()) return error.WrongGzipChecksum;
-                    if (try in.takeInt(u32, .little) != gzip.count) return error.WrongGzipSize;
+                    gzip.* = .{
+                        .crc = try in.takeInt(u32, .little),
+                        .count = try in.takeInt(u32, .little),
+                    };
                 },
                 .zlib => |*zlib| {
-                    const chksum: u32 = @byteSwap(zlib.adler);
-                    if (try in.takeInt(u32, .big) != chksum) return error.WrongZlibChecksum;
+                    zlib.* = .{
+                        .adler = try in.takeInt(u32, .little),
+                    };
                 },
                 .raw => {},
             }
@@ -868,8 +870,7 @@ fn testBasicCase(in: []const u8, out: []const u8) !void {
     defer aw.deinit();
 
     var decompress: Decompress = .init(&reader, .raw, &.{});
-    const r = &decompress.reader;
-    _ = try r.streamRemaining(&aw.writer);
+    _ = try decompress.reader.streamRemaining(&aw.writer);
     try testing.expectEqualStrings(out, aw.getWritten());
 }
 
@@ -917,8 +918,7 @@ fn testGzipDecompress(in: []const u8, out: []const u8) !void {
     defer aw.deinit();
 
     var decompress: Decompress = .init(&reader, .gzip, &.{});
-    const r = &decompress.reader;
-    _ = try r.streamRemaining(&aw.writer);
+    _ = try decompress.reader.streamRemaining(&aw.writer);
     try testing.expectEqualStrings(out, aw.getWritten());
 }
 
