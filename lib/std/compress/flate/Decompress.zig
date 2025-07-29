@@ -491,9 +491,21 @@ fn tossBits(d: *Decompress, n: u6) !void {
 }
 
 fn tossBitsEnding(d: *Decompress, n: u6) !void {
-    _ = d;
-    _ = n;
-    @panic("TODO");
+    const remaining_bits = d.remaining_bits;
+    const in = d.input;
+    var remaining_needed_bits = n - remaining_bits;
+    while (remaining_needed_bits >= 8) {
+        try in.discardAll(1);
+        remaining_needed_bits -= 8;
+    }
+    if (remaining_needed_bits == 0) {
+        d.next_bits = 0;
+        d.remaining_bits = 0;
+    } else {
+        const byte = try in.takeByte();
+        d.next_bits = @as(usize, byte) >> remaining_needed_bits;
+        d.remaining_bits = @intCast(8 - remaining_needed_bits);
+    }
 }
 
 fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
