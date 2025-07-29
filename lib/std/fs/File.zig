@@ -1105,22 +1105,6 @@ pub fn deprecatedWriter(file: File) DeprecatedWriter {
     return .{ .context = file };
 }
 
-/// Deprecated in favor of `Reader` and `Writer`.
-pub const SeekableStream = io.SeekableStream(
-    File,
-    SeekError,
-    GetSeekPosError,
-    seekTo,
-    seekBy,
-    getPos,
-    getEndPos,
-);
-
-/// Deprecated in favor of `Reader` and `Writer`.
-pub fn seekableStream(file: File) SeekableStream {
-    return .{ .context = file };
-}
-
 /// Memoizes key information about a file handle such as:
 /// * The size from calling stat, or the error that occurred therein.
 /// * The current seek position.

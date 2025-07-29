@@ -438,8 +438,6 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-/// Deprecated in favor of `File.Reader` and `File.Writer`.
-pub const SeekableStream = @import("Io/seekable_stream.zig").SeekableStream;
 /// Deprecated in favor of `Writer`.
 pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
 /// Deprecated in favor of `Writer`.
@@ -948,7 +946,6 @@ test {
     _ = CountingWriter;
     _ = CountingReader;
     _ = FixedBufferStream;
-    _ = SeekableStream;
     _ = tty;
     _ = @import("Io/test.zig");
 }
