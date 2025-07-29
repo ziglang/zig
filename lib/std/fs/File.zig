@@ -20,7 +20,10 @@ handle: Handle,
 
 pub const Handle = posix.fd_t;
 pub const Mode = posix.mode_t;
-pub const INode = posix.ino_t;
+pub const INode = union(enum) {
+    U64: posix.ino_t,
+    U128: windows.FILE_ID_128,
+};
 pub const Uid = posix.uid_t;
 pub const Gid = posix.gid_t;
 
@@ -430,7 +433,7 @@ pub const Stat = struct {
         const mtime = st.mtime();
         const ctime = st.ctime();
         return .{
-            .inode = st.ino,
+            .inode = .{ .U64 = st.ino },
             .size = @bitCast(st.size),
             .mode = st.mode,
             .kind = k: {
@@ -465,7 +468,7 @@ pub const Stat = struct {
         const ctime = stx.ctime;
 
         return .{
-            .inode = stx.ino,
+            .inode = .{ .U64 = stx.ino },
             .size = stx.size,
             .mode = stx.mode,
             .kind = switch (stx.mode & linux.S.IFMT) {
@@ -486,7 +489,7 @@ pub const Stat = struct {
 
     pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
         return .{
-            .inode = st.ino,
+            .inode = .{ .U64 = st.ino },
             .size = @bitCast(st.size),
             .mode = 0,
             .kind = switch (st.filetype) {

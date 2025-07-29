@@ -4915,6 +4915,27 @@ pub const RTL_DRIVE_LETTER_CURDIR = extern struct {
 
 pub const PPS_POST_PROCESS_INIT_ROUTINE = ?*const fn () callconv(.winapi) void;
 
+pub const FILE_ID_128 = [16]u8;
+
+pub const FILE_ID_EXTD_BOTH_DIR_INFORMATION = extern struct {
+    NextEntryOffset: ULONG,
+    FileIndex:       ULONG,
+    CreationTime:    LARGE_INTEGER,
+    LastAccessTime:  LARGE_INTEGER,
+    LastWriteTime:   LARGE_INTEGER,
+    ChangeTime:      LARGE_INTEGER,
+    EndOfFile:       LARGE_INTEGER,
+    AllocationSize:  LARGE_INTEGER,
+    FileAttributes:  ULONG,
+    FileNameLength:  ULONG,
+    EaSize:          ULONG,
+    ReparsePointTag: ULONG,
+    FileId:          FILE_ID_128,
+    ShortNameLength: CHAR,
+    ShortName:       [12]WCHAR,
+    FileName:        [1]WCHAR,
+};
+
 pub const FILE_DIRECTORY_INFORMATION = extern struct {
     NextEntryOffset: ULONG,
     FileIndex: ULONG,
