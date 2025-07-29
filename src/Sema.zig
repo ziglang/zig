@@ -3922,7 +3922,7 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
         const ptr_to_map = switch (store_inst.tag) {
             .store, .store_safe => store_inst.data.bin_op.lhs.toIndex().?, // Map the pointer being stored to.
-            .set_union_tag => continue, // We can completely ignore these: we'll do it implicitly when we get the field pointer.
+            .set_union_tag => continue, // Ignore for now; handled after we map pointers
             .optional_payload_ptr_set, .errunion_payload_ptr_set => store_inst_idx, // Map the generated pointer itself.
             else => unreachable,
         };
@@ -4055,19 +4055,33 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
     }
 
     // We have a correlation between AIR pointers and decl pointers. Perform all stores at comptime.
-    // Any implicit stores performed by `optional_payload_ptr_set`, `errunion_payload_ptr_set`, or
-    // `set_union_tag` instructions were already done above.
+    // Any implicit stores performed by `optional_payload_ptr_set` or `errunion_payload_ptr_set`
+    // instructions were already done above.
 
     for (stores) |store_inst_idx| {
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
         switch (store_inst.tag) {
-            .set_union_tag => {}, // Handled implicitly by field pointers above
             .optional_payload_ptr_set, .errunion_payload_ptr_set => {}, // Handled explicitly above
+            .set_union_tag => {
+                // Usually, we can ignore these, because the creation of the field pointer above
+                // already did it for us. However, if the field is OPV, this is relevant, because
+                // there is not going to be a store to the field. So we must initialize the union
+                // tag if the field is OPV.
+                const union_ptr_inst = store_inst.data.bin_op.lhs.toIndex().?;
+                const union_ptr_val: Value = .fromInterned(ptr_mapping.get(union_ptr_inst).?);
+                const tag_val: Value = .fromInterned(store_inst.data.bin_op.rhs.toInterned().?);
+                const union_ty = union_ptr_val.typeOf(zcu).childType(zcu);
+                const field_ty = union_ty.unionFieldType(tag_val, zcu).?;
+                if (try sema.typeHasOnePossibleValue(field_ty)) |payload_val| {
+                    const new_union_val = try pt.unionValue(union_ty, tag_val, payload_val);
+                    try sema.storePtrVal(block, .unneeded, union_ptr_val, new_union_val, union_ty);
+                }
+            },
             .store, .store_safe => {
                 const air_ptr_inst = store_inst.data.bin_op.lhs.toIndex().?;
                 const store_val = (try sema.resolveValue(store_inst.data.bin_op.rhs)).?;
                 const new_ptr = ptr_mapping.get(air_ptr_inst).?;
-                try sema.storePtrVal(block, LazySrcLoc.unneeded, Value.fromInterned(new_ptr), store_val, .fromInterned(zcu.intern_pool.typeOf(store_val.toIntern())));
+                try sema.storePtrVal(block, .unneeded, .fromInterned(new_ptr), store_val, store_val.typeOf(zcu));
             },
             else => unreachable,
         }
