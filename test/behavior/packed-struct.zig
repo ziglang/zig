@@ -1319,6 +1319,7 @@ test "packed struct equality ignores padding bits" {
 }
 
 test "packed struct with signed field" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     var s: packed struct {

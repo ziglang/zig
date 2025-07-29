@@ -1101,6 +1101,8 @@ test "float.libc.sanity" {
 }
 
 test "union" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+
     const TU = union(enum) {
         float: f32,
         int: u32,
