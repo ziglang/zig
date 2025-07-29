@@ -6891,6 +6891,22 @@ test "zig fmt: asm_legacy conversion with quoted identifier" {
     );
 }
 
+test "zig fmt: error set with extra newline before comma" {
+    try testTransform(
+        \\const E = error{
+        \\    A
+        \\
+        \\    ,
+        \\};
+        \\
+    ,
+        \\const E = error{
+        \\    A,
+        \\};
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
