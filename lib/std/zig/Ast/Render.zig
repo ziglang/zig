@@ -748,8 +748,13 @@ fn renderExpression(r: *Render, node: Ast.Node.Index, space: Space) Error!void {
                 try renderToken(r, lbrace, .newline);
                 var i = lbrace + 1;
                 while (i < rbrace) : (i += 1) {
+                    const tag = tree.tokenTag(i);
+                    if (tag == .comma) {
+                        assert(tree.tokenTag(i - 1) == .identifier);
+                        continue;
+                    }
                     if (i > lbrace + 1) try renderExtraNewlineToken(r, i);
-                    switch (tree.tokenTag(i)) {
+                    switch (tag) {
                         .doc_comment => try renderToken(r, i, .newline),
                         .identifier => {
                             try ais.pushSpace(.comma);
