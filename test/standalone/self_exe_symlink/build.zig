@@ -15,16 +15,20 @@ pub fn build(b: *std.Build) void {
 
     const main = b.addExecutable(.{
         .name = "main",
-        .root_source_file = b.path("main.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("main.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     const create_symlink_exe = b.addExecutable(.{
         .name = "create-symlink",
-        .root_source_file = b.path("create-symlink.zig"),
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("create-symlink.zig"),
+            .optimize = optimize,
+            .target = target,
+        }),
     });
 
     var run_create_symlink = b.addRunArtifact(create_symlink_exe);

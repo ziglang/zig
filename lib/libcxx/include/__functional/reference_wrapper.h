@@ -13,10 +13,10 @@
 #include <__compare/synth_three_way.h>
 #include <__concepts/boolean_testable.h>
 #include <__config>
-#include <__functional/invoke.h>
 #include <__functional/weak_result_type.h>
 #include <__memory/addressof.h>
 #include <__type_traits/enable_if.h>
+#include <__type_traits/invoke.h>
 #include <__type_traits/is_const.h>
 #include <__type_traits/remove_cvref.h>
 #include <__type_traits/void_t.h>
@@ -57,7 +57,7 @@ public:
 
   // invoke
   template <class... _ArgTypes>
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 typename __invoke_of<type&, _ArgTypes...>::type
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __invoke_result_t<type&, _ArgTypes...>
   operator()(_ArgTypes&&... __args) const
 #if _LIBCPP_STD_VER >= 17
       // Since is_nothrow_invocable requires C++17 LWG3764 is not backported

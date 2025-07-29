@@ -14,13 +14,12 @@
 #include <__config>
 #include <__iterator/access.h>
 #include <__memory/addressof.h>
-#include <__memory/voidify.h>
+#include <__new/placement_new_delete.h>
 #include <__type_traits/enable_if.h>
 #include <__type_traits/is_array.h>
 #include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/move.h>
-#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -38,7 +37,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Tp, class... _Args, class = decltype(::new(std::declval<void*>()) _Tp(std::declval<_Args>()...))>
 _LIBCPP_HIDE_FROM_ABI constexpr _Tp* construct_at(_Tp* __location, _Args&&... __args) {
   _LIBCPP_ASSERT_NON_NULL(__location != nullptr, "null pointer given to construct_at");
-  return ::new (std::__voidify(*__location)) _Tp(std::forward<_Args>(__args)...);
+  return ::new (static_cast<void*>(__location)) _Tp(std::forward<_Args>(__args)...);
 }
 
 #endif
@@ -49,7 +48,7 @@ _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _Tp* __construct_at(_Tp* __l
   return std::construct_at(__location, std::forward<_Args>(__args)...);
 #else
   return _LIBCPP_ASSERT_NON_NULL(__location != nullptr, "null pointer given to construct_at"),
-         ::new (std::__voidify(*__location)) _Tp(std::forward<_Args>(__args)...);
+         ::new (static_cast<void*>(__location)) _Tp(std::forward<_Args>(__args)...);
 #endif
 }
 

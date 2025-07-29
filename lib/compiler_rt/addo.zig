@@ -1,6 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const is_test = builtin.is_test;
 const common = @import("./common.zig");
 pub const panic = @import("common.zig").panic;
 
@@ -16,7 +14,7 @@ comptime {
 // - addoXi4_generic as default
 
 inline fn addoXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST {
-    @setRuntimeSafety(builtin.is_test);
+    @setRuntimeSafety(common.test_safety);
     overflow.* = 0;
     const sum: ST = a +% b;
     // Hackers Delight: section Overflow Detection, subsection Signed Add/Subtract
@@ -31,13 +29,13 @@ inline fn addoXi4_generic(comptime ST: type, a: ST, b: ST, overflow: *c_int) ST 
     return sum;
 }
 
-pub fn __addosi4(a: i32, b: i32, overflow: *c_int) callconv(.C) i32 {
+pub fn __addosi4(a: i32, b: i32, overflow: *c_int) callconv(.c) i32 {
     return addoXi4_generic(i32, a, b, overflow);
 }
-pub fn __addodi4(a: i64, b: i64, overflow: *c_int) callconv(.C) i64 {
+pub fn __addodi4(a: i64, b: i64, overflow: *c_int) callconv(.c) i64 {
     return addoXi4_generic(i64, a, b, overflow);
 }
-pub fn __addoti4(a: i128, b: i128, overflow: *c_int) callconv(.C) i128 {
+pub fn __addoti4(a: i128, b: i128, overflow: *c_int) callconv(.c) i128 {
     return addoXi4_generic(i128, a, b, overflow);
 }
 

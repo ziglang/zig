@@ -26,7 +26,7 @@ pub const FindError = error{
 pub fn parse(
     allocator: Allocator,
     libc_file: []const u8,
-    target: std.Target,
+    target: *const std.Target,
 ) !LibCInstallation {
     var self: LibCInstallation = .{};
 
@@ -81,7 +81,7 @@ pub fn parse(
     }
 
     const os_tag = target.os.tag;
-    if (self.crt_dir == null and !target.isDarwin()) {
+    if (self.crt_dir == null and !target.os.tag.isDarwin()) {
         log.err("crt_dir may not be empty for {s}", .{@tagName(os_tag)});
         return error.ParseError;
     }
@@ -157,7 +157,7 @@ pub fn render(self: LibCInstallation, out: anytype) !void {
 
 pub const FindNativeOptions = struct {
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
 
     /// If enabled, will print human-friendly errors to stderr.
     verbose: bool = false,
@@ -167,7 +167,7 @@ pub const FindNativeOptions = struct {
 pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
     var self: LibCInstallation = .{};
 
-    if (is_darwin and args.target.isDarwin()) {
+    if (is_darwin and args.target.os.tag.isDarwin()) {
         if (!std.zig.system.darwin.isSdkInstalled(args.allocator))
             return error.DarwinSdkNotFound;
         const sdk = std.zig.system.darwin.getSdk(args.allocator, args.target) orelse
@@ -182,7 +182,7 @@ pub fn findNative(args: FindNativeOptions) FindError!LibCInstallation {
         });
         return self;
     } else if (is_windows) {
-        const sdk = std.zig.WindowsSdk.find(args.allocator) catch |err| switch (err) {
+        const sdk = std.zig.WindowsSdk.find(args.allocator, args.target.cpu.arch) catch |err| switch (err) {
             error.NotFound => return error.WindowsSdkNotFound,
             error.PathTooLong => return error.WindowsSdkNotFound,
             error.OutOfMemory => return error.OutOfMemory,
@@ -317,7 +317,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
     while (path_i < search_paths.items.len) : (path_i += 1) {
         // search in reverse order
         const search_path_untrimmed = search_paths.items[search_paths.items.len - path_i - 1];
-        const search_path = std.mem.trimLeft(u8, search_path_untrimmed, " ");
+        const search_path = std.mem.trimStart(u8, search_path_untrimmed, " ");
         var search_dir = fs.cwd().openDir(search_path, .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
@@ -370,7 +370,7 @@ fn findNativeIncludeDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
+        try result_buf.print("{s}\\Include\\{s}\\ucrt", .{ install.path, install.version });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -407,7 +407,7 @@ fn findNativeCrtDirWindows(
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",
@@ -417,7 +417,7 @@ fn findNativeCrtDirWindows(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        try result_buf.writer().print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\ucrt\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -444,7 +444,7 @@ fn findNativeCrtDirPosix(self: *LibCInstallation, args: FindNativeOptions) FindE
     self.crt_dir = try ccPrintFileName(.{
         .allocator = args.allocator,
         .search_basename = switch (args.target.os.tag) {
-            .linux => if (args.target.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
+            .linux => if (args.target.abi.isAndroid()) "crtbegin_dynamic.o" else "crt1.o",
             else => "crt1.o",
         },
         .want_dirname = .only_dir,
@@ -474,7 +474,7 @@ fn findNativeKernel32LibDir(
     var result_buf = std.ArrayList(u8).init(allocator);
     defer result_buf.deinit();
 
-    const arch_sub_dir = switch (builtin.target.cpu.arch) {
+    const arch_sub_dir = switch (args.target.cpu.arch) {
         .x86 => "x86",
         .x86_64 => "x64",
         .arm, .armeb => "arm",
@@ -484,8 +484,7 @@ fn findNativeKernel32LibDir(
 
     for (installs) |install| {
         result_buf.shrinkAndFree(0);
-        const stream = result_buf.writer();
-        try stream.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
+        try result_buf.print("{s}\\Lib\\{s}\\um\\{s}", .{ install.path, install.version, arch_sub_dir });
 
         var dir = fs.cwd().openDir(result_buf.items, .{}) catch |err| switch (err) {
             error.FileNotFound,
@@ -700,7 +699,7 @@ pub const CrtBasenames = struct {
     crtn: ?[]const u8 = null,
 
     pub const GetArgs = struct {
-        target: std.Target,
+        target: *const std.Target,
         link_libc: bool,
         output_mode: std.builtin.OutputMode,
         link_mode: std.builtin.LinkMode,
@@ -734,7 +733,7 @@ pub const CrtBasenames = struct {
 
         const target = args.target;
 
-        if (target.isAndroid()) return switch (mode) {
+        if (target.abi.isAndroid()) return switch (mode) {
             .dynamic_lib => .{
                 .crtbegin = "crtbegin_so.o",
                 .crtend = "crtend_so.o",
@@ -965,7 +964,7 @@ pub fn resolveCrtPaths(
     lci: LibCInstallation,
     arena: Allocator,
     crt_basenames: CrtBasenames,
-    target: std.Target,
+    target: *const std.Target,
 ) error{ OutOfMemory, LibCInstallationMissingCrtDir }!CrtPaths {
     const crt_dir_path: Path = .{
         .root_dir = std.Build.Cache.Directory.cwd(),
@@ -1025,7 +1024,7 @@ const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
 
-const is_darwin = builtin.target.isDarwin();
+const is_darwin = builtin.target.os.tag.isDarwin();
 const is_windows = builtin.target.os.tag == .windows;
 const is_haiku = builtin.target.os.tag == .haiku;
 

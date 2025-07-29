@@ -138,7 +138,7 @@ pub const Edwards25519 = struct {
     }
 
     /// Flip the sign of the X coordinate.
-    pub inline fn neg(p: Edwards25519) Edwards25519 {
+    pub fn neg(p: Edwards25519) Edwards25519 {
         return .{ .x = p.x.neg(), .y = p.y, .z = p.z, .t = p.t.neg() };
     }
 
@@ -190,14 +190,14 @@ pub const Edwards25519 = struct {
         return q;
     }
 
-    inline fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) void {
+    fn cMov(p: *Edwards25519, a: Edwards25519, c: u64) void {
         p.x.cMov(a.x, c);
         p.y.cMov(a.y, c);
         p.z.cMov(a.z, c);
         p.t.cMov(a.t, c);
     }
 
-    inline fn pcSelect(comptime n: usize, pc: *const [n]Edwards25519, b: u8) Edwards25519 {
+    fn pcSelect(comptime n: usize, pc: *const [n]Edwards25519, b: u8) Edwards25519 {
         var t = Edwards25519.identityElement;
         comptime var i: u8 = 1;
         inline while (i < pc.len) : (i += 1) {
@@ -546,7 +546,7 @@ test "packing/unpacking" {
     var b = Edwards25519.basePoint;
     const pk = try b.mul(s);
     var buf: [128]u8 = undefined;
-    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{s}", .{std.fmt.fmtSliceHexUpper(&pk.toBytes())}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
+    try std.testing.expectEqualStrings(try std.fmt.bufPrint(&buf, "{X}", .{&pk.toBytes()}), "074BC7E0FCBD587FDBC0969444245FADC562809C8F6E97E949AF62484B5B81A6");
 
     const small_order_ss: [7][32]u8 = .{
         .{

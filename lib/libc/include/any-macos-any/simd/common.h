@@ -158,6 +158,18 @@ static inline SIMD_CFUNC simd_short16 simd_abs(simd_short16 x);
 /*! @abstract The elementwise absolute value of x.                            */
 static inline SIMD_CFUNC simd_short32 simd_abs(simd_short32 x);
 /*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half2 simd_abs(simd_half2 x);
+/*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half3 simd_abs(simd_half3 x);
+/*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half4 simd_abs(simd_half4 x);
+/*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half8 simd_abs(simd_half8 x);
+/*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half16 simd_abs(simd_half16 x);
+/*! @abstract The elementwise absolute value of x.                            */
+static inline SIMD_CFUNC simd_half32 simd_abs(simd_half32 x);
+/*! @abstract The elementwise absolute value of x.                            */
 static inline SIMD_CFUNC simd_int2 simd_abs(simd_int2 x);
 /*! @abstract The elementwise absolute value of x.                            */
 static inline SIMD_CFUNC simd_int3 simd_abs(simd_int3 x);
@@ -249,6 +261,20 @@ static inline SIMD_CFUNC simd_ushort8 simd_max(simd_ushort8 x, simd_ushort8 y);
 static inline SIMD_CFUNC simd_ushort16 simd_max(simd_ushort16 x, simd_ushort16 y);
 /*! @abstract The elementwise maximum of x and y.                             */
 static inline SIMD_CFUNC simd_ushort32 simd_max(simd_ushort32 x, simd_ushort32 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC _Float16 simd_max(_Float16 x, _Float16 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half2 simd_max(simd_half2 x, simd_half2 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half3 simd_max(simd_half3 x, simd_half3 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half4 simd_max(simd_half4 x, simd_half4 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half8 simd_max(simd_half8 x, simd_half8 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half16 simd_max(simd_half16 x, simd_half16 y);
+/*! @abstract The elementwise maximum of x and y.                             */
+static inline SIMD_CFUNC simd_half32 simd_max(simd_half32 x, simd_half32 y);
 /*! @abstract The elementwise maximum of x and y.                             */
 static inline SIMD_CFUNC simd_int2 simd_max(simd_int2 x, simd_int2 y);
 /*! @abstract The elementwise maximum of x and y.                             */
@@ -363,6 +389,20 @@ static inline SIMD_CFUNC simd_ushort8 simd_min(simd_ushort8 x, simd_ushort8 y);
 static inline SIMD_CFUNC simd_ushort16 simd_min(simd_ushort16 x, simd_ushort16 y);
 /*! @abstract The elementwise minimum of x and y.                             */
 static inline SIMD_CFUNC simd_ushort32 simd_min(simd_ushort32 x, simd_ushort32 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC _Float16 simd_min(_Float16 x, _Float16 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half2 simd_min(simd_half2 x, simd_half2 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half3 simd_min(simd_half3 x, simd_half3 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half4 simd_min(simd_half4 x, simd_half4 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half8 simd_min(simd_half8 x, simd_half8 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half16 simd_min(simd_half16 x, simd_half16 y);
+/*! @abstract The elementwise minimum of x and y.                             */
+static inline SIMD_CFUNC simd_half32 simd_min(simd_half32 x, simd_half32 y);
 /*! @abstract The elementwise minimum of x and y.                             */
 static inline SIMD_CFUNC simd_int2 simd_min(simd_int2 x, simd_int2 y);
 /*! @abstract The elementwise minimum of x and y.                             */
@@ -533,6 +573,34 @@ static inline SIMD_CFUNC simd_ushort32 simd_clamp(simd_ushort32 x, simd_ushort32
 /*! @abstract x clamped to the range [min, max].
  *  @discussion Note that if you want to clamp all lanes to the same range,
  *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC _Float16 simd_clamp(_Float16 x, _Float16 min, _Float16 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half2 simd_clamp(simd_half2 x, simd_half2 min, simd_half2 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half3 simd_clamp(simd_half3 x, simd_half3 min, simd_half3 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half4 simd_clamp(simd_half4 x, simd_half4 min, simd_half4 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half8 simd_clamp(simd_half8 x, simd_half8 min, simd_half8 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half16 simd_clamp(simd_half16 x, simd_half16 min, simd_half16 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
+static inline SIMD_CFUNC simd_half32 simd_clamp(simd_half32 x, simd_half32 min, simd_half32 max);
+/*! @abstract x clamped to the range [min, max].
+ *  @discussion Note that if you want to clamp all lanes to the same range,
+ *  you can use a scalar value for min and max.                               */
 static inline SIMD_CFUNC simd_int2 simd_clamp(simd_int2 x, simd_int2 min, simd_int2 max);
 /*! @abstract x clamped to the range [min, max].
  *  @discussion Note that if you want to clamp all lanes to the same range,
@@ -651,6 +719,20 @@ static inline SIMD_CFUNC simd_double8 simd_clamp(simd_double8 x, simd_double8 mi
 #define vector_clamp simd_clamp
   
 /*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC _Float16 simd_sign(_Float16 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half2 simd_sign(simd_half2 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half3 simd_sign(simd_half3 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half4 simd_sign(simd_half4 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half8 simd_sign(simd_half8 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half16 simd_sign(simd_half16 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
+static inline SIMD_CFUNC simd_half32 simd_sign(simd_half32 x);
+/*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
 static inline SIMD_CFUNC float simd_sign(float x);
 /*! @abstract -1 if x is negative, +1 if x is positive, and 0 otherwise.      */
 static inline SIMD_CFUNC simd_float2 simd_sign(simd_float2 x);
@@ -676,6 +758,27 @@ static inline SIMD_CFUNC simd_double8 simd_sign(simd_double8 x);
  *  @discussion Deprecated. Use simd_sign(x) instead.                         */
 #define vector_sign simd_sign
 
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC _Float16 simd_mix(_Float16 x, _Float16 y, _Float16 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half2 simd_mix(simd_half2 x, simd_half2 y, simd_half2 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half3 simd_mix(simd_half3 x, simd_half3 y, simd_half3 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half4 simd_mix(simd_half4 x, simd_half4 y, simd_half4 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half8 simd_mix(simd_half8 x, simd_half8 y, simd_half8 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half16 simd_mix(simd_half16 x, simd_half16 y, simd_half16 t);
+/*! @abstract Linearly interpolates between x and y, taking the value x when
+ *  t=0 and y when t=1                                                        */
+static inline SIMD_CFUNC simd_half32 simd_mix(simd_half32 x, simd_half32 y, simd_half32 t);
 /*! @abstract Linearly interpolates between x and y, taking the value x when
  *  t=0 and y when t=1                                                        */
 static inline SIMD_CFUNC float simd_mix(float x, float y, float t);
@@ -715,6 +818,41 @@ static inline SIMD_CFUNC simd_double8 simd_mix(simd_double8 x, simd_double8 y, s
 #define vector_mix simd_mix
 #define simd_lerp simd_mix
 
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC _Float16 simd_precise_recip(_Float16 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half2 simd_precise_recip(simd_half2 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half3 simd_precise_recip(simd_half3 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half4 simd_precise_recip(simd_half4 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half8 simd_precise_recip(simd_half8 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half16 simd_precise_recip(simd_half16 x);
+/*! @abstract A good approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  a few units in the last place (ULPs).                                     */
+static inline SIMD_CFUNC simd_half32 simd_precise_recip(simd_half32 x);
 /*! @abstract A good approximation to 1/x.
  *  @discussion If x is very close to the limits of representation, the
  *  result may overflow or underflow; otherwise this function is accurate to
@@ -778,6 +916,41 @@ static inline SIMD_CFUNC simd_double8 simd_precise_recip(simd_double8 x);
  *  @discussion If x is very close to the limits of representation, the
  *  result may overflow or underflow; otherwise this function is accurate to
  *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC _Float16 simd_fast_recip(_Float16 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half2 simd_fast_recip(simd_half2 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half3 simd_fast_recip(simd_half3 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half4 simd_fast_recip(simd_half4 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half8 simd_fast_recip(simd_half8 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half16 simd_fast_recip(simd_half16 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
+static inline SIMD_CFUNC simd_half32 simd_fast_recip(simd_half32 x);
+/*! @abstract A fast approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow; otherwise this function is accurate to
+ *  at least 11 bits for float and 22 bits for double.                        */
 static inline SIMD_CFUNC float simd_fast_recip(float x);
 /*! @abstract A fast approximation to 1/x.
  *  @discussion If x is very close to the limits of representation, the
@@ -833,6 +1006,48 @@ static inline SIMD_CFUNC simd_double8 simd_fast_recip(simd_double8 x);
  *  @discussion Deprecated. Use simd_fast_recip(x) instead.                   */
 #define vector_fast_recip simd_fast_recip
 
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC _Float16 simd_recip(_Float16 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half2 simd_recip(simd_half2 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half3 simd_recip(simd_half3 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half4 simd_recip(simd_half4 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half8 simd_recip(simd_half8 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half16 simd_recip(simd_half16 x);
+/*! @abstract An approximation to 1/x.
+ *  @discussion If x is very close to the limits of representation, the
+ *  result may overflow or underflow. This function maps to
+ *  simd_fast_recip(x) if -ffast-math is specified, and to
+ *  simd_precise_recip(x) otherwise.                                          */
+static inline SIMD_CFUNC simd_half32 simd_recip(simd_half32 x);
 /*! @abstract An approximation to 1/x.
  *  @discussion If x is very close to the limits of representation, the
  *  result may overflow or underflow. This function maps to
@@ -906,6 +1121,34 @@ static inline SIMD_CFUNC simd_double8 simd_recip(simd_double8 x);
 /*! @abstract A good approximation to 1/sqrt(x).
  *  @discussion This function is accurate to a few units in the last place
  *  (ULPs).                                                                   */
+static inline SIMD_CFUNC _Float16 simd_precise_rsqrt(_Float16 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half2 simd_precise_rsqrt(simd_half2 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half3 simd_precise_rsqrt(simd_half3 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half4 simd_precise_rsqrt(simd_half4 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half8 simd_precise_rsqrt(simd_half8 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half16 simd_precise_rsqrt(simd_half16 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
+static inline SIMD_CFUNC simd_half32 simd_precise_rsqrt(simd_half32 x);
+/*! @abstract A good approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to a few units in the last place
+ *  (ULPs).                                                                   */
 static inline SIMD_CFUNC float simd_precise_rsqrt(float x);
 /*! @abstract A good approximation to 1/sqrt(x).
  *  @discussion This function is accurate to a few units in the last place
@@ -951,6 +1194,34 @@ static inline SIMD_CFUNC simd_double8 simd_precise_rsqrt(simd_double8 x);
  *  @discussion Deprecated. Use simd_precise_rsqrt(x) instead.                */
 #define vector_precise_rsqrt simd_precise_rsqrt
 
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC _Float16 simd_fast_rsqrt(_Float16 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half2 simd_fast_rsqrt(simd_half2 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half3 simd_fast_rsqrt(simd_half3 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half4 simd_fast_rsqrt(simd_half4 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half8 simd_fast_rsqrt(simd_half8 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half16 simd_fast_rsqrt(simd_half16 x);
+/*! @abstract A fast approximation to 1/sqrt(x).
+ *  @discussion This function is accurate to at least 11 bits for float and
+ *  22 bits for double.                                                       */
+static inline SIMD_CFUNC simd_half32 simd_fast_rsqrt(simd_half32 x);
 /*! @abstract A fast approximation to 1/sqrt(x).
  *  @discussion This function is accurate to at least 11 bits for float and
  *  22 bits for double.                                                       */
@@ -1002,6 +1273,34 @@ static inline SIMD_CFUNC simd_double8 simd_fast_rsqrt(simd_double8 x);
 /*! @abstract An approximation to 1/sqrt(x).
  *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
  *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC _Float16 simd_rsqrt(_Float16 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half2 simd_rsqrt(simd_half2 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half3 simd_rsqrt(simd_half3 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half4 simd_rsqrt(simd_half4 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half8 simd_rsqrt(simd_half8 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half16 simd_rsqrt(simd_half16 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
+static inline SIMD_CFUNC simd_half32 simd_rsqrt(simd_half32 x);
+/*! @abstract An approximation to 1/sqrt(x).
+ *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
+ *  specified, and to simd_precise_recip(x) otherwise.                        */
 static inline SIMD_CFUNC float simd_rsqrt(float x);
 /*! @abstract An approximation to 1/sqrt(x).
  *  @discussion This function maps to simd_fast_recip(x) if -ffast-math is
@@ -1047,6 +1346,34 @@ static inline SIMD_CFUNC simd_double8 simd_rsqrt(simd_double8 x);
  *  @discussion Deprecated. Use simd_rsqrt(x) instead.                        */
 #define vector_rsqrt simd_rsqrt
 
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC _Float16 simd_fract(_Float16 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half2 simd_fract(simd_half2 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half3 simd_fract(simd_half3 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half4 simd_fract(simd_half4 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half8 simd_fract(simd_half8 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half16 simd_fract(simd_half16 x);
+/*! @abstract The "fractional part" of x, lying in the range [0, 1).
+ *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
+ *  positive and finite, then the two values are exactly equal.               */
+static inline SIMD_CFUNC simd_half32 simd_fract(simd_half32 x);
 /*! @abstract The "fractional part" of x, lying in the range [0, 1).
  *  @discussion floor(x) + fract(x) is *approximately* equal to x. If x is
  *  positive and finite, then the two values are exactly equal.               */
@@ -1098,6 +1425,34 @@ static inline SIMD_CFUNC simd_double8 simd_fract(simd_double8 x);
 /*! @abstract 0 if x < edge, and 1 otherwise.
  *  @discussion Use a scalar value for edge if you want to apply the same
  *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC _Float16 simd_step(_Float16 edge, _Float16 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half2 simd_step(simd_half2 edge, simd_half2 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half3 simd_step(simd_half3 edge, simd_half3 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half4 simd_step(simd_half4 edge, simd_half4 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half8 simd_step(simd_half8 edge, simd_half8 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half16 simd_step(simd_half16 edge, simd_half16 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
+static inline SIMD_CFUNC simd_half32 simd_step(simd_half32 edge, simd_half32 x);
+/*! @abstract 0 if x < edge, and 1 otherwise.
+ *  @discussion Use a scalar value for edge if you want to apply the same
+ *  threshold to all lanes.                                                   */
 static inline SIMD_CFUNC float simd_step(float edge, float x);
 /*! @abstract 0 if x < edge, and 1 otherwise.
  *  @discussion Use a scalar value for edge if you want to apply the same
@@ -1143,6 +1498,34 @@ static inline SIMD_CFUNC simd_double8 simd_step(simd_double8 edge, simd_double8 
  *  @discussion Deprecated. Use simd_step(edge, x) instead.                   */
 #define vector_step simd_step
 
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC _Float16 simd_smoothstep(_Float16 edge0, _Float16 edge1, _Float16 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half2 simd_smoothstep(simd_half2 edge0, simd_half2 edge1, simd_half2 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half3 simd_smoothstep(simd_half3 edge0, simd_half3 edge1, simd_half3 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half4 simd_smoothstep(simd_half4 edge0, simd_half4 edge1, simd_half4 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half8 simd_smoothstep(simd_half8 edge0, simd_half8 edge1, simd_half8 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half16 simd_smoothstep(simd_half16 edge0, simd_half16 edge1, simd_half16 x);
+/*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
+ *  @discussion You can use a scalar value for edge0 and edge1 if you want
+ *  to clamp all lanes at the same points.                                    */
+static inline SIMD_CFUNC simd_half32 simd_smoothstep(simd_half32 edge0, simd_half32 edge1, simd_half32 x);
 /*! @abstract Interpolates smoothly between 0 at edge0 and 1 at edge1
  *  @discussion You can use a scalar value for edge0 and edge1 if you want
  *  to clamp all lanes at the same points.                                    */
@@ -1295,6 +1678,30 @@ static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort16 x);
  *  @discussion This computation may overflow; especial for 8-bit types you
  *  may need to convert to a wider type before reducing.                      */
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort32 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half2 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half3 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half4 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half8 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half16 x);
+/*! @abstract Sum of elements in x.
+ *  @discussion This computation may overflow; especial for 8-bit types you
+ *  may need to convert to a wider type before reducing.                      */
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half32 x);
 /*! @abstract Sum of elements in x.
  *  @discussion This computation may overflow; especial for 8-bit types you
  *  may need to convert to a wider type before reducing.                      */
@@ -1460,6 +1867,18 @@ static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort16 x);
 /*! @abstract Minimum of elements in x.                                       */
 static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort32 x);
 /*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half2 x);
+/*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half3 x);
+/*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half4 x);
+/*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half8 x);
+/*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half16 x);
+/*! @abstract Minimum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half32 x);
+/*! @abstract Minimum of elements in x.                                       */
 static inline SIMD_CFUNC int simd_reduce_min(simd_int2 x);
 /*! @abstract Minimum of elements in x.                                       */
 static inline SIMD_CFUNC int simd_reduce_min(simd_int3 x);
@@ -1569,6 +1988,18 @@ static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort8 x);
 static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort16 x);
 /*! @abstract Maximum of elements in x.                                       */
 static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort32 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half2 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half3 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half4 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half8 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half16 x);
+/*! @abstract Maximum of elements in x.                                       */
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half32 x);
 /*! @abstract Maximum of elements in x.                                       */
 static inline SIMD_CFUNC int simd_reduce_max(simd_int2 x);
 /*! @abstract Maximum of elements in x.                                       */
@@ -1755,6 +2186,36 @@ static inline SIMD_CFUNC simd_bool simd_equal(simd_ushort16 x, simd_ushort16 y) 
 /*! @abstract True if and only if each lane of x is equal to the
  *  corresponding lane of y.                                                  */
 static inline SIMD_CFUNC simd_bool simd_equal(simd_ushort32 x, simd_ushort32 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half2 x, simd_half2 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half3 x, simd_half3 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half4 x, simd_half4 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half8 x, simd_half8 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half16 x, simd_half16 y) {
+  return simd_all(x == y);
+}
+/*! @abstract True if and only if each lane of x is equal to the
+ *  corresponding lane of y.                                                  */
+static inline SIMD_CFUNC simd_bool simd_equal(simd_half32 x, simd_half32 y) {
   return simd_all(x == y);
 }
 /*! @abstract True if and only if each lane of x is equal to the
@@ -1969,7 +2430,7 @@ static inline SIMD_CFUNC simd_char4 simd_abs(simd_char4 x) {
 }
 
 static inline SIMD_CFUNC simd_char8 simd_abs(simd_char8 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabs_s8(x);
 #else
   return simd_make_char8(simd_abs(simd_make_char16_undef(x)));
@@ -1977,7 +2438,7 @@ static inline SIMD_CFUNC simd_char8 simd_abs(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC simd_char16 simd_abs(simd_char16 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabsq_s8(x);
 #elif defined __SSE4_1__
   return (simd_char16) _mm_abs_epi8((__m128i)x);
@@ -2011,7 +2472,7 @@ static inline SIMD_CFUNC simd_short3 simd_abs(simd_short3 x) {
 }
 
 static inline SIMD_CFUNC simd_short4 simd_abs(simd_short4 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabs_s16(x);
 #else
   return simd_make_short4(simd_abs(simd_make_short8_undef(x)));
@@ -2019,7 +2480,7 @@ static inline SIMD_CFUNC simd_short4 simd_abs(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC simd_short8 simd_abs(simd_short8 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabsq_s16(x);
 #elif defined __SSE4_1__
   return (simd_short8) _mm_abs_epi16((__m128i)x);
@@ -2044,8 +2505,32 @@ static inline SIMD_CFUNC simd_short32 simd_abs(simd_short32 x) {
 #endif
 }
 
+static inline SIMD_CFUNC simd_half2 simd_abs(simd_half2 x) {
+  return __tg_fabs(x);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_abs(simd_half3 x) {
+  return __tg_fabs(x);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_abs(simd_half4 x) {
+  return __tg_fabs(x);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_abs(simd_half8 x) {
+  return __tg_fabs(x);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_abs(simd_half16 x) {
+  return __tg_fabs(x);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_abs(simd_half32 x) {
+  return __tg_fabs(x);
+}
+
 static inline SIMD_CFUNC simd_int2 simd_abs(simd_int2 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabs_s32(x);
 #else
   return simd_make_int2(simd_abs(simd_make_int4_undef(x)));
@@ -2057,7 +2542,7 @@ static inline SIMD_CFUNC simd_int3 simd_abs(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC simd_int4 simd_abs(simd_int4 x) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vabsq_s32(x);
 #elif defined __SSE4_1__
   return (simd_int4) _mm_abs_epi32((__m128i)x);
@@ -2103,7 +2588,7 @@ static inline SIMD_CFUNC simd_float16 simd_abs(simd_float16 x) {
 }
 
 static inline SIMD_CFUNC simd_long2 simd_abs(simd_long2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vabsq_s64(x);
 #elif defined __AVX512VL__
   return (simd_long2) _mm_abs_epi64((__m128i)x);
@@ -2161,7 +2646,7 @@ static inline SIMD_CFUNC simd_char4 simd_min(simd_char4 x, simd_char4 y) {
 }
 
 static inline SIMD_CFUNC simd_char8 simd_min(simd_char8 x, simd_char8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_s8(x, y);
 #else
   return simd_make_char8(simd_min(simd_make_char16_undef(x), simd_make_char16_undef(y)));
@@ -2170,7 +2655,7 @@ static inline SIMD_CFUNC simd_char8 simd_min(simd_char8 x, simd_char8 y) {
 }
 
 static inline SIMD_CFUNC simd_char16 simd_min(simd_char16 x, simd_char16 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_s8(x, y);
 #elif defined __SSE4_1__
   return (simd_char16) _mm_min_epi8((__m128i)x, (__m128i)y);
@@ -2208,7 +2693,7 @@ static inline SIMD_CFUNC simd_uchar4 simd_min(simd_uchar4 x, simd_uchar4 y) {
 }
 
 static inline SIMD_CFUNC simd_uchar8 simd_min(simd_uchar8 x, simd_uchar8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_u8(x, y);
 #else
   return simd_make_uchar8(simd_min(simd_make_uchar16_undef(x), simd_make_uchar16_undef(y)));
@@ -2217,7 +2702,7 @@ static inline SIMD_CFUNC simd_uchar8 simd_min(simd_uchar8 x, simd_uchar8 y) {
 }
 
 static inline SIMD_CFUNC simd_uchar16 simd_min(simd_uchar16 x, simd_uchar16 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_u8(x, y);
 #elif defined __SSE4_1__
   return (simd_uchar16) _mm_min_epu8((__m128i)x, (__m128i)y);
@@ -2251,7 +2736,7 @@ static inline SIMD_CFUNC simd_short3 simd_min(simd_short3 x, simd_short3 y) {
 }
 
 static inline SIMD_CFUNC simd_short4 simd_min(simd_short4 x, simd_short4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_s16(x, y);
 #else
   return simd_make_short4(simd_min(simd_make_short8_undef(x), simd_make_short8_undef(y)));
@@ -2260,7 +2745,7 @@ static inline SIMD_CFUNC simd_short4 simd_min(simd_short4 x, simd_short4 y) {
 }
 
 static inline SIMD_CFUNC simd_short8 simd_min(simd_short8 x, simd_short8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_s16(x, y);
 #elif defined __SSE4_1__
   return (simd_short8) _mm_min_epi16((__m128i)x, (__m128i)y);
@@ -2294,7 +2779,7 @@ static inline SIMD_CFUNC simd_ushort3 simd_min(simd_ushort3 x, simd_ushort3 y) {
 }
 
 static inline SIMD_CFUNC simd_ushort4 simd_min(simd_ushort4 x, simd_ushort4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_u16(x, y);
 #else
   return simd_make_ushort4(simd_min(simd_make_ushort8_undef(x), simd_make_ushort8_undef(y)));
@@ -2303,7 +2788,7 @@ static inline SIMD_CFUNC simd_ushort4 simd_min(simd_ushort4 x, simd_ushort4 y) {
 }
 
 static inline SIMD_CFUNC simd_ushort8 simd_min(simd_ushort8 x, simd_ushort8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_u16(x, y);
 #elif defined __SSE4_1__
   return (simd_ushort8) _mm_min_epu16((__m128i)x, (__m128i)y);
@@ -2328,8 +2813,36 @@ static inline SIMD_CFUNC simd_ushort32 simd_min(simd_ushort32 x, simd_ushort32 y
 #endif
 }
 
+static inline SIMD_CFUNC _Float16 simd_min(_Float16 x, _Float16 y) {
+  return __fminf16(x,y);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_min(simd_half2 x, simd_half2 y) {
+  return __tg_fmin(x,y);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_min(simd_half3 x, simd_half3 y) {
+  return __tg_fmin(x,y);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_min(simd_half4 x, simd_half4 y) {
+  return __tg_fmin(x,y);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_min(simd_half8 x, simd_half8 y) {
+  return __tg_fmin(x,y);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_min(simd_half16 x, simd_half16 y) {
+  return __tg_fmin(x,y);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_min(simd_half32 x, simd_half32 y) {
+  return __tg_fmin(x,y);
+}
+
 static inline SIMD_CFUNC simd_int2 simd_min(simd_int2 x, simd_int2 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_s32(x, y);
 #else
   return simd_make_int2(simd_min(simd_make_int4_undef(x), simd_make_int4_undef(y)));
@@ -2342,7 +2855,7 @@ static inline SIMD_CFUNC simd_int3 simd_min(simd_int3 x, simd_int3 y) {
 }
 
 static inline SIMD_CFUNC simd_int4 simd_min(simd_int4 x, simd_int4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_s32(x, y);
 #elif defined __SSE4_1__
   return (simd_int4) _mm_min_epi32((__m128i)x, (__m128i)y);
@@ -2368,7 +2881,7 @@ static inline SIMD_CFUNC simd_int16 simd_min(simd_int16 x, simd_int16 y) {
 }
 
 static inline SIMD_CFUNC simd_uint2 simd_min(simd_uint2 x, simd_uint2 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmin_u32(x, y);
 #else
   return simd_make_uint2(simd_min(simd_make_uint4_undef(x), simd_make_uint4_undef(y)));
@@ -2381,7 +2894,7 @@ static inline SIMD_CFUNC simd_uint3 simd_min(simd_uint3 x, simd_uint3 y) {
 }
 
 static inline SIMD_CFUNC simd_uint4 simd_min(simd_uint4 x, simd_uint4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vminq_u32(x, y);
 #elif defined __SSE4_1__
   return (simd_uint4) _mm_min_epu32((__m128i)x, (__m128i)y);
@@ -2519,7 +3032,7 @@ static inline SIMD_CFUNC simd_char4 simd_max(simd_char4 x, simd_char4 y) {
 }
 
 static inline SIMD_CFUNC simd_char8 simd_max(simd_char8 x, simd_char8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_s8(x, y);
 #else
   return simd_make_char8(simd_max(simd_make_char16_undef(x), simd_make_char16_undef(y)));
@@ -2528,7 +3041,7 @@ static inline SIMD_CFUNC simd_char8 simd_max(simd_char8 x, simd_char8 y) {
 }
 
 static inline SIMD_CFUNC simd_char16 simd_max(simd_char16 x, simd_char16 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_s8(x, y);
 #elif defined __SSE4_1__
   return (simd_char16) _mm_max_epi8((__m128i)x, (__m128i)y);
@@ -2566,7 +3079,7 @@ static inline SIMD_CFUNC simd_uchar4 simd_max(simd_uchar4 x, simd_uchar4 y) {
 }
 
 static inline SIMD_CFUNC simd_uchar8 simd_max(simd_uchar8 x, simd_uchar8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_u8(x, y);
 #else
   return simd_make_uchar8(simd_max(simd_make_uchar16_undef(x), simd_make_uchar16_undef(y)));
@@ -2575,7 +3088,7 @@ static inline SIMD_CFUNC simd_uchar8 simd_max(simd_uchar8 x, simd_uchar8 y) {
 }
 
 static inline SIMD_CFUNC simd_uchar16 simd_max(simd_uchar16 x, simd_uchar16 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_u8(x, y);
 #elif defined __SSE4_1__
   return (simd_uchar16) _mm_max_epu8((__m128i)x, (__m128i)y);
@@ -2609,7 +3122,7 @@ static inline SIMD_CFUNC simd_short3 simd_max(simd_short3 x, simd_short3 y) {
 }
 
 static inline SIMD_CFUNC simd_short4 simd_max(simd_short4 x, simd_short4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_s16(x, y);
 #else
   return simd_make_short4(simd_max(simd_make_short8_undef(x), simd_make_short8_undef(y)));
@@ -2618,7 +3131,7 @@ static inline SIMD_CFUNC simd_short4 simd_max(simd_short4 x, simd_short4 y) {
 }
 
 static inline SIMD_CFUNC simd_short8 simd_max(simd_short8 x, simd_short8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_s16(x, y);
 #elif defined __SSE4_1__
   return (simd_short8) _mm_max_epi16((__m128i)x, (__m128i)y);
@@ -2652,7 +3165,7 @@ static inline SIMD_CFUNC simd_ushort3 simd_max(simd_ushort3 x, simd_ushort3 y) {
 }
 
 static inline SIMD_CFUNC simd_ushort4 simd_max(simd_ushort4 x, simd_ushort4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_u16(x, y);
 #else
   return simd_make_ushort4(simd_max(simd_make_ushort8_undef(x), simd_make_ushort8_undef(y)));
@@ -2661,7 +3174,7 @@ static inline SIMD_CFUNC simd_ushort4 simd_max(simd_ushort4 x, simd_ushort4 y) {
 }
 
 static inline SIMD_CFUNC simd_ushort8 simd_max(simd_ushort8 x, simd_ushort8 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_u16(x, y);
 #elif defined __SSE4_1__
   return (simd_ushort8) _mm_max_epu16((__m128i)x, (__m128i)y);
@@ -2686,8 +3199,36 @@ static inline SIMD_CFUNC simd_ushort32 simd_max(simd_ushort32 x, simd_ushort32 y
 #endif
 }
 
+static inline SIMD_CFUNC _Float16 simd_max(_Float16 x, _Float16 y) {
+  return __fmaxf16(x,y);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_max(simd_half2 x, simd_half2 y) {
+  return __tg_fmax(x,y);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_max(simd_half3 x, simd_half3 y) {
+  return __tg_fmax(x,y);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_max(simd_half4 x, simd_half4 y) {
+  return __tg_fmax(x,y);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_max(simd_half8 x, simd_half8 y) {
+  return __tg_fmax(x,y);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_max(simd_half16 x, simd_half16 y) {
+  return __tg_fmax(x,y);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_max(simd_half32 x, simd_half32 y) {
+  return __tg_fmax(x,y);
+}
+
 static inline SIMD_CFUNC simd_int2 simd_max(simd_int2 x, simd_int2 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_s32(x, y);
 #else
   return simd_make_int2(simd_max(simd_make_int4_undef(x), simd_make_int4_undef(y)));
@@ -2700,7 +3241,7 @@ static inline SIMD_CFUNC simd_int3 simd_max(simd_int3 x, simd_int3 y) {
 }
 
 static inline SIMD_CFUNC simd_int4 simd_max(simd_int4 x, simd_int4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_s32(x, y);
 #elif defined __SSE4_1__
   return (simd_int4) _mm_max_epi32((__m128i)x, (__m128i)y);
@@ -2726,7 +3267,7 @@ static inline SIMD_CFUNC simd_int16 simd_max(simd_int16 x, simd_int16 y) {
 }
 
 static inline SIMD_CFUNC simd_uint2 simd_max(simd_uint2 x, simd_uint2 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmax_u32(x, y);
 #else
   return simd_make_uint2(simd_max(simd_make_uint4_undef(x), simd_make_uint4_undef(y)));
@@ -2739,7 +3280,7 @@ static inline SIMD_CFUNC simd_uint3 simd_max(simd_uint3 x, simd_uint3 y) {
 }
 
 static inline SIMD_CFUNC simd_uint4 simd_max(simd_uint4 x, simd_uint4 y) {
-#if defined __arm__ || defined __arm64__
+#if defined __arm__ || defined __arm64__ || defined __aarch64__
   return vmaxq_u32(x, y);
 #elif defined __SSE4_1__
   return (simd_uint4) _mm_max_epu32((__m128i)x, (__m128i)y);
@@ -2968,6 +3509,34 @@ static inline SIMD_CFUNC simd_ushort32 simd_clamp(simd_ushort32 x, simd_ushort32
   return simd_min(simd_max(x, min), max);
 }
 
+static inline SIMD_CFUNC _Float16 simd_clamp(_Float16 x, _Float16 min, _Float16 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_clamp(simd_half2 x, simd_half2 min, simd_half2 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_clamp(simd_half3 x, simd_half3 min, simd_half3 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_clamp(simd_half4 x, simd_half4 min, simd_half4 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_clamp(simd_half8 x, simd_half8 min, simd_half8 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_clamp(simd_half16 x, simd_half16 min, simd_half16 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_clamp(simd_half32 x, simd_half32 min, simd_half32 max) {
+  return simd_min(simd_max(x, min), max);
+}
+
 static inline SIMD_CFUNC simd_int2 simd_clamp(simd_int2 x, simd_int2 min, simd_int2 max) {
   return simd_min(simd_max(x, min), max);
 }
@@ -3084,9 +3653,37 @@ static inline SIMD_CFUNC simd_double8 simd_clamp(simd_double8 x, simd_double8 mi
   return simd_min(simd_max(x, min), max);
 }
 
-  
+
+static inline SIMD_CFUNC _Float16 simd_sign(_Float16 x) {
+  return (x == 0 | x != x) ? 0 : __copysignf16(1,x);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_sign(simd_half2 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_sign(simd_half3 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_sign(simd_half4 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_sign(simd_half8 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_sign(simd_half16 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_sign(simd_half32 x) {
+  return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
+}
+
 static inline SIMD_CFUNC float simd_sign(float x) {
-  return (x == 0 | x != x) ? 0 : copysign(1,x);
+  return (x == 0 | x != x) ? 0 : copysignf(1,x);
 }
 
 static inline SIMD_CFUNC simd_float2 simd_sign(simd_float2 x) {
@@ -3129,6 +3726,34 @@ static inline SIMD_CFUNC simd_double8 simd_sign(simd_double8 x) {
   return simd_bitselect(__tg_copysign(1,x), 0, x == 0 | x != x);
 }
 
+static inline SIMD_CFUNC _Float16 simd_mix(_Float16 x, _Float16 y, _Float16 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half2 simd_mix(simd_half2 x, simd_half2 y, simd_half2 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half3 simd_mix(simd_half3 x, simd_half3 y, simd_half3 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half4 simd_mix(simd_half4 x, simd_half4 y, simd_half4 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half8 simd_mix(simd_half8 x, simd_half8 y, simd_half8 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half16 simd_mix(simd_half16 x, simd_half16 y, simd_half16 t) {
+  return x + t*(y - x);
+}
+  
+static inline SIMD_CFUNC simd_half32 simd_mix(simd_half32 x, simd_half32 y, simd_half32 t) {
+  return x + t*(y - x);
+}
+  
 static inline SIMD_CFUNC float simd_mix(float x, float y, float t) {
   return x + t*(y - x);
 }
@@ -3173,6 +3798,62 @@ static inline SIMD_CFUNC simd_double8 simd_mix(simd_double8 x, simd_double8 y, s
   return x + t*(y - x);
 }
   
+static inline SIMD_CFUNC _Float16 simd_recip(_Float16 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half2 simd_recip(simd_half2 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half3 simd_recip(simd_half3 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half4 simd_recip(simd_half4 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half8 simd_recip(simd_half8 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half16 simd_recip(simd_half16 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half32 simd_recip(simd_half32 x) {
+#if __FAST_MATH__
+  return simd_fast_recip(x);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
 static inline SIMD_CFUNC float simd_recip(float x) {
 #if __FAST_MATH__
   return simd_fast_recip(x);
@@ -3261,13 +3942,55 @@ static inline SIMD_CFUNC simd_double8 simd_recip(simd_double8 x) {
 #endif
 }
 
+static inline SIMD_CFUNC _Float16 simd_fast_recip(_Float16 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return simd_fast_recip(simd_make_half4_undef(x)).x;
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half2 simd_fast_recip(simd_half2 x) {
+  return simd_fast_recip(simd_make_half4_undef(x)).lo;
+}
+
+static inline SIMD_CFUNC simd_half3 simd_fast_recip(simd_half3 x) {
+  return simd_make_half3(simd_fast_recip(simd_make_half4_undef(x)));
+}
+
+static inline SIMD_CFUNC simd_half4 simd_fast_recip(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half4 r = vrecpe_f16(x);
+  return r * vrecps_f16(x, r);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half8 simd_fast_recip(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half8 r = vrecpeq_f16(x);
+  return r * vrecpsq_f16(x, r);
+#else
+  return simd_precise_recip(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half16 simd_fast_recip(simd_half16 x) {
+  return simd_make_half16(simd_fast_recip(x.lo), simd_fast_recip(x.hi));
+}
+
+static inline SIMD_CFUNC simd_half32 simd_fast_recip(simd_half32 x) {
+  return simd_make_half32(simd_fast_recip(x.lo), simd_fast_recip(x.hi));
+}
+
 static inline SIMD_CFUNC float simd_fast_recip(float x) {
 #if defined __AVX512VL__
   simd_float4 x4 = simd_make_float4(x);
   return ((simd_float4)_mm_rcp14_ss(x4, x4)).x;
 #elif defined __SSE__
   return ((simd_float4)_mm_rcp_ss(simd_make_float4(x))).x;
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   return simd_fast_recip(simd_make_float2_undef(x)).x;
 #else
   return simd_precise_recip(x);
@@ -3277,7 +4000,7 @@ static inline SIMD_CFUNC float simd_fast_recip(float x) {
 static inline SIMD_CFUNC simd_float2 simd_fast_recip(simd_float2 x) {
 #if defined __SSE__
   return simd_make_float2(simd_fast_recip(simd_make_float4_undef(x)));
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float2 r = vrecpe_f32(x);
   return r * vrecps_f32(x, r);
 #else
@@ -3294,7 +4017,7 @@ static inline SIMD_CFUNC simd_float4 simd_fast_recip(simd_float4 x) {
   return _mm_rcp14_ps(x);
 #elif defined __SSE__
   return _mm_rcp_ps(x);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float4 r = vrecpeq_f32(x);
   return r * vrecpsq_f32(x, r);
 #else
@@ -3340,11 +4063,53 @@ static inline SIMD_CFUNC simd_double8 simd_fast_recip(simd_double8 x) {
   return simd_precise_recip(x);
 }
 
+static inline SIMD_CFUNC _Float16 simd_precise_recip(_Float16 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return simd_precise_recip(simd_make_half4_undef(x)).x;
+#else
+  return 1/x;
+#endif
+}
+
+static inline SIMD_CFUNC simd_half2 simd_precise_recip(simd_half2 x) {
+  return simd_precise_recip(simd_make_half4_undef(x)).lo;
+}
+
+static inline SIMD_CFUNC simd_half3 simd_precise_recip(simd_half3 x) {
+  return simd_make_half3(simd_precise_recip(simd_make_half4_undef(x)));
+}
+
+static inline SIMD_CFUNC simd_half4 simd_precise_recip(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half4 r = simd_fast_recip(x);
+  return r*vrecps_f16(x, r);
+#else
+  return 1/x;
+#endif
+}
+
+static inline SIMD_CFUNC simd_half8 simd_precise_recip(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half8 r = simd_fast_recip(x);
+  return r*vrecpsq_f16(x, r);
+#else
+  return 1/x;
+#endif
+}
+
+static inline SIMD_CFUNC simd_half16 simd_precise_recip(simd_half16 x) {
+  return simd_make_half16(simd_precise_recip(x.lo), simd_precise_recip(x.hi));
+}
+
+static inline SIMD_CFUNC simd_half32 simd_precise_recip(simd_half32 x) {
+  return simd_make_half32(simd_precise_recip(x.lo), simd_precise_recip(x.hi));
+}
+
 static inline SIMD_CFUNC float simd_precise_recip(float x) {
 #if defined __SSE__
   float r = simd_fast_recip(x);
   return r*(2 - (x == 0 ? -INFINITY : x)*r);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   return simd_precise_recip(simd_make_float2_undef(x)).x;
 #else
   return 1/x;
@@ -3354,7 +4119,7 @@ static inline SIMD_CFUNC float simd_precise_recip(float x) {
 static inline SIMD_CFUNC simd_float2 simd_precise_recip(simd_float2 x) {
 #if defined __SSE__
   return simd_make_float2(simd_precise_recip(simd_make_float4_undef(x)));
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float2 r = simd_fast_recip(x);
   return r*vrecps_f32(x, r);
 #else
@@ -3370,7 +4135,7 @@ static inline SIMD_CFUNC simd_float4 simd_precise_recip(simd_float4 x) {
 #if defined __SSE__
   simd_float4 r = simd_fast_recip(x);
   return r*(2 - simd_bitselect(x, -INFINITY, x == 0)*r);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float4 r = simd_fast_recip(x);
   return r*vrecpsq_f32(x, r);
 #else
@@ -3416,6 +4181,62 @@ static inline SIMD_CFUNC simd_double8 simd_precise_recip(simd_double8 x) {
   return 1/x;
 }
 
+static inline SIMD_CFUNC _Float16 simd_rsqrt(_Float16 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half2 simd_rsqrt(simd_half2 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half3 simd_rsqrt(simd_half3 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half4 simd_rsqrt(simd_half4 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half8 simd_rsqrt(simd_half8 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half16 simd_rsqrt(simd_half16 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half32 simd_rsqrt(simd_half32 x) {
+#if __FAST_MATH__
+  return simd_fast_rsqrt(x);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+  
 static inline SIMD_CFUNC float simd_rsqrt(float x) {
 #if __FAST_MATH__
   return simd_fast_rsqrt(x);
@@ -3504,13 +4325,55 @@ static inline SIMD_CFUNC simd_double8 simd_rsqrt(simd_double8 x) {
 #endif
 }
   
+static inline SIMD_CFUNC _Float16 simd_fast_rsqrt(_Float16 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return simd_fast_rsqrt(simd_make_half4_undef(x)).x;
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half2 simd_fast_rsqrt(simd_half2 x) {
+  return simd_fast_rsqrt(simd_make_half4_undef(x)).lo;
+}
+
+static inline SIMD_CFUNC simd_half3 simd_fast_rsqrt(simd_half3 x) {
+  return simd_make_half3(simd_fast_rsqrt(simd_make_half4_undef(x)));
+}
+
+static inline SIMD_CFUNC simd_half4 simd_fast_rsqrt(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half4 r = vrsqrte_f16(x);
+  return r * vrsqrts_f16(x, r*r);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half8 simd_fast_rsqrt(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half8 r = vrsqrteq_f16(x);
+  return r * vrsqrtsq_f16(x, r*r);
+#else
+  return simd_precise_rsqrt(x);
+#endif
+}
+
+static inline SIMD_CFUNC simd_half16 simd_fast_rsqrt(simd_half16 x) {
+  return simd_make_half16(simd_fast_rsqrt(x.lo), simd_fast_rsqrt(x.hi));
+}
+
+static inline SIMD_CFUNC simd_half32 simd_fast_rsqrt(simd_half32 x) {
+  return simd_make_half32(simd_fast_rsqrt(x.lo), simd_fast_rsqrt(x.hi));
+}
+
 static inline SIMD_CFUNC float simd_fast_rsqrt(float x) {
 #if defined __AVX512VL__
   simd_float4 x4 = simd_make_float4(x);
   return ((simd_float4)_mm_rsqrt14_ss(x4, x4)).x;
 #elif defined __SSE__
   return ((simd_float4)_mm_rsqrt_ss(simd_make_float4(x))).x;
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   return simd_fast_rsqrt(simd_make_float2_undef(x)).x;
 #else
   return simd_precise_rsqrt(x);
@@ -3520,7 +4383,7 @@ static inline SIMD_CFUNC float simd_fast_rsqrt(float x) {
 static inline SIMD_CFUNC simd_float2 simd_fast_rsqrt(simd_float2 x) {
 #if defined __SSE__
   return simd_make_float2(simd_fast_rsqrt(simd_make_float4_undef(x)));
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float2 r = vrsqrte_f32(x);
   return r * vrsqrts_f32(x, r*r);
 #else
@@ -3537,7 +4400,7 @@ static inline SIMD_CFUNC simd_float4 simd_fast_rsqrt(simd_float4 x) {
   return _mm_rsqrt14_ps(x);
 #elif defined __SSE__
   return _mm_rsqrt_ps(x);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float4 r = vrsqrteq_f32(x);
   return r * vrsqrtsq_f32(x, r*r);
 #else
@@ -3583,21 +4446,63 @@ static inline SIMD_CFUNC simd_double8 simd_fast_rsqrt(simd_double8 x) {
   return simd_precise_rsqrt(x);
 }
 
+static inline SIMD_CFUNC _Float16 simd_precise_rsqrt(_Float16 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  return simd_precise_rsqrt(simd_make_half4_undef(x)).x;
+#else
+  return 1/__sqrtf16(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half2 simd_precise_rsqrt(simd_half2 x) {
+  return simd_precise_rsqrt(simd_make_half4_undef(x)).lo;
+}
+  
+static inline SIMD_CFUNC simd_half3 simd_precise_rsqrt(simd_half3 x) {
+  return simd_make_half3(simd_precise_rsqrt(simd_make_half4_undef(x)));
+}
+  
+static inline SIMD_CFUNC simd_half4 simd_precise_rsqrt(simd_half4 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half4 r = simd_fast_rsqrt(x);
+  return r*vrsqrts_f16(x, r*r);
+#else
+  return 1/__tg_sqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half8 simd_precise_rsqrt(simd_half8 x) {
+#if defined __ARM_FEATURE_FP16_VECTOR_ARITHMETIC
+  simd_half8 r = simd_fast_rsqrt(x);
+  return r*vrsqrtsq_f16(x, r*r);
+#else
+  return 1/__tg_sqrt(x);
+#endif
+}
+  
+static inline SIMD_CFUNC simd_half16 simd_precise_rsqrt(simd_half16 x) {
+  return simd_make_half16(simd_precise_rsqrt(x.lo), simd_precise_rsqrt(x.hi));
+}
+  
+static inline SIMD_CFUNC simd_half32 simd_precise_rsqrt(simd_half32 x) {
+  return simd_make_half32(simd_precise_rsqrt(x.lo), simd_precise_rsqrt(x.hi));
+}
+  
 static inline SIMD_CFUNC float simd_precise_rsqrt(float x) {
 #if defined __SSE__
   float r = simd_fast_rsqrt(x);
   return r*(1.5f - 0.5f*(r == INFINITY ? -INFINITY : x)*r*r);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   return simd_precise_rsqrt(simd_make_float2_undef(x)).x;
 #else
-  return 1/sqrt(x);
+  return 1/sqrtf(x);
 #endif
 }
   
 static inline SIMD_CFUNC simd_float2 simd_precise_rsqrt(simd_float2 x) {
 #if defined __SSE__
   return simd_make_float2(simd_precise_rsqrt(simd_make_float4_undef(x)));
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float2 r = simd_fast_rsqrt(x);
   return r*vrsqrts_f32(x, r*r);
 #else
@@ -3613,7 +4518,7 @@ static inline SIMD_CFUNC simd_float4 simd_precise_rsqrt(simd_float4 x) {
 #if defined __SSE__
   simd_float4 r = simd_fast_rsqrt(x);
   return r*(1.5 - 0.5*simd_bitselect(x, -INFINITY, r == INFINITY)*r*r);
-#elif defined __ARM_NEON__
+#elif defined __ARM_NEON
   simd_float4 r = simd_fast_rsqrt(x);
   return r*vrsqrtsq_f32(x, r*r);
 #else
@@ -3659,8 +4564,36 @@ static inline SIMD_CFUNC simd_double8 simd_precise_rsqrt(simd_double8 x) {
   return 1/__tg_sqrt(x);
 }
   
+static inline SIMD_CFUNC _Float16 simd_fract(_Float16 x) {
+  return __fminf16(x - __floorf16(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_fract(simd_half2 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_fract(simd_half3 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_fract(simd_half4 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_fract(simd_half8 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_fract(simd_half16 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_fract(simd_half32 x) {
+  return __tg_fmin(x - __tg_floor(x), 0x1.ffcp-1f16);
+}
+
 static inline SIMD_CFUNC float simd_fract(float x) {
-  return fmin(x - floor(x), 0x1.fffffep-1f);
+  return fminf(x - floorf(x), 0x1.fffffep-1f);
 }
 
 static inline SIMD_CFUNC simd_float2 simd_fract(simd_float2 x) {
@@ -3701,6 +4634,34 @@ static inline SIMD_CFUNC simd_double4 simd_fract(simd_double4 x) {
 
 static inline SIMD_CFUNC simd_double8 simd_fract(simd_double8 x) {
   return __tg_fmin(x - __tg_floor(x), 0x1.fffffffffffffp-1);
+}
+
+static inline SIMD_CFUNC _Float16 simd_step(_Float16 edge, _Float16 x) {
+  return !(x < edge);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_step(simd_half2 edge, simd_half2 x) {
+  return simd_bitselect((simd_half2)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_step(simd_half3 edge, simd_half3 x) {
+  return simd_bitselect((simd_half3)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_step(simd_half4 edge, simd_half4 x) {
+  return simd_bitselect((simd_half4)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_step(simd_half8 edge, simd_half8 x) {
+  return simd_bitselect((simd_half8)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_step(simd_half16 edge, simd_half16 x) {
+  return simd_bitselect((simd_half16)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_step(simd_half32 edge, simd_half32 x) {
+  return simd_bitselect((simd_half32)1, 0, x < edge);
 }
 
 static inline SIMD_CFUNC float simd_step(float edge, float x) {
@@ -3745,6 +4706,41 @@ static inline SIMD_CFUNC simd_double4 simd_step(simd_double4 edge, simd_double4 
 
 static inline SIMD_CFUNC simd_double8 simd_step(simd_double8 edge, simd_double8 x) {
   return simd_bitselect((simd_double8)1, 0, x < edge);
+}
+
+static inline SIMD_CFUNC _Float16 simd_smoothstep(_Float16 edge0, _Float16 edge1, _Float16 x) {
+  _Float16 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half2 simd_smoothstep(simd_half2 edge0, simd_half2 edge1, simd_half2 x) {
+  simd_half2 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half3 simd_smoothstep(simd_half3 edge0, simd_half3 edge1, simd_half3 x) {
+  simd_half3 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half4 simd_smoothstep(simd_half4 edge0, simd_half4 edge1, simd_half4 x) {
+  simd_half4 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half8 simd_smoothstep(simd_half8 edge0, simd_half8 edge1, simd_half8 x) {
+  simd_half8 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half16 simd_smoothstep(simd_half16 edge0, simd_half16 edge1, simd_half16 x) {
+  simd_half16 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
+}
+
+static inline SIMD_CFUNC simd_half32 simd_smoothstep(simd_half32 edge0, simd_half32 edge1, simd_half32 x) {
+  simd_half32 t = simd_clamp((x - edge0)/(edge1 - edge0), 0, 1);
+  return t*t*(3 - 2*t);
 }
 
 static inline SIMD_CFUNC float simd_smoothstep(float edge0, float edge1, float x) {
@@ -3819,7 +4815,11 @@ static inline SIMD_CFUNC char simd_reduce_add(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_add(simd_char16 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s8(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC char simd_reduce_add(simd_char32 x) {
@@ -3847,7 +4847,11 @@ static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar16 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u8(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar32 x) {
@@ -3871,7 +4875,11 @@ static inline SIMD_CFUNC short simd_reduce_add(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_add(simd_short8 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s16(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC short simd_reduce_add(simd_short16 x) {
@@ -3895,7 +4903,11 @@ static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort8 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u16(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort16 x) {
@@ -3915,7 +4927,11 @@ static inline SIMD_CFUNC int simd_reduce_add(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_add(simd_int4 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s32(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC int simd_reduce_add(simd_int8 x) {
@@ -3935,7 +4951,11 @@ static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint4 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u32(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint8 x) {
@@ -3943,26 +4963,6 @@ static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint8 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint16 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float2 x) {
-  return x.x + x.y;
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float3 x) {
-  return x.x + x.y + x.z;
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float4 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float8 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float16 x) {
   return simd_reduce_add(x.lo + x.hi);
 }
 
@@ -3995,6 +4995,50 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_add(simd_ulong4 x) {
 }
 
 static inline SIMD_CFUNC simd_ulong1 simd_reduce_add(simd_ulong8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half2 x) {
+  return x.x + x.y;
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half3 x) {
+  return x.x + x.y + x.z;
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half4 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half16 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half32 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float2 x) {
+  return x.x + x.y;
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float3 x) {
+  return x.x + x.y + x.z;
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float4 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float16 x) {
   return simd_reduce_add(x.lo + x.hi);
 }
 
@@ -4032,7 +5076,7 @@ static inline SIMD_CFUNC char simd_reduce_min(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_min(simd_char16 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_s8(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4065,7 +5109,7 @@ static inline SIMD_CFUNC unsigned char simd_reduce_min(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_min(simd_uchar16 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_u8(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4094,7 +5138,7 @@ static inline SIMD_CFUNC short simd_reduce_min(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_min(simd_short8 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_s16(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4123,7 +5167,7 @@ static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_min(simd_ushort8 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_u16(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4148,7 +5192,7 @@ static inline SIMD_CFUNC int simd_reduce_min(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_min(simd_int4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_s32(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4173,7 +5217,7 @@ static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_min(simd_uint4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_u32(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4222,6 +5266,30 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_min(simd_ulong8 x) {
   return simd_reduce_min(simd_min(x.lo, x.hi));
 }
 
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half2 x) {
+  return __fminf16(x.x, x.y);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half3 x) {
+  return __fminf16(__fminf16(x.x, x.z), x.y);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half4 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half8 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half16 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_min(simd_half32 x) {
+  return simd_reduce_min(simd_min(x.lo, x.hi));
+}
+
 static inline SIMD_CFUNC float simd_reduce_min(simd_float2 x) {
   return fmin(x.x, x.y);
 }
@@ -4231,7 +5299,7 @@ static inline SIMD_CFUNC float simd_reduce_min(simd_float3 x) {
 }
 
 static inline SIMD_CFUNC float simd_reduce_min(simd_float4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_f32(x);
 #else
   return simd_reduce_min(simd_min(x.lo, x.hi));
@@ -4247,7 +5315,7 @@ static inline SIMD_CFUNC float simd_reduce_min(simd_float16 x) {
 }
 
 static inline SIMD_CFUNC double simd_reduce_min(simd_double2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vminvq_f64(x);
 #else
   return fmin(x.x, x.y);
@@ -4284,7 +5352,7 @@ static inline SIMD_CFUNC char simd_reduce_max(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_max(simd_char16 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_s8(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4317,7 +5385,7 @@ static inline SIMD_CFUNC unsigned char simd_reduce_max(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_max(simd_uchar16 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_u8(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4346,7 +5414,7 @@ static inline SIMD_CFUNC short simd_reduce_max(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_max(simd_short8 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_s16(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4375,7 +5443,7 @@ static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_max(simd_ushort8 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_u16(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4400,7 +5468,7 @@ static inline SIMD_CFUNC int simd_reduce_max(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_max(simd_int4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_s32(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4425,7 +5493,7 @@ static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_max(simd_uint4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_u32(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4474,6 +5542,30 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_max(simd_ulong8 x) {
   return simd_reduce_max(simd_max(x.lo, x.hi));
 }
 
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half2 x) {
+  return __fmaxf16(x.x, x.y);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half3 x) {
+  return __fmaxf16(__fmaxf16(x.x, x.z), x.y);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half4 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half8 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half16 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_max(simd_half32 x) {
+  return simd_reduce_max(simd_max(x.lo, x.hi));
+}
+
 static inline SIMD_CFUNC float simd_reduce_max(simd_float2 x) {
   return fmax(x.x, x.y);
 }
@@ -4483,7 +5575,7 @@ static inline SIMD_CFUNC float simd_reduce_max(simd_float3 x) {
 }
 
 static inline SIMD_CFUNC float simd_reduce_max(simd_float4 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_f32(x);
 #else
   return simd_reduce_max(simd_max(x.lo, x.hi));
@@ -4499,7 +5591,7 @@ static inline SIMD_CFUNC float simd_reduce_max(simd_float16 x) {
 }
 
 static inline SIMD_CFUNC double simd_reduce_max(simd_double2 x) {
-#if defined __arm64__
+#if defined __arm64__ || defined __aarch64__
   return vmaxvq_f64(x);
 #else
   return fmax(x.x, x.y);

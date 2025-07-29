@@ -36,8 +36,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
 
-namespace __lower_bound {
-struct __fn {
+struct __lower_bound {
   template <forward_iterator _Iter,
             sentinel_for<_Iter> _Sent,
             class _Type,
@@ -57,10 +56,9 @@ struct __fn {
     return std::__lower_bound<_RangeAlgPolicy>(ranges::begin(__r), ranges::end(__r), __value, __comp, __proj);
   }
 };
-} // namespace __lower_bound
 
 inline namespace __cpo {
-inline constexpr auto lower_bound = __lower_bound::__fn{};
+inline constexpr auto lower_bound = __lower_bound{};
 } // namespace __cpo
 } // namespace ranges
 

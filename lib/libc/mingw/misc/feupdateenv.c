@@ -13,13 +13,9 @@
    set by a call to feholdexcept or fegetenv, or equal the macro
    FE_DFL_ENV or an implementation-defined environment macro. */
 
-/* FIXME: this works but surely there must be a better way.  */
-
-int feupdateenv (const fenv_t * envp)
+int feupdateenv(const fenv_t *env)
 {
-  unsigned int _fexcept = fetestexcept (FE_ALL_EXCEPT); /*save excepts */
-  fesetenv (envp); /* install the env  */
-  feraiseexcept (_fexcept); /* raise the except */
-  return 0;
+    int except = fetestexcept(FE_ALL_EXCEPT);
+    return fesetenv(env) || feraiseexcept(except);
 }
 

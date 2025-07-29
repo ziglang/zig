@@ -13,7 +13,7 @@ pub fn TableSection(comptime Entry: type) type {
         pub fn allocateEntry(self: *Self, allocator: Allocator, entry: Entry) Allocator.Error!Index {
             try self.entries.ensureUnusedCapacity(allocator, 1);
             const index = blk: {
-                if (self.free_list.popOrNull()) |index| {
+                if (self.free_list.pop()) |index| {
                     log.debug("  (reusing entry index {d})", .{index});
                     break :blk index;
                 } else {
@@ -39,14 +39,7 @@ pub fn TableSection(comptime Entry: type) type {
             return self.entries.items.len;
         }
 
-        pub fn format(
-            self: Self,
-            comptime unused_format_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = options;
-            comptime assert(unused_format_string.len == 0);
+        pub fn format(self: Self, writer: *std.io.Writer) std.io.Writer.Error!void {
             try writer.writeAll("TableSection:\n");
             for (self.entries.items, 0..) |entry, i| {
                 try writer.print("  {d} => {}\n", .{ i, entry });

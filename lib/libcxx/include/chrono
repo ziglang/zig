@@ -300,6 +300,41 @@ template<class charT, class traits>                    // C++20
   basic_ostream<charT, traits>&
     operator<<(basic_ostream<charT, traits>& os, const sys_days& dp);
 
+// [time.clock.utc], class utc_clock
+class utc_clock {                                      // C++20
+public:
+    using rep                       = a signed arithmetic type;
+    using period                    = ratio<unspecified, unspecified>;
+    using duration                  = chrono::duration<rep, period>;
+    using time_point                = chrono::time_point<utc_clock>;
+    static constexpr bool is_steady = unspecified;
+
+    static time_point now();
+
+    template<class Duration>
+      static sys_time<common_type_t<Duration, seconds>>
+        to_sys(const utc_time<Duration>& t);
+    template<class Duration>
+      static utc_time<common_type_t<Duration, seconds>>
+        from_sys(const sys_time<Duration>& t);
+};
+
+template<class Duration>
+using utc_time  = time_point<utc_clock, Duration>;      // C++20
+using utc_seconds = utc_time<seconds>;                  // C++20
+
+template<class charT, class traits, class Duration>     // C++20
+  basic_ostream<charT, traits>&
+    operator<<(basic_ostream<charT, traits>& os, const utc_time<Duration>& t);
+
+struct leap_second_info {                               // C++20
+  bool    is_leap_second;
+  seconds elapsed;
+};
+
+template<class Duration>                                // C++20
+  leap_second_info get_leap_second_info(const utc_time<Duration>& ut);
+
 class file_clock                                        // C++20
 {
 public:
@@ -862,6 +897,8 @@ namespace std {
   template<class Duration, class charT>
     struct formatter<chrono::sys_time<Duration>, charT>;                          // C++20
   template<class Duration, class charT>
+    struct formatter<chrono::utc_time<Duration>, charT>;                          // C++20
+  template<class Duration, class charT>
     struct formatter<chrono::filetime<Duration>, charT>;                          // C++20
   template<class Duration, class charT>
     struct formatter<chrono::local_time<Duration>, charT>;                        // C++20
@@ -939,84 +976,88 @@ constexpr chrono::year                                  operator ""y(unsigned lo
 
 // clang-format on
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/chrono>
+#else
+#  include <__config>
 
-#include <__chrono/duration.h>
-#include <__chrono/file_clock.h>
-#include <__chrono/high_resolution_clock.h>
-#include <__chrono/steady_clock.h>
-#include <__chrono/system_clock.h>
-#include <__chrono/time_point.h>
+#  include <__chrono/duration.h>
+#  include <__chrono/file_clock.h>
+#  include <__chrono/high_resolution_clock.h>
+#  include <__chrono/steady_clock.h>
+#  include <__chrono/system_clock.h>
+#  include <__chrono/time_point.h>
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__chrono/calendar.h>
-#  include <__chrono/day.h>
-#  include <__chrono/exception.h>
-#  include <__chrono/hh_mm_ss.h>
-#  include <__chrono/literals.h>
-#  include <__chrono/local_info.h>
-#  include <__chrono/month.h>
-#  include <__chrono/month_weekday.h>
-#  include <__chrono/monthday.h>
-#  include <__chrono/sys_info.h>
-#  include <__chrono/weekday.h>
-#  include <__chrono/year.h>
-#  include <__chrono/year_month.h>
-#  include <__chrono/year_month_day.h>
-#  include <__chrono/year_month_weekday.h>
+#  if _LIBCPP_STD_VER >= 20
+#    include <__chrono/calendar.h>
+#    include <__chrono/day.h>
+#    include <__chrono/exception.h>
+#    include <__chrono/hh_mm_ss.h>
+#    include <__chrono/literals.h>
+#    include <__chrono/local_info.h>
+#    include <__chrono/month.h>
+#    include <__chrono/month_weekday.h>
+#    include <__chrono/monthday.h>
+#    include <__chrono/sys_info.h>
+#    include <__chrono/weekday.h>
+#    include <__chrono/year.h>
+#    include <__chrono/year_month.h>
+#    include <__chrono/year_month_day.h>
+#    include <__chrono/year_month_weekday.h>
 
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <__chrono/formatter.h>
-#    include <__chrono/ostream.h>
-#    include <__chrono/parser_std_format_spec.h>
-#    include <__chrono/statically_widen.h>
+#    if _LIBCPP_HAS_LOCALIZATION
+#      include <__chrono/formatter.h>
+#      include <__chrono/ostream.h>
+#      include <__chrono/parser_std_format_spec.h>
+#      include <__chrono/statically_widen.h>
+#    endif
+
+#    if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
+#      include <__chrono/leap_second.h>
+#      include <__chrono/time_zone.h>
+#      include <__chrono/time_zone_link.h>
+#      include <__chrono/tzdb.h>
+#      include <__chrono/tzdb_list.h>
+#      include <__chrono/utc_clock.h>
+#      include <__chrono/zoned_time.h>
+#    endif
+
 #  endif
 
-#  if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                            \
-      !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <__chrono/leap_second.h>
-#    include <__chrono/time_zone.h>
-#    include <__chrono/time_zone_link.h>
-#    include <__chrono/tzdb.h>
-#    include <__chrono/tzdb_list.h>
-#    include <__chrono/zoned_time.h>
-#  endif
-
-#endif
-
-#include <version>
+#  include <version>
 
 // standard-mandated includes
 
 // [time.syn]
-#include <compare>
+#  include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
-#  include <cstdint>
-#  include <stdexcept>
-#  include <string_view>
-#  include <vector>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <bit>
-#  include <concepts>
-#  include <cstring>
-#  include <forward_list>
-#  include <string>
-#  include <tuple>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20
-#  include <charconv>
-#  if !defined(_LIBCPP_HAS_NO_LOCALIZATION)
-#    include <locale>
-#    include <ostream>
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
 #  endif
-#endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#    include <cstdint>
+#    include <stdexcept>
+#    include <string_view>
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <bit>
+#    include <concepts>
+#    include <cstring>
+#    include <forward_list>
+#    include <string>
+#    include <tuple>
+#    include <vector>
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER == 20
+#    include <charconv>
+#    if _LIBCPP_HAS_LOCALIZATION
+#      include <locale>
+#      include <ostream>
+#    endif
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_CHRONO

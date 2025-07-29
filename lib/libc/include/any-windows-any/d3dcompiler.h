@@ -154,6 +154,7 @@ typedef HRESULT (WINAPI *pD3DPreprocess)(const void *data, SIZE_T size, const ch
         const D3D_SHADER_MACRO *defines, ID3DInclude *include,
         ID3DBlob **shader, ID3DBlob **error_messages);
 
+HRESULT WINAPI D3DCreateLinker(ID3D11Linker **linker);
 HRESULT WINAPI D3DLoadModule(const void *data, SIZE_T size, ID3D11Module **module);
 
 #ifdef __cplusplus

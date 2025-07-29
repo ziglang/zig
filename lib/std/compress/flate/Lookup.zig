@@ -1,7 +1,7 @@
-/// Lookup of the previous locations for the same 4 byte data. Works on hash of
-/// 4 bytes data. Head contains position of the first match for each hash. Chain
-/// points to the previous position of the same hash given the current location.
-///
+//! Lookup of the previous locations for the same 4 byte data. Works on hash of
+//! 4 bytes data. Head contains position of the first match for each hash. Chain
+//! points to the previous position of the same hash given the current location.
+
 const std = @import("std");
 const testing = std.testing;
 const expect = testing.expect;

@@ -26,12 +26,12 @@ comptime {
     @export(&truncl, .{ .name = "truncl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __trunch(x: f16) callconv(.C) f16 {
+pub fn __trunch(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(truncf(x));
 }
 
-pub fn truncf(x: f32) callconv(.C) f32 {
+pub fn truncf(x: f32) callconv(.c) f32 {
     const u: u32 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 23) & 0xFF))) - 0x7F + 9;
     var m: u32 = undefined;
@@ -52,7 +52,7 @@ pub fn truncf(x: f32) callconv(.C) f32 {
     }
 }
 
-pub fn trunc(x: f64) callconv(.C) f64 {
+pub fn trunc(x: f64) callconv(.c) f64 {
     const u: u64 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 52) & 0x7FF))) - 0x3FF + 12;
     var m: u64 = undefined;
@@ -73,12 +73,12 @@ pub fn trunc(x: f64) callconv(.C) f64 {
     }
 }
 
-pub fn __truncx(x: f80) callconv(.C) f80 {
+pub fn __truncx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(truncq(x));
 }
 
-pub fn truncq(x: f128) callconv(.C) f128 {
+pub fn truncq(x: f128) callconv(.c) f128 {
     const u: u128 = @bitCast(x);
     var e = @as(i32, @intCast(((u >> 112) & 0x7FFF))) - 0x3FFF + 16;
     var m: u128 = undefined;
@@ -99,7 +99,7 @@ pub fn truncq(x: f128) callconv(.C) f128 {
     }
 }
 
-pub fn truncl(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn truncl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __trunch(x),
         32 => return truncf(x),

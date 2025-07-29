@@ -1,4 +1,5 @@
 const std = @import("../std.zig");
+const assert = std.debug.assert;
 
 /// A protocol is an interface identified by a GUID.
 pub const protocol = @import("uefi/protocol.zig");
@@ -7,12 +8,13 @@ pub const hii = @import("uefi/hii.zig");
 
 /// Status codes returned by EFI interfaces
 pub const Status = @import("uefi/status.zig").Status;
+pub const Error = UnexpectedError || Status.Error;
 pub const tables = @import("uefi/tables.zig");
 
-/// The memory type to allocate when using the pool
-/// Defaults to .LoaderData, the default data allocation type
+/// The memory type to allocate when using the pool.
+/// Defaults to `.loader_data`, the default data allocation type
 /// used by UEFI applications to allocate pool memory.
-pub var efi_pool_memory_type: tables.MemoryType = .LoaderData;
+pub var efi_pool_memory_type: tables.MemoryType = .loader_data;
 pub const pool_allocator = @import("uefi/pool_allocator.zig").pool_allocator;
 pub const raw_pool_allocator = @import("uefi/pool_allocator.zig").raw_pool_allocator;
 
@@ -22,8 +24,50 @@ pub var handle: Handle = undefined;
 /// A pointer to the EFI System Table that is passed to the EFI image's entry point.
 pub var system_table: *tables.SystemTable = undefined;
 
+/// UEFI's memory interfaces exclusively act on 4096-byte pages.
+pub const Page = [4096]u8;
+
 /// A handle to an event structure.
 pub const Event = *opaque {};
+
+pub const EventRegistration = *const opaque {};
+
+pub const EventType = packed struct(u32) {
+    lo_context: u8 = 0,
+    /// If an event of this type is not already in the signaled state, then
+    /// the event’s NotificationFunction will be queued at the event’s NotifyTpl
+    /// whenever the event is being waited on via EFI_BOOT_SERVICES.WaitForEvent()
+    /// or EFI_BOOT_SERVICES.CheckEvent() .
+    wait: bool = false,
+    /// The event’s NotifyFunction is queued whenever the event is signaled.
+    signal: bool = false,
+    hi_context: u20 = 0,
+    /// The event is allocated from runtime memory. If an event is to be signaled
+    /// after the call to EFI_BOOT_SERVICES.ExitBootServices() the event’s data
+    /// structure and notification function need to be allocated from runtime
+    /// memory.
+    runtime: bool = false,
+    timer: bool = false,
+
+    /// This event should not be combined with any other event types. This event
+    /// type is functionally equivalent to the EFI_EVENT_GROUP_EXIT_BOOT_SERVICES
+    /// event group.
+    pub const signal_exit_boot_services: EventType = .{
+        .signal = true,
+        .lo_context = 1,
+    };
+
+    /// The event is to be notified by the system when SetVirtualAddressMap()
+    /// is performed. This event type is a composite of EVT_NOTIFY_SIGNAL,
+    /// EVT_RUNTIME, and EVT_RUNTIME_CONTEXT and should not be combined with
+    /// any other event types.
+    pub const signal_virtual_address_change: EventType = .{
+        .runtime = true,
+        .hi_context = 0x20000,
+        .signal = true,
+        .lo_context = 2,
+    };
+};
 
 /// The calling convention used for all external functions part of the UEFI API.
 pub const cc: std.builtin.CallingConvention = switch (@import("builtin").target.cpu.arch) {
@@ -43,9 +87,18 @@ pub const Ipv6Address = extern struct {
     address: [16]u8,
 };
 
+pub const IpAddress = extern union {
+    v4: Ipv4Address,
+    v6: Ipv6Address,
+};
+
 /// GUIDs are align(8) unless otherwise specified.
 pub const Guid = extern struct {
-    time_low: u32,
+    comptime {
+        std.debug.assert(std.mem.Alignment.of(Guid) == .@"8");
+    }
+
+    time_low: u32 align(8),
     time_mid: u16,
     time_high_and_version: u16,
     clock_seq_high_and_reserved: u8,
@@ -53,34 +106,22 @@ pub const Guid = extern struct {
     node: [6]u8,
 
     /// Format GUID into hexadecimal lowercase xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx format
-    pub fn format(
-        self: @This(),
-        comptime f: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        if (f.len == 0) {
-            const fmt = std.fmt.fmtSliceHexLower;
+    pub fn format(self: Guid, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const time_low = @byteSwap(self.time_low);
+        const time_mid = @byteSwap(self.time_mid);
+        const time_high_and_version = @byteSwap(self.time_high_and_version);
 
-            const time_low = @byteSwap(self.time_low);
-            const time_mid = @byteSwap(self.time_mid);
-            const time_high_and_version = @byteSwap(self.time_high_and_version);
-
-            return std.fmt.format(writer, "{:0>8}-{:0>4}-{:0>4}-{:0>2}{:0>2}-{:0>12}", .{
-                fmt(std.mem.asBytes(&time_low)),
-                fmt(std.mem.asBytes(&time_mid)),
-                fmt(std.mem.asBytes(&time_high_and_version)),
-                fmt(std.mem.asBytes(&self.clock_seq_high_and_reserved)),
-                fmt(std.mem.asBytes(&self.clock_seq_low)),
-                fmt(std.mem.asBytes(&self.node)),
-            });
-        } else {
-            std.fmt.invalidFmtError(f, self);
-        }
+        return writer.print("{x:0>8}-{x:0>4}-{x:0>4}-{x:0>2}{x:0>2}-{x:0>12}", .{
+            std.mem.asBytes(&time_low),
+            std.mem.asBytes(&time_mid),
+            std.mem.asBytes(&time_high_and_version),
+            std.mem.asBytes(&self.clock_seq_high_and_reserved),
+            std.mem.asBytes(&self.clock_seq_low),
+            std.mem.asBytes(&self.node),
+        });
     }
 
-    pub fn eql(a: std.os.uefi.Guid, b: std.os.uefi.Guid) bool {
+    pub fn eql(a: Guid, b: Guid) bool {
         return a.time_low == b.time_low and
             a.time_mid == b.time_mid and
             a.time_high_and_version == b.time_high_and_version and
@@ -113,31 +154,38 @@ pub const Time = extern struct {
     /// 0 - 59
     second: u8,
 
+    _pad1: u8,
+
     /// 0 - 999999999
     nanosecond: u32,
 
     /// The time's offset in minutes from UTC.
     /// Allowed values are -1440 to 1440 or unspecified_timezone
     timezone: i16,
-    daylight: packed struct {
-        _pad1: u6,
-
+    daylight: packed struct(u8) {
         /// If true, the time has been adjusted for daylight savings time.
         in_daylight: bool,
 
         /// If true, the time is affected by daylight savings time.
         adjust_daylight: bool,
+
+        _: u6,
     },
+
+    _pad2: u8,
+
+    comptime {
+        std.debug.assert(@sizeOf(Time) == 16);
+    }
 
     /// Time is to be interpreted as local time
     pub const unspecified_timezone: i16 = 0x7ff;
 
-    fn daysInYear(year: u16, maxMonth: u4) u32 {
-        const leapYear: std.time.epoch.YearLeapKind = if (std.time.epoch.isLeapYear(year)) .leap else .not_leap;
-        var days: u32 = 0;
+    fn daysInYear(year: u16, max_month: u4) u9 {
+        var days: u9 = 0;
         var month: u4 = 0;
-        while (month < maxMonth) : (month += 1) {
-            days += std.time.epoch.getDaysInMonth(leapYear, @enumFromInt(month + 1));
+        while (month < max_month) : (month += 1) {
+            days += std.time.epoch.getDaysInMonth(year, @enumFromInt(month + 1));
         }
         return days;
     }
@@ -151,9 +199,9 @@ pub const Time = extern struct {
         }
 
         days += daysInYear(self.year, @as(u4, @intCast(self.month)) - 1) + self.day;
-        const hours = self.hour + (days * 24);
-        const minutes = self.minute + (hours * 60);
-        const seconds = self.second + (minutes * std.time.s_per_min);
+        const hours: u64 = self.hour + (days * 24);
+        const minutes: u64 = self.minute + (hours * 60);
+        const seconds: u64 = self.second + (minutes * std.time.s_per_min);
         return self.nanosecond + (seconds * std.time.ns_per_s);
     }
 };
@@ -183,60 +231,15 @@ test "GUID formatting" {
     try std.testing.expect(std.mem.eql(u8, str, "32cb3c89-8080-427c-ba13-5049873bc287"));
 }
 
-pub const FileInfo = extern struct {
-    size: u64,
-    file_size: u64,
-    physical_size: u64,
-    create_time: Time,
-    last_access_time: Time,
-    modification_time: Time,
-    attribute: u64,
-
-    pub fn getFileName(self: *const FileInfo) [*:0]const u16 {
-        return @ptrCast(@alignCast(@as([*]const u8, @ptrCast(self)) + @sizeOf(FileInfo)));
-    }
-
-    pub const efi_file_read_only: u64 = 0x0000000000000001;
-    pub const efi_file_hidden: u64 = 0x0000000000000002;
-    pub const efi_file_system: u64 = 0x0000000000000004;
-    pub const efi_file_reserved: u64 = 0x0000000000000008;
-    pub const efi_file_directory: u64 = 0x0000000000000010;
-    pub const efi_file_archive: u64 = 0x0000000000000020;
-    pub const efi_file_valid_attr: u64 = 0x0000000000000037;
-
-    pub const guid align(8) = Guid{
-        .time_low = 0x09576e92,
-        .time_mid = 0x6d3f,
-        .time_high_and_version = 0x11d2,
-        .clock_seq_high_and_reserved = 0x8e,
-        .clock_seq_low = 0x39,
-        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
-    };
-};
-
-pub const FileSystemInfo = extern struct {
-    size: u64,
-    read_only: bool,
-    volume_size: u64,
-    free_space: u64,
-    block_size: u32,
-    _volume_label: u16,
-
-    pub fn getVolumeLabel(self: *const FileSystemInfo) [*:0]const u16 {
-        return @as([*:0]const u16, @ptrCast(&self._volume_label));
-    }
-
-    pub const guid align(8) = Guid{
-        .time_low = 0x09576e93,
-        .time_mid = 0x6d3f,
-        .time_high_and_version = 0x11d2,
-        .clock_seq_high_and_reserved = 0x8e,
-        .clock_seq_low = 0x39,
-        .node = [_]u8{ 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b },
-    };
-};
-
 test {
     _ = tables;
     _ = protocol;
+}
+
+pub const UnexpectedError = error{Unexpected};
+
+pub fn unexpectedStatus(status: Status) UnexpectedError {
+    // TODO: debug printing the encountered error? maybe handle warnings?
+    _ = status;
+    return error.Unexpected;
 }

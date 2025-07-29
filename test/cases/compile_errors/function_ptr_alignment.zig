@@ -10,7 +10,7 @@ comptime {
 
 // error
 // backend=stage2
-// target=native
+// target=x86_64-linux
 //
 // :8:41: error: expected type '*align(2) const fn () void', found '*const fn () void'
 // :8:41: note: pointer alignment '1' cannot cast into pointer alignment '2'

@@ -3,7 +3,7 @@ export fn entry(a: *i32) usize {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:12: error: expected pointer type, found 'usize'

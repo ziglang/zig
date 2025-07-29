@@ -243,7 +243,7 @@ extern "C" {
     AuthzAuditEventInfoOperationType,
     AuthzAuditEventInfoObjectType,
     AuthzAuditEventInfoObjectName,
-    AuthzAuditEventInfoAdditionalInfo,
+    AuthzAuditEventInfoAdditionalInfo
   } AUTHZ_AUDIT_EVENT_INFORMATION_CLASS;
 
   AUTHZAPI WINBOOL WINAPI AuthzFreeAuditEvent (AUTHZ_AUDIT_EVENT_HANDLE hAuditEvent);

@@ -112,7 +112,7 @@ pub const Options = struct {
         /// No host verification is performed, which prevents a trusted connection from
         /// being established.
         no_verification,
-        /// Verify that the server certificate was issues for a given host.
+        /// Verify that the server certificate was issued for a given host.
         explicit: []const u8,
     },
     /// How to verify the authenticity of server certificates.
@@ -356,14 +356,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         if (ciphertext.len > cleartext_fragment_buf.len) return error.TlsRecordOverflow;
                         const cleartext = cleartext_fragment_buf[0..ciphertext.len];
                         const auth_tag = record_decoder.array(P.AEAD.tag_length).*;
-                        const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                        nonce: {
-                            var nonce = pv.server_handshake_iv;
-                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ read_seq, .big);
-                            break :nonce nonce;
-                        } else nonce: {
+                        const nonce = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
                             const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(read_seq)));
@@ -371,7 +364,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         };
                         P.AEAD.decrypt(cleartext, ciphertext, auth_tag, record_header, nonce, pv.server_handshake_key) catch
                             return error.TlsBadRecordMac;
-                        cleartext_fragment_end += std.mem.trimRight(u8, cleartext, "\x00").len;
+                        cleartext_fragment_end += std.mem.trimEnd(u8, cleartext, "\x00").len;
                     },
                 }
                 read_seq += 1;
@@ -400,14 +393,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         const record_iv = record_decoder.array(P.record_iv_length).*;
                         const masked_read_seq = read_seq &
                             comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
-                        const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                            P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                        nonce: {
-                            var nonce = pv.app_cipher.server_write_IV ++ record_iv;
-                            const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                            std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ masked_read_seq, .big);
-                            break :nonce nonce;
-                        } else nonce: {
+                        const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
                             const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));
@@ -706,7 +692,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         const client_key_exchange_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, u8, .{@intFromEnum(tls.HandshakeType.client_key_exchange)} ++
-                            array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
+                                array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
                         const client_change_cipher_spec_msg = .{@intFromEnum(tls.ContentType.change_cipher_spec)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, tls.ChangeCipherSpecType, .{.change_cipher_spec});
@@ -734,11 +720,11 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                 );
                                 const client_verify_cleartext = .{@intFromEnum(tls.HandshakeType.finished)} ++
                                     array(u24, u8, hmacExpandLabel(
-                                    P.Hmac,
-                                    &master_secret,
-                                    &.{ "client finished", &p.transcript_hash.peek() },
-                                    P.verify_data_length,
-                                ));
+                                        P.Hmac,
+                                        &master_secret,
+                                        &.{ "client finished", &p.transcript_hash.peek() },
+                                        P.verify_data_length,
+                                    ));
                                 p.transcript_hash.update(&client_verify_cleartext);
                                 p.version = .{ .tls_1_2 = .{
                                     .expected_server_verify_data = hmacExpandLabel(
@@ -750,14 +736,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                     .app_cipher = std.mem.bytesToValue(P.Tls_1_2, &key_block),
                                 } };
                                 const pv = &p.version.tls_1_2;
-                                const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                                    P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                                nonce: {
-                                    var nonce = pv.app_cipher.client_write_IV ++ pv.app_cipher.client_salt;
-                                    const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                                    std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ write_seq, .big);
-                                    break :nonce nonce;
-                                } else nonce: {
+                                const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                                     const V = @Vector(P.AEAD.nonce_length, u8);
                                     const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                                     const operand: V = pad ++ @as([8]u8, @bitCast(big(write_seq)));
@@ -766,7 +745,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                 var client_verify_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
                                     int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                                     array(u16, u8, nonce[P.fixed_iv_length..].* ++
-                                    @as([client_verify_cleartext.len + P.mac_length]u8, undefined));
+                                        @as([client_verify_cleartext.len + P.mac_length]u8, undefined));
                                 P.AEAD.encrypt(
                                     client_verify_msg[client_verify_msg.len - P.mac_length -
                                         client_verify_cleartext.len ..][0..client_verify_cleartext.len],
@@ -1043,14 +1022,7 @@ fn prepareCiphertextRecord(
                     ciphertext_end += ciphertext_len;
                     const auth_tag = ciphertext_buf[ciphertext_end..][0..P.AEAD.tag_length];
                     ciphertext_end += auth_tag.len;
-                    const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.client_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ std.mem.toBytes(big(c.write_seq));
@@ -1098,14 +1070,7 @@ fn prepareCiphertextRecord(
                     const ad = std.mem.toBytes(big(c.write_seq)) ++ record_header[0 .. 1 + 2] ++ int(u16, message_len);
                     const record_iv = ciphertext_buf[ciphertext_end..][0..P.record_iv_length];
                     ciphertext_end += P.record_iv_length;
-                    const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.client_write_IV ++ pv.client_salt;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.write_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ @as([8]u8, @bitCast(big(c.write_seq)));
@@ -1374,14 +1339,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     const ciphertext = frag[in..][0..ciphertext_len];
                     in += ciphertext_len;
                     const auth_tag = frag[in..][0..P.AEAD.tag_length].*;
-                    const nonce = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.server_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ c.read_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ std.mem.toBytes(big(c.read_seq));
@@ -1395,7 +1353,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     const cleartext = cleartext_buf[0..ciphertext.len];
                     P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_key) catch
                         return error.TlsBadRecordMac;
-                    const msg = mem.trimRight(u8, cleartext, "\x00");
+                    const msg = mem.trimEnd(u8, cleartext, "\x00");
                     break :cleartext .{ msg[0 .. msg.len - 1], @enumFromInt(msg[msg.len - 1]) };
                 },
                 .tls_1_2 => {
@@ -1409,14 +1367,7 @@ pub fn readvAdvanced(c: *Client, stream: anytype, iovecs: []const std.posix.iove
                     in += P.record_iv_length;
                     const masked_read_seq = c.read_seq &
                         comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
-                    const nonce: [P.AEAD.nonce_length]u8 = if (builtin.zig_backend == .stage2_x86_64 and
-                        P.AEAD.nonce_length > comptime std.simd.suggestVectorLength(u8) orelse 1)
-                    nonce: {
-                        var nonce = pv.server_write_IV ++ record_iv;
-                        const operand = std.mem.readInt(u64, nonce[nonce.len - 8 ..], .big);
-                        std.mem.writeInt(u64, nonce[nonce.len - 8 ..], operand ^ masked_read_seq, .big);
-                        break :nonce nonce;
-                    } else nonce: {
+                    const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
                         const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
                         const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));
@@ -1561,11 +1512,11 @@ fn logSecrets(key_log_file: std.fs.File, context: anytype, secrets: anytype) voi
     const locked = if (key_log_file.lock(.exclusive)) |_| true else |_| false;
     defer if (locked) key_log_file.unlock();
     key_log_file.seekFromEnd(0) catch {};
-    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| key_log_file.writer().print("{s}" ++
-        (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {} {}\n", .{field.name} ++
+    inline for (@typeInfo(@TypeOf(secrets)).@"struct".fields) |field| key_log_file.deprecatedWriter().print("{s}" ++
+        (if (@hasField(@TypeOf(context), "counter")) "_{d}" else "") ++ " {x} {x}\n", .{field.name} ++
         (if (@hasField(@TypeOf(context), "counter")) .{context.counter} else .{}) ++ .{
-        std.fmt.fmtSliceHexLower(context.client_random),
-        std.fmt.fmtSliceHexLower(@field(secrets, field.name)),
+        context.client_random,
+        @field(secrets, field.name),
     }) catch {};
 }
 
@@ -1625,7 +1576,7 @@ fn straddleByte(s1: []const u8, s2: []const u8, index: usize) u8 {
 const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
-inline fn big(x: anytype) @TypeOf(x) {
+fn big(x: anytype) @TypeOf(x) {
     return switch (native_endian) {
         .big => x,
         .little => @byteSwap(x),

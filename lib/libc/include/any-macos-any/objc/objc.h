@@ -46,6 +46,13 @@ struct objc_object {
 typedef struct objc_object *id;
 #endif
 
+/// An opaque type that represents an Objective-C protocol.
+#ifdef __OBJC__
+@class Protocol;
+#else
+typedef struct objc_object Protocol;
+#endif
+
 /// An opaque type that represents a method selector.
 typedef struct objc_selector *SEL;
 

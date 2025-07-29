@@ -189,7 +189,7 @@ pub fn main() !void {
             var dir_stack = std.ArrayList([]const u8).init(arena);
             try dir_stack.append(target_include_dir);
 
-            while (dir_stack.popOrNull()) |full_dir_name| {
+            while (dir_stack.pop()) |full_dir_name| {
                 var dir = std.fs.cwd().openDir(full_dir_name, .{ .iterate = true }) catch |err| switch (err) {
                     error.FileNotFound => continue :search,
                     error.AccessDenied => continue :search,
@@ -218,10 +218,10 @@ pub fn main() !void {
                             if (gop.found_existing) {
                                 max_bytes_saved += raw_bytes.len;
                                 gop.value_ptr.hit_count += 1;
-                                std.debug.print("duplicate: {s} {s} ({:2})\n", .{
+                                std.debug.print("duplicate: {s} {s} ({B})\n", .{
                                     linux_target.name,
                                     rel_path,
-                                    std.fmt.fmtIntSizeDec(raw_bytes.len),
+                                    raw_bytes.len,
                                 });
                             } else {
                                 gop.value_ptr.* = Contents{
@@ -249,9 +249,9 @@ pub fn main() !void {
             std.debug.print("warning: libc target not found: {s}\n", .{linux_target.name});
         }
     }
-    std.debug.print("summary: {:2} could be reduced to {:2}\n", .{
-        std.fmt.fmtIntSizeDec(total_bytes),
-        std.fmt.fmtIntSizeDec(total_bytes - max_bytes_saved),
+    std.debug.print("summary: {B} could be reduced to {B}\n", .{
+        total_bytes,
+        total_bytes - max_bytes_saved,
     });
     try std.fs.cwd().makePath(out_dir);
 
@@ -270,19 +270,19 @@ pub fn main() !void {
             }
         }
         std.mem.sort(*Contents, contents_list.items, {}, Contents.hitCountLessThan);
-        const best_contents = contents_list.popOrNull().?;
+        const best_contents = contents_list.pop().?;
         if (best_contents.hit_count > 1) {
             // worth it to make it generic
             const full_path = try std.fs.path.join(arena, &[_][]const u8{ out_dir, generic_name, path_kv.key_ptr.* });
             try std.fs.cwd().makePath(std.fs.path.dirname(full_path).?);
             try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = best_contents.bytes });
             best_contents.is_generic = true;
-            while (contents_list.popOrNull()) |contender| {
+            while (contents_list.pop()) |contender| {
                 if (contender.hit_count > 1) {
                     const this_missed_bytes = contender.hit_count * contender.bytes.len;
                     missed_opportunity_bytes += this_missed_bytes;
-                    std.debug.print("Missed opportunity ({:2}): {s}\n", .{
-                        std.fmt.fmtIntSizeDec(this_missed_bytes),
+                    std.debug.print("Missed opportunity ({B}): {s}\n", .{
+                        this_missed_bytes,
                         path_kv.key_ptr.*,
                     });
                 } else break;

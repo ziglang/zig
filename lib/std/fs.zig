@@ -35,8 +35,6 @@ pub const realpathW = posix.realpathW;
 pub const getAppDataDir = @import("fs/get_app_data_dir.zig").getAppDataDir;
 pub const GetAppDataDirError = @import("fs/get_app_data_dir.zig").GetAppDataDirError;
 
-pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes");
-
 /// The maximum length of a file path that the operating system will accept.
 ///
 /// Paths, including those returned from file system operations, may be longer
@@ -52,7 +50,7 @@ pub const MAX_PATH_BYTES = @compileError("deprecated; renamed to max_path_bytes"
 /// * On other platforms, `[]u8` file paths are opaque sequences of bytes with
 ///   no particular encoding.
 pub const max_path_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi => posix.PATH_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .haiku, .solaris, .illumos, .plan9, .emscripten, .wasi, .serenity => posix.PATH_MAX,
     // Each WTF-16LE code unit may be expanded to 3 WTF-8 bytes.
     // If it would require 4 WTF-8 bytes, then there would be a surrogate
     // pair in the WTF-16LE, and we (over)account 3 bytes for it that way.
@@ -73,7 +71,7 @@ pub const max_path_bytes = switch (native_os) {
 /// On WASI, file name components are encoded as valid UTF-8.
 /// On other platforms, `[]u8` components are an opaque sequence of bytes with no particular encoding.
 pub const max_name_bytes = switch (native_os) {
-    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos => posix.NAME_MAX,
+    .linux, .macos, .ios, .freebsd, .openbsd, .netbsd, .dragonfly, .solaris, .illumos, .serenity => posix.NAME_MAX,
     // Haiku's NAME_MAX includes the null terminator, so subtract one.
     .haiku => posix.NAME_MAX - 1,
     // Each WTF-16LE character may be expanded to 3 WTF-8 bytes.
@@ -90,9 +88,6 @@ pub const max_name_bytes = switch (native_os) {
         @compileError("NAME_MAX not implemented for " ++ @tagName(native_os)),
 };
 
-/// Deprecated: use `max_name_bytes`
-pub const MAX_NAME_BYTES = max_name_bytes;
-
 pub const base64_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_".*;
 
 /// Base64 encoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
@@ -100,11 +95,6 @@ pub const base64_encoder = base64.Base64Encoder.init(base64_alphabet, null);
 
 /// Base64 decoder, replacing the standard `+/` with `-_` so that it can be used in a file name on any filesystem.
 pub const base64_decoder = base64.Base64Decoder.init(base64_alphabet, null);
-
-/// Deprecated. Use `cwd().atomicSymLink()` instead.
-pub fn atomicSymLink(_: Allocator, existing_path: []const u8, new_path: []const u8) !void {
-    try cwd().atomicSymLink(existing_path, new_path, .{});
-}
 
 /// Same as `Dir.updateFile`, except asserts that both `source_path` and `dest_path`
 /// are absolute. See `Dir.updateFile` for a function that operates on both
@@ -466,7 +456,7 @@ pub fn symLinkAbsoluteZ(
 pub const OpenSelfExeError = posix.OpenError || SelfExePathError || posix.FlockError;
 
 pub fn openSelfExe(flags: File.OpenFlags) OpenSelfExeError!File {
-    if (native_os == .linux) {
+    if (native_os == .linux or native_os == .serenity) {
         return openFileAbsoluteZ("/proc/self/exe", flags);
     }
     if (native_os == .windows) {
@@ -512,6 +502,7 @@ pub const SelfExePathError = error{
 
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 
     /// On Windows, antivirus software is enabled by default. It can be
     /// disabled, but Windows Update sometimes ignores the user's preference
@@ -572,7 +563,7 @@ pub fn selfExePath(out_buffer: []u8) SelfExePathError![]u8 {
         return result;
     }
     switch (native_os) {
-        .linux => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
+        .linux, .serenity => return posix.readlinkZ("/proc/self/exe", out_buffer) catch |err| switch (err) {
             error.InvalidUtf8 => unreachable, // WASI-only
             error.InvalidWtf8 => unreachable, // Windows-only
             error.UnsupportedReparsePointType => unreachable, // Windows-only

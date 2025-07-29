@@ -375,21 +375,6 @@
  *      };
  *
  *
- * 3.4. Variable-size structures
- *
- *      Constrained pointer instrumentation depends on knowing the size of the
- *      structures. If the structure contains a variable array, the array needs
- *      to be annotated by `__sized_by' or `__counted_by' attribute:
- *
- *      Example:
- *
- *      struct sockaddr {
- *              __uint8_t       sa_len;
- *              sa_family_t     sa_family;
- *              char            sa_data[__counted_by(sa_len - 2)];
- *      };
- *
- *
  * 4. ABI Compatibility Considerations
  *
  *      The pointer instrumentation process has ABI implications.

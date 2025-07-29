@@ -1,5 +1,5 @@
 /* Floating point environment.  ARC version.
-   Copyright (C) 2020-2024 Free Software Foundation, Inc.
+   Copyright (C) 2020-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -69,7 +69,7 @@ typedef struct
 /* If the default argument is used we use this value.  */
 #define FE_DFL_ENV	((const fenv_t *) -1)
 
-#if __GLIBC_USE (IEC_60559_BFP_EXT)
+#if __GLIBC_USE (IEC_60559_BFP_EXT_C23)
 /* Type representing floating-point control modes.  */
 typedef unsigned int femode_t;
 

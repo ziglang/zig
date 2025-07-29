@@ -83,7 +83,7 @@ static const bool assertions_on = false;
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMFloatABI float_abi,
-    const char *abi_name)
+    const char *abi_name, bool emulated_tls)
 {
     std::optional<Reloc::Model> RM;
     switch (Reloc){
@@ -147,6 +147,10 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
 
     if (abi_name != nullptr) {
         opt.MCOptions.ABIName = abi_name;
+    }
+
+    if (emulated_tls) {
+        opt.EmulatedTLS = true;
     }
 
     TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
@@ -260,6 +264,16 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
 
+    if (options->allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
+    if (!options->allow_machine_outliner) {
+        target_machine.setMachineOutliner(false);
+    }
+
     Module &llvm_module = *unwrap(module_ref);
 
     // Pipeline configurations
@@ -300,7 +314,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
     pass_builder.registerLoopAnalyses(loop_am);
     pass_builder.crossRegisterProxies(loop_am, function_am, cgscc_am, module_am);
 
-    pass_builder.registerPipelineStartEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
+    pass_builder.registerPipelineStartEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
         // Verify the input
         if (assertions_on) {
             module_pm.addPass(VerifierPass());
@@ -311,19 +325,35 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     });
 
-    //pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel OL) {
-    //});
+    const bool early_san = options->is_debug;
 
-    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level) {
-        // Code coverage instrumentation.
-        if (options->sancov) {
-            module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
+    pass_builder.registerOptimizerEarlyEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level, ThinOrFullLTOPhase lto_phase) {
+        if (early_san) {
+            // Code coverage instrumentation.
+            if (options->sancov) {
+                module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
+            }
+
+            // Thread sanitizer
+            if (options->tsan) {
+                module_pm.addPass(ModuleThreadSanitizerPass());
+                module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+            }
         }
+    });
 
-        // Thread sanitizer
-        if (options->tsan) {
-            module_pm.addPass(ModuleThreadSanitizerPass());
-            module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+    pass_builder.registerOptimizerLastEPCallback([&](ModulePassManager &module_pm, OptimizationLevel level, ThinOrFullLTOPhase lto_phase) {
+        if (!early_san) {
+            // Code coverage instrumentation.
+            if (options->sancov) {
+                module_pm.addPass(SanitizerCoveragePass(getSanCovOptions(options->coverage)));
+            }
+
+            // Thread sanitizer
+            if (options->tsan) {
+                module_pm.addPass(ModuleThreadSanitizerPass());
+                module_pm.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
+            }
         }
 
         // Verify the output
@@ -344,7 +374,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 
     // Initialize the PassManager
     if (opt_level == OptimizationLevel::O0) {
-      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, options->lto);
+      module_pm = pass_builder.buildO0DefaultPipeline(opt_level, static_cast<ThinOrFullLTOPhase>(options->lto));
     } else if (options->lto) {
       module_pm = pass_builder.buildLTOPreLinkDefaultPipeline(opt_level);
     } else {
@@ -367,12 +397,6 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
             *error_message = strdup("TargetMachine can't emit an assembly file");
             return true;
         }
-    }
-
-    if (options->allow_fast_isel) {
-        target_machine.setO0WantsFastISel(true);
-    } else {
-        target_machine.setFastISel(false);
     }
 
     // Optimization phase
@@ -468,20 +492,22 @@ bool ZigLLVMWriteImportLibrary(const char *def_path, unsigned int coff_machine,
         }
     }
 
-    if (machine == COFF::IMAGE_FILE_MACHINE_I386 && kill_at) {
+    if (kill_at) {
         for (object::COFFShortExport& E : def->Exports) {
             if (!E.ImportName.empty() || (!E.Name.empty() && E.Name[0] == '?'))
                 continue;
-            E.SymbolName = E.Name;
+            if (machine == COFF::IMAGE_FILE_MACHINE_I386) {
+                // By making sure E.SymbolName != E.Name for decorated symbols,
+                // writeImportLibrary writes these symbols with the type
+                // IMPORT_NAME_UNDECORATE.
+                E.SymbolName = E.Name;
+            }
             // Trim off the trailing decoration. Symbols will always have a
             // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
             // or ? for C++ functions). Vectorcall functions won't have any
             // fixed prefix, but the function base name will still be at least
             // one char.
             E.Name = E.Name.substr(0, E.Name.find('@', 1));
-            // By making sure E.SymbolName != E.Name for decorated symbols,
-            // writeImportLibrary writes these symbols with the type
-            // IMPORT_NAME_UNDECORATE.
         }
     }
 

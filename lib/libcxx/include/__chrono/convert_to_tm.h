@@ -24,6 +24,7 @@
 #include <__chrono/sys_info.h>
 #include <__chrono/system_clock.h>
 #include <__chrono/time_point.h>
+#include <__chrono/utc_clock.h>
 #include <__chrono/weekday.h>
 #include <__chrono/year.h>
 #include <__chrono/year_month.h>
@@ -98,6 +99,22 @@ _LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(const chrono::sys_time<_Duration> __tp
   return __result;
 }
 
+#  if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
+#    if _LIBCPP_HAS_EXPERIMENTAL_TZDB
+
+template <class _Tm, class _Duration>
+_LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(chrono::utc_time<_Duration> __tp) {
+  _Tm __result = std::__convert_to_tm<_Tm>(chrono::utc_clock::to_sys(__tp));
+
+  if (chrono::get_leap_second_info(__tp).is_leap_second)
+    ++__result.tm_sec;
+
+  return __result;
+}
+
+#    endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
+#  endif   // _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
+
 // Convert a chrono (calendar) time point, or dururation to the given _Tm type,
 // which must have the same properties as std::tm.
 template <class _Tm, class _ChronoT>
@@ -110,13 +127,19 @@ _LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(const _ChronoT& __value) {
   if constexpr (__is_time_point<_ChronoT>) {
     if constexpr (same_as<typename _ChronoT::clock, chrono::system_clock>)
       return std::__convert_to_tm<_Tm>(__value);
+#  if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
+#    if _LIBCPP_HAS_EXPERIMENTAL_TZDB
+    else if constexpr (same_as<typename _ChronoT::clock, chrono::utc_clock>)
+      return std::__convert_to_tm<_Tm>(__value);
+#    endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
+#  endif   // _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
     else if constexpr (same_as<typename _ChronoT::clock, chrono::file_clock>)
       return std::__convert_to_tm<_Tm>(_ChronoT::clock::to_sys(__value));
     else if constexpr (same_as<typename _ChronoT::clock, chrono::local_t>)
       return std::__convert_to_tm<_Tm>(chrono::sys_time<typename _ChronoT::duration>{__value.time_since_epoch()});
     else
       static_assert(sizeof(_ChronoT) == 0, "TODO: Add the missing clock specialization");
-  } else if constexpr (chrono::__is_duration<_ChronoT>::value) {
+  } else if constexpr (chrono::__is_duration_v<_ChronoT>) {
     // [time.format]/6
     //   ...  However, if a flag refers to a "time of day" (e.g. %H, %I, %p,
     //   etc.), then a specialization of duration is interpreted as the time of
@@ -175,18 +198,17 @@ _LIBCPP_HIDE_FROM_ABI _Tm __convert_to_tm(const _ChronoT& __value) {
       if (__value.hours().count() > std::numeric_limits<decltype(__result.tm_hour)>::max())
         std::__throw_format_error("Formatting hh_mm_ss, encountered an hour overflow");
     __result.tm_hour = __value.hours().count();
-#  if !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#  if _LIBCPP_HAS_EXPERIMENTAL_TZDB
   } else if constexpr (same_as<_ChronoT, chrono::sys_info>) {
     // Has no time information.
   } else if constexpr (same_as<_ChronoT, chrono::local_info>) {
     // Has no time information.
-#    if !defined(_LIBCPP_HAS_NO_TIME_ZONE_DATABASE) && !defined(_LIBCPP_HAS_NO_FILESYSTEM) &&                          \
-        !defined(_LIBCPP_HAS_NO_LOCALIZATION)
+#    if _LIBCPP_HAS_TIME_ZONE_DATABASE && _LIBCPP_HAS_FILESYSTEM && _LIBCPP_HAS_LOCALIZATION
   } else if constexpr (__is_specialization_v<_ChronoT, chrono::zoned_time>) {
     return std::__convert_to_tm<_Tm>(
         chrono::sys_time<typename _ChronoT::duration>{__value.get_local_time().time_since_epoch()});
 #    endif
-#  endif // !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_TZDB)
+#  endif // _LIBCPP_HAS_EXPERIMENTAL_TZDB
   } else
     static_assert(sizeof(_ChronoT) == 0, "Add the missing type specialization");
 

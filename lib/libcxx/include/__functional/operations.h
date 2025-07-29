@@ -14,6 +14,7 @@
 #include <__functional/binary_function.h>
 #include <__functional/unary_function.h>
 #include <__type_traits/desugars_to.h>
+#include <__type_traits/is_integral.h>
 #include <__utility/forward.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -364,6 +365,9 @@ _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(less);
 template <class _Tp>
 inline const bool __desugars_to_v<__less_tag, less<_Tp>, _Tp, _Tp> = true;
 
+template <class _Tp>
+inline const bool __desugars_to_v<__totally_ordered_less_tag, less<_Tp>, _Tp, _Tp> = is_integral<_Tp>::value;
+
 #if _LIBCPP_STD_VER >= 14
 template <>
 struct _LIBCPP_TEMPLATE_VIS less<void> {
@@ -376,8 +380,11 @@ struct _LIBCPP_TEMPLATE_VIS less<void> {
   typedef void is_transparent;
 };
 
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__less_tag, less<>, _Tp, _Up> = true;
+
 template <class _Tp>
-inline const bool __desugars_to_v<__less_tag, less<>, _Tp, _Tp> = true;
+inline const bool __desugars_to_v<__totally_ordered_less_tag, less<>, _Tp, _Tp> = is_integral<_Tp>::value;
 #endif
 
 #if _LIBCPP_STD_VER >= 14
@@ -445,6 +452,9 @@ struct _LIBCPP_TEMPLATE_VIS greater : __binary_function<_Tp, _Tp, bool> {
 };
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(greater);
 
+template <class _Tp>
+inline const bool __desugars_to_v<__greater_tag, greater<_Tp>, _Tp, _Tp> = true;
+
 #if _LIBCPP_STD_VER >= 14
 template <>
 struct _LIBCPP_TEMPLATE_VIS greater<void> {
@@ -456,6 +466,9 @@ struct _LIBCPP_TEMPLATE_VIS greater<void> {
   }
   typedef void is_transparent;
 };
+
+template <class _Tp, class _Up>
+inline const bool __desugars_to_v<__greater_tag, greater<>, _Tp, _Up> = true;
 #endif
 
 // Logical operations

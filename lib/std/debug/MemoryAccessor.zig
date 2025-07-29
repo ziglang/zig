@@ -7,7 +7,7 @@ const native_os = builtin.os.tag;
 const std = @import("../std.zig");
 const posix = std.posix;
 const File = std.fs.File;
-const page_size = std.mem.page_size;
+const page_size_min = std.heap.page_size_min;
 
 const MemoryAccessor = @This();
 
@@ -24,6 +24,17 @@ pub const init: MemoryAccessor = .{
         else => {},
     },
 };
+
+pub fn deinit(ma: *MemoryAccessor) void {
+    switch (native_os) {
+        .linux => switch (ma.mem.handle) {
+            -2, -1 => {},
+            else => ma.mem.close(),
+        },
+        else => {},
+    }
+    ma.* = undefined;
+}
 
 fn read(ma: *MemoryAccessor, address: usize, buf: []u8) bool {
     switch (native_os) {
@@ -82,9 +93,10 @@ pub fn isValidMemory(address: usize) bool {
     // We are unable to determine validity of memory for freestanding targets
     if (native_os == .freestanding or native_os == .other or native_os == .uefi) return true;
 
-    const aligned_address = address & ~@as(usize, @intCast((page_size - 1)));
+    const page_size = std.heap.pageSize();
+    const aligned_address = address & ~(page_size - 1);
     if (aligned_address == 0) return false;
-    const aligned_memory = @as([*]align(page_size) u8, @ptrFromInt(aligned_address))[0..page_size];
+    const aligned_memory = @as([*]align(page_size_min) u8, @ptrFromInt(aligned_address))[0..page_size];
 
     if (native_os == .windows) {
         const windows = std.os.windows;
@@ -93,7 +105,7 @@ pub fn isValidMemory(address: usize) bool {
 
         // The only error this function can throw is ERROR_INVALID_PARAMETER.
         // supply an address that invalid i'll be thrown.
-        const rc = windows.VirtualQuery(aligned_memory, &memory_info, aligned_memory.len) catch {
+        const rc = windows.VirtualQuery(@ptrCast(aligned_memory), &memory_info, aligned_memory.len) catch {
             return false;
         };
 

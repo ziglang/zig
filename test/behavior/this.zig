@@ -1,4 +1,5 @@
-const expect = @import("std").testing.expect;
+const std = @import("std");
+const expect = std.testing.expect;
 const builtin = @import("builtin");
 
 const module = @This();
@@ -25,7 +26,6 @@ test "this refer to module call private fn" {
 }
 
 test "this refer to container" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var pt: Point(i32) = undefined;
@@ -46,12 +46,18 @@ fn prev(p: ?State) void {
 }
 
 test "this used as optional function parameter" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var global: State = undefined;
     global.enter = prev;
     global.enter(null);
+}
+
+test "@This() in opaque" {
+    const T = opaque {
+        const Self = @This();
+    };
+    comptime std.debug.assert(T.Self == T);
 }

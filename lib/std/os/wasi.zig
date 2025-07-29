@@ -1,7 +1,7 @@
 //! wasi_snapshot_preview1 spec available (in witx format) here:
 //! * typenames -- https://github.com/WebAssembly/WASI/blob/main/legacy/preview1/witx/typenames.witx
 //! * module -- https://github.com/WebAssembly/WASI/blob/main/legacy/preview1/witx/wasi_snapshot_preview1.witx
-//! Note that libc API does *not* go in this file. wasi libc API goes into std/c/wasi.zig instead.
+//! Note that libc API does *not* go in this file. wasi libc API goes into std/c.zig instead.
 const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;

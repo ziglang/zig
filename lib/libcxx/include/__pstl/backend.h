@@ -19,16 +19,20 @@
 _LIBCPP_PUSH_MACROS
 #include <__undef_macros>
 
-#if defined(_LIBCPP_PSTL_BACKEND_SERIAL)
-#  include <__pstl/backends/default.h>
-#  include <__pstl/backends/serial.h>
-#elif defined(_LIBCPP_PSTL_BACKEND_STD_THREAD)
-#  include <__pstl/backends/default.h>
-#  include <__pstl/backends/std_thread.h>
-#elif defined(_LIBCPP_PSTL_BACKEND_LIBDISPATCH)
-#  include <__pstl/backends/default.h>
-#  include <__pstl/backends/libdispatch.h>
-#endif
+#if _LIBCPP_STD_VER >= 17
+
+#  if defined(_LIBCPP_PSTL_BACKEND_SERIAL)
+#    include <__pstl/backends/default.h>
+#    include <__pstl/backends/serial.h>
+#  elif defined(_LIBCPP_PSTL_BACKEND_STD_THREAD)
+#    include <__pstl/backends/default.h>
+#    include <__pstl/backends/std_thread.h>
+#  elif defined(_LIBCPP_PSTL_BACKEND_LIBDISPATCH)
+#    include <__pstl/backends/default.h>
+#    include <__pstl/backends/libdispatch.h>
+#  endif
+
+#endif // _LIBCPP_STD_VER >= 17
 
 _LIBCPP_POP_MACROS
 

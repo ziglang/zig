@@ -102,5 +102,4 @@ struct  sockaddr_un {
 	(sizeof(*(su)) - sizeof((su)->sun_path) + strlen((su)->sun_path))
 #endif  /* (!_POSIX_C_SOURCE || _DARWIN_C_SOURCE) */
 
-
 #endif /* !_SYS_UN_H_ */

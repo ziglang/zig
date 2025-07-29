@@ -17,6 +17,7 @@ const assert = std.debug.assert;
 const native_arch = @import("builtin").cpu.arch;
 const linux = std.os.linux;
 const posix = std.posix;
+const page_size_min = std.heap.page_size_min;
 
 /// Represents an ELF TLS variant.
 ///
@@ -307,8 +308,7 @@ pub fn setThreadPointer(addr: usize) void {
                 \\ sar %%a0, %%r0
                 :
                 : [addr] "r" (addr),
-                : "r0"
-            );
+                : .{ .r0 = true });
         },
         .sparc, .sparc64 => {
             asm volatile (
@@ -484,13 +484,13 @@ pub fn prepareArea(area: []u8) usize {
     };
 }
 
-// The main motivation for the size chosen here is that this is how much ends up being requested for
-// the thread-local variables of the `std.crypto.random` implementation. I'm not sure why it ends up
-// being so much; the struct itself is only 64 bytes. I think it has to do with being page-aligned
-// and LLVM or LLD is not smart enough to lay out the TLS data in a space-conserving way. Anyway, I
-// think it's fine because it's less than 3 pages of memory, and putting it in the ELF like this is
-// equivalent to moving the `mmap` call below into the kernel, avoiding syscall overhead.
-var main_thread_area_buffer: [0x2100]u8 align(mem.page_size) = undefined;
+/// The main motivation for the size chosen here is that this is how much ends up being requested for
+/// the thread-local variables of the `std.crypto.random` implementation. I'm not sure why it ends up
+/// being so much; the struct itself is only 64 bytes. I think it has to do with being page-aligned
+/// and LLVM or LLD is not smart enough to lay out the TLS data in a space-conserving way. Anyway, I
+/// think it's fine because it's less than 3 pages of memory, and putting it in the ELF like this is
+/// equivalent to moving the `mmap` call below into the kernel, avoiding syscall overhead.
+var main_thread_area_buffer: [0x2100]u8 align(page_size_min) = undefined;
 
 /// Computes the layout of the static TLS area, allocates the area, initializes all of its fields,
 /// and assigns the architecture-specific value to the TP register.
@@ -503,21 +503,14 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
     const area = blk: {
         // Fast path for the common case where the TLS data is really small, avoid an allocation and
         // use our local buffer.
-        if (area_desc.alignment <= mem.page_size and area_desc.size <= main_thread_area_buffer.len) {
+        if (area_desc.alignment <= page_size_min and area_desc.size <= main_thread_area_buffer.len) {
             break :blk main_thread_area_buffer[0..area_desc.size];
         }
 
-        const begin_addr = mmap(
-            null,
-            area_desc.size + area_desc.alignment - 1,
-            posix.PROT.READ | posix.PROT.WRITE,
-            .{ .TYPE = .PRIVATE, .ANONYMOUS = true },
-            -1,
-            0,
-        );
-        if (@as(isize, @bitCast(begin_addr)) < 0) @trap();
+        const begin_addr = mmap_tls(area_desc.size + area_desc.alignment - 1);
+        if (@call(.always_inline, linux.E.init, .{begin_addr}) != .SUCCESS) @trap();
 
-        const area_ptr: [*]align(mem.page_size) u8 = @ptrFromInt(begin_addr);
+        const area_ptr: [*]align(page_size_min) u8 = @ptrFromInt(begin_addr);
 
         // Make sure the slice is correctly aligned.
         const begin_aligned_addr = alignForward(begin_addr, area_desc.alignment);
@@ -529,16 +522,19 @@ pub fn initStatic(phdrs: []elf.Phdr) void {
     setThreadPointer(tp_value);
 }
 
-inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd: i32, offset: i64) usize {
+inline fn mmap_tls(length: usize) usize {
+    const prot = posix.PROT.READ | posix.PROT.WRITE;
+    const flags: linux.MAP = .{ .TYPE = .PRIVATE, .ANONYMOUS = true };
+
     if (@hasField(linux.SYS, "mmap2")) {
         return @call(.always_inline, linux.syscall6, .{
             .mmap2,
-            @intFromPtr(address),
+            0,
             length,
             prot,
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(usize, @truncate(@as(u64, @bitCast(offset)) / linux.MMAP2_UNIT)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     } else {
         // The s390x mmap() syscall existed before Linux supported syscalls with 5+ parameters, so
@@ -546,21 +542,21 @@ inline fn mmap(address: ?[*]u8, length: usize, prot: usize, flags: linux.MAP, fd
         return if (native_arch == .s390x) @call(.always_inline, linux.syscall1, .{
             .mmap,
             @intFromPtr(&[_]usize{
-                @intFromPtr(address),
+                0,
                 length,
                 prot,
                 @as(u32, @bitCast(flags)),
-                @as(usize, @bitCast(@as(isize, fd))),
-                @as(u64, @bitCast(offset)),
+                @as(usize, @bitCast(@as(isize, -1))),
+                0,
             }),
         }) else @call(.always_inline, linux.syscall6, .{
             .mmap,
-            @intFromPtr(address),
+            0,
             length,
             prot,
             @as(u32, @bitCast(flags)),
-            @as(usize, @bitCast(@as(isize, fd))),
-            @as(u64, @bitCast(offset)),
+            @as(usize, @bitCast(@as(isize, -1))),
+            0,
         });
     }
 }

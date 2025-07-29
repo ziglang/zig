@@ -416,5 +416,9 @@
 #define __NR_lsm_set_self_attr (__NR_SYSCALL_BASE + 460)
 #define __NR_lsm_list_modules (__NR_SYSCALL_BASE + 461)
 #define __NR_mseal (__NR_SYSCALL_BASE + 462)
+#define __NR_setxattrat (__NR_SYSCALL_BASE + 463)
+#define __NR_getxattrat (__NR_SYSCALL_BASE + 464)
+#define __NR_listxattrat (__NR_SYSCALL_BASE + 465)
+#define __NR_removexattrat (__NR_SYSCALL_BASE + 466)
 
 #endif /* _ASM_UNISTD_EABI_H */

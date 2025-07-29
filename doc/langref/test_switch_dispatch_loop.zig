@@ -15,18 +15,18 @@ fn evaluate(initial_stack: []const i32, code: []const Instruction) !i32 {
         // Because all code after `continue` is unreachable, this branch does
         // not provide a result.
         .add => {
-            try stack.append(stack.pop() + stack.pop());
+            try stack.append(stack.pop().? + stack.pop().?);
 
             ip += 1;
             continue :vm code[ip];
         },
         .mul => {
-            try stack.append(stack.pop() * stack.pop());
+            try stack.append(stack.pop().? * stack.pop().?);
 
             ip += 1;
             continue :vm code[ip];
         },
-        .end => stack.pop(),
+        .end => stack.pop().?,
     };
 }
 

@@ -15,9 +15,9 @@ pub export fn entry2() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :5:15: error: unable to evaluate comptime expression
 // :5:13: note: operation is runtime due to this operand
-// :13:11: error: unable to evaluate comptime expression
+// :4:72: note: '@shuffle' mask must be comptime-known
+// :13:11: error: unable to resolve comptime value
+// :12:72: note: '@shuffle' mask must be comptime-known

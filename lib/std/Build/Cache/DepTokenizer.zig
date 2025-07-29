@@ -7,6 +7,7 @@ state: State = .lhs,
 const std = @import("std");
 const testing = std.testing;
 const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
 
 pub fn next(self: *Tokenizer) ?Token {
     var start = self.index;
@@ -25,7 +26,7 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
             },
             .target => switch (char) {
-                '\t', '\n', '\r', ' ' => {
+                '\n', '\r' => {
                     return errorIllegalChar(.invalid_target, self.index, char);
                 },
                 '$' => {
@@ -39,6 +40,15 @@ pub fn next(self: *Tokenizer) ?Token {
                 ':' => {
                     self.state = .target_colon;
                     self.index += 1;
+                },
+                '\t', ' ' => {
+                    self.state = .target_space;
+
+                    const bytes = self.bytes[start..self.index];
+                    std.debug.assert(bytes.len != 0);
+                    self.index += 1;
+
+                    return finishTarget(must_resolve, bytes);
                 },
                 else => {
                     self.index += 1;
@@ -108,6 +118,19 @@ pub fn next(self: *Tokenizer) ?Token {
                 },
                 else => {
                     self.state = .target;
+                },
+            },
+            .target_space => switch (char) {
+                '\t', ' ' => {
+                    // silently ignore additional horizontal whitespace
+                    self.index += 1;
+                },
+                ':' => {
+                    self.state = .rhs;
+                    self.index += 1;
+                },
+                else => {
+                    return errorIllegalChar(.expected_colon, self.index, char);
                 },
             },
             .rhs => switch (char) {
@@ -256,6 +279,10 @@ pub fn next(self: *Tokenizer) ?Token {
                 self.state = .lhs;
                 return null;
             },
+            .target_space => {
+                const idx = self.index - 1;
+                return errorIllegalChar(.expected_colon, idx, self.bytes[idx]);
+            },
             .prereq_quote => {
                 return errorPosition(.incomplete_quoted_prerequisite, start, self.bytes[start..]);
             },
@@ -299,6 +326,7 @@ const State = enum {
     target_dollar_sign,
     target_colon,
     target_colon_reverse_solidus,
+    target_space,
     rhs,
     rhs_continuation,
     rhs_continuation_linefeed,
@@ -322,6 +350,7 @@ pub const Token = union(enum) {
     expected_dollar_sign: IndexAndChar,
     continuation_eol: IndexAndChar,
     incomplete_escape: IndexAndChar,
+    expected_colon: IndexAndChar,
 
     pub const IndexAndChar = struct {
         index: usize,
@@ -334,7 +363,7 @@ pub const Token = union(enum) {
     };
 
     /// Resolve escapes in target or prereq. Only valid with .target_must_resolve or .prereq_must_resolve.
-    pub fn resolve(self: Token, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn resolve(self: Token, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!void {
         switch (self) {
             .target_must_resolve => |bytes| {
                 var state: enum { start, escape, dollar } = .start;
@@ -344,27 +373,27 @@ pub const Token = union(enum) {
                             switch (c) {
                                 '\\' => state = .escape,
                                 '$' => state = .dollar,
-                                else => try writer.writeByte(c),
+                                else => try list.append(gpa, c),
                             }
                         },
                         .escape => {
                             switch (c) {
                                 ' ', '#', '\\' => {},
                                 '$' => {
-                                    try writer.writeByte('\\');
+                                    try list.append(gpa, '\\');
                                     state = .dollar;
                                     continue;
                                 },
-                                else => try writer.writeByte('\\'),
+                                else => try list.append(gpa, '\\'),
                             }
-                            try writer.writeByte(c);
+                            try list.append(gpa, c);
                             state = .start;
                         },
                         .dollar => {
-                            try writer.writeByte('$');
+                            try list.append(gpa, '$');
                             switch (c) {
                                 '$' => {},
-                                else => try writer.writeByte(c),
+                                else => try list.append(gpa, c),
                             }
                             state = .start;
                         },
@@ -378,19 +407,19 @@ pub const Token = union(enum) {
                         .start => {
                             switch (c) {
                                 '\\' => state = .escape,
-                                else => try writer.writeByte(c),
+                                else => try list.append(gpa, c),
                             }
                         },
                         .escape => {
                             switch (c) {
                                 ' ' => {},
                                 '\\' => {
-                                    try writer.writeByte(c);
+                                    try list.append(gpa, c);
                                     continue;
                                 },
-                                else => try writer.writeByte('\\'),
+                                else => try list.append(gpa, '\\'),
                             }
-                            try writer.writeByte(c);
+                            try list.append(gpa, c);
                             state = .start;
                         },
                     }
@@ -400,30 +429,31 @@ pub const Token = union(enum) {
         }
     }
 
-    pub fn printError(self: Token, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn printError(self: Token, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) error{OutOfMemory}!void {
         switch (self) {
             .target, .target_must_resolve, .prereq, .prereq_must_resolve => unreachable, // not an error
             .incomplete_quoted_prerequisite,
             .incomplete_target,
             => |index_and_bytes| {
-                try writer.print("{s} '", .{self.errStr()});
+                try list.print(gpa, "{s} '", .{self.errStr()});
                 if (self == .incomplete_target) {
                     const tmp = Token{ .target_must_resolve = index_and_bytes.bytes };
-                    try tmp.resolve(writer);
+                    try tmp.resolve(gpa, list);
                 } else {
-                    try printCharValues(writer, index_and_bytes.bytes);
+                    try printCharValues(gpa, list, index_and_bytes.bytes);
                 }
-                try writer.print("' at position {d}", .{index_and_bytes.index});
+                try list.print(gpa, "' at position {d}", .{index_and_bytes.index});
             },
             .invalid_target,
             .bad_target_escape,
             .expected_dollar_sign,
             .continuation_eol,
             .incomplete_escape,
+            .expected_colon,
             => |index_and_char| {
-                try writer.writeAll("illegal char ");
-                try printUnderstandableChar(writer, index_and_char.char);
-                try writer.print(" at position {d}: {s}", .{ index_and_char.index, self.errStr() });
+                try list.appendSlice(gpa, "illegal char ");
+                try printUnderstandableChar(gpa, list, index_and_char.char);
+                try list.print(gpa, " at position {d}: {s}", .{ index_and_char.index, self.errStr() });
             },
         }
     }
@@ -438,6 +468,7 @@ pub const Token = union(enum) {
             .expected_dollar_sign => "expecting '$'",
             .continuation_eol => "continuation expecting end-of-line",
             .incomplete_escape => "incomplete escape",
+            .expected_colon => "expecting ':'",
         };
     }
 };
@@ -543,6 +574,16 @@ test "empty target linefeeds + hspace + continuations" {
         \\foo.o: \
         \\
     , expect);
+}
+
+test "empty target + hspace + colon" {
+    const expect = "target = {foo.o}";
+
+    try depTokenizer("foo.o :", expect);
+    try depTokenizer("foo.o\t\t\t:", expect);
+    try depTokenizer("foo.o \t \t :", expect);
+    try depTokenizer("\r\nfoo.o :", expect);
+    try depTokenizer(" foo.o :", expect);
 }
 
 test "prereq" {
@@ -923,9 +964,6 @@ test "error illegal char at position - expecting dollar_sign" {
 }
 
 test "error illegal char at position - invalid target" {
-    try depTokenizer("foo\t.o",
-        \\ERROR: illegal char \x09 at position 3: invalid target
-    );
     try depTokenizer("foo\n.o",
         \\ERROR: illegal char \x0A at position 3: invalid target
     );
@@ -963,6 +1001,25 @@ test "error prereq - continuation expecting end-of-line" {
     );
 }
 
+test "error illegal char at position - expecting colon" {
+    try depTokenizer("foo\t.o:",
+        \\target = {foo}
+        \\ERROR: illegal char '.' at position 4: expecting ':'
+    );
+    try depTokenizer("foo .o:",
+        \\target = {foo}
+        \\ERROR: illegal char '.' at position 4: expecting ':'
+    );
+    try depTokenizer("foo \n.o:",
+        \\target = {foo}
+        \\ERROR: illegal char \x0A at position 4: expecting ':'
+    );
+    try depTokenizer("foo.o\t\n:",
+        \\target = {foo.o}
+        \\ERROR: illegal char \x0A at position 6: expecting ':'
+    );
+}
+
 // - tokenize input, emit textual representation, and compare to expect
 fn depTokenizer(input: []const u8, expect: []const u8) !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.testing.allocator);
@@ -970,41 +1027,41 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
     defer arena_allocator.deinit();
 
     var it: Tokenizer = .{ .bytes = input };
-    var buffer = std.ArrayList(u8).init(arena);
-    var resolve_buf = std.ArrayList(u8).init(arena);
+    var buffer: std.ArrayListUnmanaged(u8) = .empty;
+    var resolve_buf: std.ArrayListUnmanaged(u8) = .empty;
     var i: usize = 0;
     while (it.next()) |token| {
-        if (i != 0) try buffer.appendSlice("\n");
+        if (i != 0) try buffer.appendSlice(arena, "\n");
         switch (token) {
             .target, .prereq => |bytes| {
-                try buffer.appendSlice(@tagName(token));
-                try buffer.appendSlice(" = {");
+                try buffer.appendSlice(arena, @tagName(token));
+                try buffer.appendSlice(arena, " = {");
                 for (bytes) |b| {
-                    try buffer.append(printable_char_tab[b]);
+                    try buffer.append(arena, printable_char_tab[b]);
                 }
-                try buffer.appendSlice("}");
+                try buffer.appendSlice(arena, "}");
             },
             .target_must_resolve => {
-                try buffer.appendSlice("target = {");
-                try token.resolve(resolve_buf.writer());
+                try buffer.appendSlice(arena, "target = {");
+                try token.resolve(arena, &resolve_buf);
                 for (resolve_buf.items) |b| {
-                    try buffer.append(printable_char_tab[b]);
+                    try buffer.append(arena, printable_char_tab[b]);
                 }
                 resolve_buf.items.len = 0;
-                try buffer.appendSlice("}");
+                try buffer.appendSlice(arena, "}");
             },
             .prereq_must_resolve => {
-                try buffer.appendSlice("prereq = {");
-                try token.resolve(resolve_buf.writer());
+                try buffer.appendSlice(arena, "prereq = {");
+                try token.resolve(arena, &resolve_buf);
                 for (resolve_buf.items) |b| {
-                    try buffer.append(printable_char_tab[b]);
+                    try buffer.append(arena, printable_char_tab[b]);
                 }
                 resolve_buf.items.len = 0;
-                try buffer.appendSlice("}");
+                try buffer.appendSlice(arena, "}");
             },
             else => {
-                try buffer.appendSlice("ERROR: ");
-                try token.printError(buffer.writer());
+                try buffer.appendSlice(arena, "ERROR: ");
+                try token.printError(arena, &buffer);
                 break;
             },
         }
@@ -1016,134 +1073,18 @@ fn depTokenizer(input: []const u8, expect: []const u8) !void {
         return;
     }
 
-    const out = std.io.getStdErr().writer();
-
-    try out.writeAll("\n");
-    try printSection(out, "<<<< input", input);
-    try printSection(out, "==== expect", expect);
-    try printSection(out, ">>>> got", buffer.items);
-    try printRuler(out);
-
-    try testing.expect(false);
+    try testing.expectEqualStrings(expect, buffer.items);
 }
 
-fn printSection(out: anytype, label: []const u8, bytes: []const u8) !void {
-    try printLabel(out, label, bytes);
-    try hexDump(out, bytes);
-    try printRuler(out);
-    try out.writeAll(bytes);
-    try out.writeAll("\n");
+fn printCharValues(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), bytes: []const u8) !void {
+    for (bytes) |b| try list.append(gpa, printable_char_tab[b]);
 }
 
-fn printLabel(out: anytype, label: []const u8, bytes: []const u8) !void {
-    var buf: [80]u8 = undefined;
-    const text = try std.fmt.bufPrint(buf[0..], "{s} {d} bytes ", .{ label, bytes.len });
-    try out.writeAll(text);
-    var i: usize = text.len;
-    const end = 79;
-    while (i < end) : (i += 1) {
-        try out.writeAll(&[_]u8{label[0]});
-    }
-    try out.writeAll("\n");
-}
-
-fn printRuler(out: anytype) !void {
-    var i: usize = 0;
-    const end = 79;
-    while (i < end) : (i += 1) {
-        try out.writeAll("-");
-    }
-    try out.writeAll("\n");
-}
-
-fn hexDump(out: anytype, bytes: []const u8) !void {
-    const n16 = bytes.len >> 4;
-    var line: usize = 0;
-    var offset: usize = 0;
-    while (line < n16) : (line += 1) {
-        try hexDump16(out, offset, bytes[offset..][0..16]);
-        offset += 16;
-    }
-
-    const n = bytes.len & 0x0f;
-    if (n > 0) {
-        try printDecValue(out, offset, 8);
-        try out.writeAll(":");
-        try out.writeAll(" ");
-        const end1 = @min(offset + n, offset + 8);
-        for (bytes[offset..end1]) |b| {
-            try out.writeAll(" ");
-            try printHexValue(out, b, 2);
-        }
-        const end2 = offset + n;
-        if (end2 > end1) {
-            try out.writeAll(" ");
-            for (bytes[end1..end2]) |b| {
-                try out.writeAll(" ");
-                try printHexValue(out, b, 2);
-            }
-        }
-        const short = 16 - n;
-        var i: usize = 0;
-        while (i < short) : (i += 1) {
-            try out.writeAll("   ");
-        }
-        if (end2 > end1) {
-            try out.writeAll("  |");
-        } else {
-            try out.writeAll("   |");
-        }
-        try printCharValues(out, bytes[offset..end2]);
-        try out.writeAll("|\n");
-        offset += n;
-    }
-
-    try printDecValue(out, offset, 8);
-    try out.writeAll(":");
-    try out.writeAll("\n");
-}
-
-fn hexDump16(out: anytype, offset: usize, bytes: []const u8) !void {
-    try printDecValue(out, offset, 8);
-    try out.writeAll(":");
-    try out.writeAll(" ");
-    for (bytes[0..8]) |b| {
-        try out.writeAll(" ");
-        try printHexValue(out, b, 2);
-    }
-    try out.writeAll(" ");
-    for (bytes[8..16]) |b| {
-        try out.writeAll(" ");
-        try printHexValue(out, b, 2);
-    }
-    try out.writeAll("  |");
-    try printCharValues(out, bytes);
-    try out.writeAll("|\n");
-}
-
-fn printDecValue(out: anytype, value: u64, width: u8) !void {
-    var buffer: [20]u8 = undefined;
-    const len = std.fmt.formatIntBuf(buffer[0..], value, 10, .lower, .{ .width = width, .fill = '0' });
-    try out.writeAll(buffer[0..len]);
-}
-
-fn printHexValue(out: anytype, value: u64, width: u8) !void {
-    var buffer: [16]u8 = undefined;
-    const len = std.fmt.formatIntBuf(buffer[0..], value, 16, .lower, .{ .width = width, .fill = '0' });
-    try out.writeAll(buffer[0..len]);
-}
-
-fn printCharValues(out: anytype, bytes: []const u8) !void {
-    for (bytes) |b| {
-        try out.writeAll(&[_]u8{printable_char_tab[b]});
-    }
-}
-
-fn printUnderstandableChar(out: anytype, char: u8) !void {
+fn printUnderstandableChar(gpa: Allocator, list: *std.ArrayListUnmanaged(u8), char: u8) !void {
     if (std.ascii.isPrint(char)) {
-        try out.print("'{c}'", .{char});
+        try list.print(gpa, "'{c}'", .{char});
     } else {
-        try out.print("\\x{X:0>2}", .{char});
+        try list.print(gpa, "\\x{X:0>2}", .{char});
     }
 }
 

@@ -66,6 +66,7 @@
 #ifndef _MACH_VM_STATISTICS_H_
 #define _MACH_VM_STATISTICS_H_
 
+#include <stdbool.h>
 #include <sys/cdefs.h>
 
 #include <mach/machine/vm_types.h>
@@ -330,17 +331,29 @@ typedef struct vm_purgeable_info        *vm_purgeable_info_t;
 #define GUARD_TYPE_VIRT_MEMORY  0x5
 
 /* Reasons for exception for virtual memory */
-enum virtual_memory_guard_exception_codes {
-	kGUARD_EXC_DEALLOC_GAP  = 1u << 0,
-	kGUARD_EXC_RECLAIM_COPYIO_FAILURE = 1u << 1,
-	kGUARD_EXC_RECLAIM_INDEX_FAILURE = 1u << 2,
-	kGUARD_EXC_RECLAIM_DEALLOCATE_FAILURE = 1u << 3,
-};
+__enum_decl(virtual_memory_guard_exception_code_t, uint32_t, {
+	kGUARD_EXC_DEALLOC_GAP  = 1,
+	kGUARD_EXC_RECLAIM_COPYIO_FAILURE = 2,
+	kGUARD_EXC_SEC_LOOKUP_DENIED = 3,
+	kGUARD_EXC_RECLAIM_INDEX_FAILURE = 4,
+	kGUARD_EXC_SEC_RANGE_DENIED = 6,
+	kGUARD_EXC_SEC_ACCESS_FAULT = 7,
+	kGUARD_EXC_RECLAIM_DEALLOCATE_FAILURE = 8,
+	kGUARD_EXC_SEC_COPY_DENIED = 16,
+	kGUARD_EXC_SEC_SHARING_DENIED = 32,
+	kGUARD_EXC_SEC_ASYNC_ACCESS_FAULT = 64,
+});
 
 
 /* current accounting postmark */
 #define __VM_LEDGER_ACCOUNTING_POSTMARK 2019032600
 
+/*
+ *  When making a new VM_LEDGER_TAG_* or VM_LEDGER_FLAG_*, update tests
+ *  vm_parameter_validation_[user|kern] and their expected results; they
+ *  deliberately call VM functions with invalid ledger values and you may
+ *  be turning one of those invalid tags/flags valid.
+ */
 /* discrete values: */
 #define VM_LEDGER_TAG_NONE      0x00000000
 #define VM_LEDGER_TAG_DEFAULT   0x00000001
@@ -352,10 +365,12 @@ enum virtual_memory_guard_exception_codes {
 #define VM_LEDGER_TAG_UNCHANGED ((int)-1)
 
 /* individual bits: */
-#define VM_LEDGER_FLAG_NO_FOOTPRINT               (1 << 0)
+#define VM_LEDGER_FLAG_NO_FOOTPRINT              (1 << 0)
 #define VM_LEDGER_FLAG_NO_FOOTPRINT_FOR_DEBUG    (1 << 1)
-#define VM_LEDGER_FLAGS (VM_LEDGER_FLAG_NO_FOOTPRINT | VM_LEDGER_FLAG_NO_FOOTPRINT_FOR_DEBUG)
+#define VM_LEDGER_FLAG_FROM_KERNEL               (1 << 2)
 
+#define VM_LEDGER_FLAGS_USER (VM_LEDGER_FLAG_NO_FOOTPRINT | VM_LEDGER_FLAG_NO_FOOTPRINT_FOR_DEBUG)
+#define VM_LEDGER_FLAGS_ALL (VM_LEDGER_FLAGS_USER | VM_LEDGER_FLAG_FROM_KERNEL)
 
 #define VM_MEMORY_MALLOC 1
 #define VM_MEMORY_MALLOC_SMALL 2

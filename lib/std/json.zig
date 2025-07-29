@@ -1,17 +1,17 @@
 //! JSON parsing and stringification conforming to RFC 8259. https://datatracker.ietf.org/doc/html/rfc8259
 //!
 //! The low-level `Scanner` API produces `Token`s from an input slice or successive slices of inputs,
-//! The `Reader` API connects a `std.io.Reader` to a `Scanner`.
+//! The `Reader` API connects a `std.io.GenericReader` to a `Scanner`.
 //!
 //! The high-level `parseFromSlice` and `parseFromTokenSource` deserialize a JSON document into a Zig type.
 //! Parse into a dynamically-typed `Value` to load any JSON value for runtime inspection.
 //!
-//! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.Writer`.
+//! The low-level `writeStream` emits syntax-conformant JSON tokens to a `std.io.GenericWriter`.
 //! The high-level `stringify` serializes a Zig or `Value` type into JSON.
 
 const builtin = @import("builtin");
-const testing = @import("std").testing;
-const ArrayList = @import("std").ArrayList;
+const std = @import("std");
+const testing = std.testing;
 
 test Scanner {
     var scanner = Scanner.initCompleteInput(testing.allocator, "{\"foo\": 123}\n");
@@ -41,11 +41,13 @@ test Value {
     try testing.expectEqualSlices(u8, "goes", parsed.value.object.get("anything").?.string);
 }
 
-test writeStream {
-    var out = ArrayList(u8).init(testing.allocator);
+test Stringify {
+    var out: std.io.Writer.Allocating = .init(testing.allocator);
+    var write_stream: Stringify = .{
+        .writer = &out.writer,
+        .options = .{ .whitespace = .indent_2 },
+    };
     defer out.deinit();
-    var write_stream = writeStream(out.writer(), .{ .whitespace = .indent_2 });
-    defer write_stream.deinit();
     try write_stream.beginObject();
     try write_stream.objectField("foo");
     try write_stream.write(123);
@@ -55,16 +57,7 @@ test writeStream {
         \\  "foo": 123
         \\}
     ;
-    try testing.expectEqualSlices(u8, expected, out.items);
-}
-
-test stringify {
-    var out = ArrayList(u8).init(testing.allocator);
-    defer out.deinit();
-
-    const T = struct { a: i32, b: []const u8 };
-    try stringify(T{ .a = 123, .b = "xy" }, .{}, out.writer());
-    try testing.expectEqualSlices(u8, "{\"a\":123,\"b\":\"xy\"}", out.items);
+    try testing.expectEqualSlices(u8, expected, out.getWritten());
 }
 
 pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
@@ -73,18 +66,17 @@ pub const Value = @import("json/dynamic.zig").Value;
 
 pub const ArrayHashMap = @import("json/hashmap.zig").ArrayHashMap;
 
-pub const validate = @import("json/scanner.zig").validate;
-pub const Error = @import("json/scanner.zig").Error;
-pub const reader = @import("json/scanner.zig").reader;
-pub const default_buffer_size = @import("json/scanner.zig").default_buffer_size;
-pub const Token = @import("json/scanner.zig").Token;
-pub const TokenType = @import("json/scanner.zig").TokenType;
-pub const Diagnostics = @import("json/scanner.zig").Diagnostics;
-pub const AllocWhen = @import("json/scanner.zig").AllocWhen;
-pub const default_max_value_len = @import("json/scanner.zig").default_max_value_len;
-pub const Reader = @import("json/scanner.zig").Reader;
-pub const Scanner = @import("json/scanner.zig").Scanner;
-pub const isNumberFormattedLikeAnInteger = @import("json/scanner.zig").isNumberFormattedLikeAnInteger;
+pub const Scanner = @import("json/Scanner.zig");
+pub const validate = Scanner.validate;
+pub const Error = Scanner.Error;
+pub const default_buffer_size = Scanner.default_buffer_size;
+pub const Token = Scanner.Token;
+pub const TokenType = Scanner.TokenType;
+pub const Diagnostics = Scanner.Diagnostics;
+pub const AllocWhen = Scanner.AllocWhen;
+pub const default_max_value_len = Scanner.default_max_value_len;
+pub const Reader = Scanner.Reader;
+pub const isNumberFormattedLikeAnInteger = Scanner.isNumberFormattedLikeAnInteger;
 
 pub const ParseOptions = @import("json/static.zig").ParseOptions;
 pub const Parsed = @import("json/static.zig").Parsed;
@@ -99,27 +91,49 @@ pub const innerParseFromValue = @import("json/static.zig").innerParseFromValue;
 pub const ParseError = @import("json/static.zig").ParseError;
 pub const ParseFromValueError = @import("json/static.zig").ParseFromValueError;
 
-pub const StringifyOptions = @import("json/stringify.zig").StringifyOptions;
-pub const stringify = @import("json/stringify.zig").stringify;
-pub const stringifyMaxDepth = @import("json/stringify.zig").stringifyMaxDepth;
-pub const stringifyArbitraryDepth = @import("json/stringify.zig").stringifyArbitraryDepth;
-pub const stringifyAlloc = @import("json/stringify.zig").stringifyAlloc;
-pub const writeStream = @import("json/stringify.zig").writeStream;
-pub const writeStreamMaxDepth = @import("json/stringify.zig").writeStreamMaxDepth;
-pub const writeStreamArbitraryDepth = @import("json/stringify.zig").writeStreamArbitraryDepth;
-pub const WriteStream = @import("json/stringify.zig").WriteStream;
-pub const encodeJsonString = @import("json/stringify.zig").encodeJsonString;
-pub const encodeJsonStringChars = @import("json/stringify.zig").encodeJsonStringChars;
+pub const Stringify = @import("json/Stringify.zig");
 
-pub const Formatter = @import("json/fmt.zig").Formatter;
-pub const fmt = @import("json/fmt.zig").fmt;
+/// Returns a formatter that formats the given value using stringify.
+pub fn fmt(value: anytype, options: Stringify.Options) Formatter(@TypeOf(value)) {
+    return Formatter(@TypeOf(value)){ .value = value, .options = options };
+}
+
+test fmt {
+    const expectFmt = std.testing.expectFmt;
+    try expectFmt("123", "{f}", .{fmt(@as(u32, 123), .{})});
+    try expectFmt(
+        \\{"num":927,"msg":"hello","sub":{"mybool":true}}
+    , "{f}", .{fmt(struct {
+        num: u32,
+        msg: []const u8,
+        sub: struct {
+            mybool: bool,
+        },
+    }{
+        .num = 927,
+        .msg = "hello",
+        .sub = .{ .mybool = true },
+    }, .{})});
+}
+
+/// Formats the given value using stringify.
+pub fn Formatter(comptime T: type) type {
+    return struct {
+        value: T,
+        options: Stringify.Options,
+
+        pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
+            try Stringify.value(self.value, self.options, writer);
+        }
+    };
+}
 
 test {
     _ = @import("json/test.zig");
-    _ = @import("json/scanner.zig");
+    _ = Scanner;
     _ = @import("json/dynamic.zig");
     _ = @import("json/hashmap.zig");
     _ = @import("json/static.zig");
-    _ = @import("json/stringify.zig");
+    _ = Stringify;
     _ = @import("json/JSONTestSuite_test.zig");
 }

@@ -182,8 +182,8 @@ public:
     raw_storage_iterator  operator++(int);
 };
 
-template <class T> pair<T*,ptrdiff_t> get_temporary_buffer(ptrdiff_t n) noexcept;
-template <class T> void               return_temporary_buffer(T* p) noexcept;
+template <class T> pair<T*,ptrdiff_t> get_temporary_buffer(ptrdiff_t n) noexcept; // deprecated in C++17, removed in C++20
+template <class T> void               return_temporary_buffer(T* p) noexcept;     // deprecated in C++17, removed in C++20
 
 template <class T> T* addressof(T& r) noexcept;
 template <class T> T* addressof(const T&& r) noexcept = delete;
@@ -934,65 +934,69 @@ template<class Pointer = void, class Smart, class... Args>
 
 // clang-format on
 
-#include <__config>
-#include <__memory/addressof.h>
-#include <__memory/align.h>
-#include <__memory/allocator.h>
-#include <__memory/allocator_arg_t.h>
-#include <__memory/allocator_traits.h>
-#include <__memory/auto_ptr.h>
-#include <__memory/inout_ptr.h>
-#include <__memory/out_ptr.h>
-#include <__memory/pointer_traits.h>
-#include <__memory/raw_storage_iterator.h>
-#include <__memory/shared_ptr.h>
-#include <__memory/temporary_buffer.h>
-#include <__memory/uninitialized_algorithms.h>
-#include <__memory/unique_ptr.h>
-#include <__memory/uses_allocator.h>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/memory>
+#else
+#  include <__config>
+#  include <__memory/addressof.h>
+#  include <__memory/align.h>
+#  include <__memory/allocator.h>
+#  include <__memory/allocator_arg_t.h>
+#  include <__memory/allocator_traits.h>
+#  include <__memory/auto_ptr.h>
+#  include <__memory/inout_ptr.h>
+#  include <__memory/out_ptr.h>
+#  include <__memory/pointer_traits.h>
+#  include <__memory/raw_storage_iterator.h>
+#  include <__memory/shared_ptr.h>
+#  include <__memory/temporary_buffer.h>
+#  include <__memory/uninitialized_algorithms.h>
+#  include <__memory/unique_ptr.h>
+#  include <__memory/uses_allocator.h>
 
 // standard-mandated includes
 
-#if _LIBCPP_STD_VER >= 17
-#  include <__memory/construct_at.h>
-#endif
+#  if _LIBCPP_STD_VER >= 17
+#    include <__memory/construct_at.h>
+#  endif
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__memory/assume_aligned.h>
-#  include <__memory/concepts.h>
-#  include <__memory/ranges_construct_at.h>
-#  include <__memory/ranges_uninitialized_algorithms.h>
-#  include <__memory/uses_allocator_construction.h>
-#endif
+#  if _LIBCPP_STD_VER >= 20
+#    include <__memory/assume_aligned.h>
+#    include <__memory/concepts.h>
+#    include <__memory/ranges_construct_at.h>
+#    include <__memory/ranges_uninitialized_algorithms.h>
+#    include <__memory/uses_allocator_construction.h>
+#  endif
 
-#if _LIBCPP_STD_VER >= 23
-#  include <__memory/allocate_at_least.h>
-#endif
+#  if _LIBCPP_STD_VER >= 23
+#    include <__memory/allocate_at_least.h>
+#  endif
 
-#include <version>
+#  include <version>
 
 // [memory.syn]
-#include <compare>
+#  include <compare>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <concepts>
-#  include <cstddef>
-#  include <cstdint>
-#  include <cstdlib>
-#  include <cstring>
-#  include <iosfwd>
-#  include <iterator>
-#  include <new>
-#  include <stdexcept>
-#  include <tuple>
-#  include <type_traits>
-#  include <typeinfo>
-#  include <utility>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <concepts>
+#    include <cstddef>
+#    include <cstdint>
+#    include <cstdlib>
+#    include <cstring>
+#    include <iosfwd>
+#    include <iterator>
+#    include <new>
+#    include <stdexcept>
+#    include <tuple>
+#    include <type_traits>
+#    include <typeinfo>
+#    include <utility>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_MEMORY

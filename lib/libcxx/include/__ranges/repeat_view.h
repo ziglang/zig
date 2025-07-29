@@ -15,6 +15,7 @@
 #include <__concepts/same_as.h>
 #include <__concepts/semiregular.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
 #include <__iterator/concepts.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/unreachable_sentinel.h>
@@ -60,7 +61,7 @@ struct __repeat_view_iterator_difference<_Tp> {
 };
 
 template <class _Tp>
-using __repeat_view_iterator_difference_t = typename __repeat_view_iterator_difference<_Tp>::type;
+using __repeat_view_iterator_difference_t _LIBCPP_NODEBUG = typename __repeat_view_iterator_difference<_Tp>::type;
 
 namespace views::__drop {
 struct __fn;
@@ -138,7 +139,7 @@ template <move_constructible _Tp, semiregular _Bound>
 class repeat_view<_Tp, _Bound>::__iterator {
   friend class repeat_view;
 
-  using _IndexT = conditional_t<same_as<_Bound, unreachable_sentinel_t>, ptrdiff_t, _Bound>;
+  using _IndexT _LIBCPP_NODEBUG = conditional_t<same_as<_Bound, unreachable_sentinel_t>, ptrdiff_t, _Bound>;
 
   _LIBCPP_HIDE_FROM_ABI constexpr explicit __iterator(const _Tp* __value, _IndexT __bound_sentinel = _IndexT())
       : __value_(__value), __current_(__bound_sentinel) {}

@@ -43,7 +43,10 @@
 
 #include <sys/cdefs.h>
 #include <sys/types.h>
+#include <_bounds.h>
 #include <_types.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #ifdef _NLS_PRIVATE
 /*
@@ -87,7 +90,7 @@ struct _nls_msg_hdr {
 #define	NL_CAT_LOCALE	1
 
 typedef struct __nl_cat_d {
-	void	*__data;
+	void *_LIBC_SIZE(__size)	__data;
 	int	__size;
 } *nl_catd;
 
@@ -95,7 +98,7 @@ typedef struct __nl_cat_d {
 
 __BEGIN_DECLS
 nl_catd  catopen(const char *, int);
-char    *catgets(nl_catd, int, int, const char *)
+char *_LIBC_CSTR	catgets(nl_catd, int, int, const char *)
 	__attribute__((__format_arg__(4)));
 int	 catclose(nl_catd);
 __END_DECLS

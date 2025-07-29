@@ -99,7 +99,6 @@ DISPATCH_DECL_FACTORY_CLASS_SWIFT(dispatch_queue, DispatchQueue);
  * Calls to dispatch_suspend(), dispatch_resume(), dispatch_set_context(), etc.,
  * will have no effect when used with queues of this type.
  */
-API_AVAILABLE(macos(10.14), ios(12.0), tvos(12.0), watchos(5.0))
 DISPATCH_DECL_SUBCLASS(dispatch_queue_global, dispatch_queue);
 
 /*!
@@ -169,7 +168,6 @@ DISPATCH_DECL_SERIAL_EXECUTOR_SWIFT(dispatch_queue_serial, DispatchSerialQueue);
  * dispatch_suspend(), dispatch_resume(), dispatch_set_context(), etc., will
  * have no effect when used on the main queue.
  */
-API_AVAILABLE(macos(10.14), ios(12.0), tvos(12.0), watchos(5.0))
 DISPATCH_DECL_SUBCLASS(dispatch_queue_main, dispatch_queue_serial);
 
 /*!
@@ -1737,6 +1735,69 @@ dispatch_assert_queue_not(dispatch_queue_t queue)
 #define dispatch_assert_queue_barrier_debug(q) dispatch_assert_queue_barrier(q)
 #define dispatch_assert_queue_not_debug(q) dispatch_assert_queue_not(q)
 #endif
+
+/* @function dispatch_allow_send_signals
+ *
+ * @discussion
+ * This function provides the calling process an ability to send signals to
+ * it's pthread worker threads created to service incoming work to dispatch,
+ * including those which were already created prior to this function call
+ * and those who may be created in the future. After a call to this function
+ * returns successfully, this ability is retained for the lifetime of the
+ * calling process.
+ * Regular UNIX calls still need to be used to manipulate signal mask of
+ * each individual pthread worker thread to allow delivery of a specific
+ * signal to that thread.
+ *
+ * @param preserve_signum
+ * Dispatch and its kernel runtime subsystem manages a pool of pthread
+ * worker threads which are reused for handling incoming work to dispatch.
+ * The signal number specified here is used internally by this subsystem to
+ * preserve sigmask of the pthread worker threads across their reuse.
+ *
+ * In other words, if a pthread worker thread unblocks delivery of
+ * @preserve_signum using regular UNIX calls after a call to this
+ * function using the same @preserve_signum returns successfully,
+ * that @preserve_signum remains unblocked across that thread's
+ * reuse until it is further modified by regular UNIX calls.
+ * Therefore, it avoids the need to call regular UNIX calls to
+ * unblock delivery of @preserve_signum every time that thread
+ * is reused. The specific signal @preserve_signum can be sent
+ * to that specific pthread worker thread using pthread_kill().
+ *
+ * The following code illustrates an expected usage of this API.
+ *
+ * <code>
+ *
+ * // Enable sending signals to dispatch pthread worker threads.
+ * int ret = dispatch_allow_send_signals(sig);
+ * // Validate ret.
+ *
+ * dispatch_async(q, ^{
+ *     // Unblock sig for this worker thread if not already done.
+ *     // Such a state could be saved in TSD or globally.
+ *     mask = sigmask(sig);
+ *     pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
+ *     // busy with some work. Can receive signal sig.
+ *     // If this worker thread is re-used later, it does not
+ *     // not need to call pthread_sigmask again to unblock delivery
+ *     // of signal sig.
+ * }
+ *
+ * This function returns 0 upon success and -1 with an errno otherwise.
+ * Possible error codes are as below :
+ *
+ * EINVAL     : @preserve_signum is prohibited and is not allowed to be preserved
+ *              across the thread's reuse.
+ * ENOTSUP    : The underlying kernel does not support this functionality.
+ *
+ * </code>
+ */
+API_AVAILABLE(macos(14.4), ios(17.4), visionos(1.1))
+API_UNAVAILABLE(tvos, watchos, driverkit)
+DISPATCH_EXPORT
+int
+dispatch_allow_send_signals(int preserve_signum);
 
 __END_DECLS
 

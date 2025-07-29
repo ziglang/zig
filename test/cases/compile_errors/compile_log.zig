@@ -13,7 +13,7 @@ export fn baz() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :6:5: error: found compile log statement

@@ -4,6 +4,7 @@ const float = @import("math/float.zig");
 const assert = std.debug.assert;
 const mem = std.mem;
 const testing = std.testing;
+const Alignment = std.mem.Alignment;
 
 /// Euler's number (e)
 pub const e = 2.71828182845904523536028747135266249775724709369995;
@@ -44,6 +45,8 @@ pub const rad_per_deg = 0.017453292519943295769236907684886127134428718885417254
 /// 180.0/pi
 pub const deg_per_rad = 57.295779513082320876798154814105170332405472466564321549160243861;
 
+pub const Sign = enum(u1) { positive, negative };
+pub const FloatRepr = float.FloatRepr;
 pub const floatExponentBits = float.floatExponentBits;
 pub const floatMantissaBits = float.floatMantissaBits;
 pub const floatFractionalBits = float.floatFractionalBits;
@@ -235,6 +238,7 @@ pub const sinh = @import("math/sinh.zig").sinh;
 pub const cosh = @import("math/cosh.zig").cosh;
 pub const tanh = @import("math/tanh.zig").tanh;
 pub const gcd = @import("math/gcd.zig").gcd;
+pub const lcm = @import("math/lcm.zig").lcm;
 pub const gamma = @import("math/gamma.zig").gamma;
 pub const lgamma = @import("math/gamma.zig").lgamma;
 
@@ -395,6 +399,7 @@ test {
     _ = cosh;
     _ = tanh;
     _ = gcd;
+    _ = lcm;
     _ = gamma;
     _ = lgamma;
 
@@ -590,27 +595,30 @@ pub fn shlExact(comptime T: type, a: T, shift_amt: Log2Int(T)) !T {
 /// Shifts left. Overflowed bits are truncated.
 /// A negative shift amount results in a right shift.
 pub fn shl(comptime T: type, a: T, shift_amt: anytype) T {
+    const is_shl = shift_amt >= 0;
     const abs_shift_amt = @abs(shift_amt);
-
-    const casted_shift_amt = blk: {
-        if (@typeInfo(T) == .vector) {
-            const C = @typeInfo(T).vector.child;
-            const len = @typeInfo(T).vector.len;
-            if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
-            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
-        } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
-            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
-        }
+    const casted_shift_amt = casted_shift_amt: switch (@typeInfo(T)) {
+        .int => |info| {
+            if (abs_shift_amt < info.bits) break :casted_shift_amt @as(
+                Log2Int(T),
+                @intCast(abs_shift_amt),
+            );
+            if (info.signedness == .unsigned or is_shl) return 0;
+            return a >> (info.bits - 1);
+        },
+        .vector => |info| {
+            const Child = info.child;
+            const child_info = @typeInfo(Child).int;
+            if (abs_shift_amt < child_info.bits) break :casted_shift_amt @as(
+                @Vector(info.len, Log2Int(Child)),
+                @splat(@as(Log2Int(Child), @intCast(abs_shift_amt))),
+            );
+            if (child_info.signedness == .unsigned or is_shl) return @splat(0);
+            return a >> @splat(child_info.bits - 1);
+        },
+        else => comptime unreachable,
     };
-
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).int.signedness == .signed) {
-        if (shift_amt < 0) {
-            return a >> casted_shift_amt;
-        }
-    }
-
-    return a << casted_shift_amt;
+    return if (is_shl) a << casted_shift_amt else a >> casted_shift_amt;
 }
 
 test shl {
@@ -625,32 +633,40 @@ test shl {
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) << 1);
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) >> 1);
     try testing.expect(shl(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
+
+    try testing.expect(shl(i8, -1, -100) == -1);
+    try testing.expect(shl(i8, -1, 100) == 0);
+    try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
+    try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
 
 /// Shifts right. Overflowed bits are truncated.
 /// A negative shift amount results in a left shift.
 pub fn shr(comptime T: type, a: T, shift_amt: anytype) T {
+    const is_shl = shift_amt < 0;
     const abs_shift_amt = @abs(shift_amt);
-
-    const casted_shift_amt = blk: {
-        if (@typeInfo(T) == .vector) {
-            const C = @typeInfo(T).vector.child;
-            const len = @typeInfo(T).vector.len;
-            if (abs_shift_amt >= @typeInfo(C).int.bits) return @splat(0);
-            break :blk @as(@Vector(len, Log2Int(C)), @splat(@as(Log2Int(C), @intCast(abs_shift_amt))));
-        } else {
-            if (abs_shift_amt >= @typeInfo(T).int.bits) return 0;
-            break :blk @as(Log2Int(T), @intCast(abs_shift_amt));
-        }
+    const casted_shift_amt = casted_shift_amt: switch (@typeInfo(T)) {
+        .int => |info| {
+            if (abs_shift_amt < info.bits) break :casted_shift_amt @as(
+                Log2Int(T),
+                @intCast(abs_shift_amt),
+            );
+            if (info.signedness == .unsigned or is_shl) return 0;
+            return a >> (info.bits - 1);
+        },
+        .vector => |info| {
+            const Child = info.child;
+            const child_info = @typeInfo(Child).int;
+            if (abs_shift_amt < child_info.bits) break :casted_shift_amt @as(
+                @Vector(info.len, Log2Int(Child)),
+                @splat(@as(Log2Int(Child), @intCast(abs_shift_amt))),
+            );
+            if (child_info.signedness == .unsigned or is_shl) return @splat(0);
+            return a >> @splat(child_info.bits - 1);
+        },
+        else => comptime unreachable,
     };
-
-    if (@TypeOf(shift_amt) == comptime_int or @typeInfo(@TypeOf(shift_amt)).int.signedness == .signed) {
-        if (shift_amt < 0) {
-            return a << casted_shift_amt;
-        }
-    }
-
-    return a >> casted_shift_amt;
+    return if (is_shl) a << casted_shift_amt else a >> casted_shift_amt;
 }
 
 test shr {
@@ -665,6 +681,11 @@ test shr {
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(usize, 1))[0] == @as(u32, 42) >> 1);
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, @as(isize, -1))[0] == @as(u32, 42) << 1);
     try testing.expect(shr(@Vector(1, u32), @Vector(1, u32){42}, 33)[0] == 0);
+
+    try testing.expect(shr(i8, -1, -100) == 0);
+    try testing.expect(shr(i8, -1, 100) == -1);
+    try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
+    try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
 
 /// Rotates right. Only unsigned values can be rotated.  Negative shift
@@ -771,18 +792,15 @@ pub fn Log2IntCeil(comptime T: type) type {
 /// Returns the smallest integer type that can hold both from and to.
 pub fn IntFittingRange(comptime from: comptime_int, comptime to: comptime_int) type {
     assert(from <= to);
-    if (from == 0 and to == 0) {
-        return u0;
-    }
     const signedness: std.builtin.Signedness = if (from < 0) .signed else .unsigned;
-    const largest_positive_integer = @max(if (from < 0) (-from) - 1 else from, to); // two's complement
-    const base = log2(largest_positive_integer);
-    const upper = (1 << base) - 1;
-    var magnitude_bits = if (upper >= largest_positive_integer) base else base + 1;
-    if (signedness == .signed) {
-        magnitude_bits += 1;
-    }
-    return std.meta.Int(signedness, magnitude_bits);
+    return @Type(.{ .int = .{
+        .signedness = signedness,
+        .bits = @as(u16, @intFromBool(signedness == .signed)) +
+            switch (if (from < 0) @max(@abs(from) - 1, to) else to) {
+                0 => 0,
+                else => |pos_max| 1 + log2(pos_max),
+            },
+    } });
 }
 
 test IntFittingRange {
@@ -1082,19 +1100,16 @@ test cast {
 
 pub const AlignCastError = error{UnalignedMemory};
 
-fn AlignCastResult(comptime alignment: u29, comptime Ptr: type) type {
+fn AlignCastResult(comptime alignment: Alignment, comptime Ptr: type) type {
     var ptr_info = @typeInfo(Ptr);
-    ptr_info.pointer.alignment = alignment;
+    ptr_info.pointer.alignment = alignment.toByteUnits();
     return @Type(ptr_info);
 }
 
 /// Align cast a pointer but return an error if it's the wrong alignment
-pub fn alignCast(comptime alignment: u29, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
-    const addr = @intFromPtr(ptr);
-    if (addr % alignment != 0) {
-        return error.UnalignedMemory;
-    }
-    return @alignCast(ptr);
+pub fn alignCast(comptime alignment: Alignment, ptr: anytype) AlignCastError!AlignCastResult(alignment, @TypeOf(ptr)) {
+    if (alignment.check(@intFromPtr(ptr))) return @alignCast(ptr);
+    return error.UnalignedMemory;
 }
 
 /// Asserts `int > 0`.
@@ -1267,6 +1282,19 @@ pub fn log2_int(comptime T: type, x: T) Log2Int(T) {
     return @as(Log2Int(T), @intCast(@typeInfo(T).int.bits - 1 - @clz(x)));
 }
 
+test log2_int {
+    try testing.expect(log2_int(u32, 1) == 0);
+    try testing.expect(log2_int(u32, 2) == 1);
+    try testing.expect(log2_int(u32, 3) == 1);
+    try testing.expect(log2_int(u32, 4) == 2);
+    try testing.expect(log2_int(u32, 5) == 2);
+    try testing.expect(log2_int(u32, 6) == 2);
+    try testing.expect(log2_int(u32, 7) == 2);
+    try testing.expect(log2_int(u32, 8) == 3);
+    try testing.expect(log2_int(u32, 9) == 3);
+    try testing.expect(log2_int(u32, 10) == 3);
+}
+
 /// Return the log base 2 of integer value x, rounding up to the
 /// nearest integer.
 pub fn log2_int_ceil(comptime T: type, x: T) Log2IntCeil(T) {
@@ -1355,8 +1383,7 @@ pub fn lerp(a: anytype, b: anytype, t: anytype) @TypeOf(a, b, t) {
 
 test lerp {
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/17884
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .fma)) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_x86_64 and !comptime builtin.cpu.has(.x86, .fma)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/17884
 
     try testing.expectEqual(@as(f64, 75), lerp(50, 100, 0.5));
     try testing.expectEqual(@as(f32, 43.75), lerp(50, 25, 0.25));

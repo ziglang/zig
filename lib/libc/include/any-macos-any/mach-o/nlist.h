@@ -202,7 +202,7 @@ struct nlist_64 {
 /*
  * To simplify stripping of objects that use are used with the dynamic link
  * editor, the static link editor marks the symbols defined an object that are
- * referenced by a dynamicly bound object (dynamic shared libraries, bundles).
+ * referenced by a dynamically bound object (dynamic shared libraries, bundles).
  * With this marking strip knows not to strip these symbols.
  */
 #define REFERENCED_DYNAMICALLY	0x0010

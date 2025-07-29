@@ -593,7 +593,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash3(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @branchHint(.cold);
+        @branchHint(.unlikely);
         std.debug.assert(input.len > 0 and input.len < 4);
 
         const flip: [2]u32 = @bitCast(secret[0..8].*);
@@ -625,7 +625,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash16(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @branchHint(.cold);
+        @branchHint(.unlikely);
         std.debug.assert(input.len > 8 and input.len <= 16);
 
         const flip: [4]u64 = @bitCast(secret[24..56].*);
@@ -641,7 +641,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash128(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @branchHint(.cold);
+        @branchHint(.unlikely);
         std.debug.assert(input.len > 16 and input.len <= 128);
 
         var acc = XxHash64.prime_1 *% @as(u64, input.len);
@@ -657,7 +657,7 @@ pub const XxHash3 = struct {
     }
 
     fn hash240(seed: u64, input: anytype, noalias secret: *const [192]u8) u64 {
-        @branchHint(.cold);
+        @branchHint(.unlikely);
         std.debug.assert(input.len > 128 and input.len <= 240);
 
         var acc = XxHash64.prime_1 *% @as(u64, input.len);
@@ -676,7 +676,7 @@ pub const XxHash3 = struct {
     }
 
     noinline fn hashLong(seed: u64, input: []const u8) u64 {
-        @branchHint(.cold);
+        @branchHint(.unlikely);
         std.debug.assert(input.len >= 240);
 
         const block_count = ((input.len - 1) / @sizeOf(Block)) * @sizeOf(Block);
@@ -780,7 +780,7 @@ fn testExpect(comptime H: type, seed: anytype, input: []const u8, expected: u64)
 }
 
 test "xxhash3" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
 
     const H = XxHash3;
     // Non-Seeded Tests
@@ -813,7 +813,7 @@ test "xxhash3" {
 }
 
 test "xxhash3 smhasher" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
 
     const Test = struct {
         fn do() !void {
@@ -826,7 +826,7 @@ test "xxhash3 smhasher" {
 }
 
 test "xxhash3 iterative api" {
-    if (builtin.zig_backend == .stage2_x86_64) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23807
 
     const Test = struct {
         fn do() !void {

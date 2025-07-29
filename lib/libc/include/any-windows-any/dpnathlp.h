@@ -183,7 +183,7 @@ DECLARE_INTERFACE_(IDirectPlayNATHelp,IUnknown)
 #define IDirectPlayNATHelp_QueryAddress(p,a,b,c,d,e) (p)->lpVtbl->QueryAddress(p,a,b,c,d,e)
 #define IDirectPlayNATHelp_SetAlertEvent(p,a,b) (p)->lpVtbl->SetAlertEvent(p,a,b)
 #define IDirectPlayNATHelp_SetAlertIOCompletionPort(p,a,b,c,d) (p)->lpVtbl->SetAlertIOCompletionPort(p,a,b,c,d)
-#define IDirectPlayNATHelp_ExtendRegisteredPortsLease(p,a,b,c) (p)->lpVtbl->SetAlertIOCompletionPort(p,a,b,c)
+#define IDirectPlayNATHelp_ExtendRegisteredPortsLease(p,a,b,c) (p)->lpVtbl->ExtendRegisteredPortsLease(p,a,b,c)
 #endif
 
 #ifdef __cplusplus

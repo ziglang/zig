@@ -4,7 +4,7 @@ fn main() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :2:23: error: trailing digit separator

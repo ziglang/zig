@@ -281,7 +281,7 @@ test "rebase - no entries" {
     defer rebase.deinit(gpa);
 
     try rebase.finalize(gpa);
-    try testing.expectEqual(@as(u64, 0), rebase.size());
+    try testing.expectEqual(0, rebase.buffer.items.len);
 }
 
 test "rebase - single entry" {
@@ -654,9 +654,10 @@ const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;
 const MachO = @import("../../MachO.zig");
 const Rebase = @This();

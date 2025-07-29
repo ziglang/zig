@@ -11,11 +11,12 @@
 
 #include <__assert>
 #include <__config>
+#include <__cstddef/nullptr_t.h>
+#include <__cstddef/size_t.h>
 #include <__functional/hash.h>
 #include <__memory/addressof.h>
 #include <__type_traits/remove_cv.h>
 #include <compare>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

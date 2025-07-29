@@ -12,10 +12,10 @@ comptime {
     @export(&__trunctfdf2, .{ .name = "__trunctfdf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __trunctfdf2(a: f128) callconv(.C) f64 {
+pub fn __trunctfdf2(a: f128) callconv(.c) f64 {
     return truncf(f64, f128, a);
 }
 
-fn _Qp_qtod(a: *const f128) callconv(.C) f64 {
+fn _Qp_qtod(a: *const f128) callconv(.c) f64 {
     return truncf(f64, f128, a.*);
 }

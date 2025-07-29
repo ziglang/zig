@@ -6,6 +6,7 @@
 //! * aarch64
 //! * arm
 //! * i386
+//! * hexagon
 //! * loongarch64
 //! * mips
 //! * mips64
@@ -27,6 +28,7 @@
 //!   - `-DARCH_aarch64`
 //!   - `-DARCH_arm`
 //!   - `-DARCH_i386`
+//!   - `-DARCH_hexagon`
 //!   - `-DARCH_loongarch64`
 //!   - `-DARCH_mips`
 //!   - `-DARCH_mips64`
@@ -41,6 +43,7 @@
 //! * One of the following, corresponding to the CPU architecture family:
 //!   - `-DFAMILY_aarch64`
 //!   - `-DFAMILY_arm`
+//!   - `-DFAMILY_hexagon`
 //!   - `-DFAMILY_loongarch`
 //!   - `-DFAMILY_mips`
 //!   - `-DFAMILY_powerpc`
@@ -63,6 +66,7 @@ const Arch = enum {
     aarch64,
     arm,
     i386,
+    hexagon,
     loongarch64,
     mips,
     mips64,
@@ -77,6 +81,7 @@ const Arch = enum {
     pub fn ptrSize(arch: Arch) u16 {
         return switch (arch) {
             .arm,
+            .hexagon,
             .i386,
             .mips,
             .mipsn32,
@@ -112,6 +117,7 @@ const Arch = enum {
             .aarch64 => .aarch64,
             .arm => .arm,
             .i386, .x86_64 => .x86,
+            .hexagon => .hexagon,
             .loongarch64 => .loongarch,
             .mips, .mips64, .mipsn32 => .mips,
             .powerpc, .powerpc64 => .powerpc,
@@ -124,6 +130,7 @@ const Arch = enum {
 const Family = enum {
     aarch64,
     arm,
+    hexagon,
     loongarch,
     mips,
     powerpc,
@@ -296,14 +303,15 @@ pub fn main() !void {
             libc_so_path,
             100 * 1024 * 1024,
             1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,
@@ -326,7 +334,9 @@ pub fn main() !void {
         }
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\#ifdef PTR64
         \\#define WEAK64 .weak
@@ -526,6 +536,8 @@ pub fn main() !void {
         .all => {},
         .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
+
+    try stdout.flush();
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {

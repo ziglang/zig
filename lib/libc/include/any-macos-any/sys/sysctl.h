@@ -640,13 +640,15 @@ extern struct loadavg averunnable;
  *                               In general is is better to use mach's or higher level timing services, but this value
  *                               is needed to convert the PPC Time Base registers to real time.
  *
- *   hw.cpufrequency           - These values provide the current, min and max cpu frequency.  The min and max are for
- *   hw.cpufrequency_max       - all power management modes.  The current frequency is the max frequency in the current mode.
- *   hw.cpufrequency_min       - All frequencies are in Hz.
+ *   hw.cpufrequency, hw.busfrequency and their min/max versions are deprecated because frequency isn't consistent.
  *
- *   hw.busfrequency           - These values provide the current, min and max bus frequency.  The min and max are for
- *   hw.busfrequency_max       - all power management modes.  The current frequency is the max frequency in the current mode.
- *   hw.busfrequency_min       - All frequencies are in Hz.
+ *   hw.cpufrequency           - (deprecated) These values provide the current, min and max cpu frequency.  The min and max are for
+ *   hw.cpufrequency_max       - (deprecated) all power management modes.  The current frequency is the max frequency in the current mode.
+ *   hw.cpufrequency_min       - (deprecated) All frequencies are in Hz.
+ *
+ *   hw.busfrequency           - (deprecated) These values provide the current, min and max bus frequency.  The min and max are for
+ *   hw.busfrequency_max       - (deprecated) all power management modes.  The current frequency is the max frequency in the current mode.
+ *   hw.busfrequency_min       - (deprecated) All frequencies are in Hz.
  *
  *   hw.cputype                - These values provide the mach-o cpu type and subtype.  A complete list is in <mach/machine.h>
  *   hw.cpusubtype             - These values should be used to determine what processor family the running cpu is from so that
@@ -790,9 +792,11 @@ extern struct loadavg averunnable;
 
 
 __BEGIN_DECLS
-int     sysctl(int *, u_int, void *, size_t *, void *, size_t);
-int     sysctlbyname(const char *, void *, size_t *, void *, size_t);
-int     sysctlnametomib(const char *, int *, size_t *);
+int     sysctl(int *, u_int, void *__sized_by(*oldlenp), size_t *oldlenp,
+    void *__sized_by(newlen), size_t newlen);
+int     sysctlbyname(const char *, void *__sized_by(*oldlenp), size_t *oldlenp,
+    void *__sized_by(newlen), size_t newlen);
+int     sysctlnametomib(const char *, int *__counted_by(*sizep), size_t *sizep);
 __END_DECLS
 
 

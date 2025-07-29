@@ -746,6 +746,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   str    x1,      [x0, #0x0F8]
   str    x30,     [x0, #0x100]    // store return address as pc
   // skip cpsr
+#if defined(__ARM_FP) && __ARM_FP != 0
   stp    d0, d1,  [x0, #0x110]
   stp    d2, d3,  [x0, #0x120]
   stp    d4, d5,  [x0, #0x130]
@@ -763,6 +764,7 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   stp    d28,d29, [x0, #0x1F0]
   str    d30,     [x0, #0x200]
   str    d31,     [x0, #0x208]
+#endif
   mov    x0, #0                   // return UNW_ESUCCESS
   ret
 
@@ -1108,7 +1110,11 @@ DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
 #
 DEFINE_LIBUNWIND_FUNCTION(__unw_getcontext)
   ISTORE    x1, (RISCV_ISIZE * 0)(a0) // store ra as pc
+#if defined(__riscv_32e)
+  .irp i,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+#else
   .irp i,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+#endif
     ISTORE x\i, (RISCV_ISIZE * \i)(a0)
   .endr
 

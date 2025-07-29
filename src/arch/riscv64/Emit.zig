@@ -3,7 +3,7 @@
 bin_file: *link.File,
 lower: Lower,
 debug_output: link.File.DebugInfoOutput,
-code: *std.ArrayList(u8),
+code: *std.ArrayListUnmanaged(u8),
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -18,6 +18,7 @@ pub const Error = Lower.Error || error{
 };
 
 pub fn emitMir(emit: *Emit) Error!void {
+    const gpa = emit.bin_file.comp.gpa;
     log.debug("mir instruction len: {}", .{emit.lower.mir.instructions.len});
     for (0..emit.lower.mir.instructions.len) |mir_i| {
         const mir_index: Mir.Inst.Index = @intCast(mir_i);
@@ -30,7 +31,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
-            try lowered_inst.encode(emit.code.writer());
+            try lowered_inst.encode(emit.code.writer(gpa));
 
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({
@@ -49,20 +50,20 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
-                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
+                    if (emit.lower.pic) {
+                        return emit.fail("know when to emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
                     }
 
                     const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
                     const lo_r_type: u32 = @intFromEnum(std.elf.R_RISCV.LO12_I);
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | hi_r_type,
                         .r_addend = 0,
                     }, zo);
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | lo_r_type,
                         .r_addend = 0,
@@ -76,19 +77,19 @@ pub fn emitMir(emit: *Emit) Error!void {
 
                     const R_RISCV = std.elf.R_RISCV;
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_HI20),
                         .r_addend = 0,
                     }, zo);
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 4,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_ADD),
                         .r_addend = 0,
                     }, zo);
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset + 8,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | @intFromEnum(R_RISCV.TPREL_LO12_I),
                         .r_addend = 0,
@@ -101,7 +102,7 @@ pub fn emitMir(emit: *Emit) Error!void {
 
                     const r_type: u32 = @intFromEnum(std.elf.R_RISCV.CALL_PLT);
 
-                    try atom_ptr.addReloc(elf_file.base.comp.gpa, .{
+                    try atom_ptr.addReloc(gpa, .{
                         .r_offset = start_offset,
                         .r_info = (@as(u64, @intCast(symbol.sym_index)) << 32) | r_type,
                         .r_addend = 0,
@@ -171,7 +172,7 @@ const Reloc = struct {
 
 fn fixupRelocs(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
-        log.debug("target inst: {}", .{emit.lower.mir.instructions.get(reloc.target)});
+        log.debug("target inst: {f}", .{emit.lower.mir.instructions.get(reloc.target)});
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("relocation target not found!", .{});
 

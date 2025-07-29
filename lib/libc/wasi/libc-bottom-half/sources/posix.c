@@ -6,6 +6,7 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #include <utime.h>
 #include <wasi/libc.h>
@@ -307,6 +308,46 @@ int rename(const char *old, const char *new) {
 
     // We couldn't find a preopen for it; fail as if we can't find the path.
     errno = ENOENT;
+    return -1;
+}
+
+int chmod(const char *path, mode_t mode) {
+    // TODO: We plan to support this eventually in WASI, but not yet.
+    // Meanwhile, we provide a stub so that libc++'s `<filesystem>`
+    // implementation will build unmodified.
+    errno = ENOSYS;
+    return -1;
+}
+
+int fchmod(int fd, mode_t mode) {
+    // TODO: We plan to support this eventually in WASI, but not yet.
+    // Meanwhile, we provide a stub so that libc++'s `<filesystem>`
+    // implementation will build unmodified.
+    errno = ENOSYS;
+    return -1;
+}
+
+int fchmodat(int fd, const char *path, mode_t mode, int flag) {
+    // TODO: We plan to support this eventually in WASI, but not yet.
+    // Meanwhile, we provide a stub so that libc++'s `<filesystem>`
+    // implementation will build unmodified.
+    errno = ENOSYS;
+    return -1;
+}
+
+int statvfs(const char *__restrict path, struct statvfs *__restrict buf) {
+    // TODO: We plan to support this eventually in WASI, but not yet.
+    // Meanwhile, we provide a stub so that libc++'s `<filesystem>`
+    // implementation will build unmodified.
+    errno = ENOSYS;
+    return -1;
+}
+
+int fstatvfs(int fd, struct statvfs *buf) {
+    // TODO: We plan to support this eventually in WASI, but not yet.
+    // Meanwhile, we provide a stub so that libc++'s `<filesystem>`
+    // implementation will build unmodified.
+    errno = ENOSYS;
     return -1;
 }
 

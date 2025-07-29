@@ -1,6 +1,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const utf8Encode = std.unicode.utf8Encode;
+const Writer = std.io.Writer;
 
 pub const ParseError = error{
     OutOfMemory,
@@ -38,6 +39,76 @@ pub const Error = union(enum) {
     invalid_character: usize,
     /// `''`. Not returned for string literals.
     empty_char_literal,
+
+    const FormatMessage = struct {
+        err: Error,
+        raw_string: []const u8,
+    };
+
+    fn formatMessage(self: FormatMessage, writer: *std.io.Writer) std.io.Writer.Error!void {
+        switch (self.err) {
+            .invalid_escape_character => |bad_index| try writer.print(
+                "invalid escape character: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_hex_digit => |bad_index| try writer.print(
+                "expected hex digit, found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_unicode_escape_sequence => try writer.writeAll(
+                "empty unicode escape sequence",
+            ),
+            .expected_hex_digit_or_rbrace => |bad_index| try writer.print(
+                "expected hex digit or '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_unicode_codepoint => try writer.writeAll(
+                "unicode escape does not correspond to a valid unicode scalar value",
+            ),
+            .expected_lbrace => |bad_index| try writer.print(
+                "expected '{{', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_rbrace => |bad_index| try writer.print(
+                "expected '}}', found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .expected_single_quote => |bad_index| try writer.print(
+                "expected single quote ('), found '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .invalid_character => |bad_index| try writer.print(
+                "invalid byte in string or character literal: '{c}'",
+                .{self.raw_string[bad_index]},
+            ),
+            .empty_char_literal => try writer.writeAll(
+                "empty character literal",
+            ),
+        }
+    }
+
+    pub fn fmt(self: @This(), raw_string: []const u8) std.fmt.Formatter(FormatMessage, formatMessage) {
+        return .{ .data = .{
+            .err = self,
+            .raw_string = raw_string,
+        } };
+    }
+
+    pub fn offset(err: Error) usize {
+        return switch (err) {
+            inline .invalid_escape_character,
+            .expected_hex_digit,
+            .empty_unicode_escape_sequence,
+            .expected_hex_digit_or_rbrace,
+            .invalid_unicode_codepoint,
+            .expected_lbrace,
+            .expected_rbrace,
+            .expected_single_quote,
+            .invalid_character,
+            => |n| n,
+            .empty_char_literal => 0,
+        };
+    }
 };
 
 /// Asserts the slice starts and ends with single-quotes.
@@ -245,9 +316,10 @@ test parseCharLiteral {
     );
 }
 
-/// Parses `bytes` as a Zig string literal and writes the result to the std.io.Writer type.
+/// Parses `bytes` as a Zig string literal and writes the result to the `Writer` type.
+///
 /// Asserts `bytes` has '"' at beginning and end.
-pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result {
+pub fn parseWrite(writer: *Writer, bytes: []const u8) Writer.Error!Result {
     assert(bytes.len >= 2 and bytes[0] == '"' and bytes[bytes.len - 1] == '"');
 
     var index: usize = 1;
@@ -263,18 +335,18 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
                         if (bytes[escape_char_index] == 'u') {
                             var buf: [4]u8 = undefined;
                             const len = utf8Encode(codepoint, &buf) catch {
-                                return Result{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
+                                return .{ .failure = .{ .invalid_unicode_codepoint = escape_char_index + 1 } };
                             };
                             try writer.writeAll(buf[0..len]);
                         } else {
                             try writer.writeByte(@as(u8, @intCast(codepoint)));
                         }
                     },
-                    .failure => |err| return Result{ .failure = err },
+                    .failure => |err| return .{ .failure = err },
                 }
             },
-            '\n' => return Result{ .failure = .{ .invalid_character = index } },
-            '"' => return Result.success,
+            '\n' => return .{ .failure = .{ .invalid_character = index } },
+            '"' => return .success,
             else => {
                 try writer.writeByte(b);
                 index += 1;
@@ -286,11 +358,13 @@ pub fn parseWrite(writer: anytype, bytes: []const u8) error{OutOfMemory}!Result 
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
-    defer buf.deinit();
-
-    switch (try parseWrite(buf.writer(), bytes)) {
-        .success => return buf.toOwnedSlice(),
+    var aw: std.io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    const result = parseWrite(&aw.writer, bytes) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
+    switch (result) {
+        .success => return aw.toOwnedSlice(),
         .failure => return error.InvalidLiteral,
     }
 }
@@ -300,7 +374,7 @@ test parseAlloc {
     const expectError = std.testing.expectError;
     const eql = std.mem.eql;
 
-    var fixed_buf_mem: [64]u8 = undefined;
+    var fixed_buf_mem: [512]u8 = undefined;
     var fixed_buf_alloc = std.heap.FixedBufferAllocator.init(&fixed_buf_mem);
     const alloc = fixed_buf_alloc.allocator();
 

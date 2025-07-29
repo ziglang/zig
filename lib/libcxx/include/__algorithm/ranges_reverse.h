@@ -27,8 +27,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __reverse {
-struct __fn {
+struct __reverse {
   template <bidirectional_iterator _Iter, sentinel_for<_Iter> _Sent>
     requires permutable<_Iter>
   _LIBCPP_HIDE_FROM_ABI constexpr _Iter operator()(_Iter __first, _Sent __last) const {
@@ -65,10 +64,9 @@ struct __fn {
     return (*this)(ranges::begin(__range), ranges::end(__range));
   }
 };
-} // namespace __reverse
 
 inline namespace __cpo {
-inline constexpr auto reverse = __reverse::__fn{};
+inline constexpr auto reverse = __reverse{};
 } // namespace __cpo
 } // namespace ranges
 

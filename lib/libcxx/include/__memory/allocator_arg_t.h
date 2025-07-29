@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___FUNCTIONAL_ALLOCATOR_ARG_T_H
-#define _LIBCPP___FUNCTIONAL_ALLOCATOR_ARG_T_H
+#ifndef _LIBCPP___MEMORY_ALLOCATOR_ARG_T_H
+#define _LIBCPP___MEMORY_ALLOCATOR_ARG_T_H
 
 #include <__config>
 #include <__memory/uses_allocator.h>
@@ -39,10 +39,10 @@ constexpr allocator_arg_t allocator_arg = allocator_arg_t();
 
 template <class _Tp, class _Alloc, class... _Args>
 struct __uses_alloc_ctor_imp {
-  typedef _LIBCPP_NODEBUG __remove_cvref_t<_Alloc> _RawAlloc;
-  static const bool __ua = uses_allocator<_Tp, _RawAlloc>::value;
-  static const bool __ic = is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>::value;
-  static const int value = __ua ? 2 - __ic : 0;
+  using _RawAlloc _LIBCPP_NODEBUG = __remove_cvref_t<_Alloc>;
+  static const bool __ua          = uses_allocator<_Tp, _RawAlloc>::value;
+  static const bool __ic          = is_constructible<_Tp, allocator_arg_t, _Alloc, _Args...>::value;
+  static const int value          = __ua ? 2 - __ic : 0;
 };
 
 template <class _Tp, class _Alloc, class... _Args>
@@ -72,4 +72,4 @@ __user_alloc_construct_impl(integral_constant<int, 2>, _Tp* __storage, const _Al
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // _LIBCPP___FUNCTIONAL_ALLOCATOR_ARG_T_H
+#endif // _LIBCPP___MEMORY_ALLOCATOR_ARG_T_H

@@ -12,7 +12,8 @@ pub fn main() !void {
     var len: usize = 5;
     _ = &len;
     @memcpy(buffer[0..len], buffer[4 .. 4 + len]);
+    return error.TestFailed;
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux,aarch64-linux

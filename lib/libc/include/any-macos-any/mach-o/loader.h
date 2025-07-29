@@ -234,7 +234,12 @@ struct mach_header_64 {
 					   the platforms macOS, macCatalyst,
 					   iOSSimulator, tvOSSimulator and
 					   watchOSSimulator. */
-					   
+
+#define	MH_IMPLICIT_PAGEZERO 0x10000000	/* main executable has no __PAGEZERO
+					   segment.  Instead, loader (xnu)
+					   will load program high and block
+					   out all memory below it. */
+
 #define MH_DYLIB_IN_CACHE 0x80000000	/* Only for use on dylibs. When this bit
 					   is set, the dylib is part of the dyld
 					   shared cache, rather than loose in
@@ -338,6 +343,11 @@ struct load_command {
 #define LC_DYLD_CHAINED_FIXUPS (0x34 | LC_REQ_DYLD) /* used with linkedit_data_command */
 #define LC_FILESET_ENTRY (0x35 | LC_REQ_DYLD) /* used with fileset_entry_command */
 #define LC_ATOM_INFO 0x36 /* used with linkedit_data_command */
+#define LC_FUNCTION_VARIANTS 0x37 /* used with linkedit_data_command */
+#define LC_FUNCTION_VARIANT_FIXUPS 0x38 /* used with linkedit_data_command */
+#define LC_TARGET_TRIPLE 0x39 /* target triple used to compile */
+
+
 
 /*
  * A variable length string in a load command is represented by an lc_str
@@ -670,7 +680,7 @@ struct fvmlib_command {
 };
 
 /*
- * Dynamicly linked shared libraries are identified by two things.  The
+ * Dynamically linked shared libraries are identified by two things.  The
  * pathname (the name of the library as found for execution), and the
  * compatibility version number.  The pathname must match and the compatibility
  * number in the user of the library must be greater than or equal to the
@@ -698,6 +708,30 @@ struct dylib_command {
 	uint32_t	cmdsize;	/* includes pathname string */
 	struct dylib	dylib;		/* the library identification */
 };
+
+
+/*
+ * An alternate encoding for: LC_LOAD_DYLIB.
+ * The flags field contains independent flags DYLIB_USE_*
+ * First supported in macOS 15, iOS 18.
+ */
+struct dylib_use_command {
+    uint32_t    cmd;                     /* LC_LOAD_DYLIB or LC_LOAD_WEAK_DYLIB */
+    uint32_t    cmdsize;                 /* overall size, including path */
+    uint32_t    nameoff;                 /* == 28, dylibs's path offset */
+    uint32_t    marker;                  /* == DYLIB_USE_MARKER */
+    uint32_t    current_version;         /* dylib's current version number */
+    uint32_t    compat_version;          /* dylib's compatibility version number */
+    uint32_t    flags;                   /* DYLIB_USE_... flags */
+};
+#define DYLIB_USE_WEAK_LINK	0x01
+#define DYLIB_USE_REEXPORT	0x02
+#define DYLIB_USE_UPWARD	0x04
+#define DYLIB_USE_DELAYED_INIT	0x08
+
+#define DYLIB_USE_MARKER	0x1a741800
+
+
 
 /*
  * A dynamically linked shared library may be a subframework of an umbrella
@@ -1197,6 +1231,16 @@ struct rpath_command {
 };
 
 /*
+ * The target_triple_command contains a string which specifies the
+ * target triple (e.g. "arm64e-apple-macosx15.0.0") used to compile the code.
+ */
+struct target_triple_command {
+    uint32_t	 cmd;		/* LC_TARGET_TRIPLE */
+    uint32_t	 cmdsize;	/* including string */
+    union lc_str triple;	/* target triple string */
+};
+
+/*
  * The linkedit_data_command contains the offsets and sizes of a blob
  * of data in the __LINKEDIT segment.  
  */
@@ -1205,7 +1249,8 @@ struct linkedit_data_command {
 				   LC_FUNCTION_STARTS, LC_DATA_IN_CODE,
 				   LC_DYLIB_CODE_SIGN_DRS, LC_ATOM_INFO,
 				   LC_LINKER_OPTIMIZATION_HINT,
-				   LC_DYLD_EXPORTS_TRIE, or
+				   LC_DYLD_EXPORTS_TRIE,
+				   LC_FUNCTION_VARIANTS, LC_FUNCTION_VARIANT_FIXUPS, or
 				   LC_DYLD_CHAINED_FIXUPS. */
     uint32_t	cmdsize;	/* sizeof(struct linkedit_data_command) */
     uint32_t	dataoff;	/* file offset of data in __LINKEDIT segment */
@@ -1287,17 +1332,31 @@ struct build_tool_version {
 #define PLATFORM_TVOSSIMULATOR 8
 #define PLATFORM_WATCHOSSIMULATOR 9
 #define PLATFORM_DRIVERKIT 10
-
-#ifndef __OPEN_SOURCE__
-
-#endif /* __OPEN_SOURCE__ */
+#define PLATFORM_VISIONOS 11
+#define PLATFORM_VISIONOSSIMULATOR 12
 
 #define PLATFORM_FIRMWARE 13
 #define PLATFORM_SEPOS 14
 
+#define PLATFORM_MACOS_EXCLAVECORE 15
+#define PLATFORM_MACOS_EXCLAVEKIT 16
+#define PLATFORM_IOS_EXCLAVECORE 17
+#define PLATFORM_IOS_EXCLAVEKIT 18
+#define PLATFORM_TVOS_EXCLAVECORE 19
+#define PLATFORM_TVOS_EXCLAVEKIT 20
+#define PLATFORM_WATCHOS_EXCLAVECORE 21
+#define PLATFORM_WATCHOS_EXCLAVEKIT 22
+#define PLATFORM_VISIONOS_EXCLAVECORE 23
+#define PLATFORM_VISIONOS_EXCLAVEKIT 24
+
 #ifndef __OPEN_SOURCE__
 
 #endif /* __OPEN_SOURCE__ */
+
+
+#ifndef __OPEN_SOURCE__
+
+#endif // __OPEN_SOURCE__
 
 /* Known values for the tool field above. */
 #define TOOL_CLANG 1

@@ -6,8 +6,6 @@ comptime {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :4:15: error: overflow of vector type '@Vector(4, u8)' with value '.{ 6, 8, 256, 12 }'
+// :4:15: error: overflow of integer type 'u8' with value '256'
 // :4:15: note: when computing vector element at index '2'

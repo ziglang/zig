@@ -51,6 +51,10 @@ typedef int             vm_behavior_t;
  *	These describe expected page reference behavior for
  *	for a given range of virtual memory.  For implementation
  *	details see vm/vm_fault.c
+ *
+ *  When making a new VM_BEHAVIOR_*, update tests vm_parameter_validation_[user|kern]
+ *  and their expected results; they deliberately call VM functions with invalid
+ *  behavior values and you may be turning one of those invalid behaviors valid.
  */
 
 
@@ -74,6 +78,9 @@ typedef int             vm_behavior_t;
 #define VM_BEHAVIOR_REUSABLE    ((vm_behavior_t) 8)
 #define VM_BEHAVIOR_REUSE       ((vm_behavior_t) 9)
 #define VM_BEHAVIOR_CAN_REUSE   ((vm_behavior_t) 10)
-#define VM_BEHAVIOR_PAGEOUT     ((vm_behavior_t) 11)
+#define VM_BEHAVIOR_PAGEOUT     ((vm_behavior_t) 11)   /* force page-out of the pages in range (development only) */
+#define VM_BEHAVIOR_ZERO        ((vm_behavior_t) 12)   /* zero pages without faulting in additional pages */
+
+#define VM_BEHAVIOR_LAST_VALID (VM_BEHAVIOR_ZERO)
 
 #endif  /*_MACH_VM_BEHAVIOR_H_*/

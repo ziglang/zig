@@ -10,7 +10,6 @@ const mode_t = std.c.mode_t;
 const off_t = std.c.off_t;
 const pid_t = std.c.pid_t;
 const pthread_attr_t = std.c.pthread_attr_t;
-const sigset_t = std.c.sigset_t;
 const timespec = std.c.timespec;
 const sf_hdtr = std.c.sf_hdtr;
 
@@ -379,7 +378,7 @@ pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
 };
 
 extern "c" var mach_task_self_: mach_port_t;
-pub fn mach_task_self() callconv(.C) mach_port_t {
+pub fn mach_task_self() callconv(.c) mach_port_t {
     return mach_task_self_;
 }
 
@@ -840,9 +839,11 @@ pub extern "c" fn sendfile(
     flags: u32,
 ) c_int;
 
-pub fn sigaddset(set: *sigset_t, signo: u5) void {
-    set.* |= @as(u32, 1) << (signo - 1);
-}
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/_types.h#L74
+pub const sigset_t = u32;
+
+// https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/signal.h#L76
+pub const NSIG = 32;
 
 pub const qos_class_t = enum(c_uint) {
     /// highest priority QOS class for critical tasks
@@ -873,7 +874,7 @@ pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
 const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*anyopaque) callconv(.C) void;
+const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
     context: ?*anyopaque,
@@ -979,7 +980,7 @@ pub const kevent64_s = extern struct {
 // to make sure the struct is laid out the same. These values were
 // produced from C code using the offsetof macro.
 comptime {
-    if (builtin.target.isDarwin()) {
+    if (builtin.target.os.tag.isDarwin()) {
         assert(@offsetOf(kevent64_s, "ident") == 0);
         assert(@offsetOf(kevent64_s, "filter") == 8);
         assert(@offsetOf(kevent64_s, "flags") == 10);
@@ -1164,6 +1165,9 @@ pub const CPUFAMILY = enum(u32) {
     ARM_LOBOS = 0x5f4dea93,
     ARM_PALMA = 0x72015832,
     ARM_DONAN = 0x6f5129ac,
+    ARM_BRAVA = 0x17d5b93a,
+    ARM_TAHITI = 0x75d4acb9,
+    ARM_TUPAI = 0x204526d0,
     _,
 };
 
@@ -1232,16 +1236,16 @@ pub extern "c" fn posix_spawn(
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 pub extern "c" fn posix_spawnp(
     pid: *pid_t,
     path: [*:0]const u8,
     actions: ?*const posix_spawn_file_actions_t,
     attr: ?*const posix_spawnattr_t,
-    argv: [*:null]?[*:0]const u8,
-    env: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    env: [*:null]const ?[*:0]const u8,
 ) c_int;
 
 pub const E = enum(u16) {
@@ -1515,4 +1519,76 @@ pub const DB_RECORDTYPE = enum(u32) {
     // Industry At Large Application Name Space Range Definition
     pub const APP_DEFINED_START = 0x80000000;
     pub const APP_DEFINED_END = 0xffffffff;
+};
+
+pub const TCP = struct {
+    /// Turn off Nagle's algorithm
+    pub const NODELAY = 0x01;
+    /// Limit MSS
+    pub const MAXSEG = 0x02;
+    /// Don't push last block of write
+    pub const NOPUSH = 0x04;
+    /// Don't use TCP options
+    pub const NOOPT = 0x08;
+    /// Idle time used when SO_KEEPALIVE is enabled
+    pub const KEEPALIVE = 0x10;
+    /// Connection timeout
+    pub const CONNECTIONTIMEOUT = 0x20;
+    /// Time after which a conection in persist timeout will terminate.
+    pub const PERSIST_TIMEOUT = 0x40;
+    /// Time after which TCP retransmissions will be stopped and the connection will be dropped.
+    pub const RXT_CONNDROPTIME = 0x80;
+    /// Drop a connection after retransmitting the FIN 3 times.
+    pub const RXT_FINDROP = 0x100;
+    /// Interval between keepalives
+    pub const KEEPINTVL = 0x101;
+    /// Number of keepalives before clsoe
+    pub const KEEPCNT = 0x102;
+    /// Always ack every other packet
+    pub const SENDMOREACKS = 0x103;
+    /// Enable ECN on a connection
+    pub const ENABLE_ECN = 0x104;
+    /// Enable/Disable TCP Fastopen on this socket
+    pub const FASTOPEN = 0x105;
+    /// State of the TCP connection
+    pub const CONNECTION_INFO = 0x106;
+};
+
+pub const MSG = struct {
+    /// process out-of-band data
+    pub const OOB = 0x1;
+    /// peek at incoming message
+    pub const PEEK = 0x2;
+    /// send without using routing tables
+    pub const DONTROUTE = 0x4;
+    /// data completes record
+    pub const EOR = 0x8;
+    /// data discarded before delivery
+    pub const TRUNC = 0x10;
+    /// control data lost before delivery
+    pub const CTRUNC = 0x20;
+    /// wait for full request or error
+    pub const WAITALL = 0x40;
+    /// this message should be nonblocking
+    pub const DONTWAIT = 0x80;
+    /// data completes connection
+    pub const EOF = 0x100;
+    /// wait up to full request, may return partial
+    pub const WAITSTREAM = 0x200;
+    /// Start of 'hold' seq; dump so_temp, deprecated
+    pub const FLUSH = 0x400;
+    /// Hold frag in so_temp, deprecated
+    pub const HOLD = 0x800;
+    /// Send the packet in so_temp, deprecated
+    pub const SEND = 0x1000;
+    /// Data ready to be read
+    pub const HAVEMORE = 0x2000;
+    /// Data remains in current pkt
+    pub const RCVMORE = 0x4000;
+    /// Fail receive if socket address cannot be allocated
+    pub const NEEDSA = 0x10000;
+    /// do not generate SIGPIPE on EOF
+    pub const NOSIGNAL = 0x80000;
+    /// Inherit upcall in sock_accept
+    pub const USEUPCALL = 0x80000000;
 };

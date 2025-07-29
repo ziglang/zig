@@ -39,7 +39,10 @@
 #ifndef	_RUNETYPE_H_
 #define	_RUNETYPE_H_
 
+#include <_bounds.h>
 #include <_types.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
 
@@ -61,12 +64,12 @@ typedef struct {
 	__darwin_rune_t	__min;		/* First rune of the range */
 	__darwin_rune_t	__max;		/* Last rune (inclusive) of the range */
 	__darwin_rune_t	__map;		/* What first maps to in maps */
-	__uint32_t	*__types;	/* Array of types in range */
+	__uint32_t *_LIBC_UNSAFE_INDEXABLE	__types;	/* Array of types in range */
 } _RuneEntry;
 
 typedef struct {
 	int		__nranges;	/* Number of ranges stored */
-	_RuneEntry	*__ranges;	/* Pointer to the ranges */
+	_RuneEntry *_LIBC_COUNT(__nranges)	__ranges;	/* Pointer to the ranges */
 } _RuneRange;
 
 typedef struct {
@@ -78,9 +81,9 @@ typedef struct {
 	char		__magic[8];	/* Magic saying what version we are */
 	char		__encoding[32];	/* ASCII name of this encoding */
 
-	__darwin_rune_t	(*__sgetrune)(const char *, __darwin_size_t, char const **);
-	int		(*__sputrune)(__darwin_rune_t, char *, __darwin_size_t, char **);
-	__darwin_rune_t	__invalid_rune;
+	__darwin_rune_t	(*__sgetrune)(const char *_LIBC_COUNT(__n) __string, __darwin_size_t __n, char const *_LIBC_UNSAFE_INDEXABLE /* NULL or within bounds of __string */ *);
+	int		(*__sputrune)(__darwin_rune_t, char *_LIBC_COUNT(__n) __string, __darwin_size_t __n, char *_LIBC_UNSAFE_INDEXABLE /* NULL or within bounds of __string */ *);
+	__darwin_rune_t	__invalid_rune;	/* Deprecated */
 
 	__uint32_t	__runetype[_CACHED_RUNES];
 	__darwin_rune_t	__maplower[_CACHED_RUNES];
@@ -95,14 +98,14 @@ typedef struct {
 	_RuneRange	__maplower_ext;
 	_RuneRange	__mapupper_ext;
 
-	void		*__variable;	/* Data which depends on the encoding */
+	void *_LIBC_SIZE(__variable_len)	__variable;	/* Data which depends on the encoding */
 	int		__variable_len;	/* how long that data is */
 
 	/*
 	 * extra fields to deal with arbitrary character classes
 	 */
 	int		__ncharclasses;
-	_RuneCharClass	*__charclasses;
+	_RuneCharClass *_LIBC_COUNT(__ncharclasses)	__charclasses;
 } _RuneLocale;
 
 #define	_RUNE_MAGIC_A	"RuneMagA"	/* Indicates version A of RuneLocale */

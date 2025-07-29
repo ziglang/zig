@@ -28,9 +28,8 @@ const HasFuncs = struct {
 
 test "standard field calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try expect(HasFuncs.one(0) == 1);
     try expect(HasFuncs.two(0) == 2);
@@ -72,9 +71,8 @@ test "standard field calls" {
 
 test "@field field calls" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try expect(@field(HasFuncs, "one")(0) == 1);
     try expect(@field(HasFuncs, "two")(0) == 2);

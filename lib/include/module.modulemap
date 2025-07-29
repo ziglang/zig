@@ -66,6 +66,8 @@ module _Builtin_intrinsics [system] [extern_c] {
     textual header "__wmmintrin_aes.h"
     textual header "__wmmintrin_pclmul.h"
 
+    textual header "mm3dnow.h"
+
     explicit module mm_malloc {
       requires !freestanding
       header "mm_malloc.h"
@@ -120,10 +122,6 @@ module _Builtin_intrinsics [system] [extern_c] {
 
     explicit module popcnt {
       header "popcntintrin.h"
-    }
-
-    explicit module mm3dnow {
-      header "mm3dnow.h"
     }
 
     explicit module aes_pclmul {

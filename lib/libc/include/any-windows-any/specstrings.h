@@ -331,6 +331,36 @@ extern "C" {
 #endif
 #endif /* DECLSPEC_ADDRSAFE */
 
+#ifndef _Unreferenced_parameter_
+#define _Unreferenced_parameter_
+#endif
+#ifndef _Frees_ptr_
+#define _Frees_ptr_
+#endif
+#ifndef _Frees_ptr_opt_
+#define _Frees_ptr_opt_
+#endif
+#define _Reallocation_function_(a,b,s)
+#define _Ret_reallocated_bytes_(b,s)
+#define _In_NLS_string_(s)
+#define _Flt_CompletionContext_Outptr_
+#define _Flt_ConnectionCookie_Outptr_
+#ifndef _Writes_and_advances_ptr_
+#define _Writes_and_advances_ptr_(s)
+#endif
+#ifndef _Writes_bytes_and_advances_ptr_
+#define _Writes_bytes_and_advances_ptr_(s)
+#endif
+#ifndef _Translates_Win32_to_HRESULT_
+#define _Translates_Win32_to_HRESULT_(e)
+#endif
+#ifndef _Translates_NTSTATUS_to_HRESULT_
+#define _Translates_NTSTATUS_to_HRESULT_(s)
+#endif
+#ifndef _Translates_last_error_to_HRESULT_
+#define _Translates_last_error_to_HRESULT_
+#endif
+
 #ifdef __cplusplus
 }
 #endif

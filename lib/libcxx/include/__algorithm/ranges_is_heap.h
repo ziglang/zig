@@ -34,9 +34,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __is_heap {
-
-struct __fn {
+struct __is_heap {
   template <class _Iter, class _Sent, class _Proj, class _Comp>
   _LIBCPP_HIDE_FROM_ABI constexpr static bool
   __is_heap_fn_impl(_Iter __first, _Sent __last, _Comp& __comp, _Proj& __proj) {
@@ -65,10 +63,8 @@ struct __fn {
   }
 };
 
-} // namespace __is_heap
-
 inline namespace __cpo {
-inline constexpr auto is_heap = __is_heap::__fn{};
+inline constexpr auto is_heap = __is_heap{};
 } // namespace __cpo
 } // namespace ranges
 

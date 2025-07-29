@@ -99,6 +99,9 @@
 #define err_ipc                 err_system(0x3)         /* old ipc errors */
 #define err_mach_ipc            err_system(0x4)         /* mach-ipc errors */
 #define err_dipc                err_system(0x7)         /* distributed ipc */
+#define err_vm                  err_system(0x8)         /* virtual memory */
+/*                              err_system(0x37)           libkern */
+/*                              err_system(0x38)           iokit */
 #define err_local               err_system(0x3e)        /* user defined errors */
 #define err_ipc_compat          err_system(0x3f)        /* (compatibility) mach-ipc errors */
 

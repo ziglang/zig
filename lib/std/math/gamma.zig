@@ -263,7 +263,7 @@ test gamma {
 }
 
 test "gamma.special" {
-    if (builtin.cpu.arch.isArm() and builtin.target.floatAbi() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
+    if (builtin.cpu.arch.isArm() and builtin.target.abi.float() == .soft) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/21234
 
     inline for (&.{ f32, f64 }) |T| {
         try expect(std.math.isNan(gamma(T, -std.math.nan(T))));

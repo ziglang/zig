@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <random>
 
-#ifndef _LIBCPP_HAS_NO_THREADS
+#if _LIBCPP_HAS_THREADS
 #  include <mutex>
 #  if defined(__ELF__) && defined(_LIBCPP_LINK_PTHREAD_LIB)
 #    pragma comment(lib, "pthread")
@@ -18,13 +18,13 @@
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
-#ifndef _LIBCPP_HAS_NO_THREADS
+#if _LIBCPP_HAS_THREADS
 static constinit __libcpp_mutex_t __rs_mut = _LIBCPP_MUTEX_INITIALIZER;
 #endif
 unsigned __rs_default::__c_ = 0;
 
 __rs_default::__rs_default() {
-#ifndef _LIBCPP_HAS_NO_THREADS
+#if _LIBCPP_HAS_THREADS
   __libcpp_mutex_lock(&__rs_mut);
 #endif
   __c_ = 1;
@@ -33,7 +33,7 @@ __rs_default::__rs_default() {
 __rs_default::__rs_default(const __rs_default&) { ++__c_; }
 
 __rs_default::~__rs_default() {
-#ifndef _LIBCPP_HAS_NO_THREADS
+#if _LIBCPP_HAS_THREADS
   if (--__c_ == 0)
     __libcpp_mutex_unlock(&__rs_mut);
 #else

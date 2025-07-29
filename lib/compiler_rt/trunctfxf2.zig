@@ -8,7 +8,7 @@ comptime {
     @export(&__trunctfxf2, .{ .name = "__trunctfxf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __trunctfxf2(a: f128) callconv(.C) f80 {
+pub fn __trunctfxf2(a: f128) callconv(.c) f80 {
     const src_sig_bits = math.floatMantissaBits(f128);
     const dst_sig_bits = math.floatMantissaBits(f80) - 1; // -1 for the integer bit
 

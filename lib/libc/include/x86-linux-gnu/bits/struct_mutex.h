@@ -1,5 +1,5 @@
 /* x86 internal mutex struct definitions.
-   Copyright (C) 2019-2024 Free Software Foundation, Inc.
+   Copyright (C) 2019-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -54,7 +54,7 @@ struct __pthread_mutex_s
 
 #ifdef __x86_64__
 # define __PTHREAD_MUTEX_INITIALIZER(__kind) \
-  0, 0, 0, 0, __kind, 0, 0, { 0, 0 }
+  0, 0, 0, 0, __kind, 0, 0, { NULL, NULL }
 #else
 # define __PTHREAD_MUTEX_INITIALIZER(__kind) \
   0, 0, 0, __kind, 0, { { 0, 0 } }

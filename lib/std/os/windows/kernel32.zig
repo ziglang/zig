@@ -42,6 +42,7 @@ const WCHAR = windows.WCHAR;
 const WIN32_FIND_DATAW = windows.WIN32_FIND_DATAW;
 const Win32Error = windows.Win32Error;
 const WORD = windows.WORD;
+const SYSTEM_INFO = windows.SYSTEM_INFO;
 
 // I/O - Filesystem
 
@@ -313,7 +314,7 @@ pub extern "kernel32" fn CreateProcessW(
     lpProcessAttributes: ?*SECURITY_ATTRIBUTES,
     lpThreadAttributes: ?*SECURITY_ATTRIBUTES,
     bInheritHandles: BOOL,
-    dwCreationFlags: DWORD,
+    dwCreationFlags: windows.CreateProcessFlags,
     lpEnvironment: ?LPVOID,
     lpCurrentDirectory: ?LPCWSTR,
     lpStartupInfo: *STARTUPINFOW,
@@ -338,21 +339,6 @@ pub extern "kernel32" fn GetExitCodeProcess(
 
 // TODO: Already a wrapper for this, see `windows.GetCurrentProcess`.
 pub extern "kernel32" fn GetCurrentProcess() callconv(.winapi) HANDLE;
-
-// TODO: memcpy peb().ProcessParameters.Environment, mem.span(0). Requires locking the PEB.
-pub extern "kernel32" fn GetEnvironmentStringsW() callconv(.winapi) ?LPWSTR;
-
-// TODO: RtlFreeHeap on the output of GetEnvironmentStringsW.
-pub extern "kernel32" fn FreeEnvironmentStringsW(
-    penv: LPWSTR,
-) callconv(.winapi) BOOL;
-
-// TODO: Wrapper around RtlQueryEnvironmentVariable.
-pub extern "kernel32" fn GetEnvironmentVariableW(
-    lpName: ?LPCWSTR,
-    lpBuffer: ?[*]WCHAR,
-    nSize: DWORD,
-) callconv(.winapi) DWORD;
 
 // TODO: Wrapper around RtlSetEnvironmentVar.
 pub extern "kernel32" fn SetEnvironmentVariableW(
@@ -527,11 +513,6 @@ pub extern "kernel32" fn HeapCreate(
     dwMaximumSize: SIZE_T,
 ) callconv(.winapi) ?HANDLE;
 
-// TODO: Wrapper around RtlDestroyHeap (BOOLEAN -> BOOL).
-pub extern "kernel32" fn HeapDestroy(
-    hHeap: HANDLE,
-) callconv(.winapi) BOOL;
-
 // TODO: Forwarder to RtlReAllocateHeap.
 pub extern "kernel32" fn HeapReAlloc(
     hHeap: HANDLE,
@@ -583,10 +564,6 @@ pub extern "kernel32" fn VirtualQuery(
     lpBuffer: PMEMORY_BASIC_INFORMATION,
     dwLength: SIZE_T,
 ) callconv(.winapi) SIZE_T;
-
-pub extern "kernel32" fn LocalFree(
-    hMem: HLOCAL,
-) callconv(.winapi) ?HLOCAL;
 
 // TODO: Getter for peb.ProcessHeap
 pub extern "kernel32" fn GetProcessHeap() callconv(.winapi) ?HANDLE;
@@ -664,9 +641,4 @@ pub extern "kernel32" fn SetLastError(
 
 // Everything Else
 
-// TODO:
-//  Wrapper around KUSER_SHARED_DATA.SystemTime.
-//  Much better to use NtQuerySystemTime or NtQuerySystemTimePrecise for guaranteed 0.1ns precision.
-pub extern "kernel32" fn GetSystemTimeAsFileTime(
-    lpSystemTimeAsFileTime: *FILETIME,
-) callconv(.winapi) void;
+pub extern "kernel32" fn GetSystemInfo(lpSystemInfo: *SYSTEM_INFO) callconv(.winapi) void;

@@ -16,7 +16,7 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
-pub const DoublyLinkedList = @import("linked_list.zig").DoublyLinkedList;
+pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
 pub const DynamicBitSetUnmanaged = bit_set.DynamicBitSetUnmanaged;
@@ -25,6 +25,7 @@ pub const EnumMap = enums.EnumMap;
 pub const EnumSet = enums.EnumSet;
 pub const HashMap = hash_map.HashMap;
 pub const HashMapUnmanaged = hash_map.HashMapUnmanaged;
+pub const Io = @import("Io.zig");
 pub const MultiArrayList = @import("multi_array_list.zig").MultiArrayList;
 pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
@@ -33,7 +34,7 @@ pub const Random = @import("Random.zig");
 pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
-pub const SinglyLinkedList = @import("linked_list.zig").SinglyLinkedList;
+pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
 pub const StaticBitSet = bit_set.StaticBitSet;
 pub const StringHashMap = hash_map.StringHashMap;
 pub const StringHashMapUnmanaged = hash_map.StringHashMapUnmanaged;
@@ -67,7 +68,8 @@ pub const hash = @import("hash.zig");
 pub const hash_map = @import("hash_map.zig");
 pub const heap = @import("heap.zig");
 pub const http = @import("http.zig");
-pub const io = @import("io.zig");
+/// Deprecated
+pub const io = Io;
 pub const json = @import("json.zig");
 pub const leb = @import("leb128.zig");
 pub const log = @import("log.zig");
@@ -79,6 +81,7 @@ pub const net = @import("net.zig");
 pub const os = @import("os.zig");
 pub const once = @import("once.zig").once;
 pub const pdb = @import("pdb.zig");
+pub const pie = @import("pie.zig");
 pub const posix = @import("posix.zig");
 pub const process = @import("process.zig");
 pub const sort = @import("sort.zig");
@@ -93,6 +96,7 @@ pub const valgrind = @import("valgrind.zig");
 pub const wasm = @import("wasm.zig");
 pub const zig = @import("zig.zig");
 pub const zip = @import("zip.zig");
+pub const zon = @import("zon.zig");
 pub const start = @import("start.zig");
 
 const root = @import("root");
@@ -117,6 +121,13 @@ pub const Options = struct {
         comptime format: []const u8,
         args: anytype,
     ) void = log.defaultLog,
+
+    /// Overrides `std.heap.page_size_min`.
+    page_size_min: ?usize = null,
+    /// Overrides `std.heap.page_size_max`.
+    page_size_max: ?usize = null,
+    /// Overrides default implementation for determining OS page size at runtime.
+    queryPageSize: fn () usize = heap.defaultQueryPageSize,
 
     fmt_max_depth: usize = fmt.default_max_depth,
 

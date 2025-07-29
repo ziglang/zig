@@ -59,6 +59,7 @@ pkg_config_pkg_list: ?(PkgConfigError![]const PkgConfigPkg) = null,
 args: ?[]const []const u8 = null,
 debug_log_scopes: []const []const u8 = &.{},
 debug_compile_errors: bool = false,
+debug_incremental: bool = false,
 debug_pkg_config: bool = false,
 /// Number of stack frames captured when a `StackTrace` is recorded for debug purposes,
 /// in particular at `Step` creation.
@@ -79,10 +80,8 @@ enable_wine: bool = false,
 /// this will be the directory $glibc-build-dir/install/glibcs
 /// Given the example of the aarch64 target, this is the directory
 /// that contains the path `aarch64-linux-gnu/lib/ld-linux-aarch64.so.1`.
-glibc_runtimes_dir: ?[]const u8 = null,
-
-/// Deprecated. Use `b.graph.host`.
-host: ResolvedTarget,
+/// Also works for dynamic musl.
+libc_runtimes_dir: ?[]const u8 = null,
 
 dep_prefix: []const u8 = "",
 
@@ -96,6 +95,8 @@ pkg_hash: []const u8,
 available_deps: AvailableDeps,
 
 release_mode: ReleaseMode,
+
+build_id: ?std.zig.BuildId = null,
 
 pub const ReleaseMode = enum {
     off,
@@ -253,7 +254,7 @@ pub fn create(
     build_root: Cache.Directory,
     cache_root: Cache.Directory,
     available_deps: AvailableDeps,
-) !*Build {
+) error{OutOfMemory}!*Build {
     const arena = graph.arena;
 
     const b = try arena.create(Build);
@@ -283,7 +284,7 @@ pub fn create(
         .h_dir = undefined,
         .dest_dir = graph.env_map.get("DESTDIR"),
         .install_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "install",
                 .owner = b,
@@ -291,7 +292,7 @@ pub fn create(
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "uninstall",
                 .owner = b,
@@ -301,7 +302,6 @@ pub fn create(
         },
         .install_path = undefined,
         .args = null,
-        .host = graph.host,
         .modules = .init(arena),
         .named_writefiles = .init(arena),
         .named_lazy_paths = .init(arena),
@@ -322,7 +322,7 @@ fn createChild(
     pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
-) !*Build {
+) error{OutOfMemory}!*Build {
     const child = try createChildOnly(parent, dep_name, build_root, pkg_hash, pkg_deps, user_input_options);
     try determineAndApplyInstallPrefix(child);
     return child;
@@ -335,14 +335,14 @@ fn createChildOnly(
     pkg_hash: []const u8,
     pkg_deps: AvailableDeps,
     user_input_options: UserInputOptionsMap,
-) !*Build {
+) error{OutOfMemory}!*Build {
     const allocator = parent.allocator;
     const child = try allocator.create(Build);
     child.* = .{
         .graph = parent.graph,
         .allocator = allocator,
         .install_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "install",
                 .owner = child,
@@ -350,7 +350,7 @@ fn createChildOnly(
             .description = "Copy build artifacts to prefix path",
         },
         .uninstall_tls = .{
-            .step = Step.init(.{
+            .step = .init(.{
                 .id = TopLevelStep.base_id,
                 .name = "uninstall",
                 .owner = child,
@@ -386,14 +386,14 @@ fn createChildOnly(
         .cache_root = parent.cache_root,
         .debug_log_scopes = parent.debug_log_scopes,
         .debug_compile_errors = parent.debug_compile_errors,
+        .debug_incremental = parent.debug_incremental,
         .debug_pkg_config = parent.debug_pkg_config,
         .enable_darling = parent.enable_darling,
         .enable_qemu = parent.enable_qemu,
         .enable_rosetta = parent.enable_rosetta,
         .enable_wasmtime = parent.enable_wasmtime,
         .enable_wine = parent.enable_wine,
-        .glibc_runtimes_dir = parent.glibc_runtimes_dir,
-        .host = parent.host,
+        .libc_runtimes_dir = parent.libc_runtimes_dir,
         .dep_prefix = parent.fmt("{s}{s}.", .{ parent.dep_prefix, dep_name }),
         .modules = .init(allocator),
         .named_writefiles = .init(allocator),
@@ -408,104 +408,179 @@ fn createChildOnly(
     return child;
 }
 
-fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
-    var user_input_options = UserInputOptionsMap.init(allocator);
+fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
+    var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        const v = @field(args, field.name);
-        const T = @TypeOf(v);
-        switch (T) {
-            Target.Query => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            ResolvedTarget => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            LazyPath => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path = v.dupeInner(allocator) },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const LazyPath => {
-                var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
-                for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path_list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const u8 => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const []const u8 => {
-                var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
-                list.appendSliceAssumeCapacity(v);
-
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            else => switch (@typeInfo(T)) {
-                .bool => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = if (v) "true" else "false" },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .@"enum", .enum_literal => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = @tagName(v) },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_int, .int => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_float, .float => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
-            },
-        }
+        if (field.type == @Type(.null)) continue;
+        addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
+    return map;
+}
 
-    return user_input_options;
+fn addUserInputOptionFromArg(
+    arena: Allocator,
+    map: *UserInputOptionsMap,
+    field: std.builtin.Type.StructField,
+    comptime T: type,
+    /// If null, the value won't be added, but `T` will still be type-checked.
+    maybe_value: ?T,
+) void {
+    switch (T) {
+        Target.Query => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.zigTriple(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            map.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.serializeCpuAlloc(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        ResolvedTarget => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.query.zigTriple(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            map.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.query.serializeCpuAlloc(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        std.zig.BuildId => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = std.fmt.allocPrint(arena, "{f}", .{v}) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        LazyPath => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path = v.dupeInner(arena) },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const LazyPath => return if (maybe_value) |v| {
+            var list = ArrayList(LazyPath).initCapacity(arena, v.len) catch @panic("OOM");
+            for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(arena));
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path_list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const u8 => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = arena.dupe(u8, v) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const []const u8 => return if (maybe_value) |v| {
+            var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+            for (v) |s| list.appendAssumeCapacity(arena.dupe(u8, s) catch @panic("OOM"));
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        else => switch (@typeInfo(T)) {
+            .bool => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = if (v) "true" else "false" },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .@"enum", .enum_literal => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = @tagName(v) },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_int, .int => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{d}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_float, .float => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{x}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .pointer => |ptr_info| switch (ptr_info.size) {
+                .one => switch (@typeInfo(ptr_info.child)) {
+                    .array => |array_info| {
+                        comptime var slice_info = ptr_info;
+                        slice_info.size = .slice;
+                        slice_info.is_const = true;
+                        slice_info.child = array_info.child;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
+                    else => {},
+                },
+                .slice => switch (@typeInfo(ptr_info.child)) {
+                    .@"enum" => return if (maybe_value) |v| {
+                        var list = ArrayList([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+                        for (v) |tag| list.appendAssumeCapacity(@tagName(tag));
+                        map.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .list = list },
+                            .used = false,
+                        }) catch @panic("OOM");
+                    },
+                    else => {
+                        comptime var slice_info = ptr_info;
+                        slice_info.is_const = true;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
+                },
+                else => {},
+            },
+            .null => unreachable,
+            .optional => |info| switch (@typeInfo(info.child)) {
+                .optional => {},
+                else => {
+                    addUserInputOptionFromArg(
+                        arena,
+                        map,
+                        field,
+                        info.child,
+                        maybe_value orelse null,
+                    );
+                    return;
+                },
+            },
+            else => {},
+        },
+    }
+    @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(field.type));
 }
 
 const OrderedUserValue = union(enum) {
@@ -628,7 +703,7 @@ fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOp
         user_option.hash(hasher);
 }
 
-fn determineAndApplyInstallPrefix(b: *Build) !void {
+fn determineAndApplyInstallPrefix(b: *Build) error{OutOfMemory}!void {
     // Create an installation directory local to this package. This will be used when
     // dependant packages require a standard prefix, such as include directories for C headers.
     var hash = b.graph.cache.hash;
@@ -692,24 +767,10 @@ pub fn addOptions(b: *Build) *Step.Options {
 
 pub const ExecutableOptions = struct {
     name: []const u8,
-    /// If you want the executable to run on the same computer as the one
-    /// building the package, pass the `host` field of the package's `Build`
-    /// instance.
-    target: ResolvedTarget,
-    root_source_file: ?LazyPath = null,
+    root_module: *Module,
     version: ?std.SemanticVersion = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    code_model: std.builtin.CodeModel = .default,
     linkage: ?std.builtin.LinkMode = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -722,22 +783,9 @@ pub const ExecutableOptions = struct {
 };
 
 pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
-            .root_source_file = options.root_source_file,
-            .target = options.target,
-            .optimize = options.optimize,
-            .link_libc = options.link_libc,
-            .single_threaded = options.single_threaded,
-            .pic = options.pic,
-            .strip = options.strip,
-            .unwind_tables = options.unwind_tables,
-            .omit_frame_pointer = options.omit_frame_pointer,
-            .sanitize_thread = options.sanitize_thread,
-            .error_tracing = options.error_tracing,
-            .code_model = options.code_model,
-        },
+        .root_module = options.root_module,
         .version = options.version,
         .kind = .exe,
         .linkage = options.linkage,
@@ -751,43 +799,17 @@ pub fn addExecutable(b: *Build, options: ExecutableOptions) *Step.Compile {
 
 pub const ObjectOptions = struct {
     name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    code_model: std.builtin.CodeModel = .default,
-    optimize: std.builtin.OptimizeMode,
+    root_module: *Module,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
 };
 
 pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
-            .root_source_file = options.root_source_file,
-            .target = options.target,
-            .optimize = options.optimize,
-            .link_libc = options.link_libc,
-            .single_threaded = options.single_threaded,
-            .pic = options.pic,
-            .strip = options.strip,
-            .unwind_tables = options.unwind_tables,
-            .omit_frame_pointer = options.omit_frame_pointer,
-            .sanitize_thread = options.sanitize_thread,
-            .error_tracing = options.error_tracing,
-            .code_model = options.code_model,
-        },
+        .root_module = options.root_module,
         .kind = .obj,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
@@ -796,24 +818,12 @@ pub fn addObject(b: *Build, options: ObjectOptions) *Step.Compile {
     });
 }
 
-pub const SharedLibraryOptions = struct {
+pub const LibraryOptions = struct {
+    linkage: std.builtin.LinkMode = .static,
     name: []const u8,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
-    root_source_file: ?LazyPath = null,
+    root_module: *Module,
     version: ?std.SemanticVersion = null,
     max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
@@ -825,25 +835,12 @@ pub const SharedLibraryOptions = struct {
     win32_manifest: ?LazyPath = null,
 };
 
-pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+pub fn addLibrary(b: *Build, options: LibraryOptions) *Step.Compile {
+    return .create(b, .{
         .name = options.name,
-        .root_module = .{
-            .target = options.target,
-            .optimize = options.optimize,
-            .root_source_file = options.root_source_file,
-            .link_libc = options.link_libc,
-            .single_threaded = options.single_threaded,
-            .pic = options.pic,
-            .strip = options.strip,
-            .unwind_tables = options.unwind_tables,
-            .omit_frame_pointer = options.omit_frame_pointer,
-            .sanitize_thread = options.sanitize_thread,
-            .error_tracing = options.error_tracing,
-            .code_model = options.code_model,
-        },
+        .root_module = options.root_module,
         .kind = .lib,
-        .linkage = .dynamic,
+        .linkage = options.linkage,
         .version = options.version,
         .max_rss = options.max_rss,
         .use_llvm = options.use_llvm,
@@ -853,79 +850,19 @@ pub fn addSharedLibrary(b: *Build, options: SharedLibraryOptions) *Step.Compile 
     });
 }
 
-pub const StaticLibraryOptions = struct {
-    name: []const u8,
-    root_source_file: ?LazyPath = null,
-    /// To choose the same computer as the one building the package, pass the
-    /// `host` field of the package's `Build` instance.
-    target: ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-    code_model: std.builtin.CodeModel = .default,
-    version: ?std.SemanticVersion = null,
-    max_rss: usize = 0,
-    link_libc: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
-    use_llvm: ?bool = null,
-    use_lld: ?bool = null,
-    zig_lib_dir: ?LazyPath = null,
-};
-
-pub fn addStaticLibrary(b: *Build, options: StaticLibraryOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
-        .name = options.name,
-        .root_module = .{
-            .target = options.target,
-            .optimize = options.optimize,
-            .root_source_file = options.root_source_file,
-            .link_libc = options.link_libc,
-            .single_threaded = options.single_threaded,
-            .pic = options.pic,
-            .strip = options.strip,
-            .unwind_tables = options.unwind_tables,
-            .omit_frame_pointer = options.omit_frame_pointer,
-            .sanitize_thread = options.sanitize_thread,
-            .error_tracing = options.error_tracing,
-            .code_model = options.code_model,
-        },
-        .kind = .lib,
-        .linkage = .static,
-        .version = options.version,
-        .max_rss = options.max_rss,
-        .use_llvm = options.use_llvm,
-        .use_lld = options.use_lld,
-        .zig_lib_dir = options.zig_lib_dir,
-    });
-}
-
 pub const TestOptions = struct {
     name: []const u8 = "test",
-    root_source_file: LazyPath,
-    target: ?ResolvedTarget = null,
-    optimize: std.builtin.OptimizeMode = .Debug,
-    version: ?std.SemanticVersion = null,
+    root_module: *Module,
     max_rss: usize = 0,
-    /// deprecated: use `.filters = &.{filter}` instead of `.filter = filter`.
-    filter: ?[]const u8 = null,
     filters: []const []const u8 = &.{},
-    test_runner: ?LazyPath = null,
-    link_libc: ?bool = null,
-    link_libcpp: ?bool = null,
-    single_threaded: ?bool = null,
-    pic: ?bool = null,
-    strip: ?bool = null,
-    unwind_tables: ?bool = null,
-    omit_frame_pointer: ?bool = null,
-    sanitize_thread: ?bool = null,
-    error_tracing: ?bool = null,
+    test_runner: ?Step.Compile.TestRunner = null,
     use_llvm: ?bool = null,
     use_lld: ?bool = null,
     zig_lib_dir: ?LazyPath = null,
+    /// Emits an object file instead of a test binary.
+    /// The object must be linked separately.
+    /// Usually used in conjunction with a custom `test_runner`.
+    emit_object: bool = false,
 };
 
 /// Creates an executable containing unit tests.
@@ -937,30 +874,12 @@ pub const TestOptions = struct {
 /// two steps are separated because they are independently configured and
 /// cached.
 pub fn addTest(b: *Build, options: TestOptions) *Step.Compile {
-    return Step.Compile.create(b, .{
+    return .create(b, .{
         .name = options.name,
-        .kind = .@"test",
-        .root_module = .{
-            .root_source_file = options.root_source_file,
-            .target = options.target orelse b.graph.host,
-            .optimize = options.optimize,
-            .link_libc = options.link_libc,
-            .link_libcpp = options.link_libcpp,
-            .single_threaded = options.single_threaded,
-            .pic = options.pic,
-            .strip = options.strip,
-            .unwind_tables = options.unwind_tables,
-            .omit_frame_pointer = options.omit_frame_pointer,
-            .sanitize_thread = options.sanitize_thread,
-            .error_tracing = options.error_tracing,
-        },
+        .kind = if (options.emit_object) .test_obj else .@"test",
+        .root_module = options.root_module,
         .max_rss = options.max_rss,
-        .filters = if (options.filter != null and options.filters.len > 0) filters: {
-            const filters = b.allocator.alloc([]const u8, 1 + options.filters.len) catch @panic("OOM");
-            filters[0] = b.dupe(options.filter.?);
-            for (filters[1..], options.filters) |*dest, source| dest.* = b.dupe(source);
-            break :filters filters;
-        } else b.dupeStrings(if (options.filter) |filter| &.{filter} else options.filters),
+        .filters = b.dupeStrings(options.filters),
         .test_runner = options.test_runner,
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
@@ -978,21 +897,6 @@ pub const AssemblyOptions = struct {
     max_rss: usize = 0,
     zig_lib_dir: ?LazyPath = null,
 };
-
-pub fn addAssembly(b: *Build, options: AssemblyOptions) *Step.Compile {
-    const obj_step = Step.Compile.create(b, .{
-        .name = options.name,
-        .kind = .obj,
-        .root_module = .{
-            .target = options.target,
-            .optimize = options.optimize,
-        },
-        .max_rss = options.max_rss,
-        .zig_lib_dir = options.zig_lib_dir,
-    });
-    obj_step.addAssemblyFile(options.source_file);
-    return obj_step;
-}
 
 /// This function creates a module and adds it to the package's module set, making
 /// it available to other packages which depend on this one.
@@ -1028,7 +932,14 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
     // It doesn't have to be native. We catch that if you actually try to run it.
     // Consider that this is declarative; the run step may not be run unless a user
     // option is supplied.
-    const run_step = Step.Run.create(b, b.fmt("run {s}", .{exe.name}));
+
+    // Avoid the common case of the step name looking like "run test test".
+    const step_name = if (exe.kind.isTest() and mem.eql(u8, exe.name, "test"))
+        b.fmt("run {s}", .{@tagName(exe.kind)})
+    else
+        b.fmt("run {s} {s}", .{ @tagName(exe.kind), exe.name });
+
+    const run_step = Step.Run.create(b, step_name);
     run_step.producer = exe;
     if (exe.kind == .@"test") {
         if (exe.exec_cmd_args) |exec_cmd_args| {
@@ -1043,9 +954,8 @@ pub fn addRunArtifact(b: *Build, exe: *Step.Compile) *Step.Run {
             run_step.addArtifactArg(exe);
         }
 
-        if (exe.test_server_mode) {
-            run_step.enableTestRunnerMode();
-        }
+        const test_server_mode = if (exe.test_runner) |r| r.mode == .server else true;
+        if (test_server_mode) run_step.enableTestRunnerMode();
     } else {
         run_step.addArtifactArg(exe);
     }
@@ -1383,7 +1293,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
 pub fn step(b: *Build, name: []const u8, description: []const u8) *Step {
     const step_info = b.allocator.create(TopLevelStep) catch @panic("OOM");
     step_info.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = TopLevelStep.base_id,
             .name = name,
             .owner = b,
@@ -1509,13 +1419,18 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
         "cpu",
         "Target CPU features to add or subtract",
     );
+    const ofmt = b.option(
+        []const u8,
+        "ofmt",
+        "Target object format",
+    );
     const dynamic_linker = b.option(
         []const u8,
         "dynamic-linker",
         "Path to interpreter on the target system",
     );
 
-    if (maybe_triple == null and mcpu == null and dynamic_linker == null)
+    if (maybe_triple == null and mcpu == null and ofmt == null and dynamic_linker == null)
         return args.default_target;
 
     const triple = maybe_triple orelse "native";
@@ -1523,6 +1438,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     const selected_target = parseTargetQuery(.{
         .arch_os_abi = triple,
         .cpu_features = mcpu,
+        .object_format = ofmt,
         .dynamic_linker = dynamic_linker,
     }) catch |err| switch (err) {
         error.ParseFailed => {
@@ -1552,7 +1468,7 @@ pub fn standardTargetOptionsQueryOnly(b: *Build, args: StandardTargetOptionsArgs
     return args.default_target;
 }
 
-pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8) !bool {
+pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8) error{OutOfMemory}!bool {
     const name = b.dupe(name_raw);
     const value = b.dupe(value_raw);
     const gop = try b.user_input_options.getOrPut(name);
@@ -1597,14 +1513,14 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
             return true;
         },
         .lazy_path, .lazy_path_list => {
-            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
+            log.warn("the lazy path value type isn't added from the CLI, but somehow '{s}' is a .{f}", .{ name, std.zig.fmtId(@tagName(gop.value_ptr.value)) });
             return true;
         },
     }
     return false;
 }
 
-pub fn addUserInputFlag(b: *Build, name_raw: []const u8) !bool {
+pub fn addUserInputFlag(b: *Build, name_raw: []const u8) error{OutOfMemory}!bool {
     const name = b.dupe(name_raw);
     const gop = try b.user_input_options.getOrPut(name);
     if (!gop.found_existing) {
@@ -1676,13 +1592,13 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(ally: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) ![]u8 {
-    var buf = ArrayList(u8).init(ally);
-    if (opt_cwd) |cwd| try buf.writer().print("cd {s} && ", .{cwd});
+fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
+    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
     for (argv) |arg| {
-        try buf.writer().print("{s} ", .{arg});
+        try buf.print(gpa, "{s} ", .{arg});
     }
-    return buf.toOwnedSlice();
+    return buf.toOwnedSlice(gpa);
 }
 
 fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
@@ -1771,7 +1687,7 @@ pub fn addCheckFile(
     return Step.CheckFile.create(b, file_source, options);
 }
 
-pub fn truncateFile(b: *Build, dest_path: []const u8) !void {
+pub fn truncateFile(b: *Build, dest_path: []const u8) (fs.Dir.MakeError || fs.Dir.StatFileError)!void {
     if (b.verbose) {
         log.info("truncate {s}", .{dest_path});
     }
@@ -1858,7 +1774,7 @@ fn tryFindProgram(b: *Build, full_path: []const u8) ?[]const u8 {
     return null;
 }
 
-pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) ![]const u8 {
+pub fn findProgram(b: *Build, names: []const []const u8, paths: []const []const u8) error{FileNotFound}![]const u8 {
     // TODO report error for ambiguous situations
     for (b.search_prefixes.items) |search_prefix| {
         for (names) |name| {
@@ -1911,7 +1827,7 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.reader().readAllAlloc(b.allocator, max_output_size) catch {
+    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -2304,15 +2220,25 @@ pub const GeneratedFile = struct {
     /// The step that generates the file
     step: *Step,
 
-    /// The path to the generated file. Must be either absolute or relative to the build root.
+    /// The path to the generated file. Must be either absolute or relative to the build runner cwd.
     /// This value must be set in the `fn make()` of the `step` and must not be `null` afterwards.
     path: ?[]const u8 = null,
 
+    /// Deprecated, see `getPath2`.
     pub fn getPath(gen: GeneratedFile) []const u8 {
-        return gen.step.owner.pathFromRoot(gen.path orelse std.debug.panic(
+        return gen.step.owner.pathFromCwd(gen.path orelse std.debug.panic(
             "getPath() was called on a GeneratedFile that wasn't built yet. Is there a missing Step dependency on step '{s}'?",
             .{gen.step.name},
         ));
+    }
+
+    pub fn getPath2(gen: GeneratedFile, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        return gen.path orelse {
+            const w = debug.lockStderrWriter(&.{});
+            dumpBadGetPathHelp(gen.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+            debug.unlockStderrWriter();
+            @panic("misconfigured build script");
+        };
     }
 };
 
@@ -2517,10 +2443,9 @@ pub const LazyPath = union(enum) {
                 var file_path: Cache.Path = .{
                     .root_dir = Cache.Directory.cwd(),
                     .sub_path = gen.file.path orelse {
-                        std.debug.lockStdErr();
-                        const stderr = std.io.getStdErr();
-                        dumpBadGetPathHelp(gen.file.step, stderr, src_builder, asking_step) catch {};
-                        std.debug.unlockStdErr();
+                        const w = debug.lockStderrWriter(&.{});
+                        dumpBadGetPathHelp(gen.file.step, w, .detect(.stderr()), src_builder, asking_step) catch {};
+                        debug.unlockStderrWriter();
                         @panic("misconfigured build script");
                     },
                 };
@@ -2564,6 +2489,18 @@ pub const LazyPath = union(enum) {
         }
     }
 
+    pub fn basename(lazy_path: LazyPath, src_builder: *Build, asking_step: ?*Step) []const u8 {
+        return fs.path.basename(switch (lazy_path) {
+            .src_path => |sp| sp.sub_path,
+            .cwd_relative => |sub_path| sub_path,
+            .generated => |gen| if (gen.sub_path.len > 0)
+                gen.sub_path
+            else
+                gen.file.getPath2(src_builder, asking_step),
+            .dependency => |dep| dep.sub_path,
+        });
+    }
+
     /// Copies the internal strings.
     ///
     /// The `b` parameter is only used for its allocator. All *Build instances
@@ -2595,44 +2532,42 @@ fn dumpBadDirnameHelp(
     comptime msg: []const u8,
     args: anytype,
 ) anyerror!void {
-    debug.lockStdErr();
-    defer debug.unlockStdErr();
+    const w = debug.lockStderrWriter(&.{});
+    defer debug.unlockStderrWriter();
 
-    const stderr = io.getStdErr();
-    const w = stderr.writer();
     try w.print(msg, args);
 
-    const tty_config = std.io.tty.detectConfig(stderr);
+    const tty_config = std.io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writeAll("    The step was created by this stack trace:\n");
+        try w.writeAll("    The step was created by this stack trace:\n");
         tty_config.setColor(w, .reset) catch {};
 
-        s.dump(stderr);
+        s.dump(w, tty_config);
     }
 
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
 
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};
 }
 
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    stderr: fs.File,
+    w: *std.io.Writer,
+    tty_config: std.io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {
-    const w = stderr.writer();
     try w.print(
         \\getPath() was called on a GeneratedFile that wasn't built yet.
         \\  source package path: {s}
@@ -2643,21 +2578,20 @@ pub fn dumpBadGetPathHelp(
         s.name,
     });
 
-    const tty_config = std.io.tty.detectConfig(stderr);
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    The step was created by this stack trace:\n");
+    try w.writeAll("    The step was created by this stack trace:\n");
     tty_config.setColor(w, .reset) catch {};
 
-    s.dump(stderr);
+    s.dump(w, tty_config);
     if (asking_step) |as| {
         tty_config.setColor(w, .red) catch {};
-        try stderr.writer().print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
+        try w.print("    The step '{s}' that is missing a dependency on the above step was created by this stack trace:\n", .{as.name});
         tty_config.setColor(w, .reset) catch {};
 
-        as.dump(stderr);
+        as.dump(w, tty_config);
     }
     tty_config.setColor(w, .red) catch {};
-    try stderr.writeAll("    Hope that helps. Proceeding to panic.\n");
+    try w.writeAll("    Hope that helps. Proceeding to panic.\n");
     tty_config.setColor(w, .reset) catch {};
 }
 
@@ -2693,11 +2627,6 @@ pub fn makeTempPath(b: *Build) []const u8 {
         });
     };
     return result_path;
-}
-
-/// Deprecated; use `std.fmt.hex` instead.
-pub fn hex64(x: u64) [16]u8 {
-    return std.fmt.hex(x);
 }
 
 /// A pair of target query and fully resolved target.

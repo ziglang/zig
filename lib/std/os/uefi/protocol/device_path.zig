@@ -13,6 +13,8 @@ pub const DevicePath = extern struct {
     subtype: u8,
     length: u16 align(1),
 
+    pub const CreateFileDevicePathError = Allocator.Error;
+
     pub const guid align(8) = Guid{
         .time_low = 0x09576e91,
         .time_mid = 0x6d3f,
@@ -23,15 +25,17 @@ pub const DevicePath = extern struct {
     };
 
     /// Returns the next DevicePath node in the sequence, if any.
-    pub fn next(self: *DevicePath) ?*DevicePath {
-        if (self.type == .End and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .EndEntire)
+    pub fn next(self: *const DevicePath) ?*const DevicePath {
+        const bytes: [*]const u8 = @ptrCast(self);
+        const next_node: *const DevicePath = @ptrCast(bytes + self.length);
+        if (next_node.type == .end and @as(uefi.DevicePath.End.Subtype, @enumFromInt(self.subtype)) == .end_entire)
             return null;
 
-        return @as(*DevicePath, @ptrCast(@as([*]u8, @ptrCast(self)) + self.length));
+        return next_node;
     }
 
     /// Calculates the total length of the device path structure in bytes, including the end of device path node.
-    pub fn size(self: *DevicePath) usize {
+    pub fn size(self: *const DevicePath) usize {
         var node = self;
 
         while (node.next()) |next_node| {
@@ -42,7 +46,11 @@ pub const DevicePath = extern struct {
     }
 
     /// Creates a file device path from the existing device path and a file path.
-    pub fn create_file_device_path(self: *DevicePath, allocator: Allocator, path: [:0]align(1) const u16) !*DevicePath {
+    pub fn createFileDevicePath(
+        self: *const DevicePath,
+        allocator: Allocator,
+        path: []const u16,
+    ) CreateFileDevicePathError!*const DevicePath {
         const path_size = self.size();
 
         // 2 * (path.len + 1) for the path and its null terminator, which are u16s
@@ -55,8 +63,8 @@ pub const DevicePath = extern struct {
         // as the end node itself is 4 bytes (type: u8 + subtype: u8 + length: u16).
         var new = @as(*uefi.DevicePath.Media.FilePathDevicePath, @ptrCast(buf.ptr + path_size - 4));
 
-        new.type = .Media;
-        new.subtype = .FilePath;
+        new.type = .media;
+        new.subtype = .file_path;
         new.length = @sizeOf(uefi.DevicePath.Media.FilePathDevicePath) + 2 * (@as(u16, @intCast(path.len)) + 1);
 
         // The same as new.getPath(), but not const as we're filling it in.
@@ -67,9 +75,9 @@ pub const DevicePath = extern struct {
 
         ptr[path.len] = 0;
 
-        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@as(*DevicePath, @ptrCast(new)).next().?));
-        end.type = .End;
-        end.subtype = .EndEntire;
+        var end = @as(*uefi.DevicePath.End.EndEntireDevicePath, @ptrCast(@constCast(@as(*DevicePath, @ptrCast(new)).next().?)));
+        end.type = .end;
+        end.subtype = .end_entire;
         end.length = @sizeOf(uefi.DevicePath.End.EndEntireDevicePath);
 
         return @as(*DevicePath, @ptrCast(buf.ptr));
@@ -84,7 +92,7 @@ pub const DevicePath = extern struct {
             if (self.type == enum_value) {
                 const subtype = self.initSubtype(ufield.type);
                 if (subtype) |sb| {
-                    // e.g. return .{ .Hardware = .{ .Pci = @ptrCast(...) } }
+                    // e.g. return .{ .hardware = .{ .pci = @ptrCast(...) } }
                     return @unionInit(uefi.DevicePath, ufield.name, sb);
                 }
             }
@@ -102,7 +110,7 @@ pub const DevicePath = extern struct {
             const tag_val: u8 = @intFromEnum(@field(TTag, subtype.name));
 
             if (self.subtype == tag_val) {
-                // e.g. expr = .{ .Pci = @ptrCast(...) }
+                // e.g. expr = .{ .pci = @ptrCast(...) }
                 return @unionInit(TUnion, subtype.name, @as(subtype.type, @ptrCast(self)));
             }
         }

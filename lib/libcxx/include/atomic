@@ -101,12 +101,12 @@ struct atomic
     bool compare_exchange_strong(T& expc, T desr,
                                  memory_order m = memory_order_seq_cst) noexcept;
 
-    void wait(T, memory_order = memory_order::seq_cst) const volatile noexcept;
-    void wait(T, memory_order = memory_order::seq_cst) const noexcept;
-    void notify_one() volatile noexcept;
-    void notify_one() noexcept;
-    void notify_all() volatile noexcept;
-    void notify_all() noexcept;
+    void wait(T, memory_order = memory_order::seq_cst) const volatile noexcept; // since C++20
+    void wait(T, memory_order = memory_order::seq_cst) const noexcept;          // since C++20
+    void notify_one() volatile noexcept;                                        // since C++20
+    void notify_one() noexcept;                                                 // since C++20
+    void notify_all() volatile noexcept;                                        // since C++20
+    void notify_all() noexcept;                                                 // since C++20
 };
 
 template <>
@@ -184,12 +184,12 @@ struct atomic<integral>
     integral operator^=(integral op) volatile noexcept;
     integral operator^=(integral op) noexcept;
 
-    void wait(integral, memory_order = memory_order::seq_cst) const volatile noexcept;
-    void wait(integral, memory_order = memory_order::seq_cst) const noexcept;
-    void notify_one() volatile noexcept;
-    void notify_one() noexcept;
-    void notify_all() volatile noexcept;
-    void notify_all() noexcept;
+    void wait(integral, memory_order = memory_order::seq_cst) const volatile noexcept; // since C++20
+    void wait(integral, memory_order = memory_order::seq_cst) const noexcept;          // since C++20
+    void notify_one() volatile noexcept;                                               // since C++20
+    void notify_one() noexcept;                                                        // since C++20
+    void notify_all() volatile noexcept;                                               // since C++20
+    void notify_all() noexcept;                                                        // since C++20
 };
 
 template <class T>
@@ -254,12 +254,12 @@ struct atomic<T*>
     T* operator-=(ptrdiff_t op) volatile noexcept;
     T* operator-=(ptrdiff_t op) noexcept;
 
-    void wait(T*, memory_order = memory_order::seq_cst) const volatile noexcept;
-    void wait(T*, memory_order = memory_order::seq_cst) const noexcept;
-    void notify_one() volatile noexcept;
-    void notify_one() noexcept;
-    void notify_all() volatile noexcept;
-    void notify_all() noexcept;
+    void wait(T*, memory_order = memory_order::seq_cst) const volatile noexcept; // since C++20
+    void wait(T*, memory_order = memory_order::seq_cst) const noexcept;          // since C++20
+    void notify_one() volatile noexcept;                                         // since C++20
+    void notify_one() noexcept;                                                  // since C++20
+    void notify_all() volatile noexcept;                                         // since C++20
+    void notify_all() noexcept;                                                  // since C++20
 };
 
 template<>
@@ -321,12 +321,12 @@ struct atomic<floating-point-type> {  // since C++20
   floating-point-type operator-=(floating-point-type) volatile noexcept;
   floating-point-type operator-=(floating-point-type) noexcept;
 
-  void wait(floating-point-type, memory_order = memory_order::seq_cst) const volatile noexcept;
-  void wait(floating-point-type, memory_order = memory_order::seq_cst) const noexcept;
-  void notify_one() volatile noexcept;
-  void notify_one() noexcept;
-  void notify_all() volatile noexcept;
-  void notify_all() noexcept;
+  void wait(floating-point-type, memory_order = memory_order::seq_cst) const volatile noexcept; // since C++20
+  void wait(floating-point-type, memory_order = memory_order::seq_cst) const noexcept;          // since C++20
+  void notify_one() volatile noexcept;                                                          // since C++20
+  void notify_one() noexcept;                                                                   // since C++20
+  void notify_all() volatile noexcept;                                                          // since C++20
+  void notify_all() noexcept;                                                                   // since C++20
 };
 
 // [atomics.nonmembers], non-member functions
@@ -443,23 +443,23 @@ template<class T>
                               memory_order) noexcept;
 
 template<class T>
-  void atomic_wait(const volatile atomic<T>*, atomic<T>::value_type) noexcept;
+  void atomic_wait(const volatile atomic<T>*, atomic<T>::value_type) noexcept; // since C++20
 template<class T>
-  void atomic_wait(const atomic<T>*, atomic<T>::value_type) noexcept;
+  void atomic_wait(const atomic<T>*, atomic<T>::value_type) noexcept;          // since C++20
 template<class T>
-  void atomic_wait_explicit(const volatile atomic<T>*, atomic<T>::value_type,
+  void atomic_wait_explicit(const volatile atomic<T>*, atomic<T>::value_type,  // since C++20
                             memory_order) noexcept;
 template<class T>
-  void atomic_wait_explicit(const atomic<T>*, atomic<T>::value_type,
+  void atomic_wait_explicit(const atomic<T>*, atomic<T>::value_type,           // since C++20
                             memory_order) noexcept;
 template<class T>
-  void atomic_notify_one(volatile atomic<T>*) noexcept;
+  void atomic_notify_one(volatile atomic<T>*) noexcept;                        // since C++20
 template<class T>
-  void atomic_notify_one(atomic<T>*) noexcept;
+  void atomic_notify_one(atomic<T>*) noexcept;                                 // since C++20
 template<class T>
-  void atomic_notify_all(volatile atomic<T>*) noexcept;
+  void atomic_notify_all(volatile atomic<T>*) noexcept;                        // since C++20
 template<class T>
-  void atomic_notify_all(atomic<T>*) noexcept;
+  void atomic_notify_all(atomic<T>*) noexcept;                                 // since C++20
 
 // Atomics for standard typedef types
 
@@ -534,12 +534,12 @@ typedef struct atomic_flag
     void clear(memory_order m = memory_order_seq_cst) volatile noexcept;
     void clear(memory_order m = memory_order_seq_cst) noexcept;
 
-    void wait(bool, memory_order = memory_order::seq_cst) const volatile noexcept;
-    void wait(bool, memory_order = memory_order::seq_cst) const noexcept;
-    void notify_one() volatile noexcept;
-    void notify_one() noexcept;
-    void notify_all() volatile noexcept;
-    void notify_all() noexcept;
+    void wait(bool, memory_order = memory_order::seq_cst) const volatile noexcept; // since C++20
+    void wait(bool, memory_order = memory_order::seq_cst) const noexcept;          // since C++20
+    void notify_one() volatile noexcept;                                           // since C++20
+    void notify_one() noexcept;                                                    // since C++20
+    void notify_all() volatile noexcept;                                           // since C++20
+    void notify_all() noexcept;                                                    // since C++20
 } atomic_flag;
 
 bool atomic_flag_test(volatile atomic_flag* obj) noexcept;
@@ -557,14 +557,14 @@ void atomic_flag_clear(atomic_flag* obj) noexcept;
 void atomic_flag_clear_explicit(volatile atomic_flag* obj, memory_order m) noexcept;
 void atomic_flag_clear_explicit(atomic_flag* obj, memory_order m) noexcept;
 
-void atomic_wait(const volatile atomic_flag* obj, T old) noexcept;
-void atomic_wait(const atomic_flag* obj, T old) noexcept;
-void atomic_wait_explicit(const volatile atomic_flag* obj, T old, memory_order m) noexcept;
-void atomic_wait_explicit(const atomic_flag* obj, T old, memory_order m) noexcept;
-void atomic_one(volatile atomic_flag* obj) noexcept;
-void atomic_one(atomic_flag* obj) noexcept;
-void atomic_all(volatile atomic_flag* obj) noexcept;
-void atomic_all(atomic_flag* obj) noexcept;
+void atomic_wait(const volatile atomic_flag* obj, T old) noexcept;                          // since C++20
+void atomic_wait(const atomic_flag* obj, T old) noexcept;                                   // since C++20
+void atomic_wait_explicit(const volatile atomic_flag* obj, T old, memory_order m) noexcept; // since C++20
+void atomic_wait_explicit(const atomic_flag* obj, T old, memory_order m) noexcept;          // since C++20
+void atomic_one(volatile atomic_flag* obj) noexcept;                                        // since C++20
+void atomic_one(atomic_flag* obj) noexcept;                                                 // since C++20
+void atomic_all(volatile atomic_flag* obj) noexcept;                                        // since C++20
+void atomic_all(atomic_flag* obj) noexcept;                                                 // since C++20
 
 // fences
 
@@ -587,46 +587,55 @@ template <class T>
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/atomic>
+#else
+#  include <__config>
 
-#if _LIBCPP_STD_VER < 23 && defined(_LIBCPP_STDATOMIC_H)
-#  error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
-#endif
+#  if defined(_LIBCPP_STDATOMIC_H) || defined(kill_dependency) || defined(atomic_load)
+#    define _LIBCPP_STDATOMIC_H_HAS_DEFINITELY_BEEN_INCLUDED 1
+#  else
+#    define _LIBCPP_STDATOMIC_H_HAS_DEFINITELY_BEEN_INCLUDED 0
+#  endif
 
-#include <__atomic/aliases.h>
-#include <__atomic/atomic.h>
-#include <__atomic/atomic_base.h>
-#include <__atomic/atomic_flag.h>
-#include <__atomic/atomic_init.h>
-#include <__atomic/atomic_lock_free.h>
-#include <__atomic/atomic_sync.h>
-#include <__atomic/check_memory_order.h>
-#include <__atomic/contention_t.h>
-#include <__atomic/cxx_atomic_impl.h>
-#include <__atomic/fence.h>
-#include <__atomic/is_always_lock_free.h>
-#include <__atomic/kill_dependency.h>
-#include <__atomic/memory_order.h>
-#include <version>
+#  if _LIBCPP_STD_VER < 23 && _LIBCPP_STDATOMIC_H_HAS_DEFINITELY_BEEN_INCLUDED
+#    error <atomic> is incompatible with <stdatomic.h> before C++23. Please compile with -std=c++23.
+#  endif
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__atomic/atomic_ref.h>
-#endif
+#  include <__atomic/aliases.h>
+#  include <__atomic/atomic.h>
+#  include <__atomic/atomic_flag.h>
+#  include <__atomic/atomic_init.h>
+#  include <__atomic/atomic_lock_free.h>
+#  include <__atomic/atomic_sync.h>
+#  include <__atomic/check_memory_order.h>
+#  include <__atomic/contention_t.h>
+#  include <__atomic/fence.h>
+#  include <__atomic/is_always_lock_free.h>
+#  include <__atomic/kill_dependency.h>
+#  include <__atomic/memory_order.h>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if _LIBCPP_STD_VER >= 20
+#    include <__atomic/atomic_ref.h>
+#  endif
 
-#ifdef _LIBCPP_HAS_NO_ATOMIC_HEADER
-#  error <atomic> is not implemented
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <cmath>
-#  include <compare>
-#  include <cstdlib>
-#  include <cstring>
-#  include <type_traits>
-#endif
+#  if !_LIBCPP_HAS_ATOMIC_HEADER
+#    error <atomic> is not implemented
+#  endif
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cmath>
+#    include <compare>
+#    include <cstddef>
+#    include <cstdlib>
+#    include <cstring>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_ATOMIC

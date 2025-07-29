@@ -77,7 +77,7 @@ __FLT_ABI (sqrt) (__FLT_TYPE x)
 #else
   asm volatile ("fsqrtd %[dst], %[src];\n" : [dst] "=w" (res) : [src] "w" (x));
 #endif
-#elif defined(__aarch64__) || defined(_ARM64_)
+#elif defined(__aarch64__) || defined(_ARM64_) || defined(__arm64ec__) || defined(_ARM64EC_)
 #if _NEW_COMPLEX_FLOAT
   asm volatile ("fsqrt %s[dst], %s[src]\n" : [dst] "=w" (res) : [src] "w" (x));
 #else

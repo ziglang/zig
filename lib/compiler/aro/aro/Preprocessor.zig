@@ -811,7 +811,7 @@ fn verboseLog(pp: *Preprocessor, raw: RawToken, comptime fmt: []const u8, args: 
     const source = pp.comp.getSource(raw.source);
     const line_col = source.lineCol(.{ .id = raw.source, .line = raw.line, .byte_offset = raw.start });
 
-    const stderr = std.io.getStdErr().writer();
+    const stderr = std.fs.File.stderr().deprecatedWriter();
     var buf_writer = std.io.bufferedWriter(stderr);
     const writer = buf_writer.writer();
     defer buf_writer.flush() catch {};
@@ -983,7 +983,7 @@ fn expr(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!bool {
         .tok_i = @intCast(token_state.tokens_len),
         .arena = pp.arena.allocator(),
         .in_macro = true,
-        .strings = std.ArrayListAligned(u8, 4).init(pp.comp.gpa),
+        .strings = std.ArrayListAligned(u8, .@"4").init(pp.comp.gpa),
 
         .data = undefined,
         .value_map = undefined,
@@ -2446,7 +2446,7 @@ pub fn expandedSlice(pp: *const Preprocessor, tok: anytype) []const u8 {
 
 /// Concat two tokens and add the result to pp.generated
 fn pasteTokens(pp: *Preprocessor, lhs_toks: *ExpandBuf, rhs_toks: []const TokenWithExpansionLocs) Error!void {
-    const lhs = while (lhs_toks.popOrNull()) |lhs| {
+    const lhs = while (lhs_toks.pop()) |lhs| {
         if ((pp.comp.langopts.preserve_comments_in_macros and lhs.id == .comment) or
             (lhs.id != .macro_ws and lhs.id != .comment))
             break lhs;
@@ -2676,7 +2676,7 @@ fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macr
         tok = tokenizer.nextNoWS();
         if (tok.id == .ellipsis) {
             try pp.err(tok, .gnu_va_macro);
-            gnu_var_args = params.pop();
+            gnu_var_args = params.pop().?;
             const r_paren = tokenizer.nextNoWS();
             if (r_paren.id != .r_paren) {
                 try pp.err(r_paren, .missing_paren_param_list);
@@ -3262,7 +3262,8 @@ fn printLinemarker(
         // containing the same bytes as the input regardless of encoding.
         else => {
             try w.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, w);
+            // TODO try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.print("{x:0>2}", .{byte});
         },
     };
     try w.writeByte('"');

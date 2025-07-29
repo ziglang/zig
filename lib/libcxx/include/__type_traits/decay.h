@@ -30,33 +30,32 @@ template <class _Tp>
 using __decay_t _LIBCPP_NODEBUG = __decay(_Tp);
 
 template <class _Tp>
-struct decay {
+struct _LIBCPP_NO_SPECIALIZATIONS decay {
   using type _LIBCPP_NODEBUG = __decay_t<_Tp>;
 };
 
 #else
 template <class _Up, bool>
 struct __decay {
-  typedef _LIBCPP_NODEBUG __remove_cv_t<_Up> type;
+  using type _LIBCPP_NODEBUG = __remove_cv_t<_Up>;
 };
 
 template <class _Up>
 struct __decay<_Up, true> {
 public:
-  typedef _LIBCPP_NODEBUG
+  using type _LIBCPP_NODEBUG =
       __conditional_t<is_array<_Up>::value,
                       __add_pointer_t<__remove_extent_t<_Up> >,
-                      __conditional_t<is_function<_Up>::value, typename add_pointer<_Up>::type, __remove_cv_t<_Up> > >
-          type;
+                      __conditional_t<is_function<_Up>::value, typename add_pointer<_Up>::type, __remove_cv_t<_Up> > >;
 };
 
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS decay {
 private:
-  typedef _LIBCPP_NODEBUG __libcpp_remove_reference_t<_Tp> _Up;
+  using _Up _LIBCPP_NODEBUG = __libcpp_remove_reference_t<_Tp>;
 
 public:
-  typedef _LIBCPP_NODEBUG typename __decay<_Up, __libcpp_is_referenceable<_Up>::value>::type type;
+  using type _LIBCPP_NODEBUG = typename __decay<_Up, __libcpp_is_referenceable<_Up>::value>::type;
 };
 
 template <class _Tp>

@@ -136,6 +136,12 @@
 extern "C" {
 #endif
   
+static _Float16 SIMD_CFUNC simd_dot(simd_half2  __x, simd_half2  __y);
+static _Float16 SIMD_CFUNC simd_dot(simd_half3  __x, simd_half3  __y);
+static _Float16 SIMD_CFUNC simd_dot(simd_half4  __x, simd_half4  __y);
+static _Float16 SIMD_CFUNC simd_dot(simd_half8  __x, simd_half8  __y);
+static _Float16 SIMD_CFUNC simd_dot(simd_half16 __x, simd_half16 __y);
+static _Float16 SIMD_CFUNC simd_dot(simd_half32 __x, simd_half32 __y);
 static float  SIMD_CFUNC simd_dot(simd_float2  __x, simd_float2  __y);
 static float  SIMD_CFUNC simd_dot(simd_float3  __x, simd_float3  __y);
 static float  SIMD_CFUNC simd_dot(simd_float4  __x, simd_float4  __y);
@@ -147,6 +153,12 @@ static double SIMD_CFUNC simd_dot(simd_double4 __x, simd_double4 __y);
 static double SIMD_CFUNC simd_dot(simd_double8 __x, simd_double8 __y);
 #define vector_dot simd_dot
 
+static simd_half2   SIMD_CFUNC simd_precise_project(simd_half2   __x, simd_half2   __y);
+static simd_half3   SIMD_CFUNC simd_precise_project(simd_half3   __x, simd_half3   __y);
+static simd_half4   SIMD_CFUNC simd_precise_project(simd_half4   __x, simd_half4   __y);
+static simd_half8   SIMD_CFUNC simd_precise_project(simd_half8   __x, simd_half8   __y);
+static simd_half16  SIMD_CFUNC simd_precise_project(simd_half16  __x, simd_half16  __y);
+static simd_half32  SIMD_CFUNC simd_precise_project(simd_half32  __x, simd_half32  __y);
 static simd_float2  SIMD_CFUNC simd_precise_project(simd_float2  __x, simd_float2  __y);
 static simd_float3  SIMD_CFUNC simd_precise_project(simd_float3  __x, simd_float3  __y);
 static simd_float4  SIMD_CFUNC simd_precise_project(simd_float4  __x, simd_float4  __y);
@@ -158,6 +170,12 @@ static simd_double4 SIMD_CFUNC simd_precise_project(simd_double4 __x, simd_doubl
 static simd_double8 SIMD_CFUNC simd_precise_project(simd_double8 __x, simd_double8 __y);
 #define vector_precise_project simd_precise_project
 
+static simd_half2   SIMD_CFUNC simd_fast_project(simd_half2   __x, simd_half2   __y);
+static simd_half3   SIMD_CFUNC simd_fast_project(simd_half3   __x, simd_half3   __y);
+static simd_half4   SIMD_CFUNC simd_fast_project(simd_half4   __x, simd_half4   __y);
+static simd_half8   SIMD_CFUNC simd_fast_project(simd_half8   __x, simd_half8   __y);
+static simd_half16  SIMD_CFUNC simd_fast_project(simd_half16  __x, simd_half16  __y);
+static simd_half32  SIMD_CFUNC simd_fast_project(simd_half32  __x, simd_half32  __y);
 static simd_float2  SIMD_CFUNC simd_fast_project(simd_float2  __x, simd_float2  __y);
 static simd_float3  SIMD_CFUNC simd_fast_project(simd_float3  __x, simd_float3  __y);
 static simd_float4  SIMD_CFUNC simd_fast_project(simd_float4  __x, simd_float4  __y);
@@ -169,6 +187,12 @@ static simd_double4 SIMD_CFUNC simd_fast_project(simd_double4 __x, simd_double4 
 static simd_double8 SIMD_CFUNC simd_fast_project(simd_double8 __x, simd_double8 __y);
 #define vector_fast_project simd_fast_project
 
+static simd_half2   SIMD_CFUNC simd_project(simd_half2   __x, simd_half2   __y);
+static simd_half3   SIMD_CFUNC simd_project(simd_half3   __x, simd_half3   __y);
+static simd_half4   SIMD_CFUNC simd_project(simd_half4   __x, simd_half4   __y);
+static simd_half8   SIMD_CFUNC simd_project(simd_half8   __x, simd_half8   __y);
+static simd_half16  SIMD_CFUNC simd_project(simd_half16  __x, simd_half16  __y);
+static simd_half32  SIMD_CFUNC simd_project(simd_half32  __x, simd_half32  __y);
 static simd_float2  SIMD_CFUNC simd_project(simd_float2  __x, simd_float2  __y);
 static simd_float3  SIMD_CFUNC simd_project(simd_float3  __x, simd_float3  __y);
 static simd_float4  SIMD_CFUNC simd_project(simd_float4  __x, simd_float4  __y);
@@ -180,6 +204,14 @@ static simd_double4 SIMD_CFUNC simd_project(simd_double4 __x, simd_double4 __y);
 static simd_double8 SIMD_CFUNC simd_project(simd_double8 __x, simd_double8 __y);
 #define vector_project simd_project
 
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half2  __x);
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half3  __x);
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half4  __x);
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half8  __x);
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half32 __x);
+#endif // SIMD_LIBRARY_VERSION >= 6
 static float  SIMD_CFUNC simd_precise_length(simd_float2  __x);
 static float  SIMD_CFUNC simd_precise_length(simd_float3  __x);
 static float  SIMD_CFUNC simd_precise_length(simd_float4  __x);
@@ -191,6 +223,12 @@ static double SIMD_CFUNC simd_precise_length(simd_double4 __x);
 static double SIMD_CFUNC simd_precise_length(simd_double8 __x);
 #define vector_precise_length simd_precise_length
 
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half2  __x);
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half3  __x);
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half4  __x);
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half8  __x);
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half32 __x);
 static float  SIMD_CFUNC simd_fast_length(simd_float2  __x);
 static float  SIMD_CFUNC simd_fast_length(simd_float3  __x);
 static float  SIMD_CFUNC simd_fast_length(simd_float4  __x);
@@ -202,6 +240,12 @@ static double SIMD_CFUNC simd_fast_length(simd_double4 __x);
 static double SIMD_CFUNC simd_fast_length(simd_double8 __x);
 #define vector_fast_length simd_fast_length
 
+static _Float16 SIMD_CFUNC simd_length(simd_half2  __x);
+static _Float16 SIMD_CFUNC simd_length(simd_half3  __x);
+static _Float16 SIMD_CFUNC simd_length(simd_half4  __x);
+static _Float16 SIMD_CFUNC simd_length(simd_half8  __x);
+static _Float16 SIMD_CFUNC simd_length(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_length(simd_half32 __x);
 static float  SIMD_CFUNC simd_length(simd_float2  __x);
 static float  SIMD_CFUNC simd_length(simd_float3  __x);
 static float  SIMD_CFUNC simd_length(simd_float4  __x);
@@ -213,6 +257,12 @@ static double SIMD_CFUNC simd_length(simd_double4 __x);
 static double SIMD_CFUNC simd_length(simd_double8 __x);
 #define vector_length simd_length
 
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half2  __x);
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half3  __x);
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half4  __x);
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half8  __x);
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half32 __x);
 static float  SIMD_CFUNC simd_length_squared(simd_float2  __x);
 static float  SIMD_CFUNC simd_length_squared(simd_float3  __x);
 static float  SIMD_CFUNC simd_length_squared(simd_float4  __x);
@@ -224,6 +274,12 @@ static double SIMD_CFUNC simd_length_squared(simd_double4 __x);
 static double SIMD_CFUNC simd_length_squared(simd_double8 __x);
 #define vector_length_squared simd_length_squared
 
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half2 __x);
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half3 __x);
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half4 __x);
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half8 __x);
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half32 __x);
 static float SIMD_CFUNC simd_norm_one(simd_float2 __x);
 static float SIMD_CFUNC simd_norm_one(simd_float3 __x);
 static float SIMD_CFUNC simd_norm_one(simd_float4 __x);
@@ -235,6 +291,12 @@ static double SIMD_CFUNC simd_norm_one(simd_double4 __x);
 static double SIMD_CFUNC simd_norm_one(simd_double8 __x);
 #define vector_norm_one simd_norm_one
 
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half2 __x);
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half3 __x);
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half4 __x);
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half8 __x);
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half16 __x);
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half32 __x);
 static float SIMD_CFUNC simd_norm_inf(simd_float2 __x);
 static float SIMD_CFUNC simd_norm_inf(simd_float3 __x);
 static float SIMD_CFUNC simd_norm_inf(simd_float4 __x);
@@ -246,6 +308,12 @@ static double SIMD_CFUNC simd_norm_inf(simd_double4 __x);
 static double SIMD_CFUNC simd_norm_inf(simd_double8 __x);
 #define vector_norm_inf simd_norm_inf
 
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half2  __x, simd_half2  __y);
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half3  __x, simd_half3  __y);
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half4  __x, simd_half4  __y);
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half8  __x, simd_half8  __y);
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half16 __x, simd_half16 __y);
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half32 __x, simd_half32 __y);
 static float  SIMD_CFUNC simd_precise_distance(simd_float2  __x, simd_float2  __y);
 static float  SIMD_CFUNC simd_precise_distance(simd_float3  __x, simd_float3  __y);
 static float  SIMD_CFUNC simd_precise_distance(simd_float4  __x, simd_float4  __y);
@@ -257,6 +325,12 @@ static double SIMD_CFUNC simd_precise_distance(simd_double4 __x, simd_double4 __
 static double SIMD_CFUNC simd_precise_distance(simd_double8 __x, simd_double8 __y);
 #define vector_precise_distance simd_precise_distance
 
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half2  __x, simd_half2  __y);
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half3  __x, simd_half3  __y);
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half4  __x, simd_half4  __y);
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half8  __x, simd_half8  __y);
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half16 __x, simd_half16 __y);
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half32 __x, simd_half32 __y);
 static float  SIMD_CFUNC simd_fast_distance(simd_float2  __x, simd_float2  __y);
 static float  SIMD_CFUNC simd_fast_distance(simd_float3  __x, simd_float3  __y);
 static float  SIMD_CFUNC simd_fast_distance(simd_float4  __x, simd_float4  __y);
@@ -268,6 +342,12 @@ static double SIMD_CFUNC simd_fast_distance(simd_double4 __x, simd_double4 __y);
 static double SIMD_CFUNC simd_fast_distance(simd_double8 __x, simd_double8 __y);
 #define vector_fast_distance simd_fast_distance
 
+static _Float16 SIMD_CFUNC simd_distance(simd_half2  __x, simd_half2  __y);
+static _Float16 SIMD_CFUNC simd_distance(simd_half3  __x, simd_half3  __y);
+static _Float16 SIMD_CFUNC simd_distance(simd_half4  __x, simd_half4  __y);
+static _Float16 SIMD_CFUNC simd_distance(simd_half8  __x, simd_half8  __y);
+static _Float16 SIMD_CFUNC simd_distance(simd_half16 __x, simd_half16 __y);
+static _Float16 SIMD_CFUNC simd_distance(simd_half32 __x, simd_half32 __y);
 static float  SIMD_CFUNC simd_distance(simd_float2  __x, simd_float2  __y);
 static float  SIMD_CFUNC simd_distance(simd_float3  __x, simd_float3  __y);
 static float  SIMD_CFUNC simd_distance(simd_float4  __x, simd_float4  __y);
@@ -279,6 +359,12 @@ static double SIMD_CFUNC simd_distance(simd_double4 __x, simd_double4 __y);
 static double SIMD_CFUNC simd_distance(simd_double8 __x, simd_double8 __y);
 #define vector_distance simd_distance
 
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half2  __x, simd_half2  __y);
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half3  __x, simd_half3  __y);
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half4  __x, simd_half4  __y);
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half8  __x, simd_half8  __y);
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half16 __x, simd_half16 __y);
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half32 __x, simd_half32 __y);
 static float  SIMD_CFUNC simd_distance_squared(simd_float2  __x, simd_float2  __y);
 static float  SIMD_CFUNC simd_distance_squared(simd_float3  __x, simd_float3  __y);
 static float  SIMD_CFUNC simd_distance_squared(simd_float4  __x, simd_float4  __y);
@@ -290,6 +376,12 @@ static double SIMD_CFUNC simd_distance_squared(simd_double4 __x, simd_double4 __
 static double SIMD_CFUNC simd_distance_squared(simd_double8 __x, simd_double8 __y);
 #define vector_distance_squared simd_distance_squared
 
+static simd_half2   SIMD_CFUNC simd_precise_normalize(simd_half2   __x);
+static simd_half3   SIMD_CFUNC simd_precise_normalize(simd_half3   __x);
+static simd_half4   SIMD_CFUNC simd_precise_normalize(simd_half4   __x);
+static simd_half8   SIMD_CFUNC simd_precise_normalize(simd_half8   __x);
+static simd_half16  SIMD_CFUNC simd_precise_normalize(simd_half16  __x);
+static simd_half32  SIMD_CFUNC simd_precise_normalize(simd_half32  __x);
 static simd_float2  SIMD_CFUNC simd_precise_normalize(simd_float2  __x);
 static simd_float3  SIMD_CFUNC simd_precise_normalize(simd_float3  __x);
 static simd_float4  SIMD_CFUNC simd_precise_normalize(simd_float4  __x);
@@ -301,6 +393,12 @@ static simd_double4 SIMD_CFUNC simd_precise_normalize(simd_double4 __x);
 static simd_double8 SIMD_CFUNC simd_precise_normalize(simd_double8 __x);
 #define vector_precise_normalize simd_precise_normalize
 
+static simd_half2   SIMD_CFUNC simd_fast_normalize(simd_half2   __x);
+static simd_half3   SIMD_CFUNC simd_fast_normalize(simd_half3   __x);
+static simd_half4   SIMD_CFUNC simd_fast_normalize(simd_half4   __x);
+static simd_half8   SIMD_CFUNC simd_fast_normalize(simd_half8   __x);
+static simd_half16  SIMD_CFUNC simd_fast_normalize(simd_half16  __x);
+static simd_half32  SIMD_CFUNC simd_fast_normalize(simd_half32  __x);
 static simd_float2  SIMD_CFUNC simd_fast_normalize(simd_float2  __x);
 static simd_float3  SIMD_CFUNC simd_fast_normalize(simd_float3  __x);
 static simd_float4  SIMD_CFUNC simd_fast_normalize(simd_float4  __x);
@@ -312,6 +410,12 @@ static simd_double4 SIMD_CFUNC simd_fast_normalize(simd_double4 __x);
 static simd_double8 SIMD_CFUNC simd_fast_normalize(simd_double8 __x);
 #define vector_fast_normalize simd_fast_normalize
 
+static simd_half2   SIMD_CFUNC simd_normalize(simd_half2   __x);
+static simd_half3   SIMD_CFUNC simd_normalize(simd_half3   __x);
+static simd_half4   SIMD_CFUNC simd_normalize(simd_half4   __x);
+static simd_half8   SIMD_CFUNC simd_normalize(simd_half8   __x);
+static simd_half16  SIMD_CFUNC simd_normalize(simd_half16  __x);
+static simd_half32  SIMD_CFUNC simd_normalize(simd_half32  __x);
 static simd_float2  SIMD_CFUNC simd_normalize(simd_float2  __x);
 static simd_float3  SIMD_CFUNC simd_normalize(simd_float3  __x);
 static simd_float4  SIMD_CFUNC simd_normalize(simd_float4  __x);
@@ -323,12 +427,17 @@ static simd_double4 SIMD_CFUNC simd_normalize(simd_double4 __x);
 static simd_double8 SIMD_CFUNC simd_normalize(simd_double8 __x);
 #define vector_normalize simd_normalize
 
+static simd_half3   SIMD_CFUNC simd_cross(simd_half2   __x, simd_half2   __y);
+static simd_half3   SIMD_CFUNC simd_cross(simd_half3   __x, simd_half3   __y);
 static simd_float3  SIMD_CFUNC simd_cross(simd_float2  __x, simd_float2  __y);
 static simd_float3  SIMD_CFUNC simd_cross(simd_float3  __x, simd_float3  __y);
 static simd_double3 SIMD_CFUNC simd_cross(simd_double2 __x, simd_double2 __y);
 static simd_double3 SIMD_CFUNC simd_cross(simd_double3 __x, simd_double3 __y);
 #define vector_cross simd_cross
 
+static simd_half2   SIMD_CFUNC simd_reflect(simd_half2   __x, simd_half2   __n);
+static simd_half3   SIMD_CFUNC simd_reflect(simd_half3   __x, simd_half3   __n);
+static simd_half4   SIMD_CFUNC simd_reflect(simd_half4   __x, simd_half4   __n);
 static simd_float2  SIMD_CFUNC simd_reflect(simd_float2  __x, simd_float2  __n);
 static simd_float3  SIMD_CFUNC simd_reflect(simd_float3  __x, simd_float3  __n);
 static simd_float4  SIMD_CFUNC simd_reflect(simd_float4  __x, simd_float4  __n);
@@ -337,6 +446,11 @@ static simd_double3 SIMD_CFUNC simd_reflect(simd_double3 __x, simd_double3 __n);
 static simd_double4 SIMD_CFUNC simd_reflect(simd_double4 __x, simd_double4 __n);
 #define vector_reflect simd_reflect
 
+#if SIMD_LIBRARY_VERSION >= 6
+static simd_half2   SIMD_CFUNC simd_refract(simd_half2   __x, simd_half2   __n, _Float16 __eta);
+static simd_half3   SIMD_CFUNC simd_refract(simd_half3   __x, simd_half3   __n, _Float16 __eta);
+static simd_half4   SIMD_CFUNC simd_refract(simd_half4   __x, simd_half4   __n, _Float16 __eta);
+#endif // SIMD_LIBRARY_VERSION >= 6
 static simd_float2  SIMD_CFUNC simd_refract(simd_float2  __x, simd_float2  __n, float __eta);
 static simd_float3  SIMD_CFUNC simd_refract(simd_float3  __x, simd_float3  __n, float __eta);
 static simd_float4  SIMD_CFUNC simd_refract(simd_float4  __x, simd_float4  __n, float __eta);
@@ -578,11 +692,31 @@ static float SIMD_CFUNC simd_insphere(simd_float3 __x, simd_float3 __a, simd_flo
  *  negatively-oriented.                                                      */
 static double SIMD_CFUNC simd_insphere(simd_double3 __x, simd_double3 __a, simd_double3 __b, simd_double3 __c, simd_double3 __d);
 #endif /* SIMD_LIBRARY_VERSION */
-  
+
+#if SIMD_LIBRARY_VERSION >= 6
+/*  fp16 support requires that you are building for OS X 15.0 or later,
+ *  iOS 18.0 or later, watchOS 11.0 or later, and tvOS 18.0 or later.  On
+ *  earlier OS versions, the library functions that implement these
+ *  operations are not available.                                             */
+
+  static _Float16 SIMD_CFUNC simd_orient(simd_half2 __x, simd_half2 __y);
+  static _Float16 SIMD_CFUNC simd_orient(simd_half3 __x, simd_half3 __y, simd_half3 __z);
+  static _Float16 SIMD_CFUNC simd_orient(simd_half2 __a, simd_half2 __b, simd_half2 __c);
+  static _Float16 SIMD_CFUNC simd_orient(simd_half3 __a, simd_half3 __b, simd_half3 __c, simd_half3 __d);
+  static _Float16 SIMD_CFUNC simd_incircle(simd_half2 __x, simd_half2 __a, simd_half2 __b, simd_half2 __c);
+  static _Float16 SIMD_CFUNC simd_insphere(simd_half3 __x, simd_half3 __a, simd_half3 __b, simd_half3 __c, simd_half3 __d);
+#endif /* SIMD_LIBRARY_VERSION */
+
 #ifdef __cplusplus
 } /* extern "C" */
 
 namespace simd {
+  static SIMD_CPPFUNC _Float16 dot(const half2  x, const half2  y) { return ::simd_dot(x, y); }
+  static SIMD_CPPFUNC _Float16 dot(const half3  x, const half3  y) { return ::simd_dot(x, y); }
+  static SIMD_CPPFUNC _Float16 dot(const half4  x, const half4  y) { return ::simd_dot(x, y); }
+  static SIMD_CPPFUNC _Float16 dot(const half8  x, const half8  y) { return ::simd_dot(x, y); }
+  static SIMD_CPPFUNC _Float16 dot(const half16 x, const half16 y) { return ::simd_dot(x, y); }
+  static SIMD_CPPFUNC _Float16 dot(const half32 x, const half32 y) { return ::simd_dot(x, y); }
   static SIMD_CPPFUNC float  dot(const float2  x, const float2  y) { return ::simd_dot(x, y); }
   static SIMD_CPPFUNC float  dot(const float3  x, const float3  y) { return ::simd_dot(x, y); }
   static SIMD_CPPFUNC float  dot(const float4  x, const float4  y) { return ::simd_dot(x, y); }
@@ -593,6 +727,12 @@ namespace simd {
   static SIMD_CPPFUNC double dot(const double4 x, const double4 y) { return ::simd_dot(x, y); }
   static SIMD_CPPFUNC double dot(const double8 x, const double8 y) { return ::simd_dot(x, y); }
   
+  static SIMD_CPPFUNC half2   project(const half2   x, const half2   y) { return ::simd_project(x, y); }
+  static SIMD_CPPFUNC half3   project(const half3   x, const half3   y) { return ::simd_project(x, y); }
+  static SIMD_CPPFUNC half4   project(const half4   x, const half4   y) { return ::simd_project(x, y); }
+  static SIMD_CPPFUNC half8   project(const half8   x, const half8   y) { return ::simd_project(x, y); }
+  static SIMD_CPPFUNC half16  project(const half16  x, const half16  y) { return ::simd_project(x, y); }
+  static SIMD_CPPFUNC half32  project(const half32  x, const half32  y) { return ::simd_project(x, y); }
   static SIMD_CPPFUNC float2  project(const float2  x, const float2  y) { return ::simd_project(x, y); }
   static SIMD_CPPFUNC float3  project(const float3  x, const float3  y) { return ::simd_project(x, y); }
   static SIMD_CPPFUNC float4  project(const float4  x, const float4  y) { return ::simd_project(x, y); }
@@ -603,6 +743,12 @@ namespace simd {
   static SIMD_CPPFUNC double4 project(const double4 x, const double4 y) { return ::simd_project(x, y); }
   static SIMD_CPPFUNC double8 project(const double8 x, const double8 y) { return ::simd_project(x, y); }
   
+  static SIMD_CPPFUNC _Float16 length_squared(const half2  x) { return ::simd_length_squared(x); }
+  static SIMD_CPPFUNC _Float16 length_squared(const half3  x) { return ::simd_length_squared(x); }
+  static SIMD_CPPFUNC _Float16 length_squared(const half4  x) { return ::simd_length_squared(x); }
+  static SIMD_CPPFUNC _Float16 length_squared(const half8  x) { return ::simd_length_squared(x); }
+  static SIMD_CPPFUNC _Float16 length_squared(const half16 x) { return ::simd_length_squared(x); }
+  static SIMD_CPPFUNC _Float16 length_squared(const half32 x) { return ::simd_length_squared(x); }
   static SIMD_CPPFUNC float  length_squared(const float2  x) { return ::simd_length_squared(x); }
   static SIMD_CPPFUNC float  length_squared(const float3  x) { return ::simd_length_squared(x); }
   static SIMD_CPPFUNC float  length_squared(const float4  x) { return ::simd_length_squared(x); }
@@ -613,6 +759,12 @@ namespace simd {
   static SIMD_CPPFUNC double length_squared(const double4 x) { return ::simd_length_squared(x); }
   static SIMD_CPPFUNC double length_squared(const double8 x) { return ::simd_length_squared(x); }
   
+  static SIMD_CPPFUNC _Float16 norm_one(const half2  x) { return ::simd_norm_one(x); }
+  static SIMD_CPPFUNC _Float16 norm_one(const half3  x) { return ::simd_norm_one(x); }
+  static SIMD_CPPFUNC _Float16 norm_one(const half4  x) { return ::simd_norm_one(x); }
+  static SIMD_CPPFUNC _Float16 norm_one(const half8  x) { return ::simd_norm_one(x); }
+  static SIMD_CPPFUNC _Float16 norm_one(const half16 x) { return ::simd_norm_one(x); }
+  static SIMD_CPPFUNC _Float16 norm_one(const half32 x) { return ::simd_norm_one(x); }
   static SIMD_CPPFUNC float  norm_one(const float2  x) { return ::simd_norm_one(x); }
   static SIMD_CPPFUNC float  norm_one(const float3  x) { return ::simd_norm_one(x); }
   static SIMD_CPPFUNC float  norm_one(const float4  x) { return ::simd_norm_one(x); }
@@ -623,6 +775,12 @@ namespace simd {
   static SIMD_CPPFUNC double norm_one(const double4 x) { return ::simd_norm_one(x); }
   static SIMD_CPPFUNC double norm_one(const double8 x) { return ::simd_norm_one(x); }
   
+  static SIMD_CPPFUNC _Float16 norm_inf(const half2  x) { return ::simd_norm_inf(x); }
+  static SIMD_CPPFUNC _Float16 norm_inf(const half3  x) { return ::simd_norm_inf(x); }
+  static SIMD_CPPFUNC _Float16 norm_inf(const half4  x) { return ::simd_norm_inf(x); }
+  static SIMD_CPPFUNC _Float16 norm_inf(const half8  x) { return ::simd_norm_inf(x); }
+  static SIMD_CPPFUNC _Float16 norm_inf(const half16 x) { return ::simd_norm_inf(x); }
+  static SIMD_CPPFUNC _Float16 norm_inf(const half32 x) { return ::simd_norm_inf(x); }
   static SIMD_CPPFUNC float  norm_inf(const float2  x) { return ::simd_norm_inf(x); }
   static SIMD_CPPFUNC float  norm_inf(const float3  x) { return ::simd_norm_inf(x); }
   static SIMD_CPPFUNC float  norm_inf(const float4  x) { return ::simd_norm_inf(x); }
@@ -633,6 +791,12 @@ namespace simd {
   static SIMD_CPPFUNC double norm_inf(const double4 x) { return ::simd_norm_inf(x); }
   static SIMD_CPPFUNC double norm_inf(const double8 x) { return ::simd_norm_inf(x); }
   
+  static SIMD_CPPFUNC _Float16 length(const half2  x) { return ::simd_length(x); }
+  static SIMD_CPPFUNC _Float16 length(const half3  x) { return ::simd_length(x); }
+  static SIMD_CPPFUNC _Float16 length(const half4  x) { return ::simd_length(x); }
+  static SIMD_CPPFUNC _Float16 length(const half8  x) { return ::simd_length(x); }
+  static SIMD_CPPFUNC _Float16 length(const half16 x) { return ::simd_length(x); }
+  static SIMD_CPPFUNC _Float16 length(const half32 x) { return ::simd_length(x); }
   static SIMD_CPPFUNC float  length(const float2  x) { return ::simd_length(x); }
   static SIMD_CPPFUNC float  length(const float3  x) { return ::simd_length(x); }
   static SIMD_CPPFUNC float  length(const float4  x) { return ::simd_length(x); }
@@ -643,6 +807,12 @@ namespace simd {
   static SIMD_CPPFUNC double length(const double4 x) { return ::simd_length(x); }
   static SIMD_CPPFUNC double length(const double8 x) { return ::simd_length(x); }
   
+  static SIMD_CPPFUNC _Float16 distance_squared(const half2  x, const half2  y) { return ::simd_distance_squared(x, y); }
+  static SIMD_CPPFUNC _Float16 distance_squared(const half3  x, const half3  y) { return ::simd_distance_squared(x, y); }
+  static SIMD_CPPFUNC _Float16 distance_squared(const half4  x, const half4  y) { return ::simd_distance_squared(x, y); }
+  static SIMD_CPPFUNC _Float16 distance_squared(const half8  x, const half8  y) { return ::simd_distance_squared(x, y); }
+  static SIMD_CPPFUNC _Float16 distance_squared(const half16 x, const half16 y) { return ::simd_distance_squared(x, y); }
+  static SIMD_CPPFUNC _Float16 distance_squared(const half32 x, const half32 y) { return ::simd_distance_squared(x, y); }
   static SIMD_CPPFUNC float  distance_squared(const float2  x, const float2  y) { return ::simd_distance_squared(x, y); }
   static SIMD_CPPFUNC float  distance_squared(const float3  x, const float3  y) { return ::simd_distance_squared(x, y); }
   static SIMD_CPPFUNC float  distance_squared(const float4  x, const float4  y) { return ::simd_distance_squared(x, y); }
@@ -653,6 +823,12 @@ namespace simd {
   static SIMD_CPPFUNC double distance_squared(const double4 x, const double4 y) { return ::simd_distance_squared(x, y); }
   static SIMD_CPPFUNC double distance_squared(const double8 x, const double8 y) { return ::simd_distance_squared(x, y); }
   
+  static SIMD_CPPFUNC _Float16 distance(const half2  x, const half2  y) { return ::simd_distance(x, y); }
+  static SIMD_CPPFUNC _Float16 distance(const half3  x, const half3  y) { return ::simd_distance(x, y); }
+  static SIMD_CPPFUNC _Float16 distance(const half4  x, const half4  y) { return ::simd_distance(x, y); }
+  static SIMD_CPPFUNC _Float16 distance(const half8  x, const half8  y) { return ::simd_distance(x, y); }
+  static SIMD_CPPFUNC _Float16 distance(const half16 x, const half16 y) { return ::simd_distance(x, y); }
+  static SIMD_CPPFUNC _Float16 distance(const half32 x, const half32 y) { return ::simd_distance(x, y); }
   static SIMD_CPPFUNC float  distance(const float2  x, const float2  y) { return ::simd_distance(x, y); }
   static SIMD_CPPFUNC float  distance(const float3  x, const float3  y) { return ::simd_distance(x, y); }
   static SIMD_CPPFUNC float  distance(const float4  x, const float4  y) { return ::simd_distance(x, y); }
@@ -663,6 +839,12 @@ namespace simd {
   static SIMD_CPPFUNC double distance(const double4 x, const double4 y) { return ::simd_distance(x, y); }
   static SIMD_CPPFUNC double distance(const double8 x, const double8 y) { return ::simd_distance(x, y); }
   
+  static SIMD_CPPFUNC half2   normalize(const half2   x) { return ::simd_normalize(x); }
+  static SIMD_CPPFUNC half3   normalize(const half3   x) { return ::simd_normalize(x); }
+  static SIMD_CPPFUNC half4   normalize(const half4   x) { return ::simd_normalize(x); }
+  static SIMD_CPPFUNC half8   normalize(const half8   x) { return ::simd_normalize(x); }
+  static SIMD_CPPFUNC half16  normalize(const half16  x) { return ::simd_normalize(x); }
+  static SIMD_CPPFUNC half32  normalize(const half32  x) { return ::simd_normalize(x); }
   static SIMD_CPPFUNC float2  normalize(const float2  x) { return ::simd_normalize(x); }
   static SIMD_CPPFUNC float3  normalize(const float3  x) { return ::simd_normalize(x); }
   static SIMD_CPPFUNC float4  normalize(const float4  x) { return ::simd_normalize(x); }
@@ -673,18 +855,28 @@ namespace simd {
   static SIMD_CPPFUNC double4 normalize(const double4 x) { return ::simd_normalize(x); }
   static SIMD_CPPFUNC double8 normalize(const double8 x) { return ::simd_normalize(x); }
   
+  static SIMD_CPPFUNC half3   cross(const half2   x, const half2   y) { return ::simd_cross(x,y); }
+  static SIMD_CPPFUNC half3   cross(const half3   x, const half3   y) { return ::simd_cross(x,y); }
   static SIMD_CPPFUNC float3  cross(const float2  x, const float2  y) { return ::simd_cross(x,y); }
   static SIMD_CPPFUNC float3  cross(const float3  x, const float3  y) { return ::simd_cross(x,y); }
   static SIMD_CPPFUNC double3 cross(const double2 x, const double2 y) { return ::simd_cross(x,y); }
   static SIMD_CPPFUNC double3 cross(const double3 x, const double3 y) { return ::simd_cross(x,y); }
   
+  static SIMD_CPPFUNC half2   reflect(const half2   x, const half2   n) { return ::simd_reflect(x,n); }
+  static SIMD_CPPFUNC half3   reflect(const half3   x, const half3   n) { return ::simd_reflect(x,n); }
+  static SIMD_CPPFUNC half4   reflect(const half4   x, const half4   n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC float2  reflect(const float2  x, const float2  n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC float3  reflect(const float3  x, const float3  n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC float4  reflect(const float4  x, const float4  n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC double2 reflect(const double2 x, const double2 n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC double3 reflect(const double3 x, const double3 n) { return ::simd_reflect(x,n); }
   static SIMD_CPPFUNC double4 reflect(const double4 x, const double4 n) { return ::simd_reflect(x,n); }
-  
+
+#if SIMD_LIBRARY_VERSION >= 6
+  static SIMD_CPPFUNC half2   refract(const half2   x, const half2   n, const _Float16 eta) { return ::simd_refract(x,n,eta); }
+  static SIMD_CPPFUNC half3   refract(const half3   x, const half3   n, const _Float16 eta) { return ::simd_refract(x,n,eta); }
+  static SIMD_CPPFUNC half4   refract(const half4   x, const half4   n, const _Float16 eta) { return ::simd_refract(x,n,eta); }
+#endif // SIMD_LIBRARY_VERSION >= 6
   static SIMD_CPPFUNC float2  refract(const float2  x, const float2  n, const float eta) { return ::simd_refract(x,n,eta); }
   static SIMD_CPPFUNC float3  refract(const float3  x, const float3  n, const float eta) { return ::simd_refract(x,n,eta); }
   static SIMD_CPPFUNC float4  refract(const float4  x, const float4  n, const float eta) { return ::simd_refract(x,n,eta); }
@@ -703,8 +895,21 @@ namespace simd {
   static SIMD_CPPFUNC double orient(const double3 a, const double3 b, const double3 c, const double3 d) { return ::simd_orient(a,b,c,d); }
 #endif
 
+#if SIMD_LIBRARY_VERSION >= 6
+  static SIMD_CPPFUNC _Float16  orient(const half2  x, const half2 y) { return ::simd_orient(x,y); }
+  static SIMD_CPPFUNC _Float16  orient(const half2  a, const half2 b, const half2 c) { return ::simd_orient(a,b,c); }
+  static SIMD_CPPFUNC _Float16  orient(const half3  x, const half3 y, const half3 z) { return ::simd_orient(x,y,z); }
+  static SIMD_CPPFUNC _Float16  orient(const half3  a, const half3 b, const half3 c, const half3 d) { return ::simd_orient(a,b,c,d); }
+#endif
+
   /* precise and fast sub-namespaces                                        */
   namespace precise {
+    static SIMD_CPPFUNC half2   project(const half2   x, const half2   y) { return ::simd_precise_project(x, y); }
+    static SIMD_CPPFUNC half3   project(const half3   x, const half3   y) { return ::simd_precise_project(x, y); }
+    static SIMD_CPPFUNC half4   project(const half4   x, const half4   y) { return ::simd_precise_project(x, y); }
+    static SIMD_CPPFUNC half8   project(const half8   x, const half8   y) { return ::simd_precise_project(x, y); }
+    static SIMD_CPPFUNC half16  project(const half16  x, const half16  y) { return ::simd_precise_project(x, y); }
+    static SIMD_CPPFUNC half32  project(const half32  x, const half32  y) { return ::simd_precise_project(x, y); }
     static SIMD_CPPFUNC float2  project(const float2  x, const float2  y) { return ::simd_precise_project(x, y); }
     static SIMD_CPPFUNC float3  project(const float3  x, const float3  y) { return ::simd_precise_project(x, y); }
     static SIMD_CPPFUNC float4  project(const float4  x, const float4  y) { return ::simd_precise_project(x, y); }
@@ -714,7 +919,15 @@ namespace simd {
     static SIMD_CPPFUNC double3 project(const double3 x, const double3 y) { return ::simd_precise_project(x, y); }
     static SIMD_CPPFUNC double4 project(const double4 x, const double4 y) { return ::simd_precise_project(x, y); }
     static SIMD_CPPFUNC double8 project(const double8 x, const double8 y) { return ::simd_precise_project(x, y); }
-    
+
+#if SIMD_LIBRARY_VERSION >= 6
+    static SIMD_CPPFUNC _Float16 length(const half2  x) { return ::simd_precise_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half3  x) { return ::simd_precise_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half4  x) { return ::simd_precise_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half8  x) { return ::simd_precise_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half16 x) { return ::simd_precise_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half32 x) { return ::simd_precise_length(x); }
+#endif // #if SIMD_LIBRARY_VERSION >= 6
     static SIMD_CPPFUNC float  length(const float2  x) { return ::simd_precise_length(x); }
     static SIMD_CPPFUNC float  length(const float3  x) { return ::simd_precise_length(x); }
     static SIMD_CPPFUNC float  length(const float4  x) { return ::simd_precise_length(x); }
@@ -725,6 +938,12 @@ namespace simd {
     static SIMD_CPPFUNC double length(const double4 x) { return ::simd_precise_length(x); }
     static SIMD_CPPFUNC double length(const double8 x) { return ::simd_precise_length(x); }
     
+    static SIMD_CPPFUNC _Float16 distance(const half2  x, const half2  y) { return ::simd_precise_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half3  x, const half3  y) { return ::simd_precise_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half4  x, const half4  y) { return ::simd_precise_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half8  x, const half8  y) { return ::simd_precise_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half16 x, const half16 y) { return ::simd_precise_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half32 x, const half32 y) { return ::simd_precise_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float2  x, const float2  y) { return ::simd_precise_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float3  x, const float3  y) { return ::simd_precise_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float4  x, const float4  y) { return ::simd_precise_distance(x, y); }
@@ -735,6 +954,12 @@ namespace simd {
     static SIMD_CPPFUNC double distance(const double4 x, const double4 y) { return ::simd_precise_distance(x, y); }
     static SIMD_CPPFUNC double distance(const double8 x, const double8 y) { return ::simd_precise_distance(x, y); }
     
+    static SIMD_CPPFUNC half2   normalize(const half2   x) { return ::simd_precise_normalize(x); }
+    static SIMD_CPPFUNC half3   normalize(const half3   x) { return ::simd_precise_normalize(x); }
+    static SIMD_CPPFUNC half4   normalize(const half4   x) { return ::simd_precise_normalize(x); }
+    static SIMD_CPPFUNC half8   normalize(const half8   x) { return ::simd_precise_normalize(x); }
+    static SIMD_CPPFUNC half16  normalize(const half16  x) { return ::simd_precise_normalize(x); }
+    static SIMD_CPPFUNC half32  normalize(const half32  x) { return ::simd_precise_normalize(x); }
     static SIMD_CPPFUNC float2  normalize(const float2  x) { return ::simd_precise_normalize(x); }
     static SIMD_CPPFUNC float3  normalize(const float3  x) { return ::simd_precise_normalize(x); }
     static SIMD_CPPFUNC float4  normalize(const float4  x) { return ::simd_precise_normalize(x); }
@@ -747,6 +972,12 @@ namespace simd {
   }
   
   namespace fast {
+    static SIMD_CPPFUNC half2   project(const half2   x, const half2   y) { return ::simd_fast_project(x, y); }
+    static SIMD_CPPFUNC half3   project(const half3   x, const half3   y) { return ::simd_fast_project(x, y); }
+    static SIMD_CPPFUNC half4   project(const half4   x, const half4   y) { return ::simd_fast_project(x, y); }
+    static SIMD_CPPFUNC half8   project(const half8   x, const half8   y) { return ::simd_fast_project(x, y); }
+    static SIMD_CPPFUNC half16  project(const half16  x, const half16  y) { return ::simd_fast_project(x, y); }
+    static SIMD_CPPFUNC half32  project(const half32  x, const half32  y) { return ::simd_fast_project(x, y); }
     static SIMD_CPPFUNC float2  project(const float2  x, const float2  y) { return ::simd_fast_project(x, y); }
     static SIMD_CPPFUNC float3  project(const float3  x, const float3  y) { return ::simd_fast_project(x, y); }
     static SIMD_CPPFUNC float4  project(const float4  x, const float4  y) { return ::simd_fast_project(x, y); }
@@ -757,6 +988,12 @@ namespace simd {
     static SIMD_CPPFUNC double4 project(const double4 x, const double4 y) { return ::simd_fast_project(x, y); }
     static SIMD_CPPFUNC double8 project(const double8 x, const double8 y) { return ::simd_fast_project(x, y); }
     
+    static SIMD_CPPFUNC _Float16 length(const half2  x) { return ::simd_fast_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half3  x) { return ::simd_fast_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half4  x) { return ::simd_fast_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half8  x) { return ::simd_fast_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half16 x) { return ::simd_fast_length(x); }
+    static SIMD_CPPFUNC _Float16 length(const half32 x) { return ::simd_fast_length(x); }
     static SIMD_CPPFUNC float  length(const float2  x) { return ::simd_fast_length(x); }
     static SIMD_CPPFUNC float  length(const float3  x) { return ::simd_fast_length(x); }
     static SIMD_CPPFUNC float  length(const float4  x) { return ::simd_fast_length(x); }
@@ -767,6 +1004,12 @@ namespace simd {
     static SIMD_CPPFUNC double length(const double4 x) { return ::simd_fast_length(x); }
     static SIMD_CPPFUNC double length(const double8 x) { return ::simd_fast_length(x); }
     
+    static SIMD_CPPFUNC _Float16 distance(const half2  x, const half2  y) { return ::simd_fast_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half3  x, const half3  y) { return ::simd_fast_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half4  x, const half4  y) { return ::simd_fast_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half8  x, const half8  y) { return ::simd_fast_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half16 x, const half16 y) { return ::simd_fast_distance(x, y); }
+    static SIMD_CPPFUNC _Float16 distance(const half32 x, const half32 y) { return ::simd_fast_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float2  x, const float2  y) { return ::simd_fast_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float3  x, const float3  y) { return ::simd_fast_distance(x, y); }
     static SIMD_CPPFUNC float  distance(const float4  x, const float4  y) { return ::simd_fast_distance(x, y); }
@@ -777,6 +1020,12 @@ namespace simd {
     static SIMD_CPPFUNC double distance(const double4 x, const double4 y) { return ::simd_fast_distance(x, y); }
     static SIMD_CPPFUNC double distance(const double8 x, const double8 y) { return ::simd_fast_distance(x, y); }
     
+    static SIMD_CPPFUNC half2   normalize(const half2   x) { return ::simd_fast_normalize(x); }
+    static SIMD_CPPFUNC half3   normalize(const half3   x) { return ::simd_fast_normalize(x); }
+    static SIMD_CPPFUNC half4   normalize(const half4   x) { return ::simd_fast_normalize(x); }
+    static SIMD_CPPFUNC half8   normalize(const half8   x) { return ::simd_fast_normalize(x); }
+    static SIMD_CPPFUNC half16  normalize(const half16  x) { return ::simd_fast_normalize(x); }
+    static SIMD_CPPFUNC half32  normalize(const half32  x) { return ::simd_fast_normalize(x); }
     static SIMD_CPPFUNC float2  normalize(const float2  x) { return ::simd_fast_normalize(x); }
     static SIMD_CPPFUNC float3  normalize(const float3  x) { return ::simd_fast_normalize(x); }
     static SIMD_CPPFUNC float4  normalize(const float4  x) { return ::simd_fast_normalize(x); }
@@ -794,6 +1043,12 @@ extern "C" {
   
 #pragma mark - Implementation
 
+static _Float16 SIMD_CFUNC simd_dot(simd_half2  __x, simd_half2  __y) { return simd_reduce_add(__x*__y); }
+static _Float16 SIMD_CFUNC simd_dot(simd_half3  __x, simd_half3  __y) { return simd_reduce_add(__x*__y); }
+static _Float16 SIMD_CFUNC simd_dot(simd_half4  __x, simd_half4  __y) { return simd_reduce_add(__x*__y); }
+static _Float16 SIMD_CFUNC simd_dot(simd_half8  __x, simd_half8  __y) { return simd_reduce_add(__x*__y); }
+static _Float16 SIMD_CFUNC simd_dot(simd_half16 __x, simd_half16 __y) { return simd_reduce_add(__x*__y); }
+static _Float16 SIMD_CFUNC simd_dot(simd_half32 __x, simd_half32 __y) { return simd_reduce_add(__x*__y); }
 static float  SIMD_CFUNC simd_dot(simd_float2  __x, simd_float2  __y) { return simd_reduce_add(__x*__y); }
 static float  SIMD_CFUNC simd_dot(simd_float3  __x, simd_float3  __y) { return simd_reduce_add(__x*__y); }
 static float  SIMD_CFUNC simd_dot(simd_float4  __x, simd_float4  __y) { return simd_reduce_add(__x*__y); }
@@ -804,6 +1059,12 @@ static double SIMD_CFUNC simd_dot(simd_double3 __x, simd_double3 __y) { return s
 static double SIMD_CFUNC simd_dot(simd_double4 __x, simd_double4 __y) { return simd_reduce_add(__x*__y); }
 static double SIMD_CFUNC simd_dot(simd_double8 __x, simd_double8 __y) { return simd_reduce_add(__x*__y); }
 
+static simd_half2   SIMD_CFUNC simd_precise_project(simd_half2   __x, simd_half2   __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
+static simd_half3   SIMD_CFUNC simd_precise_project(simd_half3   __x, simd_half3   __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
+static simd_half4   SIMD_CFUNC simd_precise_project(simd_half4   __x, simd_half4   __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
+static simd_half8   SIMD_CFUNC simd_precise_project(simd_half8   __x, simd_half8   __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
+static simd_half16  SIMD_CFUNC simd_precise_project(simd_half16  __x, simd_half16  __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
+static simd_half32  SIMD_CFUNC simd_precise_project(simd_half32  __x, simd_half32  __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
 static simd_float2  SIMD_CFUNC simd_precise_project(simd_float2  __x, simd_float2  __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
 static simd_float3  SIMD_CFUNC simd_precise_project(simd_float3  __x, simd_float3  __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
 static simd_float4  SIMD_CFUNC simd_precise_project(simd_float4  __x, simd_float4  __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
@@ -814,6 +1075,12 @@ static simd_double3 SIMD_CFUNC simd_precise_project(simd_double3 __x, simd_doubl
 static simd_double4 SIMD_CFUNC simd_precise_project(simd_double4 __x, simd_double4 __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
 static simd_double8 SIMD_CFUNC simd_precise_project(simd_double8 __x, simd_double8 __y) { return simd_dot(__x,__y)/simd_dot(__y,__y)*__y; }
 
+static simd_half2   SIMD_CFUNC simd_fast_project(simd_half2   __x, simd_half2   __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
+static simd_half3   SIMD_CFUNC simd_fast_project(simd_half3   __x, simd_half3   __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
+static simd_half4   SIMD_CFUNC simd_fast_project(simd_half4   __x, simd_half4   __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
+static simd_half8   SIMD_CFUNC simd_fast_project(simd_half8   __x, simd_half8   __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
+static simd_half16  SIMD_CFUNC simd_fast_project(simd_half16  __x, simd_half16  __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
+static simd_half32  SIMD_CFUNC simd_fast_project(simd_half32  __x, simd_half32  __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
 static simd_float2  SIMD_CFUNC simd_fast_project(simd_float2  __x, simd_float2  __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
 static simd_float3  SIMD_CFUNC simd_fast_project(simd_float3  __x, simd_float3  __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
 static simd_float4  SIMD_CFUNC simd_fast_project(simd_float4  __x, simd_float4  __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
@@ -825,6 +1092,12 @@ static simd_double4 SIMD_CFUNC simd_fast_project(simd_double4 __x, simd_double4 
 static simd_double8 SIMD_CFUNC simd_fast_project(simd_double8 __x, simd_double8 __y) { return __y*simd_dot(__x,__y)*simd_fast_recip(simd_dot(__y,__y)); }
 
 #if defined __FAST_MATH__
+static simd_half2   SIMD_CFUNC simd_project(simd_half2   __x, simd_half2   __y) { return simd_fast_project(__x,__y); }
+static simd_half3   SIMD_CFUNC simd_project(simd_half3   __x, simd_half3   __y) { return simd_fast_project(__x,__y); }
+static simd_half4   SIMD_CFUNC simd_project(simd_half4   __x, simd_half4   __y) { return simd_fast_project(__x,__y); }
+static simd_half8   SIMD_CFUNC simd_project(simd_half8   __x, simd_half8   __y) { return simd_fast_project(__x,__y); }
+static simd_half16  SIMD_CFUNC simd_project(simd_half16  __x, simd_half16  __y) { return simd_fast_project(__x,__y); }
+static simd_half32  SIMD_CFUNC simd_project(simd_half32  __x, simd_half32  __y) { return simd_fast_project(__x,__y); }
 static simd_float2  SIMD_CFUNC simd_project(simd_float2  __x, simd_float2  __y) { return simd_fast_project(__x,__y); }
 static simd_float3  SIMD_CFUNC simd_project(simd_float3  __x, simd_float3  __y) { return simd_fast_project(__x,__y); }
 static simd_float4  SIMD_CFUNC simd_project(simd_float4  __x, simd_float4  __y) { return simd_fast_project(__x,__y); }
@@ -835,6 +1108,12 @@ static simd_double3 SIMD_CFUNC simd_project(simd_double3 __x, simd_double3 __y) 
 static simd_double4 SIMD_CFUNC simd_project(simd_double4 __x, simd_double4 __y) { return simd_fast_project(__x,__y); }
 static simd_double8 SIMD_CFUNC simd_project(simd_double8 __x, simd_double8 __y) { return simd_fast_project(__x,__y); }
 #else
+static simd_half2   SIMD_CFUNC simd_project(simd_half2   __x, simd_half2   __y) { return simd_precise_project(__x,__y); }
+static simd_half3   SIMD_CFUNC simd_project(simd_half3   __x, simd_half3   __y) { return simd_precise_project(__x,__y); }
+static simd_half4   SIMD_CFUNC simd_project(simd_half4   __x, simd_half4   __y) { return simd_precise_project(__x,__y); }
+static simd_half8   SIMD_CFUNC simd_project(simd_half8   __x, simd_half8   __y) { return simd_precise_project(__x,__y); }
+static simd_half16  SIMD_CFUNC simd_project(simd_half16  __x, simd_half16  __y) { return simd_precise_project(__x,__y); }
+static simd_half32  SIMD_CFUNC simd_project(simd_half32  __x, simd_half32  __y) { return simd_precise_project(__x,__y); }
 static simd_float2  SIMD_CFUNC simd_project(simd_float2  __x, simd_float2  __y) { return simd_precise_project(__x,__y); }
 static simd_float3  SIMD_CFUNC simd_project(simd_float3  __x, simd_float3  __y) { return simd_precise_project(__x,__y); }
 static simd_float4  SIMD_CFUNC simd_project(simd_float4  __x, simd_float4  __y) { return simd_precise_project(__x,__y); }
@@ -846,6 +1125,14 @@ static simd_double4 SIMD_CFUNC simd_project(simd_double4 __x, simd_double4 __y) 
 static simd_double8 SIMD_CFUNC simd_project(simd_double8 __x, simd_double8 __y) { return simd_precise_project(__x,__y); }
 #endif
 
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half2  __x) { return __sqrtf16(simd_length_squared(__x)); }
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half3  __x) { return __sqrtf16(simd_length_squared(__x)); }
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half4  __x) { return __sqrtf16(simd_length_squared(__x)); }
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half8  __x) { return __sqrtf16(simd_length_squared(__x)); }
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half16 __x) { return __sqrtf16(simd_length_squared(__x)); }
+static _Float16 SIMD_CFUNC simd_precise_length(simd_half32 __x) { return __sqrtf16(simd_length_squared(__x)); }
+#endif // SIMD_LIBRARY_VERSION >= 6
 static float  SIMD_CFUNC simd_precise_length(simd_float2  __x) { return sqrtf(simd_length_squared(__x)); }
 static float  SIMD_CFUNC simd_precise_length(simd_float3  __x) { return sqrtf(simd_length_squared(__x)); }
 static float  SIMD_CFUNC simd_precise_length(simd_float4  __x) { return sqrtf(simd_length_squared(__x)); }
@@ -855,7 +1142,14 @@ static double SIMD_CFUNC simd_precise_length(simd_double2 __x) { return sqrt(sim
 static double SIMD_CFUNC simd_precise_length(simd_double3 __x) { return sqrt(simd_length_squared(__x)); }
 static double SIMD_CFUNC simd_precise_length(simd_double4 __x) { return sqrt(simd_length_squared(__x)); }
 static double SIMD_CFUNC simd_precise_length(simd_double8 __x) { return sqrt(simd_length_squared(__x)); }
-
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half2  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half3  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half4  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half8  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half16 __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_fast_length(simd_half32 __x) { return simd_precise_length(__x); }
+#endif // SIMD_LIBRARY_VERSION >= 6
 static float  SIMD_CFUNC simd_fast_length(simd_float2  __x) { return simd_precise_length(__x); }
 static float  SIMD_CFUNC simd_fast_length(simd_float3  __x) { return simd_precise_length(__x); }
 static float  SIMD_CFUNC simd_fast_length(simd_float4  __x) { return simd_precise_length(__x); }
@@ -867,6 +1161,12 @@ static double SIMD_CFUNC simd_fast_length(simd_double4 __x) { return simd_precis
 static double SIMD_CFUNC simd_fast_length(simd_double8 __x) { return simd_precise_length(__x); }
 
 #if defined __FAST_MATH__
+static _Float16 SIMD_CFUNC simd_length(simd_half2  __x) { return simd_fast_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half3  __x) { return simd_fast_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half4  __x) { return simd_fast_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half8  __x) { return simd_fast_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half16 __x) { return simd_fast_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half32 __x) { return simd_fast_length(__x); }
 static float  SIMD_CFUNC simd_length(simd_float2  __x) { return simd_fast_length(__x); }
 static float  SIMD_CFUNC simd_length(simd_float3  __x) { return simd_fast_length(__x); }
 static float  SIMD_CFUNC simd_length(simd_float4  __x) { return simd_fast_length(__x); }
@@ -877,6 +1177,14 @@ static double SIMD_CFUNC simd_length(simd_double3 __x) { return simd_fast_length
 static double SIMD_CFUNC simd_length(simd_double4 __x) { return simd_fast_length(__x); }
 static double SIMD_CFUNC simd_length(simd_double8 __x) { return simd_fast_length(__x); }
 #else
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_length(simd_half2  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half3  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half4  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half8  __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half16 __x) { return simd_precise_length(__x); }
+static _Float16 SIMD_CFUNC simd_length(simd_half32 __x) { return simd_precise_length(__x); }
+#endif // SIMD_LIBRARY_VERSION >= 6
 static float  SIMD_CFUNC simd_length(simd_float2  __x) { return simd_precise_length(__x); }
 static float  SIMD_CFUNC simd_length(simd_float3  __x) { return simd_precise_length(__x); }
 static float  SIMD_CFUNC simd_length(simd_float4  __x) { return simd_precise_length(__x); }
@@ -888,6 +1196,12 @@ static double SIMD_CFUNC simd_length(simd_double4 __x) { return simd_precise_len
 static double SIMD_CFUNC simd_length(simd_double8 __x) { return simd_precise_length(__x); }
 #endif
 
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half2  __x) { return simd_dot(__x,__x); }
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half3  __x) { return simd_dot(__x,__x); }
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half4  __x) { return simd_dot(__x,__x); }
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half8  __x) { return simd_dot(__x,__x); }
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half16 __x) { return simd_dot(__x,__x); }
+static _Float16 SIMD_CFUNC simd_length_squared(simd_half32 __x) { return simd_dot(__x,__x); }
 static float  SIMD_CFUNC simd_length_squared(simd_float2  __x) { return simd_dot(__x,__x); }
 static float  SIMD_CFUNC simd_length_squared(simd_float3  __x) { return simd_dot(__x,__x); }
 static float  SIMD_CFUNC simd_length_squared(simd_float4  __x) { return simd_dot(__x,__x); }
@@ -898,6 +1212,12 @@ static double SIMD_CFUNC simd_length_squared(simd_double3 __x) { return simd_dot
 static double SIMD_CFUNC simd_length_squared(simd_double4 __x) { return simd_dot(__x,__x); }
 static double SIMD_CFUNC simd_length_squared(simd_double8 __x) { return simd_dot(__x,__x); }
 
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half2  __x) { return simd_reduce_add(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half3  __x) { return simd_reduce_add(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half4  __x) { return simd_reduce_add(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half8  __x) { return simd_reduce_add(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half16 __x) { return simd_reduce_add(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_one(simd_half32 __x) { return simd_reduce_add(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_one(simd_float2 __x) { return simd_reduce_add(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_one(simd_float3 __x) { return simd_reduce_add(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_one(simd_float4 __x) { return simd_reduce_add(__tg_fabs(__x)); }
@@ -908,6 +1228,12 @@ static double SIMD_CFUNC simd_norm_one(simd_double3 __x) { return simd_reduce_ad
 static double SIMD_CFUNC simd_norm_one(simd_double4 __x) { return simd_reduce_add(__tg_fabs(__x)); }
 static double SIMD_CFUNC simd_norm_one(simd_double8 __x) { return simd_reduce_add(__tg_fabs(__x)); }
 
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half2  __x) { return simd_reduce_max(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half3  __x) { return simd_reduce_max(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half4  __x) { return simd_reduce_max(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half8  __x) { return simd_reduce_max(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half16 __x) { return simd_reduce_max(__tg_fabs(__x)); }
+static _Float16 SIMD_CFUNC simd_norm_inf(simd_half32 __x) { return simd_reduce_max(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_inf(simd_float2 __x) { return simd_reduce_max(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_inf(simd_float3 __x) { return simd_reduce_max(__tg_fabs(__x)); }
 static float SIMD_CFUNC simd_norm_inf(simd_float4 __x) { return simd_reduce_max(__tg_fabs(__x)); }
@@ -918,6 +1244,14 @@ static double SIMD_CFUNC simd_norm_inf(simd_double3 __x) { return simd_reduce_ma
 static double SIMD_CFUNC simd_norm_inf(simd_double4 __x) { return simd_reduce_max(__tg_fabs(__x)); }
 static double SIMD_CFUNC simd_norm_inf(simd_double8 __x) { return simd_reduce_max(__tg_fabs(__x)); }
 
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half2  __x, simd_half2  __y) { return simd_precise_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half3  __x, simd_half3  __y) { return simd_precise_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half4  __x, simd_half4  __y) { return simd_precise_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half8  __x, simd_half8  __y) { return simd_precise_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half16 __x, simd_half16 __y) { return simd_precise_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_precise_distance(simd_half32 __x, simd_half32 __y) { return simd_precise_length(__x - __y); }
+#endif // SIMD_LIBRARY_VERSION >= 6
 static float  SIMD_CFUNC simd_precise_distance(simd_float2  __x, simd_float2  __y) { return simd_precise_length(__x - __y); }
 static float  SIMD_CFUNC simd_precise_distance(simd_float3  __x, simd_float3  __y) { return simd_precise_length(__x - __y); }
 static float  SIMD_CFUNC simd_precise_distance(simd_float4  __x, simd_float4  __y) { return simd_precise_length(__x - __y); }
@@ -928,6 +1262,12 @@ static double SIMD_CFUNC simd_precise_distance(simd_double3 __x, simd_double3 __
 static double SIMD_CFUNC simd_precise_distance(simd_double4 __x, simd_double4 __y) { return simd_precise_length(__x - __y); }
 static double SIMD_CFUNC simd_precise_distance(simd_double8 __x, simd_double8 __y) { return simd_precise_length(__x - __y); }
 
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half2  __x, simd_half2  __y) { return simd_fast_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half3  __x, simd_half3  __y) { return simd_fast_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half4  __x, simd_half4  __y) { return simd_fast_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half8  __x, simd_half8  __y) { return simd_fast_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half16 __x, simd_half16 __y) { return simd_fast_length(__x - __y); }
+static _Float16 SIMD_CFUNC simd_fast_distance(simd_half32 __x, simd_half32 __y) { return simd_fast_length(__x - __y); }
 static float  SIMD_CFUNC simd_fast_distance(simd_float2  __x, simd_float2  __y) { return simd_fast_length(__x - __y); }
 static float  SIMD_CFUNC simd_fast_distance(simd_float3  __x, simd_float3  __y) { return simd_fast_length(__x - __y); }
 static float  SIMD_CFUNC simd_fast_distance(simd_float4  __x, simd_float4  __y) { return simd_fast_length(__x - __y); }
@@ -939,6 +1279,12 @@ static double SIMD_CFUNC simd_fast_distance(simd_double4 __x, simd_double4 __y) 
 static double SIMD_CFUNC simd_fast_distance(simd_double8 __x, simd_double8 __y) { return simd_fast_length(__x - __y); }
 
 #if defined __FAST_MATH__
+static _Float16 SIMD_CFUNC simd_distance(simd_half2  __x, simd_half2  __y) { return simd_fast_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half3  __x, simd_half3  __y) { return simd_fast_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half4  __x, simd_half4  __y) { return simd_fast_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half8  __x, simd_half8  __y) { return simd_fast_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half16 __x, simd_half16 __y) { return simd_fast_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half32 __x, simd_half32 __y) { return simd_fast_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float2  __x, simd_float2  __y) { return simd_fast_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float3  __x, simd_float3  __y) { return simd_fast_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float4  __x, simd_float4  __y) { return simd_fast_distance(__x,__y); }
@@ -949,6 +1295,12 @@ static double SIMD_CFUNC simd_distance(simd_double3 __x, simd_double3 __y) { ret
 static double SIMD_CFUNC simd_distance(simd_double4 __x, simd_double4 __y) { return simd_fast_distance(__x,__y); }
 static double SIMD_CFUNC simd_distance(simd_double8 __x, simd_double8 __y) { return simd_fast_distance(__x,__y); }
 #else
+static _Float16 SIMD_CFUNC simd_distance(simd_half2  __x, simd_half2  __y) { return simd_precise_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half3  __x, simd_half3  __y) { return simd_precise_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half4  __x, simd_half4  __y) { return simd_precise_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half8  __x, simd_half8  __y) { return simd_precise_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half16 __x, simd_half16 __y) { return simd_precise_distance(__x,__y); }
+static _Float16 SIMD_CFUNC simd_distance(simd_half32 __x, simd_half32 __y) { return simd_precise_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float2  __x, simd_float2  __y) { return simd_precise_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float3  __x, simd_float3  __y) { return simd_precise_distance(__x,__y); }
 static float  SIMD_CFUNC simd_distance(simd_float4  __x, simd_float4  __y) { return simd_precise_distance(__x,__y); }
@@ -960,6 +1312,12 @@ static double SIMD_CFUNC simd_distance(simd_double4 __x, simd_double4 __y) { ret
 static double SIMD_CFUNC simd_distance(simd_double8 __x, simd_double8 __y) { return simd_precise_distance(__x,__y); }
 #endif
 
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half2  __x, simd_half2  __y) { return simd_length_squared(__x - __y); }
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half3  __x, simd_half3  __y) { return simd_length_squared(__x - __y); }
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half4  __x, simd_half4  __y) { return simd_length_squared(__x - __y); }
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half8  __x, simd_half8  __y) { return simd_length_squared(__x - __y); }
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half16 __x, simd_half16 __y) { return simd_length_squared(__x - __y); }
+static _Float16 SIMD_CFUNC simd_distance_squared(simd_half32 __x, simd_half32 __y) { return simd_length_squared(__x - __y); }
 static float  SIMD_CFUNC simd_distance_squared(simd_float2  __x, simd_float2  __y) { return simd_length_squared(__x - __y); }
 static float  SIMD_CFUNC simd_distance_squared(simd_float3  __x, simd_float3  __y) { return simd_length_squared(__x - __y); }
 static float  SIMD_CFUNC simd_distance_squared(simd_float4  __x, simd_float4  __y) { return simd_length_squared(__x - __y); }
@@ -970,6 +1328,12 @@ static double SIMD_CFUNC simd_distance_squared(simd_double3 __x, simd_double3 __
 static double SIMD_CFUNC simd_distance_squared(simd_double4 __x, simd_double4 __y) { return simd_length_squared(__x - __y); }
 static double SIMD_CFUNC simd_distance_squared(simd_double8 __x, simd_double8 __y) { return simd_length_squared(__x - __y); }
 
+static simd_half2   SIMD_CFUNC simd_precise_normalize(simd_half2   __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
+static simd_half3   SIMD_CFUNC simd_precise_normalize(simd_half3   __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
+static simd_half4   SIMD_CFUNC simd_precise_normalize(simd_half4   __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
+static simd_half8   SIMD_CFUNC simd_precise_normalize(simd_half8   __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
+static simd_half16  SIMD_CFUNC simd_precise_normalize(simd_half16  __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
+static simd_half32  SIMD_CFUNC simd_precise_normalize(simd_half32  __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
 static simd_float2  SIMD_CFUNC simd_precise_normalize(simd_float2  __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
 static simd_float3  SIMD_CFUNC simd_precise_normalize(simd_float3  __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
 static simd_float4  SIMD_CFUNC simd_precise_normalize(simd_float4  __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
@@ -980,6 +1344,12 @@ static simd_double3 SIMD_CFUNC simd_precise_normalize(simd_double3 __x) { return
 static simd_double4 SIMD_CFUNC simd_precise_normalize(simd_double4 __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
 static simd_double8 SIMD_CFUNC simd_precise_normalize(simd_double8 __x) { return __x * simd_precise_rsqrt(simd_length_squared(__x)); }
 
+static simd_half2   SIMD_CFUNC simd_fast_normalize(simd_half2   __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
+static simd_half3   SIMD_CFUNC simd_fast_normalize(simd_half3   __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
+static simd_half4   SIMD_CFUNC simd_fast_normalize(simd_half4   __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
+static simd_half8   SIMD_CFUNC simd_fast_normalize(simd_half8   __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
+static simd_half16  SIMD_CFUNC simd_fast_normalize(simd_half16  __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
+static simd_half32  SIMD_CFUNC simd_fast_normalize(simd_half32  __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
 static simd_float2  SIMD_CFUNC simd_fast_normalize(simd_float2  __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
 static simd_float3  SIMD_CFUNC simd_fast_normalize(simd_float3  __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
 static simd_float4  SIMD_CFUNC simd_fast_normalize(simd_float4  __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
@@ -991,6 +1361,12 @@ static simd_double4 SIMD_CFUNC simd_fast_normalize(simd_double4 __x) { return __
 static simd_double8 SIMD_CFUNC simd_fast_normalize(simd_double8 __x) { return __x * simd_fast_rsqrt(simd_length_squared(__x)); }
 
 #if defined __FAST_MATH__
+static simd_half2   SIMD_CFUNC simd_normalize(simd_half2   __x) { return simd_fast_normalize(__x); }
+static simd_half3   SIMD_CFUNC simd_normalize(simd_half3   __x) { return simd_fast_normalize(__x); }
+static simd_half4   SIMD_CFUNC simd_normalize(simd_half4   __x) { return simd_fast_normalize(__x); }
+static simd_half8   SIMD_CFUNC simd_normalize(simd_half8   __x) { return simd_fast_normalize(__x); }
+static simd_half16  SIMD_CFUNC simd_normalize(simd_half16  __x) { return simd_fast_normalize(__x); }
+static simd_half32  SIMD_CFUNC simd_normalize(simd_half32  __x) { return simd_fast_normalize(__x); }
 static simd_float2  SIMD_CFUNC simd_normalize(simd_float2  __x) { return simd_fast_normalize(__x); }
 static simd_float3  SIMD_CFUNC simd_normalize(simd_float3  __x) { return simd_fast_normalize(__x); }
 static simd_float4  SIMD_CFUNC simd_normalize(simd_float4  __x) { return simd_fast_normalize(__x); }
@@ -1001,6 +1377,12 @@ static simd_double3 SIMD_CFUNC simd_normalize(simd_double3 __x) { return simd_fa
 static simd_double4 SIMD_CFUNC simd_normalize(simd_double4 __x) { return simd_fast_normalize(__x); }
 static simd_double8 SIMD_CFUNC simd_normalize(simd_double8 __x) { return simd_fast_normalize(__x); }
 #else
+static simd_half2   SIMD_CFUNC simd_normalize(simd_half2   __x) { return simd_precise_normalize(__x); }
+static simd_half3   SIMD_CFUNC simd_normalize(simd_half3   __x) { return simd_precise_normalize(__x); }
+static simd_half4   SIMD_CFUNC simd_normalize(simd_half4   __x) { return simd_precise_normalize(__x); }
+static simd_half8   SIMD_CFUNC simd_normalize(simd_half8   __x) { return simd_precise_normalize(__x); }
+static simd_half16  SIMD_CFUNC simd_normalize(simd_half16  __x) { return simd_precise_normalize(__x); }
+static simd_half32  SIMD_CFUNC simd_normalize(simd_half32  __x) { return simd_precise_normalize(__x); }
 static simd_float2  SIMD_CFUNC simd_normalize(simd_float2  __x) { return simd_precise_normalize(__x); }
 static simd_float3  SIMD_CFUNC simd_normalize(simd_float3  __x) { return simd_precise_normalize(__x); }
 static simd_float4  SIMD_CFUNC simd_normalize(simd_float4  __x) { return simd_precise_normalize(__x); }
@@ -1012,11 +1394,16 @@ static simd_double4 SIMD_CFUNC simd_normalize(simd_double4 __x) { return simd_pr
 static simd_double8 SIMD_CFUNC simd_normalize(simd_double8 __x) { return simd_precise_normalize(__x); }
 #endif
 
+static simd_half3   SIMD_CFUNC simd_cross(simd_half2   __x, simd_half2   __y) { return (simd_half3){ 0, 0, __x.x*__y.y - __x.y*__y.x }; }
+static simd_half3   SIMD_CFUNC simd_cross(simd_half3   __x, simd_half3   __y) { return (__x.zxy*__y - __x*__y.zxy).zxy; }
 static simd_float3  SIMD_CFUNC simd_cross(simd_float2  __x, simd_float2  __y) { return (simd_float3){ 0, 0, __x.x*__y.y - __x.y*__y.x }; }
 static simd_float3  SIMD_CFUNC simd_cross(simd_float3  __x, simd_float3  __y) { return (__x.zxy*__y - __x*__y.zxy).zxy; }
 static simd_double3 SIMD_CFUNC simd_cross(simd_double2 __x, simd_double2 __y) { return (simd_double3){ 0, 0, __x.x*__y.y - __x.y*__y.x }; }
 static simd_double3 SIMD_CFUNC simd_cross(simd_double3 __x, simd_double3 __y) { return (__x.zxy*__y - __x*__y.zxy).zxy; }
 
+static simd_half2   SIMD_CFUNC simd_reflect(simd_half2   __x, simd_half2   __n) { return __x - 2*simd_dot(__x,__n)*__n; }
+static simd_half3   SIMD_CFUNC simd_reflect(simd_half3   __x, simd_half3   __n) { return __x - 2*simd_dot(__x,__n)*__n; }
+static simd_half4   SIMD_CFUNC simd_reflect(simd_half4   __x, simd_half4   __n) { return __x - 2*simd_dot(__x,__n)*__n; }
 static simd_float2  SIMD_CFUNC simd_reflect(simd_float2  __x, simd_float2  __n) { return __x - 2*simd_dot(__x,__n)*__n; }
 static simd_float3  SIMD_CFUNC simd_reflect(simd_float3  __x, simd_float3  __n) { return __x - 2*simd_dot(__x,__n)*__n; }
 static simd_float4  SIMD_CFUNC simd_reflect(simd_float4  __x, simd_float4  __n) { return __x - 2*simd_dot(__x,__n)*__n; }
@@ -1024,6 +1411,20 @@ static simd_double2 SIMD_CFUNC simd_reflect(simd_double2 __x, simd_double2 __n) 
 static simd_double3 SIMD_CFUNC simd_reflect(simd_double3 __x, simd_double3 __n) { return __x - 2*simd_dot(__x,__n)*__n; }
 static simd_double4 SIMD_CFUNC simd_reflect(simd_double4 __x, simd_double4 __n) { return __x - 2*simd_dot(__x,__n)*__n; }
 
+#if SIMD_LIBRARY_VERSION >= 6
+static simd_half2  SIMD_CFUNC simd_refract(simd_half2  __x, simd_half2  __n, _Float16 __eta) {
+  const _Float16 __k = 1.0f16 - __eta*__eta*(1.0f16 - simd_dot(__x,__n)*simd_dot(__x,__n));
+  return (__k >= 0.0f16) ? __eta*__x - (__eta*simd_dot(__x,__n) + __sqrtf16(__k))*__n : (simd_half2)0.0f16;
+}
+static simd_half3  SIMD_CFUNC simd_refract(simd_half3  __x, simd_half3  __n, _Float16 __eta) {
+  const _Float16 __k = 1.0f16 - __eta*__eta*(1.0f16 - simd_dot(__x,__n)*simd_dot(__x,__n));
+  return (__k >= 0.0f16) ? __eta*__x - (__eta*simd_dot(__x,__n) + __sqrtf16(__k))*__n : (simd_half3)0.0f16;
+}
+static simd_half4  SIMD_CFUNC simd_refract(simd_half4  __x, simd_half4  __n, _Float16 __eta) {
+  const _Float16 __k = 1.0f16 - __eta*__eta*(1.0f16 - simd_dot(__x,__n)*simd_dot(__x,__n));
+  return (__k >= 0.0f16) ? __eta*__x - (__eta*simd_dot(__x,__n) + __sqrtf16(__k))*__n : (simd_half4)0.0f16;
+}
+#endif // SIMD_LIBRARY_VERSION >= 6
 static simd_float2  SIMD_CFUNC simd_refract(simd_float2  __x, simd_float2  __n, float __eta) {
   const float __k = 1.0f - __eta*__eta*(1.0f - simd_dot(__x,__n)*simd_dot(__x,__n));
   return (__k >= 0.0f) ? __eta*__x - (__eta*simd_dot(__x,__n) + sqrt(__k))*__n : (simd_float2)0.0f;
@@ -1090,6 +1491,29 @@ static float SIMD_CFUNC simd_insphere(simd_float3 __x, simd_float3 __a, simd_flo
 static double SIMD_CFUNC simd_insphere(simd_double3 __x, simd_double3 __a, simd_double3 __b, simd_double3 __c, simd_double3 __d) {
   simd_double3 __args[5] = { __x, __a, __b, __c, __d };
   return _simd_insphere_pd3((const double *)__args);
+}
+#endif /* SIMD_LIBRARY_VERSION */
+
+#if SIMD_LIBRARY_VERSION >= 6
+static _Float16 SIMD_CFUNC simd_orient(simd_half2 __x, simd_half2 __y) {
+  return _simd_orient_vh2(__x, __y);
+}
+static _Float16 SIMD_CFUNC simd_orient(simd_half3 __x, simd_half3 __y, simd_half3 __z) {
+  return _simd_orient_vh3(__x, __y, __z);
+}
+
+static _Float16 SIMD_CFUNC simd_orient(simd_half2 __a, simd_half2 __b, simd_half2 __c) {
+  return _simd_orient_ph2(__a, __b, __c);
+}
+static _Float16 SIMD_CFUNC simd_orient(simd_half3 __a, simd_half3 __b, simd_half3 __c, simd_half3 __d) {
+  return _simd_orient_ph3(__a, __b, __c, __d);
+}
+
+static _Float16 SIMD_CFUNC simd_incircle(simd_half2 __x, simd_half2 __a, simd_half2 __b, simd_half2 __c) {
+  return _simd_incircle_ph2(__x, __a, __b, __c);
+}
+static _Float16 SIMD_CFUNC simd_insphere(simd_half3 __x, simd_half3 __a, simd_half3 __b, simd_half3 __c, simd_half3 __d) {
+  return _simd_insphere_ph3(__x, __a, __b, __c, __d);
 }
 #endif /* SIMD_LIBRARY_VERSION */
 

@@ -1,3 +1,20 @@
+const Dir = @This();
+const builtin = @import("builtin");
+const std = @import("../std.zig");
+const File = std.fs.File;
+const AtomicFile = std.fs.AtomicFile;
+const base64_encoder = fs.base64_encoder;
+const posix = std.posix;
+const mem = std.mem;
+const path = fs.path;
+const fs = std.fs;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const linux = std.os.linux;
+const windows = std.os.windows;
+const native_os = builtin.os.tag;
+const have_flock = @TypeOf(posix.system.flock) != void;
+
 fd: Handle,
 
 pub const Handle = posix.fd_t;
@@ -13,6 +30,7 @@ pub const Entry = struct {
 
 const IteratorError = error{
     AccessDenied,
+    PermissionDenied,
     SystemResources,
     /// WASI-only. The path of an entry could not be encoded as valid UTF-8.
     /// WASI is unable to handle paths that cannot be encoded as well-formed UTF-8.
@@ -24,7 +42,7 @@ pub const Iterator = switch (native_os) {
     .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => struct {
         dir: Dir,
         seek: i64,
-        buf: [1024]u8, // TODO align(@alignOf(posix.system.dirent)),
+        buf: [1024]u8 align(@alignOf(posix.system.dirent)),
         index: usize,
         end_index: usize,
         first_iter: bool,
@@ -247,7 +265,7 @@ pub const Iterator = switch (native_os) {
                             .NOTDIR => unreachable,
                             .INVAL => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                         self.first_iter = false;
@@ -267,7 +285,7 @@ pub const Iterator = switch (native_os) {
                             .INVAL => unreachable,
                             .OVERFLOW => unreachable,
                             .ACCES => return error.AccessDenied,
-                            .PERM => return error.AccessDenied,
+                            .PERM => return error.PermissionDenied,
                             else => |err| return posix.unexpectedErrno(err),
                         }
                     }
@@ -287,14 +305,14 @@ pub const Iterator = switch (native_os) {
                     name,
                     false,
                     &stat_info,
-                    0,
+                    @sizeOf(posix.Stat),
                 )))) {
                     .SUCCESS => {},
                     .INVAL => unreachable,
                     .BADF => unreachable, // Dir is invalid
                     .NOMEM => return error.SystemResources,
                     .ACCES => return error.AccessDenied,
-                    .PERM => return error.AccessDenied,
+                    .PERM => return error.PermissionDenied,
                     .FAULT => unreachable,
                     .NAMETOOLONG => unreachable,
                     .LOOP => unreachable,
@@ -328,8 +346,6 @@ pub const Iterator = switch (native_os) {
     },
     .linux => struct {
         dir: Dir,
-        // The if guard is solely there to prevent compile errors from missing `linux.dirent64`
-        // definition when compiling for other OSes. It doesn't do anything when compiling for Linux.
         buf: [1024]u8 align(@alignOf(linux.dirent64)),
         index: usize,
         end_index: usize,
@@ -490,7 +506,7 @@ pub const Iterator = switch (native_os) {
     },
     .wasi => struct {
         dir: Dir,
-        buf: [1024]u8, // TODO align(@alignOf(posix.wasi.dirent_t)),
+        buf: [1024]u8 align(@alignOf(std.os.wasi.dirent_t)),
         cookie: u64,
         index: usize,
         end_index: usize,
@@ -682,7 +698,7 @@ pub const Walker = struct {
                 // walking if they want, which means that we need to pop the directory
                 // that errored from the stack. Otherwise, all future `next` calls would
                 // likely just fail with the same error.
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -718,7 +734,7 @@ pub const Walker = struct {
                     .kind = base.kind,
                 };
             } else {
-                var item = self.stack.pop();
+                var item = self.stack.pop().?;
                 if (self.stack.items.len != 0) {
                     item.iter.dir.close();
                 }
@@ -768,6 +784,7 @@ pub const OpenError = error{
     FileNotFound,
     NotDir,
     AccessDenied,
+    PermissionDenied,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
     NameTooLong,
@@ -783,6 +800,7 @@ pub const OpenError = error{
     DeviceBusy,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
 } || posix.UnexpectedError;
 
 pub fn close(self: *Dir) void {
@@ -1145,6 +1163,7 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 /// On Windows, `sub_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
 /// On WASI, `sub_path` should be encoded as valid UTF-8.
 /// On other platforms, `sub_path` is an opaque sequence of bytes with no particular encoding.
+/// Fails on an empty path with `error.BadPathName` as that is not a path that can be created.
 ///
 /// Paths containing `..` components are handled differently depending on the platform:
 /// - On Windows, `..` are resolved before the path is passed to NtCreateFile, meaning
@@ -1154,10 +1173,19 @@ pub fn makeDirW(self: Dir, sub_path: [*:0]const u16) MakeError!void {
 ///   meaning a `sub_path` like "first/../second" will create both a `./first`
 ///   and a `./second` directory.
 pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!void {
+    _ = try self.makePathStatus(sub_path);
+}
+
+pub const MakePathStatus = enum { existed, created };
+/// Same as `makePath` except returns whether the path already existed or was successfully created.
+pub fn makePathStatus(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!MakePathStatus {
     var it = try fs.path.componentIterator(sub_path);
-    var component = it.last() orelse return;
+    var status: MakePathStatus = .existed;
+    var component = it.last() orelse return error.BadPathName;
     while (true) {
-        self.makeDir(component.path) catch |err| switch (err) {
+        if (self.makeDir(component.path)) |_| {
+            status = .created;
+        } else |err| switch (err) {
             error.PathAlreadyExists => {
                 // stat the file and return an error if it's not a directory
                 // this is important because otherwise a dangling symlink
@@ -1176,8 +1204,8 @@ pub fn makePath(self: Dir, sub_path: []const u8) (MakeError || StatFileError)!vo
                 continue;
             },
             else => |e| return e,
-        };
-        component = it.next() orelse return;
+        }
+        component = it.next() orelse return status;
     }
 }
 
@@ -1295,17 +1323,10 @@ pub fn realpathZ(self: Dir, pathname: [*:0]const u8, out_buffer: []u8) RealPathE
         return self.realpathW(pathname_w.span(), out_buffer);
     }
 
-    const flags: posix.O = switch (native_os) {
-        .linux => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-            .PATH = true,
-        },
-        else => .{
-            .NONBLOCK = true,
-            .CLOEXEC = true,
-        },
-    };
+    var flags: posix.O = .{};
+    if (@hasField(posix.O, "NONBLOCK")) flags.NONBLOCK = true;
+    if (@hasField(posix.O, "CLOEXEC")) flags.CLOEXEC = true;
+    if (@hasField(posix.O, "PATH")) flags.PATH = true;
 
     const fd = posix.openatZ(self.fd, pathname, flags, 0) catch |err| switch (err) {
         error.FileLocksNotSupported => return error.Unexpected,
@@ -1354,13 +1375,11 @@ pub fn realpathW(self: Dir, pathname: []const u16, out_buffer: []u8) RealPathErr
 
     var wide_buf: [w.PATH_MAX_WIDE]u16 = undefined;
     const wide_slice = try w.GetFinalPathNameByHandle(h_file, .{}, &wide_buf);
-    var big_out_buf: [fs.max_path_bytes]u8 = undefined;
-    const end_index = std.unicode.wtf16LeToWtf8(&big_out_buf, wide_slice);
-    if (end_index > out_buffer.len)
+    const len = std.unicode.calcWtf8Len(wide_slice);
+    if (len > out_buffer.len)
         return error.NameTooLong;
-    const result = out_buffer[0..end_index];
-    @memcpy(result, big_out_buf[0..end_index]);
-    return result;
+    const end_index = std.unicode.wtf16LeToWtf8(out_buffer, wide_slice);
+    return out_buffer[0..end_index];
 }
 
 pub const RealPathAllocError = RealPathError || Allocator.Error;
@@ -1399,9 +1418,6 @@ pub fn setAsCwd(self: Dir) !void {
     }
     try posix.fchdir(self.fd);
 }
-
-/// Deprecated: use `OpenOptions`
-pub const OpenDirOptions = OpenOptions;
 
 pub const OpenOptions = struct {
     /// `true` means the opened directory can be used as the `Dir` parameter
@@ -1510,7 +1526,7 @@ pub fn openDirZ(self: Dir, sub_path_c: [*:0]const u8, args: OpenOptions) OpenErr
                 .NOENT => return error.FileNotFound,
                 .NOMEM => return error.SystemResources,
                 .NOTDIR => return error.NotDir,
-                .PERM => return error.AccessDenied,
+                .PERM => return error.PermissionDenied,
                 .BUSY => return error.DeviceBusy,
                 else => |err| return posix.unexpectedErrno(err),
             }
@@ -1659,9 +1675,9 @@ pub fn deleteFile(self: Dir, sub_path: []const u8) DeleteFileError!void {
 pub fn deleteFileZ(self: Dir, sub_path_c: [*:0]const u8) DeleteFileError!void {
     posix.unlinkatZ(self.fd, sub_path_c, 0) catch |err| switch (err) {
         error.DirNotEmpty => unreachable, // not passing AT.REMOVEDIR
-        error.AccessDenied => |e| switch (native_os) {
-            // non-Linux POSIX systems return EPERM when trying to delete a directory, so
-            // we need to handle that case specifically and translate the error
+        error.AccessDenied, error.PermissionDenied => |e| switch (native_os) {
+            // non-Linux POSIX systems return permission errors when trying to delete a
+            // directory, so we need to handle that case specifically and translate the error
             .macos, .ios, .freebsd, .netbsd, .dragonfly, .openbsd, .solaris, .illumos => {
                 // Don't follow symlinks to match unlinkat (which acts on symlinks rather than follows them)
                 const fstat = posix.fstatatZ(self.fd, sub_path_c, posix.AT.SYMLINK_NOFOLLOW) catch return e;
@@ -1686,6 +1702,7 @@ pub const DeleteDirError = error{
     DirNotEmpty,
     FileNotFound,
     AccessDenied,
+    PermissionDenied,
     FileBusy,
     FileSystem,
     SymLinkLoop,
@@ -1701,6 +1718,7 @@ pub const DeleteDirError = error{
     BadPathName,
     /// On Windows, `\\server` or `\\server\share` was not found.
     NetworkNotFound,
+    ProcessNotFound,
     Unexpected,
 };
 
@@ -1861,9 +1879,10 @@ pub fn symLinkW(
 
 /// Same as `symLink`, except tries to create the symbolic link until it
 /// succeeds or encounters an error other than `error.PathAlreadyExists`.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+///
+/// * On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+/// * On WASI, both paths should be encoded as valid UTF-8.
+/// * On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
 pub fn atomicSymLink(
     dir: Dir,
     target_path: []const u8,
@@ -1879,9 +1898,8 @@ pub fn atomicSymLink(
 
     const dirname = path.dirname(sym_link_path) orelse ".";
 
-    var rand_buf: [AtomicFile.random_bytes_len]u8 = undefined;
-
-    const temp_path_len = dirname.len + 1 + base64_encoder.calcSize(rand_buf.len);
+    const rand_len = @sizeOf(u64) * 2;
+    const temp_path_len = dirname.len + 1 + rand_len;
     var temp_path_buf: [fs.max_path_bytes]u8 = undefined;
 
     if (temp_path_len > temp_path_buf.len) return error.NameTooLong;
@@ -1891,8 +1909,8 @@ pub fn atomicSymLink(
     const temp_path = temp_path_buf[0..temp_path_len];
 
     while (true) {
-        crypto.random.bytes(rand_buf[0..]);
-        _ = base64_encoder.encode(temp_path[dirname.len + 1 ..], rand_buf[0..]);
+        const random_integer = std.crypto.random.int(u64);
+        temp_path[dirname.len + 1 ..][0..rand_len].* = std.fmt.hex(random_integer);
 
         if (dir.symLink(target_path, temp_path, flags)) {
             return dir.rename(temp_path, sym_link_path);
@@ -1965,7 +1983,7 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
 /// On WASI, `file_path` should be encoded as valid UTF-8.
 /// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
 pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, @alignOf(u8), null);
+    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
 }
 
 /// On success, caller owns returned buffer.
@@ -1982,9 +2000,9 @@ pub fn readFileAllocOptions(
     file_path: []const u8,
     max_bytes: usize,
     size_hint: ?usize,
-    comptime alignment: u29,
+    comptime alignment: std.mem.Alignment,
     comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment) u8 else []align(alignment) u8) {
+) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
     var file = try self.openFile(file_path, .{});
     defer file.close();
 
@@ -1998,6 +2016,7 @@ pub fn readFileAllocOptions(
 
 pub const DeleteTreeError = error{
     AccessDenied,
+    PermissionDenied,
     FileTooBig,
     SymLinkLoop,
     ProcessFdQuotaExceeded,
@@ -2009,6 +2028,7 @@ pub const DeleteTreeError = error{
     FileSystem,
     FileBusy,
     DeviceBusy,
+    ProcessNotFound,
 
     /// One of the path components was not a directory.
     /// This error is unreachable if `sub_path` does not contain a path separator.
@@ -2029,7 +2049,7 @@ pub const DeleteTreeError = error{
     NetworkNotFound,
 } || posix.UnexpectedError;
 
-/// Whether `full_path` describes a symlink, file, or directory, this function
+/// Whether `sub_path` describes a symlink, file, or directory, this function
 /// removes it. If it cannot be removed because it is a non-empty directory,
 /// this function recursively removes its entries and then tries again.
 /// This operation is not atomic on most file systems.
@@ -2080,8 +2100,10 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
                             error.ProcessFdQuotaExceeded,
+                            error.ProcessNotFound,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
                             error.NoDevice,
@@ -2119,6 +2141,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                         },
 
                         error.AccessDenied,
+                        error.PermissionDenied,
                         error.InvalidUtf8,
                         error.InvalidWtf8,
                         error.SymLinkLoop,
@@ -2175,7 +2198,9 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2204,6 +2229,7 @@ pub fn deleteTree(self: Dir, sub_path: []const u8) DeleteTreeError!void {
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2280,7 +2306,9 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.SymLinkLoop,
+                            error.ProcessNotFound,
                             error.ProcessFdQuotaExceeded,
                             error.NameTooLong,
                             error.SystemFdQuotaExceeded,
@@ -2316,6 +2344,7 @@ fn deleteTreeMinStackSizeWithKindHint(self: Dir, sub_path: []const u8, kind_hint
                             },
 
                             error.AccessDenied,
+                            error.PermissionDenied,
                             error.InvalidUtf8,
                             error.InvalidWtf8,
                             error.SymLinkLoop,
@@ -2378,8 +2407,10 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.SymLinkLoop,
                     error.ProcessFdQuotaExceeded,
+                    error.ProcessNotFound,
                     error.NameTooLong,
                     error.SystemFdQuotaExceeded,
                     error.NoDevice,
@@ -2404,6 +2435,7 @@ fn deleteTreeOpenInitialSubpath(self: Dir, sub_path: []const u8, kind_hint: File
                     },
 
                     error.AccessDenied,
+                    error.PermissionDenied,
                     error.InvalidUtf8,
                     error.InvalidWtf8,
                     error.SymLinkLoop,
@@ -2441,8 +2473,6 @@ pub fn writeFile(self: Dir, options: WriteFileOptions) WriteFileError!void {
     try file.writeAll(options.data);
 }
 
-pub const writeFile2 = @compileError("deprecated; renamed to writeFile");
-
 pub const AccessError = posix.AccessError;
 
 /// Test accessing `sub_path`.
@@ -2454,10 +2484,7 @@ pub const AccessError = posix.AccessError;
 /// open it and handle the error for file not found.
 pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.sliceToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.sliceToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const path_c = try posix.toPosixPath(sub_path);
@@ -2467,10 +2494,7 @@ pub fn access(self: Dir, sub_path: []const u8, flags: File.OpenFlags) AccessErro
 /// Same as `access` except the path parameter is null-terminated.
 pub fn accessZ(self: Dir, sub_path: [*:0]const u8, flags: File.OpenFlags) AccessError!void {
     if (native_os == .windows) {
-        const sub_path_w = windows.cStrToPrefixedFileW(self.fd, sub_path) catch |err| switch (err) {
-            error.AccessDenied => return error.PermissionDenied,
-            else => |e| return e,
-        };
+        const sub_path_w = try windows.cStrToPrefixedFileW(self.fd, sub_path);
         return self.accessW(sub_path_w.span().ptr, flags);
     }
     const os_mode = switch (flags.mode) {
@@ -2545,25 +2569,42 @@ pub fn updateFile(
         try dest_dir.makePath(dirname);
     }
 
-    var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = actual_mode });
+    var buffer: [1000]u8 = undefined; // Used only when direct fd-to-fd is not available.
+    var atomic_file = try dest_dir.atomicFile(dest_path, .{
+        .mode = actual_mode,
+        .write_buffer = &buffer,
+    });
     defer atomic_file.deinit();
 
-    try atomic_file.file.writeFileAll(src_file, .{ .in_len = src_stat.size });
-    try atomic_file.file.updateTimes(src_stat.atime, src_stat.mtime);
+    var src_reader: File.Reader = .initSize(src_file, &.{}, src_stat.size);
+    const dest_writer = &atomic_file.file_writer.interface;
+
+    _ = dest_writer.sendFileAll(&src_reader, .unlimited) catch |err| switch (err) {
+        error.ReadFailed => return src_reader.err.?,
+        error.WriteFailed => return atomic_file.file_writer.err.?,
+    };
+    try atomic_file.file_writer.file.updateTimes(src_stat.atime, src_stat.mtime);
     try atomic_file.finish();
-    return PrevStatus.stale;
+    return .stale;
 }
 
 pub const CopyFileError = File.OpenError || File.StatError ||
-    AtomicFile.InitError || CopyFileRawError || AtomicFile.FinishError;
+    AtomicFile.InitError || AtomicFile.FinishError ||
+    File.ReadError || File.WriteError;
 
-/// Guaranteed to be atomic.
-/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and readily available,
-/// there is a possibility of power loss or application termination leaving temporary files present
-/// in the same directory as dest_path.
-/// On Windows, both paths should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, both paths should be encoded as valid UTF-8.
-/// On other platforms, both paths are an opaque sequence of bytes with no particular encoding.
+/// Atomically creates a new file at `dest_path` within `dest_dir` with the
+/// same contents as `source_path` within `source_dir`, overwriting any already
+/// existing file.
+///
+/// On Linux, until https://patchwork.kernel.org/patch/9636735/ is merged and
+/// readily available, there is a possibility of power loss or application
+/// termination leaving temporary files present in the same directory as
+/// dest_path.
+///
+/// On Windows, both paths should be encoded as
+/// [WTF-8](https://simonsapin.github.io/wtf-8/). On WASI, both paths should be
+/// encoded as valid UTF-8. On other platforms, both paths are an opaque
+/// sequence of bytes with no particular encoding.
 pub fn copyFile(
     source_dir: Dir,
     source_path: []const u8,
@@ -2571,79 +2612,34 @@ pub fn copyFile(
     dest_path: []const u8,
     options: CopyFileOptions,
 ) CopyFileError!void {
-    var in_file = try source_dir.openFile(source_path, .{});
-    defer in_file.close();
+    var file_reader: File.Reader = .init(try source_dir.openFile(source_path, .{}), &.{});
+    defer file_reader.file.close();
 
-    var size: ?u64 = null;
     const mode = options.override_mode orelse blk: {
-        const st = try in_file.stat();
-        size = st.size;
+        const st = try file_reader.file.stat();
+        file_reader.size = st.size;
         break :blk st.mode;
     };
 
-    var atomic_file = try dest_dir.atomicFile(dest_path, .{ .mode = mode });
+    var buffer: [1024]u8 = undefined; // Used only when direct fd-to-fd is not available.
+    var atomic_file = try dest_dir.atomicFile(dest_path, .{
+        .mode = mode,
+        .write_buffer = &buffer,
+    });
     defer atomic_file.deinit();
 
-    try copy_file(in_file.handle, atomic_file.file.handle, size);
+    _ = atomic_file.file_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.WriteFailed => return atomic_file.file_writer.err.?,
+    };
+
     try atomic_file.finish();
-}
-
-const CopyFileRawError = error{SystemResources} || posix.CopyFileRangeError || posix.SendFileError;
-
-// Transfer all the data between two file descriptors in the most efficient way.
-// The copy starts at offset 0, the initial offsets are preserved.
-// No metadata is transferred over.
-fn copy_file(fd_in: posix.fd_t, fd_out: posix.fd_t, maybe_size: ?u64) CopyFileRawError!void {
-    if (builtin.target.isDarwin()) {
-        const rc = posix.system.fcopyfile(fd_in, fd_out, null, .{ .DATA = true });
-        switch (posix.errno(rc)) {
-            .SUCCESS => return,
-            .INVAL => unreachable,
-            .NOMEM => return error.SystemResources,
-            // The source file is not a directory, symbolic link, or regular file.
-            // Try with the fallback path before giving up.
-            .OPNOTSUPP => {},
-            else => |err| return posix.unexpectedErrno(err),
-        }
-    }
-
-    if (native_os == .linux) {
-        // Try copy_file_range first as that works at the FS level and is the
-        // most efficient method (if available).
-        var offset: u64 = 0;
-        cfr_loop: while (true) {
-            // The kernel checks the u64 value `offset+count` for overflow, use
-            // a 32 bit value so that the syscall won't return EINVAL except for
-            // impossibly large files (> 2^64-1 - 2^32-1).
-            const amt = try posix.copy_file_range(fd_in, offset, fd_out, offset, std.math.maxInt(u32), 0);
-            // Terminate as soon as we have copied size bytes or no bytes
-            if (maybe_size) |s| {
-                if (s == amt) break :cfr_loop;
-            }
-            if (amt == 0) break :cfr_loop;
-            offset += amt;
-        }
-        return;
-    }
-
-    // Sendfile is a zero-copy mechanism iff the OS supports it, otherwise the
-    // fallback code will copy the contents chunk by chunk.
-    const empty_iovec = [0]posix.iovec_const{};
-    var offset: u64 = 0;
-    sendfile_loop: while (true) {
-        const amt = try posix.sendfile(fd_out, fd_in, offset, 0, &empty_iovec, &empty_iovec, 0);
-        // Terminate as soon as we have copied size bytes or no bytes
-        if (maybe_size) |s| {
-            if (s == amt) break :sendfile_loop;
-        }
-        if (amt == 0) break :sendfile_loop;
-        offset += amt;
-    }
 }
 
 pub const AtomicFileOptions = struct {
     mode: File.Mode = File.default_mode,
     make_path: bool = false,
+    write_buffer: []u8,
 };
 
 /// Directly access the `.file` field, and then call `AtomicFile.finish` to
@@ -2661,9 +2657,9 @@ pub fn atomicFile(self: Dir, dest_path: []const u8, options: AtomicFileOptions) 
         else
             try self.openDir(dirname, .{});
 
-        return AtomicFile.init(fs.path.basename(dest_path), options.mode, dir, true);
+        return .init(fs.path.basename(dest_path), options.mode, dir, true, options.write_buffer);
     } else {
-        return AtomicFile.init(dest_path, options.mode, self, false);
+        return .init(dest_path, options.mode, self, false, options.write_buffer);
     }
 }
 
@@ -2761,30 +2757,3 @@ pub fn setPermissions(self: Dir, permissions: Permissions) SetPermissionsError!v
     const file: File = .{ .handle = self.fd };
     try file.setPermissions(permissions);
 }
-
-const Metadata = File.Metadata;
-pub const MetadataError = File.MetadataError;
-
-/// Returns a `Metadata` struct, representing the permissions on the directory
-pub fn metadata(self: Dir) MetadataError!Metadata {
-    const file: File = .{ .handle = self.fd };
-    return try file.metadata();
-}
-
-const Dir = @This();
-const builtin = @import("builtin");
-const std = @import("../std.zig");
-const File = std.fs.File;
-const AtomicFile = std.fs.AtomicFile;
-const base64_encoder = fs.base64_encoder;
-const crypto = std.crypto;
-const posix = std.posix;
-const mem = std.mem;
-const path = fs.path;
-const fs = std.fs;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const linux = std.os.linux;
-const windows = std.os.windows;
-const native_os = builtin.os.tag;
-const have_flock = @TypeOf(posix.system.flock) != void;

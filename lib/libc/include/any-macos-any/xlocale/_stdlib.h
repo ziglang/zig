@@ -24,10 +24,13 @@
 #ifndef _XLOCALE__STDLIB_H_
 #define _XLOCALE__STDLIB_H_
 
+#include <_bounds.h>
 #include <sys/cdefs.h>
 #include <sys/_types/_size_t.h>
 #include <sys/_types/_wchar_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 double	 atof_l(const char *, locale_t);
@@ -37,32 +40,32 @@ long	 atol_l(const char *, locale_t);
 long long
 	 atoll_l(const char *, locale_t);
 #endif /* !__DARWIN_NO_LONG_LONG */
-int	 mblen_l(const char *, size_t, locale_t);
-size_t	 mbstowcs_l(wchar_t * __restrict , const char * __restrict, size_t,
-	    locale_t);
-int	 mbtowc_l(wchar_t * __restrict, const char * __restrict, size_t,
-	    locale_t);
-double	 strtod_l(const char *, char **, locale_t) __DARWIN_ALIAS(strtod_l);
-float	 strtof_l(const char *, char **, locale_t) __DARWIN_ALIAS(strtof_l);
-long	 strtol_l(const char *, char **, int, locale_t);
+int	 mblen_l(const char *_LIBC_COUNT(__n), size_t __n, locale_t);
+size_t	 mbstowcs_l(wchar_t * __restrict _LIBC_COUNT(__n),
+	    const char * __restrict, size_t __n, locale_t);
+int	 mbtowc_l(wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE,
+	    const char * __restrict _LIBC_COUNT(__n), size_t __n, locale_t);
+double	 strtod_l(const char *, char *_LIBC_CSTR *, locale_t) __DARWIN_ALIAS(strtod_l);
+float	 strtof_l(const char *, char *_LIBC_CSTR *, locale_t) __DARWIN_ALIAS(strtof_l);
+long	 strtol_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 long double
-	 strtold_l(const char *, char **, locale_t);
+	 strtold_l(const char *, char *_LIBC_CSTR *, locale_t);
 long long
-	 strtoll_l(const char *, char **, int, locale_t);
+	 strtoll_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 #if !__DARWIN_NO_LONG_LONG
 long long
-	 strtoq_l(const char *, char **, int, locale_t);
+	 strtoq_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 #endif /* !__DARWIN_NO_LONG_LONG */
 unsigned long
-	 strtoul_l(const char *, char **, int, locale_t);
+	 strtoul_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 unsigned long long
-	 strtoull_l(const char *, char **, int, locale_t);
+	 strtoull_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 #if !__DARWIN_NO_LONG_LONG
 unsigned long long
-	 strtouq_l(const char *, char **, int, locale_t);
+	 strtouq_l(const char *, char *_LIBC_CSTR *, int, locale_t);
 #endif /* !__DARWIN_NO_LONG_LONG */
-size_t	 wcstombs_l(char * __restrict, const wchar_t * __restrict, size_t,
-	    locale_t);
+size_t	 wcstombs_l(char * __restric _LIBC_COUNT(__n),
+	    const wchar_t * __restrict, size_t __n, locale_t);
 int	 wctomb_l(char *, wchar_t, locale_t);
 
 /* Poison the following routines if -fshort-wchar is set */

@@ -10,13 +10,12 @@
 #define _LIBCPP___EXCEPTION_EXCEPTION_PTR_H
 
 #include <__config>
+#include <__cstddef/nullptr_t.h>
 #include <__exception/operations.h>
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__type_traits/decay.h>
-#include <cstddef>
 #include <cstdlib>
-#include <new>
 #include <typeinfo>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -67,7 +66,7 @@ class _LIBCPP_EXPORTED_FROM_ABI exception_ptr {
 
 public:
   // exception_ptr is basically a COW string.
-  using __trivially_relocatable = exception_ptr;
+  using __trivially_relocatable _LIBCPP_NODEBUG = exception_ptr;
 
   _LIBCPP_HIDE_FROM_ABI exception_ptr() _NOEXCEPT : __ptr_() {}
   _LIBCPP_HIDE_FROM_ABI exception_ptr(nullptr_t) _NOEXCEPT : __ptr_() {}
@@ -92,7 +91,7 @@ public:
 
 template <class _Ep>
 _LIBCPP_HIDE_FROM_ABI exception_ptr make_exception_ptr(_Ep __e) _NOEXCEPT {
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
 #    if _LIBCPP_AVAILABILITY_HAS_INIT_PRIMARY_EXCEPTION && __cplusplus >= 201103L
   using _Ep2 = __decay_t<_Ep>;
 
@@ -159,7 +158,7 @@ _LIBCPP_EXPORTED_FROM_ABI void swap(exception_ptr&, exception_ptr&) _NOEXCEPT;
 
 _LIBCPP_EXPORTED_FROM_ABI exception_ptr __copy_exception_ptr(void* __except, const void* __ptr);
 _LIBCPP_EXPORTED_FROM_ABI exception_ptr current_exception() _NOEXCEPT;
-_LIBCPP_NORETURN _LIBCPP_EXPORTED_FROM_ABI void rethrow_exception(exception_ptr);
+[[__noreturn__]] _LIBCPP_EXPORTED_FROM_ABI void rethrow_exception(exception_ptr);
 
 // This is a built-in template function which automagically extracts the required
 // information.

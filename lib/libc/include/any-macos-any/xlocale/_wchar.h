@@ -24,59 +24,68 @@
 #ifndef _XLOCALE__WCHAR_H_
 #define _XLOCALE__WCHAR_H_
 
+#include <_bounds.h>
 #include <_stdio.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
 #include <sys/_types/_mbstate_t.h>
 #include <sys/_types/_wint_t.h>
 #include <stddef.h> /* wchar_t */
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /* Initially added in Issue 4 */
 __BEGIN_DECLS
 wint_t	btowc_l(int, locale_t);
 wint_t	fgetwc_l(FILE *, locale_t);
-wchar_t	*fgetws_l(wchar_t * __restrict, int, FILE * __restrict, locale_t);
+wchar_t	*_LIBC_CSTR	fgetws_l(wchar_t * __restrict _LIBC_COUNT(__n), int __n,
+		FILE * __restrict, locale_t);
 wint_t	fputwc_l(wchar_t, FILE *, locale_t);
 int	fputws_l(const wchar_t * __restrict, FILE * __restrict, locale_t);
 int	fwprintf_l(FILE * __restrict, locale_t, const wchar_t * __restrict, ...);
 int	fwscanf_l(FILE * __restrict, locale_t, const wchar_t * __restrict, ...);
 wint_t	getwc_l(FILE *, locale_t);
 wint_t	getwchar_l(locale_t);
-size_t	mbrlen_l(const char * __restrict, size_t, mbstate_t * __restrict,
-	    locale_t);
-size_t	mbrtowc_l(wchar_t * __restrict, const char * __restrict, size_t,
+size_t	mbrlen_l(const char * __restrict _LIBC_COUNT(__n), size_t __n,
 	    mbstate_t * __restrict, locale_t);
+size_t	mbrtowc_l(wchar_t * __restrict _LIBC_UNSAFE_INDEXABLE,
+	    const char * __restrict _LIBC_COUNT(__n), size_t __n,
+		mbstate_t * __restrict, locale_t);
 int	mbsinit_l(const mbstate_t *, locale_t);
-size_t	mbsrtowcs_l(wchar_t * __restrict, const char ** __restrict, size_t,
-	    mbstate_t * __restrict, locale_t);
+size_t	mbsrtowcs_l(wchar_t * __restrict _LIBC_COUNT(__len),
+	    const char ** __restrict, size_t __len, mbstate_t * __restrict,
+		locale_t);
 wint_t	putwc_l(wchar_t, FILE *, locale_t);
 wint_t	putwchar_l(wchar_t, locale_t);
-int	swprintf_l(wchar_t * __restrict, size_t n, locale_t,
+int	swprintf_l(wchar_t * __restrict _LIBC_COUNT(n), size_t n, locale_t,
 		const wchar_t * __restrict, ...);
 int	swscanf_l(const wchar_t * __restrict, locale_t,
 		const wchar_t * __restrict, ...);
 wint_t	ungetwc_l(wint_t, FILE *, locale_t);
 int	vfwprintf_l(FILE * __restrict, locale_t, const wchar_t * __restrict,
 		__darwin_va_list);
-int	vswprintf_l(wchar_t * __restrict, size_t n, locale_t,
+int	vswprintf_l(wchar_t * __restrict _LIBC_COUNT(n), size_t n, locale_t,
 		const wchar_t * __restrict, __darwin_va_list);
 int	vwprintf_l(locale_t, const wchar_t * __restrict, __darwin_va_list);
-size_t	wcrtomb_l(char * __restrict, wchar_t, mbstate_t * __restrict,
-	    locale_t);
+size_t	wcrtomb_l(
+		char * __restrict _LIBC_UNSAFE_INDEXABLE /* __counted_by(MB_CUR_MAX), which is not a constant */,
+		wchar_t, mbstate_t * __restrict, locale_t);
 int	wcscoll_l(const wchar_t *, const wchar_t *, locale_t);
-size_t	wcsftime_l(wchar_t * __restrict, size_t, const wchar_t * __restrict,
-		const struct tm * __restrict, locale_t)
+size_t	wcsftime_l(wchar_t * __restrict _LIBC_COUNT(__n), size_t __n,
+		const wchar_t * __restrict, const struct tm * __restrict, locale_t)
 		__DARWIN_ALIAS(wcsftime_l);
-size_t	wcsrtombs_l(char * __restrict, const wchar_t ** __restrict, size_t,
-	    mbstate_t * __restrict, locale_t);
-double	wcstod_l(const wchar_t * __restrict, wchar_t ** __restrict, locale_t);
-long	wcstol_l(const wchar_t * __restrict, wchar_t ** __restrict, int,
-	    locale_t);
+size_t	wcsrtombs_l(char * __restrict _LIBC_COUNT(__len),
+	    const wchar_t ** __restrict, size_t __len, mbstate_t * __restrict,
+		locale_t);
+double	wcstod_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+		locale_t);
+long	wcstol_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+	    int, locale_t);
 unsigned long
-	wcstoul_l(const wchar_t * __restrict, wchar_t ** __restrict, int,
+	wcstoul_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict, int,
 	    locale_t);
-int	wcswidth_l(const wchar_t *, size_t, locale_t);
-size_t	wcsxfrm_l(wchar_t * __restrict, const wchar_t * __restrict, size_t,
-	    locale_t);
+int	wcswidth_l(const wchar_t *_LIBC_COUNT(__n), size_t __n, locale_t);
+size_t	wcsxfrm_l(wchar_t * __restrict _LIBC_COUNT(__n),
+		const wchar_t * __restrict, size_t __n, locale_t);
 int	wctob_l(wint_t, locale_t);
 int	wcwidth_l(wchar_t, locale_t);
 int	wprintf_l(locale_t, const wchar_t * __restrict, ...);
@@ -96,16 +105,18 @@ int	vfwscanf_l(FILE * __restrict, locale_t, const wchar_t * __restrict,
 int	vswscanf_l(const wchar_t * __restrict, locale_t,
 		const wchar_t * __restrict, __darwin_va_list);
 int	vwscanf_l(locale_t, const wchar_t * __restrict, __darwin_va_list);
-float	wcstof_l(const wchar_t * __restrict, wchar_t ** __restrict, locale_t);
+float	wcstof_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+		locale_t);
 long double
-	wcstold_l(const wchar_t * __restrict, wchar_t ** __restrict, locale_t);
+	wcstold_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+		locale_t);
 #if !__DARWIN_NO_LONG_LONG
 long long
-	wcstoll_l(const wchar_t * __restrict, wchar_t ** __restrict, int,
+	wcstoll_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict, int,
 	    locale_t);
 unsigned long long
-	wcstoull_l(const wchar_t * __restrict, wchar_t ** __restrict, int,
-	    locale_t);
+	wcstoull_l(const wchar_t * __restrict, wchar_t *_LIBC_CSTR * __restrict,
+	    int, locale_t);
 #endif /* !__DARWIN_NO_LONG_LONG */
 __END_DECLS
 #endif /* __DARWIN_C_LEVEL >= 200112L */
@@ -118,10 +129,12 @@ __END_DECLS
 
 #if __DARWIN_C_LEVEL >= 200809L
 __BEGIN_DECLS
-size_t	mbsnrtowcs_l(wchar_t * __restrict, const char ** __restrict, size_t,
-	    size_t, mbstate_t * __restrict, locale_t);
+size_t	mbsnrtowcs_l(wchar_t * __restrict _LIBC_COUNT(__len),
+		const char ** __restrict, size_t, size_t __len, mbstate_t * __restrict,
+		locale_t);
 int     wcscasecmp_l(const wchar_t *, const wchar_t *, locale_t) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
-int     wcsncasecmp_l(const wchar_t *, const wchar_t *, size_t n, locale_t) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
+int     wcsncasecmp_l(const wchar_t *_LIBC_UNSAFE_INDEXABLE,
+		const wchar_t *_LIBC_UNSAFE_INDEXABLE, size_t n, locale_t) __OSX_AVAILABLE_STARTING(__MAC_10_7, __IPHONE_4_3);
 size_t	wcsnrtombs_l(char * __restrict, const wchar_t ** __restrict, size_t,
 	    size_t, mbstate_t * __restrict, locale_t);
 __END_DECLS

@@ -1677,66 +1677,70 @@ class piecewise_linear_distribution
 } // std
 */
 
-#include <__config>
-#include <__random/bernoulli_distribution.h>
-#include <__random/binomial_distribution.h>
-#include <__random/cauchy_distribution.h>
-#include <__random/chi_squared_distribution.h>
-#include <__random/default_random_engine.h>
-#include <__random/discard_block_engine.h>
-#include <__random/discrete_distribution.h>
-#include <__random/exponential_distribution.h>
-#include <__random/extreme_value_distribution.h>
-#include <__random/fisher_f_distribution.h>
-#include <__random/gamma_distribution.h>
-#include <__random/generate_canonical.h>
-#include <__random/geometric_distribution.h>
-#include <__random/independent_bits_engine.h>
-#include <__random/is_seed_sequence.h>
-#include <__random/knuth_b.h>
-#include <__random/linear_congruential_engine.h>
-#include <__random/lognormal_distribution.h>
-#include <__random/mersenne_twister_engine.h>
-#include <__random/negative_binomial_distribution.h>
-#include <__random/normal_distribution.h>
-#include <__random/piecewise_constant_distribution.h>
-#include <__random/piecewise_linear_distribution.h>
-#include <__random/poisson_distribution.h>
-#include <__random/random_device.h>
-#include <__random/ranlux.h>
-#include <__random/seed_seq.h>
-#include <__random/shuffle_order_engine.h>
-#include <__random/student_t_distribution.h>
-#include <__random/subtract_with_carry_engine.h>
-#include <__random/uniform_int_distribution.h>
-#include <__random/uniform_random_bit_generator.h>
-#include <__random/uniform_real_distribution.h>
-#include <__random/weibull_distribution.h>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/random>
+#else
+#  include <__config>
+#  include <__random/bernoulli_distribution.h>
+#  include <__random/binomial_distribution.h>
+#  include <__random/cauchy_distribution.h>
+#  include <__random/chi_squared_distribution.h>
+#  include <__random/default_random_engine.h>
+#  include <__random/discard_block_engine.h>
+#  include <__random/discrete_distribution.h>
+#  include <__random/exponential_distribution.h>
+#  include <__random/extreme_value_distribution.h>
+#  include <__random/fisher_f_distribution.h>
+#  include <__random/gamma_distribution.h>
+#  include <__random/generate_canonical.h>
+#  include <__random/geometric_distribution.h>
+#  include <__random/independent_bits_engine.h>
+#  include <__random/is_seed_sequence.h>
+#  include <__random/knuth_b.h>
+#  include <__random/linear_congruential_engine.h>
+#  include <__random/lognormal_distribution.h>
+#  include <__random/mersenne_twister_engine.h>
+#  include <__random/negative_binomial_distribution.h>
+#  include <__random/normal_distribution.h>
+#  include <__random/piecewise_constant_distribution.h>
+#  include <__random/piecewise_linear_distribution.h>
+#  include <__random/poisson_distribution.h>
+#  include <__random/random_device.h>
+#  include <__random/ranlux.h>
+#  include <__random/seed_seq.h>
+#  include <__random/shuffle_order_engine.h>
+#  include <__random/student_t_distribution.h>
+#  include <__random/subtract_with_carry_engine.h>
+#  include <__random/uniform_int_distribution.h>
+#  include <__random/uniform_random_bit_generator.h>
+#  include <__random/uniform_real_distribution.h>
+#  include <__random/weibull_distribution.h>
+#  include <version>
 
 // standard-mandated includes
 
 // [rand.synopsis]
-#include <initializer_list>
+#  include <initializer_list>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <algorithm>
-#  include <climits>
-#  include <cmath>
-#  include <concepts>
-#  include <cstddef>
-#  include <cstdint>
-#  include <cstdlib>
-#  include <iosfwd>
-#  include <limits>
-#  include <numeric>
-#  include <string>
-#  include <type_traits>
-#  include <vector>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <algorithm>
+#    include <climits>
+#    include <cmath>
+#    include <concepts>
+#    include <cstddef>
+#    include <cstdint>
+#    include <cstdlib>
+#    include <iosfwd>
+#    include <limits>
+#    include <numeric>
+#    include <string>
+#    include <type_traits>
+#    include <vector>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_RANDOM

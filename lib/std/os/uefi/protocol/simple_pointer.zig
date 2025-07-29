@@ -4,22 +4,39 @@ const Event = uefi.Event;
 const Guid = uefi.Guid;
 const Status = uefi.Status;
 const cc = uefi.cc;
+const Error = Status.Error;
 
 /// Protocol for mice.
 pub const SimplePointer = struct {
-    _reset: *const fn (*const SimplePointer, bool) callconv(cc) Status,
+    _reset: *const fn (*SimplePointer, bool) callconv(cc) Status,
     _get_state: *const fn (*const SimplePointer, *State) callconv(cc) Status,
     wait_for_input: Event,
     mode: *Mode,
 
+    pub const ResetError = uefi.UnexpectedError || error{DeviceError};
+    pub const GetStateError = uefi.UnexpectedError || error{
+        NotReady,
+        DeviceError,
+    };
+
     /// Resets the pointer device hardware.
-    pub fn reset(self: *const SimplePointer, verify: bool) Status {
-        return self._reset(self, verify);
+    pub fn reset(self: *SimplePointer, verify: bool) ResetError!void {
+        switch (self._reset(self, verify)) {
+            .success => {},
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     /// Retrieves the current state of a pointer device.
-    pub fn getState(self: *const SimplePointer, state: *State) Status {
-        return self._get_state(self, state);
+    pub fn getState(self: *const SimplePointer) GetStateError!State {
+        var state: State = undefined;
+        switch (self._get_state(self, &state)) {
+            .success => return state,
+            .not_ready => return Error.NotReady,
+            .device_error => return Error.DeviceError,
+            else => |status| return uefi.unexpectedStatus(status),
+        }
     }
 
     pub const guid align(8) = Guid{

@@ -11,20 +11,20 @@
 #define _LIBCPP___BIT_REFERENCE
 
 #include <__algorithm/copy_n.h>
-#include <__algorithm/fill_n.h>
 #include <__algorithm/min.h>
 #include <__bit/countr.h>
-#include <__bit/invert_if.h>
-#include <__bit/popcount.h>
 #include <__compare/ordering.h>
 #include <__config>
+#include <__cstddef/ptrdiff_t.h>
+#include <__cstddef/size_t.h>
 #include <__fwd/bit_reference.h>
 #include <__iterator/iterator_traits.h>
 #include <__memory/construct_at.h>
 #include <__memory/pointer_traits.h>
 #include <__type_traits/conditional.h>
+#include <__type_traits/is_constant_evaluated.h>
+#include <__type_traits/void_t.h>
 #include <__utility/swap.h>
-#include <cstring>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -43,10 +43,22 @@ struct __has_storage_type {
   static const bool value = false;
 };
 
+template <class, class>
+struct __size_difference_type_traits {
+  using difference_type = ptrdiff_t;
+  using size_type       = size_t;
+};
+
+template <class _Cp>
+struct __size_difference_type_traits<_Cp, __void_t<typename _Cp::difference_type, typename _Cp::size_type> > {
+  using difference_type = typename _Cp::difference_type;
+  using size_type       = typename _Cp::size_type;
+};
+
 template <class _Cp, bool = __has_storage_type<_Cp>::value>
 class __bit_reference {
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__storage_pointer;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__storage_pointer;
 
   __storage_pointer __seg_;
   __storage_type __mask_;
@@ -57,7 +69,7 @@ class __bit_reference {
   friend class __bit_iterator<_Cp, false>;
 
 public:
-  using __container = typename _Cp::__self;
+  using __container _LIBCPP_NODEBUG = typename _Cp::__self;
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 __bit_reference(const __bit_reference&) = default;
 
@@ -137,8 +149,8 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(bool& __x, 
 
 template <class _Cp>
 class __bit_const_reference {
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__const_storage_pointer;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__const_storage_pointer;
 
   __storage_pointer __seg_;
   __storage_type __mask_;
@@ -147,7 +159,7 @@ class __bit_const_reference {
   friend class __bit_iterator<_Cp, true>;
 
 public:
-  using __container = typename _Cp::__self;
+  using __container _LIBCPP_NODEBUG = typename _Cp::__self;
 
   _LIBCPP_HIDE_FROM_ABI __bit_const_reference(const __bit_const_reference&) = default;
   __bit_const_reference& operator=(const __bit_const_reference&)            = delete;
@@ -589,10 +601,10 @@ inline _LIBCPP_HIDE_FROM_ABI __bit_iterator<_Cr, false> swap_ranges(
 
 template <class _Cp>
 struct __bit_array {
-  using difference_type   = typename _Cp::difference_type;
-  using __storage_type    = typename _Cp::__storage_type;
-  using __storage_pointer = typename _Cp::__storage_pointer;
-  using iterator          = typename _Cp::iterator;
+  using difference_type _LIBCPP_NODEBUG   = typename __size_difference_type_traits<_Cp>::difference_type;
+  using __storage_type _LIBCPP_NODEBUG    = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG = typename _Cp::__storage_pointer;
+  using iterator _LIBCPP_NODEBUG          = typename _Cp::iterator;
 
   static const unsigned __bits_per_word = _Cp::__bits_per_word;
   static const unsigned _Np             = 4;
@@ -781,7 +793,7 @@ equal(__bit_iterator<_Cp, _IC1> __first1, __bit_iterator<_Cp, _IC1> __last1, __b
 template <class _Cp, bool _IsConst, typename _Cp::__storage_type>
 class __bit_iterator {
 public:
-  using difference_type = typename _Cp::difference_type;
+  using difference_type = typename __size_difference_type_traits<_Cp>::difference_type;
   using value_type      = bool;
   using pointer         = __bit_iterator;
 #ifndef _LIBCPP_ABI_BITSET_VECTOR_BOOL_CONST_SUBSCRIPT_RETURN_BOOL
@@ -792,8 +804,8 @@ public:
   using iterator_category = random_access_iterator_tag;
 
 private:
-  using __storage_type = typename _Cp::__storage_type;
-  using __storage_pointer =
+  using __storage_type _LIBCPP_NODEBUG = typename _Cp::__storage_type;
+  using __storage_pointer _LIBCPP_NODEBUG =
       __conditional_t<_IsConst, typename _Cp::__const_storage_pointer, typename _Cp::__storage_pointer>;
 
   static const unsigned __bits_per_word = _Cp::__bits_per_word;
@@ -968,7 +980,7 @@ private:
 
   template <bool _FillVal, class _Dp>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend void
-  __fill_n_bool(__bit_iterator<_Dp, false> __first, typename _Dp::size_type __n);
+  __fill_n_bool(__bit_iterator<_Dp, false> __first, typename __size_difference_type_traits<_Dp>::size_type __n);
 
   template <class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, false> __copy_aligned(
@@ -1011,10 +1023,10 @@ private:
       equal(__bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC1>, __bit_iterator<_Dp, _IC2>);
   template <bool _ToFind, class _Dp, bool _IC>
   _LIBCPP_CONSTEXPR_SINCE_CXX20 friend __bit_iterator<_Dp, _IC>
-      __find_bool(__bit_iterator<_Dp, _IC>, typename _Dp::size_type);
+      __find_bool(__bit_iterator<_Dp, _IC>, typename __size_difference_type_traits<_Dp>::size_type);
   template <bool _ToCount, class _Dp, bool _IC>
-  friend typename __bit_iterator<_Dp, _IC>::difference_type _LIBCPP_HIDE_FROM_ABI
-  _LIBCPP_CONSTEXPR_SINCE_CXX20 __count_bool(__bit_iterator<_Dp, _IC>, typename _Dp::size_type);
+  friend typename __bit_iterator<_Dp, _IC>::difference_type _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
+  __count_bool(__bit_iterator<_Dp, _IC>, typename __size_difference_type_traits<_Dp>::size_type);
 };
 
 _LIBCPP_END_NAMESPACE_STD

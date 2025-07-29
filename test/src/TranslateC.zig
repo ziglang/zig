@@ -96,7 +96,7 @@ pub fn addCase(self: *TranslateCContext, case: *const TestCase) void {
     const target = b.resolveTargetQuery(case.target);
 
     if (self.test_target_filters.len > 0) {
-        const triple_txt = target.result.zigTriple(b.allocator) catch @panic("OOM");
+        const triple_txt = target.query.zigTriple(b.allocator) catch @panic("OOM");
 
         for (self.test_target_filters) |filter| {
             if (std.mem.indexOf(u8, triple_txt, filter) != null) break;

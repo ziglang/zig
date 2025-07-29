@@ -3,14 +3,13 @@ const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
-const ChildProcess = std.process.Child;
 const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
-const fatal = std.zig.fatal;
+const fatal = std.process.fatal;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -43,8 +42,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                const stdout = io.getStdOut().writer();
-                try stdout.writeAll(usage);
+                try fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "--code-dir")) {
                 if (args_it.next()) |param| {
@@ -76,9 +74,9 @@ pub fn main() !void {
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
-    const input_file_bytes = try in_file.reader().readAllAlloc(arena, max_doc_file_size);
+    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
 
-    var buffered_writer = io.bufferedWriter(out_file.writer());
+    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
 
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
@@ -426,7 +424,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         try toc.writeByte('\n');
                         try toc.writeByteNTimes(' ', header_stack_size * 4);
                         if (last_columns) |n| {
-                            try toc.print("<ul style=\"columns: {}\">\n", .{n});
+                            try toc.print("<ul style=\"columns: {d}\">\n", .{n});
                         } else {
                             try toc.writeAll("<ul>\n");
                         }
@@ -710,8 +708,6 @@ fn tokenizeAndPrintRaw(
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,
@@ -748,7 +744,6 @@ fn tokenizeAndPrintRaw(
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,
@@ -943,10 +938,10 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
     var cmd_cont: bool = false;
     var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
-        const line = mem.trimRight(u8, orig_line, " \r");
+        const line = mem.trimEnd(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {
@@ -955,7 +950,7 @@ fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
             try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimLeft(u8, line[1..], " ");
+            const s = std.mem.trimStart(u8, line[1..], " ");
             if (escape) {
                 try writeEscaped(out, s);
             } else {

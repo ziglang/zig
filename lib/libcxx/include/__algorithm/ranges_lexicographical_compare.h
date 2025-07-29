@@ -9,6 +9,8 @@
 #ifndef _LIBCPP___ALGORITHM_RANGES_LEXICOGRAPHICAL_COMPARE_H
 #define _LIBCPP___ALGORITHM_RANGES_LEXICOGRAPHICAL_COMPARE_H
 
+#include <__algorithm/lexicographical_compare.h>
+#include <__algorithm/unwrap_range.h>
 #include <__config>
 #include <__functional/identity.h>
 #include <__functional/invoke.h>
@@ -31,10 +33,9 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __lexicographical_compare {
-struct __fn {
+struct __lexicographical_compare {
   template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Proj1, class _Proj2, class _Comp>
-  _LIBCPP_HIDE_FROM_ABI constexpr static bool __lexicographical_compare_impl(
+  static _LIBCPP_HIDE_FROM_ABI constexpr bool __lexicographical_compare_unwrap(
       _Iter1 __first1,
       _Sent1 __last1,
       _Iter2 __first2,
@@ -42,15 +43,16 @@ struct __fn {
       _Comp& __comp,
       _Proj1& __proj1,
       _Proj2& __proj2) {
-    while (__first2 != __last2) {
-      if (__first1 == __last1 || std::invoke(__comp, std::invoke(__proj1, *__first1), std::invoke(__proj2, *__first2)))
-        return true;
-      if (std::invoke(__comp, std::invoke(__proj2, *__first2), std::invoke(__proj1, *__first1)))
-        return false;
-      ++__first1;
-      ++__first2;
-    }
-    return false;
+    auto [__first1_un, __last1_un] = std::__unwrap_range(std::move(__first1), std::move(__last1));
+    auto [__first2_un, __last2_un] = std::__unwrap_range(std::move(__first2), std::move(__last2));
+    return std::__lexicographical_compare(
+        std::move(__first1_un),
+        std::move(__last1_un),
+        std::move(__first2_un),
+        std::move(__last2_un),
+        __comp,
+        __proj1,
+        __proj2);
   }
 
   template <input_iterator _Iter1,
@@ -68,7 +70,7 @@ struct __fn {
       _Comp __comp   = {},
       _Proj1 __proj1 = {},
       _Proj2 __proj2 = {}) const {
-    return __lexicographical_compare_impl(
+    return __lexicographical_compare_unwrap(
         std::move(__first1), std::move(__last1), std::move(__first2), std::move(__last2), __comp, __proj1, __proj2);
   }
 
@@ -80,7 +82,7 @@ struct __fn {
                 _Comp = ranges::less>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
       _Range1&& __range1, _Range2&& __range2, _Comp __comp = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
-    return __lexicographical_compare_impl(
+    return __lexicographical_compare_unwrap(
         ranges::begin(__range1),
         ranges::end(__range1),
         ranges::begin(__range2),
@@ -90,10 +92,9 @@ struct __fn {
         __proj2);
   }
 };
-} // namespace __lexicographical_compare
 
 inline namespace __cpo {
-inline constexpr auto lexicographical_compare = __lexicographical_compare::__fn{};
+inline constexpr auto lexicographical_compare = __lexicographical_compare{};
 } // namespace __cpo
 } // namespace ranges
 

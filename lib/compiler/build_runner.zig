@@ -12,6 +12,7 @@ const Watch = std.Build.Watch;
 const Fuzz = std.Build.Fuzz;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 const runner = @This();
 
 pub const root = @import("@build");
@@ -202,6 +203,15 @@ pub fn main() !void {
                         next_arg, @errorName(err),
                     });
                 };
+            } else if (mem.eql(u8, arg, "--build-id")) {
+                builder.build_id = .fast;
+            } else if (mem.startsWith(u8, arg, "--build-id=")) {
+                const style = arg["--build-id=".len..];
+                builder.build_id = std.zig.BuildId.parse(style) catch |err| {
+                    fatal("unable to parse --build-id style '{s}': {s}", .{
+                        style, @errorName(err),
+                    });
+                };
             } else if (mem.eql(u8, arg, "--debounce")) {
                 const next_arg = nextArg(args, &arg_idx) orelse
                     fatalWithHint("expected u16 after '{s}'", .{arg});
@@ -227,13 +237,16 @@ pub fn main() !void {
                 graph.debug_compiler_runtime_libs = true;
             } else if (mem.eql(u8, arg, "--debug-compile-errors")) {
                 builder.debug_compile_errors = true;
+            } else if (mem.eql(u8, arg, "--debug-incremental")) {
+                builder.debug_incremental = true;
             } else if (mem.eql(u8, arg, "--system")) {
                 // The usage text shows another argument after this parameter
                 // but it is handled by the parent process. The build runner
                 // only sees this flag.
                 graph.system_package_mode = true;
-            } else if (mem.eql(u8, arg, "--glibc-runtimes")) {
-                builder.glibc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
+            } else if (mem.eql(u8, arg, "--libc-runtimes") or mem.eql(u8, arg, "--glibc-runtimes")) {
+                // --glibc-runtimes was the old name of the flag; kept for compatibility for now.
+                builder.libc_runtimes_dir = nextArgOrFatal(args, &arg_idx);
             } else if (mem.eql(u8, arg, "--verbose-link")) {
                 builder.verbose_link = true;
             } else if (mem.eql(u8, arg, "--verbose-air")) {
@@ -242,7 +255,7 @@ pub fn main() !void {
                 builder.verbose_llvm_ir = "-";
             } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
                 builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-            } else if (mem.eql(u8, arg, "--verbose-llvm-bc=")) {
+            } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
                 builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
@@ -318,7 +331,7 @@ pub fn main() !void {
         }
     }
 
-    const stderr = std.io.getStdErr();
+    const stderr: std.fs.File = .stderr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
@@ -337,6 +350,7 @@ pub fn main() !void {
         var prog_node = main_progress_node.start("Configure", 0);
         defer prog_node.end();
         try builder.runBuild(root);
+        createModuleDependencies(builder) catch @panic("OOM");
     }
 
     if (graph.needed_lazy_dependencies.entries.len != 0) {
@@ -352,7 +366,7 @@ pub fn main() !void {
             .data = buffer.items,
             .flags = .{ .exclusive = true },
         }) catch |err| {
-            fatal("unable to write configuration results to '{}{s}': {s}", .{
+            fatal("unable to write configuration results to '{f}{s}': {s}", .{
                 local_cache_directory, tmp_sub_path, @errorName(err),
             });
         };
@@ -365,13 +379,19 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    const stdout_writer = io.getStdOut().writer();
+    if (help_menu) {
+        var w = initStdoutWriter();
+        printUsage(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
 
-    if (help_menu)
-        return usage(builder, stdout_writer);
-
-    if (steps_menu)
-        return steps(builder, stdout_writer);
+    if (steps_menu) {
+        var w = initStdoutWriter();
+        printSteps(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
 
     var run: Run = .{
         .max_rss = max_rss,
@@ -402,7 +422,7 @@ pub fn main() !void {
         else => return err,
     };
 
-    var w = if (watch) try Watch.init() else undefined;
+    var w: Watch = if (watch and Watch.have_impl) try Watch.init() else undefined;
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
@@ -422,6 +442,9 @@ pub fn main() !void {
             else => return err,
         };
         if (fuzz) {
+            if (builtin.single_threaded) {
+                fatal("--fuzz not yet implemented for single-threaded builds", .{});
+            }
             switch (builtin.os.tag) {
                 // Current implementation depends on two things that need to be ported to Windows:
                 // * Memory-mapping to share data between the fuzzer and build runner.
@@ -429,6 +452,13 @@ pub fn main() !void {
                 //   many addresses to source locations).
                 .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
                 else => {},
+            }
+            if (@bitSizeOf(usize) != 64) {
+                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
+                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
+                // on 32-bit platforms.
+                // Affects or affected by issues #5185, #22523, and #22464.
+                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
             }
             const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
             try Fuzz.start(
@@ -579,7 +609,6 @@ fn prepare(
             if (run.max_rss_is_default) {
                 std.debug.print("note: use --maxrss to override the default", .{});
             }
-            return uncleanExit();
         }
     }
 }
@@ -667,31 +696,33 @@ fn runStepNames(
         .failures, .none => true,
         else => false,
     };
-    if (failure_count == 0 and failures_only) {
-        return run.cleanExit();
+    if (failure_count == 0) {
+        std.Progress.setStatus(.success);
+        if (failures_only) return run.cleanExit();
+    } else {
+        std.Progress.setStatus(.failure);
     }
 
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = run.stderr;
+        const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        defer std.debug.unlockStderrWriter();
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(stderr, .cyan) catch {};
-        stderr.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(stderr, .reset) catch {};
-        stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
+        ttyconf.setColor(w, .cyan) catch {};
+        w.writeAll("\nBuild Summary:") catch {};
+        ttyconf.setColor(w, .reset) catch {};
+        w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) w.print("; {d} failed", .{failure_count}) catch {};
 
-        if (test_count > 0) stderr.writer().print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-        if (test_skip_count > 0) stderr.writer().print("; {d} skipped", .{test_skip_count}) catch {};
-        if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
-        if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
+        if (test_count > 0) w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+        if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
+        if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
+        if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
 
-        stderr.writeAll("\n") catch {};
+        w.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
@@ -700,7 +731,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+            printTreeStep(b, b.default_step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -719,9 +750,10 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+                printTreeStep(b, &tls.step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
+        w.writeByte('\n') catch {};
     }
 
     if (failure_count == 0) {
@@ -732,7 +764,7 @@ fn runStepNames(
     if (run.prominent_compile_errors and total_compile_errors > 0) {
         for (step_stack.keys()) |s| {
             if (s.result_error_bundle.errorMessageCount() > 0) {
-                s.result_error_bundle.renderToStdErr(renderOptions(ttyconf));
+                s.result_error_bundle.renderToStdErr(.{ .ttyconf = ttyconf });
             }
         }
 
@@ -753,7 +785,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -767,7 +799,7 @@ fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void
     }
 }
 
-fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -776,7 +808,7 @@ fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
 
 fn printStepStatus(
     s: *Step,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     run: *const Run,
 ) !void {
@@ -798,10 +830,10 @@ fn printStepStatus(
                 try stderr.writeAll(" cached");
             } else if (s.test_results.test_count > 0) {
                 const pass_count = s.test_results.passCount();
-                try stderr.writer().print(" {d} passed", .{pass_count});
+                try stderr.print(" {d} passed", .{pass_count});
                 if (s.test_results.skip_count > 0) {
                     try ttyconf.setColor(stderr, .yellow);
-                    try stderr.writer().print(" {d} skipped", .{s.test_results.skip_count});
+                    try stderr.print(" {d} skipped", .{s.test_results.skip_count});
                 }
             } else {
                 try stderr.writeAll(" success");
@@ -810,15 +842,15 @@ fn printStepStatus(
             if (s.result_duration_ns) |ns| {
                 try ttyconf.setColor(stderr, .dim);
                 if (ns >= std.time.ns_per_min) {
-                    try stderr.writer().print(" {d}m", .{ns / std.time.ns_per_min});
+                    try stderr.print(" {d}m", .{ns / std.time.ns_per_min});
                 } else if (ns >= std.time.ns_per_s) {
-                    try stderr.writer().print(" {d}s", .{ns / std.time.ns_per_s});
+                    try stderr.print(" {d}s", .{ns / std.time.ns_per_s});
                 } else if (ns >= std.time.ns_per_ms) {
-                    try stderr.writer().print(" {d}ms", .{ns / std.time.ns_per_ms});
+                    try stderr.print(" {d}ms", .{ns / std.time.ns_per_ms});
                 } else if (ns >= std.time.ns_per_us) {
-                    try stderr.writer().print(" {d}us", .{ns / std.time.ns_per_us});
+                    try stderr.print(" {d}us", .{ns / std.time.ns_per_us});
                 } else {
-                    try stderr.writer().print(" {d}ns", .{ns});
+                    try stderr.print(" {d}ns", .{ns});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -826,13 +858,13 @@ fn printStepStatus(
                 const rss = s.result_peak_rss;
                 try ttyconf.setColor(stderr, .dim);
                 if (rss >= 1000_000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000});
+                    try stderr.print(" MaxRSS:{d}G", .{rss / 1000_000_000});
                 } else if (rss >= 1000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000});
+                    try stderr.print(" MaxRSS:{d}M", .{rss / 1000_000});
                 } else if (rss >= 1000) {
-                    try stderr.writer().print(" MaxRSS:{d}K", .{rss / 1000});
+                    try stderr.print(" MaxRSS:{d}K", .{rss / 1000});
                 } else {
-                    try stderr.writer().print(" MaxRSS:{d}B", .{rss});
+                    try stderr.print(" MaxRSS:{d}B", .{rss});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -844,7 +876,7 @@ fn printStepStatus(
             if (skip == .skipped_oom) {
                 try stderr.writeAll(" (not enough memory)");
                 try ttyconf.setColor(stderr, .dim);
-                try stderr.writer().print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
+                try stderr.print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
                 try ttyconf.setColor(stderr, .yellow);
             }
             try stderr.writeAll("\n");
@@ -856,23 +888,23 @@ fn printStepStatus(
 
 fn printStepFailure(
     s: *Step,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
-        try stderr.writer().print(" {d} errors\n", .{
+        try stderr.print(" {d} errors\n", .{
             s.result_error_bundle.errorMessageCount(),
         });
         try ttyconf.setColor(stderr, .reset);
     } else if (!s.test_results.isSuccess()) {
-        try stderr.writer().print(" {d}/{d} passed", .{
+        try stderr.print(" {d}/{d} passed", .{
             s.test_results.passCount(), s.test_results.test_count,
         });
         if (s.test_results.fail_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} failed", .{
+            try stderr.print("{d} failed", .{
                 s.test_results.fail_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -880,7 +912,7 @@ fn printStepFailure(
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.writer().print("{d} skipped", .{
+            try stderr.print("{d} skipped", .{
                 s.test_results.skip_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -888,7 +920,7 @@ fn printStepFailure(
         if (s.test_results.leak_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} leaked", .{
+            try stderr.print("{d} leaked", .{
                 s.test_results.leak_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -910,7 +942,7 @@ fn printTreeStep(
     b: *std.Build,
     s: *Step,
     run: *const Run,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
@@ -970,7 +1002,7 @@ fn printTreeStep(
         if (s.dependencies.items.len == 0) {
             try stderr.writeAll(" (reused)\n");
         } else {
-            try stderr.writer().print(" (+{d} more reused dependencies)\n", .{
+            try stderr.print(" (+{d} more reused dependencies)\n", .{
                 s.dependencies.items.len,
             });
         }
@@ -1107,11 +1139,11 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
+        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        defer std.debug.unlockStderrWriter();
 
         const gpa = b.allocator;
-        printErrorMessages(gpa, s, run.ttyconf, run.stderr, run.prominent_compile_errors) catch {};
+        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, bw, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
@@ -1120,6 +1152,7 @@ fn workerMakeOneStep(
         } else |err| switch (err) {
             error.MakeFailed => {
                 @atomicStore(Step.State, &s.state, .failure, .seq_cst);
+                std.Progress.setStatus(.failure_working);
                 break :handle_result;
             },
             error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
@@ -1167,8 +1200,8 @@ fn workerMakeOneStep(
 pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
-    ttyconf: std.io.tty.Config,
-    stderr: File,
+    options: std.zig.ErrorBundle.RenderOptions,
+    stderr: *Writer,
     prominent_compile_errors: bool,
 ) !void {
     // Provide context for where these error messages are coming from by
@@ -1182,11 +1215,12 @@ pub fn printErrorMessages(
     }
 
     // Now, `step_stack` has the subtree that we want to print, in reverse order.
+    const ttyconf = options.ttyconf;
     try ttyconf.setColor(stderr, .dim);
     var indent: usize = 0;
-    while (step_stack.popOrNull()) |s| : (indent += 1) {
+    while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
-            try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
+            try stderr.splatByteAll(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
         }
 
@@ -1207,8 +1241,9 @@ pub fn printErrorMessages(
         }
     }
 
-    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0)
-        try failing_step.result_error_bundle.renderToWriter(renderOptions(ttyconf), stderr.writer());
+    if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
+        try failing_step.result_error_bundle.renderToWriter(options, stderr);
+    }
 
     for (failing_step.result_error_msgs.items) |msg| {
         try ttyconf.setColor(stderr, .red);
@@ -1219,27 +1254,27 @@ pub fn printErrorMessages(
     }
 }
 
-fn steps(builder: *std.Build, out_stream: anytype) !void {
+fn printSteps(builder: *std.Build, w: *Writer) !void {
     const allocator = builder.allocator;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
             try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
+        try w.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
     }
 }
 
-fn usage(b: *std.Build, out_stream: anytype) !void {
-    try out_stream.print(
+fn printUsage(b: *std.Build, w: *Writer) !void {
+    try w.print(
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
     , .{b.graph.zig_exe});
-    try steps(b, out_stream);
+    try printSteps(b, w);
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\General Options:
         \\  -p, --prefix [path]          Where to install files (default: zig-out)
@@ -1256,9 +1291,10 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -fqemu,     -fno-qemu        Integration with system-installed QEMU to execute
         \\                               foreign-architecture programs on Linux hosts
         \\                               (default: no)
-        \\  --glibc-runtimes [path]      Enhances QEMU integration by providing glibc built
-        \\                               for multiple foreign architectures, allowing
-        \\                               execution of non-native programs that link with glibc.
+        \\  --libc-runtimes [path]       Enhances QEMU integration by providing dynamic libc
+        \\                               (e.g. glibc or musl) built for multiple foreign
+        \\                               architectures, allowing execution of non-native
+        \\                               programs that link with libc.
         \\  -frosetta,  -fno-rosetta     Rely on Rosetta to execute x86_64 programs on
         \\                               ARM64 macOS hosts. (default: no)
         \\  -fwasmtime, -fno-wasmtime    Integration with system-installed wasmtime to
@@ -1279,7 +1315,9 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
-        \\  --fetch                      Exit after fetching dependency tree
+        \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
+        \\    needed                     (Default) Lazy dependencies are fetched as needed
+        \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
         \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
@@ -1292,25 +1330,25 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
 
     const arena = b.allocator;
     if (b.available_options_list.items.len == 0) {
-        try out_stream.print("  (none)\n", .{});
+        try w.print("  (none)\n", .{});
     } else {
         for (b.available_options_list.items) |option| {
             const name = try fmt.allocPrint(arena, "  -D{s}=[{s}]", .{
                 option.name,
                 @tagName(option.type_id),
             });
-            try out_stream.print("{s:<30} {s}\n", .{ name, option.description });
+            try w.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
                 const padding = " " ** 33;
-                try out_stream.writeAll(padding ++ "Supported Values:\n");
+                try w.writeAll(padding ++ "Supported Values:\n");
                 for (enum_options) |enum_option| {
-                    try out_stream.print(padding ++ "  {s}\n", .{enum_option});
+                    try w.print(padding ++ "  {s}\n", .{enum_option});
                 }
             }
         }
     }
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\System Integration Options:
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
@@ -1325,7 +1363,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
     );
     if (b.graph.system_library_options.entries.len == 0) {
-        try out_stream.writeAll("  (none)                                        -\n");
+        try w.writeAll("  (none)                                        -\n");
     } else {
         for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
@@ -1333,11 +1371,11 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
                 .declared_disabled => "no",
                 .user_enabled, .user_disabled => unreachable, // already emitted error
             };
-            try out_stream.print("    {s:<43} {s}\n", .{ k, status });
+            try w.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
@@ -1350,6 +1388,13 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\  --zig-lib-dir [arg]          Override path to Zig lib directory
         \\  --build-runner [file]        Override path to build runner
         \\  --seed [integer]             For shuffling dependency traversal order (default: random)
+        \\  --build-id[=style]           At a minor link-time expense, embeds a build ID in binaries
+        \\      fast                     8-byte non-cryptographic hash (COFF, ELF, WASM)
+        \\      sha1, tree               20-byte cryptographic hash (ELF, WASM)
+        \\      md5                      16-byte cryptographic hash (ELF)
+        \\      uuid                     16-byte random UUID (ELF, WASM)
+        \\      0x[hexstring]            Constant ID, maximum 32 bytes (ELF, WASM)
+        \\      none                     (default) No build ID
         \\  --debug-log [scope]          Enable debugging the compiler
         \\  --debug-pkg-config           Fail if unknown pkg-config flags encountered
         \\  --debug-rt                   Debug compiler runtime libraries
@@ -1364,20 +1409,20 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
     );
 }
 
-fn nextArg(args: [][:0]const u8, idx: *usize) ?[:0]const u8 {
+fn nextArg(args: []const [:0]const u8, idx: *usize) ?[:0]const u8 {
     if (idx.* >= args.len) return null;
     defer idx.* += 1;
     return args[idx.*];
 }
 
-fn nextArgOrFatal(args: [][:0]const u8, idx: *usize) [:0]const u8 {
+fn nextArgOrFatal(args: []const [:0]const u8, idx: *usize) [:0]const u8 {
     return nextArg(args, idx) orelse {
         std.debug.print("expected argument after '{s}'\n  access the help menu with 'zig build -h'\n", .{args[idx.* - 1]});
         process.exit(1);
     };
 }
 
-fn argsRest(args: [][:0]const u8, idx: usize) ?[][:0]const u8 {
+fn argsRest(args: []const [:0]const u8, idx: usize) ?[]const [:0]const u8 {
     if (idx >= args.len) return null;
     return args[idx..];
 }
@@ -1409,14 +1454,6 @@ fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
     };
 }
 
-fn renderOptions(ttyconf: std.io.tty.Config) std.zig.ErrorBundle.RenderOptions {
-    return .{
-        .ttyconf = ttyconf,
-        .include_source_line = ttyconf != .no_color,
-        .include_reference_trace = ttyconf != .no_color,
-    };
-}
-
 fn fatalWithHint(comptime f: []const u8, args: anytype) noreturn {
     std.debug.print(f ++ "\n  access the help menu with 'zig build -h'\n", args);
     process.exit(1);
@@ -1439,4 +1476,90 @@ fn validateSystemLibraryOptions(b: *std.Build) void {
         std.debug.print("  access the help menu with 'zig build -h'\n", .{});
         process.exit(1);
     }
+}
+
+/// Starting from all top-level steps in `b`, traverses the entire step graph
+/// and adds all step dependencies implied by module graphs.
+fn createModuleDependencies(b: *std.Build) Allocator.Error!void {
+    const arena = b.graph.arena;
+
+    var all_steps: std.AutoArrayHashMapUnmanaged(*Step, void) = .empty;
+    var next_step_idx: usize = 0;
+
+    try all_steps.ensureUnusedCapacity(arena, b.top_level_steps.count());
+    for (b.top_level_steps.values()) |tls| {
+        all_steps.putAssumeCapacityNoClobber(&tls.step, {});
+    }
+
+    while (next_step_idx < all_steps.count()) {
+        const step = all_steps.keys()[next_step_idx];
+        next_step_idx += 1;
+
+        // Set up any implied dependencies for this step. It's important that we do this first, so
+        // that the loop below discovers steps implied by the module graph.
+        try createModuleDependenciesForStep(step);
+
+        try all_steps.ensureUnusedCapacity(arena, step.dependencies.items.len);
+        for (step.dependencies.items) |other_step| {
+            all_steps.putAssumeCapacity(other_step, {});
+        }
+    }
+}
+
+/// If the given `Step` is a `Step.Compile`, adds any dependencies for that step which
+/// are implied by the module graph rooted at `step.cast(Step.Compile).?.root_module`.
+fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
+    const root_module = if (step.cast(Step.Compile)) |cs| root: {
+        break :root cs.root_module;
+    } else return; // not a compile step so no module dependencies
+
+    // Starting from `root_module`, discover all modules in this graph.
+    const modules = root_module.getGraph().modules;
+
+    // For each of those modules, set up the implied step dependencies.
+    for (modules) |mod| {
+        if (mod.root_source_file) |lp| lp.addStepDependencies(step);
+        for (mod.include_dirs.items) |include_dir| switch (include_dir) {
+            .path,
+            .path_system,
+            .path_after,
+            .framework_path,
+            .framework_path_system,
+            .embed_path,
+            => |lp| lp.addStepDependencies(step),
+
+            .other_step => |other| {
+                other.getEmittedIncludeTree().addStepDependencies(step);
+                step.dependOn(&other.step);
+            },
+
+            .config_header_step => |other| step.dependOn(&other.step),
+        };
+        for (mod.lib_paths.items) |lp| lp.addStepDependencies(step);
+        for (mod.rpaths.items) |rpath| switch (rpath) {
+            .lazy_path => |lp| lp.addStepDependencies(step),
+            .special => {},
+        };
+        for (mod.link_objects.items) |link_object| switch (link_object) {
+            .static_path,
+            .assembly_file,
+            => |lp| lp.addStepDependencies(step),
+            .other_step => |other| step.dependOn(&other.step),
+            .system_lib => {},
+            .c_source_file => |source| source.file.addStepDependencies(step),
+            .c_source_files => |source_files| source_files.root.addStepDependencies(step),
+            .win32_resource_file => |rc_source| {
+                rc_source.file.addStepDependencies(step);
+                for (rc_source.include_paths) |lp| lp.addStepDependencies(step);
+            },
+        };
+    }
+}
+
+var stdio_buffer_allocation: [256]u8 = undefined;
+var stdout_writer_allocation: std.fs.File.Writer = undefined;
+
+fn initStdoutWriter() *Writer {
+    stdout_writer_allocation = std.fs.File.stdout().writerStreaming(&stdio_buffer_allocation);
+    return &stdout_writer_allocation.interface;
 }

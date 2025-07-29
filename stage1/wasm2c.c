@@ -109,7 +109,8 @@ int main(int argc, char **argv) {
 
     FILE *out = fopen(argv[2], "wb");
     if (out == NULL) panic("unable to open output file");
-    fputs("#include <math.h>\n"
+    fputs("#include <float.h>\n"
+          "#include <math.h>\n"
           "#include <stdint.h>\n"
           "#include <stdlib.h>\n"
           "#include <string.h>\n"
@@ -273,11 +274,52 @@ int main(int argc, char **argv) {
           "    return dst;\n"
           "}\n"
           "\n"
+          "static uint32_t i32_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint32_t)(signbit(src) == 0 ? INT32_MAX : INT32_MIN);\n"
+          "    return (uint32_t)(int32_t)src;\n"
+          "}\n"
+          "static uint32_t u32_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT32_MAX : 0;\n"
+          "    return (uint32_t)src;\n"
+          "}\n"
+          "static uint32_t i32_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint32_t)(signbit(src) == 0 ? INT32_MAX : INT32_MIN);\n"
+          "    return (uint32_t)(int32_t)src;\n"
+          "}\n"
+          "static uint32_t u32_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT32_MAX : 0;\n"
+          "    return (uint32_t)src;\n"
+          "}\n"
+          "static uint64_t i64_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint64_t)(signbit(src) == 0 ? INT64_MAX : INT64_MIN);\n"
+          "    return (uint64_t)(int64_t)src;\n"
+          "}\n"
+          "static uint64_t u64_trunc_sat_f32(const float src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT64_MAX : 0;\n"
+          "    return (uint64_t)src;\n"
+          "}\n"
+          "static uint64_t i64_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return (uint64_t)(signbit(src) == 0 ? INT64_MAX : INT64_MIN);\n"
+          "    return (uint64_t)(int64_t)src;\n"
+          "}\n"
+          "static uint64_t u64_trunc_sat_f64(const double src) {\n"
+          "    if (isnan(src)) return 0;\n"
+          "    if (isinf(src)) return signbit(src) == 0 ? UINT64_MAX : 0;\n"
+          "    return (uint64_t)src;\n"
+          "}\n"
+          "\n"
           "static uint32_t memory_grow(uint8_t **m, uint32_t *p, uint32_t *c, uint32_t n) {\n"
-          "    uint8_t *new_m = *m;\n"
           "    uint32_t r = *p;\n"
           "    uint32_t new_p = r + n;\n"
           "    if (new_p > UINT32_C(0xFFFF)) return UINT32_C(0xFFFFFFFF);\n"
+          "    uint8_t *new_m = *m;\n"
           "    uint32_t new_c = *c;\n"
           "    if (new_c < new_p) {\n"
           "        do new_c += new_c / 2 + 8; while (new_c < new_p);\n"
@@ -2074,14 +2116,61 @@ int main(int argc, char **argv) {
                     case WasmOpcode_prefixed:
                         switch (InputStream_readLeb128_u32(&in)) {
                             case WasmPrefixedOpcode_i32_trunc_sat_f32_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i32_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f32_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u32_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f64_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i32_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i32_trunc_sat_f64_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u32_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f32_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i64_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f32_u:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u64_trunc_sat_f32(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f64_s:
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "i64_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
                             case WasmPrefixedOpcode_i64_trunc_sat_f64_u:
-                                if (unreachable_depth == 0) panic("unimplemented opcode");
+                                if (unreachable_depth == 0) {
+                                    uint32_t lhs = FuncGen_stackPop(&fg);
+                                    FuncGen_stackPush(&fg, out, WasmValType_i32);
+                                    fprintf(out, "u64_trunc_sat_f64(l%" PRIu32 ");\n", lhs);
+                                }
+                                break;
 
                             case WasmPrefixedOpcode_memory_init:
                                 (void)InputStream_readLeb128_u32(&in);

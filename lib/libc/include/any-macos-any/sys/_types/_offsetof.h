@@ -25,6 +25,29 @@
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_END@
  */
+#if defined(__has_feature) && __has_feature(modules)
+#define USE_CLANG_STDDEF 1
+#else
+#define USE_CLANG_STDDEF 0
+#endif
+
+#if USE_CLANG_STDDEF
+
+#ifndef __OFFSETOF
+#define __OFFSETOF
+
+#define __need_offsetof
+#include <stddef.h>
+#undef __need_offsetof
+
+#endif /* __OFFSETOF */
+
+#else
+
 #ifndef offsetof
 #define offsetof(type, field) __offsetof(type, field)
 #endif /* offsetof */
+
+#endif
+
+#undef USE_CLANG_STDDEF

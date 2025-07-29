@@ -7,8 +7,8 @@
 //
 //===----------------------------------------------------------------------===//
 
-#ifndef _LIBCPP___LOCALE_LOCALE_BASE_API_IBM_H
-#define _LIBCPP___LOCALE_LOCALE_BASE_API_IBM_H
+#ifndef _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_IBM_H
+#define _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_IBM_H
 
 #if defined(__MVS__)
 #  include <__support/ibm/locale_mgmt_zos.h>
@@ -82,7 +82,7 @@ strtoull_l(const char* __nptr, char** __endptr, int __base, locale_t locale) {
 inline _LIBCPP_HIDE_FROM_ABI
 _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 2, 0) int vasprintf(char** strp, const char* fmt, va_list ap) {
   const size_t buff_size = 256;
-  if ((*strp = (char*)malloc(buff_size)) == NULL) {
+  if ((*strp = (char*)malloc(buff_size)) == nullptr) {
     return -1;
   }
 
@@ -97,7 +97,7 @@ _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 2, 0) int vasprintf(char** strp, const char
   va_end(ap_copy);
 
   if ((size_t)str_size >= buff_size) {
-    if ((*strp = (char*)realloc(*strp, str_size + 1)) == NULL) {
+    if ((*strp = (char*)realloc(*strp, str_size + 1)) == nullptr) {
       return -1;
     }
     str_size = vsnprintf(*strp, str_size + 1, fmt, ap);
@@ -105,4 +105,4 @@ _LIBCPP_ATTRIBUTE_FORMAT(__printf__, 2, 0) int vasprintf(char** strp, const char
   return str_size;
 }
 
-#endif // _LIBCPP___LOCALE_LOCALE_BASE_API_IBM_H
+#endif // _LIBCPP___LOCALE_DIR_LOCALE_BASE_API_IBM_H

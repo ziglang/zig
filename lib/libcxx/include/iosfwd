@@ -105,21 +105,24 @@ using wosyncstream = basic_osyncstream<wchar_t>;  // C++20
 
 */
 
-#include <__config>
-#include <__fwd/fstream.h>
-#include <__fwd/ios.h>
-#include <__fwd/istream.h>
-#include <__fwd/memory.h>
-#include <__fwd/ostream.h>
-#include <__fwd/sstream.h>
-#include <__fwd/streambuf.h>
-#include <__fwd/string.h>
-#include <__std_mbstate_t.h>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/iosfwd>
+#else
+#  include <__config>
+#  include <__fwd/fstream.h>
+#  include <__fwd/ios.h>
+#  include <__fwd/istream.h>
+#  include <__fwd/memory.h>
+#  include <__fwd/ostream.h>
+#  include <__fwd/sstream.h>
+#  include <__fwd/streambuf.h>
+#  include <__fwd/string.h>
+#  include <__std_mbstate_t.h>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -131,34 +134,34 @@ class _LIBCPP_TEMPLATE_VIS ostreambuf_iterator;
 template <class _State>
 class _LIBCPP_TEMPLATE_VIS fpos;
 typedef fpos<mbstate_t> streampos;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 typedef fpos<mbstate_t> wstreampos;
-#endif
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#  endif
+#  if _LIBCPP_HAS_CHAR8_T
 typedef fpos<mbstate_t> u8streampos;
-#endif
+#  endif
 typedef fpos<mbstate_t> u16streampos;
 typedef fpos<mbstate_t> u32streampos;
 
-#if _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
+#  if _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT>>
 class basic_syncbuf;
 
 using syncbuf = basic_syncbuf<char>;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 using wsyncbuf = basic_syncbuf<wchar_t>;
-#  endif
+#    endif
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT>>
 class basic_osyncstream;
 
 using osyncstream = basic_osyncstream<char>;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#    if _LIBCPP_HAS_WIDE_CHARACTERS
 using wosyncstream = basic_osyncstream<wchar_t>;
-#  endif
+#    endif
 
-#endif // _LIBCPP_STD_VER >= 20 && !defined(_LIBCPP_HAS_NO_EXPERIMENTAL_SYNCSTREAM)
+#  endif // _LIBCPP_STD_VER >= 20 && _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM
 
 template <class _CharT, class _Traits>
 class __save_flags {
@@ -170,8 +173,8 @@ class __save_flags {
   _CharT __fill_;
 
 public:
-    __save_flags(const __save_flags&) = delete;
-    __save_flags& operator=(const __save_flags&) = delete;
+  __save_flags(const __save_flags&)            = delete;
+  __save_flags& operator=(const __save_flags&) = delete;
 
   _LIBCPP_HIDE_FROM_ABI explicit __save_flags(__stream_type& __stream)
       : __stream_(__stream), __fmtflags_(__stream.flags()), __fill_(__stream.fill()) {}
@@ -182,5 +185,7 @@ public:
 };
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_IOSFWD

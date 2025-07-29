@@ -12,11 +12,14 @@ pub fn build(b: *std.Build) void {
 
     const exe = b.addExecutable(.{
         .name = "main",
-        .optimize = optimize,
-        .target = target,
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .optimize = optimize,
+            .target = target,
+            .link_libc = true,
+        }),
     });
-    exe.linkLibC();
-    exe.addCSourceFile(.{
+    exe.root_module.addCSourceFile(.{
         .file = b.path("main.c"),
         .flags = &.{},
     });

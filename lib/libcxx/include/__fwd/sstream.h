@@ -34,7 +34,7 @@ using istringstream = basic_istringstream<char>;
 using ostringstream = basic_ostringstream<char>;
 using stringstream  = basic_stringstream<char>;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 using wstringbuf     = basic_stringbuf<wchar_t>;
 using wistringstream = basic_istringstream<wchar_t>;
 using wostringstream = basic_ostringstream<wchar_t>;

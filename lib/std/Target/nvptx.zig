@@ -32,6 +32,14 @@ pub const Feature = enum {
     ptx83,
     ptx84,
     ptx85,
+    ptx86,
+    ptx87,
+    sm_100,
+    sm_100a,
+    sm_101,
+    sm_101a,
+    sm_120,
+    sm_120a,
     sm_20,
     sm_21,
     sm_30,
@@ -199,6 +207,46 @@ pub const all_features = blk: {
         .description = "Use PTX version 85",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.ptx86)] = .{
+        .llvm_name = "ptx86",
+        .description = "Use PTX version 86",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.ptx87)] = .{
+        .llvm_name = "ptx87",
+        .description = "Use PTX version 87",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_100)] = .{
+        .llvm_name = "sm_100",
+        .description = "Target SM 100",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_100a)] = .{
+        .llvm_name = "sm_100a",
+        .description = "Target SM 100a",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_101)] = .{
+        .llvm_name = "sm_101",
+        .description = "Target SM 101",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_101a)] = .{
+        .llvm_name = "sm_101a",
+        .description = "Target SM 101a",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_120)] = .{
+        .llvm_name = "sm_120",
+        .description = "Target SM 120",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.sm_120a)] = .{
+        .llvm_name = "sm_120a",
+        .description = "Target SM 120a",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.sm_20)] = .{
         .llvm_name = "sm_20",
         .description = "Target SM 20",
@@ -313,6 +361,54 @@ pub const all_features = blk: {
 };
 
 pub const cpu = struct {
+    pub const sm_100: CpuModel = .{
+        .name = "sm_100",
+        .llvm_name = "sm_100",
+        .features = featureSet(&[_]Feature{
+            .ptx86,
+            .sm_100,
+        }),
+    };
+    pub const sm_100a: CpuModel = .{
+        .name = "sm_100a",
+        .llvm_name = "sm_100a",
+        .features = featureSet(&[_]Feature{
+            .ptx86,
+            .sm_100a,
+        }),
+    };
+    pub const sm_101: CpuModel = .{
+        .name = "sm_101",
+        .llvm_name = "sm_101",
+        .features = featureSet(&[_]Feature{
+            .ptx86,
+            .sm_101,
+        }),
+    };
+    pub const sm_101a: CpuModel = .{
+        .name = "sm_101a",
+        .llvm_name = "sm_101a",
+        .features = featureSet(&[_]Feature{
+            .ptx86,
+            .sm_101a,
+        }),
+    };
+    pub const sm_120: CpuModel = .{
+        .name = "sm_120",
+        .llvm_name = "sm_120",
+        .features = featureSet(&[_]Feature{
+            .ptx87,
+            .sm_120,
+        }),
+    };
+    pub const sm_120a: CpuModel = .{
+        .name = "sm_120a",
+        .llvm_name = "sm_120a",
+        .features = featureSet(&[_]Feature{
+            .ptx87,
+            .sm_120a,
+        }),
+    };
     pub const sm_20: CpuModel = .{
         .name = "sm_20",
         .llvm_name = "sm_20",

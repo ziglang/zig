@@ -10,7 +10,6 @@ const Allocator = mem.Allocator;
 const Air = @import("../../Air.zig");
 const Mir = @import("Mir.zig");
 const Emit = @import("Emit.zig");
-const Liveness = @import("../../Liveness.zig");
 const Type = @import("../../Type.zig");
 const Value = @import("../../Value.zig");
 const link = @import("../../link.zig");
@@ -32,7 +31,6 @@ const wip_mir_log = std.log.scoped(.wip_mir);
 const Alignment = InternPool.Alignment;
 
 const CodeGenError = codegen.CodeGenError;
-const Result = codegen.Result;
 
 const bits = @import("bits.zig");
 const abi = @import("abi.zig");
@@ -53,18 +51,28 @@ const Instruction = encoding.Instruction;
 
 const InnerError = CodeGenError || error{OutOfRegisters};
 
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
+
 pt: Zcu.PerThread,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 bin_file: *link.File,
 gpa: Allocator,
 
 mod: *Package.Module,
 target: *const std.Target,
-debug_output: link.File.DebugInfoOutput,
-err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: InstTracking,
+func_index: InternPool.Index,
 fn_type: Type,
 arg_index: usize,
 src_loc: Zcu.LazySrcLoc,
@@ -83,6 +91,8 @@ scope_generation: u32,
 /// To perform the reloc, write 32-bit signed little-endian integer
 /// which is a relative jump, based on the address following the reloc.
 exitlude_jump_relocs: std.ArrayListUnmanaged(usize) = .empty,
+
+reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 
 /// Whenever there is a runtime branch, we push a Branch onto this stack,
 /// and pop it off when the runtime branch joins. This provides an "overlay"
@@ -162,12 +172,8 @@ const MCValue = union(enum) {
     immediate: u64,
     /// The value doesn't exist in memory yet.
     load_symbol: SymbolOffset,
-    /// A TLV value.
-    load_tlv: u32,
     /// The address of the memory location not-yet-allocated by the linker.
     lea_symbol: SymbolOffset,
-    /// The address of a TLV value.
-    lea_tlv: u32,
     /// The value is in a target-specific register.
     register: Register,
     /// The value is split across two registers
@@ -224,7 +230,6 @@ const MCValue = union(enum) {
             .lea_frame,
             .undef,
             .lea_symbol,
-            .lea_tlv,
             .air_ref,
             .reserved_frame,
             => false,
@@ -233,7 +238,6 @@ const MCValue = union(enum) {
             .register_pair,
             .register_offset,
             .load_symbol,
-            .load_tlv,
             .indirect,
             => true,
 
@@ -254,12 +258,10 @@ const MCValue = union(enum) {
             .undef,
             .air_ref,
             .lea_symbol,
-            .lea_tlv,
             .reserved_frame,
             => unreachable, // not in memory
 
             .load_symbol => |sym_off| .{ .lea_symbol = sym_off },
-            .load_tlv => |sym| .{ .lea_tlv = sym },
             .memory => |addr| .{ .immediate = addr },
             .load_frame => |off| .{ .lea_frame = off },
             .indirect => |reg_off| switch (reg_off.off) {
@@ -281,7 +283,6 @@ const MCValue = union(enum) {
             .register_pair,
             .load_frame,
             .load_symbol,
-            .load_tlv,
             .reserved_frame,
             => unreachable, // not a pointer
 
@@ -290,7 +291,6 @@ const MCValue = union(enum) {
             .register_offset => |reg_off| .{ .indirect = reg_off },
             .lea_frame => |off| .{ .load_frame = off },
             .lea_symbol => |sym_off| .{ .load_symbol = sym_off },
-            .lea_tlv => |sym| .{ .load_tlv = sym },
         };
     }
 
@@ -308,8 +308,6 @@ const MCValue = union(enum) {
             .indirect,
             .load_symbol,
             .lea_symbol,
-            .lea_tlv,
-            .load_tlv,
             => switch (off) {
                 0 => mcv,
                 else => unreachable,
@@ -367,8 +365,6 @@ const InstTracking = struct {
             .memory,
             .load_frame,
             .lea_frame,
-            .load_tlv,
-            .lea_tlv,
             .load_symbol,
             .lea_symbol,
             => result,
@@ -424,8 +420,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => inst_tracking.long,
             .dead,
             .register,
@@ -441,7 +435,7 @@ const InstTracking = struct {
     fn trackSpill(inst_tracking: *InstTracking, function: *Func, inst: Air.Inst.Index) !void {
         try function.freeValue(inst_tracking.short);
         inst_tracking.reuseFrame();
-        tracking_log.debug("%{d} => {} (spilled)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (spilled)", .{ inst, inst_tracking.* });
     }
 
     fn verifyMaterialize(inst_tracking: InstTracking, target: InstTracking) void {
@@ -454,8 +448,6 @@ const InstTracking = struct {
             .lea_frame,
             .load_symbol,
             .lea_symbol,
-            .load_tlv,
-            .lea_tlv,
             => assert(std.meta.eql(inst_tracking.long, target.long)),
             .load_frame,
             .reserved_frame,
@@ -507,14 +499,14 @@ const InstTracking = struct {
             else => target.long,
         } else target.long;
         inst_tracking.short = target.short;
-        tracking_log.debug("%{d} => {} (materialize)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (materialize)", .{ inst, inst_tracking.* });
     }
 
     fn resurrect(inst_tracking: *InstTracking, inst: Air.Inst.Index, scope_generation: u32) void {
         switch (inst_tracking.short) {
             .dead => |die_generation| if (die_generation >= scope_generation) {
                 inst_tracking.reuseFrame();
-                tracking_log.debug("%{d} => {} (resurrect)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (resurrect)", .{ inst, inst_tracking.* });
             },
             else => {},
         }
@@ -524,7 +516,7 @@ const InstTracking = struct {
         if (inst_tracking.short == .dead) return;
         try function.freeValue(inst_tracking.short);
         inst_tracking.short = .{ .dead = function.scope_generation };
-        tracking_log.debug("%{d} => {} (death)", .{ inst, inst_tracking.* });
+        tracking_log.debug("%{d} => {f} (death)", .{ inst, inst_tracking.* });
     }
 
     fn reuse(
@@ -535,15 +527,15 @@ const InstTracking = struct {
     ) void {
         inst_tracking.short = .{ .dead = function.scope_generation };
         if (new_inst) |inst|
-            tracking_log.debug("%{d} => {} (reuse %{d})", .{ inst, inst_tracking.*, old_inst })
+            tracking_log.debug("%{d} => {f} (reuse %{d})", .{ inst, inst_tracking.*, old_inst })
         else
-            tracking_log.debug("tmp => {} (reuse %{d})", .{ inst_tracking.*, old_inst });
+            tracking_log.debug("tmp => {f} (reuse %{d})", .{ inst_tracking.*, old_inst });
     }
 
     fn liveOut(inst_tracking: *InstTracking, function: *Func, inst: Air.Inst.Index) void {
         for (inst_tracking.getRegs()) |reg| {
             if (function.register_manager.isRegFree(reg)) {
-                tracking_log.debug("%{d} => {} (live-out)", .{ inst, inst_tracking.* });
+                tracking_log.debug("%{d} => {f} (live-out)", .{ inst, inst_tracking.* });
                 continue;
             }
 
@@ -570,16 +562,11 @@ const InstTracking = struct {
             // Perform side-effects of freeValue manually.
             function.register_manager.freeReg(reg);
 
-            tracking_log.debug("%{d} => {} (live-out %{d})", .{ inst, inst_tracking.*, tracked_inst });
+            tracking_log.debug("%{d} => {f} (live-out %{d})", .{ inst, inst_tracking.*, tracked_inst });
         }
     }
 
-    pub fn format(
-        inst_tracking: InstTracking,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer) std.io.Writer.Error!void {
         if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
         try writer.print("{}", .{inst_tracking.short});
     }
@@ -685,8 +672,7 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
 
     const ExpectedContents = [@typeInfo(RegisterManager.TrackedRegisters).array.len]RegisterLock;
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
-        if (opts.update_tracking)
-    {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
+        if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
 
     var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
         stack.get(),
@@ -757,18 +743,15 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
-    code: *std.ArrayList(u8),
-    debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+    air: *const Air,
+    liveness: *const ?Air.Liveness,
+) CodeGenError!Mir {
     const zcu = pt.zcu;
-    const comp = zcu.comp;
     const gpa = zcu.gpa;
     const ip = &zcu.intern_pool;
     const func = zcu.funcInfo(func_index);
     const fn_type = Type.fromInterned(func.ty);
-    const mod = zcu.navFileScope(func.owner_nav).mod;
+    const mod = zcu.navFileScope(func.owner_nav).mod.?;
 
     var branch_stack = std.ArrayList(Branch).init(gpa);
     defer {
@@ -780,17 +763,16 @@ pub fn generate(
 
     var function: Func = .{
         .gpa = gpa,
-        .air = air,
+        .air = air.*,
         .pt = pt,
         .mod = mod,
         .bin_file = bin_file,
-        .liveness = liveness,
+        .liveness = liveness.*.?,
         .target = &mod.resolved_target.result,
-        .debug_output = debug_output,
         .owner = .{ .nav_index = func.owner_nav },
-        .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = func_index,
         .fn_type = fn_type,
         .arg_index = 0,
         .branch_stack = &branch_stack,
@@ -815,7 +797,7 @@ pub fn generate(
         function.mir_instructions.deinit(gpa);
     }
 
-    wip_mir_log.debug("{}:", .{fmtNav(func.owner_nav, ip)});
+    wip_mir_log.debug("{f}:", .{fmtNav(func.owner_nav, ip)});
 
     try function.frame_allocs.resize(gpa, FrameIndex.named_count);
     function.frame_allocs.set(
@@ -829,10 +811,7 @@ pub fn generate(
 
     const fn_info = zcu.typeToFunc(fn_type).?;
     var call_info = function.resolveCallingConventionValues(fn_info, &.{}) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
         else => |e| return e,
     };
 
@@ -861,10 +840,8 @@ pub fn generate(
     }));
 
     function.gen() catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
@@ -872,51 +849,8 @@ pub fn generate(
         .instructions = function.mir_instructions.toOwnedSlice(),
         .frame_locs = function.frame_locs.toOwnedSlice(),
     };
-    defer mir.deinit(gpa);
-
-    var emit: Emit = .{
-        .lower = .{
-            .pt = pt,
-            .allocator = gpa,
-            .mir = mir,
-            .cc = fn_info.cc,
-            .src_loc = src_loc,
-            .output_mode = comp.config.output_mode,
-            .link_mode = comp.config.link_mode,
-            .pic = mod.pic,
-        },
-        .bin_file = bin_file,
-        .debug_output = debug_output,
-        .code = code,
-        .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
-    };
-    defer emit.deinit();
-
-    emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
-        error.InvalidInstruction => |e| {
-            const msg = switch (e) {
-                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
-            };
-            return Result{
-                .fail = try ErrorMsg.create(
-                    gpa,
-                    src_loc,
-                    "{s} This is a bug in the Zig compiler.",
-                    .{msg},
-                ),
-            };
-        },
-        else => |e| return e,
-    };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
+    errdefer mir.deinit(gpa);
+    return mir;
 }
 
 pub fn generateLazy(
@@ -924,9 +858,9 @@ pub fn generateLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    code: *std.ArrayList(u8),
+    code: *std.ArrayListUnmanaged(u8),
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!Result {
+) CodeGenError!void {
     const comp = bin_file.comp;
     const gpa = comp.gpa;
     const mod = comp.root_mod;
@@ -939,11 +873,10 @@ pub fn generateLazy(
         .bin_file = bin_file,
         .liveness = undefined,
         .target = &mod.resolved_target.result,
-        .debug_output = debug_output,
         .owner = .{ .lazy_sym = lazy_sym },
-        .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
+        .func_index = undefined,
         .fn_type = undefined,
         .arg_index = 0,
         .branch_stack = undefined,
@@ -957,10 +890,8 @@ pub fn generateLazy(
     defer function.mir_instructions.deinit(gpa);
 
     function.genLazy(lazy_sym) catch |err| switch (err) {
-        error.CodegenFail => return Result{ .fail = function.err_msg.? },
-        error.OutOfRegisters => return Result{
-            .fail = try ErrorMsg.create(gpa, src_loc, "CodeGen ran out of registers. This is a bug in the Zig compiler.", .{}),
-        },
+        error.CodegenFail => return error.CodegenFail,
+        error.OutOfRegisters => return function.fail("ran out of registers (Zig compiler bug)", .{}),
         else => |e| return e,
     };
 
@@ -991,40 +922,17 @@ pub fn generateLazy(
     defer emit.deinit();
 
     emit.emitMir() catch |err| switch (err) {
-        error.LowerFail, error.EmitFail => return Result{ .fail = emit.lower.err_msg.? },
-        error.InvalidInstruction => |e| {
-            const msg = switch (e) {
-                error.InvalidInstruction => "CodeGen failed to find a viable instruction.",
-            };
-            return Result{
-                .fail = try ErrorMsg.create(
-                    gpa,
-                    src_loc,
-                    "{s} This is a bug in the Zig compiler.",
-                    .{msg},
-                ),
-            };
-        },
+        error.LowerFail, error.EmitFail => return function.failMsg(emit.lower.err_msg.?),
+        error.InvalidInstruction => |e| return function.fail("emit MIR failed: {s} (Zig compiler bug)", .{@errorName(e)}),
         else => |e| return e,
     };
-
-    if (function.err_msg) |em| {
-        return Result{ .fail = em };
-    } else {
-        return Result.ok;
-    }
 }
 
 const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(
-    data: FormatWipMirData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -1064,7 +972,7 @@ fn formatWipMir(
         first = false;
     }
 }
-fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(formatWipMir) {
+fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(FormatWipMirData, formatWipMir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
@@ -1072,15 +980,10 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(
-    data: FormatNavData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    try writer.print("{}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
+fn formatNav(data: FormatNavData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    try writer.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
-fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(formatNav) {
+fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(FormatNavData, formatNav) {
     return .{ .data = .{
         .ip = ip,
         .nav_index = nav_index,
@@ -1091,36 +994,25 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(
-    data: FormatAirData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
-    @import("../../print_air.zig").dumpInst(
-        data.inst,
-        data.func.pt,
-        data.func.air,
-        data.func.liveness,
-    );
+fn formatAir(data: FormatAirData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    // Not acceptable implementation because it ignores `writer`:
+    //data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
+    _ = data;
+    _ = writer;
+    @panic("unimplemented");
 }
-fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(formatAir) {
+fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(
-    data: FormatTrackingData,
-    comptime _: []const u8,
-    _: std.fmt.FormatOptions,
-    writer: anytype,
-) @TypeOf(writer).Error!void {
+fn formatTracking(data: FormatTrackingData, writer: *std.io.Writer) std.io.Writer.Error!void {
     var it = data.func.inst_tracking.iterator();
-    while (it.next()) |entry| try writer.print("\n%{d} = {}", .{ entry.key_ptr.*, entry.value_ptr.* });
+    while (it.next()) |entry| try writer.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }
-fn fmtTracking(func: *Func) std.fmt.Formatter(formatTracking) {
+fn fmtTracking(func: *Func) std.fmt.Formatter(FormatTrackingData, formatTracking) {
     return .{ .data = .{ .func = func } };
 }
 
@@ -1136,7 +1028,7 @@ fn addInst(func: *Func, inst: Mir.Inst) error{OutOfMemory}!Mir.Inst.Index {
         .pseudo_dbg_epilogue_begin,
         .pseudo_dead,
         => false,
-    }) wip_mir_log.debug("{}", .{func.fmtWipMir(result_index)});
+    }) wip_mir_log.debug("{f}", .{func.fmtWipMir(result_index)});
     return result_index;
 }
 
@@ -1390,7 +1282,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
     switch (Type.fromInterned(lazy_sym.ty).zigTypeTag(zcu)) {
         .@"enum" => {
             const enum_ty = Type.fromInterned(lazy_sym.ty);
-            wip_mir_log.debug("{}.@tagName:", .{enum_ty.fmt(pt)});
+            wip_mir_log.debug("{f}.@tagName:", .{enum_ty.fmt(pt)});
 
             const param_regs = abi.Registers.Integer.function_arg_regs;
             const ret_reg = param_regs[0];
@@ -1472,7 +1364,7 @@ fn genLazy(func: *Func, lazy_sym: link.File.LazySymbol) InnerError!void {
             });
         },
         else => return func.fail(
-            "TODO implement {s} for {}",
+            "TODO implement {s} for {f}",
             .{ @tagName(lazy_sym.kind), Type.fromInterned(lazy_sym.ty).fmt(pt) },
         ),
     }
@@ -1486,12 +1378,15 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
     for (body) |inst| {
         if (func.liveness.isUnused(inst) and !func.air.mustLower(inst, ip)) continue;
-        wip_mir_log.debug("{}", .{func.fmtAir(inst)});
-        verbose_tracking_log.debug("{}", .{func.fmtTracking()});
+        wip_mir_log.debug("{f}", .{func.fmtAir(inst)});
+        verbose_tracking_log.debug("{f}", .{func.fmtTracking()});
 
         const old_air_bookkeeping = func.air_bookkeeping;
+        try func.ensureProcessDeathCapacity(Air.Liveness.bpi);
+
+        func.reused_operands = @TypeOf(func.reused_operands).initEmpty();
         try func.inst_tracking.ensureUnusedCapacity(func.gpa, 1);
-        const tag: Air.Inst.Tag = air_tags[@intFromEnum(inst)];
+        const tag = air_tags[@intFromEnum(inst)];
         switch (tag) {
             // zig fmt: off
             .add,
@@ -1503,7 +1398,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
 
             .mul,
             .mul_wrap,
-            .div_trunc, 
+            .div_trunc,
             .div_exact,
             .rem,
 
@@ -1521,13 +1416,13 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .max,
             => try func.airBinOp(inst, tag),
 
-                        
+
             .ptr_add,
             .ptr_sub => try func.airPtrArithmetic(inst, tag),
 
             .mod,
-            .div_float, 
-            .div_floor, 
+            .div_float,
+            .div_floor,
             => return func.fail("TODO: {s}", .{@tagName(tag)}),
 
             .sqrt,
@@ -1559,6 +1454,9 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .add_safe,
             .sub_safe,
             .mul_safe,
+            .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => return func.fail("TODO implement safety_checked_instructions", .{}),
 
             .cmp_lt,
@@ -1598,7 +1496,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .fpext           => try func.airFpext(inst),
             .intcast         => try func.airIntCast(inst),
             .trunc           => try func.airTrunc(inst),
-            .int_from_bool   => try func.airIntFromBool(inst),
             .is_non_null     => try func.airIsNonNull(inst),
             .is_non_null_ptr => try func.airIsNonNullPtr(inst),
             .is_null         => try func.airIsNull(inst),
@@ -1610,7 +1507,6 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .load            => try func.airLoad(inst),
             .loop            => try func.airLoop(inst),
             .not             => try func.airNot(inst),
-            .int_from_ptr    => try func.airIntFromPtr(inst),
             .ret             => try func.airRet(inst, false),
             .ret_safe        => try func.airRet(inst, true),
             .ret_load        => try func.airRetLoad(inst),
@@ -1625,6 +1521,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .atomic_rmw      => try func.airAtomicRmw(inst),
             .atomic_load     => try func.airAtomicLoad(inst),
             .memcpy          => try func.airMemcpy(inst),
+            .memmove         => try func.airMemmove(inst),
             .memset          => try func.airMemset(inst, false),
             .memset_safe     => try func.airMemset(inst, true),
             .set_union_tag   => try func.airSetUnionTag(inst),
@@ -1639,7 +1536,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .error_name      => try func.airErrorName(inst),
             .splat           => try func.airSplat(inst),
             .select          => try func.airSelect(inst),
-            .shuffle         => try func.airShuffle(inst),
+            .shuffle_one     => try func.airShuffleOne(inst),
+            .shuffle_two     => try func.airShuffleTwo(inst),
             .reduce          => try func.airReduce(inst),
             .aggregate_init  => try func.airAggregateInit(inst),
             .union_init      => try func.airUnionInit(inst),
@@ -1682,7 +1580,7 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .ptr_slice_ptr_ptr => try func.airPtrSlicePtrPtr(inst),
 
             .array_elem_val      => try func.airArrayElemVal(inst),
-            
+
             .slice_elem_val      => try func.airSliceElemVal(inst),
             .slice_elem_ptr      => try func.airSliceElemPtr(inst),
 
@@ -1707,6 +1605,8 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
             .wrap_optional         => try func.airWrapOptional(inst),
             .wrap_errunion_payload => try func.airWrapErrUnionPayload(inst),
             .wrap_errunion_err     => try func.airWrapErrUnionErr(inst),
+
+            .runtime_nav_ptr => try func.airRuntimeNavPtr(inst),
 
             .add_optimized,
             .sub_optimized,
@@ -1758,18 +1658,18 @@ fn genBody(func: *Func, body: []const Air.Inst.Index) InnerError!void {
                 var it = func.register_manager.free_registers.iterator(.{ .kind = .unset });
                 while (it.next()) |index| {
                     const tracked_inst = func.register_manager.registers[index];
-                    tracking_log.debug("tracked inst: {}", .{tracked_inst});
+                    tracking_log.debug("tracked inst: {f}", .{tracked_inst});
                     const tracking = func.getResolvedInstValue(tracked_inst);
                     for (tracking.getRegs()) |reg| {
                         if (RegisterManager.indexOfRegIntoTracked(reg).? == index) break;
                     } else return std.debug.panic(
-                        \\%{} takes up these regs: {any}, however this regs {any}, don't use it
+                        \\%{f} takes up these regs: {any}, however this regs {any}, don't use it
                     , .{ tracked_inst, tracking.getRegs(), RegisterManager.regAtTrackedIndex(@intCast(index)) });
                 }
             }
         }
     }
-    verbose_tracking_log.debug("{}", .{func.fmtTracking()});
+    verbose_tracking_log.debug("{f}", .{func.fmtTracking()});
 }
 
 fn getValue(func: *Func, value: MCValue, inst: ?Air.Inst.Index) !void {
@@ -1790,9 +1690,9 @@ fn freeValue(func: *Func, value: MCValue) !void {
     }
 }
 
-fn feed(func: *Func, bt: *Liveness.BigTomb, operand: Air.Inst.Ref) !void {
+fn feed(func: *Func, bt: *Air.Liveness.BigTomb, operand: Air.Inst.Ref) !void {
     if (bt.feed()) if (operand.toIndex()) |inst| {
-        log.debug("feed inst: %{}", .{inst});
+        log.debug("feed inst: %{f}", .{inst});
         try func.processDeath(inst);
     };
 }
@@ -1812,8 +1712,15 @@ fn finishAirBookkeeping(func: *Func) void {
 fn finishAirResult(func: *Func, inst: Air.Inst.Index, result: MCValue) void {
     if (func.liveness.isUnused(inst)) switch (result) {
         .none, .dead, .unreach => {},
-        else => unreachable, // Why didn't the result die?
+        // Why didn't the result die?
+        .register => |r| if (r != .zero) unreachable,
+        else => unreachable,
     } else {
+        switch (result) {
+            .register => |r| if (r == .zero) unreachable, // Why did we discard a used result?
+            else => {},
+        }
+
         tracking_log.debug("%{d} => {} (birth)", .{ inst, result });
         func.inst_tracking.putAssumeCapacityNoClobber(inst, InstTracking.init(result));
         // In some cases, an operand may be reused as the result.
@@ -1828,13 +1735,12 @@ fn finishAir(
     func: *Func,
     inst: Air.Inst.Index,
     result: MCValue,
-    operands: [Liveness.bpi - 1]Air.Inst.Ref,
+    operands: [Air.Liveness.bpi - 1]Air.Inst.Ref,
 ) !void {
-    var tomb_bits = func.liveness.getTombBits(inst);
-    for (operands) |op| {
-        const dies = @as(u1, @truncate(tomb_bits)) != 0;
-        tomb_bits >>= 1;
-        if (!dies) continue;
+    const tomb_bits = func.liveness.getTombBits(inst);
+    for (0.., operands) |op_index, op| {
+        if (tomb_bits & @as(Air.Liveness.Bpi, 1) << @intCast(op_index) == 0) continue;
+        if (func.reused_operands.isSet(op_index)) continue;
         try func.processDeath(op.toIndexAllowNone() orelse continue);
     }
     func.finishAirResult(inst, result);
@@ -1916,7 +1822,7 @@ fn computeFrameLayout(func: *Func) !FrameLayout {
         total_alloc_size + 64 + args_frame_size + spill_frame_size + call_frame_size,
         @intCast(frame_align[@intFromEnum(FrameIndex.base_ptr)].toByteUnits().?),
     );
-    log.debug("frame size: {}", .{acc_frame_size});
+    log.debug("frame size: {d}", .{acc_frame_size});
 
     // store the ra at total_size - 8, so it's the very first thing in the stack
     // relative to the fp
@@ -1954,7 +1860,7 @@ fn memSize(func: *Func, ty: Type) Memory.Size {
     const pt = func.pt;
     const zcu = pt.zcu;
     return switch (ty.zigTypeTag(zcu)) {
-        .float => Memory.Size.fromBitSize(ty.floatBits(func.target.*)),
+        .float => Memory.Size.fromBitSize(ty.floatBits(func.target)),
         else => Memory.Size.fromByteSize(ty.abiSize(zcu)),
     };
 }
@@ -1980,7 +1886,7 @@ fn splitType(func: *Func, ty: Type) ![2]Type {
             else => return func.fail("TODO: splitType class {}", .{class}),
         };
     } else if (parts[0].abiSize(zcu) + parts[1].abiSize(zcu) == ty.abiSize(zcu)) return parts;
-    return func.fail("TODO implement splitType for {}", .{ty.fmt(func.pt)});
+    return func.fail("TODO implement splitType for {f}", .{ty.fmt(func.pt)});
 }
 
 /// Truncates the value in the register in place.
@@ -2093,7 +1999,7 @@ fn allocMemPtr(func: *Func, inst: Air.Inst.Index) !FrameIndex {
     const val_ty = ptr_ty.childType(zcu);
     return func.allocFrameIndex(FrameAlloc.init(.{
         .size = math.cast(u32, val_ty.abiSize(zcu)) orelse {
-            return func.fail("type '{}' too big to fit into stack frame", .{val_ty.fmt(pt)});
+            return func.fail("type '{f}' too big to fit into stack frame", .{val_ty.fmt(pt)});
         },
         .alignment = ptr_ty.ptrAlignment(zcu).max(.@"1"),
     }));
@@ -2233,7 +2139,7 @@ pub fn spillRegisters(func: *Func, comptime registers: []const Register) !void {
 /// allocated. A second call to `copyToTmpRegister` may return the same register.
 /// This can have a side effect of spilling instructions to the stack to free up a register.
 fn copyToTmpRegister(func: *Func, ty: Type, mcv: MCValue) !Register {
-    log.debug("copyToTmpRegister ty: {}", .{ty.fmt(func.pt)});
+    log.debug("copyToTmpRegister ty: {f}", .{ty.fmt(func.pt)});
     const reg = try func.register_manager.allocReg(null, func.regTempClassForType(ty));
     try func.genSetReg(ty, reg, mcv);
     return reg;
@@ -2304,7 +2210,7 @@ fn airIntCast(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_mcv = if (dst_int_info.bits <= src_storage_bits and
             math.divCeil(u16, dst_int_info.bits, 64) catch unreachable ==
-            math.divCeil(u32, src_storage_bits, 64) catch unreachable and
+                math.divCeil(u32, src_storage_bits, 64) catch unreachable and
             func.reuseOperand(inst, ty_op.operand, 0, src_mcv)) src_mcv else dst: {
             const dst_mcv = try func.allocRegOrMem(dst_ty, inst, true);
             try func.genCopy(min_ty, dst_mcv, src_mcv);
@@ -2318,7 +2224,7 @@ fn airIntCast(func: *Func, inst: Air.Inst.Index) !void {
             break :result null; // TODO
 
         break :result dst_mcv;
-    } orelse return func.fail("TODO: implement airIntCast from {} to {}", .{
+    } orelse return func.fail("TODO: implement airIntCast from {f} to {f}", .{
         src_ty.fmt(pt), dst_ty.fmt(pt),
     });
 
@@ -2341,13 +2247,6 @@ fn airTrunc(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, operand, .{ ty_op.operand, .none, .none });
 }
 
-fn airIntFromBool(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const operand = try func.resolveInst(un_op);
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else operand;
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
-}
-
 fn airNot(func: *Func, inst: Air.Inst.Index) !void {
     const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
     const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else result: {
@@ -2362,9 +2261,9 @@ fn airNot(func: *Func, inst: Air.Inst.Index) !void {
 
         const dst_reg: Register =
             if (func.reuseOperand(inst, ty_op.operand, 0, operand) and operand == .register)
-            operand.register
-        else
-            (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
+                operand.register
+            else
+                (try func.allocRegOrMem(func.typeOfIndex(inst), inst, true)).register;
 
         switch (ty.zigTypeTag(zcu)) {
             .bool => {
@@ -2481,7 +2380,7 @@ fn binOp(
     const rhs_ty = func.typeOf(rhs_air);
 
     if (lhs_ty.isRuntimeFloat()) libcall: {
-        const float_bits = lhs_ty.floatBits(func.target.*);
+        const float_bits = lhs_ty.floatBits(func.target);
         const type_needs_libcall = switch (float_bits) {
             16 => true,
             32, 64 => false,
@@ -2713,7 +2612,7 @@ fn genBinOp(
         .add_sat,
         => {
             if (bit_size != 64 or !is_unsigned)
-                return func.fail("TODO: genBinOp ty: {}", .{lhs_ty.fmt(pt)});
+                return func.fail("TODO: genBinOp ty: {f}", .{lhs_ty.fmt(pt)});
 
             const tmp_reg = try func.copyToTmpRegister(rhs_ty, .{ .register = rhs_reg });
             const tmp_lock = func.register_manager.lockRegAssumeUnused(tmp_reg);
@@ -2825,6 +2724,7 @@ fn genBinOp(
         .shl,
         .shl_exact,
         => {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) return func.fail("TODO: vector shift with scalar rhs", .{});
             if (bit_size > 64) return func.fail("TODO: genBinOp shift > 64 bits, {}", .{bit_size});
             try func.truncateRegister(rhs_ty, rhs_reg);
 
@@ -3309,8 +3209,14 @@ fn airMulWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlWithOverflow(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlWithOverflow", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlWithOverflow with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlWithOverflow", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3327,8 +3233,14 @@ fn airMulSat(func: *Func, inst: Air.Inst.Index) !void {
 }
 
 fn airShlSat(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
     const bin_op = func.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShlSat", .{});
+    const result: MCValue = if (func.liveness.isUnused(inst))
+        .unreach
+    else if (func.typeOf(bin_op.lhs).isVector(zcu) and !func.typeOf(bin_op.rhs).isVector(zcu))
+        return func.fail("TODO implement vector airShlSat with scalar rhs", .{})
+    else
+        return func.fail("TODO implement airShlSat", .{});
     return func.finishAir(inst, result, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -3664,10 +3576,52 @@ fn airWrapErrUnionErr(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
 
+fn airRuntimeNavPtr(func: *Func, inst: Air.Inst.Index) !void {
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const ty_nav = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const ptr_ty: Type = .fromInterned(ty_nav.ty);
+
+    const nav = ip.getNav(ty_nav.nav);
+    const tlv_sym_index = if (func.bin_file.cast(.elf)) |elf_file| sym: {
+        const zo = elf_file.zigObjectPtr().?;
+        if (nav.getExtern(ip)) |e| {
+            break :sym try elf_file.getGlobalSymbol(nav.name.toSlice(ip), e.lib_name.toSlice(ip));
+        }
+        break :sym try zo.getOrCreateMetadataForNav(zcu, ty_nav.nav);
+    } else return func.fail("TODO runtime_nav_ptr on {}", .{func.bin_file.tag});
+
+    const dest_mcv = try func.allocRegOrMem(ptr_ty, inst, true);
+    if (dest_mcv.isRegister()) {
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = dest_mcv.getReg().?,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+    } else {
+        const tmp_reg, const tmp_lock = try func.allocReg(.int);
+        defer func.register_manager.unlockReg(tmp_lock);
+        _ = try func.addInst(.{
+            .tag = .pseudo_load_tlv,
+            .data = .{ .reloc = .{
+                .register = tmp_reg,
+                .atom_index = try func.owner.getSymbolIndex(func),
+                .sym_index = tlv_sym_index,
+            } },
+        });
+        try func.genCopy(ptr_ty, dest_mcv, .{ .register = tmp_reg });
+    }
+
+    return func.finishAir(inst, dest_mcv, .{ .none, .none, .none });
+}
+
 fn airTry(func: *Func, inst: Air.Inst.Index) !void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = func.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]);
     const operand_ty = func.typeOf(pl_op.operand);
     const result = try func.genTry(inst, pl_op.operand, body, operand_ty, false);
     return func.finishAir(inst, result, .{ .none, .none, .none });
@@ -4090,7 +4044,7 @@ fn airGetUnionTag(func: *Func, inst: Air.Inst.Index) !void {
                 );
             } else {
                 return func.fail(
-                    "TODO implement get_union_tag for ABI larger than 8 bytes and operand {}, tag {}",
+                    "TODO implement get_union_tag for ABI larger than 8 bytes and operand {}, tag {f}",
                     .{ frame_mcv, tag_ty.fmt(pt) },
                 );
             }
@@ -4211,7 +4165,7 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
 
         switch (scalar_ty.zigTypeTag(zcu)) {
             .int => if (ty.zigTypeTag(zcu) == .vector) {
-                return func.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
+                return func.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
             } else {
                 const int_info = scalar_ty.intInfo(zcu);
                 const int_bits = int_info.bits;
@@ -4292,7 +4246,7 @@ fn airAbs(func: *Func, inst: Air.Inst.Index) !void {
 
                 break :result return_mcv;
             },
-            else => return func.fail("TODO: implement airAbs {}", .{scalar_ty.fmt(pt)}),
+            else => return func.fail("TODO: implement airAbs {f}", .{scalar_ty.fmt(pt)}),
         }
 
         break :result .unreach;
@@ -4356,7 +4310,7 @@ fn airByteSwap(func: *Func, inst: Air.Inst.Index) !void {
 
                 break :result dest_mcv;
             },
-            else => return func.fail("TODO: airByteSwap {}", .{ty.fmt(pt)}),
+            else => return func.fail("TODO: airByteSwap {f}", .{ty.fmt(pt)}),
         }
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
@@ -4422,7 +4376,7 @@ fn airUnaryMath(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                     else => return func.fail("TODO: airUnaryMath Float {s}", .{@tagName(tag)}),
                 }
             },
-            else => return func.fail("TODO: airUnaryMath ty: {}", .{ty.fmt(pt)}),
+            else => return func.fail("TODO: airUnaryMath ty: {f}", .{ty.fmt(pt)}),
         }
 
         break :result MCValue{ .register = dst_reg };
@@ -4435,7 +4389,7 @@ fn reuseOperand(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
 ) bool {
     return func.reuseOperandAdvanced(inst, operand, op_index, mcv, inst);
@@ -4445,7 +4399,7 @@ fn reuseOperandAdvanced(
     func: *Func,
     inst: Air.Inst.Index,
     operand: Air.Inst.Ref,
-    op_index: Liveness.OperandInt,
+    op_index: Air.Liveness.OperandInt,
     mcv: MCValue,
     maybe_tracked_inst: ?Air.Inst.Index,
 ) bool {
@@ -4471,7 +4425,7 @@ fn reuseOperandAdvanced(
     }
 
     // Prevent the operand deaths processing code from deallocating it.
-    func.liveness.clearOperandDeath(inst, op_index);
+    func.reused_operands.set(op_index);
     const op_inst = operand.toIndex().?;
     func.getResolvedInstValue(op_inst).reuse(func, maybe_tracked_inst, op_inst);
 
@@ -4522,7 +4476,7 @@ fn load(func: *Func, dst_mcv: MCValue, ptr_mcv: MCValue, ptr_ty: Type) InnerErro
     const zcu = pt.zcu;
     const dst_ty = ptr_ty.childType(zcu);
 
-    log.debug("loading {}:{} into {}", .{ ptr_mcv, ptr_ty.fmt(pt), dst_mcv });
+    log.debug("loading {}:{f} into {}", .{ ptr_mcv, ptr_ty.fmt(pt), dst_mcv });
 
     switch (ptr_mcv) {
         .none,
@@ -4538,14 +4492,12 @@ fn load(func: *Func, dst_mcv: MCValue, ptr_mcv: MCValue, ptr_ty: Type) InnerErro
         .register_offset,
         .lea_frame,
         .lea_symbol,
-        .lea_tlv,
         => try func.genCopy(dst_ty, dst_mcv, ptr_mcv.deref()),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -4577,7 +4529,7 @@ fn airStore(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
 fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type) !void {
     const zcu = func.pt.zcu;
     const src_ty = ptr_ty.childType(zcu);
-    log.debug("storing {}:{} in {}:{}", .{ src_mcv, src_ty.fmt(func.pt), ptr_mcv, ptr_ty.fmt(func.pt) });
+    log.debug("storing {}:{f} in {}:{f}", .{ src_mcv, src_ty.fmt(func.pt), ptr_mcv, ptr_ty.fmt(func.pt) });
 
     switch (ptr_mcv) {
         .none => unreachable,
@@ -4592,14 +4544,12 @@ fn store(func: *Func, ptr_mcv: MCValue, src_mcv: MCValue, ptr_ty: Type) !void {
         .register_offset,
         .lea_symbol,
         .lea_frame,
-        .lea_tlv,
         => try func.genCopy(src_ty, ptr_mcv.deref(), src_mcv),
 
         .memory,
         .indirect,
         .load_symbol,
         .load_frame,
-        .load_tlv,
         => {
             const addr_reg = try func.copyToTmpRegister(ptr_ty, ptr_mcv);
             const addr_lock = func.register_manager.lockRegAssumeUnused(addr_reg);
@@ -4634,7 +4584,7 @@ fn structFieldPtr(func: *Func, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     const field_offset: i32 = switch (container_ty.containerLayout(zcu)) {
         .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, zcu)),
         .@"packed" => @divExact(@as(i32, ptr_container_ty.ptrInfo(zcu).packed_offset.bit_offset) +
-            (if (zcu.typeToStruct(container_ty)) |struct_obj| pt.structPackedFieldBitOffset(struct_obj, index) else 0) -
+            (if (zcu.typeToStruct(container_ty)) |struct_obj| zcu.structPackedFieldBitOffset(struct_obj, index) else 0) -
             ptr_field_ty.ptrInfo(zcu).packed_offset.bit_offset, 8),
     };
 
@@ -4665,7 +4615,7 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
         const field_off: u32 = switch (struct_ty.containerLayout(zcu)) {
             .auto, .@"extern" => @intCast(struct_ty.structFieldOffset(index, zcu) * 8),
             .@"packed" => if (zcu.typeToStruct(struct_ty)) |struct_type|
-                pt.structPackedFieldBitOffset(struct_type, index)
+                zcu.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
         };
@@ -4758,19 +4708,20 @@ fn airFieldParentPtr(func: *Func, inst: Air.Inst.Index) !void {
     return func.fail("TODO implement codegen airFieldParentPtr", .{});
 }
 
-fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
+fn genArgDbgInfo(func: *const Func, name: []const u8, ty: Type, mcv: MCValue) InnerError!void {
+    assert(!func.mod.strip);
 
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (func.debug_output) {
         .dwarf => |dw| switch (mcv) {
-            .register => |reg| try dw.genLocalDebugInfo(
+            .register => |reg| dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(func.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
-            ),
+            ) catch |err| return func.fail("failed to generate debug info: {s}", .{@errorName(err)}),
             .load_frame => {},
             else => {},
         },
@@ -4779,7 +4730,9 @@ fn genArgDbgInfo(func: Func, inst: Air.Inst.Index, mcv: MCValue) !void {
     }
 }
 
-fn airArg(func: *Func, inst: Air.Inst.Index) !void {
+fn airArg(func: *Func, inst: Air.Inst.Index) InnerError!void {
+    const zcu = func.pt.zcu;
+
     var arg_index = func.arg_index;
 
     // we skip over args that have no bits
@@ -4796,7 +4749,14 @@ fn airArg(func: *Func, inst: Air.Inst.Index) !void {
 
         try func.genCopy(arg_ty, dst_mcv, src_mcv);
 
-        try func.genArgDbgInfo(inst, src_mcv);
+        const arg = func.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        // can delete `func.func_index` if this logic is moved to emit
+        const func_zir = zcu.funcInfo(func.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+        const file = zcu.fileByIndex(func_zir.file);
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        try func.genArgDbgInfo(name, arg_ty, src_mcv);
         break :result dst_mcv;
     };
 
@@ -4836,7 +4796,7 @@ fn airCall(func: *Func, inst: Air.Inst.Index, modifier: std.builtin.CallModifier
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const callee = pl_op.operand;
     const extra = func.air.extraData(Air.Call, pl_op.payload);
-    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra.end..][0..extra.data.args_len]);
+    const arg_refs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.args_len]);
 
     const expected_num_args = 8;
     const ExpectedContents = extern struct {
@@ -5208,7 +5168,7 @@ fn airCmp(func: *Func, inst: Air.Inst.Index, tag: Air.Inst.Tag) !void {
                 }
             },
             .float => {
-                const float_bits = lhs_ty.floatBits(func.target.*);
+                const float_bits = lhs_ty.floatBits(func.target);
                 const float_reg_size: u32 = if (func.hasFeature(.d)) 64 else 32;
                 if (float_bits > float_reg_size) {
                     return func.fail("TODO: airCmp float > 64/32 bits", .{});
@@ -5252,10 +5212,10 @@ fn airDbgStmt(func: *Func, inst: Air.Inst.Index) !void {
 fn airDbgInlineBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
-fn airDbgVar(func: *Func, inst: Air.Inst.Index) !void {
+fn airDbgVar(func: *Func, inst: Air.Inst.Index) InnerError!void {
     const pl_op = func.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const operand = pl_op.operand;
     const ty = func.typeOf(operand);
@@ -5263,7 +5223,8 @@ fn airDbgVar(func: *Func, inst: Air.Inst.Index) !void {
     const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
 
     const tag = func.air.instructions.items(.tag)[@intFromEnum(inst)];
-    try func.genVarDbgInfo(tag, ty, mcv, name.toSlice(func.air));
+    func.genVarDbgInfo(tag, ty, mcv, name.toSlice(func.air)) catch |err|
+        return func.fail("failed to generate variable debug info: {s}", .{@errorName(err)});
 
     return func.finishAir(inst, .unreach, .{ operand, .none, .none });
 }
@@ -5275,6 +5236,9 @@ fn genVarDbgInfo(
     mcv: MCValue,
     name: []const u8,
 ) !void {
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (func.debug_output) {
         .dwarf => |dwarf| {
             const loc: link.File.Dwarf.Loc = switch (mcv) {
@@ -5303,8 +5267,8 @@ fn airCondBr(func: *Func, inst: Air.Inst.Index) !void {
     const cond = try func.resolveInst(pl_op.operand);
     const cond_ty = func.typeOf(pl_op.operand);
     const extra = func.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_cond_br = func.liveness.getCondBr(inst);
 
     // If the condition dies here in this condbr instruction, process
@@ -5663,7 +5627,7 @@ fn airLoop(func: *Func, inst: Air.Inst.Index) !void {
     // A loop is a setup to be able to jump back to the beginning.
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = func.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(func.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(func.air.extra.items[loop.end..][0..loop.data.body_len]);
 
     func.scope_generation += 1;
     const state = try func.saveState();
@@ -5693,7 +5657,7 @@ fn jump(func: *Func, index: Mir.Inst.Index) !Mir.Inst.Index {
 fn airBlock(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Block, ty_pl.payload);
-    try func.lowerBlock(inst, @ptrCast(func.air.extra[extra.end..][0..extra.data.body_len]));
+    try func.lowerBlock(inst, @ptrCast(func.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(func: *Func, inst: Air.Inst.Index, body: []const Air.Inst.Index) !void {
@@ -5977,10 +5941,14 @@ fn airBr(func: *Func, inst: Air.Inst.Index) !void {
             if (first_br) break :result src_mcv;
 
             try func.getValue(block_tracking.short, br.block_inst);
-            // .long = .none to avoid merging operand and block result stack frames.
-            const current_tracking: InstTracking = .{ .long = .none, .short = src_mcv };
-            try current_tracking.materializeUnsafe(func, br.block_inst, block_tracking.*);
-            for (current_tracking.getRegs()) |src_reg| func.register_manager.freeReg(src_reg);
+            try InstTracking.materializeUnsafe(
+                // .long = .none to avoid merging operand and block result stack frames.
+                .{ .long = .none, .short = src_mcv },
+                func,
+                br.block_inst,
+                block_tracking.*,
+            );
+            try func.freeValue(src_mcv);
             break :result block_tracking.short;
         }
 
@@ -6079,12 +6047,12 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Asm, ty_pl.payload);
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra[extra_i..][0..extra.data.outputs_len]);
+        @ptrCast(func.air.extra.items[extra_i..][0..outputs_len]);
     extra_i += outputs.len;
-    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra[extra_i..][0..extra.data.inputs_len]);
+    const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     var result: MCValue = .none;
@@ -6102,8 +6070,8 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
     var outputs_extra_i = extra_i;
     for (outputs) |output| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
-        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
+        const constraint = mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6160,7 +6128,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     for (inputs) |input| {
-        const input_bytes = mem.sliceAsBytes(func.air.extra[extra_i..]);
+        const input_bytes = mem.sliceAsBytes(func.air.extra.items[extra_i..]);
         const constraint = mem.sliceTo(input_bytes, 0);
         const name = mem.sliceTo(input_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
@@ -6193,21 +6161,33 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         args.appendAssumeCapacity(arg_mcv);
     }
 
-    {
-        var clobber_i: u32 = 0;
-        while (clobber_i < clobbers_len) : (clobber_i += 1) {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
-
-            if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
-                // nothing really to do
-            } else {
-                try func.register_manager.getReg(parseRegName(clobber) orelse
-                    return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+    const struct_type: Type = .fromInterned(aggregate.ty);
+    switch (aggregate.storage) {
+        .elems => |elems| for (elems, 0..) |elem, i| {
+            switch (elem) {
+                .bool_true => {
+                    const clobber = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(clobber.len != 0);
+                    if (std.mem.eql(u8, clobber, "memory")) {
+                        // nothing really to do
+                    } else {
+                        try func.register_manager.getReg(parseRegName(clobber) orelse
+                            return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+                    }
+                },
+                .bool_false => continue,
+                else => unreachable,
             }
-        }
+        },
+        .repeated_elem => |elem| switch (elem) {
+            .bool_true => @panic("TODO"),
+            .bool_false => {},
+            else => unreachable,
+        },
+        .bytes => @panic("TODO"),
     }
 
     const Label = struct {
@@ -6243,7 +6223,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         labels.deinit(func.gpa);
     }
 
-    const asm_source = std.mem.sliceAsBytes(func.air.extra[extra_i..])[0..extra.data.source_len];
+    const asm_source = std.mem.sliceAsBytes(func.air.extra.items[extra_i..])[0..extra.data.source_len];
     var line_it = mem.tokenizeAny(u8, asm_source, "\n\r;");
     next_line: while (line_it.next()) |line| {
         var mnem_it = mem.tokenizeAny(u8, line, " \t");
@@ -6272,11 +6252,11 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
 
         const instruction: union(enum) { mnem: Mnemonic, pseudo: Pseudo } =
             if (std.meta.stringToEnum(Mnemonic, mnem_str)) |mnem|
-            .{ .mnem = mnem }
-        else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
-            .{ .pseudo = pseudo }
-        else
-            return func.fail("invalid mnem str '{s}'", .{mnem_str});
+                .{ .mnem = mnem }
+            else if (std.meta.stringToEnum(Pseudo, mnem_str)) |pseudo|
+                .{ .pseudo = pseudo }
+            else
+                return func.fail("invalid mnem str '{s}'", .{mnem_str});
 
         const Operand = union(enum) {
             none,
@@ -6512,9 +6492,9 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         return func.fail("undefined label: '{s}'", .{label.key_ptr.*});
 
     for (outputs, args.items[0..outputs.len]) |output, arg_mcv| {
-        const extra_bytes = mem.sliceAsBytes(func.air.extra[outputs_extra_i..]);
+        const extra_bytes = mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]);
         const constraint =
-            mem.sliceTo(mem.sliceAsBytes(func.air.extra[outputs_extra_i..]), 0);
+            mem.sliceTo(mem.sliceAsBytes(func.air.extra.items[outputs_extra_i..]), 0);
         const name = mem.sliceTo(extra_bytes[constraint.len + 1 ..], 0);
         // This equation accounts for the fact that even if we have exactly 4 bytes
         // for the string, we still use the next u32 for the null terminator.
@@ -6527,7 +6507,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     }
 
     simple: {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         var buf_index: usize = 0;
         for (outputs) |output| {
             if (output == .none) continue;
@@ -6587,7 +6567,7 @@ fn genCopy(func: *Func, ty: Type, dst_mcv: MCValue, src_mcv: MCValue) !void {
             ty,
             src_mcv,
         ),
-        .load_symbol, .load_tlv => {
+        .load_symbol => {
             const addr_reg, const addr_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(addr_lock);
 
@@ -7115,25 +7095,6 @@ fn genSetReg(func: *Func, ty: Type, reg: Register, src_mcv: MCValue) InnerError!
             try func.genSetReg(ty, addr_reg, src_mcv.address());
             try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
         },
-        .lea_tlv => |sym| {
-            const atom_index = try func.owner.getSymbolIndex(func);
-
-            _ = try func.addInst(.{
-                .tag = .pseudo_load_tlv,
-                .data = .{ .reloc = .{
-                    .register = reg,
-                    .atom_index = atom_index,
-                    .sym_index = sym,
-                } },
-            });
-        },
-        .load_tlv => {
-            const addr_reg, const addr_lock = try func.allocReg(.int);
-            defer func.register_manager.unlockReg(addr_lock);
-
-            try func.genSetReg(ty, addr_reg, src_mcv.address());
-            try func.genSetReg(ty, reg, .{ .indirect = .{ .reg = addr_reg } });
-        },
         .air_ref => |ref| try func.genSetReg(ty, reg, try func.resolveInst(ref)),
         else => return func.fail("TODO: genSetReg {s}", .{@tagName(src_mcv)}),
     }
@@ -7299,23 +7260,7 @@ fn genSetMem(
             return func.genSetMem(base, disp, ty, .{ .register = reg });
         },
         .air_ref => |src_ref| try func.genSetMem(base, disp, ty, try func.resolveInst(src_ref)),
-        else => return func.fail("TODO: genSetMem {s}", .{@tagName(src_mcv)}),
     }
-}
-
-fn airIntFromPtr(func: *Func, inst: Air.Inst.Index) !void {
-    const un_op = func.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
-    const result = result: {
-        const src_mcv = try func.resolveInst(un_op);
-        const src_ty = func.typeOfIndex(inst);
-        if (func.reuseOperand(inst, un_op, 0, src_mcv)) break :result src_mcv;
-
-        const dst_mcv = try func.allocRegOrMem(src_ty, inst, true);
-        const dst_ty = func.typeOfIndex(inst);
-        try func.genCopy(dst_ty, dst_mcv, src_mcv);
-        break :result dst_mcv;
-    };
-    return func.finishAir(inst, result, .{ un_op, .none, .none });
 }
 
 fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
@@ -7326,8 +7271,9 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
     const result = if (func.liveness.isUnused(inst)) .unreach else result: {
         const src_mcv = try func.resolveInst(ty_op.operand);
 
-        const dst_ty = func.typeOfIndex(inst);
         const src_ty = func.typeOf(ty_op.operand);
+        if (src_ty.toIntern() == .bool_type) break :result src_mcv;
+        const dst_ty = func.typeOfIndex(inst);
 
         const src_lock = if (src_mcv.getReg()) |reg| func.register_manager.lockReg(reg) else null;
         defer if (src_lock) |lock| func.register_manager.unlockReg(lock);
@@ -7350,7 +7296,7 @@ fn airBitCast(func: *Func, inst: Air.Inst.Index) !void {
         const bit_size = dst_ty.bitSize(zcu);
         if (abi_size * 8 <= bit_size) break :result dst_mcv;
 
-        return func.fail("TODO: airBitCast {} to {}", .{ src_ty.fmt(pt), dst_ty.fmt(pt) });
+        return func.fail("TODO: airBitCast {f} to {f}", .{ src_ty.fmt(pt), dst_ty.fmt(pt) });
     };
     return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
 }
@@ -7793,9 +7739,12 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     const ptr_mcv = try func.resolveInst(atomic_load.ptr);
 
     const bit_size = elem_ty.bitSize(zcu);
-    if (bit_size > 64) return func.fail("TODO: airAtomicStore > 64 bits", .{});
+    if (bit_size > 64) return func.fail("TODO: airAtomicLoad > 64 bits", .{});
 
-    const result_mcv = try func.allocRegOrMem(elem_ty, inst, true);
+    const result_mcv: MCValue = if (func.liveness.isUnused(inst))
+        .{ .register = .zero }
+    else
+        try func.allocRegOrMem(elem_ty, inst, true);
     assert(result_mcv == .register); // should be less than 8 bytes
 
     if (order == .seq_cst) {
@@ -7811,11 +7760,10 @@ fn airAtomicLoad(func: *Func, inst: Air.Inst.Index) !void {
     try func.load(result_mcv, ptr_mcv, ptr_ty);
 
     switch (order) {
-        // Don't guarnetee other memory operations to be ordered after the load.
-        .unordered => {},
-        .monotonic => {},
-        // Make sure all previous reads happen before any reading or writing accurs.
-        .seq_cst, .acquire => {
+        // Don't guarantee other memory operations to be ordered after the load.
+        .unordered, .monotonic => {},
+        // Make sure all previous reads happen before any reading or writing occurs.
+        .acquire, .seq_cst => {
             _ = try func.addInst(.{
                 .tag = .fence,
                 .data = .{ .fence = .{
@@ -7857,6 +7805,17 @@ fn airAtomicStore(func: *Func, inst: Air.Inst.Index, order: std.builtin.AtomicOr
     }
 
     try func.store(ptr_mcv, val_mcv, ptr_ty);
+
+    if (order == .seq_cst) {
+        _ = try func.addInst(.{
+            .tag = .fence,
+            .data = .{ .fence = .{
+                .pred = .rw,
+                .succ = .rw,
+            } },
+        });
+    }
+
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
 }
 
@@ -7889,15 +7848,15 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
         if (elem_abi_size == 1) {
             const ptr: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr,
-                .One => dst_ptr,
-                .C, .Many => unreachable,
+                .slice => dst_ptr,
+                .one => dst_ptr,
+                .c, .many => unreachable,
             };
             const len: MCValue = switch (dst_ptr_ty.ptrSize(zcu)) {
                 // TODO: this only handles slices stored in the stack
-                .Slice => dst_ptr.address().offset(8).deref(),
-                .One => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
-                .C, .Many => unreachable,
+                .slice => dst_ptr.address().offset(8).deref(),
+                .one => .{ .immediate = dst_ptr_ty.childType(zcu).arrayLen(zcu) },
+                .c, .many => unreachable,
             };
             const len_lock: ?RegisterLock = switch (len) {
                 .register => |reg| func.register_manager.lockRegAssumeUnused(reg),
@@ -7913,8 +7872,8 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
         // Length zero requires a runtime check - so we handle arrays specially
         // here to elide it.
         switch (dst_ptr_ty.ptrSize(zcu)) {
-            .Slice => return func.fail("TODO: airMemset Slices", .{}),
-            .One => {
+            .slice => return func.fail("TODO: airMemset Slices", .{}),
+            .one => {
                 const elem_ptr_ty = try pt.singleMutPtrType(elem_ty);
 
                 const len = dst_ptr_ty.childType(zcu).arrayLen(zcu);
@@ -7935,7 +7894,7 @@ fn airMemset(func: *Func, inst: Air.Inst.Index, safety: bool) !void {
                 const bytes_to_copy: MCValue = .{ .immediate = elem_abi_size * (len - 1) };
                 try func.genInlineMemcpy(second_elem_ptr_mcv, dst_ptr, bytes_to_copy);
             },
-            .C, .Many => unreachable,
+            .c, .many => unreachable,
         }
     }
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
@@ -7952,7 +7911,7 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
     const dst_ty = func.typeOf(bin_op.lhs);
 
     const len_mcv: MCValue = switch (dst_ty.ptrSize(zcu)) {
-        .Slice => len: {
+        .slice => len: {
             const len_reg, const len_lock = try func.allocReg(.int);
             defer func.register_manager.unlockReg(len_lock);
 
@@ -7967,7 +7926,7 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
             );
             break :len .{ .register = len_reg };
         },
-        .One => len: {
+        .one => len: {
             const array_ty = dst_ty.childType(zcu);
             break :len .{ .immediate = array_ty.arrayLen(zcu) * array_ty.childType(zcu).abiSize(zcu) };
         },
@@ -7982,6 +7941,11 @@ fn airMemcpy(func: *Func, inst: Air.Inst.Index) !void {
     try func.genInlineMemcpy(dst_ptr, src_ptr, len_mcv);
 
     return func.finishAir(inst, .unreach, .{ bin_op.lhs, bin_op.rhs, .none });
+}
+
+fn airMemmove(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airMemmove for riscv64", .{});
 }
 
 fn airTagName(func: *Func, inst: Air.Inst.Index) !void {
@@ -8044,10 +8008,14 @@ fn airSelect(func: *Func, inst: Air.Inst.Index) !void {
     return func.finishAir(inst, result, .{ pl_op.operand, extra.lhs, extra.rhs });
 }
 
-fn airShuffle(func: *Func, inst: Air.Inst.Index) !void {
-    const ty_op = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
-    const result: MCValue = if (func.liveness.isUnused(inst)) .unreach else return func.fail("TODO implement airShuffle for riscv64", .{});
-    return func.finishAir(inst, result, .{ ty_op.operand, .none, .none });
+fn airShuffleOne(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleOne for riscv64", .{});
+}
+
+fn airShuffleTwo(func: *Func, inst: Air.Inst.Index) !void {
+    _ = inst;
+    return func.fail("TODO implement airShuffleTwo for riscv64", .{});
 }
 
 fn airReduce(func: *Func, inst: Air.Inst.Index) !void {
@@ -8062,7 +8030,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
     const result_ty = func.typeOfIndex(inst);
     const len: usize = @intCast(result_ty.arrayLen(zcu));
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra[ty_pl.payload..][0..len]);
+    const elements: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: MCValue = result: {
         switch (result_ty.zigTypeTag(zcu)) {
@@ -8091,7 +8059,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
 
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(zcu));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = pt.structPackedFieldBitOffset(struct_obj, elem_i);
+                        const elem_off = zcu.structPackedFieldBitOffset(struct_obj, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try func.resolveInst(elem);
@@ -8144,12 +8112,12 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
                 );
                 break :result .{ .load_frame = .{ .index = frame_index } };
             },
-            else => return func.fail("TODO: airAggregate {}", .{result_ty.fmt(pt)}),
+            else => return func.fail("TODO: airAggregate {f}", .{result_ty.fmt(pt)}),
         }
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return func.finishAir(inst, result, buf);
     }
@@ -8219,27 +8187,26 @@ fn genTypedValue(func: *Func, val: Value) InnerError!MCValue {
     const lf = func.bin_file;
     const src_loc = func.src_loc;
 
-    const result = if (val.isUndef(pt.zcu))
-        try lf.lowerUav(pt, val.toIntern(), .none, src_loc)
+    const result: codegen.GenResult = if (val.isUndef(pt.zcu))
+        switch (try lf.lowerUav(pt, val.toIntern(), .none, src_loc)) {
+            .sym_index => |sym_index| .{ .mcv = .{ .load_symbol = sym_index } },
+            .fail => |em| .{ .fail = em },
+        }
     else
-        try codegen.genTypedValue(lf, pt, src_loc, val, func.target.*);
+        try codegen.genTypedValue(lf, pt, src_loc, val, func.target);
     const mcv: MCValue = switch (result) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
             .undef => unreachable,
             .lea_symbol => |sym_index| .{ .lea_symbol = .{ .sym = sym_index } },
             .load_symbol => |sym_index| .{ .load_symbol = .{ .sym = sym_index } },
-            .load_tlv => |sym_index| .{ .lea_tlv = sym_index },
             .immediate => |imm| .{ .immediate = imm },
             .memory => |addr| .{ .memory = addr },
             .load_got, .load_direct, .lea_direct => {
                 return func.fail("TODO: genTypedValue {s}", .{@tagName(mcv)});
             },
         },
-        .fail => |msg| {
-            func.err_msg = msg;
-            return error.CodegenFail;
-        },
+        .fail => |msg| return func.failMsg(msg),
     };
     return mcv;
 }
@@ -8346,7 +8313,7 @@ fn resolveCallingConventionValues(
                 };
 
                 result.return_value = switch (ret_tracking_i) {
-                    else => return func.fail("ty {} took {} tracking return indices", .{ ret_ty.fmt(pt), ret_tracking_i }),
+                    else => return func.fail("ty {f} took {} tracking return indices", .{ ret_ty.fmt(pt), ret_tracking_i }),
                     1 => ret_tracking[0],
                     2 => InstTracking.init(.{ .register_pair = .{
                         ret_tracking[0].short.register, ret_tracking[1].short.register,
@@ -8401,7 +8368,7 @@ fn resolveCallingConventionValues(
                     else => return func.fail("TODO: C calling convention arg class {}", .{class}),
                 } else {
                     arg.* = switch (arg_mcv_i) {
-                        else => return func.fail("ty {} took {} tracking arg indices", .{ ty.fmt(pt), arg_mcv_i }),
+                        else => return func.fail("ty {f} took {} tracking arg indices", .{ ty.fmt(pt), arg_mcv_i }),
                         1 => arg_mcv[0],
                         2 => .{ .register_pair = .{ arg_mcv[0].register, arg_mcv[1].register } },
                     };
@@ -8427,21 +8394,31 @@ fn wantSafety(func: *Func) bool {
     };
 }
 
-fn fail(func: *Func, comptime format: []const u8, args: anytype) InnerError {
+fn fail(func: *const Func, comptime format: []const u8, args: anytype) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(func.err_msg == null);
-    func.err_msg = try ErrorMsg.create(func.gpa, func.src_loc, format, args);
+    const zcu = func.pt.zcu;
+    switch (func.owner) {
+        .nav_index => |i| return zcu.codegenFail(i, format, args),
+        .lazy_sym => |s| return zcu.codegenFailType(s.ty, format, args),
+    }
     return error.CodegenFail;
 }
 
-fn failSymbol(func: *Func, comptime format: []const u8, args: anytype) InnerError {
+fn failMsg(func: *const Func, msg: *ErrorMsg) error{ OutOfMemory, CodegenFail } {
     @branchHint(.cold);
-    assert(func.err_msg == null);
-    func.err_msg = try ErrorMsg.create(func.gpa, func.src_loc, format, args);
+    const zcu = func.pt.zcu;
+    switch (func.owner) {
+        .nav_index => |i| return zcu.codegenFailMsg(i, msg),
+        .lazy_sym => |s| return zcu.codegenFailTypeMsg(s.ty, msg),
+    }
     return error.CodegenFail;
 }
 
 fn parseRegName(name: []const u8) ?Register {
+    // The `fp` alias for `s0` is awkward to fit into the current `Register` scheme, so for now we
+    // special-case it here.
+    if (std.mem.eql(u8, name, "fp")) return .s0;
+
     return std.meta.stringToEnum(Register, name);
 }
 
@@ -8458,7 +8435,7 @@ fn typeOfIndex(func: *Func, inst: Air.Inst.Index) Type {
 }
 
 fn hasFeature(func: *Func, feature: Target.riscv.Feature) bool {
-    return Target.riscv.featureSetHas(func.target.cpu.features, feature);
+    return func.target.cpu.has(.riscv, feature);
 }
 
 pub fn errUnionPayloadOffset(payload_ty: Type, zcu: *Zcu) u64 {
@@ -8505,7 +8482,7 @@ fn promoteInt(func: *Func, ty: Type) Type {
 
 fn promoteVarArg(func: *Func, ty: Type) Type {
     if (!ty.isRuntimeFloat()) return func.promoteInt(ty);
-    switch (ty.floatBits(func.target.*)) {
+    switch (ty.floatBits(func.target)) {
         32, 64 => return Type.f64,
         else => |float_bits| {
             assert(float_bits == func.target.cTypeBitSize(.longdouble));

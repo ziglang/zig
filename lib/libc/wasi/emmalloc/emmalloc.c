@@ -56,7 +56,7 @@
 
 // Defind by the linker to have the address of the start of the heap.
 extern unsigned char __heap_base;
-extern unsigned char __heap_end __attribute__((__weak__));
+extern unsigned char __heap_end;
 
 // Behavior of right shifting a signed integer is compiler implementation defined.
 static_assert((((int32_t)0x80000000U) >> 31) == -1, "This malloc implementation requires that right-shifting a signed integer produces a sign-extending (arithmetic) shift!");
@@ -66,7 +66,7 @@ static_assert((((int32_t)0x80000000U) >> 31) == -1, "This malloc implementation 
 #define MALLOC_ALIGNMENT alignof(max_align_t)
 static_assert(alignof(max_align_t) == 16, "max_align_t must be correct");
 
-#define EMMALLOC_EXPORT __attribute__((__weak__))
+#define EMMALLOC_EXPORT __attribute__((weak))
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
@@ -546,12 +546,13 @@ static bool claim_more_memory(size_t numBytes)
     // If this is the first time we're called, see if we can use
     // the initial heap memory set up by wasm-ld.
     if (!listOfAllRegions) {
+      unsigned char *heap_base = &__heap_base;
       unsigned char *heap_end = &__heap_end;
-      if (heap_end == NULL)
-        heap_end = sbrk(0);
-
-      if (numBytes <= (size_t)(heap_end - &__heap_base)) {
-        startPtr = &__heap_base;
+      if (heap_end < heap_base) {
+	__builtin_trap();
+      }
+      if (numBytes <= (size_t)(heap_end - heap_base)) {
+        startPtr = heap_base;
         endPtr = heap_end;
 	break;
       }

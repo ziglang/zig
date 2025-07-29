@@ -14,6 +14,7 @@
 #include <__concepts/common_reference_with.h>
 #include <__concepts/constructible.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__type_traits/extent.h>
 #include <__type_traits/is_nothrow_assignable.h>
 #include <__type_traits/is_nothrow_constructible.h>
@@ -22,7 +23,6 @@
 #include <__utility/forward.h>
 #include <__utility/move.h>
 #include <__utility/swap.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

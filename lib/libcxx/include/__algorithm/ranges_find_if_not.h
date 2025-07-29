@@ -34,8 +34,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __find_if_not {
-struct __fn {
+struct __find_if_not {
   template <input_iterator _Ip,
             sentinel_for<_Ip> _Sp,
             class _Proj = identity,
@@ -53,10 +52,9 @@ struct __fn {
     return ranges::__find_if_impl(ranges::begin(__r), ranges::end(__r), __pred2, __proj);
   }
 };
-} // namespace __find_if_not
 
 inline namespace __cpo {
-inline constexpr auto find_if_not = __find_if_not::__fn{};
+inline constexpr auto find_if_not = __find_if_not{};
 } // namespace __cpo
 } // namespace ranges
 
