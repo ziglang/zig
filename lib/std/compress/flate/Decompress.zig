@@ -457,7 +457,7 @@ fn specialPeek(in: *Reader, next_bits: usize, i: usize) Reader.Error!u8 {
     return peeked[i];
 }
 
-fn tossBits(d: *Decompress, n: u6) !void {
+fn tossBits(d: *Decompress, n: u4) !void {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     if (remaining_bits >= n) {
@@ -475,7 +475,7 @@ fn tossBits(d: *Decompress, n: u6) !void {
     }
 }
 
-fn tossBitsEnding(d: *Decompress, n: u6) !void {
+fn tossBitsEnding(d: *Decompress, n: u4) !void {
     const remaining_bits = d.remaining_bits;
     const in = d.input;
     const buffered_n = in.bufferedLen();
