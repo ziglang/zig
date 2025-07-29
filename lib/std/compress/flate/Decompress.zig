@@ -216,7 +216,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
         },
         .block_header => {
             d.final_block = (try d.takeBits(u1)) != 0;
-            const block_type = try d.takeBits(BlockType);
+            const block_type: BlockType = @enumFromInt(try d.takeBits(u2));
             switch (block_type) {
                 .stored => {
                     d.alignBitsToByte(); // skip padding until byte boundary
@@ -372,41 +372,31 @@ fn writeMatch(w: *Writer, length: u16, distance: u16) !void {
     for (dest, src) |*d, s| d.* = s;
 }
 
-fn takeBits(d: *Decompress, comptime T: type) !T {
-    const U = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
+fn takeBits(d: *Decompress, comptime U: type) !U {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
-    if (remaining_bits >= @bitSizeOf(T)) {
+    if (remaining_bits >= @bitSizeOf(U)) {
         const u: U = @truncate(next_bits);
-        d.next_bits = next_bits >> @bitSizeOf(T);
-        d.remaining_bits = remaining_bits - @bitSizeOf(T);
-        return switch (@typeInfo(T)) {
-            .int => u,
-            .@"enum" => @enumFromInt(u),
-            else => @bitCast(u),
-        };
+        d.next_bits = next_bits >> @bitSizeOf(U);
+        d.remaining_bits = remaining_bits - @bitSizeOf(U);
+        return u;
     }
     const in = d.input;
     const next_int = in.takeInt(usize, .little) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => return takeBitsEnding(d, T),
+        error.EndOfStream => return takeBitsEnding(d, U),
     };
-    const needed_bits = @bitSizeOf(T) - remaining_bits;
+    const needed_bits = @bitSizeOf(U) - remaining_bits;
     const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
     d.next_bits = next_int >> needed_bits;
     d.remaining_bits = @intCast(@bitSizeOf(usize) - @as(usize, needed_bits));
-    return switch (@typeInfo(T)) {
-        .int => u,
-        .@"enum" => @enumFromInt(u),
-        else => @bitCast(u),
-    };
+    return u;
 }
 
-fn takeBitsEnding(d: *Decompress, comptime T: type) !T {
+fn takeBitsEnding(d: *Decompress, comptime U: type) !U {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     const in = d.input;
-    const U = @Type(.{ .int = .{ .signedness = .unsigned, .bits = @bitSizeOf(T) } });
     var u: U = 0;
     var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
     while (@bitSizeOf(U) >= 8 and remaining_needed_bits >= 8) {
@@ -424,11 +414,7 @@ fn takeBitsEnding(d: *Decompress, comptime T: type) !T {
         d.remaining_bits = @intCast(8 - remaining_needed_bits);
     }
     u = @intCast((@as(usize, u) << remaining_bits) | next_bits);
-    return switch (@typeInfo(T)) {
-        .int => u,
-        .@"enum" => @enumFromInt(u),
-        else => @bitCast(u),
-    };
+    return u;
 }
 
 fn peekBits(d: *Decompress, comptime U: type) !U {
