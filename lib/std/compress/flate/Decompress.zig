@@ -23,7 +23,7 @@ dst_dec: DistanceDecoder,
 final_block: bool,
 state: State,
 
-read_err: ?Error,
+err: ?Error,
 
 const BlockType = enum(u2) {
     stored = 0,
@@ -74,7 +74,7 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
         .dst_dec = .{},
         .final_block = false,
         .state = .protocol_header,
-        .read_err = null,
+        .err = null,
     };
 }
 
@@ -153,7 +153,7 @@ pub fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!us
             if (d.state == .end) {
                 return error.EndOfStream;
             } else {
-                d.read_err = error.EndOfStream;
+                d.err = error.EndOfStream;
                 return error.ReadFailed;
             }
         },
@@ -161,7 +161,7 @@ pub fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!us
         else => |e| {
             // In the event of an error, state is unmodified so that it can be
             // better used to diagnose the failure.
-            d.read_err = e;
+            d.err = e;
             return error.ReadFailed;
         },
     };
@@ -1179,7 +1179,7 @@ fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !vo
 
     var decompress: Decompress = .init(&reader, container, &.{});
     try testing.expectError(error.ReadFailed, decompress.reader.streamRemaining(&aw.writer));
-    try testing.expectEqual(expected_err, decompress.read_err orelse return error.TestFailed);
+    try testing.expectEqual(expected_err, decompress.err orelse return error.TestFailed);
 }
 
 fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {

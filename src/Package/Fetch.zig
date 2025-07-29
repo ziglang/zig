@@ -1203,12 +1203,11 @@ fn unpackResource(
             return unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.gz" => {
-            const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-            var dcp = std.compress.gzip.decompressor(br.reader());
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            var adapter_buffer: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+            var adapter = resource.reader().adaptToNewApi(&adapter_buffer);
+            var flate_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+            var decompress: std.compress.flate.Decompress = .init(&adapter.new_interface, .gzip, &flate_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
@@ -1352,7 +1351,10 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
         ));
         defer zip_file.close();
 
-        std.zip.extract(out_dir, zip_file.seekableStream(), .{
+        var zip_file_buffer: [1024]u8 = undefined;
+        var zip_file_reader = zip_file.reader(&zip_file_buffer);
+
+        std.zip.extract(out_dir, &zip_file_reader, .{
             .allow_backslashes = true,
             .diagnostics = &diagnostics,
         }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1384,8 +1386,11 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         defer pack_dir.close();
         var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
         defer pack_file.close();
-        var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
+        var pack_file_buffer: [4096]u8 = undefined;
+        var fifo = std.fifo.LinearFifo(u8, .{ .Slice = {} }).init(&pack_file_buffer);
         try fifo.pump(resource.fetch_stream.reader(), pack_file.deprecatedWriter());
+
+        var pack_file_reader = pack_file.reader(&pack_file_buffer);
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
@@ -1393,14 +1398,14 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
             var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
-            try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
+            try git.indexPack(gpa, object_format, &pack_file_reader, index_buffered_writer.writer());
             try index_buffered_writer.flush();
         }
 
         {
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            var repository = try git.Repository.init(gpa, object_format, pack_file, index_file);
+            var repository = try git.Repository.init(gpa, object_format, &pack_file_reader, index_file);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
             try repository.checkout(out_dir, resource.want_oid, &diagnostics);

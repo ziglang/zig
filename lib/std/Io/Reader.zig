@@ -1709,6 +1709,15 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
     return error.ReadFailed;
 }
 
+pub fn adaptToOldInterface(r: *Reader) std.Io.AnyReader {
+    return .{ .context = r, .readFn = derpRead };
+}
+
+fn derpRead(context: *const anyopaque, buffer: []u8) anyerror!usize {
+    const r: *Reader = @constCast(@alignCast(@ptrCast(context)));
+    return r.readSliceShort(buffer);
+}
+
 test "readAlloc when the backing reader provides one byte at a time" {
     const str = "This is a test";
     var tiny_buffer: [1]u8 = undefined;

@@ -7,8 +7,9 @@ const builtin = @import("builtin");
 const std = @import("std");
 const File = std.fs.File;
 const is_le = builtin.target.cpu.arch.endian() == .little;
-const Writer = std.io.Writer;
-const Reader = std.io.Reader;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
+const flate = std.compress.flate;
 
 pub const CompressionMethod = enum(u16) {
     store = 0,
@@ -117,6 +118,7 @@ pub const EndRecord = extern struct {
     pub const FindFileError = File.GetEndPosError || File.SeekError || File.ReadError || error{
         ZipNoEndRecord,
         EndOfStream,
+        ReadFailed,
     };
 
     pub fn findFile(fr: *File.Reader) FindFileError!EndRecord {
@@ -137,8 +139,7 @@ pub const EndRecord = extern struct {
 
                 try fr.seekTo(end_pos - @as(u64, new_loaded_len));
                 const read_buf: []u8 = buf[buf.len - new_loaded_len ..][0..read_len];
-                var br = fr.interface().unbuffered();
-                br.readSlice(read_buf) catch |err| switch (err) {
+                fr.interface.readSliceAll(read_buf) catch |err| switch (err) {
                     error.ReadFailed => return fr.err.?,
                     error.EndOfStream => return error.EndOfStream,
                 };
@@ -164,7 +165,7 @@ pub const EndRecord = extern struct {
 pub const Decompress = struct {
     interface: Reader,
     state: union {
-        inflate: std.compress.flate.Decompress,
+        inflate: flate.Decompress,
         store: *Reader,
     },
 
@@ -201,7 +202,7 @@ pub const Decompress = struct {
 
     fn streamDeflate(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
         const d: *Decompress = @fieldParentPtr("interface", r);
-        return std.compress.flate.Decompress.read(&d.inflate, w, limit);
+        return flate.Decompress.read(&d.inflate, w, limit);
     }
 };
 
@@ -305,7 +306,7 @@ pub const Iterator = struct {
         if (locator_end_offset > stream_len)
             return error.ZipTruncated;
         try input.seekTo(stream_len - locator_end_offset);
-        const locator = input.interface.takeStructEndian(EndLocator64, .little) catch |err| switch (err) {
+        const locator = input.interface.takeStruct(EndLocator64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -318,7 +319,7 @@ pub const Iterator = struct {
 
         try input.seekTo(locator.record_file_offset);
 
-        const record64 = input.interface.takeStructEndian(EndRecord64, .little) catch |err| switch (err) {
+        const record64 = input.interface.takeStruct(EndRecord64, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -374,7 +375,7 @@ pub const Iterator = struct {
         const header_zip_offset = self.cd_zip_offset + self.cd_record_offset;
         const input = self.input;
         try input.seekTo(header_zip_offset);
-        const header = input.interface.takeStructEndian(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
+        const header = input.interface.takeStruct(CentralDirectoryFileHeader, .little) catch |err| switch (err) {
             error.ReadFailed => return input.err.?,
             error.EndOfStream => return error.EndOfStream,
         };
@@ -405,7 +406,7 @@ pub const Iterator = struct {
             const extra = extra_buf[0..header.extra_len];
 
             try input.seekTo(header_zip_offset + @sizeOf(CentralDirectoryFileHeader) + header.filename_len);
-            input.interface.readSlice(extra) catch |err| switch (err) {
+            input.interface.readSliceAll(extra) catch |err| switch (err) {
                 error.ReadFailed => return input.err.?,
                 error.EndOfStream => return error.EndOfStream,
             };
@@ -460,7 +461,7 @@ pub const Iterator = struct {
             options: ExtractOptions,
             filename_buf: []u8,
             dest: std.fs.Dir,
-        ) !u32 {
+        ) !void {
             if (filename_buf.len < self.filename_len)
                 return error.ZipInsufficientBuffer;
             switch (self.compression_method) {
@@ -470,13 +471,13 @@ pub const Iterator = struct {
             const filename = filename_buf[0..self.filename_len];
             {
                 try stream.seekTo(self.header_zip_offset + @sizeOf(CentralDirectoryFileHeader));
-                try stream.interface.readSlice(filename);
+                try stream.interface.readSliceAll(filename);
             }
 
             const local_data_header_offset: u64 = local_data_header_offset: {
                 const local_header = blk: {
                     try stream.seekTo(self.file_offset);
-                    break :blk try stream.interface.takeStructEndian(LocalFileHeader, .little);
+                    break :blk try stream.interface.takeStruct(LocalFileHeader, .little);
                 };
                 if (!std.mem.eql(u8, &local_header.signature, &local_file_header_sig))
                     return error.ZipBadFileOffset;
@@ -502,7 +503,7 @@ pub const Iterator = struct {
 
                     {
                         try stream.seekTo(self.file_offset + @sizeOf(LocalFileHeader) + local_header.filename_len);
-                        try stream.interface.readSlice(extra);
+                        try stream.interface.readSliceAll(extra);
                     }
 
                     var extra_offset: usize = 0;
@@ -550,7 +551,7 @@ pub const Iterator = struct {
                 if (self.uncompressed_size != 0)
                     return error.ZipBadDirectorySize;
                 try dest.makePath(filename[0 .. filename.len - 1]);
-                return std.hash.Crc32.hash(&.{});
+                return;
             }
 
             const out_file = blk: {
@@ -564,31 +565,36 @@ pub const Iterator = struct {
                 break :blk try dest.createFile(filename, .{ .exclusive = true });
             };
             defer out_file.close();
-            var file_writer = out_file.writer();
-            var file_bw = file_writer.writer(&.{});
+            var out_file_buffer: [1024]u8 = undefined;
+            var file_writer = out_file.writer(&out_file_buffer);
             const local_data_file_offset: u64 =
                 @as(u64, self.file_offset) +
                 @as(u64, @sizeOf(LocalFileHeader)) +
                 local_data_header_offset;
             try stream.seekTo(local_data_file_offset);
-            var limited_file_reader = stream.interface.limited(.limited(self.compressed_size));
-            var file_read_buffer: [1000]u8 = undefined;
-            var decompress_read_buffer: [1000]u8 = undefined;
-            var limited_br = limited_file_reader.reader().buffered(&file_read_buffer);
-            var decompress: Decompress = undefined;
-            var decompress_br = decompress.readable(&limited_br, self.compression_method, &decompress_read_buffer);
-            const start_out = file_bw.count;
-            var hash_writer = file_bw.hashed(std.hash.Crc32.init());
-            var hash_bw = hash_writer.writer(&.{});
-            decompress_br.readAll(&hash_bw, .limited(self.uncompressed_size)) catch |err| switch (err) {
-                error.ReadFailed => return stream.err.?,
-                error.WriteFailed => return file_writer.err.?,
-                error.EndOfStream => return error.ZipDecompressTruncated,
-            };
-            if (limited_file_reader.remaining.nonzero()) return error.ZipDecompressTruncated;
-            const written = file_bw.count - start_out;
-            if (written != self.uncompressed_size) return error.ZipUncompressSizeMismatch;
-            return hash_writer.hasher.final();
+
+            // TODO limit based on self.compressed_size
+
+            switch (self.compression_method) {
+                .store => {
+                    stream.interface.streamExact(&file_writer.interface, self.uncompressed_size) catch |err| switch (err) {
+                        error.ReadFailed => return stream.err.?,
+                        error.WriteFailed => return file_writer.err.?,
+                        error.EndOfStream => return error.ZipDecompressTruncated,
+                    };
+                },
+                .deflate => {
+                    var flate_buffer: [flate.max_window_len]u8 = undefined;
+                    var decompress: flate.Decompress = .init(&stream.interface, .raw, &flate_buffer);
+                    decompress.reader.streamExact(&file_writer.interface, self.uncompressed_size) catch |err| switch (err) {
+                        error.ReadFailed => return stream.err.?,
+                        error.WriteFailed => return file_writer.err orelse decompress.err.?,
+                        error.EndOfStream => return error.ZipDecompressTruncated,
+                    };
+                },
+                else => return error.UnsupportedCompressionMethod,
+            }
+            try file_writer.end();
         }
     };
 };
@@ -636,19 +642,19 @@ pub const ExtractOptions = struct {
     /// Allow filenames within the zip to use backslashes.  Back slashes are normalized
     /// to forward slashes before forwarding them to platform APIs.
     allow_backslashes: bool = false,
-
     diagnostics: ?*Diagnostics = null,
+    verify_checksums: bool = false,
 };
 
 /// Extract the zipped files to the given `dest` directory.
 pub fn extract(dest: std.fs.Dir, fr: *File.Reader, options: ExtractOptions) !void {
+    if (options.verify_checksums) @panic("TODO unimplemented");
+
     var iter = try Iterator.init(fr);
 
     var filename_buf: [std.fs.max_path_bytes]u8 = undefined;
     while (try iter.next()) |entry| {
-        const crc32 = try entry.extract(fr, options, &filename_buf, dest);
-        if (crc32 != entry.crc32)
-            return error.ZipCrcMismatch;
+        try entry.extract(fr, options, &filename_buf, dest);
         if (options.diagnostics) |d| {
             try d.nextFilename(filename_buf[0..entry.filename_len]);
         }
