@@ -31,7 +31,6 @@ pub const Md5 = struct {
     const Self = @This();
     pub const block_length = 64;
     pub const digest_length = 16;
-    pub const Options = struct {};
 
     s: [4]u32,
     // Streaming Cache
@@ -39,8 +38,7 @@ pub const Md5 = struct {
     buf_len: u8,
     total_len: u64,
 
-    pub fn init(options: Options) Self {
-        _ = options;
+    pub fn init() Self {
         return Self{
             .s = [_]u32{
                 0x67452301,
@@ -54,8 +52,8 @@ pub const Md5 = struct {
         };
     }
 
-    pub fn hash(data: []const u8, out: *[digest_length]u8, options: Options) void {
-        var d = Md5.init(options);
+    pub fn hash(data: []const u8, out: *[digest_length]u8) void {
+        var d = Md5.init();
         d.update(data);
         d.final(out);
     }

@@ -45,11 +45,11 @@ pub fn init(
 
     const key = sec_websocket_key orelse return error.WebSocketUpgradeMissingKey;
 
-    var sha1 = std.crypto.hash.Sha1.init(.{});
+    var sha1_buffer: [64]u8 = undefined;
+    var sha1: std.crypto.hash.Sha1 = .init(&sha1_buffer);
     sha1.update(key);
     sha1.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
-    var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
-    sha1.final(&digest);
+    const digest = sha1.final();
     var base64_digest: [28]u8 = undefined;
     assert(std.base64.standard.Encoder.encode(&base64_digest, &digest).len == base64_digest.len);
 

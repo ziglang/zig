@@ -578,7 +578,7 @@ pub fn hkdfExpandLabel(
 
 pub fn emptyHash(comptime Hash: type) [Hash.digest_length]u8 {
     var result: [Hash.digest_length]u8 = undefined;
-    Hash.hash(&.{}, &result, .{});
+    Hash.hash(&.{}, &result);
     return result;
 }
 

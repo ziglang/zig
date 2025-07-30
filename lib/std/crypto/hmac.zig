@@ -37,7 +37,7 @@ pub fn Hmac(comptime Hash: type) type {
 
             // Normalize key length to block size of hash
             if (key.len > Hash.block_length) {
-                Hash.hash(key, scratch[0..mac_length], .{});
+                Hash.hash(key, scratch[0..mac_length]);
                 @memset(scratch[mac_length..Hash.block_length], 0);
             } else if (key.len < Hash.block_length) {
                 @memcpy(scratch[0..key.len], key);
@@ -54,7 +54,7 @@ pub fn Hmac(comptime Hash: type) type {
                 b.* = scratch[i] ^ 0x36;
             }
 
-            ctx.hash = Hash.init(.{});
+            ctx.hash = Hash.init();
             ctx.hash.update(&i_key_pad);
             return ctx;
         }
@@ -66,7 +66,7 @@ pub fn Hmac(comptime Hash: type) type {
         pub fn final(ctx: *Self, out: *[mac_length]u8) void {
             var scratch: [mac_length]u8 = undefined;
             ctx.hash.final(&scratch);
-            var ohash = Hash.init(.{});
+            var ohash = Hash.init();
             ohash.update(&ctx.o_key_pad);
             ohash.update(&scratch);
             ohash.final(out);

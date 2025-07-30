@@ -1621,7 +1621,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
     std.mem.sortUnstable(*HashedFile, all_files.items, {}, HashedFile.lessThan);
 
-    var hasher = Package.Hash.Algo.init(.{});
+    var hasher = Package.Hash.Algo.init();
     var any_failures = false;
     for (all_files.items) |hashed_file| {
         hashed_file.failure catch |err| {
@@ -1690,7 +1690,7 @@ fn workerDeleteFile(dir: fs.Dir, deleted_file: *DeletedFile) void {
 
 fn hashFileFallible(dir: fs.Dir, hashed_file: *HashedFile) HashedFile.Error!void {
     var buf: [8000]u8 = undefined;
-    var hasher = Package.Hash.Algo.init(.{});
+    var hasher = Package.Hash.Algo.init();
     hasher.update(hashed_file.normalized_path);
     var file_size: u64 = 0;
 

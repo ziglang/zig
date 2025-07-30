@@ -258,8 +258,8 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
                 const s = try Curve.scalar.Scalar.fromBytes(sig.s, .big);
                 if (r.isZero() or s.isZero()) return error.IdentityElement;
 
-                return Verifier{
-                    .h = Hash.init(.{}),
+                return .{
+                    .h = Hash.init(),
                     .r = r,
                     .s = s,
                     .public_key = public_key,

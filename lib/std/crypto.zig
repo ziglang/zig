@@ -347,7 +347,6 @@ test "CSPRNG" {
 test "issue #4532: no index out of bounds" {
     const types = [_]type{
         hash.Md5,
-        hash.Sha1,
         hash.sha2.Sha224,
         hash.sha2.Sha256,
         hash.sha2.Sha384,
@@ -380,6 +379,25 @@ test "issue #4532: no index out of bounds" {
 
         try std.testing.expectEqual(out1, out2);
     }
+
+    try checkIndexOob(hash.Sha1);
+}
+
+fn checkIndexOob(Hasher: type) !void {
+    var buffer1: [Hasher.block_length]u8 = undefined;
+    var buffer2: [Hasher.block_length]u8 = undefined;
+    var block: [Hasher.block_length]u8 = @splat('#');
+    var out1: [Hasher.digest_length]u8 = undefined;
+    var out2: [Hasher.digest_length]u8 = undefined;
+    var h0: Hasher = .init(&buffer1);
+    var h = h0.copy(&buffer2);
+    h.update(&block);
+    out1 = h.final();
+    h = h0.copy(&buffer2);
+    h.update(block[0..1]);
+    h.update(block[1..]);
+    out2 = h.final();
+    try std.testing.expectEqualSlices(u8, &out1, &out2);
 }
 
 /// Sets a slice to zeroes.

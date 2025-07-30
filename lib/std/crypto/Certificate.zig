@@ -949,7 +949,7 @@ pub const rsa = struct {
             // 2.   Let mHash = Hash(M), an octet string of length hLen.
             var mHash: [Hash.digest_length]u8 = undefined;
             {
-                var hasher: Hash = .init(.{});
+                var hasher: Hash = .init();
                 for (msg) |part| hasher.update(part);
                 hasher.final(&mHash);
             }
@@ -1038,7 +1038,7 @@ pub const rsa = struct {
 
             // 13.  Let H' = Hash(M'), an octet string of length hLen.
             var h_p: [Hash.digest_length]u8 = undefined;
-            Hash.hash(m_p, &h_p, .{});
+            Hash.hash(m_p, &h_p);
 
             // 14.  If H = H', output "consistent".  Otherwise, output
             //      "inconsistent".
@@ -1054,7 +1054,7 @@ pub const rsa = struct {
 
             while (idx < len) {
                 std.mem.writeInt(u32, hash[seed.len..][0..4], counter, .big);
-                Hash.hash(&hash, out[idx..][0..Hash.digest_length], .{});
+                Hash.hash(&hash, out[idx..][0..Hash.digest_length]);
                 idx += Hash.digest_length;
                 counter += 1;
             }
@@ -1081,13 +1081,14 @@ pub const rsa = struct {
             public_key: PublicKey,
             comptime Hash: type,
         ) VerifyError!void {
-            try concatVerify(modulus_len, sig, &.{msg}, public_key, Hash);
+            var msgs: [1][]const u8 = .{msg};
+            try concatVerify(modulus_len, sig, &msgs, public_key, Hash);
         }
 
         pub fn concatVerify(
             comptime modulus_len: usize,
             sig: [modulus_len]u8,
-            msg: []const []const u8,
+            msg: [][]const u8,
             public_key: PublicKey,
             comptime Hash: type,
         ) VerifyError!void {
@@ -1096,7 +1097,7 @@ pub const rsa = struct {
             if (!std.mem.eql(u8, &em_dec, &em)) return error.InvalidSignature;
         }
 
-        fn EMSA_PKCS1_V1_5_ENCODE(msg: []const []const u8, comptime emLen: usize, comptime Hash: type) VerifyError![emLen]u8 {
+        fn EMSA_PKCS1_V1_5_ENCODE(msg: [][]const u8, comptime emLen: usize, comptime Hash: type) VerifyError![emLen]u8 {
             comptime var em_index = emLen;
             var em: [emLen]u8 = undefined;
 
@@ -1107,10 +1108,21 @@ pub const rsa = struct {
             //
             //    If the hash function outputs "message too long," output "message
             //    too long" and stop.
-            var hasher: Hash = .init(.{});
-            for (msg) |part| hasher.update(part);
-            em_index -= Hash.digest_length;
-            hasher.final(em[em_index..]);
+            switch (Hash) {
+                crypto.hash.Sha1 => {
+                    var buffer: [64]u8 = undefined;
+                    var hasher: Hash = .init(&buffer);
+                    hasher.writer.writeVecAll(msg) catch unreachable; // writing to hasher cannot fail
+                    em_index -= Hash.digest_length;
+                    em[em_index..][0..Hash.digest_length].* = hasher.final();
+                },
+                else => {
+                    var hasher: Hash = .init();
+                    for (msg) |part| hasher.update(part);
+                    em_index -= Hash.digest_length;
+                    hasher.final(em[em_index..]);
+                },
+            }
 
             // 2. Encode the algorithm ID for the hash function and the hash value
             //    into an ASN.1 value of type DigestInfo (see Appendix A.2.4) with

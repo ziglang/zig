@@ -498,7 +498,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                             .ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
                             => |tag| {
                                 handshake_cipher = @unionInit(tls.HandshakeCipher, @tagName(tag.with()), .{
-                                    .transcript_hash = .init(.{}),
+                                    .transcript_hash = .init(),
                                     .version = undefined,
                                 });
                                 const p = &@field(handshake_cipher, @tagName(tag.with()));
@@ -680,7 +680,8 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         const key_size = hsd.decode(u8);
                         try hsd.ensure(key_size);
                         const server_pub_key = hsd.slice(key_size);
-                        try main_cert_pub_key.verifySignature(&hsd, &.{ &client_hello_rand, &server_hello_rand, hsd.buf[0..hsd.idx] });
+                        var msgs: [3][]const u8 = .{ &client_hello_rand, &server_hello_rand, hsd.buf[0..hsd.idx] };
+                        try main_cert_pub_key.verifySignature(&hsd, &msgs);
                         try key_share.exchange(named_group, server_pub_key);
                         handshake_state = .server_hello_done;
                     },
@@ -776,10 +777,11 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                         }
                         switch (handshake_cipher) {
                             inline else => |*p| {
-                                try main_cert_pub_key.verifySignature(&hsd, &.{
+                                var msgs: [2][]const u8 = .{
                                     " " ** 64 ++ "TLS 1.3, server CertificateVerify\x00",
                                     &p.transcript_hash.peek(),
-                                });
+                                };
+                                try main_cert_pub_key.verifySignature(&hsd, &msgs);
                                 p.transcript_hash.update(wrapped_handshake);
                             },
                         }
@@ -1755,7 +1757,7 @@ const CertificatePublicKey = struct {
     fn verifySignature(
         cert_pub_key: *const CertificatePublicKey,
         sigd: *tls.Decoder,
-        msg: []const []const u8,
+        msg: [][]const u8,
     ) VerifyError!void {
         const pub_key = cert_pub_key.buf[0..cert_pub_key.len];
 

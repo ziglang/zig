@@ -28,7 +28,7 @@ pub fn calcUuid(comp: *const Compilation, file: fs.File, file_size: u64, out: *[
         @memcpy(final_buffer[i * Md5.digest_length ..][0..Md5.digest_length], &hash);
     }
 
-    Md5.hash(final_buffer, out, .{});
+    Md5.hash(final_buffer, out);
     conform(out);
 }
 

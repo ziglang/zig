@@ -45,10 +45,10 @@ pub const Oid = union(Format) {
         sha1: Sha1,
         sha256: Sha256,
 
-        fn init(oid_format: Format) Hasher {
+        fn init(oid_format: Format, buffer: []u8) Hasher {
             return switch (oid_format) {
-                .sha1 => .{ .sha1 = Sha1.init(.{}) },
-                .sha256 => .{ .sha256 = Sha256.init(.{}) },
+                .sha1 => .{ .sha1 = .init(buffer) },
+                .sha256 => .{ .sha256 = Sha256.init() },
             };
         }
 
@@ -61,6 +61,7 @@ pub const Oid = union(Format) {
 
         fn finalResult(hasher: *Hasher) Oid {
             return switch (hasher.*) {
+                .sha1 => |*inner| .{ .sha1 = inner.final() },
                 inline else => |*inner, tag| @unionInit(Oid, @tagName(tag), inner.finalResult()),
             };
         }
@@ -1281,7 +1282,8 @@ pub fn indexPack(allocator: Allocator, format: Oid.Format, pack: std.fs.File, in
     }
     @memset(fan_out_table[fan_out_index..], count);
 
-    var index_hashed_writer = hashedWriter(index_writer, Oid.Hasher.init(format));
+    var hash_buffer: [64]u8 = undefined;
+    var index_hashed_writer = hashedWriter(index_writer, Oid.Hasher.init(format, &hash_buffer));
     const writer = index_hashed_writer.writer();
     try writer.writeAll(IndexHeader.signature);
     try writer.writeInt(u32, IndexHeader.supported_version, .big);
@@ -1331,7 +1333,8 @@ fn indexPackFirstPass(
 ) !Oid {
     var pack_buffered_reader = std.io.bufferedReader(pack.deprecatedReader());
     var pack_counting_reader = std.io.countingReader(pack_buffered_reader.reader());
-    var pack_hashed_reader = hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format));
+    var hash_buffer: [64]u8 = undefined;
+    var pack_hashed_reader = hashedReader(pack_counting_reader.reader(), Oid.Hasher.init(format, &hash_buffer));
     const pack_reader = pack_hashed_reader.reader();
 
     const pack_header = try PackHeader.read(pack_reader);
@@ -1345,7 +1348,8 @@ fn indexPackFirstPass(
             .commit, .tree, .blob, .tag => |object| {
                 var entry_decompress_stream = std.compress.zlib.decompressor(entry_crc32_reader.reader());
                 var entry_counting_reader = std.io.countingReader(entry_decompress_stream.reader());
-                var entry_hashed_writer = hashedWriter(std.io.null_writer, Oid.Hasher.init(format));
+                var entry_hash_buffer: [64]u8 = undefined;
+                var entry_hashed_writer = hashedWriter(std.io.null_writer, Oid.Hasher.init(format, &entry_hash_buffer));
                 const entry_writer = entry_hashed_writer.writer();
                 // The object header is not included in the pack data but is
                 // part of the object's ID
@@ -1431,7 +1435,8 @@ fn indexPackHashDelta(
 
     const base_data = try resolveDeltaChain(allocator, format, pack, base_object, delta_offsets.items, cache);
 
-    var entry_hasher: Oid.Hasher = .init(format);
+    var hash_buffer: [64]u8 = undefined;
+    var entry_hasher: Oid.Hasher = .init(format, &hash_buffer);
     var entry_hashed_writer = hashedWriter(std.io.null_writer, &entry_hasher);
     try entry_hashed_writer.writer().print("{s} {}\x00", .{ @tagName(base_object.type), base_data.len });
     entry_hasher.update(base_data);

@@ -163,7 +163,7 @@ pub const Ed25519 = struct {
             const expected_r = try Curve.fromBytes(r);
             try expected_r.rejectIdentity();
 
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&r);
             h.update(&public_key.bytes);
 
