@@ -238,7 +238,6 @@ pub const Repository = struct {
                     };
                     defer file.close();
                     try file.writeAll(file_object.data);
-                    try file.sync();
                 },
                 .symlink => {
                     try repository.odb.seekOid(entry.oid);
@@ -1690,7 +1689,6 @@ pub fn main() !void {
     var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
     try indexPack(allocator, format, pack_file, index_buffered_writer.writer());
     try index_buffered_writer.flush();
-    try index_file.sync();
 
     std.debug.print("Starting checkout...\n", .{});
     var repository = try Repository.init(allocator, format, pack_file, index_file);
