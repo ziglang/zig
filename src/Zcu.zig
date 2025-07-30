@@ -3859,7 +3859,12 @@ pub fn atomicPtrAlignment(
         }
         return .none;
     }
-    if (ty.isAbiInt(zcu)) {
+    if (switch (ty.zigTypeTag(zcu)) {
+        .int, .@"enum" => true,
+        .@"struct" => ty.containerLayout(zcu) == .@"packed",
+        else => false,
+    }) {
+        assert(ty.isAbiInt(zcu));
         const bit_count = ty.intInfo(zcu).bits;
         if (bit_count > max_atomic_bits) {
             diags.* = .{

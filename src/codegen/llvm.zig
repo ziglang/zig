@@ -4339,9 +4339,11 @@ pub const Object = struct {
     /// types to work around a LLVM deficiency when targeting ARM/AArch64.
     fn getAtomicAbiType(o: *Object, pt: Zcu.PerThread, ty: Type, is_rmw_xchg: bool) Allocator.Error!Builder.Type {
         const zcu = pt.zcu;
+        const ip = &zcu.intern_pool;
         const int_ty = switch (ty.zigTypeTag(zcu)) {
             .int => ty,
             .@"enum" => ty.intTagType(zcu),
+            .@"struct" => Type.fromInterned(ip.loadStructType(ty.toIntern()).backingIntTypeUnordered(ip)),
             .float => {
                 if (!is_rmw_xchg) return .none;
                 return o.builder.intType(@intCast(ty.abiSize(zcu) * 8));
@@ -11424,7 +11426,7 @@ pub const FuncGen = struct {
 
         if (workaround_disable_truncate) {
             // see https://github.com/llvm/llvm-project/issues/64222
-            // disable the truncation codepath for larger that 32bits value - with this heuristic, the backend passes the test suite.
+            // disable the truncation codepath for larger than 32bits value - with this heuristic, the backend passes the test suite.
             return try fg.wip.load(access_kind, payload_llvm_ty, payload_ptr, payload_alignment, "");
         }
 
