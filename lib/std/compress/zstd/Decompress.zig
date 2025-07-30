@@ -88,6 +88,8 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
             .vtable = &.{
                 .stream = stream,
                 .rebase = rebase,
+                .discard = discard,
+                .readVec = Reader.indirectReadVec,
             },
             .buffer = buffer,
             .seek = 0,
@@ -100,11 +102,23 @@ fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     assert(capacity <= r.buffer.len - d.window_len);
     assert(r.end + capacity > r.buffer.len);
-    const discard = r.end - d.window_len;
-    const keep = r.buffer[discard..r.end];
+    const discard_n = r.end - d.window_len;
+    const keep = r.buffer[discard_n..r.end];
     @memmove(r.buffer[0..keep.len], keep);
     r.end = keep.len;
-    r.seek -= discard;
+    r.seek -= discard_n;
+}
+
+fn discard(r: *Reader, limit: Limit) Reader.Error!usize {
+    r.rebase(zstd.block_size_max) catch unreachable;
+    var d: Writer.Discarding = .init(r.buffer);
+    const n = r.stream(&d.writer, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.EndOfStream,
+    };
+    assert(n <= @intFromEnum(limit));
+    return n;
 }
 
 fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
