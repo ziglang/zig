@@ -438,23 +438,6 @@ pub fn defaultReadVec(r: *Reader, data: []const []u8) Error!usize {
     return 0;
 }
 
-/// Always writes to `Reader.buffer` and returns 0.
-pub fn indirectReadVec(r: *Reader, data: []const []u8) Error!usize {
-    _ = data;
-    assert(r.seek == r.end);
-    var writer: Writer = .{
-        .buffer = r.buffer,
-        .end = r.end,
-        .vtable = &.{ .drain = Writer.fixedDrain },
-    };
-    const limit: Limit = .limited(writer.buffer.len - writer.end);
-    r.end += r.vtable.stream(r, &writer, limit) catch |err| switch (err) {
-        error.WriteFailed => unreachable,
-        else => |e| return e,
-    };
-    return 0;
-}
-
 pub fn buffered(r: *Reader) []u8 {
     return r.buffer[r.seek..r.end];
 }
