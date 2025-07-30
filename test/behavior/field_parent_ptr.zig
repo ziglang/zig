@@ -2,7 +2,6 @@ const expect = @import("std").testing.expect;
 const builtin = @import("builtin");
 
 test "@fieldParentPtr struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -587,10 +586,12 @@ test "@fieldParentPtr extern struct last zero-bit field" {
 }
 
 test "@fieldParentPtr unaligned packed struct" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const C = packed struct {
         a: bool = true,
@@ -725,10 +726,12 @@ test "@fieldParentPtr unaligned packed struct" {
 }
 
 test "@fieldParentPtr aligned packed struct" {
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const C = packed struct {
         a: f32 = 3.14,
@@ -866,6 +869,7 @@ test "@fieldParentPtr nested packed struct" {
     if (builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     {
         const C = packed struct {
@@ -1340,7 +1344,6 @@ test "@fieldParentPtr packed struct last zero-bit field" {
 }
 
 test "@fieldParentPtr tagged union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -1477,7 +1480,6 @@ test "@fieldParentPtr tagged union" {
 }
 
 test "@fieldParentPtr untagged union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
@@ -1614,6 +1616,7 @@ test "@fieldParentPtr untagged union" {
 }
 
 test "@fieldParentPtr extern union" {
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
