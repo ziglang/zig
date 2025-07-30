@@ -477,7 +477,7 @@ fn GenericIntApplier(
         }
 
         fn typeErasedApplyFn(context: *const anyopaque, arg: u32) void {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             applyFn(ptr.*, arg);
         }
     };

@@ -353,7 +353,7 @@ pub const RuntimeServices = extern struct {
             reset_type,
             reset_status,
             if (data) |d| d.len else 0,
-            if (data) |d| @alignCast(@ptrCast(d.ptr)) else null,
+            if (data) |d| @ptrCast(@alignCast(d.ptr)) else null,
         );
     }
 

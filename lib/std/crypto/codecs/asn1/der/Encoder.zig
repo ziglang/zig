@@ -37,7 +37,7 @@ fn anyTag(self: *Encoder, tag_: Tag, val: anytype) !void {
                 // > The encoding of a set value or sequence value shall not include an encoding for any
                 // > component value which is equal to its default value.
                 const is_default = if (f.is_comptime) false else if (f.default_value_ptr) |v| brk: {
-                    const default_val: *const f.type = @alignCast(@ptrCast(v));
+                    const default_val: *const f.type = @ptrCast(@alignCast(v));
                     break :brk std.mem.eql(u8, std.mem.asBytes(default_val), std.mem.asBytes(&field_val));
                 } else false;
 
