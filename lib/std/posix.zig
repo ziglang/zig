@@ -204,6 +204,7 @@ pub const ACCMODE = switch (native_os) {
     // implements this suggestion.
     // https://github.com/SerenityOS/serenity/blob/4adc51fdf6af7d50679c48b39362e062f5a3b2cb/Kernel/API/POSIX/fcntl.h#L28-L30
     .serenity => enum(u2) {
+        NONE = 0,
         RDONLY = 1,
         WRONLY = 2,
         RDWR = 3,

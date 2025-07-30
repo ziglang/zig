@@ -8604,7 +8604,7 @@ pub const O = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L28-L43
     .serenity => packed struct(c_int) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: std.posix.ACCMODE = .NONE,
         EXEC: bool = false,
         CREAT: bool = false,
         EXCL: bool = false,
