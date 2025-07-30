@@ -60,7 +60,7 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
                 .stream = stream,
                 .rebase = rebase,
                 .discard = discard,
-                .readVec = Reader.indirectReadVec,
+                .readVec = readVec,
             },
             .buffer = buffer,
             .seek = 0,
@@ -107,6 +107,22 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     };
     assert(n <= @intFromEnum(limit));
     return n;
+}
+
+fn readVec(r: *Reader, data: []const []u8) Reader.Error!usize {
+    _ = data;
+    assert(r.seek == r.end);
+    r.rebase(flate.history_len) catch unreachable;
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .end = r.end,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
+    r.end += r.vtable.stream(r, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        else => |e| return e,
+    };
+    return 0;
 }
 
 fn decodeLength(self: *Decompress, code: u8) !u16 {
@@ -1073,8 +1089,8 @@ test "reading into empty buffer" {
     var in: Reader = .fixed(input);
     var decomp: Decompress = .init(&in, .raw, &.{});
     const r = &decomp.reader;
-    var buf: [0]u8 = undefined;
-    try testing.expectEqual(0, try r.readVec(&.{&buf}));
+    var bufs: [1][]u8 = .{&.{}};
+    try testing.expectEqual(0, try r.readVec(&bufs));
 }
 
 test "zlib header" {
@@ -1135,7 +1151,8 @@ test "zlib should not overshoot" {
 
     var reader: std.Io.Reader = .fixed(&data);
 
-    var decompress: Decompress = .init(&reader, .zlib, &.{});
+    var decompress_buffer: [flate.max_window_len]u8 = undefined;
+    var decompress: Decompress = .init(&reader, .zlib, &decompress_buffer);
     var out: [128]u8 = undefined;
 
     {
