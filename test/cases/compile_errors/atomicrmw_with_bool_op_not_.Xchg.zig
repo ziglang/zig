@@ -4,7 +4,6 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :3:31: error: @atomicRmw with bool only allowed with .Xchg
+// :3:20: error: expected integer, float, packed struct, or pointer type; found 'bool'
+// :3:20: note: @atomicRmw with bool only allowed with .Xchg

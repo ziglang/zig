@@ -12,43 +12,17 @@ pub const panic = common.panic;
 // Some architectures support atomic load/stores but no CAS, but we ignore this
 // detail to keep the export logic clean and because we need some kind of CAS to
 // implement the spinlocks.
-const supports_atomic_ops = switch (arch) {
-    .msp430, .avr, .bpfel, .bpfeb => false,
-    .arm, .armeb, .thumb, .thumbeb =>
-    // The ARM v6m ISA has no ldrex/strex and so it's impossible to do CAS
-    // operations (unless we're targeting Linux, the kernel provides a way to
-    // perform CAS operations).
-    // XXX: The Linux code path is not implemented yet.
-    !builtin.cpu.has(.arm, .has_v6m),
-    else => true,
-};
+const supports_atomic_ops =
+    std.atomic.Op.supported(.{ .cmpxchg = .strong }, usize) or
+    // We have a specialized SPARC spinlock implementation
+    builtin.cpu.arch.isSPARC();
 
-// The size (in bytes) of the biggest object that the architecture can
-// load/store atomically.
-// Objects bigger than this threshold require the use of a lock.
-const largest_atomic_size = switch (arch) {
-    // On SPARC systems that lacks CAS and/or swap instructions, the only
-    // available atomic operation is a test-and-set (`ldstub`), so we force
-    // every atomic memory access to go through the lock.
-    .sparc => if (builtin.cpu.has(.sparc, .hasleoncasa)) @sizeOf(usize) else 0,
-
-    // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
-    // and set this parameter accordingly.
-    else => @sizeOf(usize),
-};
-
-// The size (in bytes) of the smallest atomic object that the architecture can
-// perform fetch/exchange atomically. Note, this does not encompass load and store.
-// Objects smaller than this threshold are implemented in terms of compare-exchange
-// of a larger value.
-const smallest_atomic_fetch_exch_size = switch (arch) {
-    // On AMDGCN, there are no instructions for atomic operations other than load and store
-    // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
-    .amdgcn => @sizeOf(u32),
-    else => @sizeOf(u8),
-};
-
-const cache_line_size = 64;
+// This is the size of the smallest value that the target can perform a compare-and-swap on.
+// The function `wideUpdate` can be used to implement RMW operations on types smaller than this.
+const wide_update_size = std.atomic.Op.supportedSizes(
+    .{ .cmpxchg = .weak },
+    builtin.cpu.arch,
+).findMin(builtin.cpu.features);
 
 const SpinlockTable = struct {
     // Allocate ~4096 bytes of memory for the spinlock table
@@ -63,7 +37,7 @@ const SpinlockTable = struct {
 
         // Prevent false sharing by providing enough padding between two
         // consecutive spinlock elements
-        v: if (arch.isSPARC()) sparc_lock else other_lock align(cache_line_size) = .Unlocked,
+        v: if (arch.isSPARC()) sparc_lock else other_lock align(std.atomic.cache_line) = .Unlocked,
 
         fn acquire(self: *@This()) void {
             while (true) {
@@ -165,12 +139,12 @@ fn __atomic_compare_exchange(
 // aligned.
 inline fn atomic_load_N(comptime T: type, src: *T, model: i32) T {
     _ = model;
-    if (@sizeOf(T) > largest_atomic_size) {
+    if (comptime std.atomic.Op.supported(.load, T)) {
+        return @atomicLoad(T, src, .seq_cst);
+    } else {
         var sl = spinlocks.get(@intFromPtr(src));
         defer sl.release();
         return src.*;
-    } else {
-        return @atomicLoad(T, src, .seq_cst);
     }
 }
 
@@ -196,12 +170,12 @@ fn __atomic_load_16(src: *u128, model: i32) callconv(.c) u128 {
 
 inline fn atomic_store_N(comptime T: type, dst: *T, value: T, model: i32) void {
     _ = model;
-    if (@sizeOf(T) > largest_atomic_size) {
+    if (comptime std.atomic.Op.supported(.store, T)) {
+        @atomicStore(T, dst, value, .seq_cst);
+    } else {
         var sl = spinlocks.get(@intFromPtr(dst));
         defer sl.release();
         dst.* = value;
-    } else {
-        @atomicStore(T, dst, value, .seq_cst);
     }
 }
 
@@ -226,13 +200,14 @@ fn __atomic_store_16(dst: *u128, value: u128, model: i32) callconv(.c) void {
 }
 
 fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
-    const WideAtomic = std.meta.Int(.unsigned, smallest_atomic_fetch_exch_size * 8);
+    comptime std.debug.assert(@sizeOf(T) < wide_update_size);
+    const WideAtomic = std.meta.Int(.unsigned, wide_update_size * 8);
 
     const addr = @intFromPtr(ptr);
-    const wide_addr = addr & ~(@as(T, smallest_atomic_fetch_exch_size) - 1);
-    const wide_ptr: *align(smallest_atomic_fetch_exch_size) WideAtomic = @alignCast(@as(*WideAtomic, @ptrFromInt(wide_addr)));
+    const wide_addr = addr & ~(@as(T, wide_update_size) - 1);
+    const wide_ptr: *align(wide_update_size) WideAtomic = @alignCast(@as(*WideAtomic, @ptrFromInt(wide_addr)));
 
-    const inner_offset = addr & (@as(T, smallest_atomic_fetch_exch_size) - 1);
+    const inner_offset = addr & (@as(T, wide_update_size) - 1);
     const inner_shift = @as(std.math.Log2Int(T), @intCast(inner_offset * 8));
 
     const mask = @as(WideAtomic, std.math.maxInt(T)) << inner_shift;
@@ -252,13 +227,9 @@ fn wideUpdate(comptime T: type, ptr: *T, val: T, update: anytype) T {
 
 inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
     _ = model;
-    if (@sizeOf(T) > largest_atomic_size) {
-        var sl = spinlocks.get(@intFromPtr(ptr));
-        defer sl.release();
-        const value = ptr.*;
-        ptr.* = val;
-        return value;
-    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
+    if (comptime std.atomic.Op.supported(.{ .rmw = .Xchg }, T)) {
+        return @atomicRmw(T, ptr, .Xchg, val, .seq_cst);
+    } else if (@sizeOf(T) < wide_update_size) {
         // Machine does not support this type, but it does support a larger type.
         const Updater = struct {
             fn update(new: T, old: T) T {
@@ -268,7 +239,11 @@ inline fn atomic_exchange_N(comptime T: type, ptr: *T, val: T, model: i32) T {
         };
         return wideUpdate(T, ptr, val, Updater.update);
     } else {
-        return @atomicRmw(T, ptr, .Xchg, val, .seq_cst);
+        var sl = spinlocks.get(@intFromPtr(ptr));
+        defer sl.release();
+        const value = ptr.*;
+        ptr.* = val;
+        return value;
     }
 }
 
@@ -302,7 +277,13 @@ inline fn atomic_compare_exchange_N(
 ) i32 {
     _ = success;
     _ = failure;
-    if (@sizeOf(T) > largest_atomic_size) {
+    if (comptime std.atomic.Op.supported(.{ .cmpxchg = .strong }, T)) {
+        if (@cmpxchgStrong(T, ptr, expected.*, desired, .seq_cst, .seq_cst)) |old_value| {
+            expected.* = old_value;
+            return 0;
+        }
+        return 1;
+    } else {
         var sl = spinlocks.get(@intFromPtr(ptr));
         defer sl.release();
         const value = ptr.*;
@@ -312,12 +293,6 @@ inline fn atomic_compare_exchange_N(
         }
         expected.* = value;
         return 0;
-    } else {
-        if (@cmpxchgStrong(T, ptr, expected.*, desired, .seq_cst, .seq_cst)) |old_value| {
-            expected.* = old_value;
-            return 0;
-        }
-        return 1;
     }
 }
 
@@ -359,19 +334,19 @@ inline fn fetch_op_N(comptime T: type, comptime op: std.builtin.AtomicRmwOp, ptr
         }
     };
 
-    if (@sizeOf(T) > largest_atomic_size) {
+    if (comptime std.atomic.Op.supported(.{ .rmw = op }, T)) {
+        return @atomicRmw(T, ptr, op, val, .seq_cst);
+    } else if (@sizeOf(T) < wide_update_size) {
+        // Machine does not support this type, but it does support a larger type.
+        return wideUpdate(T, ptr, val, Updater.update);
+    } else {
         var sl = spinlocks.get(@intFromPtr(ptr));
         defer sl.release();
 
         const value = ptr.*;
         ptr.* = Updater.update(val, value);
         return value;
-    } else if (@sizeOf(T) < smallest_atomic_fetch_exch_size) {
-        // Machine does not support this type, but it does support a larger type.
-        return wideUpdate(T, ptr, val, Updater.update);
     }
-
-    return @atomicRmw(T, ptr, op, val, .seq_cst);
 }
 
 fn __atomic_fetch_add_1(ptr: *u8, val: u8, model: i32) callconv(.c) u8 {

@@ -481,6 +481,461 @@ test "current CPU has a cache line size" {
     _ = cache_line;
 }
 
+pub const Op = union(enum) {
+    load,
+    store,
+    rmw: std.builtin.AtomicRmwOp,
+    cmpxchg: enum { weak, strong },
+
+    /// Check if the operation is supported on the given type.
+    pub fn supported(op: Op, comptime T: type) bool {
+        return op.supportedOnCpu(T, builtin.cpu);
+    }
+    /// Check if the operation is supported on the given type, on a specified CPU.
+    pub fn supportedOnCpu(op: Op, comptime T: type, cpu: std.Target.Cpu) bool {
+        const valid_types = op.supportedTypes();
+        const is_valid_type = switch (@typeInfo(T)) {
+            .bool => valid_types.bool,
+            .int => valid_types.integer,
+            .float => valid_types.float,
+            .@"enum" => valid_types.@"enum",
+            .error_set => valid_types.error_set,
+            .@"struct" => |s| s.layout == .@"packed" and valid_types.packed_struct,
+
+            .optional => |opt| switch (@typeInfo(opt.child)) {
+                .pointer => |ptr| switch (ptr.size) {
+                    .slice, .c => false,
+                    .one, .many => !ptr.is_allowzero and valid_types.pointer,
+                },
+            },
+            .pointer => |ptr| switch (ptr.size) {
+                .slice => false,
+                .one, .many, .c => valid_types.pointer,
+            },
+
+            else => false,
+        };
+        if (!is_valid_type) return false;
+
+        if (!std.math.isPowerOfTwo(@sizeOf(T))) return false;
+        const condition = op.supportedSizes(cpu.arch).get(@sizeOf(T)) orelse {
+            return false;
+        };
+
+        return condition.check(cpu.features);
+    }
+
+    /// Get the set of sizes supported by this operation on the specified architecture.
+    // TODO: Audit this. I've done my best for the architectures I'm familiar with, but there's probably a lot that can improved
+    pub fn supportedSizes(op: Op, arch: std.Target.Cpu.Arch) Sizes {
+        switch (arch) {
+            .avr,
+            .msp430,
+            => return .upTo(2, .always),
+
+            .arc,
+            .hexagon,
+            .m68k,
+            .mips,
+            .mipsel,
+            .nvptx,
+            .or1k,
+            .powerpc,
+            .powerpcle,
+            .riscv32,
+            .xcore,
+            .kalimba,
+            .lanai,
+            .csky,
+            .spirv32,
+            .loongarch32,
+            .xtensa,
+            .propeller,
+            => return .upTo(4, .always),
+
+            .bpfel,
+            .bpfeb,
+            .mips64,
+            .mips64el,
+            .nvptx64,
+            .powerpc64,
+            .powerpc64le,
+            .riscv64,
+            .s390x,
+            .ve,
+            .spirv64,
+            .loongarch64,
+            => return .upTo(8, .always),
+
+            .amdgcn => switch (op) {
+                .load, .store, .cmpxchg => {
+                    var sizes: Sizes = .none;
+                    sizes.put(4, .always);
+                    sizes.put(8, .always);
+                    return sizes;
+                },
+                // On AMDGCN, there are no instructions for atomic operations other than load and store
+                // (as of LLVM 15), and so these need to be implemented in terms of atomic CAS.
+                .rmw => return .none,
+            },
+
+            .sparc => {
+                const cas: Sizes = .upTo(4, .init(.sparc, .{ .require = &.{.hasleoncasa} }));
+                switch (op) {
+                    .cmpxchg => return cas,
+                    .load, .store => return .upTo(4, .always),
+                    .rmw => |rmw| switch (rmw) {
+                        .Xchg => return .upTo(4, .always),
+                        else => return cas, // Implemented in terms of CASA
+                    },
+                }
+            },
+
+            .sparc64 => {
+                const cas: Sizes = .upTo(8, .init(.sparc, .{ .require = &.{.hasleoncasa} }));
+                switch (op) {
+                    .cmpxchg => return cas,
+                    .load, .store => return .upTo(8, .always),
+                    .rmw => |rmw| switch (rmw) {
+                        .Xchg => return .upTo(8, .always),
+                        else => return cas, // Implemented in terms of CASXA
+                    },
+                }
+            },
+
+            .arm, .armeb, .thumb, .thumbeb => if (op == .cmpxchg) {
+                // The ARM v6m ISA has no ldrex/strex and so it's impossible to do CAS
+                // operations (unless we're targeting Linux, the kernel provides a way to
+                // perform CAS operations).
+                // XXX: The Linux code path is not implemented yet.
+                return .upTo(4, .init(.arm, .{ .prohibit = &.{.has_v6m} }));
+            } else {
+                return .upTo(4, .always);
+            },
+
+            .aarch64,
+            .aarch64_be,
+            => return .upTo(16, .always),
+
+            .wasm32,
+            .wasm64,
+            => {
+                if (op == .rmw) switch (op.rmw) {
+                    .Xchg,
+                    .Add,
+                    .Sub,
+                    .And,
+                    .Or,
+                    .Xor,
+                    => {},
+
+                    .Nand,
+                    .Max,
+                    .Min,
+                    => return .none, // Not supported on wasm
+                };
+
+                return .upTo(8, .init(.wasm, .{ .require = &.{.atomics} }));
+            },
+
+            .x86 => {
+                var sizes: Sizes = .upTo(4, .always);
+                if (op == .cmpxchg) {
+                    sizes.put(8, .init(.x86, .{ .require = &.{.cx8} }));
+                }
+                return sizes;
+            },
+
+            .x86_64 => {
+                var sizes: Sizes = .upTo(8, .always);
+                if (op == .cmpxchg) {
+                    sizes.put(16, .init(.x86, .{ .require = &.{.cx16} }));
+                }
+                return sizes;
+            },
+        }
+    }
+
+    pub const Sizes = struct {
+        /// Bitset of supported sizes. If size `2^n` is present, `supported & (1 << n)` will be non-zero.
+        /// For each set bit, the corresponding entry in `required_features` and `prohibited_features` will be populated.
+        supported: BitsetInt,
+        /// for each set bit in `supported`, the corresponding entry here stores a `FeatureCondition` that indicates
+        /// the requirements on CPU features in order to support that size. For unset bits, the element is `undefined`.
+        feature_conditions: [bit_set_len]FeatureCondition,
+
+        const bit_set_len = std.math.log2_int(usize, max_supported_size) + 1;
+        const BitsetInt = @Type(.{ .int = .{
+            .signedness = .unsigned,
+            .bits = bit_set_len,
+        } });
+
+        pub fn isEmpty(sizes: Sizes) bool {
+            return sizes.supported == 0;
+        }
+        pub fn get(sizes: Sizes, size: u64) ?FeatureCondition {
+            if (size == 0) return .always; // 0-bit types are always atomic, because they only hold a single value
+            if (!std.math.isPowerOfTwo(size)) return null;
+            if (sizes.supported & size == 0) return null;
+            return sizes.feature_conditions[std.math.log2_int(u64, size)];
+        }
+
+        pub fn findMax(sizes: Sizes, features: std.Target.Cpu.Feature.Set) usize {
+            var bits = sizes.supported;
+            while (bits != 0) {
+                const max = std.math.log2_int(BitsetInt, bits);
+                const mask = @as(BitsetInt, 1) << max;
+                bits &= ~mask;
+                if (sizes.feature_conditions[max].check(features)) {
+                    return mask;
+                }
+            }
+            return 0;
+        }
+
+        pub fn findMin(sizes: Sizes, features: std.Target.Cpu.Feature.Set) usize {
+            var bits = sizes.supported;
+            while (bits != 0) {
+                const min = @ctz(bits);
+                const mask = @as(BitsetInt, 1) << @intCast(min);
+                bits &= ~mask;
+                if (sizes.feature_conditions[min].check(features)) {
+                    return mask;
+                }
+            }
+            return 0;
+        }
+
+        /// Prints the set as a list of possible sizes.
+        /// eg. `1, 2, 4, or 8`
+        pub fn formatPossibilities(sizes: Sizes, writer: *std.Io.Writer) !void {
+            if (sizes.supported == 0) {
+                return writer.writeAll("<none>");
+            }
+
+            var bits = sizes.supported;
+            var count: usize = 0;
+            while (bits != 0) : (count += 1) {
+                const mask = @as(BitsetInt, 1) << @intCast(@ctz(bits));
+                bits &= ~mask;
+
+                if (count > 1 or (count > 0 and bits != 0)) {
+                    try writer.writeAll(", ");
+                }
+                if (bits == 0) {
+                    try writer.writeAll("or ");
+                }
+
+                try writer.print("{d}", .{mask});
+            }
+        }
+
+        const none: Sizes = .{
+            .supported = 0,
+            .feature_conditions = undefined,
+        };
+        fn upTo(max: BitsetInt, condition: FeatureCondition) Sizes {
+            std.debug.assert(std.math.isPowerOfTwo(max));
+            var sizes: Sizes = .{
+                .supported = (max << 1) -% 1,
+                .feature_conditions = @splat(condition),
+            };
+
+            // Safety
+            const max_idx = std.math.log2_int(BitsetInt, max);
+            @memset(sizes.feature_conditions[max_idx + 1 ..], undefined);
+
+            return sizes;
+        }
+        fn put(sizes: *Sizes, size: BitsetInt, condition: FeatureCondition) void {
+            sizes.supported |= size;
+            sizes.feature_conditions[std.math.log2_int(u64, size)] = condition;
+        }
+    };
+
+    pub const FeatureCondition = struct {
+        required: Set,
+        prohibited: Set,
+        const Set = std.Target.Cpu.Feature.Set;
+
+        pub const always: FeatureCondition = .{ .required = .empty, .prohibited = .empty };
+
+        pub fn check(self: FeatureCondition, features: Set) bool {
+            return features.isSuperSetOf(self.required) and !features.intersectsWith(self.prohibited);
+        }
+
+        fn init(comptime family: std.Target.Cpu.Arch.Family, opts: struct {
+            const Feature = @field(std.Target, @tagName(family)).Feature;
+            require: []const Feature = &.{},
+            prohibit: []const Feature = &.{},
+        }) FeatureCondition {
+            const ns = @field(std.Target, @tagName(family));
+            return .{
+                .required = ns.featureSet(opts.require),
+                .prohibited = ns.featureSet(opts.prohibit),
+            };
+        }
+    };
+
+    /// The maximum size supported by any architecture
+    const max_supported_size = 16;
+
+    pub fn format(op: Op, writer: *std.Io.Writer) !void {
+        switch (op) {
+            .load => try writer.writeAll("@atomicLoad"),
+            .store => try writer.writeAll("@atomicStore"),
+            .rmw => |rmw| try writer.print("@atomicRmw(.{s})", .{@tagName(rmw)}),
+            .cmpxchg => |strength| switch (strength) {
+                .weak => try writer.writeAll("@cmpxchgWeak"),
+                .strong => try writer.writeAll("@cmpxchgStrong"),
+            },
+        }
+    }
+
+    /// Returns a description of the kinds of type supported by this operation.
+    pub fn supportedTypes(op: Op) Types {
+        return switch (op) {
+            .load, .store => .{},
+            .rmw => |rmw| switch (rmw) {
+                .Xchg => .{},
+                .Add, .Sub, .Min, .Max => .{
+                    .bool = false,
+                    .@"enum" = false,
+                    .error_set = false,
+                },
+                .And, .Nand, .Or, .Xor => .{
+                    .float = false,
+                    .bool = false,
+                    .@"enum" = false,
+                    .error_set = false,
+                },
+            },
+            .cmpxchg => .{
+                // floats are not supported for cmpxchg because float equality differs from bitwise equality
+                .float = false,
+            },
+        };
+    }
+    pub const Types = packed struct {
+        bool: bool = true,
+        integer: bool = true,
+        float: bool = true,
+        @"enum": bool = true,
+        error_set: bool = true,
+        packed_struct: bool = true,
+        pointer: bool = true,
+
+        pub fn format(types: Types, writer: *std.io.Writer) !void {
+            const bits: @typeInfo(Types).@"struct".backing_integer.? = @bitCast(types);
+            var count = @popCount(bits);
+            inline for (@typeInfo(Types).@"struct".fields) |field| {
+                if (@field(types, field.name)) {
+                    var name = field.name[0..].*;
+                    std.mem.replaceScalar(u8, &name, '_', ' ');
+                    try writer.writeAll(&name);
+
+                    count -= 1;
+                    switch (count) {
+                        0 => {},
+                        1 => try writer.writeAll(", or "),
+                        else => try writer.writeAll(", "),
+                    }
+                }
+            }
+        }
+    };
+
+    test supportedOnCpu {
+        const x86 = std.Target.x86;
+        try std.testing.expect(
+            supportedOnCpu(.load, u64, x86.cpu.x86_64.toCpu(.x86_64)),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .cmpxchg = .weak }, u128, x86.cpu.x86_64.toCpu(.x86_64)),
+        );
+        try std.testing.expect(
+            supportedOnCpu(.{ .cmpxchg = .weak }, u128, x86.cpu.x86_64_v2.toCpu(.x86_64)),
+        );
+
+        const aarch64 = std.Target.aarch64;
+        try std.testing.expect(
+            supportedOnCpu(.load, u64, aarch64.cpu.generic.toCpu(.aarch64)),
+        );
+    }
+
+    test supportedSizes {
+        const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86);
+
+        try std.testing.expect(sizes.get(4) != null);
+        try std.testing.expect(sizes.get(4).?.check(.empty));
+
+        try std.testing.expect(sizes.get(8) != null);
+        try std.testing.expect(!sizes.get(8).?.check(.empty));
+        try std.testing.expect(sizes.get(8).?.check(std.Target.x86.featureSet(&.{.cx8})));
+
+        try std.testing.expect(sizes.get(16) == null);
+    }
+
+    test "wasm only supports atomics when the feature is enabled" {
+        const cpu = std.Target.wasm.cpu;
+        try std.testing.expect(
+            !supportedOnCpu(.store, u32, cpu.mvp.toCpu(.wasm32)),
+        );
+        try std.testing.expect(
+            supportedOnCpu(.store, u32, cpu.bleeding_edge.toCpu(.wasm32)),
+        );
+    }
+
+    test "wasm32 supports up to 64-bit atomics" {
+        const bleeding = std.Target.wasm.cpu.bleeding_edge.toCpu(.wasm32);
+        try std.testing.expect(
+            supportedOnCpu(.store, u64, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.store, u128, bleeding),
+        );
+
+        const sizes = supportedSizes(.{ .rmw = .Add }, .wasm32);
+        try std.testing.expect(sizes.supported == 0b1111);
+    }
+
+    test "wasm32 doesn't support min, max, or nand RMW ops" {
+        const bleeding = std.Target.wasm.cpu.bleeding_edge.toCpu(.wasm32);
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Min }, u32, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Max }, u32, bleeding),
+        );
+        try std.testing.expect(
+            !supportedOnCpu(.{ .rmw = .Nand }, u32, bleeding),
+        );
+    }
+
+    test "x86_64 supports 128-bit cmpxchg with cx16 flag" {
+        const x86 = std.Target.x86;
+        const v2 = x86.cpu.x86_64_v2.toCpu(.x86_64);
+        try std.testing.expect(
+            supportedOnCpu(.{ .cmpxchg = .strong }, u128, v2),
+        );
+
+        const sizes = supportedSizes(.{ .cmpxchg = .strong }, .x86_64);
+        try std.testing.expect(sizes.get(16) != null);
+        try std.testing.expect(sizes.get(16).?.check(x86.featureSet(&.{.cx16})));
+        try std.testing.expect(!sizes.get(16).?.check(.empty));
+    }
+};
+
+test Op {
+    try std.testing.expect(
+        // Query atomic operation support for a specific CPU
+        Op.supportedOnCpu(.load, u64, std.Target.aarch64.cpu.generic.toCpu(.aarch64)),
+    );
+
+    // Query atomic operation support for the target CPU
+    _ = Op.supported(.load, u64);
+}
+
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const AtomicOrder = std.builtin.AtomicOrder;

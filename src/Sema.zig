@@ -23138,6 +23138,8 @@ fn checkNumericType(
 fn checkAtomicPtrOperand(
     sema: *Sema,
     block: *Block,
+    atomic_op: std.atomic.Op,
+    atomic_op_src: LazySrcLoc,
     elem_ty: Type,
     elem_ty_src: LazySrcLoc,
     ptr: Air.Inst.Ref,
@@ -23146,35 +23148,90 @@ fn checkAtomicPtrOperand(
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    var diag: Zcu.AtomicPtrAlignmentDiagnostics = .{};
-    const alignment = zcu.atomicPtrAlignment(elem_ty, &diag) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.FloatTooBig => return sema.fail(
+
+    if (sema.isInvalidAtomicType(atomic_op, elem_ty)) |why| {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                elem_ty_src,
+                "expected {f} type; found '{f}'",
+                .{ atomic_op.supportedTypes(), elem_ty.fmt(pt) },
+            );
+            errdefer msg.destroy(sema.gpa);
+
+            if (why.len != 0) {
+                try sema.errNote(elem_ty_src, msg, "{s}", .{why});
+            }
+
+            try sema.addDeclaredHereNote(msg, elem_ty);
+
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
+    }
+
+    const target = zcu.getTarget();
+    const size_support = atomic_op.supportedSizes(target.cpu.arch);
+    if (size_support.isEmpty()) {
+        return sema.fail(
             block,
-            elem_ty_src,
-            "expected {d}-bit float type or smaller; found {d}-bit float type",
-            .{ diag.max_bits, diag.bits },
-        ),
-        error.IntTooBig => return sema.fail(
-            block,
-            elem_ty_src,
-            "expected {d}-bit integer type or smaller; found {d}-bit integer type",
-            .{ diag.max_bits, diag.bits },
-        ),
-        error.BadType => return sema.fail(
-            block,
-            elem_ty_src,
-            "expected bool, integer, float, enum, packed struct, or pointer type; found '{f}'",
-            .{elem_ty.fmt(pt)},
-        ),
+            atomic_op_src,
+            "{f} is not supported on {s}",
+            .{ atomic_op, @tagName(target.cpu.arch) },
+        );
+    }
+
+    const elem_size = elem_ty.abiSize(zcu);
+    var feature_condition = size_support.get(elem_size) orelse {
+        const msg = msg: {
+            const msg = try sema.errMsg(
+                elem_ty_src,
+                "{s} does not support {f} on this type",
+                .{ @tagName(target.cpu.arch), atomic_op },
+            );
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(
+                elem_ty_src,
+                msg,
+                "size of type is {d}, but {f} on {s} requires a value of size {f}",
+                .{ elem_size, atomic_op, @tagName(target.cpu.arch), std.fmt.alt(size_support, .formatPossibilities) },
+            );
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(block, msg);
     };
+
+    feature_condition.prohibited.intersectFeatureSet(target.cpu.features);
+    feature_condition.required.removeFeatureSet(target.cpu.features);
+    if (!feature_condition.prohibited.isEmpty()) {
+        return sema.fail(
+            block,
+            atomic_op_src,
+            "{d}-byte {f} on {s} cannot be used with the following CPU features: {f}",
+            .{
+                elem_size,
+                atomic_op,
+                @tagName(target.cpu.arch),
+                feature_condition.prohibited.fmtList(target.cpu.arch.family(), "or"),
+            },
+        );
+    }
+    if (!feature_condition.required.isEmpty()) {
+        return sema.fail(
+            block,
+            atomic_op_src,
+            "{d}-byte {f} on {s} requires the following missing CPU features: {f}",
+            .{
+                elem_size,
+                atomic_op,
+                @tagName(target.cpu.arch),
+                feature_condition.required.fmtList(target.cpu.arch.family(), "and"),
+            },
+        );
+    }
 
     var wanted_ptr_data: InternPool.Key.PtrType = .{
         .child = elem_ty.toIntern(),
-        .flags = .{
-            .alignment = alignment,
-            .is_const = ptr_const,
-        },
+        .flags = .{ .is_const = ptr_const },
     };
 
     const ptr_ty = sema.typeOf(ptr);
@@ -23195,6 +23252,52 @@ fn checkAtomicPtrOperand(
     const casted_ptr = try sema.coerce(block, wanted_ptr_ty, ptr, ptr_src);
 
     return casted_ptr;
+}
+
+/// If the type is invalid for this atomic operation, returns an error note explaining why.
+fn isInvalidAtomicType(sema: *Sema, op: std.atomic.Op, elem_ty: Type) ?[]const u8 {
+    const zcu = sema.pt.zcu;
+    const valid_types = op.supportedTypes();
+    if (elem_ty.isRuntimeFloat()) {
+        if (!valid_types.float) {
+            switch (op) {
+                .load, .store => unreachable,
+                .rmw => return "@atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min",
+                .cmpxchg => return "floats are not supported for cmpxchg because float equality differs from bitwise equality",
+            }
+        }
+    } else if (elem_ty.isPtrAtRuntime(zcu)) {
+        // TODO: pointers are currently supported for things like rmw add, but maybe this shouldn't be the case?
+        std.debug.assert(valid_types.pointer);
+    } else switch (elem_ty.zigTypeTag(zcu)) {
+        .bool => if (!valid_types.bool) {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with bool only allowed with .Xchg",
+            }
+        },
+        .int => std.debug.assert(valid_types.integer),
+        .@"enum" => if (!valid_types.@"enum") {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with enum only allowed with .Xchg",
+            }
+        },
+        .error_set => if (!valid_types.error_set) {
+            switch (op) {
+                .load, .store, .cmpxchg => unreachable,
+                .rmw => return "@atomicRmw with error set only allowed with .Xchg",
+            }
+        },
+        .@"struct" => if (elem_ty.containerLayout(zcu) != .@"packed") {
+            return ""; // No notes
+        } else {
+            std.debug.assert(valid_types.packed_struct);
+        },
+        else => return "", // No notes
+    }
+
+    return null; // All ok!
 }
 
 fn checkPtrIsNotComptimeMutable(
@@ -23476,16 +23579,15 @@ fn zirCmpxchg(
     // zig fmt: on
     const expected_value = try sema.resolveInst(extra.expected_value);
     const elem_ty = sema.typeOf(expected_value);
-    if (elem_ty.zigTypeTag(zcu) == .float) {
-        return sema.fail(
-            block,
-            elem_ty_src,
-            "expected bool, integer, enum, packed struct, or pointer type; found '{f}'",
-            .{elem_ty.fmt(pt)},
-        );
-    }
     const uncasted_ptr = try sema.resolveInst(extra.ptr);
-    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
+    const op: std.atomic.Op = .{
+        .cmpxchg = switch (air_tag) {
+            .cmpxchg_weak => .weak,
+            .cmpxchg_strong => .strong,
+            else => unreachable,
+        },
+    };
+    const ptr = try sema.checkAtomicPtrOperand(block, op, src, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const new_value = try sema.coerce(block, elem_ty, try sema.resolveInst(extra.new_value), new_value_src);
     const success_order = try sema.resolveAtomicOrder(block, success_order_src, extra.success_order, .{ .simple = .atomic_order });
     const failure_order = try sema.resolveAtomicOrder(block, failure_order_src, extra.failure_order, .{ .simple = .atomic_order });
@@ -23985,6 +24087,7 @@ fn zirSelect(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) C
 fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
     const extra = sema.code.extraData(Zir.Inst.AtomicLoad, inst_data.payload_index).data;
+    const src = block.nodeOffset(inst_data.src_node);
     // zig fmt: off
     const elem_ty_src = block.builtinCallArgSrc(inst_data.src_node, 0);
     const ptr_src     = block.builtinCallArgSrc(inst_data.src_node, 1);
@@ -23992,7 +24095,7 @@ fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     // zig fmt: on
     const elem_ty = try sema.resolveType(block, elem_ty_src, extra.elem_type);
     const uncasted_ptr = try sema.resolveInst(extra.ptr);
-    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, true);
+    const ptr = try sema.checkAtomicPtrOperand(block, .load, src, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, true);
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering, .{ .simple = .atomic_order });
 
     switch (order) {
@@ -24017,7 +24120,7 @@ fn zirAtomicLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
         }
     }
 
-    try sema.requireRuntimeBlock(block, block.nodeOffset(inst_data.src_node), ptr_src);
+    try sema.requireRuntimeBlock(block, src, ptr_src);
     return block.addInst(.{
         .tag = .atomic_load,
         .data = .{ .atomic_load = .{
@@ -24043,22 +24146,8 @@ fn zirAtomicRmw(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!A
     const operand = try sema.resolveInst(extra.operand);
     const elem_ty = sema.typeOf(operand);
     const uncasted_ptr = try sema.resolveInst(extra.ptr);
-    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const op = try sema.resolveAtomicRmwOp(block, op_src, extra.operation);
-
-    switch (elem_ty.zigTypeTag(zcu)) {
-        .@"enum" => if (op != .Xchg) {
-            return sema.fail(block, op_src, "@atomicRmw with enum only allowed with .Xchg", .{});
-        },
-        .bool => if (op != .Xchg) {
-            return sema.fail(block, op_src, "@atomicRmw with bool only allowed with .Xchg", .{});
-        },
-        .float => switch (op) {
-            .Xchg, .Add, .Sub, .Max, .Min => {},
-            else => return sema.fail(block, op_src, "@atomicRmw with float only allowed with .Xchg, .Add, .Sub, .Max, and .Min", .{}),
-        },
-        else => {},
-    }
+    const ptr = try sema.checkAtomicPtrOperand(block, .{ .rmw = op }, src, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering, .{ .simple = .atomic_order });
 
     if (order == .unordered) {
@@ -24125,7 +24214,7 @@ fn zirAtomicStore(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const operand = try sema.resolveInst(extra.operand);
     const elem_ty = sema.typeOf(operand);
     const uncasted_ptr = try sema.resolveInst(extra.ptr);
-    const ptr = try sema.checkAtomicPtrOperand(block, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
+    const ptr = try sema.checkAtomicPtrOperand(block, .store, src, elem_ty, elem_ty_src, uncasted_ptr, ptr_src, false);
     const order = try sema.resolveAtomicOrder(block, order_src, extra.ordering, .{ .simple = .atomic_order });
 
     const air_tag: Air.Inst.Tag = switch (order) {
