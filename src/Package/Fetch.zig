@@ -1386,7 +1386,6 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         defer pack_file.close();
         var fifo = std.fifo.LinearFifo(u8, .{ .Static = 4096 }).init();
         try fifo.pump(resource.fetch_stream.reader(), pack_file.deprecatedWriter());
-        try pack_file.sync();
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
@@ -1396,7 +1395,6 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
             var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
             try git.indexPack(gpa, object_format, pack_file, index_buffered_writer.writer());
             try index_buffered_writer.flush();
-            try index_file.sync();
         }
 
         {
