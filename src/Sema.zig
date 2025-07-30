@@ -24609,6 +24609,7 @@ fn analyzeMinMax(
         } else {
             for (operands[1..], operand_srcs[1..]) |operand, operand_src| {
                 const operand_ty = sema.typeOf(operand);
+                try sema.checkNumericType(block, operand_src, operand_ty);
                 if (operand_ty.zigTypeTag(zcu) == .vector) {
                     return sema.failWithOwnedErrorMsg(block, msg: {
                         const msg = try sema.errMsg(operand_srcs[0], "expected vector, found '{f}'", .{first_operand_ty.fmt(pt)});
