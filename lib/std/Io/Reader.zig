@@ -1055,15 +1055,6 @@ pub fn fill(r: *Reader, n: usize) Error!void {
 /// Missing this optimization can result in wall-clock time for the most affected benchmarks
 /// increasing by a factor of 5 or more.
 fn fillUnbuffered(r: *Reader, n: usize) Error!void {
-    if (r.seek + n <= r.buffer.len) while (true) {
-        const end_cap = r.buffer[r.end..];
-        var writer: Writer = .fixed(end_cap);
-        r.end += r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable,
-            else => |e| return e,
-        };
-        if (r.seek + n <= r.end) return;
-    };
     try rebase(r, n);
     var writer: Writer = .{
         .buffer = r.buffer,

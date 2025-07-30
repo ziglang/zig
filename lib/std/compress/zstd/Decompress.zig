@@ -100,9 +100,8 @@ fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     assert(capacity <= r.buffer.len - d.window_len);
     assert(r.end + capacity > r.buffer.len);
-    const buffered = r.buffer[0..r.end];
-    const discard = buffered.len - d.window_len;
-    const keep = buffered[discard..];
+    const discard = r.end - d.window_len;
+    const keep = r.buffer[discard..r.end];
     @memmove(r.buffer[0..keep.len], keep);
     r.end = keep.len;
     r.seek -= discard;
