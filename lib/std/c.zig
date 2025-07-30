@@ -4121,7 +4121,7 @@ pub const msghdr_const = switch (native_os) {
     .serenity => extern struct {
         name: ?*const anyopaque,
         namelen: socklen_t,
-        iov: [*]const iovec,
+        iov: [*]const iovec_const,
         iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
