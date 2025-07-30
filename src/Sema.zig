@@ -20630,6 +20630,16 @@ fn zirReify(
             }
             const layout = try sema.interpretBuiltinType(block, operand_src, layout_val, std.builtin.Type.ContainerLayout);
 
+            const has_tag = tag_type_val.optionalValue(zcu) != null;
+
+            if (has_tag) {
+                switch (layout) {
+                    .@"extern" => return sema.fail(block, src, "extern union does not support enum tag type", .{}),
+                    .@"packed" => return sema.fail(block, src, "packed union does not support enum tag type", .{}),
+                    .auto => {},
+                }
+            }
+
             const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{ .simple = .union_fields });
 
             return sema.reifyUnion(block, inst, src, layout, tag_type_val, fields_arr, name_strategy);
