@@ -4952,34 +4952,25 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
-      <p>
-      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
-      if it is not already added.
-      </p>
-      <p>
-      Zig source files are implicitly structs, with a name equal to the file's basename with the extension
-      truncated. {#syntax#}@import{#endsyntax#} returns the struct type corresponding to the file.
-      </p>
-      <p>
-      Declarations which have the {#syntax#}pub{#endsyntax#} keyword may be referenced from a different
-      source file than the one they are declared in.
-      </p>
-      <p>
-      {#syntax#}path{#endsyntax#} can be a relative path or it can be the name of a package.
-      If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
-      function call.
-      </p>
-      <p>
-      The following packages are always available:
-      </p>
+      <pre>{#syntax#}@import(comptime target: []const u8) anytype{#endsyntax#}</pre>
+      <p>Imports the file at {#syntax#}target{#endsyntax#}, adding it to the compilation if it is not already
+      added. {#syntax#}target{#endsyntax#} is either a relative path to another file from the file containing
+      the {#syntax#}@import{#endsyntax#} call, or it is the name of a {#link|module|Compilation Model#}, with
+      the import referring to the root source file of that module. Either way, the file path must end in
+      either <code>.zig</code> (for a Zig source file) or <code>.zon</code> (for a ZON data file).</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a Zig source file, then {#syntax#}@import{#endsyntax#} returns
+      that file's {#link|corresponding struct type|Source File Structs#}, essentially as if the builtin call was
+      replaced by {#syntax#}struct { FILE_CONTENTS }{#endsyntax#}. The return type is {#syntax#}type{#endsyntax#}.</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a ZON file, then {#syntax#}@import{#endsyntax#} returns the value
+      of the literal in the file. If there is an inferred {#link|result type|Result Types#}, then the return type
+      is that type, and the ZON literal is interpreted as that type ({#link|Result Types#} are propagated through
+      the ZON expression). Otherwise, the return type is the type of the equivalent Zig expression, essentially as
+      if the builtin call was replaced by the ZON file contents.</p>
+      <p>The following modules are always available for import:</p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
-              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
-          </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
-              This is usually <code>src/main.zig</code> but depends on what file is built.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information. The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.</li>
+          <li>{#syntax#}@import("root"){#endsyntax#} - Alias for the root module. In typical project structures, this means it refers back to <code>src/main.zig</code>.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
