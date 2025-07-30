@@ -2023,7 +2023,12 @@ pub fn requiresLibC(target: *const Target) bool {
         .serenity,
         => true,
 
-        .linux
+        // Android API levels prior to 29 did not have native TLS support. For these API levels, TLS
+        // is implemented through calls to `__emutls_get_address`. We provide this function in
+        // compiler-rt, but it's implemented by way of `pthread_key_create` et al, so linking libc
+        // is required.
+        .linux => target.abi.isAndroid() and target.os.version_range.linux.android < 29,
+
         .windows,
         .freebsd,
         .netbsd,
