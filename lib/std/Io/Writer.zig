@@ -342,97 +342,6 @@ pub fn writableSlicePreserve(w: *Writer, preserve_len: usize, len: usize) Error!
     return big_slice[0..len];
 }
 
-pub const WritableVectorIterator = struct {
-    first: []u8,
-    middle: []const []u8 = &.{},
-    last: []u8 = &.{},
-    index: usize = 0,
-
-    pub fn next(it: *WritableVectorIterator) ?[]u8 {
-        while (true) {
-            const i = it.index;
-            it.index += 1;
-            if (i == 0) {
-                if (it.first.len == 0) continue;
-                return it.first;
-            }
-            const middle_index = i - 1;
-            if (middle_index < it.middle.len) {
-                const middle = it.middle[middle_index];
-                if (middle.len == 0) continue;
-                return middle;
-            }
-            if (middle_index == it.middle.len) {
-                if (it.last.len == 0) continue;
-                return it.last;
-            }
-            return null;
-        }
-    }
-};
-
-pub const VectorWrapper = struct {
-    writer: Writer,
-    it: WritableVectorIterator,
-    /// Tracks whether the "writable vector" API was used.
-    used: bool = false,
-    pub const vtable: *const VTable = &unique_vtable_allocation;
-    /// This is intended to be constant but it must be a unique address for
-    /// `@fieldParentPtr` to work.
-    var unique_vtable_allocation: VTable = .{ .drain = fixedDrain };
-};
-
-pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.vtable == VectorWrapper.vtable) {
-        const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
-        wrapper.used = true;
-        return wrapper.it;
-    }
-    return .{ .first = try writableSliceGreedy(w, 1) };
-}
-
-pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) Error![]std.posix.iovec {
-    var it = try writableVectorIterator(w);
-    var i: usize = 0;
-    var remaining = limit;
-    while (it.next()) |full_buffer| {
-        if (!remaining.nonzero()) break;
-        if (buffer.len - i == 0) break;
-        const buf = remaining.slice(full_buffer);
-        if (buf.len == 0) continue;
-        buffer[i] = .{ .base = buf.ptr, .len = buf.len };
-        i += 1;
-        remaining = remaining.subtract(buf.len).?;
-    }
-    return buffer[0..i];
-}
-
-pub fn writableVectorWsa(
-    w: *Writer,
-    buffer: []std.os.windows.ws2_32.WSABUF,
-    limit: Limit,
-) Error![]std.os.windows.ws2_32.WSABUF {
-    var it = try writableVectorIterator(w);
-    var i: usize = 0;
-    var remaining = limit;
-    while (it.next()) |full_buffer| {
-        if (!remaining.nonzero()) break;
-        if (buffer.len - i == 0) break;
-        const buf = remaining.slice(full_buffer);
-        if (buf.len == 0) continue;
-        if (std.math.cast(u32, buf.len)) |len| {
-            buffer[i] = .{ .buf = buf.ptr, .len = len };
-            i += 1;
-            remaining = remaining.subtract(len).?;
-            continue;
-        }
-        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
-        i += 1;
-        break;
-    }
-    return buffer[0..i];
-}
-
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }
@@ -449,13 +358,6 @@ pub fn advance(w: *Writer, n: usize) void {
     const new_end = w.end + n;
     assert(new_end <= w.buffer.len);
     w.end = new_end;
-}
-
-/// After calling `writableVector`, this function tracks how many bytes were
-/// written to it.
-pub fn advanceVector(w: *Writer, n: usize) usize {
-    if (w.vtable != VectorWrapper.vtable) advance(w, n);
-    return n;
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
