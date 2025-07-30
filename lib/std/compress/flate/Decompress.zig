@@ -56,11 +56,11 @@ pub const Error = Container.Error || error{
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
     return .{
         .reader = .{
-            // TODO populate discard so that when an amount is discarded that
-            // includes an entire frame, skip decoding that frame.
             .vtable = &.{
                 .stream = stream,
                 .rebase = rebase,
+                .discard = discard,
+                .readVec = Reader.indirectReadVec,
             },
             .buffer = buffer,
             .seek = 0,
@@ -81,12 +81,32 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
 fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
     assert(capacity <= r.buffer.len - flate.history_len);
     assert(r.end + capacity > r.buffer.len);
-    const buffered = r.buffer[0..r.end];
-    const discard = buffered.len - flate.history_len;
-    const keep = buffered[discard..];
+    const discard_n = r.end - flate.history_len;
+    const keep = r.buffer[discard_n..r.end];
     @memmove(r.buffer[0..keep.len], keep);
     r.end = keep.len;
-    r.seek -= discard;
+    r.seek -= discard_n;
+}
+
+/// This could be improved so that when an amount is discarded that includes an
+/// entire frame, skip decoding that frame.
+fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
+    r.rebase(flate.history_len) catch unreachable;
+    var writer: Writer = .{
+        .vtable = &.{
+            .drain = std.Io.Writer.Discarding.drain,
+            .sendFile = std.Io.Writer.Discarding.sendFile,
+        },
+        .buffer = r.buffer,
+        .end = r.end,
+    };
+    const n = r.stream(&writer, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
+        error.ReadFailed => return error.ReadFailed,
+        error.EndOfStream => return error.EndOfStream,
+    };
+    assert(n <= @intFromEnum(limit));
+    return n;
 }
 
 fn decodeLength(self: *Decompress, code: u8) !u16 {
@@ -268,8 +288,8 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
         },
         .stored_block => |remaining_len| {
             const out = try w.writableSliceGreedyPreserve(flate.history_len, 1);
-            const limited_out = limit.min(.limited(remaining_len)).slice(out);
-            const n = try d.input.readVec(&.{limited_out});
+            var limited_out: [1][]u8 = .{limit.min(.limited(remaining_len)).slice(out)};
+            const n = try d.input.readVec(&limited_out);
             if (remaining_len - n == 0) {
                 d.state = if (d.final_block) .protocol_footer else .block_header;
             } else {
