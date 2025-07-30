@@ -697,57 +697,6 @@ pub const Os = struct {
             => |field| @field(os.version_range, @tagName(field)).isAtLeast(ver),
         };
     }
-
-    /// On Darwin, we always link libSystem which contains libc.
-    /// Similarly on FreeBSD and NetBSD we always link system libc
-    /// since this is the stable syscall interface.
-    pub fn requiresLibC(os: Os) bool {
-        return switch (os.tag) {
-            .aix,
-            .driverkit,
-            .macos,
-            .ios,
-            .tvos,
-            .watchos,
-            .visionos,
-            .dragonfly,
-            .openbsd,
-            .haiku,
-            .solaris,
-            .illumos,
-            .serenity,
-            => true,
-
-            .linux,
-            .windows,
-            .freebsd,
-            .netbsd,
-            .freestanding,
-            .fuchsia,
-            .ps3,
-            .zos,
-            .rtems,
-            .cuda,
-            .nvcl,
-            .amdhsa,
-            .ps4,
-            .ps5,
-            .mesa3d,
-            .contiki,
-            .amdpal,
-            .hermit,
-            .hurd,
-            .wasi,
-            .emscripten,
-            .uefi,
-            .opencl,
-            .opengl,
-            .vulkan,
-            .plan9,
-            .other,
-            => false,
-        };
-    }
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
@@ -2053,6 +2002,56 @@ pub inline fn isNetBSDLibC(target: *const Target) bool {
 
 pub inline fn isWasiLibC(target: *const Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
+}
+
+/// Does this target require linking libc? This may be the case if the target has an unstable
+/// syscall interface, for example.
+pub fn requiresLibC(target: *const Target) bool {
+    return switch (target.os.tag) {
+        .aix,
+        .driverkit,
+        .macos,
+        .ios,
+        .tvos,
+        .watchos,
+        .visionos,
+        .dragonfly,
+        .openbsd,
+        .haiku,
+        .solaris,
+        .illumos,
+        .serenity,
+        => true,
+
+        .linux
+        .windows,
+        .freebsd,
+        .netbsd,
+        .freestanding,
+        .fuchsia,
+        .ps3,
+        .zos,
+        .rtems,
+        .cuda,
+        .nvcl,
+        .amdhsa,
+        .ps4,
+        .ps5,
+        .mesa3d,
+        .contiki,
+        .amdpal,
+        .hermit,
+        .hurd,
+        .wasi,
+        .emscripten,
+        .uefi,
+        .opencl,
+        .opengl,
+        .vulkan,
+        .plan9,
+        .other,
+        => false,
+    };
 }
 
 pub const DynamicLinker = struct {
