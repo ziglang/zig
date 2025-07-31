@@ -121,7 +121,7 @@ enum
   MS_ACTIVE = 1 << 30,
 #define MS_ACTIVE	MS_ACTIVE
 #undef MS_NOUSER
-  MS_NOUSER = 1 << 31
+  MS_NOUSER = 1U << 31
 #define MS_NOUSER	MS_NOUSER
 };
 
