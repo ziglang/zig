@@ -74,7 +74,7 @@ fn ModfTests(comptime T: type) type {
             r = modf(@as(T, 43874.3));
             try expectEqual(43874.0, r.ipart);
             // account for precision error
-            const expected_b: T = 43874.3 - @as(T, 43874);
+            const expected_b: T = 43874.3 - @as(T, 43874.0);
             try expectApproxEqAbs(expected_b, r.fpart, epsilon);
 
             r = modf(@as(T, 1234.340780));

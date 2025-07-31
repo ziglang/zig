@@ -28745,17 +28745,36 @@ fn coerceExtra(
                     break :int;
                 };
                 const result_val = try val.floatFromIntAdvanced(sema.arena, inst_ty, dest_ty, pt, .sema);
-                // TODO implement this compile error
-                //const int_again_val = try result_val.intFromFloat(sema.arena, inst_ty);
-                //if (!int_again_val.eql(val, inst_ty, zcu)) {
-                //    return sema.fail(
-                //        block,
-                //        inst_src,
-                //        "type '{f}' cannot represent integer value '{f}'",
-                //        .{ dest_ty.fmt(pt), val },
-                //    );
-                //}
-                return Air.internedToRef(result_val.toIntern());
+                const fits: bool = switch (ip.indexToKey(result_val.toIntern())) {
+                    else => unreachable,
+                    .undef => true,
+                    .float => |float| fits: {
+                        var buffer: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+                        const operand_big_int = val.toBigInt(&buffer, zcu);
+                        switch (float.storage) {
+                            inline else => |x| {
+                                if (!std.math.isFinite(x)) break :fits false;
+                                var result_big_int: std.math.big.int.Mutable = .{
+                                    .limbs = try sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(x)),
+                                    .len = undefined,
+                                    .positive = undefined,
+                                };
+                                switch (result_big_int.setFloat(x, .nearest_even)) {
+                                    .inexact => break :fits false,
+                                    .exact => {},
+                                }
+                                break :fits result_big_int.toConst().eql(operand_big_int);
+                            },
+                        }
+                    },
+                };
+                if (!fits) return sema.fail(
+                    block,
+                    inst_src,
+                    "type '{f}' cannot represent integer value '{f}'",
+                    .{ dest_ty.fmt(pt), val.fmtValue(pt) },
+                );
+                return .fromValue(result_val);
             },
             else => {},
         },
