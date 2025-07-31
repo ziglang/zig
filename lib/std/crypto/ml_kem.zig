@@ -254,7 +254,7 @@ fn Kyber(comptime p: Params) type {
                         @memcpy(&m, &seed);
                     } else {
                         // m = H(seed)
-                        sha3.Sha3_256.hash(&seed, &m, .{});
+                        m = sha3.Sha3_256.hash(&seed);
                     }
                 } else {
                     crypto.random.bytes(&m);
@@ -262,7 +262,7 @@ fn Kyber(comptime p: Params) type {
 
                 // (K', r) = G(m ‖ H(pk))
                 var kr: [inner_plaintext_length + h_length]u8 = undefined;
-                var g = sha3.Sha3_512.init(.{});
+                var g = sha3.Sha3_512.init();
                 g.update(&m);
                 g.update(&pk.hpk);
                 g.final(&kr);
@@ -277,7 +277,7 @@ fn Kyber(comptime p: Params) type {
                     };
                 } else {
                     // Compute H(c) and put in second slot of kr, which will be (K', H(c)).
-                    sha3.Sha3_256.hash(&ct, kr[32..], .{});
+                    kr[32..].* = sha3.Sha3_256.hash(&ct);
 
                     var ss: [shared_length]u8 = undefined;
                     sha3.Shake256.hash(&kr, &ss, .{});
@@ -297,7 +297,7 @@ fn Kyber(comptime p: Params) type {
             pub fn fromBytes(buf: *const [bytes_length]u8) errors.NonCanonicalError!PublicKey {
                 var ret: PublicKey = undefined;
                 ret.pk = try InnerPk.fromBytes(buf[0..InnerPk.bytes_length]);
-                sha3.Sha3_256.hash(buf, &ret.hpk, .{});
+                ret.hpk = sha3.Sha3_256.hash(buf);
                 return ret;
             }
         };
@@ -320,7 +320,7 @@ fn Kyber(comptime p: Params) type {
 
                 // (K'', r') = G(m' ‖ H(pk))
                 var kr2: [64]u8 = undefined;
-                var g = sha3.Sha3_512.init(.{});
+                var g = sha3.Sha3_512.init();
                 g.update(&m2);
                 g.update(&sk.hpk);
                 g.final(&kr2);
@@ -329,7 +329,7 @@ fn Kyber(comptime p: Params) type {
                 const ct2 = sk.pk.encrypt(&m2, kr2[32..64]);
 
                 // Compute H(ct) and put in the second slot of kr2 which will be (K'', H(ct)).
-                sha3.Sha3_256.hash(ct, kr2[32..], .{});
+                kr2[32..].* = sha3.Sha3_256.hash(ct);
 
                 // Replace K'' by z in the first slot of kr2 if ct ≠ ct'.
                 cmov(32, kr2[0..32], sk.z, ctneq(ciphertext_length, ct.*, ct2));
@@ -389,7 +389,7 @@ fn Kyber(comptime p: Params) type {
                 ret.secret_key.z = seed[inner_seed_length..seed_length].*;
 
                 // Compute H(pk)
-                sha3.Sha3_256.hash(&ret.public_key.pk.toBytes(), &ret.secret_key.hpk, .{});
+                ret.secret_key.hpk = sha3.Sha3_256.hash(&ret.public_key.pk.toBytes());
                 ret.public_key.hpk = ret.secret_key.hpk;
 
                 return ret;
@@ -505,7 +505,7 @@ fn Kyber(comptime p: Params) type {
         // Derives inner PKE keypair from given seed.
         fn innerKeyFromSeed(seed: [inner_seed_length]u8, pk: *InnerPk, sk: *InnerSk) void {
             var expanded_seed: [64]u8 = undefined;
-            var h = sha3.Sha3_512.init(.{});
+            var h = sha3.Sha3_512.init();
             if (p.ml_kem) h.update(&[1]u8{p.k});
             h.update(&seed);
             h.final(&expanded_seed);
@@ -1734,7 +1734,7 @@ test "NIST KAT test" {
         for (&seed, 0..) |*s, i| {
             s.* = @as(u8, @intCast(i));
         }
-        var f = sha2.Sha256.init(.{});
+        var f = sha2.Sha256.init();
         const fw = f.writer();
         var g = NistDRBG.init(seed);
         try std.fmt.format(fw, "# {s}\n\n", .{mode.name});

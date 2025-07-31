@@ -113,7 +113,7 @@ fn initHash(
     var h0: H0 = undefined;
     var parameters: [24]u8 = undefined;
     var tmp: [4]u8 = undefined;
-    var b2 = Blake2b512.init(.{});
+    var b2 = Blake2b512.init();
     mem.writeInt(u32, parameters[0..4], params.p, .little);
     mem.writeInt(u32, parameters[4..8], @as(u32, @intCast(dk_len)), .little);
     mem.writeInt(u32, parameters[8..12], params.m, .little);
@@ -149,7 +149,7 @@ fn blake2bLong(out: []u8, in: []const u8) void {
     var out_buf: [H.digest_length]u8 = undefined;
 
     if (out.len <= H.digest_length) {
-        var h = H.init(.{ .expected_out_bits = out.len * 8 });
+        var h = H.initOptions(.{ .expected_out_bits = out.len * 8 });
         h.update(&outlen_bytes);
         h.update(in);
         h.final(&out_buf);
@@ -157,7 +157,7 @@ fn blake2bLong(out: []u8, in: []const u8) void {
         return;
     }
 
-    var h = H.init(.{});
+    var h = H.init();
     h.update(&outlen_bytes);
     h.update(in);
     h.final(&out_buf);
@@ -168,12 +168,12 @@ fn blake2bLong(out: []u8, in: []const u8) void {
     var in_buf: [H.digest_length]u8 = undefined;
     while (out_slice.len > H.digest_length) {
         in_buf = out_buf;
-        H.hash(&in_buf, &out_buf, .{});
+        out_buf = H.hash(&in_buf);
         out_slice[0 .. H.digest_length / 2].* = out_buf[0 .. H.digest_length / 2].*;
         out_slice = out_slice[H.digest_length / 2 ..];
     }
     in_buf = out_buf;
-    H.hash(&in_buf, &out_buf, .{ .expected_out_bits = out_slice.len * 8 });
+    out_buf = H.hashOptions(&in_buf, .{ .expected_out_bits = out_slice.len * 8 });
     @memcpy(out_slice, out_buf[0..out_slice.len]);
 }
 

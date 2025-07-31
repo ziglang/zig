@@ -8,16 +8,6 @@ pub fn assertEqualHash(
     expected_hex: *const [Hasher.digest_length * 2:0]u8,
     input: []const u8,
 ) !void {
-    var h: [Hasher.digest_length]u8 = undefined;
-    Hasher.hash(input, &h, .{});
-    try assertEqual(expected_hex, &h);
-}
-
-pub fn assertEqualHashInterface(
-    comptime Hasher: type,
-    expected_hex: *const [Hasher.digest_length * 2:0]u8,
-    input: []const u8,
-) !void {
     const digest = Hasher.hash(input);
     try assertEqual(expected_hex, &digest);
 }

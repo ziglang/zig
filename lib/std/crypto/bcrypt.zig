@@ -499,7 +499,7 @@ const pbkdf_prf = struct {
 
     pub fn init(key: []const u8) Self {
         var self: Self = undefined;
-        self.hasher = Sha512.init(.{});
+        self.hasher = Sha512.init();
         Sha512.hash(key, &self.sha2pass, .{});
         return self;
     }
@@ -575,7 +575,7 @@ pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !v
         return error.InvalidInput;
     }
     var sha2pass: [Sha512.digest_length]u8 = undefined;
-    Sha512.hash(pass, &sha2pass, .{});
+    sha2pass = Sha512.hash(pass);
     const stride = (key.len + tmp.len - 1) / tmp.len;
     var amt = (key.len + stride - 1) / stride;
     if (math.shr(usize, key.len, 32) >= amt) {
@@ -587,14 +587,14 @@ pub fn opensshKdf(pass: []const u8, salt: []const u8, key: []u8, rounds: u32) !v
         var count_salt: [4]u8 = undefined;
         std.mem.writeInt(u32, count_salt[0..], count, .big);
         var sha2salt: [Sha512.digest_length]u8 = undefined;
-        var h = Sha512.init(.{});
+        var h = Sha512.init();
         h.update(salt);
         h.update(&count_salt);
         h.final(&sha2salt);
         tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
         tmp = tmp2;
         for (1..rounds) |_| {
-            Sha512.hash(&tmp2, &sha2salt, .{});
+            sha2salt = Sha512.hash(&tmp2);
             tmp2 = pbkdf_prf.hash(sha2pass, sha2salt);
             for (&tmp, tmp2) |*o, t| o.* ^= t;
         }

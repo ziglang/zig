@@ -52,15 +52,9 @@ pub const Md5 = struct {
         };
     }
 
-    pub fn hash(data: []const u8, out: *[digest_length]u8) void {
-        var d = Md5.init();
-        d.update(data);
-        d.final(out);
-    }
-
-    pub fn hashResult(data: []const u8) [digest_length]u8 {
+    pub fn hash(data: []const u8) [digest_length]u8 {
         var out: [digest_length]u8 = undefined;
-        var d = Md5.init(.{});
+        var d = Md5.init();
         d.update(data);
         d.final(&out);
         return out;
@@ -249,22 +243,22 @@ test "single" {
 }
 
 test "streaming" {
-    var h = Md5.init(.{});
+    var h = Md5.init();
     var out: [16]u8 = undefined;
 
     h.final(out[0..]);
     try htest.assertEqual("d41d8cd98f00b204e9800998ecf8427e", out[0..]);
 
-    h = Md5.init(.{});
+    h = Md5.init();
     h.update("abc");
     h.final(out[0..]);
     try htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 
-    h = Md5.init(.{});
+    h = Md5.init();
     h.update("a");
     h.update("b");
     h.update("c");
-    h.final(out[0..]);
+    h.final(&out);
 
     try htest.assertEqual("900150983cd24fb0d6963f7d28e17f72", out[0..]);
 }
@@ -273,7 +267,7 @@ test "aligned final" {
     var block = [_]u8{0} ** Md5.block_length;
     var out: [Md5.digest_length]u8 = undefined;
 
-    var h = Md5.init(.{});
+    var h = Md5.init();
     h.update(&block);
-    h.final(out[0..]);
+    h.final(&out);
 }

@@ -523,7 +523,7 @@ pub const SealedBox = struct {
     pub const KeyPair = Box.KeyPair;
 
     fn createNonce(pk1: [public_length]u8, pk2: [public_length]u8) [Box.nonce_length]u8 {
-        var hasher = Blake2b(Box.nonce_length * 8).init(.{});
+        var hasher = Blake2b(Box.nonce_length * 8).init();
         hasher.update(&pk1);
         hasher.update(&pk2);
         var nonce: [Box.nonce_length]u8 = undefined;

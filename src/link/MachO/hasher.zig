@@ -58,7 +58,7 @@ pub fn ParallelHasher(comptime Hasher: type) type {
             const tracy = trace(@src());
             defer tracy.end();
             err.* = file.preadAll(buffer, fstart);
-            Hasher.hash(buffer, out);
+            out.* = Hasher.hash(buffer);
         }
 
         const Self = @This();

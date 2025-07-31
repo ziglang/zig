@@ -576,12 +576,6 @@ pub fn hkdfExpandLabel(
     return result;
 }
 
-pub fn emptyHash(comptime Hash: type) [Hash.digest_length]u8 {
-    var result: [Hash.digest_length]u8 = undefined;
-    Hash.hash(&.{}, &result);
-    return result;
-}
-
 pub fn hmac(comptime Hmac: type, message: []const u8, key: [Hmac.key_length]u8) [Hmac.mac_length]u8 {
     var result: [Hmac.mac_length]u8 = undefined;
     Hmac.create(&result, message, &key);

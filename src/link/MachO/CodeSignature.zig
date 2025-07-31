@@ -307,7 +307,7 @@ pub fn writeAdhocSignature(
         var buf = std.ArrayList(u8).init(allocator);
         defer buf.deinit();
         try req.write(buf.writer());
-        Sha256.hash(buf.items, &hash);
+        hash = Sha256.hash(buf.items);
         self.code_directory.addSpecialHash(req.slotType(), hash);
 
         try blobs.append(.{ .requirements = req });
@@ -319,7 +319,7 @@ pub fn writeAdhocSignature(
         var buf = std.ArrayList(u8).init(allocator);
         defer buf.deinit();
         try ents.write(buf.writer());
-        Sha256.hash(buf.items, &hash);
+        hash = Sha256.hash(buf.items);
         self.code_directory.addSpecialHash(ents.slotType(), hash);
 
         try blobs.append(.{ .entitlements = ents });

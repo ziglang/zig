@@ -200,7 +200,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
 
             fn init(secret_key: SecretKey, noise: ?[noise_length]u8) !Signer {
                 return Signer{
-                    .h = Hash.init(.{}),
+                    .h = Hash.init(),
                     .secret_key = secret_key,
                     .noise = noise,
                 };

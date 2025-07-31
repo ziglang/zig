@@ -25,14 +25,17 @@ pub fn Composition(comptime H1: type, comptime H2: type) type {
         /// Options for both hashes.
         pub const Options = struct {
             /// Options for H1.
-            H1: H1.Options = .{},
+            H1: if (@hasDecl(H1, "Options")) H1.Options else struct {} = .{},
             /// Options for H2.
-            H2: H2.Options = .{},
+            H2: if (@hasDecl(H2, "Options")) H2.Options else struct {} = .{},
         };
 
         /// Initialize the hash composition with the given options.
         pub fn init(options: Options) Self {
-            return Self{ .H1 = H1.init(options.H1), .H2 = H2.init(options.H2) };
+            return .{
+                .H1 = if (@hasDecl(H1, "Options")) H1.init(options.H1) else H1.init(),
+                .H2 = if (@hasDecl(H2, "Options")) H2.init(options.H2) else H2.init(),
+            };
         }
 
         /// Compute H1(H2(b)).

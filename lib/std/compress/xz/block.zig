@@ -190,8 +190,7 @@ pub fn Decoder(comptime ReaderType: type) type {
                         return error.WrongChecksum;
                 },
                 .sha256 => {
-                    var hash_a: [Sha256.digest_length]u8 = undefined;
-                    Sha256.hash(unpacked_bytes, &hash_a);
+                    const hash_a = Sha256.hash(unpacked_bytes);
 
                     var hash_b: [Sha256.digest_length]u8 = undefined;
                     try self.inner_reader.readNoEof(&hash_b);

@@ -37,7 +37,7 @@ pub fn Hmac(comptime Hash: type) type {
 
             // Normalize key length to block size of hash
             if (key.len > Hash.block_length) {
-                Hash.hash(key, scratch[0..mac_length]);
+                scratch[0..mac_length].* = Hash.hash(key);
                 @memset(scratch[mac_length..Hash.block_length], 0);
             } else if (key.len < Hash.block_length) {
                 @memcpy(scratch[0..key.len], key);

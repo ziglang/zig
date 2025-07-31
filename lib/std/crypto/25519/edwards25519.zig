@@ -467,7 +467,7 @@ pub const Edwards25519 = struct {
         var xctx = ctx;
         var hctx: [H.digest_length]u8 = undefined;
         if (ctx.len > 0xff) {
-            var st = H.init(.{});
+            var st = H.init();
             st.update("H2C-OVERSIZE-DST-");
             st.update(ctx);
             st.final(&hctx);
@@ -476,7 +476,7 @@ pub const Edwards25519 = struct {
         const empty_block = [_]u8{0} ** H.block_length;
         var t = [3]u8{ 0, n * h_l, 0 };
         var xctx_len_u8 = [1]u8{@as(u8, @intCast(xctx.len))};
-        var st = H.init(.{});
+        var st = H.init();
         st.update(empty_block[0..]);
         st.update(s);
         st.update(t[0..]);
@@ -493,7 +493,7 @@ pub const Edwards25519 = struct {
                 u[i + j] ^= u[i + j - H.digest_length];
             }
             t[2] += 1;
-            st = H.init(.{});
+            st = H.init();
             st.update(u[i..][0..H.digest_length]);
             st.update(t[2..3]);
             st.update(xctx);

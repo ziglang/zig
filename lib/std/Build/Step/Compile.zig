@@ -1821,8 +1821,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         const partially_quoted = try std.mem.join(arena, "\" \"", escaped_args.items);
         const args = try std.mem.concat(arena, u8, &[_][]const u8{ "\"", partially_quoted, "\"" });
 
-        var args_hash: [Sha256.digest_length]u8 = undefined;
-        Sha256.hash(args, &args_hash, .{});
+        const args_hash = Sha256.hash(args);
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
         _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 

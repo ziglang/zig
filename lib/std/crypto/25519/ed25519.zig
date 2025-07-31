@@ -54,7 +54,7 @@ pub const Ed25519 = struct {
         // Return the clamped secret scalar and prefix for this secret key
         fn scalarAndPrefix(self: SecretKey) struct { scalar: CompressedScalar, prefix: [32]u8 } {
             var az: [Sha512.digest_length]u8 = undefined;
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&self.seed());
             h.final(&az);
 
@@ -80,7 +80,7 @@ pub const Ed25519 = struct {
             var t: [64]u8 = undefined;
             t[0..32].* = r_bytes;
             t[32..].* = public_key.bytes;
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&t);
 
             return Signer{ .h = h, .scalar = scalar, .nonce = nonce, .r_bytes = r_bytes };
@@ -128,7 +128,7 @@ pub const Ed25519 = struct {
         }
 
         fn computeNonceAndSign(public_key: PublicKey, msg: []const u8, noise: ?[noise_length]u8, scalar: CompressedScalar, prefix: []const u8) (IdentityElementError || NonCanonicalError || KeyMismatchError || WeakPublicKeyError)!Signature {
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             if (noise) |*z| {
                 h.update(z);
             }
@@ -257,7 +257,7 @@ pub const Ed25519 = struct {
         /// from which the actual secret is derived.
         pub fn generateDeterministic(seed: [seed_length]u8) IdentityElementError!KeyPair {
             var az: [Sha512.digest_length]u8 = undefined;
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&seed);
             h.final(&az);
             const pk_p = Curve.basePoint.clampedMul(az[0..32].*) catch return error.IdentityElement;
@@ -335,7 +335,7 @@ pub const Ed25519 = struct {
                 return error.KeyMismatch;
             }
             const scalar_and_prefix = key_pair.secret_key.scalarAndPrefix();
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&scalar_and_prefix.prefix);
             var noise2: [noise_length]u8 = undefined;
             crypto.random.bytes(&noise2);
@@ -382,7 +382,7 @@ pub const Ed25519 = struct {
 
         var hram_batch: [count]Curve.scalar.CompressedScalar = undefined;
         for (signature_batch, 0..) |signature, i| {
-            var h = Sha512.init(.{});
+            var h = Sha512.init();
             h.update(&r_batch[i]);
             h.update(&signature.public_key.bytes);
             h.update(signature.msg);
@@ -452,7 +452,7 @@ pub const Ed25519 = struct {
             /// Create an blind key pair from an existing key pair, a blinding seed and a context.
             pub fn init(key_pair: Ed25519.KeyPair, blind_seed: [blind_seed_length]u8, ctx: []const u8) (NonCanonicalError || IdentityElementError)!BlindKeyPair {
                 var h: [Sha512.digest_length]u8 = undefined;
-                Sha512.hash(&key_pair.secret_key.seed(), &h, .{});
+                h = Sha512.hash(&key_pair.secret_key.seed());
                 Curve.scalar.clamp(h[0..32]);
                 const scalar = Curve.scalar.reduce(h[0..32].*);
 
@@ -494,7 +494,7 @@ pub const Ed25519 = struct {
         /// Compute a blind context from a blinding seed and a context.
         fn blindCtx(blind_seed: [blind_seed_length]u8, ctx: []const u8) [Sha512.digest_length]u8 {
             var blind_h: [Sha512.digest_length]u8 = undefined;
-            var hx = Sha512.init(.{});
+            var hx = Sha512.init();
             hx.update(&blind_seed);
             hx.update(&[1]u8{0});
             hx.update(ctx);

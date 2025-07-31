@@ -55,8 +55,7 @@ pub const X25519 = struct {
         /// Create a key pair from an Ed25519 key pair
         pub fn fromEd25519(ed25519_key_pair: crypto.sign.Ed25519.KeyPair) (IdentityElementError || EncodingError)!KeyPair {
             const seed = ed25519_key_pair.secret_key.seed();
-            var az: [Sha512.digest_length]u8 = undefined;
-            Sha512.hash(&seed, &az, .{});
+            const az = Sha512.hash(&seed);
             var sk = az[0..32].*;
             Curve.scalar.clamp(&sk);
             const pk = try publicKeyFromEd25519(ed25519_key_pair.public_key);

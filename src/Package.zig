@@ -132,8 +132,7 @@ pub const Hash = struct {
             @memcpy(result.bytes[i..][0..sub_path.len], sub_path);
             return result;
         }
-        var bin_digest: [Algo.digest_length]u8 = undefined;
-        Algo.hash(sub_path, &bin_digest);
+        const bin_digest = Algo.hash(sub_path);
         _ = std.fmt.bufPrint(result.bytes[i..], "{x}", .{&bin_digest}) catch unreachable;
         return result;
     }

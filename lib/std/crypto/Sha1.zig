@@ -277,9 +277,9 @@ const RoundParam = struct {
 const htest = @import("test.zig");
 
 test "sha1 single" {
-    try htest.assertEqualHashInterface(Sha1, "da39a3ee5e6b4b0d3255bfef95601890afd80709", "");
-    try htest.assertEqualHashInterface(Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d", "abc");
-    try htest.assertEqualHashInterface(Sha1, "a49b2446a02c645bf419f995b67091253a04a259", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
+    try htest.assertEqualHash(Sha1, "da39a3ee5e6b4b0d3255bfef95601890afd80709", "");
+    try htest.assertEqualHash(Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d", "abc");
+    try htest.assertEqualHash(Sha1, "a49b2446a02c645bf419f995b67091253a04a259", "abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmnopqklmnopqrlmnopqrsmnopqrstnopqrstu");
 }
 
 test "sha1 streaming" {

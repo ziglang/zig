@@ -524,7 +524,7 @@ pub fn init(stream: anytype, options: Options) InitError(@TypeOf(stream))!Client
                                         const hello_hash = p.transcript_hash.peek();
                                         const zeroes = [1]u8{0} ** P.Hash.digest_length;
                                         const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
-                                        const empty_hash = tls.emptyHash(P.Hash);
+                                        const empty_hash = P.Hash.hash(&.{});
                                         p.version = .{ .tls_1_3 = undefined };
                                         const pv = &p.version.tls_1_3;
                                         const hs_derived_secret = hkdfExpandLabel(P.Hkdf, early_secret, "derived", &empty_hash, P.Hash.digest_length);

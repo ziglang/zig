@@ -1037,8 +1037,7 @@ pub const rsa = struct {
             std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
 
             // 13.  Let H' = Hash(M'), an octet string of length hLen.
-            var h_p: [Hash.digest_length]u8 = undefined;
-            Hash.hash(m_p, &h_p);
+            const h_p = Hash.hash(m_p);
 
             // 14.  If H = H', output "consistent".  Otherwise, output
             //      "inconsistent".
@@ -1054,7 +1053,7 @@ pub const rsa = struct {
 
             while (idx < len) {
                 std.mem.writeInt(u32, hash[seed.len..][0..4], counter, .big);
-                Hash.hash(&hash, out[idx..][0..Hash.digest_length]);
+                out[idx..][0..Hash.digest_length].* = Hash.hash(&hash);
                 idx += Hash.digest_length;
                 counter += 1;
             }
