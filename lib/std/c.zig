@@ -204,6 +204,19 @@ pub const passwd = switch (native_os) {
         shell: ?[*:0]const u8, // default shell
         expire: time_t, // account expiration
     },
+    .dragonfly, .freebsd => extern struct {
+        name: ?[*:0]const u8, // user name
+        passwd: ?[*:0]const u8, // encrypted password
+        uid: uid_t, // user uid
+        gid: gid_t, // user gid
+        change: time_t, // password change time
+        class: ?[*:0]const u8, // user access class
+        gecos: ?[*:0]const u8, // Honeywell login info
+        dir: ?[*:0]const u8, // home directory
+        shell: ?[*:0]const u8, // default shell
+        expire: time_t, // account expiration
+        fields: c_int, // internal
+    },
     else => void,
 };
 
@@ -10271,9 +10284,13 @@ pub const fstatat = switch (native_os) {
     },
     else => private.fstatat,
 };
-
+pub extern "c" fn getpwent() ?*passwd;
+pub extern "c" fn endpwent() void;
+pub extern "c" fn setpwent() void;
 pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwnam_r(name: [*:0]const u8, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+pub extern "c" fn getpwuid_r(uid: uid_t, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
 pub extern "c" fn getgrent() ?*group;
 pub extern "c" fn setgrent() void;
 pub extern "c" fn endgrent() void;
@@ -11009,11 +11026,7 @@ pub const bcrypt = openbsd.bcrypt;
 pub const bcrypt_checkpass = openbsd.bcrypt_checkpass;
 pub const bcrypt_gensalt = openbsd.bcrypt_gensalt;
 pub const bcrypt_newhash = openbsd.bcrypt_newhash;
-pub const endpwent = openbsd.endpwent;
-pub const getpwent = openbsd.getpwent;
-pub const getpwnam_r = openbsd.getpwnam_r;
 pub const getpwnam_shadow = openbsd.getpwnam_shadow;
-pub const getpwuid_r = openbsd.getpwuid_r;
 pub const getpwuid_shadow = openbsd.getpwuid_shadow;
 pub const getthrid = openbsd.getthrid;
 pub const login_cap_t = openbsd.login_cap_t;
@@ -11030,7 +11043,6 @@ pub const pthread_spinlock_t = openbsd.pthread_spinlock_t;
 pub const pw_dup = openbsd.pw_dup;
 pub const setclasscontext = openbsd.setclasscontext;
 pub const setpassent = openbsd.setpassent;
-pub const setpwent = openbsd.setpwent;
 pub const setusercontext = openbsd.setusercontext;
 pub const uid_from_user = openbsd.uid_from_user;
 pub const unveil = openbsd.unveil;
