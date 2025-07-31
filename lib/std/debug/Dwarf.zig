@@ -2019,8 +2019,12 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
 pub fn bad() error{InvalidDebugInfo} {
-    if (debug_debug_mode) @panic("bad dwarf");
+    invalidDebugInfoDetected();
     return error.InvalidDebugInfo;
+}
+
+fn invalidDebugInfoDetected() void {
+    if (debug_debug_mode) @panic("bad dwarf");
 }
 
 fn missing() error{MissingDebugInfo} {
@@ -2239,13 +2243,19 @@ pub const ElfModule = struct {
                 const chdr = section_reader.takeStruct(elf.Chdr, endian) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
-                const decompressed_section = zlib_stream.reader.allocRemaining(gpa, .unlimited) catch continue;
-                errdefer gpa.free(decompressed_section);
-                assert(chdr.ch_size == decompressed_section.len);
-
+                var decompress: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
+                var decompressed_section: std.ArrayListUnmanaged(u8) = .empty;
+                defer decompressed_section.deinit(gpa);
+                decompress.reader.appendRemainingUnlimited(gpa, null, &decompressed_section, std.compress.flate.history_len) catch {
+                    invalidDebugInfoDetected();
+                    continue;
+                };
+                if (chdr.ch_size != decompressed_section.items.len) {
+                    invalidDebugInfoDetected();
+                    continue;
+                }
                 break :blk .{
-                    .data = decompressed_section,
+                    .data = try decompressed_section.toOwnedSlice(gpa),
                     .virtual_address = shdr.sh_addr,
                     .owned = true,
                 };
