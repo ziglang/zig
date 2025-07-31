@@ -41,6 +41,8 @@ max_rss: usize,
 
 result_error_msgs: std.ArrayListUnmanaged([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
+make_error_trace: ?MakeErrorTrace,
+
 result_stderr: []const u8,
 result_cached: bool,
 result_duration_ns: ?u64,
@@ -51,6 +53,12 @@ test_results: TestResults,
 /// The return address associated with creation of this step that can be useful
 /// to print along with debugging messages.
 debug_stack_trace: []usize,
+
+/// Storage for unhandled errors returned by the make function.
+pub const MakeErrorTrace = struct {
+    err: anyerror,
+    trace: ?*std.builtin.StackTrace,
+};
 
 pub const TestResults = struct {
     fail_count: u32 = 0,
@@ -215,6 +223,7 @@ pub fn init(options: StepOptions) Step {
         },
         .result_error_msgs = .{},
         .result_error_bundle = std.zig.ErrorBundle.empty,
+        .make_error_trace = null,
         .result_stderr = "",
         .result_cached = false,
         .result_duration_ns = null,
@@ -224,18 +233,20 @@ pub fn init(options: StepOptions) Step {
 }
 
 /// If the Step's `make` function reports `error.MakeFailed`, it indicates they
-/// have already reported the error. Otherwise, we add a simple error report
-/// here.
+/// have already reported the error. Otherwise, we store the error for reporting
+/// later.
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
-    s.makeFn(s, options) catch |err| switch (err) {
-        error.MakeFailed => return error.MakeFailed,
-        error.MakeSkipped => return error.MakeSkipped,
-        else => {
-            s.result_error_msgs.append(arena, @errorName(err)) catch @panic("OOM");
-            return error.MakeFailed;
-        },
+    s.makeFn(s, options) catch |err| {
+        switch (err) {
+            error.MakeFailed => return error.MakeFailed,
+            error.MakeSkipped => return error.MakeSkipped,
+            else => {
+                s.make_error_trace = .{ .err = err, .trace = @errorReturnTrace() };
+                return error.MakeFailed;
+            },
+        }
     };
 
     if (!s.test_results.isSuccess()) {
@@ -959,6 +970,7 @@ fn reset(step: *Step, gpa: Allocator) void {
 
     step.result_error_bundle.deinit(gpa);
     step.result_error_bundle = std.zig.ErrorBundle.empty;
+    step.make_error_trace = null;
 }
 
 /// Implementation detail of file watching. Prepares the step for being re-evaluated.
