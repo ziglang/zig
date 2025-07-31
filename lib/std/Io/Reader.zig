@@ -266,8 +266,7 @@ pub fn streamRemaining(r: *Reader, w: *Writer) StreamRemainingError!usize {
 /// number of bytes discarded.
 pub fn discardRemaining(r: *Reader) ShortError!usize {
     var offset: usize = r.end - r.seek;
-    r.seek = 0;
-    r.end = 0;
+    r.seek = r.end;
     while (true) {
         offset += r.vtable.discard(r, .unlimited) catch |err| switch (err) {
             error.EndOfStream => return offset,
@@ -526,8 +525,7 @@ pub fn toss(r: *Reader, n: usize) void {
 
 /// Equivalent to `toss(r.bufferedLen())`.
 pub fn tossBuffered(r: *Reader) void {
-    r.seek = 0;
-    r.end = 0;
+    r.seek = r.end;
 }
 
 /// Equivalent to `peek` followed by `toss`.
@@ -614,8 +612,7 @@ pub fn discardShort(r: *Reader, n: usize) ShortError!usize {
         return n;
     }
     var remaining = n - (r.end - r.seek);
-    r.end = 0;
-    r.seek = 0;
+    r.seek = r.end;
     while (true) {
         const discard_len = r.vtable.discard(r, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => return n - remaining,
