@@ -1305,7 +1305,7 @@ pub const Reader = struct {
         }
     }
 
-    fn readVec(io_reader: *std.Io.Reader, data: []const []u8) std.Io.Reader.Error!usize {
+    fn readVec(io_reader: *std.Io.Reader, data: [][]u8) std.Io.Reader.Error!usize {
         const r: *Reader = @alignCast(@fieldParentPtr("interface", io_reader));
         switch (r.mode) {
             .positional, .positional_reading => {

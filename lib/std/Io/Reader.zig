@@ -421,7 +421,7 @@ pub fn readVec(r: *Reader, data: [][]u8) Error!usize {
 }
 
 /// Writes to `Reader.buffer` or `data`, whichever has larger capacity.
-pub fn defaultReadVec(r: *Reader, data: []const []u8) Error!usize {
+pub fn defaultReadVec(r: *Reader, data: [][]u8) Error!usize {
     assert(r.seek == r.end);
     r.seek = 0;
     r.end = 0;
@@ -1665,7 +1665,7 @@ fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
     return error.EndOfStream;
 }
 
-fn endingReadVec(r: *Reader, data: []const []u8) Error!usize {
+fn endingReadVec(r: *Reader, data: [][]u8) Error!usize {
     _ = r;
     _ = data;
     return error.EndOfStream;

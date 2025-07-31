@@ -109,7 +109,7 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     return n;
 }
 
-fn readVec(r: *Reader, data: []const []u8) Reader.Error!usize {
+fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
     _ = data;
     assert(r.seek == r.end);
     r.rebase(flate.history_len) catch unreachable;
