@@ -406,7 +406,10 @@ pub fn readVec(r: *Reader, data: [][]u8) Error!usize {
         r.seek = seek;
         data[i] = buf[copy_len..];
         defer data[i] = buf;
-        return n + try r.vtable.readVec(r, data[i..]);
+        return n + (r.vtable.readVec(r, data[i..]) catch |err| switch (err) {
+            error.EndOfStream => if (n == 0) return error.EndOfStream else 0,
+            error.ReadFailed => return error.ReadFailed,
+        });
     }
     const n = seek - r.seek;
     r.seek = seek;
@@ -1655,6 +1658,17 @@ test "expected error.EndOfStream" {
     r.end = 0; // capacity 3, but empty
     try std.testing.expectError(error.EndOfStream, r.takeEnum(enum(u8) { a, b }, .little));
     try std.testing.expectError(error.EndOfStream, r.take(3));
+}
+
+test "readVec at end" {
+    var reader_buffer: [8]u8 = "abcd1234".*;
+    var reader: testing.Reader = .init(&reader_buffer, &.{});
+    reader.interface.end = reader_buffer.len;
+
+    var out: [16]u8 = undefined;
+    var vecs: [1][]u8 = .{&out};
+    try testing.expectEqual(8, try reader.interface.readVec(&vecs));
+    try testing.expectEqualStrings("abcd1234", vecs[0][0..8]);
 }
 
 fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
