@@ -74,6 +74,10 @@ pub const VTable = struct {
     ///
     /// `data` may not contain an alias to `Reader.buffer`.
     ///
+    /// `data` is mutable because the implementation may to temporarily modify
+    /// the fields in order to handle partial reads. Implementations must
+    /// restore the original value before returning.
+    ///
     /// Implementations may ignore `data`, writing directly to `Reader.buffer`,
     /// modifying `seek` and `end` accordingly, and returning 0 from this
     /// function. Implementations are encouraged to take advantage of this if
@@ -81,7 +85,7 @@ pub const VTable = struct {
     ///
     /// The default implementation calls `stream` with either `data[0]` or
     /// `Reader.buffer`, whichever is bigger.
-    readVec: *const fn (r: *Reader, data: []const []u8) Error!usize = defaultReadVec,
+    readVec: *const fn (r: *Reader, data: [][]u8) Error!usize = defaultReadVec,
 
     /// Ensures `capacity` more data can be buffered without rebasing.
     ///
@@ -446,8 +450,8 @@ pub fn bufferedLen(r: *const Reader) usize {
     return r.end - r.seek;
 }
 
-pub fn hashed(r: *Reader, hasher: anytype) Hashed(@TypeOf(hasher)) {
-    return .{ .in = r, .hasher = hasher };
+pub fn hashed(r: *Reader, hasher: anytype, buffer: []u8) Hashed(@TypeOf(hasher)) {
+    return .init(r, hasher, buffer);
 }
 
 pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
@@ -1764,15 +1768,16 @@ pub fn Hashed(comptime Hasher: type) type {
     return struct {
         in: *Reader,
         hasher: Hasher,
-        interface: Reader,
+        reader: Reader,
 
         pub fn init(in: *Reader, hasher: Hasher, buffer: []u8) @This() {
             return .{
                 .in = in,
                 .hasher = hasher,
-                .interface = .{
+                .reader = .{
                     .vtable = &.{
-                        .read = @This().read,
+                        .stream = @This().stream,
+                        .readVec = @This().readVec,
                         .discard = @This().discard,
                     },
                     .buffer = buffer,
@@ -1782,33 +1787,39 @@ pub fn Hashed(comptime Hasher: type) type {
             };
         }
 
-        fn read(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            const data = w.writableVector(limit);
+        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
+            const data = limit.slice(try w.writableSliceGreedy(1));
+            var vec: [1][]u8 = .{data};
+            const n = try this.in.readVec(&vec);
+            this.hasher.update(data[0..n]);
+            w.advance(n);
+            return n;
+        }
+
+        fn readVec(r: *Reader, data: [][]u8) Error!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
             const n = try this.in.readVec(data);
-            const result = w.advanceVector(n);
             var remaining: usize = n;
             for (data) |slice| {
                 if (remaining < slice.len) {
                     this.hasher.update(slice[0..remaining]);
-                    return result;
+                    return n;
                 } else {
                     remaining -= slice.len;
                     this.hasher.update(slice);
                 }
             }
             assert(remaining == 0);
-            return result;
+            return n;
         }
 
         fn discard(r: *Reader, limit: Limit) Error!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            var w = this.hasher.writer(&.{});
-            const n = this.in.stream(&w, limit) catch |err| switch (err) {
-                error.WriteFailed => unreachable,
-                else => |e| return e,
-            };
-            return n;
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
+            const peeked = limit.slice(try this.in.peekGreedy(1));
+            this.hasher.update(peeked);
+            this.in.toss(peeked.len);
+            return peeked.len;
         }
     };
 }

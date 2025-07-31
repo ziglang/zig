@@ -1394,18 +1394,20 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
+        var index_file_buffer: [2000]u8 = undefined;
+        var index_file_writer = index_file.writer(&index_file_buffer);
         {
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
-            try git.indexPack(gpa, object_format, &pack_file_reader, index_buffered_writer.writer());
-            try index_buffered_writer.flush();
+            try git.indexPack(gpa, object_format, &pack_file_reader, &index_file_writer);
         }
 
         {
+            var index_file_reader = index_file.reader(&index_file_buffer);
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            var repository = try git.Repository.init(gpa, object_format, &pack_file_reader, index_file);
+            var repository: git.Repository = undefined;
+            try repository.init(gpa, object_format, &pack_file_reader, &index_file_reader);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
             try repository.checkout(out_dir, resource.want_oid, &diagnostics);

@@ -1932,7 +1932,8 @@ pub const Stream = struct {
 
             fn stream(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
                 const dest = limit.slice(try io_w.writableSliceGreedy(1));
-                const n = try readVec(io_r, &.{dest});
+                var bufs: [1][]u8 = .{dest};
+                const n = try readVec(io_r, &bufs);
                 io_w.advance(n);
                 return n;
             }
