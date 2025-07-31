@@ -699,6 +699,7 @@ fn maybeIgnoreSigpipe() void {
         .visionos,
         .dragonfly,
         .freebsd,
+        .serenity,
         => true,
 
         else => false,

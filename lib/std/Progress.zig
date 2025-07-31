@@ -1548,6 +1548,7 @@ const have_sigwinch = switch (builtin.os.tag) {
     .visionos,
     .dragonfly,
     .freebsd,
+    .serenity,
     => true,
 
     else => false,

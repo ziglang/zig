@@ -4131,7 +4131,7 @@ pub const msghdr_const = switch (native_os) {
     .serenity => extern struct {
         name: ?*const anyopaque,
         namelen: socklen_t,
-        iov: [*]const iovec,
+        iov: [*]const iovec_const,
         iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
@@ -8614,7 +8614,7 @@ pub const O = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L28-L43
     .serenity => packed struct(c_int) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: std.posix.ACCMODE = .NONE,
         EXEC: bool = false,
         CREAT: bool = false,
         EXCL: bool = false,
@@ -8770,10 +8770,10 @@ pub const MAP = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L16-L26
     .serenity => packed struct(c_int) {
-        FILE: bool = false,
-        SHARED: bool = false,
-        PRIVATE: bool = false,
-        _3: u2 = 0,
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
         FIXED: bool = false,
         ANONYMOUS: bool = false,
         STACK: bool = false,
@@ -8781,7 +8781,7 @@ pub const MAP = switch (native_os) {
         RANDOMIZED: bool = false,
         PURGEABLE: bool = false,
         FIXED_NOREPLACE: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 12) = 0,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 11) = 0,
     },
     else => void,
 };
