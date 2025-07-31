@@ -2077,7 +2077,7 @@ pub const WipNav = struct {
                     .generic_decl_const,
                     .generic_decl_func,
                     => true,
-                    else => unreachable,
+                    else => |t| std.debug.panic("bad decl abbrev code: {t}", .{t}),
                 };
             if (parent_type.getCaptures(zcu).len == 0) {
                 if (was_generic_decl) try dwarf.freeCommonEntry(wip_nav.unit, decl_gop.value_ptr.*);
