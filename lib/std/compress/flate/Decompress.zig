@@ -100,6 +100,10 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
         .buffer = r.buffer,
         .end = r.end,
     };
+    defer {
+        r.end = writer.end;
+        r.seek = r.end;
+    }
     const n = r.stream(&writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
@@ -397,7 +401,7 @@ fn readInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader.S
 /// Write match (back-reference to the same data slice) starting at `distance`
 /// back from current write position, and `length` of bytes.
 fn writeMatch(w: *Writer, length: u16, distance: u16) !void {
-    if (w.end < length) return error.InvalidMatch;
+    if (w.end < distance) return error.InvalidMatch;
     if (length < Token.base_length) return error.InvalidMatch;
     if (length > Token.max_length) return error.InvalidMatch;
     if (distance < Token.min_distance) return error.InvalidMatch;

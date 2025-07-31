@@ -122,6 +122,10 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
         .buffer = r.buffer,
         .end = r.end,
     };
+    defer {
+        r.end = writer.end;
+        r.seek = r.end;
+    }
     const n = r.stream(&writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
