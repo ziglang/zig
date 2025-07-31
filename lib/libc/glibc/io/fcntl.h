@@ -168,7 +168,7 @@ typedef __pid_t pid_t;
 #endif
 
 
-/* fcntl was a simple symbol until glibc 2.27 inclusive. glibc 2.28 onwards
+/* zig patch: fcntl was a simple symbol until glibc 2.27 inclusive. glibc 2.28 onwards
  * re-defines it to fcntl64 (via #define) if _FILE_OFFSET_BITS == 64. */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 28) || __GLIBC__ > 2
 /* Do the file control operation described by CMD on FD.
@@ -288,16 +288,17 @@ extern int creat64 (const char *__file, mode_t __mode) __nonnull ((1));
 # define F_TEST  3	/* Test a region for other processes locks.  */
 
 # ifndef __USE_FILE_OFFSET64
-extern int lockf (int __fd, int __cmd, off_t __len);
+extern int lockf (int __fd, int __cmd, off_t __len) __wur;
 # else
 #  ifdef __REDIRECT
-extern int __REDIRECT (lockf, (int __fd, int __cmd, __off64_t __len), lockf64);
+extern int __REDIRECT (lockf, (int __fd, int __cmd, __off64_t __len),
+                       lockf64) __wur;
 #  else
 #   define lockf lockf64
 #  endif
 # endif
 # ifdef __USE_LARGEFILE64
-extern int lockf64 (int __fd, int __cmd, off64_t __len);
+extern int lockf64 (int __fd, int __cmd, off64_t __len) __wur;
 # endif
 #endif
 
