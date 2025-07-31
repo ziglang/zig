@@ -1345,11 +1345,15 @@ pub fn lossyCast(comptime T: type, value: anytype) T {
                     }
                 },
                 .float, .comptime_float => {
+                    // In extreme cases, we probably need a language enhancement to be able to
+                    // specify a rounding mode here to prevent `@intFromFloat` panics.
+                    const max: @TypeOf(value) = @floatFromInt(maxInt(T));
+                    const min: @TypeOf(value) = @floatFromInt(minInt(T));
                     if (isNan(value)) {
                         return 0;
-                    } else if (value >= maxInt(T)) {
+                    } else if (value >= max) {
                         return maxInt(T);
-                    } else if (value <= minInt(T)) {
+                    } else if (value <= min) {
                         return minInt(T);
                     } else {
                         return @intFromFloat(value);
@@ -1366,7 +1370,7 @@ test lossyCast {
     try testing.expect(lossyCast(i16, 70000.0) == @as(i16, 32767));
     try testing.expect(lossyCast(u32, @as(i16, -255)) == @as(u32, 0));
     try testing.expect(lossyCast(i9, @as(u32, 200)) == @as(i9, 200));
-    try testing.expect(lossyCast(u32, @as(f32, maxInt(u32))) == maxInt(u32));
+    try testing.expect(lossyCast(u32, @as(f32, @floatFromInt(maxInt(u32)))) == maxInt(u32));
     try testing.expect(lossyCast(u32, nan(f32)) == 0);
 }
 

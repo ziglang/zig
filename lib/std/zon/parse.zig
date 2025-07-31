@@ -2774,11 +2774,11 @@ test "std.zon parse float" {
 
     // Test big integers
     try std.testing.expectEqual(
-        @as(f32, 36893488147419103231),
+        @as(f32, 36893488147419103231.0),
         try fromSlice(f32, gpa, "36893488147419103231", null, .{}),
     );
     try std.testing.expectEqual(
-        @as(f32, -36893488147419103231),
+        @as(f32, -36893488147419103231.0),
         try fromSlice(f32, gpa, "-36893488147419103231", null, .{}),
     );
     try std.testing.expectEqual(@as(f128, 0x1ffffffffffffffff), try fromSlice(
@@ -2788,7 +2788,7 @@ test "std.zon parse float" {
         null,
         .{},
     ));
-    try std.testing.expectEqual(@as(f32, 0x1ffffffffffffffff), try fromSlice(
+    try std.testing.expectEqual(@as(f32, @floatFromInt(0x1ffffffffffffffff)), try fromSlice(
         f32,
         gpa,
         "0x1ffffffffffffffff",
