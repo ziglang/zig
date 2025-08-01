@@ -673,7 +673,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they

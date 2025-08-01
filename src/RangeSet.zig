@@ -10,7 +10,7 @@ const RangeSet = @This();
 const LazySrcLoc = Zcu.LazySrcLoc;
 
 zcu: *Zcu,
-ranges: std.ArrayList(Range),
+ranges: std.array_list.Managed(Range),
 
 pub const Range = struct {
     first: InternPool.Index,
@@ -21,7 +21,7 @@ pub const Range = struct {
 pub fn init(allocator: std.mem.Allocator, zcu: *Zcu) RangeSet {
     return .{
         .zcu = zcu,
-        .ranges = std.ArrayList(Range).init(allocator),
+        .ranges = std.array_list.Managed(Range).init(allocator),
     };
 }
 

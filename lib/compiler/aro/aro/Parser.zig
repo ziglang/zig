@@ -15,7 +15,7 @@ const TokenIndex = Tree.TokenIndex;
 const NodeIndex = Tree.NodeIndex;
 const Type = @import("Type.zig");
 const Diagnostics = @import("Diagnostics.zig");
-const NodeList = std.ArrayList(NodeIndex);
+const NodeList = std.array_list.Managed(NodeIndex);
 const InitList = @import("InitList.zig");
 const Attribute = @import("Attribute.zig");
 const char_info = @import("char_info.zig");
@@ -33,7 +33,7 @@ const target_util = @import("target.zig");
 
 const Switch = struct {
     default: ?TokenIndex = null,
-    ranges: std.ArrayList(Range),
+    ranges: std.array_list.Managed(Range),
     ty: Type,
     comp: *Compilation,
 
@@ -101,16 +101,16 @@ value_map: Tree.ValueMap,
 
 // buffers used during compilation
 syms: SymbolStack = .{},
-strings: std.ArrayListAligned(u8, .@"4"),
-labels: std.ArrayList(Label),
+strings: std.array_list.AlignedManaged(u8, .@"4"),
+labels: std.array_list.Managed(Label),
 list_buf: NodeList,
 decl_buf: NodeList,
-param_buf: std.ArrayList(Type.Func.Param),
-enum_buf: std.ArrayList(Type.Enum.Field),
-record_buf: std.ArrayList(Type.Record.Field),
+param_buf: std.array_list.Managed(Type.Func.Param),
+enum_buf: std.array_list.Managed(Type.Enum.Field),
+record_buf: std.array_list.Managed(Type.Record.Field),
 attr_buf: std.MultiArrayList(TentativeAttribute) = .{},
 attr_application_buf: std.ArrayListUnmanaged(Attribute) = .empty,
-field_attr_buf: std.ArrayList([]const Attribute),
+field_attr_buf: std.array_list.Managed([]const Attribute),
 /// type name -> variable name location for tentative definitions (top-level defs with thus-far-incomplete types)
 /// e.g. `struct Foo bar;` where `struct Foo` is not defined yet.
 /// The key is the StringId of `Foo` and the value is the TokenIndex of `bar`
@@ -693,16 +693,16 @@ pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
         .gpa = pp.comp.gpa,
         .arena = arena.allocator(),
         .tok_ids = pp.tokens.items(.id),
-        .strings = std.ArrayListAligned(u8, .@"4").init(pp.comp.gpa),
+        .strings = std.array_list.AlignedManaged(u8, .@"4").init(pp.comp.gpa),
         .value_map = Tree.ValueMap.init(pp.comp.gpa),
         .data = NodeList.init(pp.comp.gpa),
-        .labels = std.ArrayList(Label).init(pp.comp.gpa),
+        .labels = std.array_list.Managed(Label).init(pp.comp.gpa),
         .list_buf = NodeList.init(pp.comp.gpa),
         .decl_buf = NodeList.init(pp.comp.gpa),
-        .param_buf = std.ArrayList(Type.Func.Param).init(pp.comp.gpa),
-        .enum_buf = std.ArrayList(Type.Enum.Field).init(pp.comp.gpa),
-        .record_buf = std.ArrayList(Type.Record.Field).init(pp.comp.gpa),
-        .field_attr_buf = std.ArrayList([]const Attribute).init(pp.comp.gpa),
+        .param_buf = std.array_list.Managed(Type.Func.Param).init(pp.comp.gpa),
+        .enum_buf = std.array_list.Managed(Type.Enum.Field).init(pp.comp.gpa),
+        .record_buf = std.array_list.Managed(Type.Record.Field).init(pp.comp.gpa),
+        .field_attr_buf = std.array_list.Managed([]const Attribute).init(pp.comp.gpa),
         .string_ids = .{
             .declspec_id = try StrInt.intern(pp.comp, "__declspec"),
             .main_id = try StrInt.intern(pp.comp, "main"),
@@ -1222,7 +1222,7 @@ fn staticAssertMessage(p: *Parser, cond_node: NodeIndex, message: Result) !?[]co
     const cond_tag = p.nodes.items(.tag)[@intFromEnum(cond_node)];
     if (cond_tag != .builtin_types_compatible_p and message.node == .none) return null;
 
-    var buf = std.ArrayList(u8).init(p.gpa);
+    var buf = std.array_list.Managed(u8).init(p.gpa);
     defer buf.deinit();
 
     if (cond_tag == .builtin_types_compatible_p) {
@@ -3994,7 +3994,7 @@ fn msvcAsmStmt(p: *Parser) Error!?NodeIndex {
 }
 
 /// asmOperand : ('[' IDENTIFIER ']')? asmStr '(' expr ')'
-fn asmOperand(p: *Parser, names: *std.ArrayList(?TokenIndex), constraints: *NodeList, exprs: *NodeList) Error!void {
+fn asmOperand(p: *Parser, names: *std.array_list.Managed(?TokenIndex), constraints: *NodeList, exprs: *NodeList) Error!void {
     if (p.eatToken(.l_bracket)) |l_bracket| {
         const ident = (try p.eatIdentifier()) orelse {
             try p.err(.expected_identifier);
@@ -4044,7 +4044,7 @@ fn gnuAsmStmt(p: *Parser, quals: Tree.GNUAssemblyQualifiers, asm_tok: TokenIndex
     const allocator = stack_fallback.get();
 
     // TODO: Consider using a TokenIndex of 0 instead of null if we need to store the names in the tree
-    var names = std.ArrayList(?TokenIndex).initCapacity(allocator, expected_items) catch unreachable; // stack allocation already succeeded
+    var names = std.array_list.Managed(?TokenIndex).initCapacity(allocator, expected_items) catch unreachable; // stack allocation already succeeded
     defer names.deinit();
     var constraints = NodeList.initCapacity(allocator, expected_items) catch unreachable; // stack allocation already succeeded
     defer constraints.deinit();
@@ -4317,7 +4317,7 @@ fn stmt(p: *Parser) Error!NodeIndex {
 
         const old_switch = p.@"switch";
         var @"switch" = Switch{
-            .ranges = std.ArrayList(Switch.Range).init(p.gpa),
+            .ranges = std.array_list.Managed(Switch.Range).init(p.gpa),
             .ty = cond.ty,
             .comp = p.comp,
         };
@@ -8268,7 +8268,7 @@ fn charLiteral(p: *Parser) Error!Result {
 
         const max_chars_expected = 4;
         var stack_fallback = std.heap.stackFallback(max_chars_expected * @sizeOf(u32), p.comp.gpa);
-        var chars = std.ArrayList(u32).initCapacity(stack_fallback.get(), max_chars_expected) catch unreachable; // stack allocation already succeeded
+        var chars = std.array_list.Managed(u32).initCapacity(stack_fallback.get(), max_chars_expected) catch unreachable; // stack allocation already succeeded
         defer chars.deinit();
 
         while (char_literal_parser.next()) |item| switch (item) {

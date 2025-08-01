@@ -679,15 +679,15 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const run: *Run = @fieldParentPtr("step", step);
     const has_side_effects = run.hasSideEffects();
 
-    var argv_list = std.ArrayList([]const u8).init(arena);
-    var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
+    var argv_list = std.array_list.Managed([]const u8).init(arena);
+    var output_placeholders = std.array_list.Managed(IndexedOutput).init(arena);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
     if (run.env_map) |env_map| {
         const KV = struct { []const u8, []const u8 };
-        var kv_pairs = try std.ArrayList(KV).initCapacity(arena, env_map.count());
+        var kv_pairs = try std.array_list.Managed(KV).initCapacity(arena, env_map.count());
         var iter = env_map.iterator();
         while (iter.next()) |entry| {
             kv_pairs.appendAssumeCapacity(.{ entry.key_ptr.*, entry.value_ptr.* });
@@ -1080,7 +1080,7 @@ fn runCommand(
         else => false,
     };
 
-    var interp_argv = std.ArrayList([]const u8).init(b.allocator);
+    var interp_argv = std.array_list.Managed([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
     var env_map = run.env_map orelse &b.graph.env_map;

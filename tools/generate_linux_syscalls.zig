@@ -591,7 +591,7 @@ fn generateSyscallsFromTable(
 
     const table = try linux_dir.readFile(arch_info.file_path, buf);
 
-    var optional_array_list: ?std.ArrayList(u8) = if (arch_info.additional_enum) |_| std.ArrayList(u8).init(allocator) else null;
+    var optional_array_list: ?std.array_list.Managed(u8) = if (arch_info.additional_enum) |_| std.array_list.Managed(u8).init(allocator) else null;
     const optional_writer = if (optional_array_list) |_| optional_array_list.?.writer() else null;
 
     try writer.print("pub const {s} = enum(usize) {{\n", .{arch_info.enum_name});

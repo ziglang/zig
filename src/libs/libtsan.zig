@@ -113,12 +113,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         return error.AlreadyReported;
     };
 
-    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
     const tsan_include_path = try comp.dirs.zig_lib.join(arena, &.{"libtsan"});
     for (tsan_sources) |tsan_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -139,7 +139,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     };
     try c_source_files.ensureUnusedCapacity(platform_tsan_sources.len);
     for (platform_tsan_sources) |tsan_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -163,7 +163,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
             .x86_64 => "tsan_rtl_amd64.S",
             else => return error.TSANUnsupportedCPUArchitecture,
         };
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -182,7 +182,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         "libtsan", "sanitizer_common",
     });
     for (sanitizer_common_sources) |common_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
@@ -206,7 +206,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         &sanitizer_nolibc_sources;
     try c_source_files.ensureUnusedCapacity(to_c_or_not_to_c_sources.len);
     for (to_c_or_not_to_c_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
@@ -226,7 +226,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     try c_source_files.ensureUnusedCapacity(sanitizer_symbolizer_sources.len);
     for (sanitizer_symbolizer_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -246,7 +246,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     try c_source_files.ensureUnusedCapacity(interception_sources.len);
     for (interception_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(interception_include_path);
@@ -323,7 +323,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     comp.tsan_lib = crt_file;
 }
 
-fn addCcArgs(target: *const std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn addCcArgs(target: *const std.Target, args: *std.array_list.Managed([]const u8)) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-nostdinc++",
         "-fvisibility=hidden",

@@ -4,7 +4,7 @@ const Target = std.Target;
 const Object = @import("../Object.zig");
 
 const Section = struct {
-    data: std.ArrayList(u8),
+    data: std.array_list.Managed(u8),
     relocations: std.ArrayListUnmanaged(Relocation) = .empty,
     flags: u64,
     type: u32,
@@ -80,12 +80,12 @@ fn sectionString(sec: Object.Section) []const u8 {
     };
 }
 
-pub fn getSection(elf: *Elf, section_kind: Object.Section) !*std.ArrayList(u8) {
+pub fn getSection(elf: *Elf, section_kind: Object.Section) !*std.array_list.Managed(u8) {
     const section_name = sectionString(section_kind);
     const section = elf.sections.get(section_name) orelse blk: {
         const section = try elf.arena.allocator().create(Section);
         section.* = .{
-            .data = std.ArrayList(u8).init(elf.arena.child_allocator),
+            .data = std.array_list.Managed(u8).init(elf.arena.child_allocator),
             .type = std.elf.SHT_PROGBITS,
             .flags = switch (section_kind) {
                 .func, .custom => std.elf.SHF_ALLOC + std.elf.SHF_EXECINSTR,
