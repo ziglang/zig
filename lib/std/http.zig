@@ -343,10 +343,9 @@ pub const Reader = struct {
     /// read from `in`.
     trailers: []const u8 = &.{},
     body_err: ?BodyError = null,
-    /// Stolen from `in`.
-    head_buffer: []u8 = &.{},
-
-    pub const max_chunk_header_len = 22;
+    /// Determines at which point `error.HttpHeadersOversize` occurs, as well
+    /// as the minimum buffer capacity of `in`.
+    max_head_len: usize,
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -398,19 +397,11 @@ pub const Reader = struct {
         ReadFailed,
     };
 
-    pub fn restituteHeadBuffer(reader: *Reader) void {
-        reader.in.restitute(reader.head_buffer.len);
-        reader.head_buffer.len = 0;
-    }
-
-    /// Buffers the entire head into `head_buffer`, invalidating the previous
-    /// `head_buffer`, if any.
+    /// Buffers the entire head.
     pub fn receiveHead(reader: *Reader) HeadError!void {
         reader.trailers = &.{};
         const in = reader.in;
-        in.restitute(reader.head_buffer.len);
-        reader.head_buffer.len = 0;
-        in.rebase();
+        try in.rebase(reader.max_head_len);
         var hp: HeadParser = .{};
         var head_end: usize = 0;
         while (true) {
