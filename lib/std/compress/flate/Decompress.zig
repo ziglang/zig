@@ -37,6 +37,8 @@ const State = union(enum) {
     stored_block: u16,
     fixed_block,
     dynamic_block,
+    dynamic_block_literal: u8,
+    dynamic_block_match: u16,
     protocol_footer,
     end,
 };
@@ -63,7 +65,7 @@ const direct_vtable: Reader.VTable = .{
 const indirect_vtable: Reader.VTable = .{
     .stream = streamIndirect,
     .rebase = rebaseFallible,
-    .discard = discard,
+    .discard = discardIndirect,
     .readVec = readVec,
 };
 
@@ -128,6 +130,26 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     return n;
 }
 
+fn discardIndirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    if (r.end + flate.history_len > r.buffer.len) rebase(r, flate.history_len);
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .end = r.end,
+        .vtable = &.{ .drain = Writer.unreachableDrain },
+    };
+    {
+        defer r.end = writer.end;
+        _ = streamFallible(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
+    }
+    const n = limit.minInt(r.end - r.seek);
+    r.seek += n;
+    return n;
+}
+
 fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
     _ = data;
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
@@ -140,7 +162,7 @@ fn streamIndirectInner(d: *Decompress) Reader.Error!usize {
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,
-        .vtable = &.{ .drain = Writer.fixedDrain },
+        .vtable = &.{ .drain = Writer.unreachableDrain },
     };
     defer r.end = writer.end;
     _ = streamFallible(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
@@ -379,30 +401,49 @@ fn streamInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader
         .dynamic_block => {
             // In larger archives most blocks are usually dynamic, so
             // decompression performance depends on this logic.
-            while (remaining > 0) {
-                const sym = try d.decodeSymbol(&d.lit_dec);
-
-                switch (sym.kind) {
-                    .literal => {
-                        try w.writeBytePreserve(flate.history_len, sym.symbol);
+            var sym = try d.decodeSymbol(&d.lit_dec);
+            sym: switch (sym.kind) {
+                .literal => {
+                    if (remaining != 0) {
+                        @branchHint(.likely);
                         remaining -= 1;
-                    },
-                    .match => {
-                        // Decode match backreference <length, distance>
-                        const length = try d.decodeLength(sym.symbol);
-                        const dsm = try d.decodeSymbol(&d.dst_dec);
-                        const distance = try d.decodeDistance(dsm.symbol);
-                        try writeMatch(w, length, distance);
-                        remaining -= length;
-                    },
-                    .end_of_block => {
-                        d.state = if (d.final_block) .protocol_footer else .block_header;
+                        try w.writeBytePreserve(flate.history_len, sym.symbol);
+                        sym = try d.decodeSymbol(&d.lit_dec);
+                        continue :sym sym.kind;
+                    } else {
+                        d.state = .{ .dynamic_block_literal = sym.symbol };
                         return @intFromEnum(limit) - remaining;
-                    },
-                }
+                    }
+                },
+                .match => {
+                    // Decode match backreference <length, distance>
+                    const length = try d.decodeLength(sym.symbol);
+                    continue :sw .{ .dynamic_block_match = length };
+                },
+                .end_of_block => {
+                    d.state = if (d.final_block) .protocol_footer else .block_header;
+                    continue :sw d.state;
+                },
             }
-            d.state = .dynamic_block;
-            return @intFromEnum(limit) - remaining;
+        },
+        .dynamic_block_literal => |symbol| {
+            assert(remaining != 0);
+            remaining -= 1;
+            try w.writeBytePreserve(flate.history_len, symbol);
+            continue :sw .dynamic_block;
+        },
+        .dynamic_block_match => |length| {
+            if (remaining >= length) {
+                @branchHint(.likely);
+                remaining -= length;
+                const dsm = try d.decodeSymbol(&d.dst_dec);
+                const distance = try d.decodeDistance(dsm.symbol);
+                try writeMatch(w, length, distance);
+                continue :sw .dynamic_block;
+            } else {
+                d.state = .{ .dynamic_block_match = length };
+                return @intFromEnum(limit) - remaining;
+            }
         },
         .protocol_footer => {
             switch (d.container_metadata) {
@@ -424,7 +465,7 @@ fn streamInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader
                 },
             }
             d.state = .end;
-            return 0;
+            return @intFromEnum(limit) - remaining;
         },
         .end => return error.EndOfStream,
     }

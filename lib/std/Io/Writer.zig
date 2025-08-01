@@ -2286,6 +2286,13 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     }
 }
 
+pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    _ = w;
+    _ = data;
+    _ = splat;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
