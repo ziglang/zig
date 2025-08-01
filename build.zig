@@ -1,13 +1,15 @@
 const std = @import("std");
 const builtin = std.builtin;
-const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
 const mem = std.mem;
 const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
 const assert = std.debug.assert;
+
 const DevEnv = @import("src/dev.zig").Env;
+const tests = @import("test/tests.zig");
+
 const ValueInterpretMode = enum { direct, by_name };
 
 const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
@@ -28,58 +30,58 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run all the tests");
     const skip_install_lib_files = b.option(bool, "no-lib", "skip copying of lib/ files and langref to installation prefix. Useful for development") orelse false;
-    const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
-    const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
+    // const skip_install_langref = b.option(bool, "no-langref", "skip copying of langref to the installation prefix") orelse skip_install_lib_files;
+    // const std_docs = b.option(bool, "std-docs", "include standard library autodocs") orelse false;
     const no_bin = b.option(bool, "no-bin", "skip emitting compiler binary") orelse false;
-    const enable_superhtml = b.option(bool, "enable-superhtml", "Check langref output HTML validity") orelse false;
+    // const enable_superhtml = b.option(bool, "enable-superhtml", "Check langref output HTML validity") orelse false;
 
-    const langref_file = generateLangRef(b);
-    const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
-    const check_langref = superHtmlCheck(b, langref_file);
-    if (enable_superhtml) install_langref.step.dependOn(check_langref);
+    // const langref_file = generateLangRef(b);
+    // const install_langref = b.addInstallFileWithDir(langref_file, .prefix, "doc/langref.html");
+    // const check_langref = superHtmlCheck(b, langref_file);
+    // if (enable_superhtml) install_langref.step.dependOn(check_langref);
+    //
+    // const check_autodocs = superHtmlCheck(b, b.path("lib/docs/index.html"));
+    // if (enable_superhtml) {
+    //     test_step.dependOn(check_langref);
+    //     test_step.dependOn(check_autodocs);
+    // }
+    // if (!skip_install_langref) {
+    //     b.getInstallStep().dependOn(&install_langref.step);
+    // }
 
-    const check_autodocs = superHtmlCheck(b, b.path("lib/docs/index.html"));
-    if (enable_superhtml) {
-        test_step.dependOn(check_langref);
-        test_step.dependOn(check_autodocs);
-    }
-    if (!skip_install_langref) {
-        b.getInstallStep().dependOn(&install_langref.step);
-    }
-
-    const autodoc_test = b.addObject(.{
-        .name = "std",
-        .zig_lib_dir = b.path("lib"),
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("lib/std/std.zig"),
-            .target = target,
-            .optimize = .Debug,
-        }),
-    });
-    const install_std_docs = b.addInstallDirectory(.{
-        .source_dir = autodoc_test.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "doc/std",
-    });
+    // const autodoc_test = b.addObject(.{
+    //     .name = "std",
+    //     .zig_lib_dir = b.path("lib"),
+    //     .root_module = b.createModule(.{
+    //         .root_source_file = b.path("lib/std/std.zig"),
+    //         .target = target,
+    //         .optimize = .Debug,
+    //     }),
+    // });
+    // const install_std_docs = b.addInstallDirectory(.{
+    //     .source_dir = autodoc_test.getEmittedDocs(),
+    //     .install_dir = .prefix,
+    //     .install_subdir = "doc/std",
+    // });
     //if (enable_tidy) install_std_docs.step.dependOn(check_autodocs);
-    if (std_docs) {
-        b.getInstallStep().dependOn(&install_std_docs.step);
-    }
+    // if (std_docs) {
+    //     b.getInstallStep().dependOn(&install_std_docs.step);
+    // }
 
     if (flat) {
         b.installFile("LICENSE", "LICENSE");
         b.installFile("README.md", "README.md");
     }
 
-    const langref_step = b.step("langref", "Build and install the language reference");
-    langref_step.dependOn(&install_langref.step);
+    // const langref_step = b.step("langref", "Build and install the language reference");
+    // langref_step.dependOn(&install_langref.step);
 
-    const std_docs_step = b.step("std-docs", "Build and install the standard library documentation");
-    std_docs_step.dependOn(&install_std_docs.step);
+    // const std_docs_step = b.step("std-docs", "Build and install the standard library documentation");
+    // std_docs_step.dependOn(&install_std_docs.step);
 
-    const docs_step = b.step("docs", "Build and install documentation");
-    docs_step.dependOn(langref_step);
-    docs_step.dependOn(std_docs_step);
+    // const docs_step = b.step("docs", "Build and install documentation");
+    // docs_step.dependOn(langref_step);
+    // docs_step.dependOn(std_docs_step);
 
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
     const skip_release = b.option(bool, "skip-release", "Main test suite skips release builds") orelse false;
@@ -899,6 +901,9 @@ fn addStaticLlvmOptionsToModule(mod: *std.Build.Module, options: struct {
 
     mod.linkSystemLibrary("z", .{});
     mod.linkSystemLibrary("zstd", .{});
+    mod.linkSystemLibrary("z3", .{});
+    mod.linkSystemLibrary("Polly", .{});
+    mod.linkSystemLibrary("isl", .{});
 
     if (mod.resolved_target.?.result.os.tag != .windows or mod.resolved_target.?.result.abi != .msvc) {
         // This means we rely on clang-or-zig-built LLVM, Clang, LLD libraries.
