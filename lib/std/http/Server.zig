@@ -6,13 +6,25 @@ const mem = std.mem;
 const Uri = std.Uri;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Server = @This();
 
 /// Data from the HTTP server to the HTTP client.
 out: *Writer,
 reader: http.Reader,
+
+pub const Options = struct {
+    /// Limits the total max size in bytes of all HTTP headers together,
+    /// including everything from "HTTP/1.1..." all the way to, and including
+    /// "...\r\n\r\n".
+    ///
+    /// `error.HttpHeadersOversize` is returned if this limit is exceeded.
+    ///
+    /// If the `std.Io.Reader.buffer` used with `init` has smaller capacity
+    /// than this, that value is used instead.
+    max_head_len: usize = 8 * 1024,
+};
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
 /// connection.
@@ -21,37 +33,35 @@ reader: http.Reader,
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.io.Reader, out: *Writer) Server {
+pub fn init(in: *std.Io.Reader, out: *Writer, options: Options) Server {
     return .{
         .reader = .{
             .in = in,
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = @min(options.max_head_len, in.buffer.len),
         },
         .out = out,
     };
 }
 
-pub fn deinit(s: *Server) void {
-    s.reader.restituteHeadBuffer();
-}
-
 pub const ReceiveHeadError = http.Reader.HeadError || error{
     /// Client sent headers that did not conform to the HTTP protocol.
     ///
-    /// To find out more detailed diagnostics, `http.Reader.head_buffer` can be
+    /// To find out more detailed diagnostics, `Request.head_buffer` can be
     /// passed directly to `Request.Head.parse`.
     HttpHeadersInvalid,
 };
 
 pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
-    try s.reader.receiveHead();
+    const head_buffer = try s.reader.receiveHead();
     return .{
         .server = s,
+        .head_buffer = head_buffer,
         // No need to track the returned error here since users can repeat the
         // parse with the header buffer to get detailed diagnostics.
-        .head = Request.Head.parse(s.reader.head_buffer) catch return error.HttpHeadersInvalid,
+        .head = Request.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
     };
 }
 
@@ -60,6 +70,7 @@ pub const Request = struct {
     /// Pointers in this struct are invalidated with the next call to
     /// `receiveHead`.
     head: Head,
+    head_buffer: []const u8,
     respond_err: ?RespondError = null,
 
     pub const RespondError = error{
@@ -229,7 +240,7 @@ pub const Request = struct {
 
     pub fn iterateHeaders(r: *Request) http.HeaderIterator {
         assert(r.server.reader.state == .received_head);
-        return http.HeaderIterator.init(r.server.reader.head_buffer);
+        return http.HeaderIterator.init(r.head_buffer);
     }
 
     test iterateHeaders {
@@ -244,8 +255,8 @@ pub const Request = struct {
             .reader = .{
                 .in = undefined,
                 .state = .received_head,
-                .head_buffer = @constCast(request_bytes),
                 .interface = undefined,
+                .max_head_len = undefined,
             },
             .out = undefined,
         };
@@ -253,6 +264,7 @@ pub const Request = struct {
         var request: Request = .{
             .server = &server,
             .head = undefined,
+            .head_buffer = @constCast(request_bytes),
         };
 
         var it = request.iterateHeaders();
@@ -435,10 +447,8 @@ pub const Request = struct {
 
         for (o.extra_headers) |header| {
             assert(header.name.len != 0);
-            try out.writeAll(header.name);
-            try out.writeAll(": ");
-            try out.writeAll(header.value);
-            try out.writeAll("\r\n");
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
         }
 
         try out.writeAll("\r\n");
@@ -453,7 +463,13 @@ pub const Request = struct {
         return if (elide_body) .{
             .http_protocol_output = request.server.out,
             .state = state,
-            .writer = .discarding(buffer),
+            .writer = .{
+                .buffer = buffer,
+                .vtable = &.{
+                    .drain = Writer.discardingDrain,
+                    .sendFile = Writer.discardingSendFile,
+                },
+            },
         } else .{
             .http_protocol_output = request.server.out,
             .state = state,
@@ -564,7 +580,7 @@ pub const Request = struct {
     ///
     /// See `readerExpectNone` for an infallible alternative that cannot write
     /// to the server output stream.
-    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*std.io.Reader {
+    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*std.Io.Reader {
         const flush = request.head.expect != null;
         try writeExpectContinue(request);
         if (flush) try request.server.out.flush();
@@ -576,7 +592,7 @@ pub const Request = struct {
     /// this function.
     ///
     /// Asserts that this function is only called once.
-    pub fn readerExpectNone(request: *Request, buffer: []u8) *std.io.Reader {
+    pub fn readerExpectNone(request: *Request, buffer: []u8) *std.Io.Reader {
         assert(request.server.reader.state == .received_head);
         assert(request.head.expect == null);
         if (!request.head.method.requestHasBody()) return .ending;
@@ -640,7 +656,7 @@ pub const Request = struct {
 /// See https://tools.ietf.org/html/rfc6455
 pub const WebSocket = struct {
     key: []const u8,
-    input: *std.io.Reader,
+    input: *std.Io.Reader,
     output: *Writer,
 
     pub const Header0 = packed struct(u8) {

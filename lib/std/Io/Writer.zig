@@ -191,29 +191,23 @@ pub fn writeSplatHeader(
     data: []const []const u8,
     splat: usize,
 ) Error!usize {
-    const new_end = w.end + header.len;
-    if (new_end <= w.buffer.len) {
-        @memcpy(w.buffer[w.end..][0..header.len], header);
-        w.end = new_end;
-        return header.len + try writeSplat(w, data, splat);
-    }
-    var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
-    var i: usize = 1;
-    vecs[0] = header;
-    for (data[0 .. data.len - 1]) |buf| {
-        if (buf.len == 0) continue;
-        vecs[i] = buf;
-        i += 1;
-        if (vecs.len - i == 0) break;
-    }
-    const pattern = data[data.len - 1];
-    const new_splat = s: {
-        if (pattern.len == 0 or vecs.len - i == 0) break :s 1;
-        vecs[i] = pattern;
-        i += 1;
-        break :s splat;
-    };
-    return w.vtable.drain(w, vecs[0..i], new_splat);
+    return writeSplatHeaderLimit(w, header, data, splat, .unlimited);
+}
+
+/// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
+pub fn writeSplatHeaderLimit(
+    w: *Writer,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+    limit: Limit,
+) Error!usize {
+    _ = w;
+    _ = header;
+    _ = data;
+    _ = splat;
+    _ = limit;
+    @panic("TODO");
 }
 
 test "writeSplatHeader splatting avoids buffer aliasing temptation" {
@@ -2216,6 +2210,35 @@ pub const Discarding = struct {
         }
     }
 };
+
+/// See also `Discarding` which keeps a count.
+pub fn discardingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    const slice = data[0 .. data.len - 1];
+    const pattern = data[slice.len];
+    var written: usize = pattern.len * splat;
+    for (slice) |bytes| written += bytes.len;
+    w.end = 0;
+    return written;
+}
+
+/// See also `Discarding` which keeps a count.
+pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    if (File.Handle == void) return error.Unimplemented;
+    if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
+    w.end = 0;
+    if (limit == .nothing) return 0;
+    if (file_reader.getSize()) |size| {
+        const n = limit.minInt64(size - file_reader.pos);
+        if (n == 0) return error.EndOfStream;
+        file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
+        w.end = 0;
+        return n;
+    } else |_| {
+        // Error is observable on `file_reader` instance, and it is better to
+        // treat the file as a pipe.
+        return error.Unimplemented;
+    }
+}
 
 /// Removes the first `n` bytes from `buffer` by shifting buffer contents,
 /// returning how many bytes are left after consuming the entire buffer, or

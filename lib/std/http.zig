@@ -397,27 +397,35 @@ pub const Reader = struct {
         ReadFailed,
     };
 
-    /// Buffers the entire head.
-    pub fn receiveHead(reader: *Reader) HeadError!void {
+    /// Buffers the entire head inside `in`.
+    ///
+    /// The resulting memory is invalidated by any subsequent consumption of
+    /// the input stream.
+    pub fn receiveHead(reader: *Reader) HeadError![]const u8 {
         reader.trailers = &.{};
         const in = reader.in;
-        try in.rebase(reader.max_head_len);
+        in.rebase(reader.max_head_len) catch |err| switch (err) {
+            error.EndOfStream => {}, // Proves that max_head_len suffices.
+        };
         var hp: HeadParser = .{};
-        var head_end: usize = 0;
+        const head_start = in.end;
+        var head_len: usize = 0;
         while (true) {
-            if (head_end >= in.buffer.len) return error.HttpHeadersOversize;
+            if (in.remainingCapacity() == 0) return error.HttpHeadersOversize;
             in.fillMore() catch |err| switch (err) {
-                error.EndOfStream => switch (head_end) {
+                error.EndOfStream => switch (head_len) {
                     0 => return error.HttpConnectionClosing,
                     else => return error.HttpRequestTruncated,
                 },
                 error.ReadFailed => return error.ReadFailed,
             };
-            head_end += hp.feed(in.buffered()[head_end..]);
+            head_len += hp.feed(in.buffered()[head_start + head_len ..]);
+            if (head_len > reader.max_head_len) return error.HttpHeadersOversize;
             if (hp.state == .finished) {
-                reader.head_buffer = in.steal(head_end);
                 reader.state = .received_head;
-                return;
+                const head_buffer = in.buffered()[head_start..][0..head_len];
+                in.toss(head_buffer.len);
+                return head_buffer;
             }
         }
     }
