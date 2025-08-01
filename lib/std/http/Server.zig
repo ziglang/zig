@@ -624,7 +624,7 @@ pub const Request = struct {
     };
 
     fn read_cl(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @constCast(@alignCast(@ptrCast(context)));
+        const request: *Request = @ptrCast(@alignCast(@constCast(context)));
         const s = request.server;
 
         const remaining_content_length = &request.reader_state.remaining_content_length;
@@ -652,7 +652,7 @@ pub const Request = struct {
     }
 
     fn read_chunked(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @constCast(@alignCast(@ptrCast(context)));
+        const request: *Request = @ptrCast(@alignCast(@constCast(context)));
         const s = request.server;
 
         const cp = &request.reader_state.chunk_parser;
@@ -894,7 +894,7 @@ pub const Response = struct {
     }
 
     fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
-        const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+        const r: *Response = @ptrCast(@alignCast(@constCast(context)));
 
         var trash: u64 = std.math.maxInt(u64);
         const len = switch (r.transfer_encoding) {
@@ -944,7 +944,7 @@ pub const Response = struct {
     }
 
     fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
-        const r: *Response = @constCast(@alignCast(@ptrCast(context)));
+        const r: *Response = @ptrCast(@alignCast(@constCast(context)));
         assert(r.transfer_encoding == .chunked);
 
         if (r.elide_body)

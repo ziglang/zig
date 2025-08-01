@@ -259,7 +259,7 @@ pub fn relocate(phdrs: []const elf.Phdr) void {
 
     const rel = sorted_dynv[elf.DT_REL];
     if (rel != 0) {
-        const rels: []const elf.Rel = @alignCast(@ptrCast(
+        const rels: []const elf.Rel = @ptrCast(@alignCast(
             @as([*]align(@alignOf(elf.Rel)) const u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
         ));
         for (rels) |r| {
@@ -270,7 +270,7 @@ pub fn relocate(phdrs: []const elf.Phdr) void {
 
     const rela = sorted_dynv[elf.DT_RELA];
     if (rela != 0) {
-        const relas: []const elf.Rela = @alignCast(@ptrCast(
+        const relas: []const elf.Rela = @ptrCast(@alignCast(
             @as([*]align(@alignOf(elf.Rela)) const u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
         ));
         for (relas) |r| {

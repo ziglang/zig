@@ -151,7 +151,7 @@ const CAllocator = struct {
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
+        return @ptrCast(@alignCast(ptr - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
