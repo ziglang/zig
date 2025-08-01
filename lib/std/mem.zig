@@ -18,6 +18,8 @@ pub const byte_size_in_bits = 8;
 
 pub const Allocator = @import("mem/Allocator.zig");
 
+pub const sentinelPtrs = @import("mem/sentinelPtrs.zig");
+
 /// Stored as a power-of-two.
 pub const Alignment = enum(math.Log2Int(usize)) {
     @"1" = 0,
@@ -4841,4 +4843,8 @@ test "read/write(Var)PackedInt" {
             }
         }
     }
+}
+
+test {
+    _ = &sentinelPtrs;
 }
