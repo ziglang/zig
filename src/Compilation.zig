@@ -1816,10 +1816,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.skip_linker_dependencies) break :s .none;
             const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
             if (!want) break :s .none;
-            if (have_zcu) {
+            if (have_zcu and target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm and use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
-                if (target.ofmt == .coff and target_util.zigBackend(target, use_llvm) == .stage2_x86_64)
-                    break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                if (switch (target_util.zigBackend(target, use_llvm)) {
+                    else => false,
+                    .stage2_aarch64, .stage2_x86_64 => target.ofmt == .coff,
+                }) break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
             }
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
@@ -1854,7 +1856,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
             if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
-            if (have_zcu) break :s .zcu;
+            if (have_zcu and target_util.canBuildLibUbsanRt(target, use_llvm, build_options.have_llvm and use_llvm)) break :s .zcu;
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };

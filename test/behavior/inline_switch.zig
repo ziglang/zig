@@ -43,7 +43,6 @@ test "inline switch enums" {
 
 const U = union(E) { a: void, b: u2, c: u3, d: u4 };
 test "inline switch unions" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -105,7 +104,6 @@ test "inline else enum" {
 }
 
 test "inline else int with gaps" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 

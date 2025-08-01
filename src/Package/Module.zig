@@ -250,7 +250,7 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     };
 
     const stack_check = b: {
-        if (!target_util.supportsStackProbing(target)) {
+        if (!target_util.supportsStackProbing(target, zig_backend)) {
             if (options.inherited.stack_check == true)
                 return error.StackCheckUnsupportedByTarget;
             break :b false;

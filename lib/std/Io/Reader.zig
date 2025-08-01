@@ -43,8 +43,8 @@ pub const VTable = struct {
     ///
     /// In addition to, or instead of writing to `w`, the implementation may
     /// choose to store data in `buffer`, modifying `seek` and `end`
-    /// accordingly. Stream implementations are encouraged to take advantage of
-    /// this if simplifies the logic.
+    /// accordingly. Implementations are encouraged to take advantage of
+    /// this if it simplifies the logic.
     stream: *const fn (r: *Reader, w: *Writer, limit: Limit) StreamError!usize,
 
     /// Consumes bytes from the internally tracked stream position without
@@ -67,6 +67,37 @@ pub const VTable = struct {
     ///
     /// This function is only called when `buffer` is empty.
     discard: *const fn (r: *Reader, limit: Limit) Error!usize = defaultDiscard,
+
+    /// Returns number of bytes written to `data`.
+    ///
+    /// `data` may not have nonzero length.
+    ///
+    /// `data` may not contain an alias to `Reader.buffer`.
+    ///
+    /// `data` is mutable because the implementation may to temporarily modify
+    /// the fields in order to handle partial reads. Implementations must
+    /// restore the original value before returning.
+    ///
+    /// Implementations may ignore `data`, writing directly to `Reader.buffer`,
+    /// modifying `seek` and `end` accordingly, and returning 0 from this
+    /// function. Implementations are encouraged to take advantage of this if
+    /// it simplifies the logic.
+    ///
+    /// The default implementation calls `stream` with either `data[0]` or
+    /// `Reader.buffer`, whichever is bigger.
+    readVec: *const fn (r: *Reader, data: [][]u8) Error!usize = defaultReadVec,
+
+    /// Ensures `capacity` more data can be buffered without rebasing.
+    ///
+    /// Asserts `capacity` is within buffer capacity, or that the stream ends
+    /// within `capacity` bytes.
+    ///
+    /// Only called when `capacity` cannot fit into the unused capacity of
+    /// `buffer`.
+    ///
+    /// The default implementation moves buffered data to the start of
+    /// `buffer`, setting `seek` to zero, and cannot fail.
+    rebase: *const fn (r: *Reader, capacity: usize) RebaseError!void = defaultRebase,
 };
 
 pub const StreamError = error{
@@ -97,6 +128,10 @@ pub const ShortError = error{
     ReadFailed,
 };
 
+pub const RebaseError = error{
+    EndOfStream,
+};
+
 pub const failing: Reader = .{
     .vtable = &.{
         .stream = failingStream,
@@ -122,6 +157,8 @@ pub fn fixed(buffer: []const u8) Reader {
         .vtable = &.{
             .stream = endingStream,
             .discard = endingDiscard,
+            .readVec = endingReadVec,
+            .rebase = endingRebase,
         },
         // This cast is safe because all potential writes to it will instead
         // return `error.EndOfStream`.
@@ -153,18 +190,18 @@ pub fn discard(r: *Reader, limit: Limit) Error!usize {
         }
         break :l .limited(n - buffered_len);
     } else .unlimited;
-    r.seek = 0;
-    r.end = 0;
+    r.seek = r.end;
     const n = try r.vtable.discard(r, remaining);
     assert(n <= @intFromEnum(remaining));
     return buffered_len + n;
 }
 
 pub fn defaultDiscard(r: *Reader, limit: Limit) Error!usize {
-    assert(r.seek == 0);
-    assert(r.end == 0);
-    var dw: Writer.Discarding = .init(r.buffer);
-    const n = r.stream(&dw.writer, limit) catch |err| switch (err) {
+    assert(r.seek == r.end);
+    r.seek = 0;
+    r.end = 0;
+    var d: Writer.Discarding = .init(r.buffer);
+    const n = r.stream(&d.writer, limit) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return error.EndOfStream,
@@ -229,8 +266,7 @@ pub fn streamRemaining(r: *Reader, w: *Writer) StreamRemainingError!usize {
 /// number of bytes discarded.
 pub fn discardRemaining(r: *Reader) ShortError!usize {
     var offset: usize = r.end - r.seek;
-    r.seek = 0;
-    r.end = 0;
+    r.seek = r.end;
     while (true) {
         offset += r.vtable.discard(r, .unlimited) catch |err| switch (err) {
             error.EndOfStream => return offset,
@@ -277,7 +313,8 @@ pub fn appendRemaining(
     list: *std.ArrayListAlignedUnmanaged(u8, alignment),
     limit: Limit,
 ) LimitedAllocError!void {
-    if (limit != .unlimited) assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
+    if (limit == .unlimited) return appendRemainingUnlimited(r, gpa, alignment, list, 1);
+    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
     const buffer_contents = r.buffer[r.seek..r.end];
     const copy_len = limit.minInt(buffer_contents.len);
     try list.appendSlice(gpa, r.buffer[0..copy_len]);
@@ -286,32 +323,67 @@ pub fn appendRemaining(
     r.seek = 0;
     r.end = 0;
     var remaining = @intFromEnum(limit) - copy_len;
+    // From here, we leave `buffer` empty, appending directly to `list`.
+    var writer: Writer = .{
+        .buffer = undefined,
+        .end = undefined,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
     while (true) {
-        try list.ensureUnusedCapacity(gpa, 1);
+        try list.ensureUnusedCapacity(gpa, 2);
         const cap = list.unusedCapacitySlice();
-        const dest = cap[0..@min(cap.len, remaining)];
-        if (remaining - dest.len == 0) {
-            // Additionally provides `buffer` to detect end.
-            const new_remaining = readVecInner(r, &.{}, dest, remaining) catch |err| switch (err) {
-                error.EndOfStream => {
-                    if (r.bufferedLen() != 0) return error.StreamTooLong;
-                    return;
-                },
-                error.ReadFailed => return error.ReadFailed,
-            };
-            list.items.len += remaining - new_remaining;
-            remaining = new_remaining;
-        } else {
-            // Leave `buffer` empty, appending directly to `list`.
-            var dest_w: Writer = .fixed(dest);
-            const n = r.vtable.stream(r, &dest_w, .limited(dest.len)) catch |err| switch (err) {
-                error.WriteFailed => unreachable, // Prevented by the limit.
-                error.EndOfStream => return,
-                error.ReadFailed => return error.ReadFailed,
-            };
-            list.items.len += n;
-            remaining -= n;
+        const dest = cap[0..@min(cap.len, remaining + 1)];
+        writer.buffer = list.allocatedSlice();
+        writer.end = list.items.len;
+        const n = r.vtable.stream(r, &writer, .limited(dest.len)) catch |err| switch (err) {
+            error.WriteFailed => unreachable, // Prevented by the limit.
+            error.EndOfStream => return,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        list.items.len += n;
+        if (n > remaining) {
+            // Move the byte to `Reader.buffer` so it is not lost.
+            assert(n - remaining == 1);
+            assert(r.end == 0);
+            r.buffer[0] = list.items[list.items.len - 1];
+            list.items.len -= 1;
+            r.end = 1;
+            return;
         }
+        remaining -= n;
+    }
+}
+
+pub const UnlimitedAllocError = Allocator.Error || ShortError;
+
+pub fn appendRemainingUnlimited(
+    r: *Reader,
+    gpa: Allocator,
+    comptime alignment: ?std.mem.Alignment,
+    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
+    bump: usize,
+) UnlimitedAllocError!void {
+    const buffer_contents = r.buffer[r.seek..r.end];
+    try list.ensureUnusedCapacity(gpa, buffer_contents.len + bump);
+    list.appendSliceAssumeCapacity(buffer_contents);
+    r.seek = 0;
+    r.end = 0;
+    // From here, we leave `buffer` empty, appending directly to `list`.
+    var writer: Writer = .{
+        .buffer = undefined,
+        .end = undefined,
+        .vtable = &.{ .drain = Writer.fixedDrain },
+    };
+    while (true) {
+        try list.ensureUnusedCapacity(gpa, bump);
+        writer.buffer = list.allocatedSlice();
+        writer.end = list.items.len;
+        const n = r.vtable.stream(r, &writer, .limited(list.unusedCapacitySlice().len)) catch |err| switch (err) {
+            error.WriteFailed => unreachable, // Prevented by the limit.
+            error.EndOfStream => return,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        list.items.len += n;
     }
 }
 
@@ -323,95 +395,50 @@ pub fn appendRemaining(
 ///
 /// The reader's internal logical seek position moves forward in accordance
 /// with the number of bytes returned from this function.
-pub fn readVec(r: *Reader, data: []const []u8) Error!usize {
-    return readVecLimit(r, data, .unlimited);
-}
-
-/// Equivalent to `readVec` but reads at most `limit` bytes.
-///
-/// This ultimately will lower to a call to `stream`, but it must ensure
-/// that the buffer used has at least as much capacity, in case that function
-/// depends on a minimum buffer capacity. It also ensures that if the `stream`
-/// implementation calls `Writer.writableVector`, it will get this data slice
-/// along with the buffer at the end.
-pub fn readVecLimit(r: *Reader, data: []const []u8, limit: Limit) Error!usize {
-    comptime assert(@intFromEnum(Limit.unlimited) == std.math.maxInt(usize));
-    var remaining = @intFromEnum(limit);
+pub fn readVec(r: *Reader, data: [][]u8) Error!usize {
+    var seek = r.seek;
     for (data, 0..) |buf, i| {
-        const buffer_contents = r.buffer[r.seek..r.end];
-        const copy_len = @min(buffer_contents.len, buf.len, remaining);
-        @memcpy(buf[0..copy_len], buffer_contents[0..copy_len]);
-        r.seek += copy_len;
-        remaining -= copy_len;
-        if (remaining == 0) break;
+        const contents = r.buffer[seek..r.end];
+        const copy_len = @min(contents.len, buf.len);
+        @memcpy(buf[0..copy_len], contents[0..copy_len]);
+        seek += copy_len;
         if (buf.len - copy_len == 0) continue;
 
-        // All of `buffer` has been copied to `data`. We now set up a structure
-        // that enables the `Writer.writableVector` API, while also ensuring
-        // API that directly operates on the `Writable.buffer` has its minimum
-        // buffer capacity requirements met.
-        r.seek = 0;
-        r.end = 0;
-        remaining = try readVecInner(r, data[i + 1 ..], buf[copy_len..], remaining);
-        break;
+        // All of `buffer` has been copied to `data`.
+        const n = seek - r.seek;
+        r.seek = seek;
+        data[i] = buf[copy_len..];
+        defer data[i] = buf;
+        return n + (r.vtable.readVec(r, data[i..]) catch |err| switch (err) {
+            error.EndOfStream => if (n == 0) return error.EndOfStream else 0,
+            error.ReadFailed => return error.ReadFailed,
+        });
     }
-    return @intFromEnum(limit) - remaining;
+    const n = seek - r.seek;
+    r.seek = seek;
+    return n;
 }
 
-fn readVecInner(r: *Reader, middle: []const []u8, first: []u8, remaining: usize) Error!usize {
-    var wrapper: Writer.VectorWrapper = .{
-        .it = .{
-            .first = first,
-            .middle = middle,
-            .last = r.buffer,
-        },
-        .writer = .{
-            .buffer = if (first.len >= r.buffer.len) first else r.buffer,
-            .vtable = Writer.VectorWrapper.vtable,
-        },
+/// Writes to `Reader.buffer` or `data`, whichever has larger capacity.
+pub fn defaultReadVec(r: *Reader, data: [][]u8) Error!usize {
+    assert(r.seek == r.end);
+    r.seek = 0;
+    r.end = 0;
+    const first = data[0];
+    const direct = first.len >= r.buffer.len;
+    var writer: Writer = .{
+        .buffer = if (direct) first else r.buffer,
+        .end = 0,
+        .vtable = &.{ .drain = Writer.fixedDrain },
     };
-    // If the limit may pass beyond user buffer into Reader buffer, use
-    // unlimited, allowing the Reader buffer to fill.
-    const limit: Limit = l: {
-        var n: usize = first.len;
-        for (middle) |m| n += m.len;
-        break :l if (remaining >= n) .unlimited else .limited(remaining);
-    };
-    var n = r.vtable.stream(r, &wrapper.writer, limit) catch |err| switch (err) {
-        error.WriteFailed => {
-            assert(!wrapper.used);
-            if (wrapper.writer.buffer.ptr == first.ptr) {
-                return remaining - wrapper.writer.end;
-            } else {
-                assert(wrapper.writer.end <= r.buffer.len);
-                r.end = wrapper.writer.end;
-                return remaining;
-            }
-        },
+    const limit: Limit = .limited(writer.buffer.len - writer.end);
+    const n = r.vtable.stream(r, &writer, limit) catch |err| switch (err) {
+        error.WriteFailed => unreachable,
         else => |e| return e,
     };
-    if (!wrapper.used) {
-        if (wrapper.writer.buffer.ptr == first.ptr) {
-            return remaining - n;
-        } else {
-            assert(n <= r.buffer.len);
-            r.end = n;
-            return remaining;
-        }
-    }
-    if (n < first.len) return remaining - n;
-    var result = remaining - first.len;
-    n -= first.len;
-    for (middle) |mid| {
-        if (n < mid.len) {
-            return result - n;
-        }
-        result -= mid.len;
-        n -= mid.len;
-    }
-    assert(n <= r.buffer.len);
-    r.end = n;
-    return result;
+    if (direct) return n;
+    r.end += n;
+    return 0;
 }
 
 pub fn buffered(r: *Reader) []u8 {
@@ -422,8 +449,8 @@ pub fn bufferedLen(r: *const Reader) usize {
     return r.end - r.seek;
 }
 
-pub fn hashed(r: *Reader, hasher: anytype) Hashed(@TypeOf(hasher)) {
-    return .{ .in = r, .hasher = hasher };
+pub fn hashed(r: *Reader, hasher: anytype, buffer: []u8) Hashed(@TypeOf(hasher)) {
+    return .init(r, hasher, buffer);
 }
 
 pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
@@ -498,8 +525,7 @@ pub fn toss(r: *Reader, n: usize) void {
 
 /// Equivalent to `toss(r.bufferedLen())`.
 pub fn tossBuffered(r: *Reader) void {
-    r.seek = 0;
-    r.end = 0;
+    r.seek = r.end;
 }
 
 /// Equivalent to `peek` followed by `toss`.
@@ -586,8 +612,7 @@ pub fn discardShort(r: *Reader, n: usize) ShortError!usize {
         return n;
     }
     var remaining = n - (r.end - r.seek);
-    r.end = 0;
-    r.seek = 0;
+    r.seek = r.end;
     while (true) {
         const discard_len = r.vtable.discard(r, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => return n - remaining,
@@ -625,29 +650,24 @@ pub fn readSliceAll(r: *Reader, buffer: []u8) Error!void {
 /// See also:
 /// * `readSliceAll`
 pub fn readSliceShort(r: *Reader, buffer: []u8) ShortError!usize {
-    var i: usize = 0;
+    const contents = r.buffer[r.seek..r.end];
+    const copy_len = @min(buffer.len, contents.len);
+    @memcpy(buffer[0..copy_len], contents[0..copy_len]);
+    r.seek += copy_len;
+    if (buffer.len - copy_len == 0) {
+        @branchHint(.likely);
+        return buffer.len;
+    }
+    var i: usize = copy_len;
+    var data: [1][]u8 = undefined;
     while (true) {
-        const buffer_contents = r.buffer[r.seek..r.end];
-        const dest = buffer[i..];
-        const copy_len = @min(dest.len, buffer_contents.len);
-        @memcpy(dest[0..copy_len], buffer_contents[0..copy_len]);
-        if (dest.len - copy_len == 0) {
-            @branchHint(.likely);
-            r.seek += copy_len;
-            return buffer.len;
-        }
-        i += copy_len;
-        r.end = 0;
-        r.seek = 0;
-        const remaining = buffer[i..];
-        const new_remaining_len = readVecInner(r, &.{}, remaining, remaining.len) catch |err| switch (err) {
+        data[0] = buffer[i..];
+        i += readVec(r, &data) catch |err| switch (err) {
             error.EndOfStream => return i,
             error.ReadFailed => return error.ReadFailed,
         };
-        if (new_remaining_len == 0) return buffer.len;
-        i += remaining.len - new_remaining_len;
+        if (buffer.len - i == 0) return buffer.len;
     }
-    return buffer.len;
 }
 
 /// Fill `buffer` with the next `buffer.len` bytes from the stream, advancing
@@ -780,11 +800,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         @branchHint(.likely);
         return buffer[seek .. end + 1];
     }
-    if (r.vtable.stream == &endingStream) {
-        // Protect the `@constCast` of `fixed`.
-        return error.EndOfStream;
-    }
-    r.rebase();
+    // TODO take a parameter for max search length rather than relying on buffer capacity
+    try rebase(r, r.buffer.len);
     while (r.buffer.len - r.end != 0) {
         const end_cap = r.buffer[r.end..];
         var writer: Writer = .fixed(end_cap);
@@ -1041,20 +1058,7 @@ pub fn fill(r: *Reader, n: usize) Error!void {
 /// Missing this optimization can result in wall-clock time for the most affected benchmarks
 /// increasing by a factor of 5 or more.
 fn fillUnbuffered(r: *Reader, n: usize) Error!void {
-    if (r.seek + n <= r.buffer.len) while (true) {
-        const end_cap = r.buffer[r.end..];
-        var writer: Writer = .fixed(end_cap);
-        r.end += r.vtable.stream(r, &writer, .limited(end_cap.len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable,
-            else => |e| return e,
-        };
-        if (r.seek + n <= r.end) return;
-    };
-    if (r.vtable.stream == &endingStream) {
-        // Protect the `@constCast` of `fixed`.
-        return error.EndOfStream;
-    }
-    rebaseCapacity(r, n);
+    try rebase(r, n);
     var writer: Writer = .{
         .buffer = r.buffer,
         .vtable = &.{ .drain = Writer.fixedDrain },
@@ -1074,7 +1078,7 @@ fn fillUnbuffered(r: *Reader, n: usize) Error!void {
 ///
 /// Asserts buffer capacity is at least 1.
 pub fn fillMore(r: *Reader) Error!void {
-    rebaseCapacity(r, 1);
+    try rebase(r, 1);
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,
@@ -1251,7 +1255,7 @@ pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
 
 pub fn expandTotalCapacity(r: *Reader, allocator: Allocator, n: usize) Allocator.Error!void {
     if (n <= r.buffer.len) return;
-    if (r.seek > 0) rebase(r);
+    if (r.seek > 0) rebase(r, r.buffer.len);
     var list: ArrayList(u8) = .{
         .items = r.buffer[0..r.end],
         .capacity = r.buffer.len,
@@ -1297,35 +1301,18 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
     }
 }
 
-/// Left-aligns data such that `r.seek` becomes zero.
-///
-/// If `r.seek` is not already zero then `buffer` is mutated, making it illegal
-/// to call this function with a const-casted `buffer`, such as in the case of
-/// `fixed`. This issue can be avoided:
-/// * in implementations, by attempting a read before a rebase, in which
-///   case the read will return `error.EndOfStream`, preventing the rebase.
-/// * in usage, by copying into a mutable buffer before initializing `fixed`.
-pub fn rebase(r: *Reader) void {
-    if (r.seek == 0) return;
+/// Ensures `capacity` more data can be buffered without rebasing.
+pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
+    if (r.end + capacity <= r.buffer.len) return;
+    return r.vtable.rebase(r, capacity);
+}
+
+pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
+    if (r.end <= r.buffer.len - capacity) return;
     const data = r.buffer[r.seek..r.end];
     @memmove(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
-}
-
-/// Ensures `capacity` more data can be buffered without rebasing, by rebasing
-/// if necessary.
-///
-/// Asserts `capacity` is within the buffer capacity.
-///
-/// If the rebase occurs then `buffer` is mutated, making it illegal to call
-/// this function with a const-casted `buffer`, such as in the case of `fixed`.
-/// This issue can be avoided:
-/// * in implementations, by attempting a read before a rebase, in which
-///   case the read will return `error.EndOfStream`, preventing the rebase.
-/// * in usage, by copying into a mutable buffer before initializing `fixed`.
-pub fn rebaseCapacity(r: *Reader, capacity: usize) void {
-    if (r.end > r.buffer.len - capacity) rebase(r);
 }
 
 /// Advances the stream and decreases the size of the storage buffer by `n`,
@@ -1648,19 +1635,6 @@ test readVec {
     try testing.expectEqualStrings(std.ascii.letters[26..], bufs[1]);
 }
 
-test readVecLimit {
-    var r: Reader = .fixed(std.ascii.letters);
-    var flat_buffer: [52]u8 = undefined;
-    var bufs: [2][]u8 = .{
-        flat_buffer[0..26],
-        flat_buffer[26..],
-    };
-    // Short reads are possible with this function but not with fixed.
-    try testing.expectEqual(50, try r.readVecLimit(&bufs, .limited(50)));
-    try testing.expectEqualStrings(std.ascii.letters[0..26], bufs[0]);
-    try testing.expectEqualStrings(std.ascii.letters[26..50], bufs[1][0..24]);
-}
-
 test "expected error.EndOfStream" {
     // Unit test inspired by https://github.com/ziglang/zig/issues/17733
     var buffer: [3]u8 = undefined;
@@ -1670,6 +1644,17 @@ test "expected error.EndOfStream" {
     try std.testing.expectError(error.EndOfStream, r.take(3));
 }
 
+test "readVec at end" {
+    var reader_buffer: [8]u8 = "abcd1234".*;
+    var reader: testing.Reader = .init(&reader_buffer, &.{});
+    reader.interface.end = reader_buffer.len;
+
+    var out: [16]u8 = undefined;
+    var vecs: [1][]u8 = .{&out};
+    try testing.expectEqual(8, try reader.interface.readVec(&vecs));
+    try testing.expectEqualStrings("abcd1234", vecs[0][0..8]);
+}
+
 fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
     _ = r;
     _ = w;
@@ -1677,9 +1662,21 @@ fn endingStream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
     return error.EndOfStream;
 }
 
+fn endingReadVec(r: *Reader, data: [][]u8) Error!usize {
+    _ = r;
+    _ = data;
+    return error.EndOfStream;
+}
+
 fn endingDiscard(r: *Reader, limit: Limit) Error!usize {
     _ = r;
     _ = limit;
+    return error.EndOfStream;
+}
+
+fn endingRebase(r: *Reader, capacity: usize) RebaseError!void {
+    _ = r;
+    _ = capacity;
     return error.EndOfStream;
 }
 
@@ -1694,6 +1691,15 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
     _ = r;
     _ = limit;
     return error.ReadFailed;
+}
+
+pub fn adaptToOldInterface(r: *Reader) std.Io.AnyReader {
+    return .{ .context = r, .readFn = derpRead };
+}
+
+fn derpRead(context: *const anyopaque, buffer: []u8) anyerror!usize {
+    const r: *Reader = @constCast(@alignCast(@ptrCast(context)));
+    return r.readSliceShort(buffer);
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
@@ -1759,15 +1765,16 @@ pub fn Hashed(comptime Hasher: type) type {
     return struct {
         in: *Reader,
         hasher: Hasher,
-        interface: Reader,
+        reader: Reader,
 
         pub fn init(in: *Reader, hasher: Hasher, buffer: []u8) @This() {
             return .{
                 .in = in,
                 .hasher = hasher,
-                .interface = .{
+                .reader = .{
                     .vtable = &.{
-                        .read = @This().read,
+                        .stream = @This().stream,
+                        .readVec = @This().readVec,
                         .discard = @This().discard,
                     },
                     .buffer = buffer,
@@ -1777,33 +1784,97 @@ pub fn Hashed(comptime Hasher: type) type {
             };
         }
 
-        fn read(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            const data = w.writableVector(limit);
+        fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
+            const data = limit.slice(try w.writableSliceGreedy(1));
+            var vec: [1][]u8 = .{data};
+            const n = try this.in.readVec(&vec);
+            this.hasher.update(data[0..n]);
+            w.advance(n);
+            return n;
+        }
+
+        fn readVec(r: *Reader, data: [][]u8) Error!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
             const n = try this.in.readVec(data);
-            const result = w.advanceVector(n);
             var remaining: usize = n;
             for (data) |slice| {
                 if (remaining < slice.len) {
                     this.hasher.update(slice[0..remaining]);
-                    return result;
+                    return n;
                 } else {
                     remaining -= slice.len;
                     this.hasher.update(slice);
                 }
             }
             assert(remaining == 0);
-            return result;
+            return n;
         }
 
         fn discard(r: *Reader, limit: Limit) Error!usize {
-            const this: *@This() = @alignCast(@fieldParentPtr("interface", r));
-            var w = this.hasher.writer(&.{});
-            const n = this.in.stream(&w, limit) catch |err| switch (err) {
-                error.WriteFailed => unreachable,
-                else => |e| return e,
-            };
-            return n;
+            const this: *@This() = @alignCast(@fieldParentPtr("reader", r));
+            const peeked = limit.slice(try this.in.peekGreedy(1));
+            this.hasher.update(peeked);
+            this.in.toss(peeked.len);
+            return peeked.len;
         }
     };
+}
+
+pub fn writableVectorPosix(r: *Reader, buffer: []std.posix.iovec, data: []const []u8) Error!struct { usize, usize } {
+    var i: usize = 0;
+    var n: usize = 0;
+    for (data) |buf| {
+        if (buffer.len - i == 0) return .{ i, n };
+        if (buf.len != 0) {
+            buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+            n += buf.len;
+        }
+    }
+    assert(r.seek == r.end);
+    const buf = r.buffer;
+    if (buf.len != 0) {
+        buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+        i += 1;
+    }
+    return .{ i, n };
+}
+
+pub fn writableVectorWsa(
+    r: *Reader,
+    buffer: []std.os.windows.ws2_32.WSABUF,
+    data: []const []u8,
+) Error!struct { usize, usize } {
+    var i: usize = 0;
+    var n: usize = 0;
+    for (data) |buf| {
+        if (buffer.len - i == 0) return .{ i, n };
+        if (buf.len == 0) continue;
+        if (std.math.cast(u32, buf.len)) |len| {
+            buffer[i] = .{ .buf = buf.ptr, .len = len };
+            i += 1;
+            n += len;
+            continue;
+        }
+        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
+        i += 1;
+        n += std.math.maxInt(u32);
+        return .{ i, n };
+    }
+    assert(r.seek == r.end);
+    const buf = r.buffer;
+    if (buf.len != 0) {
+        if (std.math.cast(u32, buf.len)) |len| {
+            buffer[i] = .{ .buf = buf.ptr, .len = len };
+        } else {
+            buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
+        }
+        i += 1;
+    }
+    return .{ i, n };
+}
+
+test {
+    _ = Limited;
 }

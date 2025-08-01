@@ -1905,8 +1905,12 @@ fn analyzeBodyInner(
                 const err_union = try sema.resolveInst(extra.data.operand);
                 const err_union_ty = sema.typeOf(err_union);
                 if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-                    return sema.fail(block, operand_src, "expected error union type, found '{f}'", .{
-                        err_union_ty.fmt(pt),
+                    return sema.failWithOwnedErrorMsg(block, msg: {
+                        const msg = try sema.errMsg(operand_src, "expected error union type, found '{f}'", .{err_union_ty.fmt(pt)});
+                        errdefer msg.destroy(sema.gpa);
+                        try sema.addDeclaredHereNote(msg, err_union_ty);
+                        try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+                        break :msg msg;
                     });
                 }
                 const is_non_err = try sema.analyzeIsNonErrComptimeOnly(block, operand_src, err_union);
@@ -3922,7 +3926,7 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
         const ptr_to_map = switch (store_inst.tag) {
             .store, .store_safe => store_inst.data.bin_op.lhs.toIndex().?, // Map the pointer being stored to.
-            .set_union_tag => continue, // We can completely ignore these: we'll do it implicitly when we get the field pointer.
+            .set_union_tag => continue, // Ignore for now; handled after we map pointers
             .optional_payload_ptr_set, .errunion_payload_ptr_set => store_inst_idx, // Map the generated pointer itself.
             else => unreachable,
         };
@@ -4055,19 +4059,33 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
     }
 
     // We have a correlation between AIR pointers and decl pointers. Perform all stores at comptime.
-    // Any implicit stores performed by `optional_payload_ptr_set`, `errunion_payload_ptr_set`, or
-    // `set_union_tag` instructions were already done above.
+    // Any implicit stores performed by `optional_payload_ptr_set` or `errunion_payload_ptr_set`
+    // instructions were already done above.
 
     for (stores) |store_inst_idx| {
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
         switch (store_inst.tag) {
-            .set_union_tag => {}, // Handled implicitly by field pointers above
             .optional_payload_ptr_set, .errunion_payload_ptr_set => {}, // Handled explicitly above
+            .set_union_tag => {
+                // Usually, we can ignore these, because the creation of the field pointer above
+                // already did it for us. However, if the field is OPV, this is relevant, because
+                // there is not going to be a store to the field. So we must initialize the union
+                // tag if the field is OPV.
+                const union_ptr_inst = store_inst.data.bin_op.lhs.toIndex().?;
+                const union_ptr_val: Value = .fromInterned(ptr_mapping.get(union_ptr_inst).?);
+                const tag_val: Value = .fromInterned(store_inst.data.bin_op.rhs.toInterned().?);
+                const union_ty = union_ptr_val.typeOf(zcu).childType(zcu);
+                const field_ty = union_ty.unionFieldType(tag_val, zcu).?;
+                if (try sema.typeHasOnePossibleValue(field_ty)) |payload_val| {
+                    const new_union_val = try pt.unionValue(union_ty, tag_val, payload_val);
+                    try sema.storePtrVal(block, .unneeded, union_ptr_val, new_union_val, union_ty);
+                }
+            },
             .store, .store_safe => {
                 const air_ptr_inst = store_inst.data.bin_op.lhs.toIndex().?;
                 const store_val = (try sema.resolveValue(store_inst.data.bin_op.rhs)).?;
                 const new_ptr = ptr_mapping.get(air_ptr_inst).?;
-                try sema.storePtrVal(block, LazySrcLoc.unneeded, Value.fromInterned(new_ptr), store_val, .fromInterned(zcu.intern_pool.typeOf(store_val.toIntern())));
+                try sema.storePtrVal(block, .unneeded, .fromInterned(new_ptr), store_val, store_val.typeOf(zcu));
             },
             else => unreachable,
         }
@@ -4099,14 +4117,13 @@ fn finishResolveComptimeKnownAllocPtr(
     // We're almost done - we have the resolved comptime value. We just need to
     // eliminate the now-dead runtime instructions.
 
-    // We will rewrite the AIR to eliminate the alloc and all stores to it.
-    // This will cause instructions deriving field pointers etc of the alloc to
-    // become invalid, however, since we are removing all stores to those pointers,
-    // they will be eliminated by Liveness before they reach codegen.
-
-    // The specifics of this instruction aren't really important: we just want
-    // Liveness to elide it.
-    const nop_inst: Air.Inst = .{ .tag = .bitcast, .data = .{ .ty_op = .{ .ty = .u8_type, .operand = .zero_u8 } } };
+    // This instruction has type `alloc_ty`, meaning we can rewrite the `alloc` AIR instruction to
+    // this one to drop the side effect. We also need to rewrite the stores; we'll turn them to this
+    // too because it doesn't really matter what they become.
+    const nop_inst: Air.Inst = .{ .tag = .bitcast, .data = .{ .ty_op = .{
+        .ty = .fromIntern(alloc_ty.toIntern()),
+        .operand = .zero_usize,
+    } } };
 
     sema.air_instructions.set(@intFromEnum(alloc_inst), nop_inst);
     for (comptime_info.stores.items(.inst)) |store_inst| {
@@ -4829,13 +4846,13 @@ fn zirValidatePtrStructInit(
             agg_ty,
             init_src,
             instrs,
+            object_ptr,
         ),
         .@"union" => return sema.validateUnionInit(
             block,
             agg_ty,
             init_src,
             instrs,
-            object_ptr,
         ),
         else => unreachable,
     }
@@ -4847,164 +4864,28 @@ fn validateUnionInit(
     union_ty: Type,
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
-    union_ptr: Air.Inst.Ref,
 ) CompileError!void {
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const gpa = sema.gpa;
-
-    if (instrs.len != 1) {
-        const msg = msg: {
-            const msg = try sema.errMsg(
-                init_src,
-                "cannot initialize multiple union fields at once; unions can only have one active field",
-                .{},
-            );
-            errdefer msg.destroy(gpa);
-
-            for (instrs[1..]) |inst| {
-                const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-                const inst_src = block.src(.{ .node_offset_initializer = inst_data.src_node });
-                try sema.errNote(inst_src, msg, "additional initializer here", .{});
-            }
-            try sema.addDeclaredHereNote(msg, union_ty);
-            break :msg msg;
-        };
-        return sema.failWithOwnedErrorMsg(block, msg);
-    }
-
-    if (block.isComptime() and
-        (try sema.resolveDefinedValue(block, init_src, union_ptr)) != null)
-    {
-        // In this case, comptime machinery already did everything. No work to do here.
+    if (instrs.len == 1) {
+        // Trvial validation done, and the union tag was already set by machinery in `unionFieldPtr`.
         return;
     }
+    const msg = msg: {
+        const msg = try sema.errMsg(
+            init_src,
+            "cannot initialize multiple union fields at once; unions can only have one active field",
+            .{},
+        );
+        errdefer msg.destroy(sema.gpa);
 
-    const field_ptr = instrs[0];
-    const field_ptr_data = sema.code.instructions.items(.data)[@intFromEnum(field_ptr)].pl_node;
-    const field_src = block.src(.{ .node_offset_initializer = field_ptr_data.src_node });
-    const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
-    const field_name = try zcu.intern_pool.getOrPutString(
-        gpa,
-        pt.tid,
-        sema.code.nullTerminatedString(field_ptr_extra.field_name_start),
-        .no_embedded_nulls,
-    );
-    const field_index = try sema.unionFieldIndex(block, union_ty, field_name, field_src);
-    const air_tags = sema.air_instructions.items(.tag);
-    const air_datas = sema.air_instructions.items(.data);
-    const field_ptr_ref = sema.inst_map.get(field_ptr).?;
-
-    // Our task here is to determine if the union is comptime-known. In such case,
-    // we erase the runtime AIR instructions for initializing the union, and replace
-    // the mapping with the comptime value. Either way, we will need to populate the tag.
-
-    // We expect to see something like this in the current block AIR:
-    //   %a = alloc(*const U)
-    //   %b = bitcast(*U, %a)
-    //   %c = field_ptr(..., %b)
-    //   %e!= store(%c!, %d!)
-    // If %d is a comptime operand, the union is comptime.
-    // If the union is comptime, we want `first_block_index`
-    // to point at %c so that the bitcast becomes the last instruction in the block.
-    //
-    // Store instruction may be missing; if field type has only one possible value, this case is handled below.
-    //
-    // In the case of a comptime-known pointer to a union, the
-    // the field_ptr instruction is missing, so we have to pattern-match
-    // based only on the store instructions.
-    // `first_block_index` needs to point to the `field_ptr` if it exists;
-    // the `store` otherwise.
-    var first_block_index = block.instructions.items.len;
-    var block_index = block.instructions.items.len - 1;
-    var init_val: ?Value = null;
-    var init_ref: ?Air.Inst.Ref = null;
-    while (block_index > 0) : (block_index -= 1) {
-        const store_inst = block.instructions.items[block_index];
-        if (store_inst.toRef() == field_ptr_ref) {
-            first_block_index = block_index;
-            break;
+        for (instrs[1..]) |inst| {
+            const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
+            const inst_src = block.src(.{ .node_offset_initializer = inst_data.src_node });
+            try sema.errNote(inst_src, msg, "additional initializer here", .{});
         }
-        switch (air_tags[@intFromEnum(store_inst)]) {
-            .store, .store_safe => {},
-            else => continue,
-        }
-        const bin_op = air_datas[@intFromEnum(store_inst)].bin_op;
-        var ptr_ref = bin_op.lhs;
-        if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-            ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-        };
-        if (ptr_ref != field_ptr_ref) continue;
-        first_block_index = @min(if (field_ptr_ref.toIndex()) |field_ptr_inst|
-            std.mem.lastIndexOfScalar(
-                Air.Inst.Index,
-                block.instructions.items[0..block_index],
-                field_ptr_inst,
-            ).?
-        else
-            block_index, first_block_index);
-        init_ref = bin_op.rhs;
-        init_val = try sema.resolveValue(bin_op.rhs);
-        break;
-    }
-
-    const tag_ty = union_ty.unionTagTypeHypothetical(zcu);
-    const tag_val = try pt.enumValueFieldIndex(tag_ty, field_index);
-    const field_type = union_ty.unionFieldType(tag_val, zcu).?;
-
-    if (try sema.typeHasOnePossibleValue(field_type)) |field_only_value| {
-        init_val = field_only_value;
-    }
-
-    if (init_val) |val| {
-        // Our task is to delete all the `field_ptr` and `store` instructions, and insert
-        // instead a single `store` to the result ptr with a comptime union value.
-        block_index = first_block_index;
-        for (block.instructions.items[first_block_index..]) |cur_inst| {
-            switch (air_tags[@intFromEnum(cur_inst)]) {
-                .struct_field_ptr,
-                .struct_field_ptr_index_0,
-                .struct_field_ptr_index_1,
-                .struct_field_ptr_index_2,
-                .struct_field_ptr_index_3,
-                => if (cur_inst.toRef() == field_ptr_ref) continue,
-                .bitcast => if (air_datas[@intFromEnum(cur_inst)].ty_op.operand == field_ptr_ref) continue,
-                .store, .store_safe => {
-                    var ptr_ref = air_datas[@intFromEnum(cur_inst)].bin_op.lhs;
-                    if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-                        ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-                    };
-                    if (ptr_ref == field_ptr_ref) continue;
-                },
-                else => {},
-            }
-            block.instructions.items[block_index] = cur_inst;
-            block_index += 1;
-        }
-        block.instructions.shrinkRetainingCapacity(block_index);
-
-        const union_val = try pt.internUnion(.{
-            .ty = union_ty.toIntern(),
-            .tag = tag_val.toIntern(),
-            .val = val.toIntern(),
-        });
-        const union_init = Air.internedToRef(union_val);
-        try sema.storePtr2(block, init_src, union_ptr, init_src, union_init, init_src, .store);
-        return;
-    } else if (try union_ty.comptimeOnlySema(pt)) {
-        const src = block.nodeOffset(field_ptr_data.src_node);
-        return sema.failWithNeededComptime(block, src, .{ .comptime_only = .{
-            .ty = union_ty,
-            .msg = .union_init,
-        } });
-    }
-    if (init_ref) |v| try sema.validateRuntimeValue(block, block.nodeOffset(field_ptr_data.src_node), v);
-
-    if ((try sema.typeHasOnePossibleValue(tag_ty)) == null) {
-        const new_tag = Air.internedToRef(tag_val.toIntern());
-        const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, new_tag);
-        try sema.checkComptimeKnownStore(block, set_tag_inst, LazySrcLoc.unneeded); // `unneeded` since this isn't a "proper" store
-    }
+        try sema.addDeclaredHereNote(msg, union_ty);
+        break :msg msg;
+    };
+    return sema.failWithOwnedErrorMsg(block, msg);
 }
 
 fn validateStructInit(
@@ -5013,187 +4894,62 @@ fn validateStructInit(
     struct_ty: Type,
     init_src: LazySrcLoc,
     instrs: []const Zir.Inst.Index,
+    struct_ptr: Air.Inst.Ref,
 ) CompileError!void {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const gpa = sema.gpa;
     const ip = &zcu.intern_pool;
 
-    const field_indices = try gpa.alloc(u32, instrs.len);
-    defer gpa.free(field_indices);
-
-    // Maps field index to field_ptr index of where it was already initialized.
-    const found_fields = try gpa.alloc(Zir.Inst.OptionalIndex, struct_ty.structFieldCount(zcu));
+    // Tracks whether each field was explicitly initialized.
+    const found_fields = try gpa.alloc(bool, struct_ty.structFieldCount(zcu));
     defer gpa.free(found_fields);
-    @memset(found_fields, .none);
+    @memset(found_fields, false);
 
-    var struct_ptr_zir_ref: Zir.Inst.Ref = undefined;
-
-    for (instrs, field_indices) |field_ptr, *field_index| {
+    for (instrs) |field_ptr| {
         const field_ptr_data = sema.code.instructions.items(.data)[@intFromEnum(field_ptr)].pl_node;
         const field_src = block.src(.{ .node_offset_initializer = field_ptr_data.src_node });
         const field_ptr_extra = sema.code.extraData(Zir.Inst.Field, field_ptr_data.payload_index).data;
-        struct_ptr_zir_ref = field_ptr_extra.lhs;
         const field_name = try ip.getOrPutString(
             gpa,
             pt.tid,
             sema.code.nullTerminatedString(field_ptr_extra.field_name_start),
             .no_embedded_nulls,
         );
-        field_index.* = if (struct_ty.isTuple(zcu))
+        const field_index = if (struct_ty.isTuple(zcu))
             try sema.tupleFieldIndex(block, struct_ty, field_name, field_src)
         else
             try sema.structFieldIndex(block, struct_ty, field_name, field_src);
-        assert(found_fields[field_index.*] == .none);
-        found_fields[field_index.*] = field_ptr.toOptional();
+        assert(found_fields[field_index] == false);
+        found_fields[field_index] = true;
     }
+
+    // Our job is simply to deal with default field values. Specifically, any field which was not
+    // explicitly initialized must have its default value stored to the field pointer, or, if the
+    // field has no default value, a compile error must be emitted instead.
+
+    // In the past, this code had other responsibilities, which involved some nasty AIR rewrites. However,
+    // that work was actually all redundant:
+    //
+    // * If the struct value is comptime-known, field stores remain a perfectly valid way of initializing
+    //   the struct through RLS; there is no need to turn the field stores into one store. Comptime-known
+    //   consts are handled correctly either way thanks to `maybe_comptime_allocs` and friends.
+    //
+    // * If the struct type is comptime-only, we need to make sure all of the fields were comptime-known.
+    //   But the comptime-only type means that `struct_ptr` must be a comptime-mutable pointer, so the
+    //   field stores were to comptime-mutable pointers, so have already errored if not comptime-known.
+    //
+    // * If the value is runtime-known, then comptime-known fields must be validated as runtime values.
+    //   But this was already handled for every field store by the machinery in `checkComptimeKnownStore`.
 
     var root_msg: ?*Zcu.ErrorMsg = null;
     errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
-    const struct_ptr = try sema.resolveInst(struct_ptr_zir_ref);
-    if (block.isComptime() and
-        (try sema.resolveDefinedValue(block, init_src, struct_ptr)) != null)
-    {
-        try struct_ty.resolveLayout(pt);
-        // In this case the only thing we need to do is evaluate the implicit
-        // store instructions for default field values, and report any missing fields.
-        // Avoid the cost of the extra machinery for detecting a comptime struct init value.
-        for (found_fields, 0..) |field_ptr, i_usize| {
-            const i: u32 = @intCast(i_usize);
-            if (field_ptr != .none) continue;
-
-            try struct_ty.resolveStructFieldInits(pt);
-            const default_val = struct_ty.structFieldDefaultValue(i, zcu);
-            if (default_val.toIntern() == .unreachable_value) {
-                const field_name = struct_ty.structFieldName(i, zcu).unwrap() orelse {
-                    const template = "missing tuple field with index {d}";
-                    if (root_msg) |msg| {
-                        try sema.errNote(init_src, msg, template, .{i});
-                    } else {
-                        root_msg = try sema.errMsg(init_src, template, .{i});
-                    }
-                    continue;
-                };
-                const template = "missing struct field: {f}";
-                const args = .{field_name.fmt(ip)};
-                if (root_msg) |msg| {
-                    try sema.errNote(init_src, msg, template, args);
-                } else {
-                    root_msg = try sema.errMsg(init_src, template, args);
-                }
-                continue;
-            }
-
-            const field_src = init_src; // TODO better source location
-            const default_field_ptr = if (struct_ty.isTuple(zcu))
-                try sema.tupleFieldPtr(block, init_src, struct_ptr, field_src, @intCast(i), true)
-            else
-                try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(i), struct_ty);
-            const init = Air.internedToRef(default_val.toIntern());
-            try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
-        }
-
-        if (root_msg) |msg| {
-            try sema.addDeclaredHereNote(msg, struct_ty);
-            root_msg = null;
-            return sema.failWithOwnedErrorMsg(block, msg);
-        }
-
-        return;
-    }
-
-    var fields_allow_runtime = true;
-
-    var struct_is_comptime = true;
-    var first_block_index = block.instructions.items.len;
-
-    const require_comptime = try struct_ty.comptimeOnlySema(pt);
-    const air_tags = sema.air_instructions.items(.tag);
-    const air_datas = sema.air_instructions.items(.data);
-
-    try struct_ty.resolveStructFieldInits(pt);
-
-    // We collect the comptime field values in case the struct initialization
-    // ends up being comptime-known.
-    const field_values = try sema.arena.alloc(InternPool.Index, struct_ty.structFieldCount(zcu));
-
-    field: for (found_fields, 0..) |opt_field_ptr, i_usize| {
+    for (found_fields, 0..) |explicit, i_usize| {
+        if (explicit) continue;
         const i: u32 = @intCast(i_usize);
-        if (opt_field_ptr.unwrap()) |field_ptr| {
-            // Determine whether the value stored to this pointer is comptime-known.
-            const field_ty = struct_ty.fieldType(i, zcu);
-            if (try sema.typeHasOnePossibleValue(field_ty)) |opv| {
-                field_values[i] = opv.toIntern();
-                continue;
-            }
 
-            const field_ptr_ref = sema.inst_map.get(field_ptr).?;
-
-            //std.debug.print("validateStructInit (field_ptr_ref=%{d}):\n", .{field_ptr_ref});
-            //for (block.instructions.items) |item| {
-            //    std.debug.print("  %{d} = {s}\n", .{item, @tagName(air_tags[@intFromEnum(item)])});
-            //}
-
-            // We expect to see something like this in the current block AIR:
-            //   %a = field_ptr(...)
-            //   store(%a, %b)
-            // With an optional bitcast between the store and the field_ptr.
-            // If %b is a comptime operand, this field is comptime.
-            //
-            // However, in the case of a comptime-known pointer to a struct, the
-            // the field_ptr instruction is missing, so we have to pattern-match
-            // based only on the store instructions.
-            // `first_block_index` needs to point to the `field_ptr` if it exists;
-            // the `store` otherwise.
-
-            // Possible performance enhancement: save the `block_index` between iterations
-            // of the for loop.
-            var block_index = block.instructions.items.len;
-            while (block_index > 0) {
-                block_index -= 1;
-                const store_inst = block.instructions.items[block_index];
-                if (store_inst.toRef() == field_ptr_ref) {
-                    struct_is_comptime = false;
-                    continue :field;
-                }
-                switch (air_tags[@intFromEnum(store_inst)]) {
-                    .store, .store_safe => {},
-                    else => continue,
-                }
-                const bin_op = air_datas[@intFromEnum(store_inst)].bin_op;
-                var ptr_ref = bin_op.lhs;
-                if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-                    ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-                };
-                if (ptr_ref != field_ptr_ref) continue;
-                first_block_index = @min(if (field_ptr_ref.toIndex()) |field_ptr_inst|
-                    std.mem.lastIndexOfScalar(
-                        Air.Inst.Index,
-                        block.instructions.items[0..block_index],
-                        field_ptr_inst,
-                    ).?
-                else
-                    block_index, first_block_index);
-                if (!sema.checkRuntimeValue(bin_op.rhs)) fields_allow_runtime = false;
-                if (try sema.resolveValue(bin_op.rhs)) |val| {
-                    field_values[i] = val.toIntern();
-                } else if (require_comptime) {
-                    const field_ptr_data = sema.code.instructions.items(.data)[@intFromEnum(field_ptr)].pl_node;
-                    const src = block.nodeOffset(field_ptr_data.src_node);
-                    return sema.failWithNeededComptime(block, src, .{ .comptime_only = .{
-                        .ty = struct_ty,
-                        .msg = .struct_init,
-                    } });
-                } else {
-                    struct_is_comptime = false;
-                }
-                continue :field;
-            }
-            struct_is_comptime = false;
-            continue :field;
-        }
-
+        try struct_ty.resolveStructFieldInits(pt);
         const default_val = struct_ty.structFieldDefaultValue(i, zcu);
         if (default_val.toIntern() == .unreachable_value) {
             const field_name = struct_ty.structFieldName(i, zcu).unwrap() orelse {
@@ -5214,70 +4970,6 @@ fn validateStructInit(
             }
             continue;
         }
-        field_values[i] = default_val.toIntern();
-    }
-
-    if (!struct_is_comptime and !fields_allow_runtime and root_msg == null) {
-        root_msg = try sema.errMsg(init_src, "runtime value contains reference to comptime var", .{});
-        try sema.errNote(init_src, root_msg.?, "comptime var pointers are not available at runtime", .{});
-    }
-
-    if (root_msg) |msg| {
-        try sema.addDeclaredHereNote(msg, struct_ty);
-        root_msg = null;
-        return sema.failWithOwnedErrorMsg(block, msg);
-    }
-
-    if (struct_is_comptime) {
-        // Our task is to delete all the `field_ptr` and `store` instructions, and insert
-        // instead a single `store` to the struct_ptr with a comptime struct value.
-        var init_index: usize = 0;
-        var field_ptr_ref = Air.Inst.Ref.none;
-        var block_index = first_block_index;
-        for (block.instructions.items[first_block_index..]) |cur_inst| {
-            while (field_ptr_ref == .none and init_index < instrs.len) : (init_index += 1) {
-                const field_ty = struct_ty.fieldType(field_indices[init_index], zcu);
-                if (try field_ty.onePossibleValue(pt)) |_| continue;
-                field_ptr_ref = sema.inst_map.get(instrs[init_index]).?;
-            }
-            switch (air_tags[@intFromEnum(cur_inst)]) {
-                .struct_field_ptr,
-                .struct_field_ptr_index_0,
-                .struct_field_ptr_index_1,
-                .struct_field_ptr_index_2,
-                .struct_field_ptr_index_3,
-                => if (cur_inst.toRef() == field_ptr_ref) continue,
-                .bitcast => if (air_datas[@intFromEnum(cur_inst)].ty_op.operand == field_ptr_ref) continue,
-                .store, .store_safe => {
-                    var ptr_ref = air_datas[@intFromEnum(cur_inst)].bin_op.lhs;
-                    if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-                        ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-                    };
-                    if (ptr_ref == field_ptr_ref) {
-                        field_ptr_ref = .none;
-                        continue;
-                    }
-                },
-                else => {},
-            }
-            block.instructions.items[block_index] = cur_inst;
-            block_index += 1;
-        }
-        block.instructions.shrinkRetainingCapacity(block_index);
-
-        const struct_val = try pt.intern(.{ .aggregate = .{
-            .ty = struct_ty.toIntern(),
-            .storage = .{ .elems = field_values },
-        } });
-        const struct_init = Air.internedToRef(struct_val);
-        try sema.storePtr2(block, init_src, struct_ptr, init_src, struct_init, init_src, .store);
-        return;
-    }
-    try struct_ty.resolveLayout(pt);
-
-    // Our task is to insert `store` instructions for all the default field values.
-    for (found_fields, 0..) |field_ptr, i| {
-        if (field_ptr != .none) continue;
 
         const field_src = init_src; // TODO better source location
         const default_field_ptr = if (struct_ty.isTuple(zcu))
@@ -5285,8 +4977,13 @@ fn validateStructInit(
         else
             try sema.structFieldPtrByIndex(block, init_src, struct_ptr, @intCast(i), struct_ty);
         try sema.checkKnownAllocPtr(block, struct_ptr, default_field_ptr);
-        const init = Air.internedToRef(field_values[i]);
-        try sema.storePtr2(block, init_src, default_field_ptr, init_src, init, field_src, .store);
+        try sema.storePtr2(block, init_src, default_field_ptr, init_src, .fromValue(default_val), field_src, .store);
+    }
+
+    if (root_msg) |msg| {
+        try sema.addDeclaredHereNote(msg, struct_ty);
+        root_msg = null;
+        return sema.failWithOwnedErrorMsg(block, msg);
     }
 }
 
@@ -5307,15 +5004,14 @@ fn zirValidatePtrArrayInit(
     const array_ty = sema.typeOf(array_ptr).childType(zcu).optEuBaseType(zcu);
     const array_len = array_ty.arrayLen(zcu);
 
-    // Collect the comptime element values in case the array literal ends up
-    // being comptime-known.
-    const element_vals = try sema.arena.alloc(
-        InternPool.Index,
-        try sema.usizeCast(block, init_src, array_len),
-    );
+    // Analagously to `validateStructInit`, our job is to handle default fields; either emitting AIR
+    // to initialize them, or emitting a compile error if an unspecified field has no default. For
+    // tuples, there are literally default field values, although they're guaranteed to be comptime
+    // fields so we don't need to initialize them. For arrays, we may have a sentinel, which is never
+    // specified so we always need to initialize here. For vectors, there's no such thing.
 
-    if (instrs.len != array_len) switch (array_ty.zigTypeTag(zcu)) {
-        .@"struct" => {
+    switch (array_ty.zigTypeTag(zcu)) {
+        .@"struct" => if (instrs.len != array_len) {
             var root_msg: ?*Zcu.ErrorMsg = null;
             errdefer if (root_msg) |msg| msg.destroy(sema.gpa);
 
@@ -5332,8 +5028,6 @@ fn zirValidatePtrArrayInit(
                     }
                     continue;
                 }
-
-                element_vals[i] = default_val;
             }
 
             if (root_msg) |msg| {
@@ -5341,162 +5035,25 @@ fn zirValidatePtrArrayInit(
                 return sema.failWithOwnedErrorMsg(block, msg);
             }
         },
-        .array => {
+
+        .array => if (instrs.len != array_len) {
             return sema.fail(block, init_src, "expected {d} array elements; found {d}", .{
                 array_len, instrs.len,
             });
+        } else if (array_ty.sentinel(zcu)) |sentinel| {
+            const array_len_ref = try pt.intRef(.usize, array_len);
+            const sentinel_ptr = try sema.elemPtrArray(block, init_src, init_src, array_ptr, init_src, array_len_ref, true, true);
+            try sema.checkKnownAllocPtr(block, array_ptr, sentinel_ptr);
+            try sema.storePtr2(block, init_src, sentinel_ptr, init_src, .fromValue(sentinel), init_src, .store);
         },
-        .vector => {
+
+        .vector => if (instrs.len != array_len) {
             return sema.fail(block, init_src, "expected {d} vector elements; found {d}", .{
                 array_len, instrs.len,
             });
         },
+
         else => unreachable,
-    };
-
-    if (block.isComptime() and
-        (try sema.resolveDefinedValue(block, init_src, array_ptr)) != null)
-    {
-        // In this case the comptime machinery will have evaluated the store instructions
-        // at comptime so we have almost nothing to do here. However, in case of a
-        // sentinel-terminated array, the sentinel will not have been populated by
-        // any ZIR instructions at comptime; we need to do that here.
-        if (array_ty.sentinel(zcu)) |sentinel_val| {
-            const array_len_ref = try pt.intRef(.usize, array_len);
-            const sentinel_ptr = try sema.elemPtrArray(block, init_src, init_src, array_ptr, init_src, array_len_ref, true, true);
-            const sentinel = Air.internedToRef(sentinel_val.toIntern());
-            try sema.storePtr2(block, init_src, sentinel_ptr, init_src, sentinel, init_src, .store);
-        }
-        return;
-    }
-
-    // If the array has one possible value, the value is always comptime-known.
-    if (try sema.typeHasOnePossibleValue(array_ty)) |array_opv| {
-        const array_init = Air.internedToRef(array_opv.toIntern());
-        try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
-        return;
-    }
-
-    var array_is_comptime = true;
-    var first_block_index = block.instructions.items.len;
-
-    const air_tags = sema.air_instructions.items(.tag);
-    const air_datas = sema.air_instructions.items(.data);
-
-    outer: for (instrs, 0..) |elem_ptr, i| {
-        // Determine whether the value stored to this pointer is comptime-known.
-
-        if (array_ty.isTuple(zcu)) {
-            if (array_ty.structFieldIsComptime(i, zcu))
-                try array_ty.resolveStructFieldInits(pt);
-            if (try array_ty.structFieldValueComptime(pt, i)) |opv| {
-                element_vals[i] = opv.toIntern();
-                continue;
-            }
-        }
-
-        const elem_ptr_ref = sema.inst_map.get(elem_ptr).?;
-
-        // We expect to see something like this in the current block AIR:
-        //   %a = elem_ptr(...)
-        //   store(%a, %b)
-        // With an optional bitcast between the store and the elem_ptr.
-        // If %b is a comptime operand, this element is comptime.
-        //
-        // However, in the case of a comptime-known pointer to an array, the
-        // the elem_ptr instruction is missing, so we have to pattern-match
-        // based only on the store instructions.
-        // `first_block_index` needs to point to the `elem_ptr` if it exists;
-        // the `store` otherwise.
-        //
-        // This is nearly identical to similar logic in `validateStructInit`.
-
-        // Possible performance enhancement: save the `block_index` between iterations
-        // of the for loop.
-        var block_index = block.instructions.items.len;
-        while (block_index > 0) {
-            block_index -= 1;
-            const store_inst = block.instructions.items[block_index];
-            if (store_inst.toRef() == elem_ptr_ref) {
-                array_is_comptime = false;
-                continue :outer;
-            }
-            switch (air_tags[@intFromEnum(store_inst)]) {
-                .store, .store_safe => {},
-                else => continue,
-            }
-            const bin_op = air_datas[@intFromEnum(store_inst)].bin_op;
-            var ptr_ref = bin_op.lhs;
-            if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-                ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-            };
-            if (ptr_ref != elem_ptr_ref) continue;
-            first_block_index = @min(if (elem_ptr_ref.toIndex()) |elem_ptr_inst|
-                std.mem.lastIndexOfScalar(
-                    Air.Inst.Index,
-                    block.instructions.items[0..block_index],
-                    elem_ptr_inst,
-                ).?
-            else
-                block_index, first_block_index);
-            if (try sema.resolveValue(bin_op.rhs)) |val| {
-                element_vals[i] = val.toIntern();
-            } else {
-                array_is_comptime = false;
-            }
-            continue :outer;
-        }
-        array_is_comptime = false;
-        continue :outer;
-    }
-
-    if (array_is_comptime) {
-        if (try sema.resolveDefinedValue(block, init_src, array_ptr)) |ptr_val| {
-            switch (zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
-                .ptr => |ptr| switch (ptr.base_addr) {
-                    .comptime_field => return, // This store was validated by the individual elem ptrs.
-                    else => {},
-                },
-                else => {},
-            }
-        }
-
-        // Our task is to delete all the `elem_ptr` and `store` instructions, and insert
-        // instead a single `store` to the array_ptr with a comptime struct value.
-        var elem_index: usize = 0;
-        var elem_ptr_ref = Air.Inst.Ref.none;
-        var block_index = first_block_index;
-        for (block.instructions.items[first_block_index..]) |cur_inst| {
-            while (elem_ptr_ref == .none and elem_index < instrs.len) : (elem_index += 1) {
-                if (array_ty.isTuple(zcu) and array_ty.structFieldIsComptime(elem_index, zcu)) continue;
-                elem_ptr_ref = sema.inst_map.get(instrs[elem_index]).?;
-            }
-            switch (air_tags[@intFromEnum(cur_inst)]) {
-                .ptr_elem_ptr => if (cur_inst.toRef() == elem_ptr_ref) continue,
-                .bitcast => if (air_datas[@intFromEnum(cur_inst)].ty_op.operand == elem_ptr_ref) continue,
-                .store, .store_safe => {
-                    var ptr_ref = air_datas[@intFromEnum(cur_inst)].bin_op.lhs;
-                    if (ptr_ref.toIndex()) |ptr_inst| if (air_tags[@intFromEnum(ptr_inst)] == .bitcast) {
-                        ptr_ref = air_datas[@intFromEnum(ptr_inst)].ty_op.operand;
-                    };
-                    if (ptr_ref == elem_ptr_ref) {
-                        elem_ptr_ref = .none;
-                        continue;
-                    }
-                },
-                else => {},
-            }
-            block.instructions.items[block_index] = cur_inst;
-            block_index += 1;
-        }
-        block.instructions.shrinkRetainingCapacity(block_index);
-
-        const array_val = try pt.intern(.{ .aggregate = .{
-            .ty = array_ty.toIntern(),
-            .storage = .{ .elems = element_vals },
-        } });
-        const array_init = Air.internedToRef(array_val);
-        try sema.storePtr2(block, init_src, array_ptr, init_src, array_init, init_src, .store);
     }
 }
 
@@ -5774,8 +5331,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
     const tracy = trace(@src());
     defer tracy.end();
 
-    const pt = sema.pt;
-    const zcu = pt.zcu;
     const zir_tags = sema.code.instructions.items(.tag);
     const zir_datas = sema.code.instructions.items(.data);
     const inst_data = zir_datas[@intFromEnum(inst)].pl_node;
@@ -5788,16 +5343,6 @@ fn zirStoreNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!v
         zir_tags[@intFromEnum(ptr_index)] == .ret_ptr
     else
         false;
-
-    // Check for the possibility of this pattern:
-    //   %a = ret_ptr
-    //   %b = store(%a, %c)
-    // Where %c is an error union or error set. In such case we need to add
-    // to the current function's inferred error set, if any.
-    if (is_ret and sema.fn_ret_ty_ies != null) switch (sema.typeOf(operand).zigTypeTag(zcu)) {
-        .error_union, .error_set => try sema.addToInferredErrorSet(operand),
-        else => {},
-    };
 
     const ptr_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
     const operand_src = block.src(.{ .node_offset_store_operand = inst_data.src_node });
@@ -14136,7 +13681,7 @@ fn zirShl(
     try sema.requireRuntimeBlock(block, src, runtime_src);
     if (block.wantSafety()) {
         const bit_count = scalar_ty.intInfo(zcu).bits;
-        if (!std.math.isPowerOfTwo(bit_count)) {
+        if (air_tag != .shl_sat and !std.math.isPowerOfTwo(bit_count)) {
             const bit_count_val = try pt.intValue(scalar_rhs_ty, bit_count);
             const ok = if (rhs_ty.zigTypeTag(zcu) == .vector) ok: {
                 const bit_count_inst = Air.internedToRef((try sema.splat(rhs_ty, bit_count_val)).toIntern());
@@ -18634,8 +18179,12 @@ fn zirTry(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileError!
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-        return sema.fail(parent_block, operand_src, "expected error union type, found '{f}'", .{
-            err_union_ty.fmt(pt),
+        return sema.failWithOwnedErrorMsg(parent_block, msg: {
+            const msg = try sema.errMsg(operand_src, "expected error union type, found '{f}'", .{err_union_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.addDeclaredHereNote(msg, err_union_ty);
+            try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+            break :msg msg;
         });
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
@@ -18694,8 +18243,12 @@ fn zirTryPtr(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileErr
     const pt = sema.pt;
     const zcu = pt.zcu;
     if (err_union_ty.zigTypeTag(zcu) != .error_union) {
-        return sema.fail(parent_block, operand_src, "expected error union type, found '{f}'", .{
-            err_union_ty.fmt(pt),
+        return sema.failWithOwnedErrorMsg(parent_block, msg: {
+            const msg = try sema.errMsg(operand_src, "expected error union type, found '{f}'", .{err_union_ty.fmt(pt)});
+            errdefer msg.destroy(sema.gpa);
+            try sema.addDeclaredHereNote(msg, err_union_ty);
+            try sema.errNote(operand_src, msg, "consider omitting 'try'", .{});
+            break :msg msg;
         });
     }
     const is_non_err = try sema.analyzeIsNonErrComptimeOnly(parent_block, operand_src, err_union);
@@ -20019,18 +19572,13 @@ fn structInitAnon(
     try sema.declareDependency(.{ .interned = struct_ty });
     try sema.addTypeReferenceEntry(src, struct_ty);
 
-    const runtime_index = opt_runtime_index orelse {
+    _ = opt_runtime_index orelse {
         const struct_val = try pt.intern(.{ .aggregate = .{
             .ty = struct_ty,
             .storage = .{ .elems = values },
         } });
         return sema.addConstantMaybeRef(struct_val, is_ref);
     };
-
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
-        .init_node_offset = src.offset.node_offset.x,
-        .elem_index = @intCast(runtime_index),
-    } }));
 
     if (is_ref) {
         const target = zcu.getTarget();
@@ -20160,7 +19708,7 @@ fn zirArrayInit(
         if (!comptime_known) break @intCast(i);
     } else null;
 
-    const runtime_index = opt_runtime_index orelse {
+    _ = opt_runtime_index orelse {
         const elem_vals = try sema.arena.alloc(InternPool.Index, resolved_args.len);
         for (elem_vals, resolved_args) |*val, arg| {
             // We checked that all args are comptime above.
@@ -20174,11 +19722,6 @@ fn zirArrayInit(
         const result_val = (try sema.resolveValue(result_ref)).?;
         return sema.addConstantMaybeRef(result_val.toIntern(), is_ref);
     };
-
-    try sema.requireRuntimeBlock(block, LazySrcLoc.unneeded, block.src(.{ .init_elem = .{
-        .init_node_offset = src.offset.node_offset.x,
-        .elem_index = runtime_index,
-    } }));
 
     if (is_ref) {
         const target = zcu.getTarget();
@@ -21088,6 +20631,16 @@ fn zirReify(
                 return sema.fail(block, src, "reified unions must have no decls", .{});
             }
             const layout = try sema.interpretBuiltinType(block, operand_src, layout_val, std.builtin.Type.ContainerLayout);
+
+            const has_tag = tag_type_val.optionalValue(zcu) != null;
+
+            if (has_tag) {
+                switch (layout) {
+                    .@"extern" => return sema.fail(block, src, "extern union does not support enum tag type", .{}),
+                    .@"packed" => return sema.fail(block, src, "packed union does not support enum tag type", .{}),
+                    .auto => {},
+                }
+            }
 
             const fields_arr = try sema.derefSliceAsArray(block, operand_src, fields_val, .{ .simple = .union_fields });
 
@@ -22483,11 +22036,18 @@ fn ptrCastFull(
             .slice => {},
             .many, .c, .one => break :len null,
         }
-        // `null` means the operand is a runtime-known slice (so the length is runtime-known).
-        const opt_src_len: ?u64 = switch (src_info.flags.size) {
-            .one => 1,
-            .slice => src_len: {
-                const operand_val = try sema.resolveValue(operand) orelse break :src_len null;
+        // A `null` length means the operand is a runtime-known slice (so the length is runtime-known).
+        // `src_elem_type` is different from `src_info.child` if the latter is an array, to ensure we ignore sentinels.
+        const src_elem_ty: Type, const opt_src_len: ?u64 = switch (src_info.flags.size) {
+            .one => src: {
+                const true_child: Type = .fromInterned(src_info.child);
+                break :src switch (true_child.zigTypeTag(zcu)) {
+                    .array => .{ true_child.childType(zcu), true_child.arrayLen(zcu) },
+                    else => .{ true_child, 1 },
+                };
+            },
+            .slice => src: {
+                const operand_val = try sema.resolveValue(operand) orelse break :src .{ .fromInterned(src_info.child), null };
                 if (operand_val.isUndef(zcu)) break :len .undef;
                 const slice_val = switch (operand_ty.zigTypeTag(zcu)) {
                     .optional => operand_val.optionalValue(zcu) orelse break :len .undef,
@@ -22496,14 +22056,13 @@ fn ptrCastFull(
                 };
                 const slice_len_resolved = try sema.resolveLazyValue(.fromInterned(zcu.intern_pool.sliceLen(slice_val.toIntern())));
                 if (slice_len_resolved.isUndef(zcu)) break :len .undef;
-                break :src_len slice_len_resolved.toUnsignedInt(zcu);
+                break :src .{ .fromInterned(src_info.child), slice_len_resolved.toUnsignedInt(zcu) };
             },
             .many, .c => {
                 return sema.fail(block, src, "cannot infer length of slice from {s}", .{pointerSizeString(src_info.flags.size)});
             },
         };
         const dest_elem_ty: Type = .fromInterned(dest_info.child);
-        const src_elem_ty: Type = .fromInterned(src_info.child);
         if (dest_elem_ty.toIntern() == src_elem_ty.toIntern()) {
             break :len if (opt_src_len) |l| .{ .constant = l } else .equal_runtime_src_slice;
         }
@@ -22519,7 +22078,7 @@ fn ptrCastFull(
                 const bytes = src_len * src_elem_size;
                 const dest_len = std.math.divExact(u64, bytes, dest_elem_size) catch switch (src_info.flags.size) {
                     .slice => return sema.fail(block, src, "slice length '{d}' does not divide exactly into destination elements", .{src_len}),
-                    .one => return sema.fail(block, src, "type '{f}' does not divide exactly into destination elements", .{src_elem_ty.fmt(pt)}),
+                    .one => return sema.fail(block, src, "type '{f}' does not divide exactly into destination elements", .{Type.fromInterned(src_info.child).fmt(pt)}),
                     else => unreachable,
                 };
                 break :len .{ .constant = dest_len };
@@ -25052,6 +24611,7 @@ fn analyzeMinMax(
         } else {
             for (operands[1..], operand_srcs[1..]) |operand, operand_src| {
                 const operand_ty = sema.typeOf(operand);
+                try sema.checkNumericType(block, operand_src, operand_ty);
                 if (operand_ty.zigTypeTag(zcu) == .vector) {
                     return sema.failWithOwnedErrorMsg(block, msg: {
                         const msg = try sema.errMsg(operand_srcs[0], "expected vector, found '{f}'", .{first_operand_ty.fmt(pt)});
@@ -28009,15 +27569,24 @@ fn unionFieldPtr(
         return Air.internedToRef(field_ptr_val.toIntern());
     }
 
-    if (!initializing and union_obj.flagsUnordered(ip).layout == .auto and block.wantSafety() and
-        union_ty.unionTagTypeSafety(zcu) != null and union_obj.field_types.len > 1)
-    {
-        const wanted_tag_val = try pt.enumValueFieldIndex(.fromInterned(union_obj.enum_tag_ty), enum_field_index);
-        const wanted_tag = Air.internedToRef(wanted_tag_val.toIntern());
-        // TODO would it be better if get_union_tag supported pointers to unions?
-        const union_val = try block.addTyOp(.load, union_ty, union_ptr);
-        const active_tag = try block.addTyOp(.get_union_tag, .fromInterned(union_obj.enum_tag_ty), union_val);
-        try sema.addSafetyCheckInactiveUnionField(block, src, active_tag, wanted_tag);
+    // If the union has a tag, we must either set or or safety check it depending on `initializing`.
+    tag: {
+        if (union_ty.containerLayout(zcu) != .auto) break :tag;
+        const tag_ty: Type = .fromInterned(union_obj.enum_tag_ty);
+        if (try sema.typeHasOnePossibleValue(tag_ty) != null) break :tag;
+        // There is a hypothetical non-trivial tag. We must set it even if not there at runtime, but
+        // only emit a safety check if it's available at runtime (i.e. it's safety-tagged).
+        const want_tag = try pt.enumValueFieldIndex(tag_ty, enum_field_index);
+        if (initializing) {
+            const set_tag_inst = try block.addBinOp(.set_union_tag, union_ptr, .fromValue(want_tag));
+            try sema.checkComptimeKnownStore(block, set_tag_inst, .unneeded); // `unneeded` since this isn't a "proper" store
+        } else if (block.wantSafety() and union_obj.hasTag(ip)) {
+            // The tag exists at runtime (safety tag), so emit a safety check.
+            // TODO would it be better if get_union_tag supported pointers to unions?
+            const union_val = try block.addTyOp(.load, union_ty, union_ptr);
+            const active_tag = try block.addTyOp(.get_union_tag, tag_ty, union_val);
+            try sema.addSafetyCheckInactiveUnionField(block, src, active_tag, .fromValue(want_tag));
+        }
     }
     if (field_ty.zigTypeTag(zcu) == .noreturn) {
         _ = try block.addNoOp(.unreach);
@@ -29166,17 +28735,36 @@ fn coerceExtra(
                     break :int;
                 };
                 const result_val = try val.floatFromIntAdvanced(sema.arena, inst_ty, dest_ty, pt, .sema);
-                // TODO implement this compile error
-                //const int_again_val = try result_val.intFromFloat(sema.arena, inst_ty);
-                //if (!int_again_val.eql(val, inst_ty, zcu)) {
-                //    return sema.fail(
-                //        block,
-                //        inst_src,
-                //        "type '{f}' cannot represent integer value '{f}'",
-                //        .{ dest_ty.fmt(pt), val },
-                //    );
-                //}
-                return Air.internedToRef(result_val.toIntern());
+                const fits: bool = switch (ip.indexToKey(result_val.toIntern())) {
+                    else => unreachable,
+                    .undef => true,
+                    .float => |float| fits: {
+                        var buffer: InternPool.Key.Int.Storage.BigIntSpace = undefined;
+                        const operand_big_int = val.toBigInt(&buffer, zcu);
+                        switch (float.storage) {
+                            inline else => |x| {
+                                if (!std.math.isFinite(x)) break :fits false;
+                                var result_big_int: std.math.big.int.Mutable = .{
+                                    .limbs = try sema.arena.alloc(std.math.big.Limb, std.math.big.int.calcLimbLen(x)),
+                                    .len = undefined,
+                                    .positive = undefined,
+                                };
+                                switch (result_big_int.setFloat(x, .nearest_even)) {
+                                    .inexact => break :fits false,
+                                    .exact => {},
+                                }
+                                break :fits result_big_int.toConst().eql(operand_big_int);
+                            },
+                        }
+                    },
+                };
+                if (!fits) return sema.fail(
+                    block,
+                    inst_src,
+                    "type '{f}' cannot represent integer value '{f}'",
+                    .{ dest_ty.fmt(pt), val.fmtValue(pt) },
+                );
+                return .fromValue(result_val);
             },
             else => {},
         },
@@ -32308,6 +31896,38 @@ fn analyzeSlice(
                 const uncasted_end = try sema.analyzeArithmetic(block, .add, start, len, src, start_src, end_src, false);
                 break :e try sema.coerce(block, .usize, uncasted_end, end_src);
             } else break :e try sema.coerce(block, .usize, uncasted_end_opt, end_src);
+        }
+
+        // when slicing a many-item pointer, if a sentinel `S` is provided as in `ptr[a.. :S]`, it
+        // must match the sentinel of `@TypeOf(ptr)`.
+        sentinel_check: {
+            if (sentinel_opt == .none) break :sentinel_check;
+            const provided = provided: {
+                const casted = try sema.coerce(block, elem_ty, sentinel_opt, sentinel_src);
+                try checkSentinelType(sema, block, sentinel_src, elem_ty);
+                break :provided try sema.resolveConstDefinedValue(
+                    block,
+                    sentinel_src,
+                    casted,
+                    .{ .simple = .slice_sentinel },
+                );
+            };
+
+            if (ptr_sentinel) |current| {
+                if (provided.toIntern() == current.toIntern()) break :sentinel_check;
+            }
+
+            return sema.failWithOwnedErrorMsg(block, msg: {
+                const msg = try sema.errMsg(sentinel_src, "sentinel-terminated slicing of many-item pointer must match existing sentinel", .{});
+                errdefer msg.destroy(sema.gpa);
+                if (ptr_sentinel) |current| {
+                    try sema.errNote(sentinel_src, msg, "expected sentinel '{f}', found '{f}'", .{ current.fmtValue(pt), provided.fmtValue(pt) });
+                } else {
+                    try sema.errNote(ptr_src, msg, "type '{f}' does not have a sentinel", .{slice_ty.fmt(pt)});
+                }
+                try sema.errNote(src, msg, "use @ptrCast to cast pointer sentinel", .{});
+                break :msg msg;
+            });
         }
         return sema.analyzePtrArithmetic(block, src, ptr, start, .ptr_add, ptr_src, start_src);
     };

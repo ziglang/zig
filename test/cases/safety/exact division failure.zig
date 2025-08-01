@@ -18,4 +18,4 @@ fn divExact(a: i32, b: i32) i32 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

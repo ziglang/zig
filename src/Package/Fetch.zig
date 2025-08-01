@@ -1203,12 +1203,11 @@ fn unpackResource(
             return unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.gz" => {
-            const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-            var dcp = std.compress.gzip.decompressor(br.reader());
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            var adapter_buffer: [std.crypto.tls.max_ciphertext_record_len]u8 = undefined;
+            var adapter = resource.reader().adaptToNewApi(&adapter_buffer);
+            var flate_buffer: [std.compress.flate.max_window_len]u8 = undefined;
+            var decompress: std.compress.flate.Decompress = .init(&adapter.new_interface, .gzip, &flate_buffer);
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
@@ -1352,7 +1351,10 @@ fn unzip(f: *Fetch, out_dir: fs.Dir, reader: anytype) RunError!UnpackResult {
         ));
         defer zip_file.close();
 
-        std.zip.extract(out_dir, zip_file.seekableStream(), .{
+        var zip_file_buffer: [1024]u8 = undefined;
+        var zip_file_reader = zip_file.reader(&zip_file_buffer);
+
+        std.zip.extract(out_dir, &zip_file_reader, .{
             .allow_backslashes = true,
             .diagnostics = &diagnostics,
         }) catch |err| return f.fail(f.location_tok, try eb.printString(
@@ -1384,25 +1386,28 @@ fn unpackGitPack(f: *Fetch, out_dir: fs.Dir, resource: *Resource.Git) anyerror!U
         defer pack_dir.close();
         var pack_file = try pack_dir.createFile("pkg.pack", .{ .read = true });
         defer pack_file.close();
-        _ = try resource.fetch_stream.reader().readRemaining(pack_file.writer());
-        try pack_file.sync();
+        var pack_file_buffer: [4096]u8 = undefined;
+        var fifo = std.fifo.LinearFifo(u8, .{ .Slice = {} }).init(&pack_file_buffer);
+        try fifo.pump(resource.fetch_stream.reader(), pack_file.deprecatedWriter());
+
+        var pack_file_reader = pack_file.reader(&pack_file_buffer);
 
         var index_file = try pack_dir.createFile("pkg.idx", .{ .read = true });
         defer index_file.close();
+        var index_file_buffer: [2000]u8 = undefined;
+        var index_file_writer = index_file.writer(&index_file_buffer);
         {
             const index_prog_node = f.prog_node.start("Index pack", 0);
             defer index_prog_node.end();
-            var buffer: [4096]u8 = undefined;
-            var index_file_writer = index_file.writer(&buffer);
-            try git.indexPack(gpa, object_format, pack_file, &index_file_writer.interface);
-            try index_file_writer.flush();
-            try index_file.sync();
+            try git.indexPack(gpa, object_format, &pack_file_reader, &index_file_writer);
         }
 
         {
+            var index_file_reader = index_file.reader(&index_file_buffer);
             const checkout_prog_node = f.prog_node.start("Checkout", 0);
             defer checkout_prog_node.end();
-            var repository = try git.Repository.init(gpa, object_format, pack_file, index_file);
+            var repository: git.Repository = undefined;
+            try repository.init(gpa, object_format, &pack_file_reader, &index_file_reader);
             defer repository.deinit();
             var diagnostics: git.Diagnostics = .{ .allocator = arena };
             try repository.checkout(out_dir, resource.want_oid, &diagnostics);
@@ -2068,72 +2073,6 @@ const UnpackResult = struct {
         , aw.getWritten());
     }
 };
-
-test "zip" {
-    const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const test_files = [_]std.zip.testutil.File{
-        .{ .name = "foo", .content = "this is just foo\n", .compression = .store },
-        .{ .name = "bar", .content = "another file\n", .compression = .deflate },
-    };
-    {
-        var zip_file = try tmp.dir.createFile("test.zip", .{});
-        defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
-        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
-        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
-        try bw.flush();
-    }
-
-    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
-    defer gpa.free(zip_path);
-
-    var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, zip_path);
-    defer fb.deinit();
-
-    try fetch.run();
-
-    var out = try fb.packageDir();
-    defer out.close();
-
-    try std.zip.testutil.expectFiles(&test_files, out, .{});
-}
-
-test "zip with one root folder" {
-    const gpa = std.testing.allocator;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const test_files = [_]std.zip.testutil.File{
-        .{ .name = "the_root_folder/foo.zig", .content = "// this is foo.zig\n", .compression = .store },
-        .{ .name = "the_root_folder/README.md", .content = "# The foo.zig README\n", .compression = .store },
-    };
-    {
-        var zip_file = try tmp.dir.createFile("test.zip", .{});
-        defer zip_file.close();
-        var bw = std.io.bufferedWriter(zip_file.deprecatedWriter());
-        var store: [test_files.len]std.zip.testutil.FileStore = undefined;
-        try std.zip.testutil.writeZip(bw.writer(), &test_files, &store, .{});
-        try bw.flush();
-    }
-
-    const zip_path = try std.fmt.allocPrint(gpa, ".zig-cache/tmp/{s}/test.zip", .{tmp.sub_path});
-    defer gpa.free(zip_path);
-
-    var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, zip_path);
-    defer fb.deinit();
-
-    try fetch.run();
-
-    var out = try fb.packageDir();
-    defer out.close();
-
-    try std.zip.testutil.expectFiles(&test_files, out, .{ .strip_prefix = "the_root_folder/" });
-}
 
 test "tarball with duplicate paths" {
     // This tarball has duplicate path 'dir1/file1' to simulate case sensitve

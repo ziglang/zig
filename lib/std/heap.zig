@@ -146,7 +146,7 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
         else => false,
     };
 

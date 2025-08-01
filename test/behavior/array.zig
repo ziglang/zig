@@ -395,7 +395,6 @@ test "array literal as argument to function" {
 }
 
 test "double nested array to const slice cast in array literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -541,7 +540,6 @@ test "sentinel element count towards the ABI size calculation" {
 }
 
 test "zero-sized array with recursive type definition" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -650,7 +648,6 @@ test "runtime initialized sentinel-terminated array literal" {
 }
 
 test "array of array agregate init" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1099,4 +1096,17 @@ test "initialize pointer to anyopaque with reference to empty array initializer"
     // `val` should be a `@TypeOf(.{})`, as expected.
     // We can't check the value, but it's zero-bit, so the type matching is good enough.
     comptime assert(@TypeOf(loaded) == @TypeOf(.{}));
+}
+
+test "sentinel of runtime-known array initialization is populated" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    var rt: u32 = undefined;
+    rt = 42;
+
+    const arr: [1:123]u32 = .{rt};
+    const elems: [*]const u32 = &arr;
+
+    try expect(elems[0] == 42);
+    try expect(elems[1] == 123);
 }

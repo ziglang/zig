@@ -168,11 +168,12 @@ pub fn emitMir(emit: *Emit) Error!void {
                         else if (emit.bin_file.cast(.macho)) |macho_file|
                             macho_file.getZigObject().?.getOrCreateMetadataForLazySymbol(macho_file, emit.pt, lazy_sym) catch |err|
                                 return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
-                        else if (emit.bin_file.cast(.coff)) |coff_file| sym_index: {
-                            const atom = coff_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym) catch |err|
-                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)});
-                            break :sym_index coff_file.getAtom(atom).getSymbolIndex().?;
-                        } else if (emit.bin_file.cast(.plan9)) |p9_file|
+                        else if (emit.bin_file.cast(.coff)) |coff_file|
+                            if (coff_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym)) |atom|
+                                coff_file.getAtom(atom).getSymbolIndex().?
+                            else |err|
+                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
+                        else if (emit.bin_file.cast(.plan9)) |p9_file|
                             p9_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym) catch |err|
                                 return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
                         else

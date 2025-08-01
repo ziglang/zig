@@ -354,7 +354,7 @@ pub fn Poller(comptime StreamEnum: type) type {
                 const unused = r.buffer[r.end..];
                 if (unused.len >= min_len) return unused;
             }
-            if (r.seek > 0) r.rebase();
+            if (r.seek > 0) r.rebase(r.buffer.len) catch unreachable;
             {
                 var list: std.ArrayListUnmanaged(u8) = .{
                     .items = r.buffer[0..r.end],
@@ -544,7 +544,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 
 test {
     _ = Reader;
-    _ = Reader.Limited;
     _ = Writer;
     _ = tty;
     _ = @import("Io/test.zig");

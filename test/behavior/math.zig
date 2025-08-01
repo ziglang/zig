@@ -168,7 +168,6 @@ fn testOneCtz(comptime T: type, x: T) u32 {
 }
 
 test "@ctz 128-bit integers" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -463,7 +462,6 @@ test "binary not big int <= 128 bits" {
 }
 
 test "division" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
@@ -527,6 +525,8 @@ fn testIntDivision() !void {
     try expect(rem(i32, 10, 12) == 10);
     try expect(rem(i32, -14, 12) == -2);
     try expect(rem(i32, -2, 12) == -2);
+    try expect(rem(i32, 118, -12) == 10);
+    try expect(rem(i32, -14, -12) == -2);
     try expect(rem(i16, -118, 12) == -10);
 
     try expect(divTrunc(i20, 20, -5) == -4);
@@ -1819,7 +1819,6 @@ test "runtime int comparison to inf is comptime-known" {
 }
 
 test "float divide by zero" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO

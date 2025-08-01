@@ -204,6 +204,29 @@ pub const passwd = switch (native_os) {
         shell: ?[*:0]const u8, // default shell
         expire: time_t, // account expiration
     },
+    .dragonfly, .freebsd => extern struct {
+        name: ?[*:0]const u8, // user name
+        passwd: ?[*:0]const u8, // encrypted password
+        uid: uid_t, // user uid
+        gid: gid_t, // user gid
+        change: time_t, // password change time
+        class: ?[*:0]const u8, // user access class
+        gecos: ?[*:0]const u8, // Honeywell login info
+        dir: ?[*:0]const u8, // home directory
+        shell: ?[*:0]const u8, // default shell
+        expire: time_t, // account expiration
+        fields: c_int, // internal
+    },
+    else => void,
+};
+
+pub const group = switch (native_os) {
+    .linux, .freebsd, .openbsd, .dragonfly, .netbsd, .macos => extern struct {
+        name: ?[*:0]const u8,
+        passwd: ?[*:0]const u8,
+        gid: gid_t,
+        mem: [*:null]?[*:0]const u8,
+    },
     else => void,
 };
 
@@ -3291,8 +3314,8 @@ pub const T = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
 
-        fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
-            return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
+        fn ior(inout: u32, group_arg: usize, num: usize, len: usize) usize {
+            return (inout | ((len & IOCPARM_MASK) << 16) | ((group_arg) << 8) | (num));
         }
     },
     .freebsd => struct {
@@ -4121,7 +4144,7 @@ pub const msghdr_const = switch (native_os) {
     .serenity => extern struct {
         name: ?*const anyopaque,
         namelen: socklen_t,
-        iov: [*]const iovec,
+        iov: [*]const iovec_const,
         iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
@@ -8604,7 +8627,7 @@ pub const O = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L28-L43
     .serenity => packed struct(c_int) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: std.posix.ACCMODE = .NONE,
         EXEC: bool = false,
         CREAT: bool = false,
         EXCL: bool = false,
@@ -8760,10 +8783,10 @@ pub const MAP = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L16-L26
     .serenity => packed struct(c_int) {
-        FILE: bool = false,
-        SHARED: bool = false,
-        PRIVATE: bool = false,
-        _3: u2 = 0,
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
         FIXED: bool = false,
         ANONYMOUS: bool = false,
         STACK: bool = false,
@@ -8771,7 +8794,7 @@ pub const MAP = switch (native_os) {
         RANDOMIZED: bool = false,
         PURGEABLE: bool = false,
         FIXED_NOREPLACE: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 12) = 0,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 11) = 0,
     },
     else => void,
 };
@@ -10261,9 +10284,20 @@ pub const fstatat = switch (native_os) {
     },
     else => private.fstatat,
 };
-
+pub extern "c" fn getpwent() ?*passwd;
+pub extern "c" fn endpwent() void;
+pub extern "c" fn setpwent() void;
 pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwnam_r(name: [*:0]const u8, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+pub extern "c" fn getpwuid_r(uid: uid_t, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
+pub extern "c" fn getgrent() ?*group;
+pub extern "c" fn setgrent() void;
+pub extern "c" fn endgrent() void;
+pub extern "c" fn getgrnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getgrnam_r(name: [*:0]const u8, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
+pub extern "c" fn getgrgid(gid: gid_t) ?*group;
+pub extern "c" fn getgrgid_r(gid: gid_t, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
 pub extern "c" fn mmap64(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
@@ -10992,11 +11026,7 @@ pub const bcrypt = openbsd.bcrypt;
 pub const bcrypt_checkpass = openbsd.bcrypt_checkpass;
 pub const bcrypt_gensalt = openbsd.bcrypt_gensalt;
 pub const bcrypt_newhash = openbsd.bcrypt_newhash;
-pub const endpwent = openbsd.endpwent;
-pub const getpwent = openbsd.getpwent;
-pub const getpwnam_r = openbsd.getpwnam_r;
 pub const getpwnam_shadow = openbsd.getpwnam_shadow;
-pub const getpwuid_r = openbsd.getpwuid_r;
 pub const getpwuid_shadow = openbsd.getpwuid_shadow;
 pub const getthrid = openbsd.getthrid;
 pub const login_cap_t = openbsd.login_cap_t;
@@ -11013,7 +11043,6 @@ pub const pthread_spinlock_t = openbsd.pthread_spinlock_t;
 pub const pw_dup = openbsd.pw_dup;
 pub const setclasscontext = openbsd.setclasscontext;
 pub const setpassent = openbsd.setpassent;
-pub const setpwent = openbsd.setpwent;
 pub const setusercontext = openbsd.setusercontext;
 pub const uid_from_user = openbsd.uid_from_user;
 pub const unveil = openbsd.unveil;

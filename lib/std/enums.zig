@@ -1317,9 +1317,9 @@ test "EnumSet non-exhaustive" {
 }
 
 pub fn EnumIndexer(comptime E: type) type {
-    // Assumes that the enum fields are sorted in ascending order (optimistic).
-    // Unsorted enums may require the user to manually increase the quota.
-    @setEvalBranchQuota(3 * @typeInfo(E).@"enum".fields.len + eval_branch_quota_cushion);
+    // n log n for `std.mem.sortUnstable` call below.
+    const fields_len = @typeInfo(E).@"enum".fields.len;
+    @setEvalBranchQuota(3 * fields_len * std.math.log2(@max(fields_len, 1)) + eval_branch_quota_cushion);
 
     if (!@typeInfo(E).@"enum".is_exhaustive) {
         const BackingInt = @typeInfo(E).@"enum".tag_type;
@@ -1354,10 +1354,6 @@ pub fn EnumIndexer(comptime E: type) type {
         };
     }
 
-    const const_fields = @typeInfo(E).@"enum".fields;
-    var fields = const_fields[0..const_fields.len].*;
-    const fields_len = fields.len;
-
     if (fields_len == 0) {
         return struct {
             pub const Key = E;
@@ -1373,22 +1369,17 @@ pub fn EnumIndexer(comptime E: type) type {
         };
     }
 
+    var fields: [fields_len]EnumField = @typeInfo(E).@"enum".fields[0..].*;
+
+    std.mem.sortUnstable(EnumField, &fields, {}, struct {
+        fn lessThan(ctx: void, lhs: EnumField, rhs: EnumField) bool {
+            ctx;
+            return lhs.value < rhs.value;
+        }
+    }.lessThan);
+
     const min = fields[0].value;
-    const max = fields[fields.len - 1].value;
-
-    const SortContext = struct {
-        fields: []EnumField,
-
-        pub fn lessThan(comptime ctx: @This(), comptime a: usize, comptime b: usize) bool {
-            return ctx.fields[a].value < ctx.fields[b].value;
-        }
-
-        pub fn swap(comptime ctx: @This(), comptime a: usize, comptime b: usize) void {
-            return std.mem.swap(EnumField, &ctx.fields[a], &ctx.fields[b]);
-        }
-    };
-    std.sort.insertionContext(0, fields_len, SortContext{ .fields = &fields });
-
+    const max = fields[fields_len - 1].value;
     if (max - min == fields.len - 1) {
         return struct {
             pub const Key = E;
@@ -1536,6 +1527,29 @@ test "EnumIndexer empty" {
     const Indexer = EnumIndexer(E);
     try testing.expectEqual(E, Indexer.Key);
     try testing.expectEqual(0, Indexer.count);
+}
+
+test "EnumIndexer large dense unsorted" {
+    @setEvalBranchQuota(500_000); // many `comptimePrint`s
+    // Make an enum with 500 fields with values in *descending* order.
+    const E = @Type(.{ .@"enum" = .{
+        .tag_type = u32,
+        .fields = comptime fields: {
+            var fields: [500]EnumField = undefined;
+            for (&fields, 0..) |*f, i| f.* = .{
+                .name = std.fmt.comptimePrint("f{d}", .{i}),
+                .value = 500 - i,
+            };
+            break :fields &fields;
+        },
+        .decls = &.{},
+        .is_exhaustive = true,
+    } });
+    const Indexer = EnumIndexer(E);
+    try testing.expectEqual(E.f0, Indexer.keyForIndex(499));
+    try testing.expectEqual(E.f499, Indexer.keyForIndex(0));
+    try testing.expectEqual(499, Indexer.indexOf(.f0));
+    try testing.expectEqual(0, Indexer.indexOf(.f499));
 }
 
 test values {

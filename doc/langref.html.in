@@ -3215,7 +3215,7 @@ fn createFoo(param: i32) !Foo {
       to increase their development pace.
       </p>
       <p>
-      Error Return Traces are enabled by default in {#link|Debug#} and {#link|ReleaseSafe#} builds and disabled by default in {#link|ReleaseFast#} and {#link|ReleaseSmall#} builds.
+      Error Return Traces are enabled by default in {#link|Debug#} builds and disabled by default in {#link|ReleaseFast#}, {#link|ReleaseSafe#} and {#link|ReleaseSmall#} builds.
       </p>
       <p>
       There are a few ways to activate this error return tracing feature:
@@ -4319,7 +4319,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicStore|@atomicRmw||@cmpxchgWeak|@cmpxchgStrong#}
@@ -4333,7 +4333,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       <p>{#syntax#}AtomicRmwOp{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicRmwOp{#endsyntax#}.</p>
@@ -4347,7 +4347,7 @@ comptime {
       </p>
       <p>
       {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
       {#see_also|@atomicLoad|@atomicRmw|@cmpxchgWeak|@cmpxchgStrong#}
@@ -4576,8 +4576,8 @@ comptime {
       more efficiently in machine instructions.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#},
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
@@ -4608,8 +4608,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       However if you need a stronger guarantee, use {#link|@cmpxchgStrong#}.
       </p>
       <p>
-      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#}, a float,
-      an integer or an enum.
+      {#syntax#}T{#endsyntax#} must be a pointer, a {#syntax#}bool{#endsyntax#},
+      an integer, an enum, or a packed struct.
       </p>
       <p>{#syntax#}@typeInfo(@TypeOf(ptr)).pointer.alignment{#endsyntax#} must be {#syntax#}>= @sizeOf(T).{#endsyntax#}</p>
       <p>{#syntax#}AtomicOrder{#endsyntax#} can be found with {#syntax#}@import("std").builtin.AtomicOrder{#endsyntax#}.</p>
@@ -4840,7 +4840,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <p>
       This builtin can be called from a {#link|comptime#} block to conditionally export symbols.
       When <code>ptr</code> points to a function with the C calling convention and
-      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.Strong{#endsyntax#}, this is equivalent to
+      {#syntax#}options.linkage{#endsyntax#} is {#syntax#}.strong{#endsyntax#}, this is equivalent to
       the {#syntax#}export{#endsyntax#} keyword used on a function:
       </p>
       {#code|export_builtin.zig#}
@@ -4952,34 +4952,25 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|@import#}
-      <pre>{#syntax#}@import(comptime path: []const u8) type{#endsyntax#}</pre>
-      <p>
-      This function finds a zig file corresponding to {#syntax#}path{#endsyntax#} and adds it to the build,
-      if it is not already added.
-      </p>
-      <p>
-      Zig source files are implicitly structs, with a name equal to the file's basename with the extension
-      truncated. {#syntax#}@import{#endsyntax#} returns the struct type corresponding to the file.
-      </p>
-      <p>
-      Declarations which have the {#syntax#}pub{#endsyntax#} keyword may be referenced from a different
-      source file than the one they are declared in.
-      </p>
-      <p>
-      {#syntax#}path{#endsyntax#} can be a relative path or it can be the name of a package.
-      If it is a relative path, it is relative to the file that contains the {#syntax#}@import{#endsyntax#}
-      function call.
-      </p>
-      <p>
-      The following packages are always available:
-      </p>
+      <pre>{#syntax#}@import(comptime target: []const u8) anytype{#endsyntax#}</pre>
+      <p>Imports the file at {#syntax#}target{#endsyntax#}, adding it to the compilation if it is not already
+      added. {#syntax#}target{#endsyntax#} is either a relative path to another file from the file containing
+      the {#syntax#}@import{#endsyntax#} call, or it is the name of a {#link|module|Compilation Model#}, with
+      the import referring to the root source file of that module. Either way, the file path must end in
+      either <code>.zig</code> (for a Zig source file) or <code>.zon</code> (for a ZON data file).</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a Zig source file, then {#syntax#}@import{#endsyntax#} returns
+      that file's {#link|corresponding struct type|Source File Structs#}, essentially as if the builtin call was
+      replaced by {#syntax#}struct { FILE_CONTENTS }{#endsyntax#}. The return type is {#syntax#}type{#endsyntax#}.</p>
+      <p>If {#syntax#}target{#endsyntax#} refers to a ZON file, then {#syntax#}@import{#endsyntax#} returns the value
+      of the literal in the file. If there is an inferred {#link|result type|Result Types#}, then the return type
+      is that type, and the ZON literal is interpreted as that type ({#link|Result Types#} are propagated through
+      the ZON expression). Otherwise, the return type is the type of the equivalent Zig expression, essentially as
+      if the builtin call was replaced by the ZON file contents.</p>
+      <p>The following modules are always available for import:</p>
       <ul>
           <li>{#syntax#}@import("std"){#endsyntax#} - Zig Standard Library</li>
-          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information
-              The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.
-          </li>
-          <li>{#syntax#}@import("root"){#endsyntax#} - Root source file
-              This is usually <code>src/main.zig</code> but depends on what file is built.
+          <li>{#syntax#}@import("builtin"){#endsyntax#} - Target-specific information. The command <code>zig build-exe --show-builtin</code> outputs the source to stdout for reference.</li>
+          <li>{#syntax#}@import("root"){#endsyntax#} - Alias for the root module. In typical project structures, this means it refers back to <code>src/main.zig</code>.
           </li>
       </ul>
       {#see_also|Compile Variables|@embedFile#}
@@ -5179,7 +5170,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@mod(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Modulus division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>
@@ -5284,7 +5275,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@rem(numerator: T, denominator: T) T{#endsyntax#}</pre>
       <p>
       Remainder division. For unsigned integers this is the same as
-      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator > 0{#endsyntax#}, otherwise the
+      {#syntax#}numerator % denominator{#endsyntax#}. Caller guarantees {#syntax#}denominator != 0{#endsyntax#}, otherwise the
       operation will result in a {#link|Remainder Division by Zero#} when runtime safety checks are enabled.
       </p>
       <ul>

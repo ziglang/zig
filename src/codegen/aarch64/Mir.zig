@@ -4,6 +4,7 @@ epilogue: []const Instruction,
 literals: []const u32,
 nav_relocs: []const Reloc.Nav,
 uav_relocs: []const Reloc.Uav,
+lazy_relocs: []const Reloc.Lazy,
 global_relocs: []const Reloc.Global,
 literal_relocs: []const Reloc.Literal,
 
@@ -21,8 +22,13 @@ pub const Reloc = struct {
         reloc: Reloc,
     };
 
+    pub const Lazy = struct {
+        symbol: link.File.LazySymbol,
+        reloc: Reloc,
+    };
+
     pub const Global = struct {
-        global: [*:0]const u8,
+        name: [*:0]const u8,
         reloc: Reloc,
     };
 
@@ -38,6 +44,7 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     gpa.free(mir.literals);
     gpa.free(mir.nav_relocs);
     gpa.free(mir.uav_relocs);
+    gpa.free(mir.lazy_relocs);
     gpa.free(mir.global_relocs);
     gpa.free(mir.literal_relocs);
     mir.* = undefined;
@@ -119,16 +126,37 @@ pub fn emit(
         body_end - Instruction.size * (1 + uav_reloc.reloc.label),
         uav_reloc.reloc.addend,
     );
+    for (mir.lazy_relocs) |lazy_reloc| try emitReloc(
+        lf,
+        zcu,
+        func.owner_nav,
+        if (lf.cast(.elf)) |ef|
+            ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_reloc.symbol) catch |err|
+                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
+        else if (lf.cast(.macho)) |mf|
+            mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_reloc.symbol) catch |err|
+                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
+        else if (lf.cast(.coff)) |cf|
+            if (cf.getOrCreateAtomForLazySymbol(pt, lazy_reloc.symbol)) |atom|
+                cf.getAtom(atom).getSymbolIndex().?
+            else |err|
+                return zcu.codegenFail(func.owner_nav, "{s} creating lazy symbol", .{@errorName(err)})
+        else
+            return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
+        mir.body[lazy_reloc.reloc.label],
+        body_end - Instruction.size * (1 + lazy_reloc.reloc.label),
+        lazy_reloc.reloc.addend,
+    );
     for (mir.global_relocs) |global_reloc| try emitReloc(
         lf,
         zcu,
         func.owner_nav,
         if (lf.cast(.elf)) |ef|
-            try ef.getGlobalSymbol(std.mem.span(global_reloc.global), null)
+            try ef.getGlobalSymbol(std.mem.span(global_reloc.name), null)
         else if (lf.cast(.macho)) |mf|
-            try mf.getGlobalSymbol(std.mem.span(global_reloc.global), null)
+            try mf.getGlobalSymbol(std.mem.span(global_reloc.name), null)
         else if (lf.cast(.coff)) |cf|
-            try cf.getGlobalSymbol(std.mem.span(global_reloc.global), "compiler_rt")
+            try cf.getGlobalSymbol(std.mem.span(global_reloc.name), "compiler_rt")
         else
             return zcu.codegenFail(func.owner_nav, "external symbols unimplemented for {s}", .{@tagName(lf.tag)}),
         mir.body[global_reloc.reloc.label],
@@ -172,35 +200,6 @@ fn emitReloc(
     const gpa = zcu.gpa;
     switch (instruction.decode()) {
         else => unreachable,
-        .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
-            const zo = ef.zigObjectPtr().?;
-            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
-            const r_type: std.elf.R_AARCH64 = switch (decoded.decode().unconditional_branch_immediate.group.op) {
-                .b => .JUMP26,
-                .bl => .CALL26,
-            };
-            try atom.addReloc(gpa, .{
-                .r_offset = offset,
-                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
-                .r_addend = @bitCast(addend),
-            }, zo);
-        } else if (lf.cast(.macho)) |mf| {
-            const zo = mf.getZigObject().?;
-            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
-            try atom.addReloc(mf, .{
-                .tag = .@"extern",
-                .offset = offset,
-                .target = sym_index,
-                .addend = @bitCast(addend),
-                .type = .branch,
-                .meta = .{
-                    .pcrel = true,
-                    .has_subtractor = false,
-                    .length = 2,
-                    .symbolnum = @intCast(sym_index),
-                },
-            });
-        },
         .data_processing_immediate => |decoded| if (lf.cast(.elf)) |ef| {
             const zo = ef.zigObjectPtr().?;
             const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
@@ -258,6 +257,80 @@ fn emitReloc(
                     .sub => unreachable,
                 },
             }
+        },
+        .branch_exception_generating_system => |decoded| if (lf.cast(.elf)) |ef| {
+            const zo = ef.zigObjectPtr().?;
+            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
+            const r_type: std.elf.R_AARCH64 = switch (decoded.decode().unconditional_branch_immediate.group.op) {
+                .b => .JUMP26,
+                .bl => .CALL26,
+            };
+            try atom.addReloc(gpa, .{
+                .r_offset = offset,
+                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
+                .r_addend = @bitCast(addend),
+            }, zo);
+        } else if (lf.cast(.macho)) |mf| {
+            const zo = mf.getZigObject().?;
+            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
+            try atom.addReloc(mf, .{
+                .tag = .@"extern",
+                .offset = offset,
+                .target = sym_index,
+                .addend = @bitCast(addend),
+                .type = .branch,
+                .meta = .{
+                    .pcrel = true,
+                    .has_subtractor = false,
+                    .length = 2,
+                    .symbolnum = @intCast(sym_index),
+                },
+            });
+        },
+        .load_store => |decoded| if (lf.cast(.elf)) |ef| {
+            const zo = ef.zigObjectPtr().?;
+            const atom = zo.symbol(try zo.getOrCreateMetadataForNav(zcu, owner_nav)).atom(ef).?;
+            const r_type: std.elf.R_AARCH64 = switch (decoded.decode().register_unsigned_immediate.decode()) {
+                .integer => |integer| switch (integer.decode()) {
+                    .unallocated, .prfm => unreachable,
+                    .strb, .ldrb, .ldrsb => .LDST8_ABS_LO12_NC,
+                    .strh, .ldrh, .ldrsh => .LDST16_ABS_LO12_NC,
+                    .ldrsw => .LDST32_ABS_LO12_NC,
+                    inline .str, .ldr => |encoded| switch (encoded.sf) {
+                        .word => .LDST32_ABS_LO12_NC,
+                        .doubleword => .LDST64_ABS_LO12_NC,
+                    },
+                },
+                .vector => |vector| switch (vector.group.opc1.decode(vector.group.size)) {
+                    .byte => .LDST8_ABS_LO12_NC,
+                    .half => .LDST16_ABS_LO12_NC,
+                    .single => .LDST32_ABS_LO12_NC,
+                    .double => .LDST64_ABS_LO12_NC,
+                    .quad => .LDST128_ABS_LO12_NC,
+                    .scalable, .predicate => unreachable,
+                },
+            };
+            try atom.addReloc(gpa, .{
+                .r_offset = offset,
+                .r_info = @as(u64, sym_index) << 32 | @intFromEnum(r_type),
+                .r_addend = @bitCast(addend),
+            }, zo);
+        } else if (lf.cast(.macho)) |mf| {
+            const zo = mf.getZigObject().?;
+            const atom = zo.symbols.items[try zo.getOrCreateMetadataForNav(mf, owner_nav)].getAtom(mf).?;
+            try atom.addReloc(mf, .{
+                .tag = .@"extern",
+                .offset = offset,
+                .target = sym_index,
+                .addend = @bitCast(addend),
+                .type = .pageoff,
+                .meta = .{
+                    .pcrel = false,
+                    .has_subtractor = false,
+                    .length = 2,
+                    .symbolnum = @intCast(sym_index),
+                },
+            });
         },
     }
 }

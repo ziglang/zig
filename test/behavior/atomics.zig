@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const expect = std.testing.expect;
-const expectEqual = std.testing.expectEqual;
 
 const supports_128_bit_atomics = switch (builtin.cpu.arch) {
     // TODO: Ideally this could be sync'd with the logic in Sema.
@@ -364,24 +363,31 @@ test "atomics with different types" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.target.cpu.arch.endian() == .big) return error.SkipZigTest; // #24282
 
     try testAtomicsWithType(bool, true, false);
 
     try testAtomicsWithType(u1, 0, 1);
-    try testAtomicsWithType(i4, 0, 1);
-    try testAtomicsWithType(u5, 0, 1);
-    try testAtomicsWithType(i15, 0, 1);
-    try testAtomicsWithType(u24, 0, 1);
+    try testAtomicsWithType(i4, 2, 1);
+    try testAtomicsWithType(u5, 2, 1);
+    try testAtomicsWithType(i15, 2, 1);
+    try testAtomicsWithType(u24, 2, 1);
 
     try testAtomicsWithType(u0, 0, 0);
     try testAtomicsWithType(i0, 0, 0);
 
     try testAtomicsWithType(enum(u32) { x = 1234, y = 5678 }, .x, .y);
+    try testAtomicsWithType(enum(u19) { x = 1234, y = 5678 }, .x, .y);
 
     try testAtomicsWithPackedStruct(
         packed struct { x: u7, y: u24, z: bool },
         .{ .x = 1, .y = 2, .z = true },
         .{ .x = 3, .y = 4, .z = false },
+    );
+    try testAtomicsWithPackedStruct(
+        packed struct { x: u19, y: bool },
+        .{ .x = 1, .y = true },
+        .{ .x = 3, .y = false },
     );
 }
 

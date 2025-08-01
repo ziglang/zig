@@ -1198,11 +1198,14 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
         const chdr = (try r.takeStruct(elf.Elf64_Chdr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
-                var bw: Writer = .fixed(try gpa.alloc(u8, std.math.cast(usize, chdr.ch_size) orelse return error.Overflow));
-                errdefer gpa.free(bw.buffer);
-                try std.compress.zlib.decompress(&r, &bw);
-                if (bw.end != bw.buffer.len) return error.InputOutput;
-                return bw.buffer;
+                var stream: std.Io.Reader = .fixed(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var zlib_stream: std.compress.flate.Decompress = .init(&stream, .zlib, &.{});
+                const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
+                var aw: std.Io.Writer.Allocating = .init(gpa);
+                try aw.ensureUnusedCapacity(size);
+                defer aw.deinit();
+                _ = try zlib_stream.reader.streamRemaining(&aw.writer);
+                return aw.toOwnedSlice();
             },
             else => @panic("TODO unhandled compression scheme"),
         }

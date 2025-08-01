@@ -7,7 +7,7 @@ const net = @This();
 const mem = std.mem;
 const posix = std.posix;
 const fs = std.fs;
-const io = std.io;
+const Io = std.Io;
 const native_endian = builtin.target.cpu.arch.endian();
 const native_os = builtin.os.tag;
 const windows = std.os.windows;
@@ -165,7 +165,7 @@ pub const Address = extern union {
         }
     }
 
-    pub fn format(self: Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Address, w: *Io.Writer) Io.Writer.Error!void {
         switch (self.any.family) {
             posix.AF.INET => try self.in.format(w),
             posix.AF.INET6 => try self.in6.format(w),
@@ -342,7 +342,7 @@ pub const Ip4Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Ip4Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes: *const [4]u8 = @ptrCast(&self.sa.addr);
         try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], self.getPort() });
     }
@@ -633,7 +633,7 @@ pub const Ip6Address = extern struct {
         self.sa.port = mem.nativeToBig(u16, port);
     }
 
-    pub fn format(self: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
         const port = mem.bigToNative(u16, self.sa.port);
         if (mem.eql(u8, self.sa.addr[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{
@@ -1348,7 +1348,7 @@ fn parseHosts(
     name: []const u8,
     family: posix.sa_family_t,
     port: u16,
-    br: *io.Reader,
+    br: *Io.Reader,
 ) error{ OutOfMemory, ReadFailed }!void {
     while (true) {
         const line = br.takeDelimiterExclusive('\n') catch |err| switch (err) {
@@ -1402,7 +1402,7 @@ test parseHosts {
         // TODO parsing addresses should not have OS dependencies
         return error.SkipZigTest;
     }
-    var reader: std.io.Reader = .fixed(
+    var reader: Io.Reader = .fixed(
         \\127.0.0.1 localhost
         \\::1 localhost
         \\127.0.0.2 abcd
@@ -1583,7 +1583,7 @@ const ResolvConf = struct {
     const Directive = enum { options, nameserver, domain, search };
     const Option = enum { ndots, attempts, timeout };
 
-    fn parse(rc: *ResolvConf, reader: *io.Reader) !void {
+    fn parse(rc: *ResolvConf, reader: *Io.Reader) !void {
         const gpa = rc.gpa;
         while (reader.takeSentinel('\n')) |line_with_comment| {
             const line = line: {
@@ -1894,7 +1894,7 @@ pub const Stream = struct {
     pub const Reader = switch (native_os) {
         .windows => struct {
             /// Use `interface` for portable code.
-            interface_state: io.Reader,
+            interface_state: Io.Reader,
             /// Use `getStream` for portable code.
             net_stream: Stream,
             /// Use `getError` for portable code.
@@ -1910,14 +1910,17 @@ pub const Stream = struct {
                 return r.error_state;
             }
 
-            pub fn interface(r: *Reader) *io.Reader {
+            pub fn interface(r: *Reader) *Io.Reader {
                 return &r.interface_state;
             }
 
             pub fn init(net_stream: Stream, buffer: []u8) Reader {
                 return .{
                     .interface_state = .{
-                        .vtable = &.{ .stream = stream },
+                        .vtable = &.{
+                            .stream = stream,
+                            .readVec = readVec,
+                        },
                         .buffer = buffer,
                         .seek = 0,
                         .end = 0,
@@ -1927,16 +1930,30 @@ pub const Stream = struct {
                 };
             }
 
-            fn stream(io_r: *io.Reader, io_w: *io.Writer, limit: io.Limit) io.Reader.StreamError!usize {
+            fn stream(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
+                const dest = limit.slice(try io_w.writableSliceGreedy(1));
+                var bufs: [1][]u8 = .{dest};
+                const n = try readVec(io_r, &bufs);
+                io_w.advance(n);
+                return n;
+            }
+
+            fn readVec(io_r: *std.Io.Reader, data: [][]u8) Io.Reader.Error!usize {
                 const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
                 var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
-                const bufs = try io_w.writableVectorWsa(&iovecs, limit);
+                const bufs_n, const data_size = try io_r.writableVectorWsa(&iovecs, data);
+                const bufs = iovecs[0..bufs_n];
                 assert(bufs[0].len != 0);
                 const n = streamBufs(r, bufs) catch |err| {
                     r.error_state = err;
                     return error.ReadFailed;
                 };
                 if (n == 0) return error.EndOfStream;
+                if (n > data_size) {
+                    io_r.seek = 0;
+                    io_r.end = n - data_size;
+                    return data_size;
+                }
                 return n;
             }
 
@@ -1968,7 +1985,7 @@ pub const Stream = struct {
 
             pub const Error = ReadError;
 
-            pub fn interface(r: *Reader) *io.Reader {
+            pub fn interface(r: *Reader) *Io.Reader {
                 return &r.file_reader.interface;
             }
 
@@ -1996,7 +2013,7 @@ pub const Stream = struct {
     pub const Writer = switch (native_os) {
         .windows => struct {
             /// This field is present on all systems.
-            interface: io.Writer,
+            interface: Io.Writer,
             /// Use `getStream` for cross-platform support.
             stream: Stream,
             /// This field is present on all systems.
@@ -2034,7 +2051,7 @@ pub const Stream = struct {
                 }
             }
 
-            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+            fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 comptime assert(native_os == .windows);
@@ -2106,7 +2123,7 @@ pub const Stream = struct {
         },
         else => struct {
             /// This field is present on all systems.
-            interface: io.Writer,
+            interface: Io.Writer,
 
             err: ?Error = null,
             file_writer: File.Writer,
@@ -2138,7 +2155,7 @@ pub const Stream = struct {
                 i.* += 1;
             }
 
-            fn drain(io_w: *io.Writer, data: []const []const u8, splat: usize) io.Writer.Error!usize {
+            fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const buffered = io_w.buffered();
                 var iovecs: [max_buffers_len]posix.iovec_const = undefined;
@@ -2190,7 +2207,7 @@ pub const Stream = struct {
                 });
             }
 
-            fn sendFile(io_w: *io.Writer, file_reader: *File.Reader, limit: io.Limit) io.Writer.FileError!usize {
+            fn sendFile(io_w: *Io.Writer, file_reader: *File.Reader, limit: Io.Limit) Io.Writer.FileError!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
                 return io_w.consume(n);

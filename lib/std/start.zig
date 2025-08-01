@@ -626,7 +626,6 @@ pub inline fn callMain() u8 {
 
             const result = root.main() catch |err| {
                 switch (builtin.zig_backend) {
-                    .stage2_aarch64,
                     .stage2_powerpc,
                     .stage2_riscv64,
                     => {
@@ -700,6 +699,7 @@ fn maybeIgnoreSigpipe() void {
         .visionos,
         .dragonfly,
         .freebsd,
+        .serenity,
         => true,
 
         else => false,

@@ -342,97 +342,6 @@ pub fn writableSlicePreserve(w: *Writer, preserve_len: usize, len: usize) Error!
     return big_slice[0..len];
 }
 
-pub const WritableVectorIterator = struct {
-    first: []u8,
-    middle: []const []u8 = &.{},
-    last: []u8 = &.{},
-    index: usize = 0,
-
-    pub fn next(it: *WritableVectorIterator) ?[]u8 {
-        while (true) {
-            const i = it.index;
-            it.index += 1;
-            if (i == 0) {
-                if (it.first.len == 0) continue;
-                return it.first;
-            }
-            const middle_index = i - 1;
-            if (middle_index < it.middle.len) {
-                const middle = it.middle[middle_index];
-                if (middle.len == 0) continue;
-                return middle;
-            }
-            if (middle_index == it.middle.len) {
-                if (it.last.len == 0) continue;
-                return it.last;
-            }
-            return null;
-        }
-    }
-};
-
-pub const VectorWrapper = struct {
-    writer: Writer,
-    it: WritableVectorIterator,
-    /// Tracks whether the "writable vector" API was used.
-    used: bool = false,
-    pub const vtable: *const VTable = &unique_vtable_allocation;
-    /// This is intended to be constant but it must be a unique address for
-    /// `@fieldParentPtr` to work.
-    var unique_vtable_allocation: VTable = .{ .drain = fixedDrain };
-};
-
-pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.vtable == VectorWrapper.vtable) {
-        const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
-        wrapper.used = true;
-        return wrapper.it;
-    }
-    return .{ .first = try writableSliceGreedy(w, 1) };
-}
-
-pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) Error![]std.posix.iovec {
-    var it = try writableVectorIterator(w);
-    var i: usize = 0;
-    var remaining = limit;
-    while (it.next()) |full_buffer| {
-        if (!remaining.nonzero()) break;
-        if (buffer.len - i == 0) break;
-        const buf = remaining.slice(full_buffer);
-        if (buf.len == 0) continue;
-        buffer[i] = .{ .base = buf.ptr, .len = buf.len };
-        i += 1;
-        remaining = remaining.subtract(buf.len).?;
-    }
-    return buffer[0..i];
-}
-
-pub fn writableVectorWsa(
-    w: *Writer,
-    buffer: []std.os.windows.ws2_32.WSABUF,
-    limit: Limit,
-) Error![]std.os.windows.ws2_32.WSABUF {
-    var it = try writableVectorIterator(w);
-    var i: usize = 0;
-    var remaining = limit;
-    while (it.next()) |full_buffer| {
-        if (!remaining.nonzero()) break;
-        if (buffer.len - i == 0) break;
-        const buf = remaining.slice(full_buffer);
-        if (buf.len == 0) continue;
-        if (std.math.cast(u32, buf.len)) |len| {
-            buffer[i] = .{ .buf = buf.ptr, .len = len };
-            i += 1;
-            remaining = remaining.subtract(len).?;
-            continue;
-        }
-        buffer[i] = .{ .buf = buf.ptr, .len = std.math.maxInt(u32) };
-        i += 1;
-        break;
-    }
-    return buffer[0..i];
-}
-
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
     _ = try writableSliceGreedy(w, n);
 }
@@ -449,13 +358,6 @@ pub fn advance(w: *Writer, n: usize) void {
     const new_end = w.end + n;
     assert(new_end <= w.buffer.len);
     w.end = new_end;
-}
-
-/// After calling `writableVector`, this function tracks how many bytes were
-/// written to it.
-pub fn advanceVector(w: *Writer, n: usize) usize {
-    if (w.vtable != VectorWrapper.vtable) advance(w, n);
-    return n;
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
@@ -1614,17 +1516,23 @@ pub fn printFloatHexOptions(w: *Writer, value: anytype, options: std.fmt.Number)
 }
 
 pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precision: ?usize) Error!void {
-    if (std.math.signbit(value)) try w.writeByte('-');
-    if (std.math.isNan(value)) return w.writeAll(switch (case) {
+    const v = switch (@TypeOf(value)) {
+        // comptime_float internally is a f128; this preserves precision.
+        comptime_float => @as(f128, value),
+        else => value,
+    };
+
+    if (std.math.signbit(v)) try w.writeByte('-');
+    if (std.math.isNan(v)) return w.writeAll(switch (case) {
         .lower => "nan",
         .upper => "NAN",
     });
-    if (std.math.isInf(value)) return w.writeAll(switch (case) {
+    if (std.math.isInf(v)) return w.writeAll(switch (case) {
         .lower => "inf",
         .upper => "INF",
     });
 
-    const T = @TypeOf(value);
+    const T = @TypeOf(v);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = std.math.floatMantissaBits(T);
@@ -1634,7 +1542,7 @@ pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precisi
     const exponent_mask = (1 << exponent_bits) - 1;
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
-    const as_bits: TU = @bitCast(value);
+    const as_bits: TU = @bitCast(v);
     var mantissa = as_bits & mantissa_mask;
     var exponent: i32 = @as(u16, @truncate((as_bits >> mantissa_bits) & exponent_mask));
 
@@ -2361,7 +2269,7 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const pattern = data[data.len - 1];
     const dest = w.buffer[w.end..];
     switch (pattern.len) {
-        0 => return w.end,
+        0 => return 0,
         1 => {
             assert(splat >= dest.len);
             @memset(dest, pattern[0]);
@@ -2381,6 +2289,13 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     }
 }
 
+pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    _ = w;
+    _ = data;
+    _ = splat;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2391,6 +2306,8 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
 /// generic. A better solution will involve creating a writer for each hash
 /// function, where the splat buffer can be tailored to the hash implementation
 /// details.
+///
+/// Contrast with `Hashing` which terminates the stream pipeline.
 pub fn Hashed(comptime Hasher: type) type {
     return struct {
         out: *Writer,
@@ -2459,6 +2376,52 @@ pub fn Hashed(comptime Hasher: type) type {
                 },
             }
             return n;
+        }
+    };
+}
+
+/// Provides a `Writer` implementation based on calling `Hasher.update`,
+/// discarding all data.
+///
+/// This implementation makes suboptimal buffering decisions due to being
+/// generic. A better solution will involve creating a writer for each hash
+/// function, where the splat buffer can be tailored to the hash implementation
+/// details.
+///
+/// The total number of bytes written is stored in `hasher`.
+///
+/// Contrast with `Hashed` which also passes the data to an underlying stream.
+pub fn Hashing(comptime Hasher: type) type {
+    return struct {
+        hasher: Hasher,
+        writer: Writer,
+
+        pub fn init(buffer: []u8) @This() {
+            return .initHasher(.init(.{}), buffer);
+        }
+
+        pub fn initHasher(hasher: Hasher, buffer: []u8) @This() {
+            return .{
+                .hasher = hasher,
+                .writer = .{
+                    .buffer = buffer,
+                    .vtable = &.{ .drain = @This().drain },
+                },
+            };
+        }
+
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
+            const hasher = &this.hasher;
+            hasher.update(w.buffered());
+            w.end = 0;
+            var n: usize = 0;
+            for (data[0 .. data.len - 1]) |slice| {
+                hasher.update(slice);
+                n += slice.len;
+            }
+            for (0..splat) |_| hasher.update(data[data.len - 1]);
+            return n + splat * data[data.len - 1].len;
         }
     };
 }

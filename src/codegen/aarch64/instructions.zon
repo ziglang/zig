@@ -213,6 +213,63 @@
         },
         .encode = .{ .ands, .Xd, .Xn, .{ .shifted_register_explicit = .{ .register = .Xm, .shift = .shift, .amount = .amount } } },
     },
+    // C6.2.16 ASR (register)
+    .{
+        .pattern = "ASR <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .asrv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "ASR <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .asrv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.17 ASR (immediate)
+    .{
+        .pattern = "ASR <Wd>, <Wn>, #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .sbfm, .Wd, .Wn, .{ .N = .word, .immr = .shift, .imms = 31 } },
+    },
+    .{
+        .pattern = "ASR <Xd>, <Xn>, #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .sbfm, .Xd, .Xn, .{ .N = .doubleword, .immr = .shift, .imms = 63 } },
+    },
+    // C6.2.18 ASRV
+    .{
+        .pattern = "ASRV <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .asrv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "ASRV <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .asrv, .Xd, .Xn, .Xm },
+    },
     // C6.2.35 BLR
     .{
         .pattern = "BLR <Xn>",
@@ -681,6 +738,82 @@
         },
         .encode = .{ .ldr, .Xt, .{ .unsigned_offset = .{ .base = .Xn, .offset = .pimm } } },
     },
+    // C6.2.212 LSL (register)
+    .{
+        .pattern = "LSL <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .lslv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "LSL <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .lslv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.214 LSLV
+    .{
+        .pattern = "LSLV <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .lslv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "LSLV <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .lslv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.215 LSR (register)
+    .{
+        .pattern = "LSR <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .lsrv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "LSR <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .lsrv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.217 LSRV
+    .{
+        .pattern = "LSRV <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .lsrv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "LSRV <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .lsrv, .Xd, .Xn, .Xm },
+    },
     // C6.2.220 MOV (to/from SP)
     .{
         .pattern = "MOV WSP, <Wn|WSP>",
@@ -963,6 +1096,63 @@
             .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
         },
         .encode = .{ .ret, .Xn },
+    },
+    // C6.2.261 ROR (immediate)
+    .{
+        .pattern = "ROR <Wd>, <Ws>, #<shift>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Ws = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 5 } } },
+        },
+        .encode = .{ .extr, .Wd, .Ws, .Ws, .shift },
+    },
+    .{
+        .pattern = "ROR <Xd>, <Xs>, #<shift>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xs = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .shift = .{ .imm = .{ .type = .{ .signedness = .unsigned, .bits = 6 } } },
+        },
+        .encode = .{ .extr, .Xd, .Xs, .Xs, .shift },
+    },
+    // C6.2.262 ROR (register)
+    .{
+        .pattern = "ROR <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .rorv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "ROR <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .rorv, .Xd, .Xn, .Xm },
+    },
+    // C6.2.263 RORV
+    .{
+        .pattern = "RORV <Wd>, <Wn>, <Wm>",
+        .symbols = .{
+            .Wd = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wn = .{ .reg = .{ .format = .{ .integer = .word } } },
+            .Wm = .{ .reg = .{ .format = .{ .integer = .word } } },
+        },
+        .encode = .{ .rorv, .Wd, .Wn, .Wm },
+    },
+    .{
+        .pattern = "RORV <Xd>, <Xn>, <Xm>",
+        .symbols = .{
+            .Xd = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xn = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+            .Xm = .{ .reg = .{ .format = .{ .integer = .doubleword } } },
+        },
+        .encode = .{ .rorv, .Xd, .Xn, .Xm },
     },
     // C6.2.268 SBFM
     .{

@@ -142,8 +142,8 @@ const DebugInfo = struct {
             &abbrev_code_buf,
             debug_info.section.off(dwarf) + unit_ptr.off + unit_ptr.header_len + entry_ptr.off,
         ) != abbrev_code_buf.len) return error.InputOutput;
-        var abbrev_code_br: std.io.Reader = .fixed(&abbrev_code_buf);
-        return @enumFromInt(abbrev_code_br.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
+        var abbrev_code_reader: std.Io.Reader = .fixed(&abbrev_code_buf);
+        return @enumFromInt(abbrev_code_reader.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
     }
 
     const trailer_bytes = 1 + 1;
@@ -2094,7 +2094,7 @@ pub const WipNav = struct {
                     .generic_decl_const,
                     .generic_decl_func,
                     => true,
-                    else => unreachable,
+                    else => |t| std.debug.panic("bad decl abbrev code: {t}", .{t}),
                 };
             if (parent_type.getCaptures(zcu).len == 0) {
                 if (was_generic_decl) try dwarf.freeCommonEntry(wip_nav.unit, decl_gop.value_ptr.*);
@@ -6104,33 +6104,16 @@ fn sectionOffsetBytes(dwarf: *Dwarf) u32 {
 }
 
 fn uleb128Bytes(value: anytype) u32 {
-    return leb128Bytes(switch (@typeInfo(@TypeOf(value))) {
-        .comptime_int => @as(std.math.IntFittingRange(0, @abs(value)), value),
-        .int => |value_info| switch (value_info.signedness) {
-            .signed => @as(@Type(.{ .int = .{ .signedness = .unsigned, .bits = value_info.bits -| 1 } }), @intCast(value)),
-            .unsigned => value,
-        },
-        else => comptime unreachable,
-    });
+    var trash_buffer: [64]u8 = undefined;
+    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    d.writer.writeUleb128(value) catch unreachable;
+    return @intCast(d.count + d.writer.end);
 }
 fn sleb128Bytes(value: anytype) u32 {
-    return leb128Bytes(switch (@typeInfo(@TypeOf(value))) {
-        .comptime_int => @as(std.math.IntFittingRange(@min(value, -1), @max(0, value)), value),
-        .int => |value_info| switch (value_info.signedness) {
-            .signed => value,
-            .unsigned => @as(@Type(.{ .int = .{ .signedness = .signed, .bits = value_info.bits + 1 } }), value),
-        },
-        else => comptime unreachable,
-    });
-}
-fn leb128Bytes(value: anytype) u32 {
-    const value_info = @typeInfo(@TypeOf(value)).int;
-    var buffer: [
-        std.math.divCeil(u16, @intFromBool(value_info.signedness == .signed) + value_info.bits, 7) catch unreachable
-    ]u8 = undefined;
-    var bw: Writer = .fixed(&buffer);
-    bw.writeLeb128(value) catch unreachable;
-    return @intCast(bw.end);
+    var trash_buffer: [64]u8 = undefined;
+    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    d.writer.writeSleb128(value) catch unreachable;
+    return @intCast(d.count + d.writer.end);
 }
 
 /// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional
