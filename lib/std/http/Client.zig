@@ -405,13 +405,8 @@ pub const RequestTransfer = union(enum) {
 
 /// The decompressor for response messages.
 pub const Compression = union(enum) {
-    pub const DeflateDecompressor = std.compress.zlib.Decompressor(Request.TransferReader);
-    pub const GzipDecompressor = std.compress.gzip.Decompressor(Request.TransferReader);
-    // https://github.com/ziglang/zig/issues/18937
-    //pub const ZstdDecompressor = std.compress.zstd.DecompressStream(Request.TransferReader, .{});
-
-    deflate: DeflateDecompressor,
-    gzip: GzipDecompressor,
+    //deflate: std.compress.flate.Decompress,
+    //gzip: std.compress.flate.Decompress,
     // https://github.com/ziglang/zig/issues/18937
     //zstd: ZstdDecompressor,
     none: void,
@@ -1079,12 +1074,10 @@ pub const Request = struct {
                     switch (req.response.transfer_compression) {
                         .identity => req.response.compression = .none,
                         .compress, .@"x-compress" => return error.CompressionUnsupported,
-                        .deflate => req.response.compression = .{
-                            .deflate = std.compress.zlib.decompressor(req.transferReader()),
-                        },
-                        .gzip, .@"x-gzip" => req.response.compression = .{
-                            .gzip = std.compress.gzip.decompressor(req.transferReader()),
-                        },
+                        // I'm about to upstream my http.Client rewrite
+                        .deflate => return error.CompressionUnsupported,
+                        // I'm about to upstream my http.Client rewrite
+                        .gzip, .@"x-gzip" => return error.CompressionUnsupported,
                         // https://github.com/ziglang/zig/issues/18937
                         //.zstd => req.response.compression = .{
                         //    .zstd = std.compress.zstd.decompressStream(req.client.allocator, req.transferReader()),
@@ -1110,8 +1103,9 @@ pub const Request = struct {
     /// Reads data from the response body. Must be called after `wait`.
     pub fn read(req: *Request, buffer: []u8) ReadError!usize {
         const out_index = switch (req.response.compression) {
-            .deflate => |*deflate| deflate.read(buffer) catch return error.DecompressionFailure,
-            .gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
+            // I'm about to upstream my http client rewrite
+            //.deflate => |*deflate| deflate.readSlice(buffer) catch return error.DecompressionFailure,
+            //.gzip => |*gzip| gzip.read(buffer) catch return error.DecompressionFailure,
             // https://github.com/ziglang/zig/issues/18937
             //.zstd => |*zstd| zstd.read(buffer) catch return error.DecompressionFailure,
             else => try req.transferRead(buffer),

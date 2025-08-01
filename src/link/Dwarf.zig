@@ -142,8 +142,8 @@ const DebugInfo = struct {
             &abbrev_code_buf,
             debug_info.section.off(dwarf) + unit_ptr.off + unit_ptr.header_len + entry_ptr.off,
         ) != abbrev_code_buf.len) return error.InputOutput;
-        var abbrev_code_fbs = std.io.fixedBufferStream(&abbrev_code_buf);
-        return @enumFromInt(std.leb.readUleb128(@typeInfo(AbbrevCode).@"enum".tag_type, abbrev_code_fbs.reader()) catch unreachable);
+        var abbrev_code_reader: std.Io.Reader = .fixed(&abbrev_code_buf);
+        return @enumFromInt(abbrev_code_reader.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable);
     }
 
     const trailer_bytes = 1 + 1;
@@ -2077,7 +2077,7 @@ pub const WipNav = struct {
                     .generic_decl_const,
                     .generic_decl_func,
                     => true,
-                    else => unreachable,
+                    else => |t| std.debug.panic("bad decl abbrev code: {t}", .{t}),
                 };
             if (parent_type.getCaptures(zcu).len == 0) {
                 if (was_generic_decl) try dwarf.freeCommonEntry(wip_nav.unit, decl_gop.value_ptr.*);
@@ -6021,15 +6021,17 @@ fn sectionOffsetBytes(dwarf: *Dwarf) u32 {
 }
 
 fn uleb128Bytes(value: anytype) u32 {
-    var cw = std.io.countingWriter(std.io.null_writer);
-    try uleb128(cw.writer(), value);
-    return @intCast(cw.bytes_written);
+    var trash_buffer: [64]u8 = undefined;
+    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    d.writer.writeUleb128(value) catch unreachable;
+    return @intCast(d.count + d.writer.end);
 }
 
 fn sleb128Bytes(value: anytype) u32 {
-    var cw = std.io.countingWriter(std.io.null_writer);
-    try sleb128(cw.writer(), value);
-    return @intCast(cw.bytes_written);
+    var trash_buffer: [64]u8 = undefined;
+    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    d.writer.writeSleb128(value) catch unreachable;
+    return @intCast(d.count + d.writer.end);
 }
 
 /// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional

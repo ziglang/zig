@@ -1973,12 +1973,13 @@ pub const Stream = struct {
 
             fn stream(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
                 const dest = limit.slice(try io_w.writableSliceGreedy(1));
-                const n = try readVec(io_r, &.{dest});
+                var bufs: [1][]u8 = .{dest};
+                const n = try readVec(io_r, &bufs);
                 io_w.advance(n);
                 return n;
             }
 
-            fn readVec(io_r: *std.Io.Reader, data: []const []u8) Io.Reader.Error!usize {
+            fn readVec(io_r: *std.Io.Reader, data: [][]u8) Io.Reader.Error!usize {
                 const r: *Reader = @alignCast(@fieldParentPtr("interface_state", io_r));
                 var iovecs: [max_buffers_len]windows.ws2_32.WSABUF = undefined;
                 const bufs_n, const data_size = try io_r.writableVectorWsa(&iovecs, data);

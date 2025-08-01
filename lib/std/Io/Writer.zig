@@ -2266,7 +2266,7 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const pattern = data[data.len - 1];
     const dest = w.buffer[w.end..];
     switch (pattern.len) {
-        0 => return w.end,
+        0 => return 0,
         1 => {
             assert(splat >= dest.len);
             @memset(dest, pattern[0]);
@@ -2286,6 +2286,13 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     }
 }
 
+pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    _ = w;
+    _ = data;
+    _ = splat;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2296,6 +2303,8 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
 /// generic. A better solution will involve creating a writer for each hash
 /// function, where the splat buffer can be tailored to the hash implementation
 /// details.
+///
+/// Contrast with `Hashing` which terminates the stream pipeline.
 pub fn Hashed(comptime Hasher: type) type {
     return struct {
         out: *Writer,
@@ -2341,7 +2350,7 @@ pub fn Hashed(comptime Hasher: type) type {
                 this.hasher.update(slice);
             }
             const pattern = data[data.len - 1];
-            assert(remaining == splat * pattern.len);
+            assert(remaining <= splat * pattern.len);
             switch (pattern.len) {
                 0 => {
                     assert(remaining == 0);
@@ -2364,6 +2373,52 @@ pub fn Hashed(comptime Hasher: type) type {
                 },
             }
             return n;
+        }
+    };
+}
+
+/// Provides a `Writer` implementation based on calling `Hasher.update`,
+/// discarding all data.
+///
+/// This implementation makes suboptimal buffering decisions due to being
+/// generic. A better solution will involve creating a writer for each hash
+/// function, where the splat buffer can be tailored to the hash implementation
+/// details.
+///
+/// The total number of bytes written is stored in `hasher`.
+///
+/// Contrast with `Hashed` which also passes the data to an underlying stream.
+pub fn Hashing(comptime Hasher: type) type {
+    return struct {
+        hasher: Hasher,
+        writer: Writer,
+
+        pub fn init(buffer: []u8) @This() {
+            return .initHasher(.init(.{}), buffer);
+        }
+
+        pub fn initHasher(hasher: Hasher, buffer: []u8) @This() {
+            return .{
+                .hasher = hasher,
+                .writer = .{
+                    .buffer = buffer,
+                    .vtable = &.{ .drain = @This().drain },
+                },
+            };
+        }
+
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
+            const hasher = &this.hasher;
+            hasher.update(w.buffered());
+            w.end = 0;
+            var n: usize = 0;
+            for (data[0 .. data.len - 1]) |slice| {
+                hasher.update(slice);
+                n += slice.len;
+            }
+            for (0..splat) |_| hasher.update(data[data.len - 1]);
+            return n + splat * data[data.len - 1].len;
         }
     };
 }

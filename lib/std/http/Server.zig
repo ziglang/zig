@@ -130,8 +130,8 @@ pub const Request = struct {
         pub const DeflateDecompressor = std.compress.zlib.Decompressor(std.io.AnyReader);
         pub const GzipDecompressor = std.compress.gzip.Decompressor(std.io.AnyReader);
 
-        deflate: DeflateDecompressor,
-        gzip: GzipDecompressor,
+        deflate: std.compress.flate.Decompress,
+        gzip: std.compress.flate.Decompress,
         zstd: std.compress.zstd.Decompress,
         none: void,
     };
