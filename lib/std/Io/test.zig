@@ -45,9 +45,9 @@ test "write a file, read it, then delete it" {
         const expected_file_size: u64 = "begin".len + data.len + "end".len;
         try expectEqual(expected_file_size, file_size);
 
-        var buf_stream = io.bufferedReader(file.deprecatedReader());
-        const st = buf_stream.reader();
-        const contents = try st.readAllAlloc(std.testing.allocator, 2 * 1024);
+        var file_buffer: [1024]u8 = undefined;
+        var file_reader = file.reader(&file_buffer);
+        const contents = try file_reader.interface.allocRemaining(std.testing.allocator, .limited(2 * 1024));
         defer std.testing.allocator.free(contents);
 
         try expect(mem.eql(u8, contents[0.."begin".len], "begin"));

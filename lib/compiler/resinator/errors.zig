@@ -1078,10 +1078,8 @@ const CorrespondingLines = struct {
     at_eof: bool = false,
     span: SourceMappings.CorrespondingSpan,
     file: std.fs.File,
-    buffered_reader: BufferedReaderType,
+    buffered_reader: *std.Io.Reader,
     code_page: SupportedCodePage,
-
-    const BufferedReaderType = std.io.BufferedReader(512, std.fs.File.DeprecatedReader);
 
     pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
         // We don't do line comparison for this error, so don't print the note if the line
@@ -1101,9 +1099,7 @@ const CorrespondingLines = struct {
             .buffered_reader = undefined,
             .code_page = err_details.code_page,
         };
-        corresponding_lines.buffered_reader = BufferedReaderType{
-            .unbuffered_reader = corresponding_lines.file.deprecatedReader(),
-        };
+        corresponding_lines.buffered_reader = corresponding_lines.file.reader();
         errdefer corresponding_lines.deinit();
 
         var fbs = std.io.fixedBufferStream(&corresponding_lines.line_buf);
