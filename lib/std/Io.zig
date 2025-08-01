@@ -428,12 +428,6 @@ pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
 /// Deprecated in favor of `Writer`.
 pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
 /// Deprecated in favor of `Reader`.
-pub const BufferedReader = @import("Io/buffered_reader.zig").BufferedReader;
-/// Deprecated in favor of `Reader`.
-pub const bufferedReader = @import("Io/buffered_reader.zig").bufferedReader;
-/// Deprecated in favor of `Reader`.
-pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderSize;
-/// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
@@ -926,7 +920,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = BufferedReader;
     _ = BufferedWriter;
     _ = CountingWriter;
     _ = CountingReader;
