@@ -1306,31 +1306,6 @@ pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
     r.end = data.len;
 }
 
-/// Advances the stream and decreases the size of the storage buffer by `n`,
-/// returning the range of bytes no longer accessible by `r`.
-///
-/// This action can be undone by `restitute`.
-///
-/// Asserts there are at least `n` buffered bytes already.
-///
-/// Asserts that `r.seek` is zero, i.e. the buffer is in a rebased state.
-pub fn steal(r: *Reader, n: usize) []u8 {
-    assert(r.seek == 0);
-    assert(n <= r.end);
-    const stolen = r.buffer[0..n];
-    r.buffer = r.buffer[n..];
-    r.end -= n;
-    return stolen;
-}
-
-/// Expands the storage buffer, undoing the effects of `steal`
-/// Assumes that `n` does not exceed the total number of stolen bytes.
-pub fn restitute(r: *Reader, n: usize) void {
-    r.buffer = (r.buffer.ptr - n)[0 .. r.buffer.len + n];
-    r.end += n;
-    r.seek += n;
-}
-
 test fixed {
     var r: Reader = .fixed("a\x02");
     try testing.expect((try r.takeByte()) == 'a');
