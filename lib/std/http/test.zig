@@ -21,7 +21,7 @@ test "trailers" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -103,7 +103,7 @@ test "HTTP server handles a chunked transfer coding request" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
 
             try expect(request.head.transfer_encoding == .chunked);
@@ -170,7 +170,7 @@ test "echo content server" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -258,7 +258,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -325,7 +325,7 @@ test "receiving arbitrary http headers from the client" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+                var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 try expectEqual(.ready, server.reader.state);
                 var request = try server.receiveHead();
@@ -391,7 +391,7 @@ test "general client/server API coverage" {
 
                 var connection_br = connection.stream.reader(&recv_buffer);
                 var connection_bw = connection.stream.writer(&send_buffer);
-                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+                var http_server = http.Server.init(connection_br.interface(), &connection_bw.interface);
 
                 while (http_server.reader.state == .ready) {
                     var request = http_server.receiveHead() catch |err| switch (err) {
@@ -868,7 +868,7 @@ test "Server streams both reading and writing" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             var read_buffer: [100]u8 = undefined;
             var br = try request.readerExpectContinue(&read_buffer);
@@ -1112,7 +1112,7 @@ test "redirect to different connection" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/ok");
             try request.respond("good job, you pass", .{});
@@ -1141,7 +1141,7 @@ test "redirect to different connection" {
 
             var connection_br = connection.stream.reader(&recv_buffer);
             var connection_bw = connection.stream.writer(&send_buffer);
-            var server = http.Server.init(connection_br.interface(), &connection_bw.interface, .{});
+            var server = http.Server.init(connection_br.interface(), &connection_bw.interface);
             var request = try server.receiveHead();
             try expectEqualStrings(request.head.target, "/help");
             try request.respond("", .{

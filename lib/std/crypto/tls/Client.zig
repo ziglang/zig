@@ -328,7 +328,9 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var cleartext_bufs: [2][tls.max_ciphertext_inner_record_len]u8 = undefined;
     fragment: while (true) {
         // Ensure the input buffer pointer is stable in this scope.
-        input.rebaseCapacity(tls.max_ciphertext_record_len);
+        input.rebase(tls.max_ciphertext_record_len) catch |err| switch (err) {
+            error.EndOfStream => {}, // We have assurance the remainder of stream can be buffered.
+        };
         const record_header = input.peek(tls.record_header_len) catch |err| switch (err) {
             error.EndOfStream => return error.TlsConnectionTruncated,
             error.ReadFailed => return error.ReadFailed,

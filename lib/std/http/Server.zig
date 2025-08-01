@@ -14,18 +14,6 @@ const Server = @This();
 out: *Writer,
 reader: http.Reader,
 
-pub const Options = struct {
-    /// Limits the total max size in bytes of all HTTP headers together,
-    /// including everything from "HTTP/1.1..." all the way to, and including
-    /// "...\r\n\r\n".
-    ///
-    /// `error.HttpHeadersOversize` is returned if this limit is exceeded.
-    ///
-    /// If the `std.Io.Reader.buffer` used with `init` has smaller capacity
-    /// than this, that value is used instead.
-    max_head_len: usize = 8 * 1024,
-};
-
 /// Initialize an HTTP server that can respond to multiple requests on the same
 /// connection.
 ///
@@ -33,14 +21,13 @@ pub const Options = struct {
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.Io.Reader, out: *Writer, options: Options) Server {
+pub fn init(in: *std.Io.Reader, out: *Writer) Server {
     return .{
         .reader = .{
             .in = in,
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
-            .max_head_len = @min(options.max_head_len, in.buffer.len),
         },
         .out = out,
     };
@@ -256,7 +243,6 @@ pub const Request = struct {
                 .in = undefined,
                 .state = .received_head,
                 .interface = undefined,
-                .max_head_len = undefined,
             },
             .out = undefined,
         };

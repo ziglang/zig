@@ -343,9 +343,6 @@ pub const Reader = struct {
     /// read from `in`.
     trailers: []const u8 = &.{},
     body_err: ?BodyError = null,
-    /// Determines at which point `error.HttpHeadersOversize` occurs, as well
-    /// as the minimum buffer capacity of `in`.
-    max_head_len: usize,
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -404,27 +401,26 @@ pub const Reader = struct {
     pub fn receiveHead(reader: *Reader) HeadError![]const u8 {
         reader.trailers = &.{};
         const in = reader.in;
-        in.rebase(reader.max_head_len) catch |err| switch (err) {
-            error.EndOfStream => {}, // Proves that max_head_len suffices.
-        };
         var hp: HeadParser = .{};
-        const head_start = in.end;
         var head_len: usize = 0;
         while (true) {
             if (in.remainingCapacity() == 0) return error.HttpHeadersOversize;
-            in.fillMore() catch |err| switch (err) {
-                error.EndOfStream => switch (head_len) {
-                    0 => return error.HttpConnectionClosing,
-                    else => return error.HttpRequestTruncated,
-                },
-                error.ReadFailed => return error.ReadFailed,
-            };
-            head_len += hp.feed(in.buffered()[head_start + head_len ..]);
-            if (head_len > reader.max_head_len) return error.HttpHeadersOversize;
+            const remaining = in.buffered()[head_len..];
+            if (remaining.len == 0) {
+                in.fillMore() catch |err| switch (err) {
+                    error.EndOfStream => switch (head_len) {
+                        0 => return error.HttpConnectionClosing,
+                        else => return error.HttpRequestTruncated,
+                    },
+                    error.ReadFailed => return error.ReadFailed,
+                };
+                continue;
+            }
+            head_len += hp.feed(remaining);
             if (hp.state == .finished) {
                 reader.state = .received_head;
-                const head_buffer = in.buffered()[head_start..][0..head_len];
-                in.toss(head_buffer.len);
+                const head_buffer = in.buffered()[0..head_len];
+                in.toss(head_len);
                 return head_buffer;
             }
         }
@@ -700,7 +696,7 @@ pub const Reader = struct {
         var hp: HeadParser = .{ .state = .seen_rn };
         var trailers_len: usize = 2;
         while (true) {
-            if (in.buffer.len - trailers_len == 0) return error.HttpHeadersOversize;
+            if (in.remainingCapacity() == 0) return error.HttpHeadersOversize;
             const remaining = in.buffered()[trailers_len..];
             if (remaining.len == 0) {
                 try in.fillMore();

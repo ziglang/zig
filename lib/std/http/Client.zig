@@ -1300,11 +1300,13 @@ pub const basic_authorization = struct {
     }
 
     pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
-        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
-        (uri.user orelse .empty).formatUser(&w) catch unreachable;
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.user orelse .empty;
+        user.formatUser(&w) catch unreachable;
         w.writeByte(':') catch unreachable;
-        (uri.password orelse .empty).formatPassword(&w) catch unreachable;
+        password.formatPassword(&w) catch unreachable;
         try out.print("Basic {b64}", .{w.buffered()});
     }
 };
