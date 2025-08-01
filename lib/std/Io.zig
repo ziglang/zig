@@ -431,10 +431,6 @@ pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-/// Deprecated in favor of `Reader.Limited`.
-pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
-/// Deprecated in favor of `Reader.Limited`.
-pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
 /// Deprecated with no replacement; inefficient pattern
 pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
 /// Deprecated with no replacement; inefficient pattern
