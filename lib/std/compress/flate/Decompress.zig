@@ -53,15 +53,24 @@ pub const Error = Container.Error || error{
     EndOfStream,
 };
 
+const direct_vtable: Reader.VTable = .{
+    .stream = streamDirect,
+    .rebase = rebaseFallible,
+    .discard = discard,
+    .readVec = readVec,
+};
+
+const indirect_vtable: Reader.VTable = .{
+    .stream = streamIndirect,
+    .rebase = rebaseFallible,
+    .discard = discard,
+    .readVec = readVec,
+};
+
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
     return .{
         .reader = .{
-            .vtable = &.{
-                .stream = stream,
-                .rebase = rebaseFallible,
-                .discard = discard,
-                .readVec = readVec,
-            },
+            .vtable = if (buffer.len == 0) &direct_vtable else &indirect_vtable,
             .buffer = buffer,
             .seek = 0,
             .end = 0,
@@ -79,12 +88,10 @@ pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
 }
 
 fn rebaseFallible(r: *Reader, capacity: usize) Reader.RebaseError!void {
-    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    rebase(d, capacity);
+    rebase(r, capacity);
 }
 
-fn rebase(d: *Decompress, capacity: usize) void {
-    const r = &d.reader;
+fn rebase(r: *Reader, capacity: usize) void {
     assert(capacity <= r.buffer.len - flate.history_len);
     assert(r.end + capacity > r.buffer.len);
     const discard_n = r.end - flate.history_len;
@@ -98,7 +105,7 @@ fn rebase(d: *Decompress, capacity: usize) void {
 /// This could be improved so that when an amount is discarded that includes an
 /// entire frame, skip decoding that frame.
 fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
-    r.rebase(flate.history_len) catch unreachable;
+    if (r.end + flate.history_len > r.buffer.len) rebase(r, flate.history_len);
     var writer: Writer = .{
         .vtable = &.{
             .drain = std.Io.Writer.Discarding.drain,
@@ -124,12 +131,12 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
 fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
     _ = data;
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    return streamIndirect(d);
+    return streamIndirectInner(d);
 }
 
-fn streamIndirect(d: *Decompress) Reader.Error!usize {
+fn streamIndirectInner(d: *Decompress) Reader.Error!usize {
     const r = &d.reader;
-    if (r.end + flate.history_len > r.buffer.len) rebase(d, flate.history_len);
+    if (r.end + flate.history_len > r.buffer.len) rebase(r, flate.history_len);
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,
@@ -200,10 +207,16 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
     return sym;
 }
 
-pub fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+fn streamDirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    if (w.end >= r.end) return streamFallible(d, w, limit);
-    return streamIndirect(d);
+    return streamFallible(d, w, limit);
+}
+
+fn streamIndirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    _ = limit;
+    _ = w;
+    return streamIndirectInner(d);
 }
 
 fn streamFallible(d: *Decompress, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
