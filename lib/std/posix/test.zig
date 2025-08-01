@@ -949,14 +949,11 @@ test "sigset_t bits" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
-    if (true) {
-        // https://github.com/ziglang/zig/issues/24380
-        return error.SkipZigTest;
-    }
+    const NO_SIG: i32 = 0;
 
     const S = struct {
         var expected_sig: i32 = undefined;
-        var handler_called_count: u32 = 0;
+        var seen_sig: i32 = NO_SIG;
 
         fn handler(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopaque) callconv(.c) void {
             _ = ctx_ptr;
@@ -965,23 +962,25 @@ test "sigset_t bits" {
                 .netbsd => info.info.signo,
                 else => info.signo,
             };
-            if (sig == expected_sig and sig == info_sig) {
-                handler_called_count += 1;
+            if (seen_sig == NO_SIG and sig == expected_sig and sig == info_sig) {
+                seen_sig = sig;
             }
         }
     };
 
-    const self_pid = posix.system.getpid();
+    // Assume this is a single-threaded process where the current thread has the
+    // 'pid' thread id.  (The sigprocmask calls are thread-private state.)
+    const self_tid = posix.system.getpid();
 
     // To check that sigset_t mapping matches kernel (think u32/u64 mismatches on
     // big-endian), try sending a blocked signal to make sure the mask matches the
     // signal.  (Send URG and CHLD because they're ignored by default in the
     // debugger, vs. USR1 or other named signals)
-    inline for ([_]usize{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
+    inline for ([_]i32{ posix.SIG.URG, posix.SIG.CHLD, 62, 94, 126 }) |test_signo| {
         if (test_signo >= posix.NSIG) continue;
 
         S.expected_sig = test_signo;
-        S.handler_called_count = 0;
+        S.seen_sig = NO_SIG;
 
         const sa: posix.Sigaction = .{
             .handler = .{ .sigaction = &S.handler },
@@ -1001,18 +1000,18 @@ test "sigset_t bits" {
 
         // qemu maps target signals to host signals 1-to-1, so targets
         // with more signals than the host will fail to send the signal.
-        const rc = posix.system.kill(self_pid, test_signo);
+        const rc = posix.system.kill(self_tid, test_signo);
         switch (posix.errno(rc)) {
             .SUCCESS => {
                 // See that the signal is blocked, then unblocked
-                try testing.expectEqual(0, S.handler_called_count);
+                try testing.expectEqual(NO_SIG, S.seen_sig);
                 posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
-                try testing.expectEqual(1, S.handler_called_count);
+                try testing.expectEqual(test_signo, S.seen_sig);
             },
             .INVAL => {
                 // Signal won't get delviered.  Just clean up.
                 posix.sigprocmask(posix.SIG.UNBLOCK, &block_one, null);
-                try testing.expectEqual(0, S.handler_called_count);
+                try testing.expectEqual(NO_SIG, S.seen_sig);
             },
             else => |errno| return posix.unexpectedErrno(errno),
         }
