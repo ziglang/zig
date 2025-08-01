@@ -2350,7 +2350,7 @@ pub fn Hashed(comptime Hasher: type) type {
                 this.hasher.update(slice);
             }
             const pattern = data[data.len - 1];
-            assert(remaining == splat * pattern.len);
+            assert(remaining <= splat * pattern.len);
             switch (pattern.len) {
                 0 => {
                     assert(remaining == 0);
