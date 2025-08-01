@@ -6826,10 +6826,8 @@ const usage_fetch =
     \\  -h, --help                    Print this help and exit
     \\  --global-cache-dir [path]     Override path to global Zig cache directory
     \\  --debug-hash                  Print verbose hash information to stdout
-    \\  --save                        Add the fetched package to build.zig.zon
-    \\  --save=[name]                 Add the fetched package to build.zig.zon as name
-    \\  --save-exact                  Add the fetched package to build.zig.zon, storing the URL verbatim
-    \\  --save-exact=[name]           Add the fetched package to build.zig.zon as name, storing the URL verbatim
+    \\  --save[=name]                 Add the fetched package to build.zig.zon
+    \\  --save-exact[=name]           Add the fetched package to build.zig.zon, storing the URL verbatim
     \\
 ;
 
@@ -6885,7 +6883,19 @@ fn cmdFetch(
         }
     }
 
-    const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
+    const parsed_path_or_url: union(enum) { path: []const u8, url: std.Uri } = parse: {
+        const path_or_url = opt_path_or_url orelse fatal("missing url or path parameter", .{});
+        // Avoid mistaking Windows drive letters for URI schemes.
+        if (native_os != .windows or !std.fs.path.isAbsoluteWindows(path_or_url)) {
+            if (std.Uri.parse(path_or_url)) |url| {
+                break :parse .{ .url = url };
+            } else |_| {}
+        }
+        break :parse switch (save) {
+            .yes, .exact => fatal("options '--save' and '--save-exact' cannot be used when fetching by file path", .{}),
+            .no => .{ .path = path_or_url },
+        };
+    };
 
     var thread_pool: ThreadPool = undefined;
     try thread_pool.init(.{ .allocator = gpa });
@@ -6924,7 +6934,10 @@ fn cmdFetch(
 
     var fetch: Package.Fetch = .{
         .arena = std.heap.ArenaAllocator.init(gpa),
-        .location = .{ .path_or_url = path_or_url },
+        .location = switch (parsed_path_or_url) {
+            .path => |path| .{ .path = path },
+            .url => |url| .{ .url = url },
+        },
         .location_tok = 0,
         .hash_tok = .none,
         .name_tok = 0,
@@ -6978,9 +6991,8 @@ fn cmdFetch(
         },
         .yes, .exact => |name| name: {
             if (name) |n| break :name n;
-            const fetched_manifest = fetch.manifest orelse
-                fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
-            break :name fetched_manifest.name;
+            if (fetch.manifest) |fm| break :name fm.name;
+            fatal("unable to determine name; fetched package has no build.zig.zon file", .{});
         },
     };
 
@@ -7006,14 +7018,15 @@ fn cmdFetch(
     var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    var saved_path_or_url = path_or_url;
+    assert(parsed_path_or_url == .url);
+    var saved_url: []const u8 = try std.fmt.allocPrint(arena, "{f}", .{parsed_path_or_url.url});
 
     if (fetch.latest_commit) |latest_commit| resolved: {
         const latest_commit_hex = try std.fmt.allocPrint(arena, "{f}", .{latest_commit});
 
-        var uri = try std.Uri.parse(path_or_url);
+        var modified_url = parsed_path_or_url.url;
 
-        if (uri.fragment) |fragment| {
+        if (modified_url.fragment) |fragment| {
             const target_ref = try fragment.toRawMaybeAlloc(arena);
 
             // the refspec may already be fully resolved
@@ -7022,7 +7035,7 @@ fn cmdFetch(
             std.log.info("resolved ref '{s}' to commit {s}", .{ target_ref, latest_commit_hex });
 
             // include the original refspec in a query parameter, could be used to check for updates
-            uri.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f}", .{
+            modified_url.query = .{ .percent_encoded = try std.fmt.allocPrint(arena, "ref={f}", .{
                 std.fmt.alt(fragment, .formatEscaped),
             }) };
         } else {
@@ -7030,10 +7043,10 @@ fn cmdFetch(
         }
 
         // replace the refspec with the resolved commit SHA
-        uri.fragment = .{ .raw = latest_commit_hex };
+        modified_url.fragment = .{ .raw = latest_commit_hex };
 
         switch (save) {
-            .yes => saved_path_or_url = try std.fmt.allocPrint(arena, "{f}", .{uri}),
+            .yes => saved_url = try std.fmt.allocPrint(arena, "{f}", .{modified_url}),
             .no, .exact => {}, // keep the original URL
         }
     }
@@ -7044,7 +7057,7 @@ fn cmdFetch(
         \\            .hash = "{f}",
         \\        }}
     , .{
-        std.zig.fmtString(saved_path_or_url),
+        std.zig.fmtString(saved_url),
         std.zig.fmtString(package_hash_slice),
     });
 
@@ -7064,7 +7077,7 @@ fn cmdFetch(
         if (dep.hash) |h| {
             switch (dep.location) {
                 .url => |u| {
-                    if (mem.eql(u8, h, package_hash_slice) and mem.eql(u8, u, saved_path_or_url)) {
+                    if (mem.eql(u8, h, package_hash_slice) and mem.eql(u8, u, saved_url)) {
                         std.log.info("existing dependency named '{s}' is up-to-date", .{name});
                         process.exit(0);
                     }
@@ -7073,23 +7086,22 @@ fn cmdFetch(
             }
         }
 
-        const location_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(saved_path_or_url)},
-        );
-        const hash_replace = try std.fmt.allocPrint(
-            arena,
-            "\"{f}\"",
-            .{std.zig.fmtString(package_hash_slice)},
-        );
-
         warn("overwriting existing dependency named '{s}'", .{name});
-        try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
-        if (dep.hash_node.unwrap()) |hash_node| {
-            try fixups.replace_nodes_with_string.put(gpa, hash_node, hash_replace);
+        if (dep.location == .url) {
+            const location_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{f}\"",
+                .{std.zig.fmtString(saved_url)},
+            );
+            const hash_replace = try std.fmt.allocPrint(
+                arena,
+                "\"{f}\"",
+                .{std.zig.fmtString(package_hash_slice)},
+            );
+            try fixups.replace_nodes_with_string.put(gpa, dep.location_node, location_replace);
+            try fixups.replace_nodes_with_string.put(gpa, dep.hash_node.unwrap().?, hash_replace);
         } else {
-            // https://github.com/ziglang/zig/issues/21690
+            try fixups.replace_nodes_with_string.put(gpa, dep.node, new_node_init);
         }
     } else if (manifest.dependencies.count() > 0) {
         // Add fixup for adding another dependency.

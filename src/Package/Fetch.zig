@@ -298,14 +298,20 @@ pub const Location = union(enum) {
     remote: Remote,
     /// A directory found inside the parent package.
     relative_path: Cache.Path,
-    /// Recursive Fetch tasks will never use this Location, but it may be
-    /// passed in by the CLI. Indicates the file contents here should be copied
-    /// into the global package cache. It may be a file relative to the cwd or
-    /// absolute, in which case it should be treated exactly like a `file://`
-    /// URL, or a directory, in which case it should be treated as an
-    /// already-unpacked directory (but still needs to be copied into the
-    /// global package cache and have inclusion rules applied).
-    path_or_url: []const u8,
+    /// Recursive Fetch tasks will never use this Location,
+    /// but it may be passed in by the CLI.
+    /// Indicates that the archive the URL refers to should be fetched
+    /// and copied into the global package cache.
+    url: std.Uri,
+    /// Recursive Fetch tasks will never use this Location,
+    /// but it may be passed in by the CLI.
+    /// Indicates that the contents of the archive or directory the path refers to
+    /// should be copied into the global package cache.
+    /// The path can be relative to the CWD or absolute.
+    /// If the path refers to an archive, it is treated exactly like a `file://` URL.
+    /// If the path refers to a directory, it is treated like an already unpacked archive
+    /// and applies inclusion rules to its contents before copying.
+    path: []const u8,
 
     pub const Remote = struct {
         url: []const u8,
@@ -380,28 +386,23 @@ pub fn run(f: *Fetch) RunError!void {
             return queueJobsForDeps(f);
         },
         .remote => |remote| remote,
-        .path_or_url => |path_or_url| {
-            if (fs.cwd().openDir(path_or_url, .{ .iterate = true })) |dir| {
+        .path => |path| {
+            const fs_err = if (fs.cwd().openDir(path, .{ .iterate = true })) |dir| {
                 var resource: Resource = .{ .dir = dir };
-                return f.runResource(path_or_url, &resource, null);
-            } else |dir_err| {
-                const file_err = if (dir_err == error.NotDir) e: {
-                    if (fs.cwd().openFile(path_or_url, .{})) |file| {
-                        var resource: Resource = .{ .file = file };
-                        return f.runResource(path_or_url, &resource, null);
-                    } else |err| break :e err;
-                } else dir_err;
-
-                const uri = std.Uri.parse(path_or_url) catch |uri_err| {
-                    return f.fail(0, try eb.printString(
-                        "'{s}' could not be recognized as a file path ({s}) or an URL ({s})",
-                        .{ path_or_url, @errorName(file_err), @errorName(uri_err) },
-                    ));
-                };
-                var server_header_buffer: [header_buffer_size]u8 = undefined;
-                var resource = try f.initResource(uri, &server_header_buffer);
-                return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
-            }
+                return f.runResource(path, &resource, null);
+            } else |dir_err| if (dir_err == error.NotDir) e: {
+                if (fs.cwd().openFile(path, .{})) |file| {
+                    var resource: Resource = .{ .file = file };
+                    return f.runResource(path, &resource, null);
+                } else |err| break :e err;
+            } else dir_err;
+            return f.fail(0, try eb.printString("unable to open '{s}': {s}", .{ path, @errorName(fs_err) }));
+        },
+        .url => |uri| {
+            var server_header_buffer: [header_buffer_size]u8 = undefined;
+            const uri_path = try uri.path.toRawMaybeAlloc(arena);
+            var resource = try f.initResource(uri, &server_header_buffer);
+            return f.runResource(uri_path, &resource, null);
         },
     };
 
@@ -462,11 +463,12 @@ pub fn run(f: *Fetch) RunError!void {
 
     const uri = std.Uri.parse(remote.url) catch |err| return f.fail(
         f.location_tok,
-        try eb.printString("invalid URI: {s}", .{@errorName(err)}),
+        try eb.printString("invalid URL: {s}", .{@errorName(err)}),
     );
     var server_header_buffer: [header_buffer_size]u8 = undefined;
+    const uri_path = try uri.path.toRawMaybeAlloc(arena);
     var resource = try f.initResource(uri, &server_header_buffer);
-    return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
+    return f.runResource(uri_path, &resource, remote.hash);
 }
 
 pub fn deinit(f: *Fetch) void {
@@ -975,10 +977,45 @@ fn initResource(f: *Fetch, uri: std.Uri, server_header_buffer: []u8) RunError!Re
     const eb = &f.error_bundle;
 
     if (ascii.eqlIgnoreCase(uri.scheme, "file")) {
-        const path = try uri.path.toRawMaybeAlloc(arena);
-        return .{ .file = f.parent_package_root.openFile(path, .{}) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to open '{f}{s}': {s}", .{
-                f.parent_package_root, path, @errorName(err),
+        var path = try uri.path.toRawMaybeAlloc(arena);
+
+        if (uri.user != null or
+            uri.password != null or
+            uri.port != null or
+            path.len == 0 or path[0] != '/' or
+            uri.query != null)
+        {
+            return f.fail(f.location_tok, try eb.printString(
+                "invalid file URL: {f}",
+                .{uri},
+            ));
+        }
+        if (uri.host) |host| {
+            const raw_host = try host.toRawMaybeAlloc(arena);
+            if (raw_host.len != 0 and !ascii.eqlIgnoreCase(raw_host, "localhost")) {
+                return f.fail(f.location_tok, try eb.printString(
+                    "unable to process non-local file URL: {f}",
+                    .{uri},
+                ));
+            }
+        }
+
+        // On Windows, an absolute path starting with a drive letter gains a leading
+        // slash when encoded as a file URL that must be stripped when decoding.
+        if (native_os == .windows and
+            path.len >= "/C:/".len and
+            std.ascii.isAlphabetic(path[1]) and
+            path[2] == ':' and
+            path[3] == '/')
+        {
+            path = path[1..];
+        }
+
+        assert(std.fs.path.isAbsolute(path));
+
+        return .{ .file = fs.cwd().openFile(path, .{}) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to open '{s}': {s}", .{
+                path, @errorName(err),
             }));
         } };
     }
@@ -2093,7 +2130,7 @@ test "zip" {
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = zip_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2126,7 +2163,7 @@ test "zip with one root folder" {
     defer gpa.free(zip_path);
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, zip_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = zip_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2163,7 +2200,7 @@ test "tarball with duplicate paths" {
 
     // Run tarball fetch, expect to fail
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try std.testing.expectError(error.FetchFailed, fetch.run());
 
@@ -2195,7 +2232,7 @@ test "tarball with excluded duplicate paths" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try fetch.run();
 
@@ -2239,7 +2276,7 @@ test "tarball without root folder" {
 
     // Run tarball fetch, should succeed
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
     try fetch.run();
 
@@ -2278,7 +2315,7 @@ test "set executable bit based on file content" {
     // -rwxrwxr-x       17  executables/script
 
     var fb: TestFetchBuilder = undefined;
-    var fetch = try fb.build(gpa, tmp.dir, tarball_path);
+    var fetch = try fb.build(gpa, tmp.dir, .{ .path = tarball_path });
     defer fb.deinit();
 
     try fetch.run();
@@ -2329,8 +2366,10 @@ const TestFetchBuilder = struct {
         self: *TestFetchBuilder,
         allocator: std.mem.Allocator,
         cache_parent_dir: std.fs.Dir,
-        path_or_url: []const u8,
+        location: Location,
     ) !*Fetch {
+        assert(location == .url or location == .path);
+
         const cache_dir = try cache_parent_dir.makeOpenPath("zig-global-cache", .{});
 
         try self.thread_pool.init(.{ .allocator = allocator });
@@ -2350,7 +2389,7 @@ const TestFetchBuilder = struct {
 
         self.fetch = .{
             .arena = std.heap.ArenaAllocator.init(allocator),
-            .location = .{ .path_or_url = path_or_url },
+            .location = location,
             .location_tok = 0,
             .hash_tok = .none,
             .name_tok = 0,
