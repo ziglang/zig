@@ -1194,14 +1194,8 @@ fn unpackResource(
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
-            const reader = resource.reader();
-            var br = std.io.bufferedReaderSize(std.crypto.tls.max_ciphertext_record_len, reader);
-            var dcp = std.compress.xz.decompress(gpa, br.reader()) catch |err| {
-                return f.fail(f.location_tok, try eb.printString(
-                    "unable to decompress tarball: {s}",
-                    .{@errorName(err)},
-                ));
-            };
+            var dcp = std.compress.xz.decompress(gpa, resource.reader().adaptToOldInterface()) catch |err|
+                return f.fail(f.location_tok, try eb.printString("unable to decompress tarball: {t}", .{err}));
             defer dcp.deinit();
             var adapter_buffer: [1024]u8 = undefined;
             var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);

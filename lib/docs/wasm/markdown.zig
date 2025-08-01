@@ -145,13 +145,12 @@ fn mainImpl() !void {
     var parser = try Parser.init(gpa);
     defer parser.deinit();
 
-    var stdin_buf = std.io.bufferedReader(std.fs.File.stdin().deprecatedReader());
-    var line_buf = std.ArrayList(u8).init(gpa);
-    defer line_buf.deinit();
-    while (stdin_buf.reader().streamUntilDelimiter(line_buf.writer(), '\n', null)) {
-        if (line_buf.getLastOrNull() == '\r') _ = line_buf.pop();
-        try parser.feedLine(line_buf.items);
-        line_buf.clearRetainingCapacity();
+    var stdin_buffer: [1024]u8 = undefined;
+    var stdin_reader = std.fs.File.stdin().reader(&stdin_buffer);
+
+    while (stdin_reader.takeDelimiterExclusive('\n')) |line| {
+        const trimmed = std.mem.trimRight(u8, line, '\r');
+        try parser.feedLine(trimmed);
     } else |err| switch (err) {
         error.EndOfStream => {},
         else => |e| return e,
