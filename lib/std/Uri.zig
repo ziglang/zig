@@ -5,7 +5,7 @@ const std = @import("std.zig");
 const testing = std.testing;
 const Uri = @This();
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 scheme: []const u8,
 user: ?Component = null,
@@ -70,14 +70,11 @@ pub const Component = union(enum) {
     }
 
     /// Allocates the result with `arena` only if needed, so the result should not be freed.
-    pub fn toRawMaybeAlloc(
-        component: Component,
-        arena: Allocator,
-    ) Allocator.Error![]const u8 {
+    pub fn toRawMaybeAlloc(component: Component, arena: Allocator) Allocator.Error![]const u8 {
         return switch (component) {
             .raw => |raw| raw,
             .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
-                try std.fmt.allocPrint(arena, "{fraw}", .{component})
+                try std.fmt.allocPrint(arena, "{f}", .{std.fmt.alt(component, .formatRaw)})
             else
                 percent_encoded,
         };
