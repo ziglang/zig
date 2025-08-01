@@ -18,7 +18,7 @@ pub const DynamicSection = struct {
         if (rpath_list.len == 0) return;
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        var rpath = std.ArrayList(u8).init(gpa);
+        var rpath = std.array_list.Managed(u8).init(gpa);
         defer rpath.deinit();
         for (rpath_list, 0..) |path, i| {
             if (i > 0) try rpath.append(':');
@@ -1350,7 +1350,7 @@ pub const VerneedSection = struct {
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
-        var verneed = std.ArrayList(VersionedSymbol).init(gpa);
+        var verneed = std.array_list.Managed(VersionedSymbol).init(gpa);
         defer verneed.deinit();
         try verneed.ensureTotalCapacity(dynsyms.len);
 

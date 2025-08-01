@@ -73,7 +73,7 @@ pub fn main() anyerror!void {
 
     const args = try std.process.argsAlloc(allocator);
 
-    var argv = std.ArrayList([]const u8).init(allocator);
+    var argv = std.array_list.Managed([]const u8).init(allocator);
     var sysroot: ?[]const u8 = null;
 
     var args_iter = ArgsIterator{ .args = args[1..] };
@@ -145,7 +145,7 @@ fn fetchTarget(
         ver.minor,
     });
 
-    var cc_argv = std.ArrayList([]const u8).init(arena);
+    var cc_argv = std.array_list.Managed([]const u8).init(arena);
     try cc_argv.appendSlice(&[_][]const u8{
         "cc",
         "-arch",

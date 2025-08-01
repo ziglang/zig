@@ -53,7 +53,7 @@ fn subArchName(target: *const std.Target, comptime family: std.Target.Cpu.Arch.F
 }
 
 pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8 {
-    var llvm_triple = std.ArrayList(u8).init(allocator);
+    var llvm_triple = std.array_list.Managed(u8).init(allocator);
     defer llvm_triple.deinit();
 
     const llvm_arch = switch (target.cpu.arch) {
@@ -820,7 +820,7 @@ pub const Object = struct {
         }
 
         {
-            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 8);
+            var module_flags = try std.array_list.Managed(Builder.Metadata).initCapacity(o.gpa, 8);
             defer module_flags.deinit();
 
             const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
@@ -2583,7 +2583,7 @@ pub const Object = struct {
             .@"fn" => {
                 const fn_info = zcu.typeToFunc(ty).?;
 
-                var debug_param_types = std.ArrayList(Builder.Metadata).init(gpa);
+                var debug_param_types = std.array_list.Managed(Builder.Metadata).init(gpa);
                 defer debug_param_types.deinit();
 
                 try debug_param_types.ensureUnusedCapacity(3 + fn_info.param_types.len);
@@ -5254,7 +5254,7 @@ pub const FuncGen = struct {
         const target = zcu.getTarget();
         const sret = firstParamSRet(fn_info, zcu, target);
 
-        var llvm_args = std.ArrayList(Builder.Value).init(self.gpa);
+        var llvm_args = std.array_list.Managed(Builder.Value).init(self.gpa);
         defer llvm_args.deinit();
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
@@ -7536,7 +7536,7 @@ pub const FuncGen = struct {
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
-        var rendered_template = std.ArrayList(u8).init(gpa);
+        var rendered_template = std.array_list.Managed(u8).init(gpa);
         defer rendered_template.deinit();
 
         const State = enum { start, percent, input, modifier };

@@ -69,7 +69,7 @@ pub fn main() !void {
     const core_spec = try readRegistry(CoreRegistry, dir, "spirv.core.grammar.json");
     std.mem.sortUnstable(Instruction, core_spec.instructions, CmpInst{}, CmpInst.lt);
 
-    var exts = std.ArrayList(Extension).init(allocator);
+    var exts = std.array_list.Managed(Extension).init(allocator);
 
     var it = dir.iterate();
     while (try it.next()) |entry| {
@@ -113,7 +113,7 @@ pub fn main() !void {
     _ = try std.fs.File.stdout().write(formatted_output);
 }
 
-fn readExtRegistry(exts: *std.ArrayList(Extension), dir: std.fs.Dir, sub_path: []const u8) !void {
+fn readExtRegistry(exts: *std.array_list.Managed(Extension), dir: std.fs.Dir, sub_path: []const u8) !void {
     const filename = std.fs.path.basename(sub_path);
     if (!std.mem.startsWith(u8, filename, "extinst.")) {
         return;
@@ -296,8 +296,6 @@ fn render(
     );
 
     // Merge the operand kinds from all extensions together.
-    // var all_operand_kinds = std.ArrayList(OperandKind).init(a);
-    // try all_operand_kinds.appendSlice(registry.operand_kinds);
     var all_operand_kinds = OperandKindMap.init(allocator);
     for (registry.operand_kinds) |kind| {
         try all_operand_kinds.putNoClobber(.{ "core", kind.kind }, kind);
@@ -544,7 +542,7 @@ fn renderOpcodes(
     var inst_map = std.AutoArrayHashMap(u32, usize).init(allocator);
     try inst_map.ensureTotalCapacity(instructions.len);
 
-    var aliases = std.ArrayList(struct { inst: usize, alias: usize }).init(allocator);
+    var aliases = std.array_list.Managed(struct { inst: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(instructions.len);
 
     for (instructions, 0..) |inst, i| {
@@ -657,7 +655,7 @@ fn renderValueEnum(
     var enum_map = std.AutoArrayHashMap(u32, usize).init(allocator);
     try enum_map.ensureTotalCapacity(enumerants.len);
 
-    var aliases = std.ArrayList(struct { enumerant: usize, alias: usize }).init(allocator);
+    var aliases = std.array_list.Managed(struct { enumerant: usize, alias: usize }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {
@@ -735,7 +733,7 @@ fn renderBitEnum(
     var flags_by_bitpos = [_]?usize{null} ** 32;
     const enumerants = enumeration.enumerants orelse return error.InvalidRegistry;
 
-    var aliases = std.ArrayList(struct { flag: usize, alias: u5 }).init(allocator);
+    var aliases = std.array_list.Managed(struct { flag: usize, alias: u5 }).init(allocator);
     try aliases.ensureTotalCapacity(enumerants.len);
 
     for (enumerants, 0..) |enumerant, i| {

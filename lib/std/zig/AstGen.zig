@@ -1784,7 +1784,7 @@ fn structInitExpr(
             while (it.next()) |entry| {
                 const record = entry.value_ptr.*;
                 if (record.items.len > 1) {
-                    var error_notes = std.ArrayList(u32).init(astgen.arena);
+                    var error_notes = std.array_list.Managed(u32).init(astgen.arena);
 
                     for (record.items[1..]) |duplicate| {
                         try error_notes.append(try astgen.errNoteTok(duplicate, "duplicate name here", .{}));

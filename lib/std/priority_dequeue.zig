@@ -964,7 +964,7 @@ fn fuzzTestMinMax(rng: std.Random, queue_size: usize) !void {
 }
 
 fn generateRandomSlice(allocator: std.mem.Allocator, rng: std.Random, size: usize) ![]u32 {
-    var array = std.ArrayList(u32).init(allocator);
+    var array = std.array_list.Managed(u32).init(allocator);
     try array.ensureTotalCapacity(size);
 
     var i: usize = 0;

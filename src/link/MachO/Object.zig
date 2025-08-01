@@ -199,7 +199,7 @@ pub fn parse(self: *Object, macho_file: *MachO) !void {
         }
     };
 
-    var nlists = try std.ArrayList(NlistIdx).initCapacity(gpa, self.symtab.items(.nlist).len);
+    var nlists = try std.array_list.Managed(NlistIdx).initCapacity(gpa, self.symtab.items(.nlist).len);
     defer nlists.deinit();
     for (self.symtab.items(.nlist), 0..) |nlist, i| {
         if (nlist.stab() or !nlist.sect()) continue;
@@ -633,7 +633,7 @@ pub fn resolveLiterals(self: *Object, lp: *MachO.LiteralPool, macho_file: *MachO
     const gpa = macho_file.base.comp.gpa;
     const file = macho_file.getFileHandle(self.file_handle);
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     var sections_data = std.AutoHashMap(u32, []const u8).init(gpa);

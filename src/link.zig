@@ -166,7 +166,7 @@ pub const Diags = struct {
     ) Allocator.Error!void {
         const gpa = diags.gpa;
 
-        var context_lines = std.ArrayList([]const u8).init(gpa);
+        var context_lines = std.array_list.Managed([]const u8).init(gpa);
         defer context_lines.deinit();
 
         var current_err: ?*Lld = null;

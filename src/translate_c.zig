@@ -924,10 +924,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             break :blk Tag.opaque_literal.init();
         };
 
-        var fields = std.ArrayList(ast.Payload.Record.Field).init(c.gpa);
+        var fields = std.array_list.Managed(ast.Payload.Record.Field).init(c.gpa);
         defer fields.deinit();
 
-        var functions = std.ArrayList(Node).init(c.gpa);
+        var functions = std.array_list.Managed(Node).init(c.gpa);
         defer functions.deinit();
 
         const flexible_field = flexibleArrayField(c, record_def);
@@ -2606,7 +2606,7 @@ fn transInitListExprRecord(
 
     const ty_node = try transType(c, scope, ty, loc);
     const init_count = expr.getNumInits();
-    var field_inits = std.ArrayList(ast.Payload.ContainerInit.Initializer).init(c.gpa);
+    var field_inits = std.array_list.Managed(ast.Payload.ContainerInit.Initializer).init(c.gpa);
     defer field_inits.deinit();
 
     if (init_count == 0) {
@@ -3116,7 +3116,7 @@ fn transSwitch(
     defer cond_scope.deinit();
     const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
 
-    var cases = std.ArrayList(Node).init(c.gpa);
+    var cases = std.array_list.Managed(Node).init(c.gpa);
     defer cases.deinit();
     var has_default = false;
 
@@ -3130,7 +3130,7 @@ fn transSwitch(
     while (it != end_it) : (it += 1) {
         switch (it[0].getStmtClass()) {
             .CaseStmtClass => {
-                var items = std.ArrayList(Node).init(c.gpa);
+                var items = std.array_list.Managed(Node).init(c.gpa);
                 defer items.deinit();
                 const sub = try transCaseStmt(c, base_scope, it[0], &items);
                 const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
@@ -3185,7 +3185,7 @@ fn transSwitch(
 
 /// Collects all items for this case, returns the first statement after the labels.
 /// If items ends up empty, the prong should be translated as an else.
-fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *std.ArrayList(Node)) TransError!*const clang.Stmt {
+fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *std.array_list.Managed(Node)) TransError!*const clang.Stmt {
     var sub = stmt;
     var seen_default = false;
     while (true) {
@@ -4716,7 +4716,7 @@ fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float 
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
-    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
+    var fn_params = std.array_list.Managed(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     for (proto_alias.data.params) |param| {
@@ -5115,7 +5115,7 @@ fn finishTransFnProto(
     const scope = &c.global_scope.base;
 
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
-    var fn_params = try std.ArrayList(ast.Payload.Param).initCapacity(c.gpa, param_count);
+    var fn_params = try std.array_list.Managed(ast.Payload.Param).initCapacity(c.gpa, param_count);
     defer fn_params.deinit();
 
     var i: usize = 0;
@@ -5333,7 +5333,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
     var it = unit.getLocalPreprocessingEntities_begin();
     const it_end = unit.getLocalPreprocessingEntities_end();
-    var tok_list = std.ArrayList(CToken).init(c.gpa);
+    var tok_list = std.array_list.Managed(CToken).init(c.gpa);
     defer tok_list.deinit();
     const scope = c.global_scope;
 
@@ -5484,7 +5484,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     try m.skip(c, .l_paren);
 
-    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
+    var fn_params = std.array_list.Managed(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     while (true) {
@@ -6459,7 +6459,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
                     m.i += 1;
                     node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &[0]Node{} });
                 } else {
-                    var args = std.ArrayList(Node).init(c.gpa);
+                    var args = std.array_list.Managed(Node).init(c.gpa);
                     defer args.deinit();
                     while (true) {
                         const arg = try parseCCondExpr(c, m, scope);
@@ -6480,7 +6480,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
             .l_brace => {
                 // Check for designated field initializers
                 if (m.peek().? == .period) {
-                    var init_vals = std.ArrayList(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
+                    var init_vals = std.array_list.Managed(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
                     defer init_vals.deinit();
 
                     while (true) {
@@ -6506,7 +6506,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
                     continue;
                 }
 
-                var init_vals = std.ArrayList(Node).init(c.gpa);
+                var init_vals = std.array_list.Managed(Node).init(c.gpa);
                 defer init_vals.deinit();
 
                 while (true) {

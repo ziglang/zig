@@ -882,7 +882,7 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
     self.rela_plt.clearRetainingCapacity();
 
     if (self.zigObjectPtr()) |zo| {
-        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+        var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
         defer {
             for (undefs.values()) |*refs| refs.deinit();
             undefs.deinit();
@@ -1326,7 +1326,7 @@ fn scanRelocs(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
     defer {
         for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
@@ -1849,7 +1849,7 @@ pub fn updateMergeSectionSizes(self: *Elf) !void {
 
 pub fn writeMergeSections(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     for (self.merge_sections.items) |*msec| {
@@ -2214,7 +2214,7 @@ fn sortInitFini(self: *Elf) !void {
         }
         if (!is_init_fini and !is_ctor_dtor) continue;
 
-        var entries = std.ArrayList(Entry).init(gpa);
+        var entries = std.array_list.Managed(Entry).init(gpa);
         try entries.ensureTotalCapacityPrecise(atom_list.atoms.keys().len);
         defer entries.deinit();
 
@@ -2771,7 +2771,7 @@ pub fn allocateAllocSections(self: *Elf) !void {
     // virtual and file offsets. However, the simple one will do for one
     // as we are more interested in quick turnaround and compatibility
     // with `findFreeSpace` mechanics than anything else.
-    const Cover = std.ArrayList(u32);
+    const Cover = std.array_list.Managed(u32);
     const gpa = self.base.comp.gpa;
     var covers: [max_number_of_object_segments]Cover = undefined;
     for (&covers) |*cover| {
@@ -2999,13 +2999,13 @@ fn allocateSpecialPhdrs(self: *Elf) void {
 fn writeAtoms(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
 
-    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.ArrayList(Ref)) = .init(gpa);
+    var undefs: std.AutoArrayHashMap(SymbolResolver.Index, std.array_list.Managed(Ref)) = .init(gpa);
     defer {
         for (undefs.values()) |*refs| refs.deinit();
         undefs.deinit();
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     const slice = self.sections.slice();
@@ -3048,7 +3048,7 @@ pub fn updateSymtabSize(self: *Elf) !void {
     const gpa = self.base.comp.gpa;
     const shared_objects = self.shared_objects.values();
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + shared_objects.len + 2);
 
@@ -3166,7 +3166,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.verneed) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.verneed.size());
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.verneed.size());
         defer buffer.deinit();
         try self.verneed.write(buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3174,7 +3174,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.dynamic) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynamic.size(self));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.dynamic.size(self));
         defer buffer.deinit();
         try self.dynamic.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3182,7 +3182,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.dynsymtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.dynsym.size());
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.dynsym.size());
         defer buffer.deinit();
         try self.dynsym.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3201,7 +3201,7 @@ fn writeSyntheticSections(self: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
         try eh_frame.writeEhFrame(self, buffer.writer());
         assert(buffer.items.len == sh_size - existing_size);
@@ -3211,7 +3211,7 @@ fn writeSyntheticSections(self: *Elf) !void {
     if (self.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try eh_frame.writeEhFrameHdr(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3219,7 +3219,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.got) |index| {
         const shdr = slice.items(.shdr)[index];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got.size(self));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.got.size(self));
         defer buffer.deinit();
         try self.got.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3235,7 +3235,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt.size(self));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
         try self.plt.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3243,7 +3243,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.got_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.got_plt.size(self));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.got_plt.size(self));
         defer buffer.deinit();
         try self.got_plt.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);
@@ -3251,7 +3251,7 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.plt_got) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.plt_got.size(self));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
         try self.plt_got.write(self, buffer.writer());
         try self.pwriteAll(buffer.items, shdr.sh_offset);

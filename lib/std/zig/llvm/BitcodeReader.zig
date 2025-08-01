@@ -60,7 +60,7 @@ pub const Record = struct {
     blob: []const u8,
 
     fn toOwnedAbbrev(record: Record, allocator: std.mem.Allocator) !Abbrev {
-        var operands = std.ArrayList(Abbrev.Operand).init(allocator);
+        var operands = std.array_list.Managed(Abbrev.Operand).init(allocator);
         defer operands.deinit();
 
         assert(record.id == Abbrev.Builtin.define_abbrev.toRecordId());
@@ -194,8 +194,8 @@ fn nextRecord(bc: *BitcodeReader) !?Record {
     defer bc.record_arena = record_arena.state;
     _ = record_arena.reset(.retain_capacity);
 
-    var operands = try std.ArrayList(u64).initCapacity(record_arena.allocator(), abbrev.operands.len);
-    var blob = std.ArrayList(u8).init(record_arena.allocator());
+    var operands = try std.array_list.Managed(u64).initCapacity(record_arena.allocator(), abbrev.operands.len);
+    var blob = std.array_list.Managed(u8).init(record_arena.allocator());
     for (abbrev.operands, 0..) |abbrev_operand, abbrev_operand_i| switch (abbrev_operand) {
         .literal => |value| operands.appendAssumeCapacity(value),
         .encoding => |abbrev_encoding| switch (abbrev_encoding) {

@@ -771,7 +771,7 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bo
     // if we are running in hot-code swapping mode or not.
     // TODO: how crazy would it be to try and apply the actual image base of the loaded
     // process for the in-file values rather than the Windows defaults?
-    var relocs = std.ArrayList(*Relocation).init(gpa);
+    var relocs = std.array_list.Managed(*Relocation).init(gpa);
     defer relocs.deinit();
 
     if (resolve_relocs) {
@@ -1680,7 +1680,7 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         const section = coff.sections.get(@intFromEnum(sym.section_number) - 1).header;
         const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
 
-        var code = std.ArrayList(u8).init(gpa);
+        var code = std.array_list.Managed(u8).init(gpa);
         defer code.deinit();
         try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
         assert(atom.size > 0);
@@ -1893,7 +1893,7 @@ pub fn updateLineNumber(coff: *Coff, pt: Zcu.PerThread, ti_id: InternPool.Tracke
 fn writeBaseRelocations(coff: *Coff) !void {
     const gpa = coff.base.comp.gpa;
 
-    var page_table = std.AutoHashMap(u32, std.ArrayList(coff_util.BaseRelocation)).init(gpa);
+    var page_table = std.AutoHashMap(u32, std.array_list.Managed(coff_util.BaseRelocation)).init(gpa);
     defer {
         var it = page_table.valueIterator();
         while (it.next()) |inner| {
@@ -1915,7 +1915,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, coff.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.array_list.Managed(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -1936,7 +1936,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, coff.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.array_list.Managed(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -1947,7 +1947,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
     }
 
     // Sort pages by address.
-    var pages = try std.ArrayList(u32).initCapacity(gpa, page_table.count());
+    var pages = try std.array_list.Managed(u32).initCapacity(gpa, page_table.count());
     defer pages.deinit();
     {
         var it = page_table.keyIterator();
@@ -1957,7 +1957,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
     }
     mem.sort(u32, pages.items, {}, std.sort.asc(u32));
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     for (pages.items) |page| {
@@ -2030,7 +2030,7 @@ fn writeImportTables(coff: *Coff) !void {
     try coff.growSection(coff.idata_section_index.?, needed_size);
 
     // Do the actual writes
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
     buffer.resize(needed_size) catch unreachable;
@@ -2153,7 +2153,7 @@ fn writeStrtab(coff: *Coff) !void {
 
     log.debug("writing strtab from 0x{x} to 0x{x}", .{ coff.strtab_offset.?, coff.strtab_offset.? + needed_size });
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
     buffer.appendSliceAssumeCapacity(coff.strtab.buffer.items);
@@ -2179,7 +2179,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 fn writeHeader(coff: *Coff) !void {
     const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     const writer = buffer.writer();
 

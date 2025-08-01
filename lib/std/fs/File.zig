@@ -826,7 +826,7 @@ pub fn readToEndAllocOptions(
     // size. If the reported size is zero, as it happens on Linux for files
     // in /proc, a small buffer is allocated instead.
     const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
+    var array_list = try std.array_list.AlignedManaged(u8, alignment).initCapacity(allocator, initial_cap);
     defer array_list.deinit();
 
     self.deprecatedReader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
