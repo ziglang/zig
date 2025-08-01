@@ -569,9 +569,9 @@ pub const File = struct {
         const gpa = comp.gpa;
         switch (base.tag) {
             .lld => assert(base.file == null),
-            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
+            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff, .spirv => {
                 if (base.file != null) return;
-                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
+                dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker, .spirv_linker });
                 const emit = base.emit;
                 if (base.child_pid) |pid| {
                     if (builtin.os.tag == .windows) {
@@ -609,7 +609,7 @@ pub const File = struct {
                     .mode = determineMode(output_mode, link_mode),
                 });
             },
-            .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .c => dev.check(.c_linker),
         }
     }
 
