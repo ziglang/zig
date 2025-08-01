@@ -2266,7 +2266,7 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const pattern = data[data.len - 1];
     const dest = w.buffer[w.end..];
     switch (pattern.len) {
-        0 => return w.end,
+        0 => return 0,
         1 => {
             assert(splat >= dest.len);
             @memset(dest, pattern[0]);
