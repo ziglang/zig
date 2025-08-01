@@ -145,11 +145,12 @@
 #  define HAVE_CLOCK_GETRES64_VSYSCALL	"__vdso_clock_getres"
 #  define HAVE_CLOCK_GETTIME64_VSYSCALL	"__vdso_clock_gettime"
 #  define HAVE_GETTIMEOFDAY_VSYSCALL	"__vdso_gettimeofday"
+#  define HAVE_GETRANDOM_VSYSCALL	"__vdso_getrandom"
 # else
 #  define VDSO_NAME	"LINUX_5.4"
 #  define VDSO_HASH	61765876
 
-/* RV32 does not support the gettime VDSO syscalls.  */
+/* RV32 does not support the gettime and getrandom VDSO syscalls.  */
 # endif
 # define HAVE_CLONE3_WRAPPER		1
 

@@ -17,12 +17,5 @@
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
 
-#ifdef __LP64__
-# define __WORDSIZE			64
-#else
-# define __WORDSIZE			32
-# define __WORDSIZE32_SIZE_ULONG	1
-# define __WORDSIZE32_PTRDIFF_LONG	1
-#endif
-
+#define __WORDSIZE			64
 #define __WORDSIZE_TIME64_COMPAT32	0

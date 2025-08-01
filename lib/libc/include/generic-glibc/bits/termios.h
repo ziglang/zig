@@ -24,35 +24,41 @@ typedef unsigned char	cc_t;
 typedef unsigned int	speed_t;
 typedef unsigned int	tcflag_t;
 
-#include <bits/termios-struct.h>
+#ifdef _TERMIOS_H
+# include <bits/termios-struct.h>
+#endif
+
 #include <bits/termios-c_cc.h>
 #include <bits/termios-c_iflag.h>
 #include <bits/termios-c_oflag.h>
 
 /* c_cflag bit meaning */
-#define  B0	0000000		/* hang up */
-#define  B50	0000001
-#define  B75	0000002
-#define  B110	0000003
-#define  B134	0000004
-#define  B150	0000005
-#define  B200	0000006
-#define  B300	0000007
-#define  B600	0000010
-#define  B1200	0000011
-#define  B1800	0000012
-#define  B2400	0000013
-#define  B4800	0000014
-#define  B9600	0000015
-#define  B19200	0000016
-#define  B38400	0000017
-#ifdef __USE_MISC
-# define EXTA B19200
-# define EXTB B38400
-#endif
-#include <bits/termios-baud.h>
-
 #include <bits/termios-c_cflag.h>
+
+#ifdef __USE_MISC
+#define __B0	 0000000	/* hang up */
+#define __B50	 0000001
+#define __B75	 0000002
+#define __B110	 0000003
+#define __B134	 0000004
+#define __B150	 0000005
+#define __B200	 0000006
+#define __B300	 0000007
+#define __B600	 0000010
+#define __B1200	 0000011
+#define __B1800	 0000012
+#define __B2400	 0000013
+#define __B4800	 0000014
+#define __B9600  0000015
+#define __B19200 0000016
+#define __B38400 0000017
+#include <bits/termios-cbaud.h>
+
+# define __EXTA	 __B19200
+# define __EXTB	 __B38400
+# define BOTHER  __BOTHER
+#endif
+
 #include <bits/termios-c_lflag.h>
 
 #ifdef __USE_MISC
@@ -74,3 +80,5 @@ typedef unsigned int	tcflag_t;
 #include <bits/termios-tcflow.h>
 
 #include <bits/termios-misc.h>
+
+#include <bits/termios-baud.h>

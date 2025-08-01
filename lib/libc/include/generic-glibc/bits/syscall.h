@@ -1,11 +1,11 @@
 /* Generated at libc build time from syscall list.  */
-/* The system call list corresponds to kernel 6.12.  */
+/* The system call list corresponds to kernel 6.15.  */
 
 #ifndef _SYSCALL_H
 # error "Never use <bits/syscall.h> directly; include <sys/syscall.h> instead."
 #endif
 
-#define __GLIBC_LINUX_VERSION_CODE 396288
+#define __GLIBC_LINUX_VERSION_CODE 397056
 
 #ifdef __NR_FAST_atomic_update
 # define SYS_FAST_atomic_update __NR_FAST_atomic_update
@@ -703,6 +703,10 @@
 # define SYS_getxattr __NR_getxattr
 #endif
 
+#ifdef __NR_getxattrat
+# define SYS_getxattrat __NR_getxattrat
+#endif
+
 #ifdef __NR_getxgid
 # define SYS_getxgid __NR_getxgid
 #endif
@@ -873,6 +877,10 @@
 
 #ifdef __NR_listxattr
 # define SYS_listxattr __NR_listxattr
+#endif
+
+#ifdef __NR_listxattrat
+# define SYS_listxattrat __NR_listxattrat
 #endif
 
 #ifdef __NR_llistxattr
@@ -1165,6 +1173,10 @@
 
 #ifdef __NR_open_tree
 # define SYS_open_tree __NR_open_tree
+#endif
+
+#ifdef __NR_open_tree_attr
+# define SYS_open_tree_attr __NR_open_tree_attr
 #endif
 
 #ifdef __NR_openat
@@ -1839,6 +1851,10 @@
 # define SYS_removexattr __NR_removexattr
 #endif
 
+#ifdef __NR_removexattrat
+# define SYS_removexattrat __NR_removexattrat
+#endif
+
 #ifdef __NR_rename
 # define SYS_rename __NR_rename
 #endif
@@ -2197,6 +2213,10 @@
 
 #ifdef __NR_setxattr
 # define SYS_setxattr __NR_setxattr
+#endif
+
+#ifdef __NR_setxattrat
+# define SYS_setxattrat __NR_setxattrat
 #endif
 
 #ifdef __NR_sgetmask

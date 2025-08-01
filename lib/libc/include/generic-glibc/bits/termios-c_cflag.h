@@ -34,5 +34,7 @@
 #define CLOCAL	0004000
 
 #ifdef __USE_MISC
-# define ADDRB 04000000000
+# define ADDRB    04000000000
+# define CMSPAR  010000000000 /* Mark or space (stick) parity.  */
+# define CRTSCTS 020000000000 /* Flow control.  */
 #endif
