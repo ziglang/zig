@@ -10,8 +10,8 @@ const Decompress = @This();
 const Token = @import("Token.zig");
 
 input: *Reader,
-next_bits: usize,
-remaining_bits: std.math.Log2Int(usize),
+next_bits: Bits,
+remaining_bits: std.math.Log2Int(Bits),
 
 reader: Reader,
 
@@ -24,6 +24,9 @@ final_block: bool,
 state: State,
 
 err: ?Error,
+
+/// TODO: change this to usize
+const Bits = u64;
 
 const BlockType = enum(u2) {
     stored = 0,
@@ -498,14 +501,14 @@ fn takeBits(d: *Decompress, comptime U: type) !U {
         return u;
     }
     const in = d.input;
-    const next_int = in.takeInt(usize, .little) catch |err| switch (err) {
+    const next_int = in.takeInt(Bits, .little) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return takeBitsEnding(d, U),
     };
     const needed_bits = @bitSizeOf(U) - remaining_bits;
-    const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
+    const u: U = @intCast(((next_int & ((@as(Bits, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
     d.next_bits = next_int >> needed_bits;
-    d.remaining_bits = @intCast(@bitSizeOf(usize) - @as(usize, needed_bits));
+    d.remaining_bits = @intCast(@bitSizeOf(Bits) - @as(usize, needed_bits));
     return u;
 }
 
@@ -514,14 +517,14 @@ fn takeBitsEnding(d: *Decompress, comptime U: type) !U {
     const next_bits = d.next_bits;
     const in = d.input;
     const n = in.bufferedLen();
-    assert(n < @sizeOf(usize));
+    assert(n < @sizeOf(Bits));
     const needed_bits = @bitSizeOf(U) - remaining_bits;
     if (n * 8 < needed_bits) return error.EndOfStream;
-    const next_int = in.takeVarInt(usize, .little, n) catch |err| switch (err) {
+    const next_int = in.takeVarInt(Bits, .little, n) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => unreachable,
     };
-    const u: U = @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
+    const u: U = @intCast(((next_int & ((@as(Bits, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
     d.next_bits = next_int >> needed_bits;
     d.remaining_bits = @intCast(n * 8 - @as(usize, needed_bits));
     return u;
@@ -532,37 +535,37 @@ fn peekBits(d: *Decompress, comptime U: type) !U {
     const next_bits = d.next_bits;
     if (remaining_bits >= @bitSizeOf(U)) return @truncate(next_bits);
     const in = d.input;
-    const next_int = in.peekInt(usize, .little) catch |err| switch (err) {
+    const next_int = in.peekInt(Bits, .little) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => return peekBitsEnding(d, U),
     };
     const needed_bits = @bitSizeOf(U) - remaining_bits;
-    return @intCast(((next_int & ((@as(usize, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
+    return @intCast(((next_int & ((@as(Bits, 1) << needed_bits) - 1)) << remaining_bits) | next_bits);
 }
 
 fn peekBitsEnding(d: *Decompress, comptime U: type) !U {
     const remaining_bits = d.remaining_bits;
     const next_bits = d.next_bits;
     const in = d.input;
-    var u: usize = 0;
+    var u: Bits = 0;
     var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
     var i: usize = 0;
     while (remaining_needed_bits >= 8) {
         const byte = try specialPeek(in, next_bits, i);
-        u |= @as(usize, byte) << @intCast(i * 8);
+        u |= @as(Bits, byte) << @intCast(i * 8);
         remaining_needed_bits -= 8;
         i += 1;
     }
     if (remaining_needed_bits != 0) {
         const byte = try specialPeek(in, next_bits, i);
-        u |= @as(usize, byte) << @intCast((i * 8) + remaining_needed_bits);
+        u |= @as(Bits, byte) << @intCast((i * 8) + remaining_needed_bits);
     }
     return @truncate((u << remaining_bits) | next_bits);
 }
 
 /// If there is any unconsumed data, handles EndOfStream by pretending there
 /// are zeroes afterwards.
-fn specialPeek(in: *Reader, next_bits: usize, i: usize) Reader.Error!u8 {
+fn specialPeek(in: *Reader, next_bits: Bits, i: usize) Reader.Error!u8 {
     const peeked = in.peek(i + 1) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => if (next_bits == 0 and i == 0) return error.EndOfStream else return 0,
@@ -578,13 +581,13 @@ fn tossBits(d: *Decompress, n: u4) !void {
         d.remaining_bits = remaining_bits - n;
     } else {
         const in = d.input;
-        const next_int = in.takeInt(usize, .little) catch |err| switch (err) {
+        const next_int = in.takeInt(Bits, .little) catch |err| switch (err) {
             error.ReadFailed => return error.ReadFailed,
             error.EndOfStream => return tossBitsEnding(d, n),
         };
         const needed_bits = n - remaining_bits;
         d.next_bits = next_int >> needed_bits;
-        d.remaining_bits = @intCast(@bitSizeOf(usize) - @as(usize, needed_bits));
+        d.remaining_bits = @intCast(@bitSizeOf(Bits) - @as(usize, needed_bits));
     }
 }
 
@@ -593,9 +596,9 @@ fn tossBitsEnding(d: *Decompress, n: u4) !void {
     const in = d.input;
     const buffered_n = in.bufferedLen();
     if (buffered_n == 0) return error.EndOfStream;
-    assert(buffered_n < @sizeOf(usize));
+    assert(buffered_n < @sizeOf(Bits));
     const needed_bits = n - remaining_bits;
-    const next_int = in.takeVarInt(usize, .little, buffered_n) catch |err| switch (err) {
+    const next_int = in.takeVarInt(Bits, .little, buffered_n) catch |err| switch (err) {
         error.ReadFailed => return error.ReadFailed,
         error.EndOfStream => unreachable,
     };
