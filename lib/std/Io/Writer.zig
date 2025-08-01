@@ -2418,7 +2418,7 @@ pub fn Hashing(comptime Hasher: type) type {
                 n += slice.len;
             }
             for (0..splat) |_| hasher.update(data[data.len - 1]);
-            return n + splat;
+            return n + splat * data[data.len - 1].len;
         }
     };
 }
