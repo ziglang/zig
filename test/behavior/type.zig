@@ -433,8 +433,8 @@ test "Type.Union" {
             .layout = .@"packed",
             .tag_type = null,
             .fields = &.{
-                .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
-                .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
+                .{ .name = "signed", .type = i32, .alignment = 0 },
+                .{ .name = "unsigned", .type = u32, .alignment = 0 },
             },
             .decls = &.{},
         },
