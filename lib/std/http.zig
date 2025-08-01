@@ -343,9 +343,6 @@ pub const Reader = struct {
     /// read from `in`.
     trailers: []const u8 = &.{},
     body_err: ?BodyError = null,
-    /// Determines at which point `error.HttpHeadersOversize` occurs, as well
-    /// as the minimum buffer capacity of `in`.
-    max_head_len: usize,
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -397,27 +394,34 @@ pub const Reader = struct {
         ReadFailed,
     };
 
-    /// Buffers the entire head.
-    pub fn receiveHead(reader: *Reader) HeadError!void {
+    /// Buffers the entire head inside `in`.
+    ///
+    /// The resulting memory is invalidated by any subsequent consumption of
+    /// the input stream.
+    pub fn receiveHead(reader: *Reader) HeadError![]const u8 {
         reader.trailers = &.{};
         const in = reader.in;
-        try in.rebase(reader.max_head_len);
         var hp: HeadParser = .{};
-        var head_end: usize = 0;
+        var head_len: usize = 0;
         while (true) {
-            if (head_end >= in.buffer.len) return error.HttpHeadersOversize;
-            in.fillMore() catch |err| switch (err) {
-                error.EndOfStream => switch (head_end) {
-                    0 => return error.HttpConnectionClosing,
-                    else => return error.HttpRequestTruncated,
-                },
-                error.ReadFailed => return error.ReadFailed,
-            };
-            head_end += hp.feed(in.buffered()[head_end..]);
+            if (in.buffer.len - head_len == 0) return error.HttpHeadersOversize;
+            const remaining = in.buffered()[head_len..];
+            if (remaining.len == 0) {
+                in.fillMore() catch |err| switch (err) {
+                    error.EndOfStream => switch (head_len) {
+                        0 => return error.HttpConnectionClosing,
+                        else => return error.HttpRequestTruncated,
+                    },
+                    error.ReadFailed => return error.ReadFailed,
+                };
+                continue;
+            }
+            head_len += hp.feed(remaining);
             if (hp.state == .finished) {
-                reader.head_buffer = in.steal(head_end);
                 reader.state = .received_head;
-                return;
+                const head_buffer = in.buffered()[0..head_len];
+                in.toss(head_len);
+                return head_buffer;
             }
         }
     }
@@ -786,7 +790,7 @@ pub const BodyWriter = struct {
     };
 
     pub fn isEliding(w: *const BodyWriter) bool {
-        return w.writer.vtable.drain == Writer.discardingDrain;
+        return w.writer.vtable.drain == elidingDrain;
     }
 
     /// Sends all buffered data across `BodyWriter.http_protocol_output`.
@@ -928,6 +932,46 @@ pub const BodyWriter = struct {
         const out = bw.http_protocol_output;
         const n = try out.writeSplatHeader(w.buffered(), data, splat);
         return w.consume(n);
+    }
+
+    pub fn elidingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const slice = data[0 .. data.len - 1];
+        const pattern = data[slice.len];
+        var written: usize = pattern.len * splat;
+        for (slice) |bytes| written += bytes.len;
+        switch (bw.state) {
+            .content_length => |*len| len.* -= written + w.end,
+            else => {},
+        }
+        w.end = 0;
+        return written;
+    }
+
+    pub fn elidingSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
+        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        if (File.Handle == void) return error.Unimplemented;
+        if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
+        switch (bw.state) {
+            .content_length => |*len| len.* -= w.end,
+            else => {},
+        }
+        w.end = 0;
+        if (limit == .nothing) return 0;
+        if (file_reader.getSize()) |size| {
+            const n = limit.minInt64(size - file_reader.pos);
+            if (n == 0) return error.EndOfStream;
+            file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
+            switch (bw.state) {
+                .content_length => |*len| len.* -= n,
+                else => {},
+            }
+            return n;
+        } else |_| {
+            // Error is observable on `file_reader` instance, and it is better to
+            // treat the file as a pipe.
+            return error.Unimplemented;
+        }
     }
 
     /// Returns `null` if size cannot be computed without making any syscalls.

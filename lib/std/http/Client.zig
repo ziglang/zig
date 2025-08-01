@@ -821,7 +821,6 @@ pub const Request = struct {
 
     /// Returns the request's `Connection` back to the pool of the `Client`.
     pub fn deinit(r: *Request) void {
-        r.reader.restituteHeadBuffer();
         if (r.connection) |connection| {
             connection.closing = connection.closing or switch (r.reader.state) {
                 .ready => false,
@@ -908,13 +907,13 @@ pub const Request = struct {
         const connection = r.connection.?;
         const w = connection.writer();
 
-        try r.method.write(w);
+        try r.method.format(w);
         try w.writeByte(' ');
 
         if (r.method == .CONNECT) {
-            try uri.writeToStream(.{ .authority = true }, w);
+            try uri.writeToStream(w, .{ .authority = true });
         } else {
-            try uri.writeToStream(.{
+            try uri.writeToStream(w, .{
                 .scheme = connection.proxied,
                 .authentication = connection.proxied,
                 .authority = connection.proxied,
@@ -928,7 +927,7 @@ pub const Request = struct {
 
         if (try emitOverridableHeader("host: ", r.headers.host, w)) {
             try w.writeAll("host: ");
-            try uri.writeToStream(.{ .authority = true }, w);
+            try uri.writeToStream(w, .{ .authority = true });
             try w.writeAll("\r\n");
         }
 
@@ -1046,10 +1045,10 @@ pub const Request = struct {
     pub fn receiveHead(r: *Request, redirect_buffer: []u8) ReceiveHeadError!Response {
         var aux_buf = redirect_buffer;
         while (true) {
-            try r.reader.receiveHead();
+            const head_buffer = try r.reader.receiveHead();
             const response: Response = .{
                 .request = r,
-                .head = Response.Head.parse(r.reader.head_buffer) catch return error.HttpHeadersInvalid,
+                .head = Response.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
             };
             const head = &response.head;
 
@@ -1121,7 +1120,6 @@ pub const Request = struct {
             _ = reader.discardRemaining() catch |err| switch (err) {
                 error.ReadFailed => return r.reader.body_err.?,
             };
-            r.reader.restituteHeadBuffer();
         }
         const new_uri = r.uri.resolveInPlace(location.len, aux_buf) catch |err| switch (err) {
             error.UnexpectedCharacter => return error.HttpRedirectLocationInvalid,
@@ -1302,12 +1300,13 @@ pub const basic_authorization = struct {
     }
 
     pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
-        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
-        w.print("{fuser}:{fpassword}", .{
-            uri.user orelse Uri.Component.empty,
-            uri.password orelse Uri.Component.empty,
-        }) catch unreachable;
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.user orelse .empty;
+        user.formatUser(&w) catch unreachable;
+        w.writeByte(':') catch unreachable;
+        password.formatPassword(&w) catch unreachable;
         try out.print("Basic {b64}", .{w.buffered()});
     }
 };
@@ -1697,6 +1696,7 @@ pub const FetchError = Uri.ParseError || RequestError || Request.ReceiveHeadErro
     StreamTooLong,
     /// TODO provide optional diagnostics when this occurs or break into more error codes
     WriteFailed,
+    UnsupportedCompressionMethod,
 };
 
 /// Perform a one-shot HTTP request with the provided options.
@@ -1748,7 +1748,8 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     const decompress_buffer: []u8 = switch (response.head.content_encoding) {
         .identity => &.{},
         .zstd => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.zstd.default_window_len),
-        else => options.decompress_buffer orelse try client.allocator.alloc(u8, 8 * 1024),
+        .deflate, .gzip => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.flate.max_window_len),
+        .compress => return error.UnsupportedCompressionMethod,
     };
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
 
