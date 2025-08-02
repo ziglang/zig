@@ -212,16 +212,19 @@ pub fn writeSplatHeaderLimit(
     }
     for (data[0 .. data.len - 1], 0..) |buf, i| {
         const copy_len = @min(buf.len, w.buffer.len - w.end, remaining);
-        if (buf.len - copy_len != 0)
-            return @intFromEnum(limit) - try writeSplatHeaderLimitFinish(w, &.{}, data[i..], splat, remaining);
+        if (buf.len - copy_len != 0) return @intFromEnum(limit) - remaining +
+            try writeSplatHeaderLimitFinish(w, &.{}, data[i..], splat, remaining);
         @memcpy(w.buffer[w.end..][0..copy_len], buf[0..copy_len]);
         w.end += copy_len;
         remaining -= copy_len;
     }
     const pattern = data[data.len - 1];
     const splat_n = pattern.len * splat;
-    if (splat_n > @min(w.buffer.len - w.end, remaining))
-        return @intFromEnum(limit) - try writeSplatHeaderLimitFinish(w, &.{}, data[data.len - 1 ..][0..1], splat, remaining);
+    if (splat_n > @min(w.buffer.len - w.end, remaining)) {
+        const buffered_n = @intFromEnum(limit) - remaining;
+        const written = try writeSplatHeaderLimitFinish(w, &.{}, data[data.len - 1 ..][0..1], splat, remaining);
+        return buffered_n + written;
+    }
 
     for (0..splat) |_| {
         @memcpy(w.buffer[w.end..][0..pattern.len], pattern);
@@ -256,7 +259,7 @@ fn writeSplatHeaderLimitFinish(
             i += 1;
             remaining -= copy_len;
             if (remaining == 0) break :v;
-            if (data.len - i == 0) break :v;
+            if (vecs.len - i == 0) break :v;
         };
         const pattern = data[data.len - 1];
         if (splat == 1) {
@@ -2271,35 +2274,6 @@ pub const Discarding = struct {
         }
     }
 };
-
-/// See also `Discarding` which keeps a count.
-pub fn discardingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-    const slice = data[0 .. data.len - 1];
-    const pattern = data[slice.len];
-    var written: usize = pattern.len * splat;
-    for (slice) |bytes| written += bytes.len;
-    w.end = 0;
-    return written;
-}
-
-/// See also `Discarding` which keeps a count.
-pub fn discardingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
-    if (File.Handle == void) return error.Unimplemented;
-    if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
-    w.end = 0;
-    if (limit == .nothing) return 0;
-    if (file_reader.getSize()) |size| {
-        const n = limit.minInt64(size - file_reader.pos);
-        if (n == 0) return error.EndOfStream;
-        file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
-        w.end = 0;
-        return n;
-    } else |_| {
-        // Error is observable on `file_reader` instance, and it is better to
-        // treat the file as a pipe.
-        return error.Unimplemented;
-    }
-}
 
 /// Removes the first `n` bytes from `buffer` by shifting buffer contents,
 /// returning how many bytes are left after consuming the entire buffer, or

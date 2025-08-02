@@ -452,8 +452,8 @@ pub const Request = struct {
             .writer = .{
                 .buffer = buffer,
                 .vtable = &.{
-                    .drain = Writer.discardingDrain,
-                    .sendFile = Writer.discardingSendFile,
+                    .drain = http.BodyWriter.elidingDrain,
+                    .sendFile = http.BodyWriter.elidingSendFile,
                 },
             },
         } else .{

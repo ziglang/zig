@@ -183,7 +183,11 @@ test "echo content server" {
                     if (request.head.expect) |expect_header_value| {
                         if (mem.eql(u8, expect_header_value, "garbage")) {
                             try expectError(error.HttpExpectationFailed, request.readerExpectContinue(&.{}));
-                            try request.respond("", .{ .keep_alive = false });
+                            request.head.expect = null;
+                            try request.respond("", .{
+                                .keep_alive = false,
+                                .status = .expectation_failed,
+                            });
                             continue;
                         }
                     }
@@ -407,9 +411,7 @@ test "general client/server API coverage" {
         fn handleRequest(request: *http.Server.Request, listen_port: u16) !void {
             const log = std.log.scoped(.server);
 
-            log.info("{f} {s} {s}", .{
-                request.head.method, @tagName(request.head.version), request.head.target,
-            });
+            log.info("{f} {t} {s}", .{ request.head.method, request.head.version, request.head.target });
 
             const gpa = std.testing.allocator;
             const body = try (try request.readerExpectContinue(&.{})).allocRemaining(gpa, .unlimited);
@@ -446,7 +448,8 @@ test "general client/server API coverage" {
                     try w.writeAll("Hello, World!\n");
                 }
 
-                try w.writeAll("Hello, World!\n" ** 1024);
+                var vec: [1][]const u8 = .{"Hello, World!\n"};
+                try w.writeSplatAll(&vec, 1024);
 
                 i = 0;
                 while (i < 5) : (i += 1) {
