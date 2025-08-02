@@ -20,7 +20,7 @@ pub fn cannotDynamicLink(target: *const std.Target) bool {
 /// Similarly on FreeBSD and NetBSD we always link system libc
 /// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: *const std.Target) bool {
-    return target.os.requiresLibC();
+    return target.requiresLibC();
 }
 
 pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.builtin.LinkMode) bool {
