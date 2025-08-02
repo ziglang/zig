@@ -72,6 +72,14 @@ pub const MakeOptions = struct {
     progress_node: std.Progress.Node,
     thread_pool: *std.Thread.Pool,
     watch: bool,
+    web_server: switch (builtin.target.cpu.arch) {
+        else => ?*Build.WebServer,
+        // WASM code references `Build.abi` which happens to incidentally reference this type, but
+        // it currently breaks because `std.net.Address` doesn't work there. Work around for now.
+        .wasm32 => void,
+    },
+    /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
+    gpa: Allocator,
 };
 
 pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
@@ -229,7 +237,17 @@ pub fn init(options: StepOptions) Step {
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
-    s.makeFn(s, options) catch |err| switch (err) {
+    var timer: ?std.time.Timer = t: {
+        if (!s.owner.graph.time_report) break :t null;
+        if (s.id == .compile) break :t null;
+        break :t std.time.Timer.start() catch @panic("--time-report not supported on this host");
+    };
+    const make_result = s.makeFn(s, options);
+    if (timer) |*t| {
+        options.web_server.?.updateTimeReportGeneric(s, t.read());
+    }
+
+    make_result catch |err| switch (err) {
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,
         else => {
@@ -372,18 +390,20 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
+    web_server: ?*Build.WebServer,
+    gpa: Allocator,
 ) !?Path {
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
-        const result = zigProcessUpdate(s, zp, watch) catch |err| switch (err) {
+        const result = zigProcessUpdate(s, zp, watch, web_server, gpa) catch |err| switch (err) {
             error.BrokenPipe => {
                 // Process restart required.
                 const term = zp.child.wait() catch |e| {
                     return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
                 };
                 _ = term;
-                s.clearZigProcess();
+                s.clearZigProcess(gpa);
                 break :update;
             },
             else => |e| return e,
@@ -398,7 +418,7 @@ pub fn evalZigProcess(
                 return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
             };
             s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
-            s.clearZigProcess();
+            s.clearZigProcess(gpa);
             try handleChildProcessTerm(s, term, null, argv);
             return error.MakeFailed;
         }
@@ -408,7 +428,6 @@ pub fn evalZigProcess(
     assert(argv.len != 0);
     const b = s.owner;
     const arena = b.allocator;
-    const gpa = arena;
 
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
@@ -435,9 +454,12 @@ pub fn evalZigProcess(
         .progress_ipc_fd = if (std.Progress.have_ipc) child.progress_node.getIpcFd() else {},
     };
     if (watch) s.setZigProcess(zp);
-    defer if (!watch) zp.poller.deinit();
+    defer if (!watch) {
+        zp.poller.deinit();
+        gpa.destroy(zp);
+    };
 
-    const result = try zigProcessUpdate(s, zp, watch);
+    const result = try zigProcessUpdate(s, zp, watch, web_server, gpa);
 
     if (!watch) {
         // Send EOF to stdin.
@@ -499,7 +521,7 @@ pub fn installDir(s: *Step, dest_path: []const u8) !std.fs.Dir.MakePathStatus {
     };
 }
 
-fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.WebServer, gpa: Allocator) !?Path {
     const b = s.owner;
     const arena = b.allocator;
 
@@ -537,12 +559,14 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                     body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
                 // TODO: use @ptrCast when the compiler supports it
                 const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                s.result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
+                {
+                    s.result_error_bundle = .{ .string_bytes = &.{}, .extra = &.{} };
+                    errdefer s.result_error_bundle.deinit(gpa);
+                    s.result_error_bundle.string_bytes = try gpa.dupe(u8, string_bytes);
+                    const extra = try gpa.alloc(u32, unaligned_extra.len);
+                    @memcpy(extra, unaligned_extra);
+                    s.result_error_bundle.extra = extra;
+                }
                 // This message indicates the end of the update.
                 if (watch) break :poll;
             },
@@ -602,6 +626,20 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                     }
                 }
             },
+            .time_report => if (web_server) |ws| {
+                const TimeReport = std.zig.Server.Message.TimeReport;
+                const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
+                ws.updateTimeReportCompile(.{
+                    .compile = s.cast(Step.Compile).?,
+                    .use_llvm = tr.flags.use_llvm,
+                    .stats = tr.stats,
+                    .ns_total = timer.read(),
+                    .llvm_pass_timings_len = tr.llvm_pass_timings_len,
+                    .files_len = tr.files_len,
+                    .decls_len = tr.decls_len,
+                    .trailing = body[@sizeOf(TimeReport)..],
+                });
+            },
             else => {}, // ignore other messages
         }
     }
@@ -630,8 +668,7 @@ fn setZigProcess(s: *Step, zp: *ZigProcess) void {
     }
 }
 
-fn clearZigProcess(s: *Step) void {
-    const gpa = s.owner.allocator;
+fn clearZigProcess(s: *Step, gpa: Allocator) void {
     switch (s.id) {
         .compile => {
             const compile = s.cast(Compile).?;
@@ -947,7 +984,8 @@ fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const 
     try gop.value_ptr.append(gpa, basename);
 }
 
-fn reset(step: *Step, gpa: Allocator) void {
+/// Implementation detail of file watching and forced rebuilds. Prepares the step for being re-evaluated.
+pub fn reset(step: *Step, gpa: Allocator) void {
     assert(step.state == .precheck_done);
 
     step.result_error_msgs.clearRetainingCapacity();

@@ -764,7 +764,7 @@ pub const Object = struct {
 
         is_debug: bool,
         is_small: bool,
-        time_report: bool,
+        time_report: ?*Compilation.TimeReport,
         sanitize_thread: bool,
         fuzz: bool,
         lto: std.zig.LtoMode,
@@ -1063,7 +1063,7 @@ pub const Object = struct {
         var lowered_options: llvm.TargetMachine.EmitOptions = .{
             .is_debug = options.is_debug,
             .is_small = options.is_small,
-            .time_report = options.time_report,
+            .time_report_out = null, // set below to make sure it's only set for a single `emitToFile`
             .tsan = options.sanitize_thread,
             .lto = switch (options.lto) {
                 .none => .None,
@@ -1118,12 +1118,23 @@ pub const Object = struct {
             lowered_options.llvm_ir_filename = null;
         }
 
+        var time_report_c_str: [*:0]u8 = undefined;
+        if (options.time_report != null) {
+            lowered_options.time_report_out = &time_report_c_str;
+        }
+
         lowered_options.asm_filename = options.asm_path;
         if (target_machine.emitToFile(module, &error_message, &lowered_options)) {
             defer llvm.disposeMessage(error_message);
             return diags.fail("LLVM failed to emit asm={s} bin={s} ir={s} bc={s}: {s}", .{
                 emit_asm_msg, emit_bin_msg, post_llvm_ir_msg, post_llvm_bc_msg, error_message,
             });
+        }
+        if (options.time_report) |tr| {
+            defer std.c.free(time_report_c_str);
+            const time_report_data = std.mem.span(time_report_c_str);
+            assert(tr.llvm_pass_timings.len == 0);
+            tr.llvm_pass_timings = try comp.gpa.dupe(u8, time_report_data);
         }
     }
 

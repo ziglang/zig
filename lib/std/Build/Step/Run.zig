@@ -944,7 +944,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
 
 pub fn rerunInFuzzMode(
     run: *Run,
-    web_server: *std.Build.Fuzz.WebServer,
+    fuzz: *std.Build.Fuzz,
     unit_test_index: u32,
     prog_node: std.Progress.Node,
 ) !void {
@@ -984,7 +984,7 @@ pub fn rerunInFuzzMode(
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
     try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, .{
         .unit_test_index = unit_test_index,
-        .web_server = web_server,
+        .fuzz = fuzz,
     });
 }
 
@@ -1054,7 +1054,7 @@ fn termMatches(expected: ?std.process.Child.Term, actual: std.process.Child.Term
 }
 
 const FuzzContext = struct {
-    web_server: *std.Build.Fuzz.WebServer,
+    fuzz: *std.Build.Fuzz,
     unit_test_index: u32,
 };
 
@@ -1638,31 +1638,31 @@ fn evalZigTest(
                 };
             },
             .coverage_id => {
-                const web_server = fuzz_context.?.web_server;
+                const fuzz = fuzz_context.?.fuzz;
                 const msg_ptr: *align(1) const u64 = @ptrCast(body);
                 coverage_id = msg_ptr.*;
                 {
-                    web_server.mutex.lock();
-                    defer web_server.mutex.unlock();
-                    try web_server.msg_queue.append(web_server.gpa, .{ .coverage = .{
+                    fuzz.queue_mutex.lock();
+                    defer fuzz.queue_mutex.unlock();
+                    try fuzz.msg_queue.append(fuzz.ws.gpa, .{ .coverage = .{
                         .id = coverage_id.?,
                         .run = run,
                     } });
-                    web_server.condition.signal();
+                    fuzz.queue_cond.signal();
                 }
             },
             .fuzz_start_addr => {
-                const web_server = fuzz_context.?.web_server;
+                const fuzz = fuzz_context.?.fuzz;
                 const msg_ptr: *align(1) const u64 = @ptrCast(body);
                 const addr = msg_ptr.*;
                 {
-                    web_server.mutex.lock();
-                    defer web_server.mutex.unlock();
-                    try web_server.msg_queue.append(web_server.gpa, .{ .entry_point = .{
+                    fuzz.queue_mutex.lock();
+                    defer fuzz.queue_mutex.unlock();
+                    try fuzz.msg_queue.append(fuzz.ws.gpa, .{ .entry_point = .{
                         .addr = addr,
                         .coverage_id = coverage_id.?,
                     } });
-                    web_server.condition.signal();
+                    fuzz.queue_cond.signal();
                 }
             },
             else => {}, // ignore other messages

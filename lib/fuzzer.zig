@@ -3,7 +3,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const fatal = std.process.fatal;
-const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
+const SeenPcsHeader = std.Build.abi.fuzz.SeenPcsHeader;
 
 pub const std_options = std.Options{
     .logFn = logOverride,

@@ -3246,21 +3246,25 @@ fn zirEnumDecl(
     wip_ty.prepare(ip, new_namespace_index);
     done = true;
 
-    try Sema.resolveDeclaredEnum(
-        pt,
-        wip_ty,
-        inst,
-        tracked_inst,
-        new_namespace_index,
-        type_name.name,
-        small,
-        body,
-        tag_type_ref,
-        any_values,
-        fields_len,
-        sema.code,
-        body_end,
-    );
+    {
+        const tracked_unit = zcu.trackUnitSema(type_name.name.toSlice(ip), null);
+        defer tracked_unit.end(zcu);
+        try Sema.resolveDeclaredEnum(
+            pt,
+            wip_ty,
+            inst,
+            tracked_inst,
+            new_namespace_index,
+            type_name.name,
+            small,
+            body,
+            tag_type_ref,
+            any_values,
+            fields_len,
+            sema.code,
+            body_end,
+        );
+    }
 
     codegen_type: {
         if (zcu.comp.config.use_llvm) break :codegen_type;
@@ -7576,6 +7580,12 @@ fn analyzeCall(
     }
 
     // This is an inline call. The function must be comptime-known. We will analyze its body directly using this `Sema`.
+
+    if (zcu.comp.time_report) |*tr| {
+        if (!block.isComptime()) {
+            tr.stats.n_inline_calls += 1;
+        }
+    }
 
     if (func_ty_info.is_noinline and !block.isComptime()) {
         return sema.fail(block, call_src, "inline call of noinline function", .{});

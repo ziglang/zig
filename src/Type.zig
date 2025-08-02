@@ -3794,6 +3794,9 @@ fn resolveStructInner(
         return error.AnalysisFail;
     }
 
+    const tracked_unit = zcu.trackUnitSema(struct_obj.name.toSlice(&zcu.intern_pool), null);
+    defer tracked_unit.end(zcu);
+
     if (zcu.comp.debugIncremental()) {
         const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);
         info.last_update_gen = zcu.generation;
@@ -3852,6 +3855,9 @@ fn resolveUnionInner(
     if (zcu.failed_analysis.contains(owner) or zcu.transitive_failed_analysis.contains(owner)) {
         return error.AnalysisFail;
     }
+
+    const tracked_unit = zcu.trackUnitSema(union_obj.name.toSlice(&zcu.intern_pool), null);
+    defer tracked_unit.end(zcu);
 
     if (zcu.comp.debugIncremental()) {
         const info = try zcu.incremental_debug_state.getUnitInfo(gpa, owner);

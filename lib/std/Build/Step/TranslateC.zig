@@ -187,7 +187,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const c_source_path = translate_c.source.getPath2(b, step);
     try argv_list.append(c_source_path);
 
-    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false);
+    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false, options.web_server, options.gpa);
 
     const basename = std.fs.path.stem(std.fs.path.basename(c_source_path));
     translate_c.out_basename = b.fmt("{s}.zig", .{basename});

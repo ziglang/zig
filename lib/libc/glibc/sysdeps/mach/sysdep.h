@@ -20,6 +20,11 @@
 /* Get the Mach definitions of ENTRY and kernel_trap.  */
 #include <mach/machine/syscall_sw.h>
 
+/* This macro is defined in Mach system headers, but string functions use it
+   with different definitions depending on whether being compiled for
+   wide-characters or not.  */
+#undef P2ALIGN
+
 /* The Mach definitions assume underscores should be prepended to
    symbol names.  Redefine them to do so only when appropriate.  */
 #undef EXT

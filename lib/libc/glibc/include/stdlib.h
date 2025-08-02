@@ -368,6 +368,21 @@ struct abort_msg_s
 extern struct abort_msg_s *__abort_msg;
 libc_hidden_proto (__abort_msg)
 
+enum readonly_error_type
+{
+  readonly_noerror,
+  readonly_area_writable,
+  readonly_procfs_inaccessible,
+  readonly_procfs_open_fail,
+};
+
+extern enum readonly_error_type __readonly_area (const void *ptr,
+						 size_t size)
+     attribute_hidden;
+extern enum readonly_error_type __readonly_area_fallback (const void *ptr,
+							  size_t size)
+     attribute_hidden;
+
 # if IS_IN (rtld)
 extern __typeof (unsetenv) unsetenv attribute_hidden;
 extern __typeof (__strtoul_internal) __strtoul_internal attribute_hidden;

@@ -22,6 +22,8 @@ pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 pub const Watch = @import("Build/Watch.zig");
 pub const Fuzz = @import("Build/Fuzz.zig");
+pub const WebServer = @import("Build/WebServer.zig");
+pub const abi = @import("Build/abi.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -125,6 +127,7 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    time_report: bool,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };

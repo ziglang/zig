@@ -985,6 +985,12 @@ __extension__ extern long long int llabs (long long int __x)
      __THROW __attribute__ ((__const__)) __wur;
 #endif
 
+#if __GLIBC_USE (ISOC2Y)
+extern unsigned int uabs (int __x) __THROW __attribute__ ((__const__)) __wur;
+extern unsigned long int ulabs (long int __x) __THROW __attribute__ ((__const__)) __wur;
+__extension__ extern unsigned long long int ullabs (long long int __x)
+     __THROW __attribute__ ((__const__)) __wur;
+#endif
 
 /* Return the `div_t', `ldiv_t' or `lldiv_t' representation
    of the value of NUMER over DENOM. */

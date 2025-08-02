@@ -173,7 +173,6 @@ verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 verbose_link: bool,
 disable_c_depfile: bool,
-time_report: bool,
 stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
@@ -263,6 +262,8 @@ link_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 llvm_opt_bisect_limit: c_int,
 
+time_report: ?TimeReport,
+
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 
 /// This is the digest of the cache for the current compilation.
@@ -321,6 +322,72 @@ const QueuedJobs = struct {
     libtsan: bool = false,
     zigc_lib: bool = false,
 };
+
+pub const Timer = union(enum) {
+    unused,
+    active: struct {
+        start: std.time.Instant,
+        saved_ns: u64,
+    },
+    paused: u64,
+    stopped,
+
+    pub fn pause(t: *Timer) void {
+        switch (t.*) {
+            .unused => return,
+            .active => |a| {
+                const current = std.time.Instant.now() catch unreachable;
+                const new_ns = switch (current.order(a.start)) {
+                    .lt, .eq => 0,
+                    .gt => current.since(a.start),
+                };
+                t.* = .{ .paused = a.saved_ns + new_ns };
+            },
+            .paused => unreachable,
+            .stopped => unreachable,
+        }
+    }
+    pub fn @"resume"(t: *Timer) void {
+        switch (t.*) {
+            .unused => return,
+            .active => unreachable,
+            .paused => |saved_ns| t.* = .{ .active = .{
+                .start = std.time.Instant.now() catch unreachable,
+                .saved_ns = saved_ns,
+            } },
+            .stopped => unreachable,
+        }
+    }
+    pub fn finish(t: *Timer) ?u64 {
+        defer t.* = .stopped;
+        switch (t.*) {
+            .unused => return null,
+            .active => |a| {
+                const current = std.time.Instant.now() catch unreachable;
+                const new_ns = switch (current.order(a.start)) {
+                    .lt, .eq => 0,
+                    .gt => current.since(a.start),
+                };
+                return a.saved_ns + new_ns;
+            },
+            .paused => |ns| return ns,
+            .stopped => unreachable,
+        }
+    }
+};
+
+/// Starts a timer for measuring a `--time-report` value. If `comp.time_report` is `null`, the
+/// returned timer does nothing. When the thing being timed is done, call `Timer.finish`. If that
+/// function returns non-`null`, then the value is a number of nanoseconds, and `comp.time_report`
+/// is set.
+pub fn startTimer(comp: *Compilation) Timer {
+    if (comp.time_report == null) return .unused;
+    const now = std.time.Instant.now() catch @panic("std.time.Timer unsupported; cannot emit time report");
+    return .{ .active = .{
+        .start = now,
+        .saved_ns = 0,
+    } };
+}
 
 /// A filesystem path, represented relative to one of a few specific directories where possible.
 /// Every path (considering symlinks as distinct paths) has a canonical representation in this form.
@@ -786,6 +853,58 @@ pub inline fn debugIncremental(comp: *const Compilation) bool {
     if (!build_options.enable_debug_extensions or builtin.single_threaded) return false;
     return comp.debug_incremental;
 }
+
+pub const TimeReport = struct {
+    stats: std.Build.abi.time_report.CompileResult.Stats,
+
+    /// Allocated into `gpa`. The pass time statistics emitted by LLVM's "time-passes" option.
+    /// LLVM provides this data in ASCII form as a table, which can be directly shown to users.
+    ///
+    /// Ideally, we would be able to use `printAllJSONValues` to get *structured* data which we can
+    /// then display more nicely. Unfortunately, that function seems to trip an assertion on one of
+    /// the pass timer names at the time of writing.
+    llvm_pass_timings: []u8,
+
+    /// Key is a ZIR `declaration` instruction; value is the number of nanoseconds spent analyzing
+    /// it. This is the total across all instances of the generic parent namespace, and (if this is
+    /// a function) all generic instances of this function. It also includes time spent analyzing
+    /// function bodies if this is a function (generic or otherwise).
+    /// An entry not existing means the declaration has not been analyzed (so far).
+    decl_sema_info: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, struct {
+        ns: u64,
+        count: u32,
+    }),
+
+    /// Key is a ZIR `declaration` instruction which is a function or test; value is the number of
+    /// nanoseconds spent running codegen on it. As above, this is the total across all generic
+    /// instances, both of this function itself and of its parent namespace.
+    /// An entry not existing means the declaration has not been codegenned (so far).
+    /// Every key in `decl_codegen_ns` is also in `decl_sema_ns`.
+    decl_codegen_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+
+    /// Key is a ZIR `declaration` instruction which is anything other than a `comptime` decl; value
+    /// is the number of nanoseconds spent linking it into the binary. As above, this is the total
+    /// across all generic instances.
+    /// An entry not existing means the declaration has not been linked (so far).
+    /// Every key in `decl_link_ns` is also in `decl_sema_ns`.
+    decl_link_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+
+    pub fn deinit(tr: *TimeReport, gpa: Allocator) void {
+        tr.stats = undefined;
+        gpa.free(tr.llvm_pass_timings);
+        tr.decl_sema_info.deinit(gpa);
+        tr.decl_codegen_ns.deinit(gpa);
+        tr.decl_link_ns.deinit(gpa);
+    }
+
+    pub const init: TimeReport = .{
+        .stats = .init,
+        .llvm_pass_timings = &.{},
+        .decl_sema_info = .empty,
+        .decl_codegen_ns = .empty,
+        .decl_link_ns = .empty,
+    };
+};
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -2027,7 +2146,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
             .reference_trace = options.reference_trace,
-            .time_report = options.time_report,
+            .time_report = if (options.time_report) .init else null,
             .stack_report = options.stack_report,
             .test_filters = options.test_filters,
             .test_name_prefix = options.test_name_prefix,
@@ -2561,6 +2680,8 @@ pub fn destroy(comp: *Compilation) void {
     }
     comp.failed_win32_resources.deinit(gpa);
 
+    if (comp.time_report) |*tr| tr.deinit(gpa);
+
     comp.link_diags.deinit();
 
     comp.clearMiscFailures();
@@ -2657,6 +2778,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     comp.clearMiscFailures();
     comp.last_update_was_cache_hit = false;
+    if (comp.time_report) |*tr| {
+        tr.deinit(gpa); // this is information about an old update
+        tr.* = .init;
+    }
 
     var tmp_dir_rand_int: u64 = undefined;
     var man: Cache.Manifest = undefined;
@@ -2688,6 +2813,14 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
 
+            // Under `--time-report`, ignore cache hits; do the work anyway for those juicy numbers.
+            const ignore_hit = comp.time_report != null;
+
+            if (ignore_hit) {
+                // We're going to do the work regardless of whether this is a hit or a miss.
+                man.want_shared_lock = false;
+            }
+
             const is_hit = man.hit() catch |err| switch (err) {
                 error.CacheCheckFailed => switch (man.diagnostic) {
                     .none => unreachable,
@@ -2713,7 +2846,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                     .{},
                 ),
             };
-            if (is_hit) {
+            if (is_hit and !ignore_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
                 if (comp.parent_whole_cache) |pwc| {
@@ -2733,6 +2866,11 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                 return;
             }
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
+
+            if (ignore_hit) {
+                // Okay, now set this back so that `writeManifest` will downgrade our lock later.
+                man.want_shared_lock = true;
+            }
 
             // Compile the artifacts to a temporary directory.
             whole.tmp_artifact_directory = d: {
@@ -2786,6 +2924,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
+        assert(zcu.cur_analysis_timer == null);
+
         zcu.skip_analysis_this_update = false;
 
         // TODO: doing this in `resolveReferences` later could avoid adding inputs for dead embedfiles. Investigate!
@@ -2828,6 +2968,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
+
+        assert(zcu.cur_analysis_timer == null);
 
         if (!zcu.skip_analysis_this_update) {
             if (comp.config.is_test) {
@@ -3040,11 +3182,22 @@ fn flush(
 ) !void {
     if (comp.zcu) |zcu| {
         if (zcu.llvm_object) |llvm_object| {
+            const pt: Zcu.PerThread = .activate(zcu, tid);
+            defer pt.deactivate();
+
             // Emit the ZCU object from LLVM now; it's required to flush the output file.
             // If there's an output file, it wants to decide where the LLVM object goes!
             const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
             defer sub_prog_node.end();
-            try llvm_object.emit(.{ .zcu = zcu, .tid = tid }, .{
+
+            var timer = comp.startTimer();
+            defer if (timer.finish()) |ns| {
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                comp.time_report.?.stats.real_ns_llvm_emit = ns;
+            };
+
+            try llvm_object.emit(pt, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 
@@ -3071,7 +3224,7 @@ fn flush(
 
                 .is_debug = comp.root_mod.optimize_mode == .Debug,
                 .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
-                .time_report = comp.time_report,
+                .time_report = if (comp.time_report) |*p| p else null,
                 .sanitize_thread = comp.config.any_sanitize_thread,
                 .fuzz = comp.config.any_fuzz,
                 .lto = comp.config.lto,
@@ -3079,6 +3232,12 @@ fn flush(
         }
     }
     if (comp.bin_file) |lf| {
+        var timer = comp.startTimer();
+        defer if (timer.finish()) |ns| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.real_ns_link_flush = ns;
+        };
         // This is needed before reading the error flags.
         lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
             error.LinkFailure => {}, // Already reported.
@@ -4223,6 +4382,17 @@ fn performAllTheWork(
         zcu.generation += 1;
     };
 
+    // This is awkward: we don't want to start the timer until later, but we won't want to stop it
+    // until the wait groups finish. That means we need do do this.
+    var decl_work_timer: ?Timer = null;
+    defer commit_timer: {
+        const t = &(decl_work_timer orelse break :commit_timer);
+        const ns = t.finish() orelse break :commit_timer;
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        comp.time_report.?.stats.real_ns_decls = ns;
+    }
+
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
     // (at least for now) single-threaded main work queue. However, C object compilation
@@ -4431,6 +4601,13 @@ fn performAllTheWork(
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
 
+        var timer = comp.startTimer();
+        defer if (timer.finish()) |ns| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.real_ns_files = ns;
+        };
+
         var astgen_wait_group: WaitGroup = .{};
         defer astgen_wait_group.wait();
 
@@ -4556,6 +4733,10 @@ fn performAllTheWork(
             return;
         }
 
+        if (comp.time_report) |*tr| {
+            tr.stats.n_reachable_files = @intCast(zcu.alive_files.count());
+        }
+
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
@@ -4597,6 +4778,11 @@ fn performAllTheWork(
             // Indicates an error occurred preventing prelink phase from completing.
             return;
         }
+    }
+
+    if (comp.zcu != null) {
+        // Start the timer for the "decls" part of the pipeline (Sema, CodeGen, link).
+        decl_work_timer = comp.startTimer();
     }
 
     work: while (true) {

@@ -50,6 +50,8 @@ pub const Message = struct {
         /// address of the fuzz unit test. This is used to provide a starting
         /// point to view coverage.
         fuzz_start_addr,
+        /// Body is a TimeReport.
+        time_report,
 
         _,
     };
@@ -92,6 +94,19 @@ pub const Message = struct {
             leak: bool,
             fuzz: bool,
             log_err_count: u28 = 0,
+        };
+    };
+
+    /// Trailing is the same as in `std.Build.abi.time_report.CompileResult`, excluding `step_name`.
+    pub const TimeReport = extern struct {
+        stats: std.Build.abi.time_report.CompileResult.Stats align(4),
+        llvm_pass_timings_len: u32,
+        files_len: u32,
+        decls_len: u32,
+        flags: Flags,
+        pub const Flags = packed struct(u32) {
+            use_llvm: bool,
+            _: u31 = 0,
         };
     };
 

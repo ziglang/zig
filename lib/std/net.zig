@@ -42,6 +42,47 @@ pub const Address = extern union {
     in6: Ip6Address,
     un: if (has_unix_sockets) posix.sockaddr.un else void,
 
+    /// Parse an IP address which may include a port. For IPv4, this is just written `address:port`.
+    /// For IPv6, RFC 3986 defines this as an "IP literal", and the port is differentiated from the
+    /// address by surrounding the address part in brackets '[addr]:port'. Even if the port is not
+    /// given, the brackets are mandatory.
+    pub fn parseIpAndPort(str: []const u8) error{ InvalidAddress, InvalidPort }!Address {
+        if (str.len == 0) return error.InvalidAddress;
+        if (str[0] == '[') {
+            const addr_end = std.mem.indexOfScalar(u8, str, ']') orelse
+                return error.InvalidAddress;
+            const addr_str = str[1..addr_end];
+            const port: u16 = p: {
+                if (addr_end == str.len - 1) break :p 0;
+                if (str[addr_end + 1] != ':') return error.InvalidAddress;
+                break :p parsePort(str[addr_end + 2 ..]) orelse return error.InvalidPort;
+            };
+            return parseIp6(addr_str, port) catch error.InvalidAddress;
+        } else {
+            if (std.mem.indexOfScalar(u8, str, ':')) |idx| {
+                // hold off on `error.InvalidPort` since `error.InvalidAddress` might make more sense
+                const port: ?u16 = parsePort(str[idx + 1 ..]);
+                const addr = parseIp4(str[0..idx], port orelse 0) catch return error.InvalidAddress;
+                if (port == null) return error.InvalidPort;
+                return addr;
+            } else {
+                return parseIp4(str, 0) catch error.InvalidAddress;
+            }
+        }
+    }
+    fn parsePort(str: []const u8) ?u16 {
+        var p: u16 = 0;
+        for (str) |c| switch (c) {
+            '0'...'9' => {
+                const shifted = std.math.mul(u16, p, 10) catch return null;
+                p = std.math.add(u16, shifted, c - '0') catch return null;
+            },
+            else => return null,
+        };
+        if (p == 0) return null;
+        return p;
+    }
+
     /// Parse the given IP address string into an Address value.
     /// It is recommended to use `resolveIp` instead, to handle
     /// IPv6 link-local unix addresses.
