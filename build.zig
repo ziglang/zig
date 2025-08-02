@@ -90,6 +90,7 @@ pub fn build(b: *std.Build) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
+    const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
@@ -418,6 +419,7 @@ pub fn build(b: *std.Build) !void {
     try tests.addCases(b, test_cases_step, target, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .skip_compile_errors = skip_compile_errors,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
