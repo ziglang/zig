@@ -26,6 +26,16 @@ pub const Id = enum(Word) {
     }
 };
 
+pub const IdRange = struct {
+    base: u32,
+    len: u32,
+
+    pub fn at(range: IdRange, i: usize) Id {
+        std.debug.assert(i < range.len);
+        return @enumFromInt(range.base + i);
+    }
+};
+
 pub const LiteralInteger = Word;
 pub const LiteralFloat = Word;
 pub const LiteralString = []const u8;
@@ -5799,20 +5809,20 @@ pub const @"NonSemantic.Shader.DebugInfo.100.DebugImportedEntity" = enum(u32) {
 };
 pub const InstructionSet = enum {
     core,
-    spv_amd_shader_trinary_minmax,
-    spv_ext_inst_type_tosa_001000_1,
-    non_semantic_vksp_reflection,
-    spv_amd_shader_explicit_vertex_parameter,
-    debug_info,
-    non_semantic_debug_break,
-    open_cl_debug_info_100,
-    non_semantic_clspv_reflection_6,
-    glsl_std_450,
-    spv_amd_shader_ballot,
-    non_semantic_debug_printf,
-    spv_amd_gcn_shader,
-    open_cl_std,
-    non_semantic_shader_debug_info_100,
+    SPV_AMD_shader_trinary_minmax,
+    SPV_EXT_INST_TYPE_TOSA_001000_1,
+    @"NonSemantic.VkspReflection",
+    SPV_AMD_shader_explicit_vertex_parameter,
+    DebugInfo,
+    @"NonSemantic.DebugBreak",
+    @"OpenCL.DebugInfo.100",
+    @"NonSemantic.ClspvReflection.6",
+    @"GLSL.std.450",
+    SPV_AMD_shader_ballot,
+    @"NonSemantic.DebugPrintf",
+    SPV_AMD_gcn_shader,
+    @"OpenCL.std",
+    @"NonSemantic.Shader.DebugInfo.100",
     zig,
 
     pub fn instructions(self: InstructionSet) []const Instruction {
@@ -14078,7 +14088,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .spv_amd_shader_trinary_minmax => &.{
+            .SPV_AMD_shader_trinary_minmax => &.{
                 .{
                     .name = "FMin3AMD",
                     .opcode = 1,
@@ -14161,7 +14171,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .spv_ext_inst_type_tosa_001000_1 => &.{
+            .SPV_EXT_INST_TYPE_TOSA_001000_1 => &.{
                 .{
                     .name = "ARGMAX",
                     .opcode = 0,
@@ -14743,7 +14753,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .non_semantic_vksp_reflection => &.{
+            .@"NonSemantic.VkspReflection" => &.{
                 .{
                     .name = "Configuration",
                     .opcode = 1,
@@ -14878,7 +14888,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .spv_amd_shader_explicit_vertex_parameter => &.{
+            .SPV_AMD_shader_explicit_vertex_parameter => &.{
                 .{
                     .name = "InterpolateAtVertexAMD",
                     .opcode = 1,
@@ -14888,7 +14898,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .debug_info => &.{
+            .DebugInfo => &.{
                 .{
                     .name = "DebugInfoNone",
                     .opcode = 0,
@@ -15235,14 +15245,14 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .non_semantic_debug_break => &.{
+            .@"NonSemantic.DebugBreak" => &.{
                 .{
                     .name = "DebugBreak",
                     .opcode = 1,
                     .operands = &.{},
                 },
             },
-            .open_cl_debug_info_100 => &.{
+            .@"OpenCL.DebugInfo.100" => &.{
                 .{
                     .name = "DebugInfoNone",
                     .opcode = 0,
@@ -15629,7 +15639,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .non_semantic_clspv_reflection_6 => &.{
+            .@"NonSemantic.ClspvReflection.6" => &.{
                 .{
                     .name = "Kernel",
                     .opcode = 1,
@@ -16044,7 +16054,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .glsl_std_450 => &.{
+            .@"GLSL.std.450" => &.{
                 .{
                     .name = "Round",
                     .opcode = 1,
@@ -16652,7 +16662,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .spv_amd_shader_ballot => &.{
+            .SPV_AMD_shader_ballot => &.{
                 .{
                     .name = "SwizzleInvocationsAMD",
                     .opcode = 1,
@@ -16686,7 +16696,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .non_semantic_debug_printf => &.{
+            .@"NonSemantic.DebugPrintf" => &.{
                 .{
                     .name = "DebugPrintf",
                     .opcode = 1,
@@ -16696,7 +16706,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .spv_amd_gcn_shader => &.{
+            .SPV_AMD_gcn_shader => &.{
                 .{
                     .name = "CubeFaceIndexAMD",
                     .opcode = 1,
@@ -16717,7 +16727,7 @@ pub const InstructionSet = enum {
                     .operands = &.{},
                 },
             },
-            .open_cl_std => &.{
+            .@"OpenCL.std" => &.{
                 .{
                     .name = "acos",
                     .opcode = 0,
@@ -17967,7 +17977,7 @@ pub const InstructionSet = enum {
                     },
                 },
             },
-            .non_semantic_shader_debug_info_100 => &.{
+            .@"NonSemantic.Shader.DebugInfo.100" => &.{
                 .{
                     .name = "DebugInfoNone",
                     .opcode = 0,

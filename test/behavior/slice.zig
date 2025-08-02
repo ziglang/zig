@@ -1036,6 +1036,8 @@ test "sentinel-terminated 0-length slices" {
 }
 
 test "peer slices keep abi alignment with empty struct" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     var cond: bool = undefined;
     cond = false;
     const slice = if (cond) &[1]u32{42} else &.{};

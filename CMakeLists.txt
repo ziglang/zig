@@ -553,11 +553,6 @@ set(ZIG_STAGE2_SOURCES
     src/codegen/c/Type.zig
     src/codegen/llvm.zig
     src/codegen/llvm/bindings.zig
-    src/codegen/spirv.zig
-    src/codegen/spirv/Assembler.zig
-    src/codegen/spirv/Module.zig
-    src/codegen/spirv/Section.zig
-    src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
     src/libs/freebsd.zig
@@ -620,11 +615,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/Plan9.zig
     src/link/Plan9/aout.zig
     src/link/Queue.zig
-    src/link/SpirV.zig
-    src/link/SpirV/BinaryModule.zig
-    src/link/SpirV/deduplicate.zig
-    src/link/SpirV/lower_invocation_globals.zig
-    src/link/SpirV/prune_unused.zig
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig
