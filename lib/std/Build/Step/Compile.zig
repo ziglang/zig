@@ -1851,7 +1851,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const maybe_output_dir = step.evalZigProcess(
         zig_args,
         options.progress_node,
-        (b.graph.incremental == true) and options.watch,
+        (b.graph.incremental == true) and (options.watch or options.web_server != null),
         options.web_server,
         options.gpa,
     ) catch |err| switch (err) {
