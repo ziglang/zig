@@ -7448,7 +7448,7 @@ fn switchExprErrUnion(
                 try astgen.appendErrorTok(capture_token, "discard of error capture; omit it instead", .{});
             }
             const tag_name = try astgen.identAsString(capture_token);
-            try astgen.detectLocalShadowing(&case_scope.base, tag_name, capture_token, capture_slice, .capture);
+            try astgen.detectLocalShadowing(&err_scope.base, tag_name, capture_token, capture_slice, .capture);
 
             capture_scope = .{
                 .parent = &case_scope.base,
