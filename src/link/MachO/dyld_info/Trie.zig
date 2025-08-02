@@ -138,18 +138,23 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
     defer ordered_nodes.deinit();
     try ordered_nodes.ensureTotalCapacityPrecise(self.nodes.items(.is_terminal).len);
 
-    var fifo = std.fifo.LinearFifo(Node.Index, .Dynamic).init(allocator);
-    defer fifo.deinit();
+    {
+        var fifo: std.ArrayListUnmanaged(Node.Index) = .empty;
+        defer fifo.deinit(allocator);
 
-    try fifo.writeItem(self.root.?);
+        try fifo.append(allocator, self.root.?);
 
-    while (fifo.readItem()) |next_index| {
-        const edges = &self.nodes.items(.edges)[next_index];
-        for (edges.items) |edge_index| {
-            const edge = self.edges.items[edge_index];
-            try fifo.writeItem(edge.node);
+        var i: usize = 0;
+        while (i < fifo.items.len) {
+            const next_index = fifo.items[i];
+            i += 1;
+            const edges = &self.nodes.items(.edges)[next_index];
+            for (edges.items) |edge_index| {
+                const edge = self.edges.items[edge_index];
+                try fifo.append(allocator, edge.node);
+            }
+            ordered_nodes.appendAssumeCapacity(next_index);
         }
-        ordered_nodes.appendAssumeCapacity(next_index);
     }
 
     var more: bool = true;
