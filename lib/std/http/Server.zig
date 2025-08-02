@@ -7,6 +7,7 @@ const Uri = std.Uri;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 const Server = @This();
 
@@ -21,7 +22,7 @@ reader: http.Reader,
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.Io.Reader, out: *Writer) Server {
+pub fn init(in: *Reader, out: *Writer) Server {
     return .{
         .reader = .{
             .in = in,
@@ -225,7 +226,7 @@ pub const Request = struct {
         }
     };
 
-    pub fn iterateHeaders(r: *Request) http.HeaderIterator {
+    pub fn iterateHeaders(r: *const Request) http.HeaderIterator {
         assert(r.server.reader.state == .received_head);
         return http.HeaderIterator.init(r.head_buffer);
     }
@@ -486,10 +487,11 @@ pub const Request = struct {
         none,
     };
 
+    /// Does not invalidate `request.head`.
     pub fn upgradeRequested(request: *const Request) UpgradeRequest {
         switch (request.head.version) {
-            .@"HTTP/1.0" => return null,
-            .@"HTTP/1.1" => if (request.head.method != .GET) return null,
+            .@"HTTP/1.0" => return .none,
+            .@"HTTP/1.1" => if (request.head.method != .GET) return .none,
         }
 
         var sec_websocket_key: ?[]const u8 = null;
@@ -517,7 +519,7 @@ pub const Request = struct {
 
     /// The header is not guaranteed to be sent until `WebSocket.flush` is
     /// called on the returned struct.
-    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) Writer.Error!WebSocket {
+    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) ExpectContinueError!WebSocket {
         if (request.head.expect != null) return error.HttpExpectationFailed;
 
         const out = request.server.out;
@@ -536,16 +538,14 @@ pub const Request = struct {
         try out.print("{s} {d} {s}\r\n", .{ @tagName(version), @intFromEnum(status), phrase });
         try out.writeAll("connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: ");
         const base64_digest = try out.writableArray(28);
-        assert(std.base64.standard.Encoder.encode(&base64_digest, &digest).len == base64_digest.len);
+        assert(std.base64.standard.Encoder.encode(base64_digest, &digest).len == base64_digest.len);
         out.advance(base64_digest.len);
         try out.writeAll("\r\n");
 
         for (options.extra_headers) |header| {
             assert(header.name.len != 0);
-            try out.writeAll(header.name);
-            try out.writeAll(": ");
-            try out.writeAll(header.value);
-            try out.writeAll("\r\n");
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
         }
 
         try out.writeAll("\r\n");
@@ -566,7 +566,7 @@ pub const Request = struct {
     ///
     /// See `readerExpectNone` for an infallible alternative that cannot write
     /// to the server output stream.
-    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*std.Io.Reader {
+    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*Reader {
         const flush = request.head.expect != null;
         try writeExpectContinue(request);
         if (flush) try request.server.out.flush();
@@ -578,7 +578,7 @@ pub const Request = struct {
     /// this function.
     ///
     /// Asserts that this function is only called once.
-    pub fn readerExpectNone(request: *Request, buffer: []u8) *std.Io.Reader {
+    pub fn readerExpectNone(request: *Request, buffer: []u8) *Reader {
         assert(request.server.reader.state == .received_head);
         assert(request.head.expect == null);
         if (!request.head.method.requestHasBody()) return .ending;
@@ -642,7 +642,7 @@ pub const Request = struct {
 /// See https://tools.ietf.org/html/rfc6455
 pub const WebSocket = struct {
     key: []const u8,
-    input: *std.Io.Reader,
+    input: *Reader,
     output: *Writer,
 
     pub const Header0 = packed struct(u8) {
@@ -679,6 +679,8 @@ pub const WebSocket = struct {
         UnexpectedOpCode,
         MessageTooBig,
         MissingMaskBit,
+        ReadFailed,
+        EndOfStream,
     };
 
     pub const SmallMessage = struct {
@@ -693,8 +695,9 @@ pub const WebSocket = struct {
     pub fn readSmallMessage(ws: *WebSocket) ReadSmallTextMessageError!SmallMessage {
         const in = ws.input;
         while (true) {
-            const h0 = in.takeStruct(Header0);
-            const h1 = in.takeStruct(Header1);
+            const header = try in.takeArray(2);
+            const h0: Header0 = @bitCast(header[0]);
+            const h1: Header1 = @bitCast(header[1]);
 
             switch (h0.opcode) {
                 .text, .binary, .pong, .ping => {},
@@ -734,47 +737,49 @@ pub const WebSocket = struct {
     }
 
     pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
-        try writeMessageVecUnflushed(ws, &.{data}, op);
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
         try ws.output.flush();
     }
 
     pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
-        try writeMessageVecUnflushed(ws, &.{data}, op);
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
     }
 
-    pub fn writeMessageVec(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
+    pub fn writeMessageVec(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
         try writeMessageVecUnflushed(ws, data, op);
         try ws.output.flush();
     }
 
-    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
+    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
         const total_len = l: {
             var total_len: u64 = 0;
             for (data) |iovec| total_len += iovec.len;
             break :l total_len;
         };
         const out = ws.output;
-        try out.writeStruct(@as(Header0, .{
+        try out.writeByte(@bitCast(@as(Header0, .{
             .opcode = op,
             .fin = true,
-        }));
+        })));
         switch (total_len) {
-            0...125 => try out.writeStruct(@as(Header1, .{
+            0...125 => try out.writeByte(@bitCast(@as(Header1, .{
                 .payload_len = @enumFromInt(total_len),
                 .mask = false,
-            })),
+            }))),
             126...0xffff => {
-                try out.writeStruct(@as(Header1, .{
+                try out.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len16,
                     .mask = false,
-                }));
+                })));
                 try out.writeInt(u16, @intCast(total_len), .big);
             },
             else => {
-                try out.writeStruct(@as(Header1, .{
+                try out.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len64,
                     .mask = false,
-                }));
+                })));
                 try out.writeInt(u64, total_len, .big);
             },
         }
