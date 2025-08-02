@@ -12888,9 +12888,6 @@ fn backendSupportsF128(target: *const std.Target) bool {
         // Test failures all over the place.
         .mips64,
         .mips64el,
-        // https://github.com/llvm/llvm-project/issues/95471
-        .nvptx,
-        .nvptx64,
         // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,
