@@ -4720,10 +4720,11 @@ fn cmdTranslateC(
 }
 
 const usage_init =
-    \\Usage: zig init
+    \\Usage: zig init [path]
     \\
-    \\   Initializes a `zig build` project in the current working
-    \\   directory.
+    \\   Initializes a `zig build` project in the specified
+    \\   path. If path is not provided, initialize in the
+    \\   current working directory.
     \\
     \\Options:
     \\  -m, --minimal          Use minimal init template
@@ -4735,6 +4736,7 @@ const usage_init =
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
 
+    var path: ?[]const u8 = "";
     var template: enum { example, minimal } = .example;
     {
         var i: usize = 0;
@@ -4750,7 +4752,10 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
             } else {
-                fatal("unexpected extra parameter: '{s}'", .{arg});
+                if (path != null) {
+                    fatal("more than one path specified", .{});
+                }
+                path = arg;
             }
         }
     }
@@ -4758,6 +4763,19 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     const cwd_path = try introspect.getResolvedCwd(arena);
     const cwd_basename = fs.path.basename(cwd_path);
     const sanitized_root_name = try sanitizeExampleName(arena, cwd_basename);
+
+    var out_dir = fs.cwd();
+    if (path != null) {
+        fs.cwd().makePath(path.?) catch |e|
+            switch (e) {
+                error.PathAlreadyExists => return,
+                error.NotDir => {
+                    fatal("specified path contains non-directory", .{});
+                },
+                else => return e,
+            };
+        out_dir = try fs.cwd().openDir(path.?, .{});
+    }
 
     const fingerprint: Package.Fingerprint = .generate(sanitized_root_name);
 
@@ -4776,7 +4794,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             var ok_count: usize = 0;
 
             for (template_paths) |template_path| {
-                if (templates.write(arena, fs.cwd(), sanitized_root_name, template_path, fingerprint)) |_| {
+                if (templates.write(arena, out_dir, sanitized_root_name, template_path, fingerprint)) |_| {
                     std.log.info("created {s}", .{template_path});
                     ok_count += 1;
                 } else |err| switch (err) {
