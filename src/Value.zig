@@ -1386,11 +1386,22 @@ pub fn isUndef(val: Value, zcu: *const Zcu) bool {
     return zcu.intern_pool.isUndef(val.toIntern());
 }
 
-/// TODO: check for cases such as array that is not marked undef but all the element
-/// values are marked undef, or struct that is not marked undef but all fields are marked
-/// undef, etc.
 pub fn isUndefDeep(val: Value, zcu: *const Zcu) bool {
-    return val.isUndef(zcu);
+    if (val.toIntern() == .undef) return true;
+    switch (zcu.intern_pool.indexToKey(val.toIntern())) {
+        .undef => return true,
+        .int, .float => return false,
+        .aggregate => |agg| {
+            const elems = agg.storage.values();
+            if (elems.len == 0) return false;
+            for (elems) |elem_val| {
+                if (!Value.fromInterned(elem_val).isUndefDeep(zcu)) return false;
+            }
+            return true;
+        },
+        .un => |un| return if (un.tag == .none) Value.fromInterned(un.val).isUndefDeep(zcu) else false,
+        else => return false,
+    }
 }
 
 /// `val` must have a numeric or vector type.
