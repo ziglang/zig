@@ -12861,8 +12861,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .wasm32,
         .wasm64,
-        // https://github.com/llvm/llvm-project/issues/50374
-        .s390x,
         // https://github.com/llvm/llvm-project/issues/97981
         .sparc,
         .sparc64,

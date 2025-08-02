@@ -131,6 +131,7 @@ pub fn F16T(comptime OtherType: type) type {
         .riscv32be,
         .riscv64,
         .riscv64be,
+        .s390x,
         .spirv32,
         .spirv64,
         => f16,
