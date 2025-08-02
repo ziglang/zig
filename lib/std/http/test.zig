@@ -65,7 +65,7 @@ test "trailers" {
         try req.sendBodiless();
         var response = try req.receiveHead(&.{});
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -204,7 +204,7 @@ test "echo content server" {
             //    request.head.target,
             //});
 
-            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(std.testing.allocator, .limited(8192));
+            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(std.testing.allocator, .unlimited);
             defer std.testing.allocator.free(body);
 
             try expect(mem.startsWith(u8, request.head.target, "/echo-content"));
@@ -290,7 +290,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
 
     var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
     var stream_reader = stream.reader(&tiny_buffer);
-    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
+    const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -361,7 +361,7 @@ test "receiving arbitrary http headers from the client" {
 
     var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
     var stream_reader = stream.reader(&tiny_buffer);
-    const response = try stream_reader.interface().allocRemaining(gpa, .limited(8192));
+    const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
     var expected_response = std.ArrayList(u8).init(gpa);
@@ -412,7 +412,7 @@ test "general client/server API coverage" {
             });
 
             const gpa = std.testing.allocator;
-            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(gpa, .limited(8192));
+            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(gpa, .unlimited);
             defer gpa.free(body);
 
             if (mem.startsWith(u8, request.head.target, "/get")) {
@@ -555,7 +555,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -578,7 +578,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192 * 1024));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqual(@as(usize, 14 * 1024 + 14 * 10), body.len);
@@ -600,7 +600,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -624,7 +624,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -647,7 +647,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -673,7 +673,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -702,7 +702,7 @@ test "general client/server API coverage" {
 
         try std.testing.expectEqual(.ok, response.head.status);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("", body);
@@ -739,7 +739,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -761,7 +761,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -783,7 +783,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -824,7 +824,7 @@ test "general client/server API coverage" {
         try req.sendBodiless();
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Encoded redirect successful!\n", body);
@@ -914,7 +914,7 @@ test "Server streams both reading and writing" {
     try body_writer.writer.writeAll("fish");
     try body_writer.end();
 
-    const body = try response.reader(&.{}).allocRemaining(std.testing.allocator, .limited(8192));
+    const body = try response.reader(&.{}).allocRemaining(std.testing.allocator, .unlimited);
     defer std.testing.allocator.free(body);
 
     try expectEqualStrings("ONE FISH", body);
@@ -946,7 +946,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -979,7 +979,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
 
         var response = try req.receiveHead(&redirect_buffer);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1033,7 +1033,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
         var response = try req.receiveHead(&redirect_buffer);
         try expectEqual(.ok, response.head.status);
 
-        const body = try response.reader(&.{}).allocRemaining(gpa, .limited(8192));
+        const body = try response.reader(&.{}).allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("Hello, World!\n", body);
@@ -1174,7 +1174,7 @@ test "redirect to different connection" {
         var response = try req.receiveHead(&redirect_buffer);
         var reader = response.reader(&.{});
 
-        const body = try reader.allocRemaining(gpa, .limited(8192));
+        const body = try reader.allocRemaining(gpa, .unlimited);
         defer gpa.free(body);
 
         try expectEqualStrings("good job, you pass", body);

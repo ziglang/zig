@@ -404,7 +404,7 @@ pub const Reader = struct {
         var hp: HeadParser = .{};
         var head_len: usize = 0;
         while (true) {
-            if (in.remainingCapacity() == 0) return error.HttpHeadersOversize;
+            if (in.buffer.len - head_len == 0) return error.HttpHeadersOversize;
             const remaining = in.buffered()[head_len..];
             if (remaining.len == 0) {
                 in.fillMore() catch |err| switch (err) {
@@ -696,7 +696,7 @@ pub const Reader = struct {
         var hp: HeadParser = .{ .state = .seen_rn };
         var trailers_len: usize = 2;
         while (true) {
-            if (in.remainingCapacity() == 0) return error.HttpHeadersOversize;
+            if (in.buffer.len - trailers_len == 0) return error.HttpHeadersOversize;
             const remaining = in.buffered()[trailers_len..];
             if (remaining.len == 0) {
                 try in.fillMore();

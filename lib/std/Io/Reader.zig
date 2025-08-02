@@ -449,10 +449,6 @@ pub fn bufferedLen(r: *const Reader) usize {
     return r.end - r.seek;
 }
 
-pub fn remainingCapacity(r: *const Reader) usize {
-    return r.buffer.len - r.end;
-}
-
 pub fn hashed(r: *Reader, hasher: anytype, buffer: []u8) Hashed(@TypeOf(hasher)) {
     return .init(r, hasher, buffer);
 }
