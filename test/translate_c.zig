@@ -3101,8 +3101,8 @@ pub fn addCases(cases: *tests.TranslateCContext) void {
         \\ int a, b, c;
         \\#define FOO a ? b : c
     , &[_][]const u8{
-        \\pub inline fn FOO() @TypeOf(if (a) b else c) {
-        \\    return if (a) b else c;
+        \\pub inline fn FOO() @TypeOf(if (a != 0) b else c) {
+        \\    return if (a != 0) b else c;
         \\}
     });
 
