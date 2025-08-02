@@ -12852,8 +12852,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .csky,
         // https://github.com/llvm/llvm-project/issues/97981
-        .hexagon,
-        // https://github.com/llvm/llvm-project/issues/97981
         .powerpc,
         .powerpcle,
         .powerpc64,
