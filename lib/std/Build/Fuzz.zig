@@ -234,7 +234,7 @@ pub const Previous = struct {
 };
 pub fn sendUpdate(
     fuzz: *Fuzz,
-    socket: *std.http.WebSocket,
+    socket: *std.http.Server.WebSocket,
     prev: *Previous,
 ) !void {
     fuzz.coverage_mutex.lock();
@@ -263,36 +263,36 @@ pub fn sendUpdate(
                 .string_bytes_len = @intCast(coverage_map.coverage.string_bytes.items.len),
                 .start_timestamp = coverage_map.start_timestamp,
             };
-            const iovecs: [5]std.posix.iovec_const = .{
-                makeIov(@ptrCast(&header)),
-                makeIov(@ptrCast(coverage_map.coverage.directories.keys())),
-                makeIov(@ptrCast(coverage_map.coverage.files.keys())),
-                makeIov(@ptrCast(coverage_map.source_locations)),
-                makeIov(coverage_map.coverage.string_bytes.items),
+            var iovecs: [5][]const u8 = .{
+                @ptrCast(&header),
+                @ptrCast(coverage_map.coverage.directories.keys()),
+                @ptrCast(coverage_map.coverage.files.keys()),
+                @ptrCast(coverage_map.source_locations),
+                coverage_map.coverage.string_bytes.items,
             };
-            try socket.writeMessagev(&iovecs, .binary);
+            try socket.writeMessageVec(&iovecs, .binary);
         }
 
         const header: abi.CoverageUpdateHeader = .{
             .n_runs = n_runs,
             .unique_runs = unique_runs,
         };
-        const iovecs: [2]std.posix.iovec_const = .{
-            makeIov(@ptrCast(&header)),
-            makeIov(@ptrCast(seen_pcs)),
+        var iovecs: [2][]const u8 = .{
+            @ptrCast(&header),
+            @ptrCast(seen_pcs),
         };
-        try socket.writeMessagev(&iovecs, .binary);
+        try socket.writeMessageVec(&iovecs, .binary);
 
         prev.unique_runs = unique_runs;
     }
 
     if (prev.entry_points != coverage_map.entry_points.items.len) {
         const header: abi.EntryPointHeader = .init(@intCast(coverage_map.entry_points.items.len));
-        const iovecs: [2]std.posix.iovec_const = .{
-            makeIov(@ptrCast(&header)),
-            makeIov(@ptrCast(coverage_map.entry_points.items)),
+        var iovecs: [2][]const u8 = .{
+            @ptrCast(&header),
+            @ptrCast(coverage_map.entry_points.items),
         };
-        try socket.writeMessagev(&iovecs, .binary);
+        try socket.writeMessageVec(&iovecs, .binary);
 
         prev.entry_points = coverage_map.entry_points.items.len;
     }
@@ -447,11 +447,4 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
         });
     }
     try coverage_map.entry_points.append(fuzz.ws.gpa, @intCast(index));
-}
-
-fn makeIov(s: []const u8) std.posix.iovec_const {
-    return .{
-        .base = s.ptr,
-        .len = s.len,
-    };
 }
