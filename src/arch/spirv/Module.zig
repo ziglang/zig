@@ -35,10 +35,7 @@ entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
 /// - It caches pointers by child-type. This is required because sometimes we rely on
 ///   ID-equality for pointers, and pointers constructed via `ptrType()` aren't interned
 ///   via the usual `intern_map` mechanism.
-ptr_types: std.AutoHashMapUnmanaged(
-    struct { Id, spec.StorageClass },
-    struct { ty_id: Id, fwd_emitted: bool },
-) = .{},
+ptr_types: std.AutoHashMapUnmanaged(struct { Id, spec.StorageClass }, Id) = .{},
 /// For test declarations compiled for Vulkan target, we have to add a buffer.
 /// We only need to generate this once, this holds the link information related to that.
 error_buffer: ?Decl.Index = null,
@@ -68,7 +65,7 @@ cache: struct {
     extensions: std.StringHashMapUnmanaged(void) = .empty,
     extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
     decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
-    builtins: std.AutoHashMapUnmanaged(struct { Id, spec.BuiltIn }, Decl.Index) = .empty,
+    builtins: std.AutoHashMapUnmanaged(struct { spec.BuiltIn, spec.StorageClass }, Decl.Index) = .empty,
     strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
 
     bool_const: [2]?Id = .{ null, null },
@@ -87,6 +84,8 @@ sections: struct {
     globals: Section = .{},
     functions: Section = .{},
 } = .{},
+
+pub const big_int_bits = 32;
 
 /// Data can be lowered into in two basic representations: indirect, which is when
 /// a type is stored in memory, and direct, which is how a type is stored when its
@@ -241,10 +240,6 @@ pub fn deinit(module: *Module) void {
 
     module.decls.deinit(module.gpa);
     module.decl_deps.deinit(module.gpa);
-
-    for (module.entry_points.values()) |ep| {
-        module.gpa.free(ep.name);
-    }
     module.entry_points.deinit(module.gpa);
 
     module.* = undefined;
@@ -546,24 +541,68 @@ pub fn opaqueType(module: *Module, name: []const u8) !Id {
     return result_id;
 }
 
+pub fn backingIntBits(module: *Module, bits: u16) struct { u16, bool } {
+    assert(bits != 0);
+    const target = module.zcu.getTarget();
+
+    if (target.cpu.has(.spirv, .arbitrary_precision_integers) and bits <= 32) {
+        return .{ bits, false };
+    }
+
+    // We require Int8 and Int16 capabilities and benefit Int64 when available.
+    // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
+    const ints = [_]struct { bits: u16, enabled: bool }{
+        .{ .bits = 8, .enabled = true },
+        .{ .bits = 16, .enabled = true },
+        .{ .bits = 32, .enabled = true },
+        .{
+            .bits = 64,
+            .enabled = target.cpu.has(.spirv, .int64) or target.cpu.arch == .spirv64,
+        },
+    };
+
+    for (ints) |int| {
+        if (bits <= int.bits and int.enabled) return .{ int.bits, false };
+    }
+
+    // Big int
+    return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
+}
+
 pub fn intType(module: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
     assert(bits > 0);
-    const entry = try module.cache.int_types.getOrPut(module.gpa, .{ .signedness = signedness, .bits = bits });
+
+    const target = module.zcu.getTarget();
+    const actual_signedness = switch (target.os.tag) {
+        // Kernel only supports unsigned ints.
+        .opencl, .amdhsa => .unsigned,
+        else => signedness,
+    };
+    const backing_bits, const big_int = module.backingIntBits(bits);
+    if (big_int) {
+        // TODO: support composite integers larger than 64 bit
+        assert(backing_bits <= 64);
+        const u32_ty = try module.intType(.unsigned, 32);
+        const len_id = try module.constant(u32_ty, .{ .uint32 = backing_bits / big_int_bits });
+        return module.arrayType(len_id, u32_ty);
+    }
+
+    const entry = try module.cache.int_types.getOrPut(module.gpa, .{ .signedness = actual_signedness, .bits = backing_bits });
     if (!entry.found_existing) {
         const result_id = module.allocId();
         entry.value_ptr.* = result_id;
         try module.sections.globals.emit(module.gpa, .OpTypeInt, .{
             .id_result = result_id,
-            .width = bits,
-            .signedness = switch (signedness) {
+            .width = backing_bits,
+            .signedness = switch (actual_signedness) {
                 .signed => 1,
                 .unsigned => 0,
             },
         });
 
-        switch (signedness) {
-            .signed => try module.debugNameFmt(result_id, "i{}", .{bits}),
-            .unsigned => try module.debugNameFmt(result_id, "u{}", .{bits}),
+        switch (actual_signedness) {
+            .signed => try module.debugNameFmt(result_id, "i{}", .{backing_bits}),
+            .unsigned => try module.debugNameFmt(result_id, "u{}", .{backing_bits}),
         }
     }
     return entry.value_ptr.*;
@@ -610,6 +649,21 @@ pub fn arrayType(module: *Module, len_id: Id, child_ty_id: Id) !Id {
         });
     }
     return entry.value_ptr.*;
+}
+
+pub fn ptrType(module: *Module, child_ty_id: Id, storage_class: spec.StorageClass) !Id {
+    const key = .{ child_ty_id, storage_class };
+    const gop = try module.ptr_types.getOrPut(module.gpa, key);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = module.allocId();
+        try module.sections.globals.emit(module.gpa, .OpTypePointer, .{
+            .id_result = gop.value_ptr.*,
+            .storage_class = storage_class,
+            .type = child_ty_id,
+        });
+        return gop.value_ptr.*;
+    }
+    return gop.value_ptr.*;
 }
 
 pub fn structType(
@@ -683,16 +737,16 @@ pub fn functionType(module: *Module, return_ty_id: Id, param_type_ids: []const I
 }
 
 pub fn constant(module: *Module, ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
-    const entry = try module.cache.constants.getOrPut(module.gpa, .{ .ty = ty_id, .value = value });
-    if (!entry.found_existing) {
-        entry.value_ptr.* = module.allocId();
+    const gop = try module.cache.constants.getOrPut(module.gpa, .{ .ty = ty_id, .value = value });
+    if (!gop.found_existing) {
+        gop.value_ptr.* = module.allocId();
         try module.sections.globals.emit(module.gpa, .OpConstant, .{
             .id_result_type = ty_id,
-            .id_result = entry.value_ptr.*,
+            .id_result = gop.value_ptr.*,
             .value = value,
         });
     }
-    return entry.value_ptr.*;
+    return gop.value_ptr.*;
 }
 
 pub fn constBool(module: *Module, value: bool) !Id {
@@ -716,23 +770,26 @@ pub fn constBool(module: *Module, value: bool) !Id {
     return result_id;
 }
 
-/// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
-/// with storage class `.Input`.
-pub fn builtin(module: *Module, result_ty_id: Id, spirv_builtin: spec.BuiltIn) !Decl.Index {
-    const entry = try module.cache.builtins.getOrPut(module.gpa, .{ result_ty_id, spirv_builtin });
-    if (!entry.found_existing) {
+pub fn builtin(
+    module: *Module,
+    result_ty_id: Id,
+    spirv_builtin: spec.BuiltIn,
+    storage_class: spec.StorageClass,
+) !Decl.Index {
+    const gop = try module.cache.builtins.getOrPut(module.gpa, .{ spirv_builtin, storage_class });
+    if (!gop.found_existing) {
         const decl_index = try module.allocDecl(.global);
         const result_id = module.declPtr(decl_index).result_id;
-        entry.value_ptr.* = decl_index;
+        gop.value_ptr.* = decl_index;
         try module.sections.globals.emit(module.gpa, .OpVariable, .{
             .id_result_type = result_ty_id,
             .id_result = result_id,
-            .storage_class = .input,
+            .storage_class = storage_class,
         });
         try module.decorate(result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
         try module.declareDeclDeps(decl_index, &.{});
     }
-    return entry.value_ptr.*;
+    return gop.value_ptr.*;
 }
 
 pub fn constUndef(module: *Module, ty_id: Id) !Id {
@@ -759,8 +816,8 @@ pub fn decorate(
     target: Id,
     decoration: spec.Decoration.Extended,
 ) !void {
-    const entry = try module.cache.decorations.getOrPut(module.gpa, .{ target, decoration });
-    if (!entry.found_existing) {
+    const gop = try module.cache.decorations.getOrPut(module.gpa, .{ target, decoration });
+    if (!gop.found_existing) {
         try module.sections.annotations.emit(module.gpa, .OpDecorate, .{
             .target = target,
             .decoration = decoration,
