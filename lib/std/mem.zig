@@ -642,9 +642,7 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 
 /// Compares two many-item pointers with NUL-termination lexicographically.
 pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
-    var i: usize = 0;
-    while (lhs[i] == rhs[i] and lhs[i] != 0) : (i += 1) {}
-    return math.order(lhs[i], rhs[i]);
+    return sentinelPtrs.order(T, 0, lhs, rhs);
 }
 
 test order {

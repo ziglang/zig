@@ -1,4 +1,8 @@
 const std = @import("../std.zig");
+const debug = std.debug;
+const assert = debug.assert;
+const math = std.math;
+const mem = std.mem;
 const testing = std.testing;
 
 /// Returns true if and only if the pointers have the same length and all elements
@@ -56,3 +60,78 @@ test allEqual {
     try testing.expect(!allEqual(u8, 0, "abaa", 'a'));
     try testing.expect(allEqual(u8, 0, "", 'a'));
 }
+
+/// Returns the smallest number in a pointer. O(n).
+/// `ptr` must have at least one element before a sentinel.
+pub fn min(comptime T: type, comptime sentinel: T, ptr: [*:sentinel]const T) T {
+    assert(ptr[0] != sentinel);
+    var best = ptr[0];
+    var i: usize = 1;
+    while (ptr[i] != sentinel) : (i += 1) {
+        best = @min(best, ptr[i]);
+    }
+    return best;
+}
+
+test min {
+    try testing.expectEqual(min(u8, 0, "abcdefg"), 'a');
+    try testing.expectEqual(min(u8, 0, "bcdefga"), 'a');
+    try testing.expectEqual(min(u8, 0, "a"), 'a');
+}
+
+/// Returns the largest number in a pointer. O(n).
+/// `ptr` must have at least one element before a sentinel.
+pub fn max(comptime T: type, comptime sentinel: T, ptr: [*:sentinel]const T) T {
+    assert(ptr[0] != sentinel);
+    var best = ptr[0];
+    var i: usize = 1;
+    while (ptr[i] != sentinel) : (i += 1) {
+        best = @max(best, ptr[i]);
+    }
+    return best;
+}
+
+test max {
+    try testing.expectEqual(max(u8, 0, "abcdefg"), 'g');
+    try testing.expectEqual(max(u8, 0, "gabcdef"), 'g');
+    try testing.expectEqual(max(u8, 0, "g"), 'g');
+}
+
+/// Compares two pointers of numbers lexicographically. O(n).
+pub fn order(comptime T: type, comptime sentinel: T, lhs: [*:sentinel]const T, rhs: [*:sentinel]const T) math.Order {
+    var i: usize = 0;
+    while (lhs[i] == rhs[i] and lhs[i] != sentinel) : (i += 1) {}
+    return math.order(lhs[i], rhs[i]);
+}
+
+test order {
+    try testing.expect(order(u8, 0, "abcd", "bee") == .lt);
+    try testing.expect(order(u8, 0, "abc", "abc") == .eq);
+    try testing.expect(order(u8, 0, "abc", "abc0") == .lt);
+    try testing.expect(order(u8, 0, "", "") == .eq);
+    try testing.expect(order(u8, 0, "", "a") == .lt);
+}
+
+/// Returns true if lhs < rhs, false otherwise
+pub fn lessThan(comptime T: type, comptime sentinel: T, lhs: [*:sentinel]const T, rhs: [*:sentinel]const T) bool {
+    return order(T, sentinel, lhs, rhs) == .lt;
+}
+
+test lessThan {
+    try testing.expect(lessThan(u8, 0, "abcd", "bee"));
+    try testing.expect(!lessThan(u8, 0, "abc", "abc"));
+    try testing.expect(lessThan(u8, 0, "abc", "abc0"));
+    try testing.expect(!lessThan(u8, 0, "", ""));
+    try testing.expect(lessThan(u8, 0, "", "a"));
+}
+
+/// Takes a sentinel-terminated pointer and iterates over the memory to find the
+/// sentinel and determine the length.
+/// `[*c]` pointers are assumed to be non-null and 0-terminated.
+pub const len = mem.len;
+
+/// Takes a sentinel-terminated pointer and returns a slice, iterating over the
+/// memory to find the sentinel and determine the length.
+/// Pointer attributes such as const are preserved.
+/// `[*c]` pointers are assumed to be non-null and 0-terminated.
+pub const span = mem.span;
