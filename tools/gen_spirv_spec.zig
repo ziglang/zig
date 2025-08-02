@@ -221,6 +221,16 @@ fn render(writer: *std.io.Writer, registry: CoreRegistry, extensions: []const Ex
         \\    }
         \\};
         \\
+        \\pub const IdRange = struct {
+        \\    base: u32,
+        \\    len: u32,
+        \\
+        \\    pub fn at(range: IdRange, i: usize) Id {
+        \\        std.debug.assert(i < range.len);
+        \\        return @enumFromInt(range.base + i);
+        \\    }
+        \\};
+        \\
         \\pub const LiteralInteger = Word;
         \\pub const LiteralFloat = Word;
         \\pub const LiteralString = []const u8;
@@ -324,7 +334,7 @@ fn renderInstructionSet(
     );
 
     for (extensions) |ext| {
-        try writer.print("{f},\n", .{formatId(ext.name)});
+        try writer.print("{f},\n", .{std.zig.fmtId(ext.name)});
     }
 
     try writer.writeAll(
@@ -357,7 +367,7 @@ fn renderInstructionsCase(
     // but there aren't so many total aliases and that would add more overhead in total. We will
     // just filter those out when needed.
 
-    try writer.print(".{f} => &.{{\n", .{formatId(set_name)});
+    try writer.print(".{f} => &.{{\n", .{std.zig.fmtId(set_name)});
 
     for (instructions) |inst| {
         try writer.print(

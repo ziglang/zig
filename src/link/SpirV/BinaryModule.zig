@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const log = std.log.scoped(.spirv_parse);
 
-const spec = @import("../../codegen/spirv/spec.zig");
+const spec = @import("../../arch/spirv/spec.zig");
 const Opcode = spec.Opcode;
 const Word = spec.Word;
 const InstructionSet = spec.InstructionSet;

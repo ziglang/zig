@@ -4,8 +4,8 @@ const log = std.log.scoped(.spirv_link);
 const assert = std.debug.assert;
 
 const BinaryModule = @import("BinaryModule.zig");
-const Section = @import("../../codegen/spirv/Section.zig");
-const spec = @import("../../codegen/spirv/spec.zig");
+const Section = @import("../../arch/spirv/Section.zig");
+const spec = @import("../../arch/spirv/spec.zig");
 const Opcode = spec.Opcode;
 const ResultId = spec.Id;
 const Word = spec.Word;
