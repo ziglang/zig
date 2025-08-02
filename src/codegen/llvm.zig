@@ -12870,10 +12870,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         .thumb,
         .thumbeb,
         => target.abi.float() == .soft or target.cpu.has(.arm, .fullfp16),
-        // https://github.com/llvm/llvm-project/issues/129394
-        .aarch64,
-        .aarch64_be,
-        => target.cpu.has(.aarch64, .fp_armv8),
         else => true,
     };
 }
