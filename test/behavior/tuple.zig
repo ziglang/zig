@@ -318,6 +318,8 @@ test "tuple type with void field" {
 test "zero sized struct in tuple handled correctly" {
     const State = struct {
         const Self = @This();
+        const Inner = struct {};
+
         data: @Type(.{
             .@"struct" = .{
                 .is_tuple = true,
@@ -325,10 +327,10 @@ test "zero sized struct in tuple handled correctly" {
                 .decls = &.{},
                 .fields = &.{.{
                     .name = "0",
-                    .type = struct {},
+                    .type = Inner,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf(Inner),
                 }},
             },
         }),

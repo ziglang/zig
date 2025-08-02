@@ -433,8 +433,8 @@ test "Type.Union" {
             .layout = .@"packed",
             .tag_type = null,
             .fields = &.{
-                .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
-                .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
+                .{ .name = "signed", .type = i32, .alignment = 0 },
+                .{ .name = "unsigned", .type = u32, .alignment = 0 },
             },
             .decls = &.{},
         },
@@ -735,7 +735,7 @@ test "struct field names sliced at comptime from larger string" {
         var it = std.mem.tokenizeScalar(u8, text, '\n');
         while (it.next()) |name| {
             fields = fields ++ &[_]Type.StructField{.{
-                .alignment = 0,
+                .alignment = @alignOf(usize),
                 .name = name ++ "",
                 .type = usize,
                 .default_value_ptr = null,

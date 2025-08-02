@@ -33,13 +33,16 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
             var symbols: Symbols: {
                 const symbols = @typeInfo(@TypeOf(instruction.symbols)).@"struct".fields;
                 var symbol_fields: [symbols.len]std.builtin.Type.StructField = undefined;
-                for (&symbol_fields, symbols) |*symbol_field, symbol| symbol_field.* = .{
-                    .name = symbol.name,
-                    .type = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage(),
-                    .default_value_ptr = null,
-                    .is_comptime = false,
-                    .alignment = 0,
-                };
+                for (&symbol_fields, symbols) |*symbol_field, symbol| {
+                    const Storage = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
+                    symbol_field.* = .{
+                        .name = symbol.name,
+                        .type = Storage,
+                        .default_value_ptr = null,
+                        .is_comptime = false,
+                        .alignment = @alignOf(Storage),
+                    };
+                }
                 break :Symbols @Type(.{ .@"struct" = .{
                     .layout = .auto,
                     .fields = &symbol_fields,

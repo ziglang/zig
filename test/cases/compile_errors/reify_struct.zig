@@ -75,4 +75,5 @@ comptime {
 // :16:5: error: tuple field name '3' does not match field index 0
 // :30:5: error: comptime field without default initialization value
 // :44:5: error: extern struct fields cannot be marked comptime
-// :58:5: error: alignment in a packed struct field must be set to 0
+// :58:5: error: alignment of a packed struct field must be set to 0
+

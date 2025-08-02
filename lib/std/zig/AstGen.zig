@@ -5386,6 +5386,9 @@ fn unionDeclInner(
             return astgen.failNode(member_node, "union field missing type", .{});
         }
         if (member.ast.align_expr.unwrap()) |align_expr| {
+            if (layout == .@"packed") {
+                return astgen.failNode(align_expr, "unable to override alignment of packed union fields", .{});
+            }
             const align_inst = try expr(&block_scope, &block_scope.base, coerced_align_ri, align_expr);
             wip_members.appendToField(@intFromEnum(align_inst));
             any_aligned_fields = true;
