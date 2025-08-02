@@ -31,11 +31,19 @@ export fn qux() void {
     }) orelse unreachable;
 }
 
+export fn baz() void {
+    if (true) {
+        @branchHint(.none);
+        @branchHint(.none);
+    }
+}
+
 // error
 //
 // :2:5: error: '@branchHint' outside function scope
 // :7:5: error: '@branchHint' outside function scope
-// :11:5: error: '@branchHint' must appear as the first statement in a function or conditional branch
-// :16:9: error: '@branchHint' must appear as the first statement in a function or conditional branch
-// :22:9: error: '@branchHint' must appear as the first statement in a function or conditional branch
-// :29:9: error: '@branchHint' must appear as the first statement in a function or conditional branch
+// :11:5: error: '@branchHint' must appear before non-hint statements in a function or conditional branch
+// :16:9: error: '@branchHint' must appear before non-hint statements in a function or conditional branch
+// :22:9: error: '@branchHint' must appear before non-hint statements in a function or conditional branch
+// :29:9: error: '@branchHint' must appear before non-hint statements in a function or conditional branch
+// :37:9: error: duplicate '@branchHint' call; only one is allowed per function or conditional branch
