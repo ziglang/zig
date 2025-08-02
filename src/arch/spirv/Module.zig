@@ -7,20 +7,96 @@
 //! is detected by the magic word in the header. Therefore, we can ignore any byte
 //! order throughout the implementation, and just use the host byte order, and make
 //! this a problem for the consumer.
-const Module = @This();
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const autoHashStrat = std.hash.autoHashStrat;
-const Wyhash = std.hash.Wyhash;
 
+const Zcu = @import("../../Zcu.zig");
 const InternPool = @import("../../InternPool.zig");
+const Section = @import("Section.zig");
 const spec = @import("spec.zig");
 const Word = spec.Word;
 const Id = spec.Id;
 
-const Section = @import("Section.zig");
+const Module = @This();
+
+gpa: Allocator,
+arena: Allocator,
+zcu: *Zcu,
+nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, Decl.Index) = .empty,
+uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, spec.StorageClass }, Decl.Index) = .empty,
+intern_map: std.AutoHashMapUnmanaged(struct { InternPool.Index, Repr }, Id) = .empty,
+decls: std.ArrayListUnmanaged(Decl) = .empty,
+decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
+entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
+/// This map serves a dual purpose:
+/// - It keeps track of pointers that are currently being emitted, so that we can tell
+///   if they are recursive and need an OpTypeForwardPointer.
+/// - It caches pointers by child-type. This is required because sometimes we rely on
+///   ID-equality for pointers, and pointers constructed via `ptrType()` aren't interned
+///   via the usual `intern_map` mechanism.
+ptr_types: std.AutoHashMapUnmanaged(
+    struct { Id, spec.StorageClass },
+    struct { ty_id: Id, fwd_emitted: bool },
+) = .{},
+/// For test declarations compiled for Vulkan target, we have to add a buffer.
+/// We only need to generate this once, this holds the link information related to that.
+error_buffer: ?Decl.Index = null,
+/// SPIR-V instructions return result-ids.
+/// This variable holds the module-wide counter for these.
+next_result_id: Word = 1,
+/// Some types shouldn't be emitted more than one time, but cannot be caught by
+/// the `intern_map` during codegen. Sometimes, IDs are compared to check if
+/// types are the same, so we can't delay until the dedup pass. Therefore,
+/// this is an ad-hoc structure to cache types where required.
+/// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
+/// non-pointer types.
+/// Additionally, this is used for other values which can be cached, for example,
+/// built-in variables.
+cache: struct {
+    bool_type: ?Id = null,
+    void_type: ?Id = null,
+    opaque_types: std.StringHashMapUnmanaged(Id) = .empty,
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
+    vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
+    array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
+    struct_types: std.ArrayHashMapUnmanaged(StructType, Id, StructType.HashContext, true) = .empty,
+    fn_types: std.ArrayHashMapUnmanaged(FnType, Id, FnType.HashContext, true) = .empty,
+
+    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
+    extensions: std.StringHashMapUnmanaged(void) = .empty,
+    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
+    decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
+    builtins: std.AutoHashMapUnmanaged(struct { Id, spec.BuiltIn }, Decl.Index) = .empty,
+    strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
+
+    bool_const: [2]?Id = .{ null, null },
+    constants: std.ArrayHashMapUnmanaged(Constant, Id, Constant.HashContext, true) = .empty,
+} = .{},
+/// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
+sections: struct {
+    capabilities: Section = .{},
+    extensions: Section = .{},
+    extended_instruction_set: Section = .{},
+    memory_model: Section = .{},
+    execution_modes: Section = .{},
+    debug_strings: Section = .{},
+    debug_names: Section = .{},
+    annotations: Section = .{},
+    globals: Section = .{},
+    functions: Section = .{},
+} = .{},
+
+/// Data can be lowered into in two basic representations: indirect, which is when
+/// a type is stored in memory, and direct, which is how a type is stored when its
+/// a direct SPIR-V value.
+pub const Repr = enum {
+    /// A SPIR-V value as it would be used in operations.
+    direct,
+    /// A SPIR-V value as it is stored in memory.
+    indirect,
+};
 
 /// Declarations, both functions and globals, can have dependencies. These are used for 2 things:
 /// - Globals must be declared before they are used, also between globals. The compiler processes
@@ -66,76 +142,68 @@ pub const EntryPoint = struct {
     exec_mode: ?spec.ExecutionMode = null,
 };
 
-gpa: Allocator,
-target: *const std.Target,
-nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, Decl.Index) = .empty,
-uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, spec.StorageClass }, Decl.Index) = .empty,
-intern_map: std.AutoHashMapUnmanaged(struct { InternPool.Index, Repr }, Id) = .empty,
-decls: std.ArrayListUnmanaged(Decl) = .empty,
-decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
-entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
-/// This map serves a dual purpose:
-/// - It keeps track of pointers that are currently being emitted, so that we can tell
-///   if they are recursive and need an OpTypeForwardPointer.
-/// - It caches pointers by child-type. This is required because sometimes we rely on
-///   ID-equality for pointers, and pointers constructed via `ptrType()` aren't interned
-///   via the usual `intern_map` mechanism.
-ptr_types: std.AutoHashMapUnmanaged(
-    struct { InternPool.Index, spec.StorageClass, Repr },
-    struct { ty_id: Id, fwd_emitted: bool },
-) = .{},
-/// For test declarations compiled for Vulkan target, we have to add a buffer.
-/// We only need to generate this once, this holds the link information related to that.
-error_buffer: ?Decl.Index = null,
-/// SPIR-V instructions return result-ids.
-/// This variable holds the module-wide counter for these.
-next_result_id: Word = 1,
-/// Some types shouldn't be emitted more than one time, but cannot be caught by
-/// the `intern_map` during codegen. Sometimes, IDs are compared to check if
-/// types are the same, so we can't delay until the dedup pass. Therefore,
-/// this is an ad-hoc structure to cache types where required.
-/// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
-/// non-pointer types.
-/// Additionally, this is used for other values which can be cached, for example,
-/// built-in variables.
-cache: struct {
-    bool_type: ?Id = null,
-    void_type: ?Id = null,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
-    vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
-    array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
+const StructType = struct {
+    fields: []const Id,
+    ip_index: InternPool.Index,
 
-    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
-    extensions: std.StringHashMapUnmanaged(void) = .empty,
-    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
-    decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
-    builtins: std.AutoHashMapUnmanaged(struct { Id, spec.BuiltIn }, Decl.Index) = .empty,
+    const HashContext = struct {
+        pub fn hash(_: @This(), ty: StructType) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.sliceAsBytes(ty.fields));
+            hasher.update(std.mem.asBytes(&ty.ip_index));
+            return @truncate(hasher.final());
+        }
 
-    bool_const: [2]?Id = .{ null, null },
-} = .{},
-/// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
-sections: struct {
-    capabilities: Section = .{},
-    extensions: Section = .{},
-    extended_instruction_set: Section = .{},
-    memory_model: Section = .{},
-    execution_modes: Section = .{},
-    debug_strings: Section = .{},
-    debug_names: Section = .{},
-    annotations: Section = .{},
-    globals: Section = .{},
-    functions: Section = .{},
-} = .{},
+        pub fn eql(_: @This(), a: StructType, b: StructType, _: usize) bool {
+            return a.ip_index == b.ip_index and std.mem.eql(Id, a.fields, b.fields);
+        }
+    };
+};
 
-/// Data can be lowered into in two basic representations: indirect, which is when
-/// a type is stored in memory, and direct, which is how a type is stored when its
-/// a direct SPIR-V value.
-pub const Repr = enum {
-    /// A SPIR-V value as it would be used in operations.
-    direct,
-    /// A SPIR-V value as it is stored in memory.
-    indirect,
+const FnType = struct {
+    return_ty: Id,
+    params: []const Id,
+
+    const HashContext = struct {
+        pub fn hash(_: @This(), ty: FnType) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.asBytes(&ty.return_ty));
+            hasher.update(std.mem.sliceAsBytes(ty.params));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(_: @This(), a: FnType, b: FnType, _: usize) bool {
+            return a.return_ty == b.return_ty and
+                std.mem.eql(Id, a.params, b.params);
+        }
+    };
+};
+
+const Constant = struct {
+    ty: Id,
+    value: spec.LiteralContextDependentNumber,
+
+    const HashContext = struct {
+        pub fn hash(_: @This(), value: Constant) u32 {
+            const Tag = @typeInfo(spec.LiteralContextDependentNumber).@"union".tag_type.?;
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.asBytes(&value.ty));
+            hasher.update(std.mem.asBytes(&@as(Tag, value.value)));
+            switch (value.value) {
+                inline else => |v| hasher.update(std.mem.asBytes(&v)),
+            }
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(_: @This(), a: Constant, b: Constant, _: usize) bool {
+            if (a.ty != b.ty) return false;
+            const Tag = @typeInfo(spec.LiteralContextDependentNumber).@"union".tag_type.?;
+            if (@as(Tag, a.value) != @as(Tag, b.value)) return false;
+            return switch (a.value) {
+                inline else => |v, tag| v == @field(b.value, @tagName(tag)),
+            };
+        }
+    };
 };
 
 pub fn deinit(module: *Module) void {
@@ -155,15 +223,21 @@ pub fn deinit(module: *Module) void {
     module.sections.globals.deinit(module.gpa);
     module.sections.functions.deinit(module.gpa);
 
+    module.cache.opaque_types.deinit(module.gpa);
     module.cache.int_types.deinit(module.gpa);
     module.cache.float_types.deinit(module.gpa);
     module.cache.vector_types.deinit(module.gpa);
     module.cache.array_types.deinit(module.gpa);
+    module.cache.struct_types.deinit(module.gpa);
+    module.cache.fn_types.deinit(module.gpa);
     module.cache.capabilities.deinit(module.gpa);
     module.cache.extensions.deinit(module.gpa);
     module.cache.extended_instruction_set.deinit(module.gpa);
     module.cache.decorations.deinit(module.gpa);
     module.cache.builtins.deinit(module.gpa);
+    module.cache.strings.deinit(module.gpa);
+
+    module.cache.constants.deinit(module.gpa);
 
     module.decls.deinit(module.gpa);
     module.decl_deps.deinit(module.gpa);
@@ -234,6 +308,8 @@ pub fn addEntryPointDeps(
 }
 
 fn entryPoints(module: *Module) !Section {
+    const target = module.zcu.getTarget();
+
     var entry_points = Section{};
     errdefer entry_points.deinit(module.gpa);
 
@@ -256,7 +332,7 @@ fn entryPoints(module: *Module) !Section {
         });
 
         if (entry_point.exec_mode == null and entry_point.exec_model == .fragment) {
-            switch (module.target.os.tag) {
+            switch (target.os.tag) {
                 .vulkan, .opengl => |tag| {
                     try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
                         .entry_point = entry_point_id,
@@ -273,7 +349,7 @@ fn entryPoints(module: *Module) !Section {
 }
 
 pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
-    const target = module.target;
+    const target = module.zcu.getTarget();
 
     // Emit capabilities and extensions
     switch (target.os.tag) {
@@ -434,20 +510,6 @@ pub fn importInstructionSet(module: *Module, set: spec.InstructionSet) !Id {
     return result_id;
 }
 
-pub fn structType(module: *Module, result_id: Id, types: []const Id, maybe_names: ?[]const []const u8) !void {
-    try module.sections.globals.emit(module.gpa, .OpTypeStruct, .{
-        .id_result = result_id,
-        .id_ref = types,
-    });
-
-    if (maybe_names) |names| {
-        assert(names.len == types.len);
-        for (names, 0..) |name, i| {
-            try module.memberDebugName(result_id, @intCast(i), name);
-        }
-    }
-}
-
 pub fn boolType(module: *Module) !Id {
     if (module.cache.bool_type) |id| return id;
 
@@ -468,6 +530,19 @@ pub fn voidType(module: *Module) !Id {
     });
     module.cache.void_type = result_id;
     try module.debugName(result_id, "void");
+    return result_id;
+}
+
+pub fn opaqueType(module: *Module, name: []const u8) !Id {
+    if (module.cache.opaque_types.get(name)) |id| return id;
+    const result_id = module.allocId();
+    const name_dup = try module.arena.dupe(u8, name);
+    try module.sections.globals.emit(module.gpa, .OpTypeOpaque, .{
+        .id_result = result_id,
+        .literal_string = name_dup,
+    });
+    try module.debugName(result_id, name_dup);
+    try module.cache.opaque_types.put(module.gpa, name_dup, result_id);
     return result_id;
 }
 
@@ -537,25 +612,87 @@ pub fn arrayType(module: *Module, len_id: Id, child_ty_id: Id) !Id {
     return entry.value_ptr.*;
 }
 
-pub fn functionType(module: *Module, return_ty_id: Id, param_type_ids: []const Id) !Id {
+pub fn structType(
+    module: *Module,
+    types: []const Id,
+    maybe_names: ?[]const []const u8,
+    maybe_offsets: ?[]const u32,
+    ip_index: InternPool.Index,
+) !Id {
+    const target = module.zcu.getTarget();
+
+    if (module.cache.struct_types.get(.{ .fields = types, .ip_index = ip_index })) |id| return id;
     const result_id = module.allocId();
-    try module.sections.globals.emit(module.gpa, .OpTypeFunction, .{
+    const types_dup = try module.arena.dupe(Id, types);
+    try module.sections.globals.emit(module.gpa, .OpTypeStruct, .{
         .id_result = result_id,
-        .return_type = return_ty_id,
-        .id_ref_2 = param_type_ids,
+        .id_ref = types_dup,
     });
+
+    if (maybe_names) |names| {
+        assert(names.len == types.len);
+        for (names, 0..) |name, i| {
+            try module.memberDebugName(result_id, @intCast(i), name);
+        }
+    }
+
+    switch (target.os.tag) {
+        .vulkan, .opengl => {
+            if (maybe_offsets) |offsets| {
+                assert(offsets.len == types.len);
+                for (offsets, 0..) |offset, i| {
+                    try module.decorateMember(
+                        result_id,
+                        @intCast(i),
+                        .{ .offset = .{ .byte_offset = offset } },
+                    );
+                }
+            }
+        },
+        else => {},
+    }
+
+    try module.cache.struct_types.put(
+        module.gpa,
+        .{
+            .fields = types_dup,
+            .ip_index = if (module.zcu.comp.config.root_strip) .none else ip_index,
+        },
+        result_id,
+    );
     return result_id;
 }
 
-pub fn constant(module: *Module, result_ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
+pub fn functionType(module: *Module, return_ty_id: Id, param_type_ids: []const Id) !Id {
+    if (module.cache.fn_types.get(.{
+        .return_ty = return_ty_id,
+        .params = param_type_ids,
+    })) |id| return id;
     const result_id = module.allocId();
-    const section = &module.sections.globals;
-    try section.emit(module.gpa, .OpConstant, .{
-        .id_result_type = result_ty_id,
+    const params_dup = try module.arena.dupe(Id, param_type_ids);
+    try module.sections.globals.emit(module.gpa, .OpTypeFunction, .{
         .id_result = result_id,
-        .value = value,
+        .return_type = return_ty_id,
+        .id_ref_2 = params_dup,
     });
+    try module.cache.fn_types.put(module.gpa, .{
+        .return_ty = return_ty_id,
+        .params = params_dup,
+    }, result_id);
     return result_id;
+}
+
+pub fn constant(module: *Module, ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
+    const entry = try module.cache.constants.getOrPut(module.gpa, .{ .ty = ty_id, .value = value });
+    if (!entry.found_existing) {
+        entry.value_ptr.* = module.allocId();
+        try module.sections.globals.emit(module.gpa, .OpConstant, .{
+            .id_result_type = ty_id,
+            .id_result = entry.value_ptr.*,
+            .value = value,
+        });
+    }
+    return entry.value_ptr.*;
 }
 
 pub fn constBool(module: *Module, value: bool) !Id {
@@ -711,28 +848,31 @@ pub fn memberDebugName(module: *Module, target: Id, member: u32, name: []const u
     });
 }
 
+pub fn debugString(module: *Module, string: []const u8) !Id {
+    const entry = try module.cache.strings.getOrPut(module.gpa, string);
+    if (!entry.found_existing) {
+        entry.value_ptr.* = module.allocId();
+        try module.sections.debug_strings.emit(module.gpa, .OpString, .{
+            .id_result = entry.value_ptr.*,
+            .string = string,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
 pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageClass {
+    const target = module.zcu.getTarget();
     return switch (as) {
-        .generic => if (module.target.cpu.has(.spirv, .generic_pointer)) .generic else .function,
-        .global => switch (module.target.os.tag) {
+        .generic => if (target.cpu.has(.spirv, .generic_pointer)) .generic else .function,
+        .global => switch (target.os.tag) {
             .opencl, .amdhsa => .cross_workgroup,
             else => .storage_buffer,
         },
-        .push_constant => {
-            return .push_constant;
-        },
-        .output => {
-            return .output;
-        },
-        .uniform => {
-            return .uniform;
-        },
-        .storage_buffer => {
-            return .storage_buffer;
-        },
-        .physical_storage_buffer => {
-            return .physical_storage_buffer;
-        },
+        .push_constant => .push_constant,
+        .output => .output,
+        .uniform => .uniform,
+        .storage_buffer => .storage_buffer,
+        .physical_storage_buffer => .physical_storage_buffer,
         .constant => .uniform_constant,
         .shared => .workgroup,
         .local => .function,

@@ -267,9 +267,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
             const ids = try gpa.alloc(Id, operands[1..].len);
             defer gpa.free(ids);
             for (operands[1..], ids) |op, *id| id.* = try self.resolveRefId(op.ref_id);
-            const result_id = module.allocId();
-            try module.structType(result_id, ids, null);
-            break :blk result_id;
+            break :blk try module.structType(ids, null, null, .none);
         },
         .OpTypeImage => blk: {
             const sampled_type = try self.resolveRefId(operands[1].ref_id);
@@ -324,6 +322,7 @@ fn processTypeInstruction(self: *Assembler) !AsmValue {
 /// - Target section is determined from instruction type.
 fn processGenericInstruction(self: *Assembler) !?AsmValue {
     const module = self.cg.module;
+    const target = module.zcu.getTarget();
     const operands = self.inst.operands.items;
     var maybe_spv_decl_index: ?Decl.Index = null;
     const section = switch (self.inst.opcode.class()) {
@@ -337,7 +336,7 @@ fn processGenericInstruction(self: *Assembler) !?AsmValue {
                 const storage_class: spec.StorageClass = @enumFromInt(operands[2].value);
                 if (storage_class == .function) break :section &self.cg.prologue;
                 maybe_spv_decl_index = try module.allocDecl(.global);
-                if (!module.target.cpu.has(.spirv, .v1_4) and storage_class != .input and storage_class != .output) {
+                if (!target.cpu.has(.spirv, .v1_4) and storage_class != .input and storage_class != .output) {
                     // Before version 1.4, the interface’s storage classes are limited to the Input and Output
                     break :section &module.sections.globals;
                 }

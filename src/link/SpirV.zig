@@ -46,8 +46,8 @@ pub fn createEmpty(
         else => unreachable, // Caught by Compilation.Config.resolve.
     }
 
-    const self = try arena.create(Linker);
-    self.* = .{
+    const linker = try arena.create(Linker);
+    linker.* = .{
         .base = .{
             .tag = .spirv,
             .comp = comp,
@@ -59,16 +59,20 @@ pub fn createEmpty(
             .file = null,
             .build_id = options.build_id,
         },
-        .module = .{ .gpa = gpa, .target = comp.getTarget() },
+        .module = .{
+            .gpa = gpa,
+            .arena = arena,
+            .zcu = comp.zcu.?,
+        },
     };
-    errdefer self.deinit();
+    errdefer linker.deinit();
 
-    self.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
+    linker.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
         .truncate = true,
         .read = true,
     });
 
-    return self;
+    return linker;
 }
 
 pub fn open(
@@ -80,12 +84,12 @@ pub fn open(
     return createEmpty(arena, comp, emit, options);
 }
 
-pub fn deinit(self: *Linker) void {
-    self.module.deinit();
+pub fn deinit(linker: *Linker) void {
+    linker.module.deinit();
 }
 
-fn genNav(
-    self: *Linker,
+fn generate(
+    linker: *Linker,
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     air: Air,
@@ -96,9 +100,9 @@ fn genNav(
     const gpa = zcu.gpa;
     const structured_cfg = zcu.navFileScope(nav_index).mod.?.structured_cfg;
 
-    var nav_gen: CodeGen = .{
+    var cg: CodeGen = .{
         .pt = pt,
-        .module = &self.module,
+        .module = &linker.module,
         .owner_nav = nav_index,
         .air = air,
         .liveness = liveness,
@@ -108,17 +112,17 @@ fn genNav(
         },
         .base_line = zcu.navSrcLine(nav_index),
     };
-    defer nav_gen.deinit();
+    defer cg.deinit();
 
-    nav_gen.genNav(do_codegen) catch |err| switch (err) {
-        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, nav_gen.error_msg.?)) {
+    cg.genNav(do_codegen) catch |err| switch (err) {
+        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, cg.error_msg.?)) {
             error.CodegenFail => {},
             error.OutOfMemory => |e| return e,
         },
         else => |other| {
-            // There might be an error that happened *after* self.error_msg
+            // There might be an error that happened *after* linker.error_msg
             // was already allocated, so be sure to free it.
-            if (nav_gen.error_msg) |error_msg| {
+            if (cg.error_msg) |error_msg| {
                 error_msg.deinit(gpa);
             }
 
@@ -128,7 +132,7 @@ fn genNav(
 }
 
 pub fn updateFunc(
-    self: *Linker,
+    linker: *Linker,
     pt: Zcu.PerThread,
     func_index: InternPool.Index,
     air: *const Air,
@@ -136,17 +140,17 @@ pub fn updateFunc(
 ) !void {
     const nav = pt.zcu.funcInfo(func_index).owner_nav;
     // TODO: Separate types for generating decls and functions?
-    try self.genNav(pt, nav, air.*, liveness.*.?, true);
+    try linker.generate(pt, nav, air.*, liveness.*.?, true);
 }
 
-pub fn updateNav(self: *Linker, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
+pub fn updateNav(linker: *Linker, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     const ip = &pt.zcu.intern_pool;
     log.debug("lowering nav {f}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
-    try self.genNav(pt, nav, undefined, undefined, false);
+    try linker.generate(pt, nav, undefined, undefined, false);
 }
 
 pub fn updateExports(
-    self: *Linker,
+    linker: *Linker,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
@@ -163,7 +167,7 @@ pub fn updateExports(
     const nav_ty = ip.getNav(nav_index).typeOf(ip);
     const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
-        const spv_decl_index = try self.module.resolveNav(ip, nav_index);
+        const spv_decl_index = try linker.module.resolveNav(ip, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
         const exec_model: spec.ExecutionModel = switch (target.os.tag) {
             .vulkan, .opengl => switch (cc) {
@@ -185,7 +189,7 @@ pub fn updateExports(
 
         for (export_indices) |export_idx| {
             const exp = export_idx.ptr(zcu);
-            try self.module.declareEntryPoint(
+            try linker.module.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
                 exec_model,
@@ -198,7 +202,7 @@ pub fn updateExports(
 }
 
 pub fn flush(
-    self: *Linker,
+    linker: *Linker,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
     prog_node: std.Progress.Node,
@@ -214,18 +218,18 @@ pub fn flush(
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    const comp = self.base.comp;
+    const comp = linker.base.comp;
     const diags = &comp.link_diags;
     const gpa = comp.gpa;
 
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-    var error_info: std.io.Writer.Allocating = .init(self.module.gpa);
+    var error_info: std.io.Writer.Allocating = .init(linker.module.gpa);
     defer error_info.deinit();
 
     error_info.writer.writeAll("zig_errors:") catch return error.OutOfMemory;
-    const ip = &self.base.comp.zcu.?.intern_pool;
+    const ip = &linker.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
@@ -245,28 +249,27 @@ pub fn flush(
             }.isValidChar,
         ) catch return error.OutOfMemory;
     }
-    try self.module.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
+    try linker.module.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
         .extension = error_info.getWritten(),
     });
 
-    const module = try self.module.finalize(arena);
+    const module = try linker.module.finalize(arena);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
+    const linked_module = linker.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+    linker.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
         return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
-fn linkModule(self: *Linker, arena: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
-    _ = self;
+fn linkModule(linker: *Linker, arena: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
+    _ = linker;
 
     const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
     const prune_unused = @import("SpirV/prune_unused.zig");
-    const dedup = @import("SpirV/deduplicate.zig");
 
     var parser = try BinaryModule.Parser.init(arena);
     defer parser.deinit();
@@ -274,7 +277,6 @@ fn linkModule(self: *Linker, arena: Allocator, module: []Word, progress: std.Pro
 
     try lower_invocation_globals.run(&parser, &binary, progress);
     try prune_unused.run(&parser, &binary, progress);
-    try dedup.run(&parser, &binary, progress);
 
     return binary.finalize(arena);
 }

@@ -3646,9 +3646,7 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
 
     if (zcu.error_limit == 0) return 0;
     if (target.cpu.arch.isSpirV()) {
-        if (!target.cpu.has(.spirv, .storage_push_constant16)) {
-            return 32;
-        }
+        if (zcu.comp.config.is_test) return 32;
     }
 
     return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
