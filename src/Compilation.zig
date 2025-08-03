@@ -6835,8 +6835,11 @@ pub fn addCCArgs(
         }
     }
 
-    if (target.cpu.arch.isArm()) {
-        try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
+    if (target.cpu.arch.isThumb()) {
+        try argv.append(switch (ext) {
+            .assembly, .assembly_with_cpp => "-Wa,-mthumb",
+            else => "-mthumb",
+        });
     }
 
     if (target_util.llvmMachineAbi(target)) |mabi| {
