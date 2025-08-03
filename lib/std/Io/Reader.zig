@@ -1065,10 +1065,13 @@ fn fillUnbuffered(r: *Reader, n: usize) Error!void {
     };
     while (r.end < r.seek + n) {
         writer.end = r.end;
-        r.end += r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+        const streamed = r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
             error.WriteFailed => unreachable,
             error.ReadFailed, error.EndOfStream => |e| return e,
         };
+        // Doing `r.end += r.vtable.stream` is not possible since `r.end` may be modified
+        // by the implementation, differing from the already evaluated value.
+        r.end += streamed;
     }
 }
 
@@ -1084,10 +1087,13 @@ pub fn fillMore(r: *Reader) Error!void {
         .end = r.end,
         .vtable = &.{ .drain = Writer.fixedDrain },
     };
-    r.end += r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
+    const streamed = r.vtable.stream(r, &writer, .limited(r.buffer.len - r.end)) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         else => |e| return e,
     };
+    // Doing `r.end += r.vtable.stream` is not possible since `r.end` may be modified
+    // by the implementation, differing from the already evaluated value.
+    r.end += streamed;
 }
 
 /// Returns the next byte from the stream or returns `error.EndOfStream`.
@@ -1517,6 +1523,26 @@ test fill {
     var r: Reader = .fixed("abc");
     try r.fill(1);
     try r.fill(3);
+}
+
+test "fill writing directly to reader buffer" {
+    var buf: [2]u8 = undefined;
+    var indirect_r: Reader = .{
+        .buffer = &buf,
+        .seek = 0,
+        .end = 0,
+        .vtable = &.{
+            .stream = struct {
+                fn stream(r: *Reader, _: *Writer, _: Limit) StreamError!usize {
+                    @memset(r.buffer[r.seek..], 0xff);
+                    r.end = r.buffer.len;
+                    return 0;
+                }
+            }.stream,
+        },
+    };
+    try indirect_r.fill(2);
+    try std.testing.expectEqualSlices(u8, &.{ 0xff, 0xff }, indirect_r.buffered());
 }
 
 test takeByte {
