@@ -11,19 +11,18 @@ const link = @import("../link.zig");
 const Air = @import("../Air.zig");
 const Type = @import("../Type.zig");
 const BinaryModule = @import("SpirV/BinaryModule.zig");
-const CodeGen = @import("../arch/spirv/CodeGen.zig");
-const SpvModule = @import("../arch/spirv/Module.zig");
-const Section = @import("../arch/spirv/Section.zig");
+const CodeGen = @import("../codegen/spirv/CodeGen.zig");
+const Module = @import("../codegen/spirv/Module.zig");
 const trace = @import("../tracy.zig").trace;
 
-const spec = @import("../arch/spirv/spec.zig");
+const spec = @import("../codegen/spirv/spec.zig");
 const Id = spec.Id;
 const Word = spec.Word;
 
 const Linker = @This();
 
 base: link.File,
-module: SpvModule,
+module: Module,
 
 pub fn createEmpty(
     arena: Allocator,
