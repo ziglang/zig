@@ -22,7 +22,7 @@ pub extern const instance_index: u32 addrspace(.input);
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn location(comptime ptr: anytype, comptime loc: u32) void {
+pub inline fn location(comptime ptr: anytype, comptime loc: u32) void {
     asm volatile (
         \\OpDecorate %ptr Location $loc
         :
@@ -33,7 +33,7 @@ pub fn location(comptime ptr: anytype, comptime loc: u32) void {
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
+pub inline fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
     asm volatile (
         \\OpDecorate %ptr DescriptorSet $set
         \\OpDecorate %ptr Binding $bind
@@ -81,7 +81,7 @@ pub const ExecutionMode = union(Tag) {
 };
 
 /// Declare the mode entry point executes in.
-pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
+pub inline fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
     const cc = @typeInfo(@TypeOf(entry_point)).@"fn".calling_convention;
     switch (mode) {
         .origin_upper_left,
