@@ -125,9 +125,9 @@ pub const Decl = struct {
     /// - For `invocation_global`, this is the result-id of the associated InvocationGlobal instruction.
     result_id: Id,
     /// The offset of the first dependency of this decl in the `decl_deps` array.
-    begin_dep: u32,
+    begin_dep: usize = 0,
     /// The past-end offset of the dependencies of this decl in the `decl_deps` array.
-    end_dep: u32,
+    end_dep: usize = 0,
 };
 
 /// This models a kernel entry point.
@@ -258,7 +258,6 @@ pub fn resolveNav(module: *Module, ip: *InternPool, nav_index: InternPool.Nav.In
             .generic => .invocation_global,
             else => .global,
         };
-
         entry.value_ptr.* = try module.allocDecl(kind);
     }
 
@@ -782,15 +781,15 @@ pub fn builtin(
     const gop = try module.cache.builtins.getOrPut(module.gpa, .{ spirv_builtin, storage_class });
     if (!gop.found_existing) {
         const decl_index = try module.allocDecl(.global);
-        const result_id = module.declPtr(decl_index).result_id;
+        const decl = module.declPtr(decl_index);
+
         gop.value_ptr.* = decl_index;
         try module.sections.globals.emit(module.gpa, .OpVariable, .{
             .id_result_type = result_ty_id,
-            .id_result = result_id,
+            .id_result = decl.result_id,
             .storage_class = storage_class,
         });
-        try module.decorate(result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
-        try module.declareDeclDeps(decl_index, &.{});
+        try module.decorate(decl.result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
     }
     return gop.value_ptr.*;
 }
@@ -847,8 +846,6 @@ pub fn allocDecl(module: *Module, kind: Decl.Kind) !Decl.Index {
     try module.decls.append(module.gpa, .{
         .kind = kind,
         .result_id = module.allocId(),
-        .begin_dep = undefined,
-        .end_dep = undefined,
     });
 
     return @as(Decl.Index, @enumFromInt(@as(u32, @intCast(module.decls.items.len - 1))));
@@ -856,17 +853,6 @@ pub fn allocDecl(module: *Module, kind: Decl.Kind) !Decl.Index {
 
 pub fn declPtr(module: *Module, index: Decl.Index) *Decl {
     return &module.decls.items[@intFromEnum(index)];
-}
-
-/// Declare ALL dependencies for a decl.
-pub fn declareDeclDeps(module: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
-    const begin_dep: u32 = @intCast(module.decl_deps.items.len);
-    try module.decl_deps.appendSlice(module.gpa, deps);
-    const end_dep: u32 = @intCast(module.decl_deps.items.len);
-
-    const decl = module.declPtr(decl_index);
-    decl.begin_dep = begin_dep;
-    decl.end_dep = end_dep;
 }
 
 /// Declare a SPIR-V function as an entry point. This causes an extra wrapper

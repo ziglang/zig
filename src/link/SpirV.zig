@@ -23,6 +23,7 @@ const Linker = @This();
 
 base: link.File,
 module: Module,
+cg: CodeGen,
 
 pub fn createEmpty(
     arena: Allocator,
@@ -63,6 +64,16 @@ pub fn createEmpty(
             .arena = arena,
             .zcu = comp.zcu.?,
         },
+        .cg = .{
+            // These fields are populated in generate()
+            .pt = undefined,
+            .air = undefined,
+            .liveness = undefined,
+            .owner_nav = undefined,
+            .module = undefined,
+            .control_flow = .{ .structured = .{} },
+            .base_line = undefined,
+        },
     };
     errdefer linker.deinit();
 
@@ -84,6 +95,7 @@ pub fn open(
 }
 
 pub fn deinit(linker: *Linker) void {
+    linker.cg.deinit();
     linker.module.deinit();
 }
 
@@ -99,29 +111,41 @@ fn generate(
     const gpa = zcu.gpa;
     const structured_cfg = zcu.navFileScope(nav_index).mod.?.structured_cfg;
 
-    var cg: CodeGen = .{
+    linker.cg.control_flow.deinit(gpa);
+    linker.cg.args.clearRetainingCapacity();
+    linker.cg.inst_results.clearRetainingCapacity();
+    linker.cg.id_scratch.clearRetainingCapacity();
+    linker.cg.prologue.reset();
+    linker.cg.body.reset();
+
+    linker.cg = .{
         .pt = pt,
-        .module = &linker.module,
-        .owner_nav = nav_index,
         .air = air,
         .liveness = liveness,
+        .owner_nav = nav_index,
+        .module = &linker.module,
         .control_flow = switch (structured_cfg) {
             true => .{ .structured = .{} },
             false => .{ .unstructured = .{} },
         },
         .base_line = zcu.navSrcLine(nav_index),
-    };
-    defer cg.deinit();
 
-    cg.genNav(do_codegen) catch |err| switch (err) {
-        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, cg.error_msg.?)) {
+        .args = linker.cg.args,
+        .inst_results = linker.cg.inst_results,
+        .id_scratch = linker.cg.id_scratch,
+        .prologue = linker.cg.prologue,
+        .body = linker.cg.body,
+    };
+
+    linker.cg.genNav(do_codegen) catch |err| switch (err) {
+        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, linker.cg.error_msg.?)) {
             error.CodegenFail => {},
             error.OutOfMemory => |e| return e,
         },
         else => |other| {
             // There might be an error that happened *after* linker.error_msg
             // was already allocated, so be sure to free it.
-            if (cg.error_msg) |error_msg| {
+            if (linker.cg.error_msg) |error_msg| {
                 error_msg.deinit(gpa);
             }
 

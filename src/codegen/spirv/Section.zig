@@ -21,7 +21,7 @@ pub fn deinit(section: *Section, allocator: Allocator) void {
 }
 
 pub fn reset(section: *Section) void {
-    section.instructions.items.len = 0;
+    section.instructions.clearRetainingCapacity();
 }
 
 pub fn toWords(section: Section) []Word {
@@ -84,16 +84,6 @@ pub fn emit(
     try section.instructions.ensureUnusedCapacity(allocator, word_count);
     section.writeWord(@as(Word, @intCast(word_count << 16)) | @intFromEnum(opcode));
     section.writeOperands(opcode.Operands(), operands);
-}
-
-pub fn emitBranch(
-    section: *Section,
-    allocator: Allocator,
-    target_label: spec.Id,
-) !void {
-    try section.emit(allocator, .OpBranch, .{
-        .target_label = target_label,
-    });
 }
 
 pub fn writeWord(section: *Section, word: Word) void {
