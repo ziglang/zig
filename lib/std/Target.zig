@@ -550,37 +550,37 @@ pub const Os = struct {
                 .driverkit => .{
                     .semver = .{
                         .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 25, .minor = 0, .patch = 0 },
                     },
                 },
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 6, .patch = 0 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 6, .patch = 0 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 5, .patch = 0 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 2, .minor = 5, .patch = 0 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
                         .min = .{ .major = 7, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 6, .patch = 0 },
                     },
                 },
 
