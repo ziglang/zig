@@ -549,7 +549,7 @@ pub const Os = struct {
 
                 .driverkit => .{
                     .semver = .{
-                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 20, .minor = 0, .patch = 0 },
                         .max = .{ .major = 25, .minor = 0, .patch = 0 },
                     },
                 },
