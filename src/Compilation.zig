@@ -6556,6 +6556,43 @@ pub fn addCCArgs(
         else => {},
     }
 
+    const xclang_flag = switch (ext) {
+        .assembly, .assembly_with_cpp => "-Xclangas",
+        else => "-Xclang",
+    };
+
+    if (target_util.clangSupportsTargetCpuArg(target)) {
+        if (target.cpu.model.llvm_name) |llvm_name| {
+            try argv.appendSlice(&[_][]const u8{
+                xclang_flag, "-target-cpu", xclang_flag, llvm_name,
+            });
+        }
+    }
+
+    // It would be really nice if there was a more compact way to communicate this info to Clang.
+    const all_features_list = target.cpu.arch.allFeaturesList();
+    try argv.ensureUnusedCapacity(all_features_list.len * 4);
+    for (all_features_list, 0..) |feature, index_usize| {
+        const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
+        const is_enabled = target.cpu.features.isEnabled(index);
+
+        if (feature.llvm_name) |llvm_name| {
+            // We communicate float ABI to Clang through the dedicated options.
+            if (std.mem.startsWith(u8, llvm_name, "soft-float") or
+                std.mem.startsWith(u8, llvm_name, "hard-float"))
+                continue;
+
+            // Ignore these until we figure out how to handle the concept of omitting features.
+            // See https://github.com/ziglang/zig/issues/23539
+            if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
+
+            argv.appendSliceAssumeCapacity(&[_][]const u8{ xclang_flag, "-target-feature", xclang_flag });
+            const plus_or_minus = "-+"[@intFromBool(is_enabled)];
+            const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
+            argv.appendAssumeCapacity(arg);
+        }
+    }
+
     if (target.cpu.arch.isArm()) {
         try argv.append(if (target.cpu.arch.isThumb()) "-mthumb" else "-mno-thumb");
     }
@@ -6885,38 +6922,6 @@ pub fn addCCArgs(
         .ll,
         .bc,
         => {
-            if (target_util.clangSupportsTargetCpuArg(target)) {
-                if (target.cpu.model.llvm_name) |llvm_name| {
-                    try argv.appendSlice(&[_][]const u8{
-                        "-Xclang", "-target-cpu", "-Xclang", llvm_name,
-                    });
-                }
-            }
-
-            // It would be really nice if there was a more compact way to communicate this info to Clang.
-            const all_features_list = target.cpu.arch.allFeaturesList();
-            try argv.ensureUnusedCapacity(all_features_list.len * 4);
-            for (all_features_list, 0..) |feature, index_usize| {
-                const index = @as(std.Target.Cpu.Feature.Set.Index, @intCast(index_usize));
-                const is_enabled = target.cpu.features.isEnabled(index);
-
-                if (feature.llvm_name) |llvm_name| {
-                    // We communicate float ABI to Clang through the dedicated options.
-                    if (std.mem.startsWith(u8, llvm_name, "soft-float") or
-                        std.mem.startsWith(u8, llvm_name, "hard-float"))
-                        continue;
-
-                    // Ignore these until we figure out how to handle the concept of omitting features.
-                    // See https://github.com/ziglang/zig/issues/23539
-                    if (target_util.isDynamicAMDGCNFeature(target, feature)) continue;
-
-                    argv.appendSliceAssumeCapacity(&[_][]const u8{ "-Xclang", "-target-feature", "-Xclang" });
-                    const plus_or_minus = "-+"[@intFromBool(is_enabled)];
-                    const arg = try std.fmt.allocPrint(arena, "{c}{s}", .{ plus_or_minus, llvm_name });
-                    argv.appendAssumeCapacity(arg);
-                }
-            }
-
             {
                 var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
