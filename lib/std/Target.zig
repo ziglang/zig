@@ -579,7 +579,7 @@ pub const Os = struct {
                 },
                 .watchos => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 0, .patch = 0 },
+                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
                         .max = .{ .major = 11, .minor = 6, .patch = 0 },
                     },
                 },
