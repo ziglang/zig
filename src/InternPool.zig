@@ -8401,24 +8401,33 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     assert(sentinel == .none or elem == sentinel);
                 },
             }
-            switch (ty_key) {
+            if (aggregate.storage.values().len > 0) switch (ty_key) {
                 .array_type, .vector_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values()) |elem| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == child);
                     }
+                    assert(any_defined);
                 },
                 .struct_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values(), ip.loadStructType(aggregate.ty).field_types.get(ip)) |elem, field_ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == field_ty);
                     }
+                    assert(any_defined);
                 },
                 .tuple_type => |tuple_type| {
+                    var any_defined = false;
                     for (aggregate.storage.values(), tuple_type.types.get(ip)) |elem, ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == ty);
                     }
+                    assert(any_defined);
                 },
                 else => unreachable,
-            }
+            };
 
             if (len == 0) {
                 items.appendAssumeCapacity(.{

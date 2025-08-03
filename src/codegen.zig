@@ -327,7 +327,7 @@ pub fn generateSymbol(
 
     log.debug("generateSymbol: val = {f}", .{val.fmtValue(pt)});
 
-    if (val.isUndefDeep(zcu)) {
+    if (val.isUndef(zcu)) {
         const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
         try code.appendNTimes(gpa, 0xaa, abi_size);
         return;
