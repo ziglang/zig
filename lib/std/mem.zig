@@ -18,7 +18,7 @@ pub const byte_size_in_bits = 8;
 
 pub const Allocator = @import("mem/Allocator.zig");
 
-pub const sentinelPtrs = @import("mem/sentinelPtrs.zig");
+pub const sentinel_terminated = @import("mem/sentinel_terminated.zig");
 
 /// Stored as a power-of-two.
 pub const Alignment = enum(math.Log2Int(usize)) {
@@ -642,7 +642,7 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 
 /// Compares two many-item pointers with NUL-termination lexicographically.
 pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
-    return sentinelPtrs.order(T, 0, lhs, rhs);
+    return sentinel_terminated.order(T, 0, lhs, rhs);
 }
 
 test order {
@@ -4844,5 +4844,5 @@ test "read/write(Var)PackedInt" {
 }
 
 test {
-    _ = &sentinelPtrs;
+    _ = sentinel_terminated;
 }

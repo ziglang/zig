@@ -110,6 +110,12 @@ test order {
     try testing.expect(order(u8, 0, "abc", "abc0") == .lt);
     try testing.expect(order(u8, 0, "", "") == .eq);
     try testing.expect(order(u8, 0, "", "a") == .lt);
+
+    try testing.expect(order(u16, 1, ([_]u16{ 2, 3, 4, 5, 1 })[0..4 :1].ptr, ([_]u16{ 2, 3, 4, 5, 1 })[0..4 :1].ptr) == .eq);
+    try testing.expect(order(u16, 1, ([_]u16{ 2, 3, 4, 1 })[0..3 :1].ptr, ([_]u16{ 2, 3, 4, 5, 1 })[0..4 :1].ptr) == .lt);
+    try testing.expect(order(u16, 1, ([_]u16{ 3, 4, 5, 6, 1 })[0..4 :1].ptr, ([_]u16{ 2, 3, 4, 5, 1 })[0..4 :1].ptr) == .gt);
+    try testing.expect(order(u16, 1, ([_]u16{1})[0..0 :1].ptr, ([_]u16{1})[0..0 :1].ptr) == .eq);
+    try testing.expect(order(u16, 1, ([_]u16{1})[0..0 :1].ptr, ([_]u16{ 2, 1 })[0..1 :1].ptr) == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
