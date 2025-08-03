@@ -101,7 +101,7 @@ test max {
 pub fn order(comptime T: type, comptime sentinel: T, lhs: [*:sentinel]const T, rhs: [*:sentinel]const T) math.Order {
     var i: usize = 0;
     while (lhs[i] == rhs[i] and lhs[i] != sentinel) : (i += 1) {}
-    return math.order(lhs[i], rhs[i]);
+    return if (lhs[i] == sentinel) if (rhs[i] == sentinel) .eq else .lt else if (rhs[i] == sentinel) .gt else math.order(lhs[i], rhs[i]);
 }
 
 test order {
@@ -116,6 +116,8 @@ test order {
     try testing.expect(order(u16, 1, ([_]u16{ 3, 4, 5, 6, 1 })[0..4 :1].ptr, ([_]u16{ 2, 3, 4, 5, 1 })[0..4 :1].ptr) == .gt);
     try testing.expect(order(u16, 1, ([_]u16{1})[0..0 :1].ptr, ([_]u16{1})[0..0 :1].ptr) == .eq);
     try testing.expect(order(u16, 1, ([_]u16{1})[0..0 :1].ptr, ([_]u16{ 2, 1 })[0..1 :1].ptr) == .lt);
+
+    try testing.expect(order(i8, 0, ([_]i8{ -1, -2, 0 })[0..2 :0].ptr, ([_]i8{ -1, -2, -3, 0 })[0..3 :0].ptr) == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise

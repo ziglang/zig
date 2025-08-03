@@ -651,6 +651,7 @@ test order {
     try testing.expect(order(u8, "abc", "abc0") == .lt);
     try testing.expect(order(u8, "", "") == .eq);
     try testing.expect(order(u8, "", "a") == .lt);
+    try testing.expect(order(i8, &.{ -1, -2 }, &.{ -1, -2, -3 }) == .lt);
 }
 
 test orderZ {
@@ -659,6 +660,7 @@ test orderZ {
     try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
     try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(orderZ(u8, "", "a") == .lt);
+    try testing.expect(order(i8, &.{ -1, -2 }, &.{ -1, -2, -3 }) == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
