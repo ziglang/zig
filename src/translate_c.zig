@@ -4042,13 +4042,11 @@ fn transCPtrCast(
         break :blk try Tag.align_cast.create(c.arena, expr);
     };
 
-    if (!src_ty.isArrayType() and (((
-            src_child_type.isConstQualified() or
-            qualTypeIsFunction(src_child_type)   // C function pointers get translated to Zig const function pointers
-        ) and
-        !child_type.isConstQualified()) or
-        (src_child_type.isVolatileQualified() and
-            !child_type.isVolatileQualified())))
+    if (!src_ty.isArrayType() and
+        (((src_child_type.isConstQualified() or qualTypeIsFunction(src_child_type)) and
+            !child_type.isConstQualified()) or
+            (src_child_type.isVolatileQualified() and
+                !child_type.isVolatileQualified())))
     {
         return removeCVQualifiers(c, dst_type_node, rhs);
     } else {
