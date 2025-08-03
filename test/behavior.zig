@@ -102,11 +102,7 @@ test {
     _ = @import("behavior/union.zig");
     _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/var_args.zig");
-    // https://github.com/llvm/llvm-project/issues/118879
-    // https://github.com/llvm/llvm-project/issues/134659
-    if (!(builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon)) {
-        _ = @import("behavior/vector.zig");
-    }
+    _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");
     _ = @import("behavior/while.zig");
     _ = @import("behavior/widening.zig");
