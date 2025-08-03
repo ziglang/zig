@@ -65,10 +65,7 @@ pub const MutableValue = union(enum) {
                 .ty = sv.ty,
                 .val = (try sv.child.intern(pt, arena)).toIntern(),
             } }),
-            .repeated => |sv| try pt.intern(.{ .aggregate = .{
-                .ty = sv.ty,
-                .storage = .{ .repeated_elem = (try sv.child.intern(pt, arena)).toIntern() },
-            } }),
+            .repeated => |sv| return pt.aggregateSplatValue(.fromInterned(sv.ty), try sv.child.intern(pt, arena)),
             .bytes => |b| try pt.intern(.{ .aggregate = .{
                 .ty = b.ty,
                 .storage = .{ .bytes = try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, pt.tid, b.data, .maybe_embedded_nulls) },
@@ -78,10 +75,7 @@ pub const MutableValue = union(enum) {
                 for (a.elems, elems) |mut_elem, *interned_elem| {
                     interned_elem.* = (try mut_elem.intern(pt, arena)).toIntern();
                 }
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = a.ty,
-                    .storage = .{ .elems = elems },
-                } }));
+                return pt.aggregateValue(.fromInterned(a.ty), elems);
             },
             .slice => |s| try pt.intern(.{ .slice = .{
                 .ty = s.ty,

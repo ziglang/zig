@@ -154,12 +154,6 @@ test "Saturating Shift Left where lhs is of a computed type" {
     try expect(value.exponent == 0);
 }
 
-comptime {
-    var image: [1]u8 = undefined;
-    _ = &image;
-    _ = @shlExact(@as(u16, image[0]), 8);
-}
-
 test "Saturating Shift Left" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
@@ -201,4 +195,11 @@ test "Saturating Shift Left" {
     try expectEqual(-57896044618658097711785492504343953926634992332820282019728792003956564819968, S.shlSat(@as(i256, -0x53d4148cee74ea43477a65b3daa7b8fdadcbf4508e793f4af113b8d8da5a7eb6), 0x91));
     try expectEqual(170141183460469231731687303715884105727, S.shlSat(@as(i128, 0x2fe6bc5448c55ce18252e2c9d4477750), 0x31));
     try expectEqual(0, S.shlSat(@as(i128, 0), 127));
+}
+
+test "shift by partially undef vector" {
+    comptime {
+        const a: @Vector(1, u8) = .{undefined};
+        _ = a >> @splat(4);
+    }
 }

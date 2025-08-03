@@ -3575,7 +3575,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) return o.builder.undefConst(llvm_int_ty);
+        if (val.isUndef(zcu)) return o.builder.undefConst(llvm_int_ty);
 
         const ty = Type.fromInterned(val_key.typeOf());
         switch (val_key) {
@@ -3666,7 +3666,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             return o.builder.undefConst(try o.lowerType(pt, Type.fromInterned(val_key.typeOf())));
         }
 
@@ -5574,7 +5574,7 @@ pub const FuncGen = struct {
             const ptr_ty = try pt.singleMutPtrType(ret_ty);
 
             const operand = try self.resolveInst(un_op);
-            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
             if (val_is_undef and safety) undef: {
                 const ptr_info = ptr_ty.ptrInfo(zcu);
                 const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
@@ -5629,7 +5629,7 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, pt, fn_info);
         const operand = try self.resolveInst(un_op);
-        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
 
         if (val_is_undef and safety) {
@@ -9673,7 +9673,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(zcu);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
         if (val_is_undef) {
             const owner_mod = self.ng.ownerModule();
 
@@ -10014,7 +10014,7 @@ pub const FuncGen = struct {
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
-            if (elem_val.isUndefDeep(zcu)) {
+            if (elem_val.isUndef(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
                 // 0xaa or actual undefined for the fill byte.

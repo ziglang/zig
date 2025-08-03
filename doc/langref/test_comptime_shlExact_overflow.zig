@@ -3,4 +3,4 @@ comptime {
     _ = x;
 }
 
-// test_error=operation caused overflow
+// test_error=overflow of integer type 'u8' with value '340'
