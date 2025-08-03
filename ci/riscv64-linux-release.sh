@@ -7,7 +7,7 @@ set -e
 
 ARCH="$(uname -m)"
 TARGET="$ARCH-linux-musl"
-MCPU="baseline"
+MCPU="spacemit_x60"
 CACHE_BASENAME="zig+llvm+lld+clang-riscv64-linux-musl-0.15.0-dev.929+31e46be74"
 PREFIX="$HOME/deps/$CACHE_BASENAME"
 ZIG="$PREFIX/bin/zig"
