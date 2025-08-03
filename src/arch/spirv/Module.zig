@@ -368,7 +368,10 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
     }
     if (target.cpu.arch == .spirv64) try module.addCapability(.int64);
     if (target.cpu.has(.spirv, .int64)) try module.addCapability(.int64);
-    if (target.cpu.has(.spirv, .float16)) try module.addCapability(.float16);
+    if (target.cpu.has(.spirv, .float16)) {
+        if (target.os.tag == .opencl) try module.addExtension("cl_khr_fp16");
+        try module.addCapability(.float16);
+    }
     if (target.cpu.has(.spirv, .float64)) try module.addCapability(.float64);
     if (target.cpu.has(.spirv, .generic_pointer)) try module.addCapability(.generic_pointer);
     if (target.cpu.has(.spirv, .vector16)) try module.addCapability(.vector16);
@@ -920,7 +923,7 @@ pub fn debugString(module: *Module, string: []const u8) !Id {
 pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageClass {
     const target = module.zcu.getTarget();
     return switch (as) {
-        .generic => if (target.cpu.has(.spirv, .generic_pointer)) .generic else .function,
+        .generic => .function,
         .global => switch (target.os.tag) {
             .opencl, .amdhsa => .cross_workgroup,
             else => .storage_buffer,

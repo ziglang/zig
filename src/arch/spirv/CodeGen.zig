@@ -431,15 +431,12 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
     const zcu = cg.module.zcu;
     const ty: Type = .fromInterned(zcu.intern_pool.typeOf(val));
     const ty_id = try cg.resolveType(ty, .indirect);
-    const decl_ptr_ty_id = try cg.module.ptrType(ty_id, cg.module.storageClass(.generic));
 
     const spv_decl_index = blk: {
         const entry = try cg.module.uav_link.getOrPut(cg.module.gpa, .{ val, .function });
         if (entry.found_existing) {
             try cg.addFunctionDep(entry.value_ptr.*, .function);
-
-            const result_id = cg.module.declPtr(entry.value_ptr.*).result_id;
-            return try cg.castToGeneric(decl_ptr_ty_id, result_id);
+            return cg.module.declPtr(entry.value_ptr.*).result_id;
         }
 
         const spv_decl_index = try cg.module.allocDecl(.invocation_global);
@@ -520,7 +517,7 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
         });
     }
 
-    return try cg.castToGeneric(decl_ptr_ty_id, result_id);
+    return result_id;
 }
 
 fn addFunctionDep(cg: *CodeGen, decl_index: Module.Decl.Index, storage_class: StorageClass) !void {
@@ -533,21 +530,6 @@ fn addFunctionDep(cg: *CodeGen, decl_index: Module.Decl.Index, storage_class: St
             try cg.decl_deps.put(cg.module.gpa, decl_index, {});
         }
     }
-}
-
-fn castToGeneric(cg: *CodeGen, type_id: Id, ptr_id: Id) !Id {
-    const target = cg.module.zcu.getTarget();
-    if (target.cpu.has(.spirv, .generic_pointer)) {
-        const result_id = cg.module.allocId();
-        try cg.body.emit(cg.module.gpa, .OpPtrCastToGeneric, .{
-            .id_result_type = type_id,
-            .id_result = result_id,
-            .pointer = ptr_id,
-        });
-        return result_id;
-    }
-
-    return ptr_id;
 }
 
 /// Start a new SPIR-V block, Emits the label of the new block, and stores which
@@ -1209,11 +1191,7 @@ fn constantNavRef(cg: *CodeGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
 
     const spv_decl_index = try cg.module.resolveNav(ip, nav_index);
     const spv_decl = cg.module.declPtr(spv_decl_index);
-
-    const decl_id = switch (spv_decl.kind) {
-        .func => unreachable, // TODO: Is this possible?
-        .global, .invocation_global => spv_decl.result_id,
-    };
+    assert(spv_decl.kind != .func);
 
     const storage_class = cg.module.storageClass(nav.getAddrspace());
     try cg.addFunctionDep(spv_decl_index, storage_class);
@@ -1221,23 +1199,18 @@ fn constantNavRef(cg: *CodeGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
     const nav_ty_id = try cg.resolveType(nav_ty, .indirect);
     const decl_ptr_ty_id = try cg.module.ptrType(nav_ty_id, storage_class);
 
-    const ptr_id = switch (storage_class) {
-        .generic => try cg.castToGeneric(decl_ptr_ty_id, decl_id),
-        else => decl_id,
-    };
-
     if (decl_ptr_ty_id != ty_id) {
         // Differing pointer types, insert a cast.
         const casted_ptr_id = cg.module.allocId();
         try cg.body.emit(cg.module.gpa, .OpBitcast, .{
             .id_result_type = ty_id,
             .id_result = casted_ptr_id,
-            .operand = ptr_id,
+            .operand = spv_decl.result_id,
         });
         return casted_ptr_id;
-    } else {
-        return ptr_id;
     }
+
+    return spv_decl.result_id;
 }
 
 // Turn a Zig type's name into a cache reference.
@@ -2120,28 +2093,7 @@ fn buildSelect(cg: *CodeGen, condition: Temporary, lhs: Temporary, rhs: Temporar
     return v.finalize(result_ty, results);
 }
 
-const CmpPredicate = enum {
-    l_eq,
-    l_ne,
-    i_ne,
-    i_eq,
-    s_lt,
-    s_gt,
-    s_le,
-    s_ge,
-    u_lt,
-    u_gt,
-    u_le,
-    u_ge,
-    f_oeq,
-    f_une,
-    f_olt,
-    f_ole,
-    f_ogt,
-    f_oge,
-};
-
-fn buildCmp(cg: *CodeGen, pred: CmpPredicate, lhs: Temporary, rhs: Temporary) !Temporary {
+fn buildCmp(cg: *CodeGen, opcode: Opcode, lhs: Temporary, rhs: Temporary) !Temporary {
     const v = cg.vectorization(.{ lhs, rhs });
     const ops = v.components();
     const results = cg.module.allocIds(ops);
@@ -2152,27 +2104,6 @@ fn buildCmp(cg: *CodeGen, pred: CmpPredicate, lhs: Temporary, rhs: Temporary) !T
 
     const op_lhs = try v.prepare(cg, lhs);
     const op_rhs = try v.prepare(cg, rhs);
-
-    const opcode: Opcode = switch (pred) {
-        .l_eq => .OpLogicalEqual,
-        .l_ne => .OpLogicalNotEqual,
-        .i_eq => .OpIEqual,
-        .i_ne => .OpINotEqual,
-        .s_lt => .OpSLessThan,
-        .s_gt => .OpSGreaterThan,
-        .s_le => .OpSLessThanEqual,
-        .s_ge => .OpSGreaterThanEqual,
-        .u_lt => .OpULessThan,
-        .u_gt => .OpUGreaterThan,
-        .u_le => .OpULessThanEqual,
-        .u_ge => .OpUGreaterThanEqual,
-        .f_oeq => .OpFOrdEqual,
-        .f_une => .OpFUnordNotEqual,
-        .f_olt => .OpFOrdLessThan,
-        .f_ole => .OpFOrdLessThanEqual,
-        .f_ogt => .OpFOrdGreaterThan,
-        .f_oge => .OpFOrdGreaterThanEqual,
-    };
 
     for (0..ops) |i| {
         try cg.body.emitRaw(cg.module.gpa, opcode, 4);
@@ -2278,7 +2209,10 @@ fn buildUnary(cg: *CodeGen, op: UnaryOp, operand: Temporary) !Temporary {
                 .log,
                 .log2,
                 .log10,
-                => return cg.todo("implement unary operation '{s}' for {s} os", .{ @tagName(op), @tagName(target.os.tag) }),
+                => return cg.todo(
+                    "implement unary operation '{s}' for {s} os",
+                    .{ @tagName(op), @tagName(target.os.tag) },
+                ),
                 else => unreachable,
             },
             else => unreachable,
@@ -2298,40 +2232,8 @@ fn buildUnary(cg: *CodeGen, op: UnaryOp, operand: Temporary) !Temporary {
     return v.finalize(result_ty, results);
 }
 
-const BinaryOp = enum {
-    i_add,
-    f_add,
-    i_sub,
-    f_sub,
-    i_mul,
-    f_mul,
-    s_div,
-    u_div,
-    f_div,
-    s_rem,
-    f_rem,
-    s_mod,
-    u_mod,
-    f_mod,
-    srl,
-    sra,
-    sll,
-    bit_and,
-    bit_or,
-    bit_xor,
-    f_max,
-    s_max,
-    u_max,
-    f_min,
-    s_min,
-    u_min,
-    l_and,
-    l_or,
-};
-
-fn buildBinary(cg: *CodeGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temporary {
+fn buildBinary(cg: *CodeGen, opcode: Opcode, lhs: Temporary, rhs: Temporary) !Temporary {
     const zcu = cg.module.zcu;
-    const target = cg.module.zcu.getTarget();
 
     const v = cg.vectorization(.{ lhs, rhs });
     const ops = v.components();
@@ -2344,73 +2246,12 @@ fn buildBinary(cg: *CodeGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temp
     const op_lhs = try v.prepare(cg, lhs);
     const op_rhs = try v.prepare(cg, rhs);
 
-    if (switch (op) {
-        .i_add => .OpIAdd,
-        .f_add => .OpFAdd,
-        .i_sub => .OpISub,
-        .f_sub => .OpFSub,
-        .i_mul => .OpIMul,
-        .f_mul => .OpFMul,
-        .s_div => .OpSDiv,
-        .u_div => .OpUDiv,
-        .f_div => .OpFDiv,
-        .s_rem => .OpSRem,
-        .f_rem => .OpFRem,
-        .s_mod => .OpSMod,
-        .u_mod => .OpUMod,
-        .f_mod => .OpFMod,
-        .srl => .OpShiftRightLogical,
-        .sra => .OpShiftRightArithmetic,
-        .sll => .OpShiftLeftLogical,
-        .bit_and => .OpBitwiseAnd,
-        .bit_or => .OpBitwiseOr,
-        .bit_xor => .OpBitwiseXor,
-        .l_and => .OpLogicalAnd,
-        .l_or => .OpLogicalOr,
-        else => @as(?Opcode, null),
-    }) |opcode| {
-        for (0..ops) |i| {
-            try cg.body.emitRaw(cg.module.gpa, opcode, 4);
-            cg.body.writeOperand(Id, op_result_ty_id);
-            cg.body.writeOperand(Id, results.at(i));
-            cg.body.writeOperand(Id, op_lhs.at(i));
-            cg.body.writeOperand(Id, op_rhs.at(i));
-        }
-    } else {
-        const set = try cg.importExtendedSet();
-
-        // TODO: Put these numbers in some definition
-        const extinst: u32 = switch (target.os.tag) {
-            .opencl => switch (op) {
-                .f_max => 27, // fmax
-                .s_max => 156, // s_max
-                .u_max => 157, // u_max
-                .f_min => 28, // fmin
-                .s_min => 158, // s_min
-                .u_min => 159, // u_min
-                else => unreachable,
-            },
-            .vulkan, .opengl => switch (op) {
-                .f_max => 40, // FMax
-                .s_max => 42, // SMax
-                .u_max => 41, // UMax
-                .f_min => 37, // FMin
-                .s_min => 39, // SMin
-                .u_min => 38, // UMin
-                else => unreachable,
-            },
-            else => unreachable,
-        };
-
-        for (0..ops) |i| {
-            try cg.body.emit(cg.module.gpa, .OpExtInst, .{
-                .id_result_type = op_result_ty_id,
-                .id_result = results.at(i),
-                .set = set,
-                .instruction = .{ .inst = extinst },
-                .id_ref_4 = &.{ op_lhs.at(i), op_rhs.at(i) },
-            });
-        }
+    for (0..ops) |i| {
+        try cg.body.emitRaw(cg.module.gpa, opcode, 4);
+        cg.body.writeOperand(Id, op_result_ty_id);
+        cg.body.writeOperand(Id, results.at(i));
+        cg.body.writeOperand(Id, op_lhs.at(i));
+        cg.body.writeOperand(Id, op_rhs.at(i));
     }
 
     return v.finalize(result_ty, results);
@@ -2420,10 +2261,7 @@ fn buildBinary(cg: *CodeGen, op: BinaryOp, lhs: Temporary, rhs: Temporary) !Temp
 /// or OpIMul and s_mul_hi or u_mul_hi on OpenCL.
 fn buildWideMul(
     cg: *CodeGen,
-    op: enum {
-        s_mul_extended,
-        u_mul_extended,
-    },
+    signedness: std.builtin.Signedness,
     lhs: Temporary,
     rhs: Temporary,
 ) !struct { Temporary, Temporary } {
@@ -2450,9 +2288,9 @@ fn buildWideMul(
             // OpUMulExtended. For these we will use the OpenCL s_mul_hi to compute the high-order bits
             // instead.
             const set = try cg.importExtendedSet();
-            const overflow_inst: u32 = switch (op) {
-                .s_mul_extended => 160, // s_mul_hi
-                .u_mul_extended => 203, // u_mul_hi
+            const overflow_inst: u32 = switch (signedness) {
+                .signed => 160, // s_mul_hi
+                .unsigned => 203, // u_mul_hi
             };
 
             for (0..ops) |i| {
@@ -2481,9 +2319,9 @@ fn buildWideMul(
             }));
             const op_result_ty_id = try cg.resolveType(op_result_ty, .direct);
 
-            const opcode: Opcode = switch (op) {
-                .s_mul_extended => .OpSMulExtended,
-                .u_mul_extended => .OpUMulExtended,
+            const opcode: Opcode = switch (signedness) {
+                .signed => .OpSMulExtended,
+                .unsigned => .OpUMulExtended,
             };
 
             for (0..ops) |i| {
@@ -2718,7 +2556,7 @@ fn convertToDirect(cg: *CodeGen, ty: Type, operand_id: Id) !Id {
             };
 
             const result = try cg.buildCmp(
-                .i_ne,
+                .OpINotEqual,
                 Temporary.init(operand_ty, operand_id),
                 Temporary.init(.u1, false_id),
             );
@@ -2817,9 +2655,9 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
     const air_tags = cg.air.instructions.items(.tag);
     const maybe_result_id: ?Id = switch (air_tags[@intFromEnum(inst)]) {
         // zig fmt: off
-            .add, .add_wrap, .add_optimized => try cg.airArithOp(inst, .f_add, .i_add, .i_add),
-            .sub, .sub_wrap, .sub_optimized => try cg.airArithOp(inst, .f_sub, .i_sub, .i_sub),
-            .mul, .mul_wrap, .mul_optimized => try cg.airArithOp(inst, .f_mul, .i_mul, .i_mul),
+            .add, .add_wrap, .add_optimized => try cg.airArithOp(inst, .OpFAdd, .OpIAdd, .OpIAdd),
+            .sub, .sub_wrap, .sub_optimized => try cg.airArithOp(inst, .OpFSub, .OpISub, .OpISub),
+            .mul, .mul_wrap, .mul_optimized => try cg.airArithOp(inst, .OpFMul, .OpIMul, .OpIMul),
 
             .sqrt => try cg.airUnOpSimple(inst, .sqrt),
             .sin => try cg.airUnOpSimple(inst, .sin),
@@ -2837,15 +2675,15 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .trunc_float => try cg.airUnOpSimple(inst, .trunc),
             .neg, .neg_optimized => try cg.airUnOpSimple(inst, .f_neg),
 
-            .div_float, .div_float_optimized => try cg.airArithOp(inst, .f_div, .s_div, .u_div),
+            .div_float, .div_float_optimized => try cg.airArithOp(inst, .OpFDiv, .OpSDiv, .OpUDiv),
             .div_floor, .div_floor_optimized => try cg.airDivFloor(inst),
             .div_trunc, .div_trunc_optimized => try cg.airDivTrunc(inst),
 
-            .rem, .rem_optimized => try cg.airArithOp(inst, .f_rem, .s_rem, .u_mod),
-            .mod, .mod_optimized => try cg.airArithOp(inst, .f_mod, .s_mod, .u_mod),
+            .rem, .rem_optimized => try cg.airArithOp(inst, .OpFRem, .OpSRem, .OpUMod),
+            .mod, .mod_optimized => try cg.airArithOp(inst, .OpFMod, .OpSMod, .OpUMod),
 
-            .add_with_overflow => try cg.airAddSubOverflow(inst, .i_add, .u_lt, .s_lt),
-            .sub_with_overflow => try cg.airAddSubOverflow(inst, .i_sub, .u_gt, .s_gt),
+            .add_with_overflow => try cg.airAddSubOverflow(inst, .OpIAdd, .OpULessThan, .OpSLessThan),
+            .sub_with_overflow => try cg.airAddSubOverflow(inst, .OpISub, .OpUGreaterThan, .OpSGreaterThan),
             .mul_with_overflow => try cg.airMulOverflow(inst),
             .shl_with_overflow => try cg.airShlOverflow(inst),
 
@@ -2864,14 +2702,14 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
             .ptr_add => try cg.airPtrAdd(inst),
             .ptr_sub => try cg.airPtrSub(inst),
 
-            .bit_and  => try cg.airBinOpSimple(inst, .bit_and),
-            .bit_or   => try cg.airBinOpSimple(inst, .bit_or),
-            .xor      => try cg.airBinOpSimple(inst, .bit_xor),
-            .bool_and => try cg.airBinOpSimple(inst, .l_and),
-            .bool_or  => try cg.airBinOpSimple(inst, .l_or),
+            .bit_and  => try cg.airBinOpSimple(inst, .OpBitwiseAnd),
+            .bit_or   => try cg.airBinOpSimple(inst, .OpBitwiseOr),
+            .xor      => try cg.airBinOpSimple(inst, .OpBitwiseXor),
+            .bool_and => try cg.airBinOpSimple(inst, .OpLogicalAnd),
+            .bool_or  => try cg.airBinOpSimple(inst, .OpLogicalOr),
 
-            .shl, .shl_exact => try cg.airShift(inst, .sll, .sll),
-            .shr, .shr_exact => try cg.airShift(inst, .srl, .sra),
+            .shl, .shl_exact => try cg.airShift(inst, .OpShiftLeftLogical, .OpShiftLeftLogical),
+            .shr, .shr_exact => try cg.airShift(inst, .OpShiftRightLogical, .OpShiftRightArithmetic),
 
             .min => try cg.airMinMax(inst, .min),
             .max => try cg.airMinMax(inst, .max),
@@ -2983,7 +2821,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) Error!void {
     try cg.inst_results.putNoClobber(gpa, inst, result_id);
 }
 
-fn airBinOpSimple(cg: *CodeGen, inst: Air.Inst.Index, op: BinaryOp) !?Id {
+fn airBinOpSimple(cg: *CodeGen, inst: Air.Inst.Index, op: Opcode) !?Id {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
     const lhs = try cg.temporary(bin_op.lhs);
     const rhs = try cg.temporary(bin_op.rhs);
@@ -2992,7 +2830,7 @@ fn airBinOpSimple(cg: *CodeGen, inst: Air.Inst.Index, op: BinaryOp) !?Id {
     return try result.materialize(cg);
 }
 
-fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: BinaryOp, signed: BinaryOp) !?Id {
+fn airShift(cg: *CodeGen, inst: Air.Inst.Index, unsigned: Opcode, signed: Opcode) !?Id {
     const zcu = cg.module.zcu;
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -3042,28 +2880,77 @@ fn airMinMax(cg: *CodeGen, inst: Air.Inst.Index, op: MinMax) !?Id {
 }
 
 fn minMax(cg: *CodeGen, lhs: Temporary, rhs: Temporary, op: MinMax) !Temporary {
+    const zcu = cg.module.zcu;
+    const target = zcu.getTarget();
     const info = cg.arithmeticTypeInfo(lhs.ty);
 
-    const binop: BinaryOp = switch (info.class) {
-        .float => switch (op) {
-            .min => .f_min,
-            .max => .f_max,
-        },
-        .integer, .strange_integer => switch (info.signedness) {
-            .signed => switch (op) {
-                .min => .s_min,
-                .max => .s_max,
+    const v = cg.vectorization(.{ lhs, rhs });
+    const ops = v.components();
+    const results = cg.module.allocIds(ops);
+
+    const op_result_ty = lhs.ty.scalarType(zcu);
+    const op_result_ty_id = try cg.resolveType(op_result_ty, .direct);
+    const result_ty = try v.resultType(cg, lhs.ty);
+
+    const op_lhs = try v.prepare(cg, lhs);
+    const op_rhs = try v.prepare(cg, rhs);
+
+    const ext_inst: u32 = switch (target.os.tag) {
+        .opencl => switch (info.class) {
+            .float => switch (op) {
+                .min => 28, // fmin
+                .max => 27, // fmax
             },
-            .unsigned => switch (op) {
-                .min => .u_min,
-                .max => .u_max,
+            .integer,
+            .strange_integer,
+            .composite_integer,
+            => switch (info.signedness) {
+                .signed => switch (op) {
+                    .min => 158, // s_min
+                    .max => 156, // s_max
+                },
+                .unsigned => switch (op) {
+                    .min => 159, // u_min
+                    .max => 157, // u_max
+                },
             },
+            .bool => unreachable,
         },
-        .composite_integer => unreachable, // TODO
-        .bool => unreachable,
+        .vulkan, .opengl => switch (info.class) {
+            .float => switch (op) {
+                .min => 37, // FMin
+                .max => 40, // FMax
+            },
+            .integer,
+            .strange_integer,
+            .composite_integer,
+            => switch (info.signedness) {
+                .signed => switch (op) {
+                    .min => 39, // SMin
+                    .max => 42, // SMax
+                },
+                .unsigned => switch (op) {
+                    .min => 38, // UMin
+                    .max => 41, // UMax
+                },
+            },
+            .bool => unreachable,
+        },
+        else => unreachable,
     };
 
-    return try cg.buildBinary(binop, lhs, rhs);
+    const set = try cg.importExtendedSet();
+    for (0..ops) |i| {
+        try cg.body.emit(cg.module.gpa, .OpExtInst, .{
+            .id_result_type = op_result_ty_id,
+            .id_result = results.at(i),
+            .set = set,
+            .instruction = .{ .inst = ext_inst },
+            .id_ref_4 = &.{ op_lhs.at(i), op_rhs.at(i) },
+        });
+    }
+
+    return v.finalize(result_ty, results);
 }
 
 /// This function normalizes values to a canonical representation
@@ -3083,14 +2970,14 @@ fn normalize(cg: *CodeGen, value: Temporary, info: ArithmeticTypeInfo) !Temporar
             .unsigned => {
                 const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
                 const mask_id = try cg.constInt(ty.scalarType(zcu), mask_value);
-                return try cg.buildBinary(.bit_and, value, Temporary.init(ty.scalarType(zcu), mask_id));
+                return try cg.buildBinary(.OpBitwiseAnd, value, Temporary.init(ty.scalarType(zcu), mask_id));
             },
             .signed => {
                 // Shift left and right so that we can copy the sight bit that way.
                 const shift_amt_id = try cg.constInt(ty.scalarType(zcu), info.backing_bits - info.bits);
                 const shift_amt: Temporary = .init(ty.scalarType(zcu), shift_amt_id);
-                const left = try cg.buildBinary(.sll, value, shift_amt);
-                return try cg.buildBinary(.sra, left, shift_amt);
+                const left = try cg.buildBinary(.OpShiftLeftLogical, value, shift_amt);
+                return try cg.buildBinary(.OpShiftRightArithmetic, left, shift_amt);
             },
         },
     }
@@ -3108,7 +2995,7 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         .integer, .strange_integer => {
             switch (info.signedness) {
                 .unsigned => {
-                    const result = try cg.buildBinary(.u_div, lhs, rhs);
+                    const result = try cg.buildBinary(.OpUDiv, lhs, rhs);
                     return try result.materialize(cg);
                 },
                 .signed => {},
@@ -3118,26 +3005,26 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             //   (a / b) - (a % b != 0 && a < 0 != b < 0);
             // There shouldn't be any overflow issues.
 
-            const div = try cg.buildBinary(.s_div, lhs, rhs);
-            const rem = try cg.buildBinary(.s_rem, lhs, rhs);
+            const div = try cg.buildBinary(.OpSDiv, lhs, rhs);
+            const rem = try cg.buildBinary(.OpSRem, lhs, rhs);
 
             const zero: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, 0));
 
-            const rem_is_not_zero = try cg.buildCmp(.i_ne, rem, zero);
+            const rem_is_not_zero = try cg.buildCmp(.OpINotEqual, rem, zero);
 
             const result_negative = try cg.buildCmp(
-                .l_ne,
-                try cg.buildCmp(.s_lt, lhs, zero),
-                try cg.buildCmp(.s_lt, rhs, zero),
+                .OpLogicalNotEqual,
+                try cg.buildCmp(.OpSLessThan, lhs, zero),
+                try cg.buildCmp(.OpSLessThan, rhs, zero),
             );
             const rem_is_not_zero_and_result_is_negative = try cg.buildBinary(
-                .l_and,
+                .OpLogicalAnd,
                 rem_is_not_zero,
                 result_negative,
             );
 
             const result = try cg.buildBinary(
-                .i_sub,
+                .OpISub,
                 div,
                 try cg.intFromBool2(rem_is_not_zero_and_result_is_negative, div.ty),
             );
@@ -3145,7 +3032,7 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             return try result.materialize(cg);
         },
         .float => {
-            const div = try cg.buildBinary(.f_div, lhs, rhs);
+            const div = try cg.buildBinary(.OpFDiv, lhs, rhs);
             const result = try cg.buildUnary(.floor, div);
             return try result.materialize(cg);
         },
@@ -3164,16 +3051,16 @@ fn airDivTrunc(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         .composite_integer => unreachable, // TODO
         .integer, .strange_integer => switch (info.signedness) {
             .unsigned => {
-                const result = try cg.buildBinary(.u_div, lhs, rhs);
+                const result = try cg.buildBinary(.OpUDiv, lhs, rhs);
                 return try result.materialize(cg);
             },
             .signed => {
-                const result = try cg.buildBinary(.s_div, lhs, rhs);
+                const result = try cg.buildBinary(.OpSDiv, lhs, rhs);
                 return try result.materialize(cg);
             },
         },
         .float => {
-            const div = try cg.buildBinary(.f_div, lhs, rhs);
+            const div = try cg.buildBinary(.OpFDiv, lhs, rhs);
             const result = try cg.buildUnary(.trunc, div);
             return try result.materialize(cg);
         },
@@ -3191,9 +3078,9 @@ fn airUnOpSimple(cg: *CodeGen, inst: Air.Inst.Index, op: UnaryOp) !?Id {
 fn airArithOp(
     cg: *CodeGen,
     inst: Air.Inst.Index,
-    comptime fop: BinaryOp,
-    comptime sop: BinaryOp,
-    comptime uop: BinaryOp,
+    comptime fop: Opcode,
+    comptime sop: Opcode,
+    comptime uop: Opcode,
 ) !?Id {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
 
@@ -3253,11 +3140,11 @@ fn abs(cg: *CodeGen, result_ty: Type, value: Temporary) !Temporary {
 fn airAddSubOverflow(
     cg: *CodeGen,
     inst: Air.Inst.Index,
-    comptime add: BinaryOp,
-    comptime ucmp: CmpPredicate,
-    comptime scmp: CmpPredicate,
+    comptime add: Opcode,
+    u_opcode: Opcode,
+    s_opcode: Opcode,
 ) !?Id {
-    _ = scmp;
+    _ = s_opcode;
     // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
     // there is in both cases only one extra operation required. For signed operations,
     // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
@@ -3285,7 +3172,7 @@ fn airAddSubOverflow(
     const overflowed = switch (info.signedness) {
         // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
         // For subtraction the conditions need to be swapped.
-        .unsigned => try cg.buildCmp(ucmp, result, lhs),
+        .unsigned => try cg.buildCmp(u_opcode, result, lhs),
         // For signed operations, we check the signs of the operands and the result.
         .signed => blk: {
             // Signed overflow detection using the sign bits of the operands and the result.
@@ -3297,19 +3184,19 @@ fn airAddSubOverflow(
             //   (sign(a) != sign(b)) && (sign(a) != sign(result))
             const zero: Temporary = .init(rhs.ty, try cg.constInt(rhs.ty, 0));
 
-            const lhs_is_neg = try cg.buildCmp(.s_lt, lhs, zero);
-            const rhs_is_neg = try cg.buildCmp(.s_lt, rhs, zero);
-            const result_is_neg = try cg.buildCmp(.s_lt, result, zero);
+            const lhs_is_neg = try cg.buildCmp(.OpSLessThan, lhs, zero);
+            const rhs_is_neg = try cg.buildCmp(.OpSLessThan, rhs, zero);
+            const result_is_neg = try cg.buildCmp(.OpSLessThan, result, zero);
 
-            const signs_match = try cg.buildCmp(.l_eq, lhs_is_neg, rhs_is_neg);
-            const result_sign_differs = try cg.buildCmp(.l_ne, lhs_is_neg, result_is_neg);
+            const signs_match = try cg.buildCmp(.OpLogicalEqual, lhs_is_neg, rhs_is_neg);
+            const result_sign_differs = try cg.buildCmp(.OpLogicalNotEqual, lhs_is_neg, result_is_neg);
 
-            const overflow_condition = if (add == .i_add)
+            const overflow_condition = if (add == .OpIAdd)
                 signs_match
-            else // .i_sub
+            else // .OpISub
                 try cg.buildUnary(.l_not, signs_match);
 
-            break :blk try cg.buildBinary(.l_and, overflow_condition, result_sign_differs);
+            break :blk try cg.buildCmp(.OpLogicalAnd, overflow_condition, result_sign_differs);
         },
     };
 
@@ -3361,23 +3248,23 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const casted_lhs = try cg.buildConvert(op_ty, lhs);
                 const casted_rhs = try cg.buildConvert(op_ty, rhs);
 
-                const full_result = try cg.buildBinary(.i_mul, casted_lhs, casted_rhs);
+                const full_result = try cg.buildBinary(.OpIMul, casted_lhs, casted_rhs);
 
                 const low_bits = try cg.buildConvert(lhs.ty, full_result);
                 const result = try cg.normalize(low_bits, info);
 
                 // Shift the result bits away to get the overflow bits.
                 const shift: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, info.bits));
-                const overflow = try cg.buildBinary(.srl, full_result, shift);
+                const overflow = try cg.buildBinary(.OpShiftRightLogical, full_result, shift);
 
                 // Directly check if its zero in the op_ty without converting first.
                 const zero: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, 0));
-                const overflowed = try cg.buildCmp(.i_ne, zero, overflow);
+                const overflowed = try cg.buildCmp(.OpINotEqual, zero, overflow);
 
                 break :blk .{ result, overflowed };
             }
 
-            const low_bits, const high_bits = try cg.buildWideMul(.u_mul_extended, lhs, rhs);
+            const low_bits, const high_bits = try cg.buildWideMul(.unsigned, lhs, rhs);
 
             // Truncate the result, if required.
             const result = try cg.normalize(low_bits, info);
@@ -3386,17 +3273,17 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             // high bits of the low word of the result (those outside the range of the
             // int) are nonzero.
             const zero: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, 0));
-            const high_overflowed = try cg.buildCmp(.i_ne, zero, high_bits);
+            const high_overflowed = try cg.buildCmp(.OpINotEqual, zero, high_bits);
 
             // If no overflow bits in low_bits, no extra work needs to be done.
             if (info.backing_bits == info.bits) break :blk .{ result, high_overflowed };
 
             // Shift the result bits away to get the overflow bits.
             const shift: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, info.bits));
-            const low_overflow = try cg.buildBinary(.srl, low_bits, shift);
-            const low_overflowed = try cg.buildCmp(.i_ne, zero, low_overflow);
+            const low_overflow = try cg.buildBinary(.OpShiftRightLogical, low_bits, shift);
+            const low_overflowed = try cg.buildCmp(.OpINotEqual, zero, low_overflow);
 
-            const overflowed = try cg.buildBinary(.l_or, low_overflowed, high_overflowed);
+            const overflowed = try cg.buildCmp(.OpLogicalOr, low_overflowed, high_overflowed);
 
             break :blk .{ result, overflowed };
         },
@@ -3412,16 +3299,16 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             //   (lhs > 0 && rhs < 0) || (lhs < 0 && rhs > 0)
 
             const zero: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, 0));
-            const lhs_negative = try cg.buildCmp(.s_lt, lhs, zero);
-            const rhs_negative = try cg.buildCmp(.s_lt, rhs, zero);
-            const lhs_positive = try cg.buildCmp(.s_gt, lhs, zero);
-            const rhs_positive = try cg.buildCmp(.s_gt, rhs, zero);
+            const lhs_negative = try cg.buildCmp(.OpSLessThan, lhs, zero);
+            const rhs_negative = try cg.buildCmp(.OpSLessThan, rhs, zero);
+            const lhs_positive = try cg.buildCmp(.OpSGreaterThan, lhs, zero);
+            const rhs_positive = try cg.buildCmp(.OpSGreaterThan, rhs, zero);
 
             // Set to `true` if we expect -1.
             const expected_overflow_bit = try cg.buildBinary(
-                .l_or,
-                try cg.buildBinary(.l_and, lhs_positive, rhs_negative),
-                try cg.buildBinary(.l_and, lhs_negative, rhs_positive),
+                .OpLogicalOr,
+                try cg.buildCmp(.OpLogicalAnd, lhs_positive, rhs_negative),
+                try cg.buildCmp(.OpLogicalAnd, lhs_negative, rhs_positive),
             );
 
             if (maybe_op_ty_bits) |op_ty_bits| {
@@ -3430,7 +3317,7 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const casted_lhs = try cg.buildConvert(op_ty, lhs);
                 const casted_rhs = try cg.buildConvert(op_ty, rhs);
 
-                const full_result = try cg.buildBinary(.i_mul, casted_lhs, casted_rhs);
+                const full_result = try cg.buildBinary(.OpIMul, casted_lhs, casted_rhs);
 
                 // Truncate to the result type.
                 const low_bits = try cg.buildConvert(lhs.ty, full_result);
@@ -3443,18 +3330,18 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const shift: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, info.bits - 1));
                 // Use SRA so that any sign bits are duplicated. Now we can just check if ALL bits are set
                 // for negative cases.
-                const overflow = try cg.buildBinary(.sra, full_result, shift);
+                const overflow = try cg.buildBinary(.OpShiftRightArithmetic, full_result, shift);
 
                 const long_all_set: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, -1));
                 const long_zero: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, 0));
                 const mask = try cg.buildSelect(expected_overflow_bit, long_all_set, long_zero);
 
-                const overflowed = try cg.buildCmp(.i_ne, mask, overflow);
+                const overflowed = try cg.buildCmp(.OpINotEqual, mask, overflow);
 
                 break :blk .{ result, overflowed };
             }
 
-            const low_bits, const high_bits = try cg.buildWideMul(.s_mul_extended, lhs, rhs);
+            const low_bits, const high_bits = try cg.buildWideMul(.signed, lhs, rhs);
 
             // Truncate result if required.
             const result = try cg.normalize(low_bits, info);
@@ -3465,7 +3352,7 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             // Like with unsigned, overflow happened if high_bits are not the ones we expect,
             // and we also need to check some ones from the low bits.
 
-            const high_overflowed = try cg.buildCmp(.i_ne, mask, high_bits);
+            const high_overflowed = try cg.buildCmp(.OpINotEqual, mask, high_bits);
 
             // If no overflow bits in low_bits, no extra work needs to be done.
             // Careful, we still have to check the sign bit, so this branch
@@ -3476,10 +3363,10 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
             const shift: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, info.bits - 1));
             // Use SRA so that any sign bits are duplicated. Now we can just check if ALL bits are set
             // for negative cases.
-            const low_overflow = try cg.buildBinary(.sra, low_bits, shift);
-            const low_overflowed = try cg.buildCmp(.i_ne, mask, low_overflow);
+            const low_overflow = try cg.buildBinary(.OpShiftRightArithmetic, low_bits, shift);
+            const low_overflowed = try cg.buildCmp(.OpINotEqual, mask, low_overflow);
 
-            const overflowed = try cg.buildBinary(.l_or, low_overflowed, high_overflowed);
+            const overflowed = try cg.buildCmp(.OpLogicalOr, low_overflowed, high_overflowed);
 
             break :blk .{ result, overflowed };
         },
@@ -3517,15 +3404,15 @@ fn airShlOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     // so just manually upcast it if required.
     const casted_shift = try cg.buildConvert(base.ty.scalarType(zcu), shift);
 
-    const left = try cg.buildBinary(.sll, base, casted_shift);
+    const left = try cg.buildBinary(.OpShiftLeftLogical, base, casted_shift);
     const result = try cg.normalize(left, info);
 
     const right = switch (info.signedness) {
-        .unsigned => try cg.buildBinary(.srl, result, casted_shift),
-        .signed => try cg.buildBinary(.sra, result, casted_shift),
+        .unsigned => try cg.buildBinary(.OpShiftRightLogical, result, casted_shift),
+        .signed => try cg.buildBinary(.OpShiftRightArithmetic, result, casted_shift),
     };
 
-    const overflowed = try cg.buildCmp(.i_ne, base, right);
+    const overflowed = try cg.buildCmp(.OpINotEqual, base, right);
     const ov = try cg.intFromBool(overflowed);
 
     const result_ty_id = try cg.resolveType(result_ty, .direct);
@@ -3957,19 +3844,19 @@ fn cmp(
 
             return switch (op) {
                 .eq => try cg.buildBinary(
-                    .l_and,
+                    .OpLogicalAnd,
                     try cg.cmp(.eq, lhs_valid, rhs_valid),
                     try cg.buildBinary(
-                        .l_or,
+                        .OpLogicalOr,
                         try cg.buildUnary(.l_not, lhs_valid),
                         try cg.cmp(.eq, lhs_pl, rhs_pl),
                     ),
                 ),
                 .neq => try cg.buildBinary(
-                    .l_or,
+                    .OpLogicalOr,
                     try cg.cmp(.neq, lhs_valid, rhs_valid),
                     try cg.buildBinary(
-                        .l_and,
+                        .OpLogicalAnd,
                         lhs_valid,
                         try cg.cmp(.neq, lhs_pl, rhs_pl),
                     ),
@@ -3981,37 +3868,37 @@ fn cmp(
     }
 
     const info = cg.arithmeticTypeInfo(scalar_ty);
-    const pred: CmpPredicate = switch (info.class) {
+    const pred: Opcode = switch (info.class) {
         .composite_integer => unreachable, // TODO
         .float => switch (op) {
-            .eq => .f_oeq,
-            .neq => .f_une,
-            .lt => .f_olt,
-            .lte => .f_ole,
-            .gt => .f_ogt,
-            .gte => .f_oge,
+            .eq => .OpFOrdEqual,
+            .neq => .OpFUnordNotEqual,
+            .lt => .OpFOrdLessThan,
+            .lte => .OpFOrdLessThanEqual,
+            .gt => .OpFOrdGreaterThan,
+            .gte => .OpFOrdGreaterThanEqual,
         },
         .bool => switch (op) {
-            .eq => .l_eq,
-            .neq => .l_ne,
+            .eq => .OpLogicalEqual,
+            .neq => .OpLogicalNotEqual,
             else => unreachable,
         },
         .integer, .strange_integer => switch (info.signedness) {
             .signed => switch (op) {
-                .eq => .i_eq,
-                .neq => .i_ne,
-                .lt => .s_lt,
-                .lte => .s_le,
-                .gt => .s_gt,
-                .gte => .s_ge,
+                .eq => .OpIEqual,
+                .neq => .OpINotEqual,
+                .lt => .OpSLessThan,
+                .lte => .OpSLessThanEqual,
+                .gt => .OpSGreaterThan,
+                .gte => .OpSGreaterThanEqual,
             },
             .unsigned => switch (op) {
-                .eq => .i_eq,
-                .neq => .i_ne,
-                .lt => .u_lt,
-                .lte => .u_le,
-                .gt => .u_gt,
-                .gte => .u_ge,
+                .eq => .OpIEqual,
+                .neq => .OpINotEqual,
+                .lt => .OpULessThan,
+                .lte => .OpULessThanEqual,
+                .gt => .OpUGreaterThan,
+                .gte => .OpUGreaterThanEqual,
             },
         },
     };
@@ -4312,12 +4199,12 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                         .ty = field_int_ty,
                         .value = .{ .singleton = field_int_id },
                     });
-                    const shifted = try cg.buildBinary(.sll, extended_int_conv, .{
+                    const shifted = try cg.buildBinary(.OpShiftLeftLogical, extended_int_conv, .{
                         .ty = backing_int_ty,
                         .value = .{ .singleton = shift_rhs },
                     });
                     const running_int_tmp = try cg.buildBinary(
-                        .bit_or,
+                        .OpBitwiseOr,
                         .{ .ty = backing_int_ty, .value = .{ .singleton = running_int_id } },
                         shifted,
                     );
@@ -4770,17 +4657,20 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         .@"struct" => switch (object_ty.containerLayout(zcu)) {
             .@"packed" => {
                 const struct_ty = zcu.typeToPackedStruct(object_ty).?;
+                const struct_backing_int_bits = cg.module.backingIntBits(@intCast(object_ty.bitSize(zcu))).@"0";
                 const bit_offset = zcu.structPackedFieldBitOffset(struct_ty, field_index);
-                const bit_offset_id = try cg.constInt(.u16, bit_offset);
+                // We use the same int type the packed struct is backed by, because even though it would
+                // be valid SPIR-V to use an smaller type like u16, some implementations like PoCL will complain.
+                const bit_offset_id = try cg.constInt(object_ty, bit_offset);
                 const signedness = if (field_ty.isInt(zcu)) field_ty.intInfo(zcu).signedness else .unsigned;
                 const field_bit_size: u16 = @intCast(field_ty.bitSize(zcu));
                 const field_int_ty = try pt.intType(signedness, field_bit_size);
                 const shift_lhs: Temporary = .{ .ty = object_ty, .value = .{ .singleton = object_id } };
-                const shift = try cg.buildBinary(.srl, shift_lhs, .{ .ty = .u16, .value = .{ .singleton = bit_offset_id } });
+                const shift = try cg.buildBinary(.OpShiftRightLogical, shift_lhs, .{ .ty = object_ty, .value = .{ .singleton = bit_offset_id } });
                 const mask_id = try cg.constInt(object_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
-                const masked = try cg.buildBinary(.bit_and, shift, .{ .ty = object_ty, .value = .{ .singleton = mask_id } });
+                const masked = try cg.buildBinary(.OpBitwiseAnd, shift, .{ .ty = object_ty, .value = .{ .singleton = mask_id } });
                 const result_id = blk: {
-                    if (cg.module.backingIntBits(field_bit_size).@"0" == cg.module.backingIntBits(@intCast(object_ty.bitSize(zcu))).@"0")
+                    if (cg.module.backingIntBits(field_bit_size).@"0" == struct_backing_int_bits)
                         break :blk try cg.bitCast(field_int_ty, object_ty, try masked.materialize(cg));
                     const trunc = try cg.buildConvert(field_int_ty, masked);
                     break :blk try trunc.materialize(cg);
@@ -4799,7 +4689,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const int_ty = try pt.intType(signedness, field_bit_size);
                 const mask_id = try cg.constInt(backing_int_ty, (@as(u64, 1) << @as(u6, @intCast(field_bit_size))) - 1);
                 const masked = try cg.buildBinary(
-                    .bit_and,
+                    .OpBitwiseAnd,
                     .{ .ty = backing_int_ty, .value = .{ .singleton = object_id } },
                     .{ .ty = backing_int_ty, .value = .{ .singleton = mask_id } },
                 );
@@ -4858,7 +4748,7 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         const field_offset_id = try cg.constInt(.usize, field_offset);
         const field_ptr_tmp: Temporary = .init(.usize, field_ptr_int);
         const field_offset_tmp: Temporary = .init(.usize, field_offset_id);
-        const result = try cg.buildBinary(.i_sub, field_ptr_tmp, field_offset_tmp);
+        const result = try cg.buildBinary(.OpISub, field_ptr_tmp, field_offset_tmp);
         break :base_ptr_int try result.materialize(cg);
     };
 
@@ -4947,7 +4837,6 @@ fn alloc(
     ty: Type,
     options: AllocOptions,
 ) !Id {
-    const target = cg.module.zcu.getTarget();
     const ty_id = try cg.resolveType(ty, .indirect);
     const ptr_fn_ty_id = try cg.module.ptrType(ty_id, .function);
 
@@ -4961,20 +4850,7 @@ fn alloc(
         .initializer = options.initializer,
     });
 
-    switch (target.os.tag) {
-        .vulkan, .opengl => return var_id,
-        else => {},
-    }
-
-    switch (options.storage_class) {
-        .generic => {
-            const ptr_gn_ty_id = try cg.module.ptrType(ty_id, .generic);
-            // Convert to a generic pointer
-            return cg.castToGeneric(ptr_gn_ty_id, var_id);
-        },
-        .function => return var_id,
-        else => unreachable,
-    }
+    return var_id;
 }
 
 fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
