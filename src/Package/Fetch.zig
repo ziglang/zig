@@ -898,7 +898,7 @@ const Resource = union(enum) {
     }
 
     fn read(context: *const anyopaque, buffer: []u8) anyerror!usize {
-        const resource: *Resource = @constCast(@ptrCast(@alignCast(context)));
+        const resource: *Resource = @ptrCast(@alignCast(@constCast(context)));
         switch (resource.*) {
             .file => |*f| return f.read(buffer),
             .http_request => |*r| return r.read(buffer),
