@@ -83,10 +83,9 @@ pub fn sleep(nanoseconds: u64) void {
                     req = rem;
                     continue;
                 },
-                .FAULT,
-                .INVAL,
-                .OPNOTSUPP,
-                => unreachable,
+                .FAULT => unreachable,
+                .INVAL => unreachable,
+                .OPNOTSUPP => unreachable,
                 else => return,
             }
         }
