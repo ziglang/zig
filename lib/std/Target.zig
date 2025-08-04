@@ -405,7 +405,7 @@ pub const Os = struct {
                 .fuchsia => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 26, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 27, .minor = 0, .patch = 0 },
                     },
                 },
                 .hermit => .{
@@ -446,7 +446,7 @@ pub const Os = struct {
 
                                 break :blk default_min;
                             },
-                            .max = .{ .major = 6, .minor = 13, .patch = 4 },
+                            .max = .{ .major = 6, .minor = 16, .patch = 0 },
                         },
                         .glibc = blk: {
                             // For 32-bit targets that traditionally used 32-bit time, we require
@@ -519,7 +519,7 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .max = .{ .major = 14, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 14, .minor = 3, .patch = 0 },
                     },
                 },
                 .netbsd => .{
@@ -549,38 +549,38 @@ pub const Os = struct {
 
                 .driverkit => .{
                     .semver = .{
-                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 4, .patch = 0 },
+                        .min = .{ .major = 20, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 25, .minor = 0, .patch = 0 },
                     },
                 },
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 6, .patch = 0 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 6, .patch = 0 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 5, .patch = 0 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 2, .minor = 5, .patch = 0 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
+                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 6, .patch = 0 },
                     },
                 },
 
@@ -614,7 +614,7 @@ pub const Os = struct {
                 .amdhsa => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 2 },
                     },
                 },
                 .amdpal => .{
@@ -626,7 +626,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 12, .minor = 9, .patch = 1 },
                     },
                 },
                 .nvcl,
@@ -646,7 +646,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 4, .patch = 313 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 321 },
                     },
                 },
             };
