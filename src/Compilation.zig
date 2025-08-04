@@ -6553,6 +6553,11 @@ pub fn addCCArgs(
             // doesn't matter which one gets overridden.
             argv.appendAssumeCapacity("-Wno-overriding-option");
         },
+        .vita => {
+            // LLVM doesn't support this target, so we
+            // have to add this manually
+            try argv.append("-D__vita__");
+        },
         else => {},
     }
 
