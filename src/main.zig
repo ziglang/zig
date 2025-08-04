@@ -4796,7 +4796,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             writeSimpleTemplateFile(Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
-                \\    .version = "{s}",
+                \\    .version = "0.0.1",
+                \\    .minimum_zig_version = "{s}",
                 \\    .paths = .{{""}},
                 \\    .fingerprint = 0x{x},
                 \\}}
@@ -4811,6 +4812,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             };
             writeSimpleTemplateFile(Package.build_zig_basename,
                 \\const std = @import("std");
+                \\
                 \\pub fn build(b: *std.Build) void {{
                 \\    _ = b; // stub
                 \\}}
