@@ -4891,6 +4891,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var fetch_mode: Package.Fetch.JobQueue.Mode = .needed;
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
+    var debug_libc_paths_file: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
     _ = try child_argv.addOne();
@@ -5014,6 +5015,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     } else {
                         warn("Zig was compiled without debug extensions. --debug-target has no effect.", .{});
                     }
+                } else if (mem.eql(u8, arg, "--debug-libc")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    if (build_options.enable_debug_extensions) {
+                        debug_libc_paths_file = args[i];
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-libc has no effect.", .{});
+                    }
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
                     verbose_link = true;
                 } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -5100,6 +5109,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .is_native_abi = true,
             .is_explicit_dynamic_linker = false,
         };
+    };
+    // Likewise, `--debug-libc` allows overriding the libc installation.
+    const libc_installation: ?*const LibCInstallation = lci: {
+        const paths_file = debug_libc_paths_file orelse break :lci null;
+        if (!build_options.enable_debug_extensions) unreachable;
+        const lci = try arena.create(LibCInstallation);
+        lci.* = try .parse(arena, paths_file, &resolved_target.result);
+        break :lci lci;
     };
 
     process.raiseFileDescriptorLimit();
@@ -5365,6 +5382,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
 
             const comp = Compilation.create(gpa, arena, .{
+                .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
                 .config = config,
