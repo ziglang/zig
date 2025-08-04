@@ -675,8 +675,8 @@ test "mmap" {
     }
 
     const test_out_file = "os_tmp_test";
-    // Must be a multiple of 4096 so that the test works with mmap2
-    const alloc_size = 8 * 4096;
+    // Must be a multiple of the page size so that the test works with mmap2
+    const alloc_size = 8 * std.heap.pageSize();
 
     // Create a file used for testing mmap() calls with a file descriptor
     {
@@ -685,9 +685,9 @@ test "mmap" {
 
         const stream = file.deprecatedWriter();
 
-        var i: u32 = 0;
+        var i: usize = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try stream.writeInt(u32, i, .little);
+            try stream.writeInt(u32, @intCast(i), .little);
         }
     }
 
@@ -709,7 +709,7 @@ test "mmap" {
         var mem_stream = io.fixedBufferStream(data);
         const stream = mem_stream.reader();
 
-        var i: u32 = 0;
+        var i: usize = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
             try testing.expectEqual(i, try stream.readInt(u32, .little));
         }
@@ -733,7 +733,7 @@ test "mmap" {
         var mem_stream = io.fixedBufferStream(data);
         const stream = mem_stream.reader();
 
-        var i: u32 = alloc_size / 2 / @sizeOf(u32);
+        var i: usize = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
             try testing.expectEqual(i, try stream.readInt(u32, .little));
         }
