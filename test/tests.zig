@@ -391,7 +391,7 @@ const test_targets = blk: {
                 .arch_os_abi = "hexagon-linux-none",
                 .cpu_features = "baseline+long_calls",
             }) catch unreachable,
-            // https://github.com/llvm/llvm-project/pull/111217
+            // Needs more porting work.
             .skip_modules = &.{"std"},
         },
         .{
@@ -400,8 +400,6 @@ const test_targets = blk: {
                 .cpu_features = "baseline+long_calls",
             }) catch unreachable,
             .link_libc = true,
-            // https://github.com/llvm/llvm-project/pull/111217
-            .skip_modules = &.{"std"},
         },
         // Currently crashes in qemu-hexagon.
         // .{
@@ -411,8 +409,6 @@ const test_targets = blk: {
         //     }) catch unreachable,
         //     .linkage = .dynamic,
         //     .link_libc = true,
-        //     // https://github.com/llvm/llvm-project/pull/111217
-        //     .skip_modules = &.{"std"},
         //     .extra_target = true,
         // },
 
