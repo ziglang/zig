@@ -57,7 +57,7 @@ pub fn Ecdsa(comptime Curve: type, comptime Hash: type) type {
         pub const PublicKey = struct {
             /// Length (in bytes) of a compressed sec1-encoded key.
             pub const compressed_sec1_encoded_length = 1 + Curve.Fe.encoded_length;
-            /// Length (in bytes) of a compressed sec1-encoded key.
+            /// Length (in bytes) of an uncompressed sec1-encoded key.
             pub const uncompressed_sec1_encoded_length = 1 + 2 * Curve.Fe.encoded_length;
 
             p: Curve,
