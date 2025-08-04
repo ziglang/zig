@@ -502,7 +502,7 @@ pub const Header = struct {
         };
     }
 
-    pub fn iterateProgramHeadersOnBuffer(h: Header, buf: []const u8) ProgramHeaderBufferIterator {
+    pub fn iterateProgramHeadersBuffer(h: Header, buf: []const u8) ProgramHeaderBufferIterator {
         return .{
             .elf_header = h,
             .buf = buf,
@@ -516,7 +516,7 @@ pub const Header = struct {
         };
     }
 
-    pub fn iterateSectionHeadersOnBuffer(h: Header, buf: []const u8) SectionHeaderBufferIterator {
+    pub fn iterateSectionHeadersBuffer(h: Header, buf: []const u8) SectionHeaderBufferIterator {
         return .{
             .elf_header = h,
             .buf = buf,
@@ -548,32 +548,6 @@ pub const Header = struct {
         return switch (buf[EI_CLASS]) {
             ELFCLASS32 => .init(try r.takeStruct(Elf32_Ehdr, endian), endian),
             ELFCLASS64 => .init(try r.takeStruct(Elf64_Ehdr, endian), endian),
-            else => return error.InvalidElfClass,
-        };
-    }
-
-    pub fn initFromBuffer(buf: []const u8) ValidationError!Header {
-        if (buf.len < @sizeOf(Elf64_Ehdr)) return error.InvalidElfHeader;
-        if (!mem.startsWith(u8, buf, MAGIC)) return error.InvalidElfMagic;
-        if (buf[EI_VERSION] != 1) return error.InvalidElfVersion;
-
-        const endian: std.builtin.Endian = switch (buf[EI_DATA]) {
-            ELFDATA2LSB => .little,
-            ELFDATA2MSB => .big,
-            else => return error.InvalidElfEndian,
-        };
-
-        return switch (buf[EI_CLASS]) {
-            ELFCLASS32 => {
-                var hdr = std.mem.bytesToValue(Elf32_Ehdr, buf[0..@sizeOf(Elf32_Ehdr)]);
-                if (native_endian != endian) std.mem.byteSwapAllFields(Elf32_Ehdr, &hdr);
-                return .init(hdr, endian);
-            },
-            ELFCLASS64 => {
-                var hdr = std.mem.bytesToValue(Elf64_Ehdr, buf[0..@sizeOf(Elf64_Ehdr)]);
-                if (native_endian != endian) std.mem.byteSwapAllFields(Elf64_Ehdr, &hdr);
-                return .init(hdr, endian);
-            },
             else => return error.InvalidElfClass,
         };
     }
