@@ -659,8 +659,8 @@ test "mmap" {
     }
 
     const test_out_file = "os_tmp_test";
-    // Must be a multiple of 4096 so that the test works with mmap2
-    const alloc_size = 8 * 4096;
+    // Must be a multiple of the page size so that the test works with mmap2
+    const alloc_size = 8 * std.heap.pageSize();
 
     // Create a file used for testing mmap() calls with a file descriptor
     {
