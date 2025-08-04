@@ -502,6 +502,9 @@ pub fn main() !void {
             };
         }
 
+        // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
+        if (!Watch.have_impl) unreachable;
+
         try w.update(gpa, run.step_stack.keys());
 
         // Wait until a file system notification arrives. Read all such events
