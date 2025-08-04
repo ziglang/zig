@@ -202,7 +202,7 @@ pub const msghdr_const = extern struct {
 
 pub const blksize_t = i32;
 pub const nlink_t = u32;
-pub const time_t = i32;
+pub const time_t = i64;
 pub const mode_t = u32;
 pub const off_t = i64;
 pub const ino_t = u64;
