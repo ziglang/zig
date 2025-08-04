@@ -40,9 +40,9 @@ pub const String = enum(u32) {
 
         pub fn eql(self: @This(), a: String, b: String, b_index: usize) bool {
             _ = b_index;
-            const a_slice = span(self.string_bytes[@intFromEnum(a)..]);
-            const b_slice = span(self.string_bytes[@intFromEnum(b)..]);
-            return std.mem.eql(u8, a_slice, b_slice);
+            const a_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(a)]);
+            const b_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(b)]);
+            return std.mem.sentinel_terminated.eql(u8, 0, a_ptr, b_ptr);
         }
 
         pub fn hash(self: @This(), a: String) u32 {
@@ -55,8 +55,8 @@ pub const String = enum(u32) {
 
         pub fn eql(self: @This(), a_slice: []const u8, b: String, b_index: usize) bool {
             _ = b_index;
-            const b_slice = span(self.string_bytes[@intFromEnum(b)..]);
-            return std.mem.eql(u8, a_slice, b_slice);
+            const b_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(b)]);
+            return std.mem.sentinel_terminated.eqlSlice(u8, 0, b_ptr, a_slice);
         }
         pub fn hash(self: @This(), a: []const u8) u32 {
             _ = self;
@@ -97,9 +97,9 @@ pub const File = extern struct {
         pub fn eql(self: MapContext, a: File, b: File, b_index: usize) bool {
             _ = b_index;
             if (a.directory_index != b.directory_index) return false;
-            const a_basename = span(self.string_bytes[@intFromEnum(a.basename)..]);
-            const b_basename = span(self.string_bytes[@intFromEnum(b.basename)..]);
-            return std.mem.eql(u8, a_basename, b_basename);
+            const a_basename_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(a.basename)]);
+            const b_basename_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(b.basename)]);
+            return std.mem.sentinel_terminated.eql(u8, 0, a_basename_ptr, b_basename_ptr);
         }
     };
 
@@ -119,8 +119,8 @@ pub const File = extern struct {
         pub fn eql(self: @This(), a: Entry, b: File, b_index: usize) bool {
             _ = b_index;
             if (a.directory_index != b.directory_index) return false;
-            const b_basename = span(self.string_bytes[@intFromEnum(b.basename)..]);
-            return std.mem.eql(u8, a.basename, b_basename);
+            const b_basename_ptr: [*:0]const u8 = @ptrCast(&self.string_bytes[@intFromEnum(b.basename)]);
+            return std.mem.sentinel_terminated.eqlSlice(u8, 0, b_basename_ptr, a.basename);
         }
     };
 };

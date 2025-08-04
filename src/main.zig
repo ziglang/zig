@@ -6290,11 +6290,9 @@ fn detectNativeCpuWithLLVM(
     var result = std.Target.Cpu.baseline(arch, builtin.os);
 
     if (llvm_cpu_name_z) |cpu_name_z| {
-        const llvm_cpu_name = mem.span(cpu_name_z);
-
         for (arch.allCpuModels()) |model| {
             const this_llvm_name = model.llvm_name orelse continue;
-            if (mem.eql(u8, this_llvm_name, llvm_cpu_name)) {
+            if (mem.sentinel_terminated.eqlSlice(u8, 0, cpu_name_z, this_llvm_name)) {
                 // Here we use the non-dependencies-populated set,
                 // so that subtracting features later in this function
                 // affect the prepopulated set.

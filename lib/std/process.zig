@@ -2017,7 +2017,7 @@ test createNullDelimitedEnvMap {
         "XCURSOR_SIZE=24",
     }) |target| {
         for (environ) |variable| {
-            if (mem.eql(u8, mem.span(variable orelse continue), target)) break;
+            if (mem.sentinel_terminated.eqlSlice(u8, 0, variable orelse continue, target)) break;
         } else {
             try testing.expect(false); // Environment variable not found
         }
