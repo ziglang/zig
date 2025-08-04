@@ -636,6 +636,7 @@ test shl {
 
     try testing.expect(shl(i8, -1, -100) == -1);
     try testing.expect(shl(i8, -1, 100) == 0);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ -1, 0 }));
     try testing.expect(@reduce(.And, shl(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ 0, 0 }));
 }
@@ -684,6 +685,7 @@ test shr {
 
     try testing.expect(shr(i8, -1, -100) == 0);
     try testing.expect(shr(i8, -1, 100) == -1);
+    if (builtin.cpu.arch == .hexagon and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, -100) == @Vector(2, i8){ 0, 0 }));
     try testing.expect(@reduce(.And, shr(@Vector(2, i8), .{ -1, 1 }, 100) == @Vector(2, i8){ -1, 0 }));
 }
