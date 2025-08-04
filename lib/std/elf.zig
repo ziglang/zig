@@ -502,6 +502,13 @@ pub const Header = struct {
         };
     }
 
+    pub fn iterateProgramHeadersOnBuffer(h: Header, buf: []const u8) ProgramHeaderBufferIterator {
+        return .{
+            .elf_header = h,
+            .buf = buf,
+        };
+    }
+
     pub fn iterateSectionHeaders(h: Header, file_reader: *std.fs.File.Reader) SectionHeaderIterator {
         return .{
             .elf_header = h,
@@ -509,12 +516,22 @@ pub const Header = struct {
         };
     }
 
-    pub const ReadError = std.Io.Reader.Error || error{
+    pub fn iterateSectionHeadersOnBuffer(h: Header, buf: []const u8) SectionHeaderBufferIterator {
+        return .{
+            .elf_header = h,
+            .buf = buf,
+        };
+    }
+
+    pub const ValidationError = error{
         InvalidElfMagic,
+        InvalidElfHeader,
         InvalidElfVersion,
         InvalidElfClass,
         InvalidElfEndian,
     };
+
+    pub const ReadError = std.Io.Reader.Error || ValidationError;
 
     pub fn read(r: *std.Io.Reader) ReadError!Header {
         const buf = try r.peek(@sizeOf(Elf64_Ehdr));
@@ -531,6 +548,32 @@ pub const Header = struct {
         return switch (buf[EI_CLASS]) {
             ELFCLASS32 => .init(try r.takeStruct(Elf32_Ehdr, endian), endian),
             ELFCLASS64 => .init(try r.takeStruct(Elf64_Ehdr, endian), endian),
+            else => return error.InvalidElfClass,
+        };
+    }
+
+    pub fn initFromBuffer(buf: []const u8) ValidationError!Header {
+        if (buf.len < @sizeOf(Elf64_Ehdr)) return error.InvalidElfHeader;
+        if (!mem.startsWith(u8, buf, MAGIC)) return error.InvalidElfMagic;
+        if (buf[EI_VERSION] != 1) return error.InvalidElfVersion;
+
+        const endian: std.builtin.Endian = switch (buf[EI_DATA]) {
+            ELFDATA2LSB => .little,
+            ELFDATA2MSB => .big,
+            else => return error.InvalidElfEndian,
+        };
+
+        return switch (buf[EI_CLASS]) {
+            ELFCLASS32 => {
+                var hdr = std.mem.bytesToValue(Elf32_Ehdr, buf[0..@sizeOf(Elf32_Ehdr)]);
+                if (native_endian != endian) std.mem.byteSwapAllFields(Elf32_Ehdr, &hdr);
+                return .init(hdr, endian);
+            },
+            ELFCLASS64 => {
+                var hdr = std.mem.bytesToValue(Elf64_Ehdr, buf[0..@sizeOf(Elf64_Ehdr)]);
+                if (native_endian != endian) std.mem.byteSwapAllFields(Elf64_Ehdr, &hdr);
+                return .init(hdr, endian);
+            },
             else => return error.InvalidElfClass,
         };
     }
@@ -593,6 +636,40 @@ pub const ProgramHeaderIterator = struct {
     }
 };
 
+pub const ProgramHeaderBufferIterator = struct {
+    elf_header: Header,
+    buf: []const u8,
+    index: usize = 0,
+
+    pub fn next(it: *ProgramHeaderBufferIterator) !?Elf64_Phdr {
+        if (it.index >= it.elf_header.phnum) return null;
+        defer it.index += 1;
+
+        if (it.elf_header.is_64) {
+            const offset = it.elf_header.phoff + @sizeOf(Elf64_Phdr) * it.index;
+            if (it.buf.len < offset + @sizeOf(Elf64_Phdr)) return error.InvalidElfHeader;
+            var phdr = std.mem.bytesToValue(Elf64_Phdr, it.buf[offset .. offset + @sizeOf(Elf64_Phdr)]);
+            if (native_endian != it.elf_header.endian) std.mem.byteSwapAllFields(Elf64_Phdr, &phdr);
+            return phdr;
+        }
+
+        const offset = it.elf_header.phoff + @sizeOf(Elf32_Phdr) * it.index;
+        if (it.buf.len < offset + @sizeOf(Elf32_Phdr)) return error.InvalidElfHeader;
+        var phdr = std.mem.bytesToValue(Elf32_Phdr, it.buf[offset .. offset + @sizeOf(Elf32_Phdr)]);
+        if (native_endian != it.elf_header.endian) std.mem.byteSwapAllFields(Elf32_Phdr, &phdr);
+        return .{
+            .p_type = phdr.p_type,
+            .p_offset = phdr.p_offset,
+            .p_vaddr = phdr.p_vaddr,
+            .p_paddr = phdr.p_paddr,
+            .p_filesz = phdr.p_filesz,
+            .p_memsz = phdr.p_memsz,
+            .p_flags = phdr.p_flags,
+            .p_align = phdr.p_align,
+        };
+    }
+};
+
 pub const SectionHeaderIterator = struct {
     elf_header: Header,
     file_reader: *std.fs.File.Reader,
@@ -610,6 +687,42 @@ pub const SectionHeaderIterator = struct {
 
         try it.file_reader.seekTo(it.elf_header.shoff + @sizeOf(Elf32_Shdr) * it.index);
         const shdr = try it.file_reader.interface.takeStruct(Elf32_Shdr, it.elf_header.endian);
+        return .{
+            .sh_name = shdr.sh_name,
+            .sh_type = shdr.sh_type,
+            .sh_flags = shdr.sh_flags,
+            .sh_addr = shdr.sh_addr,
+            .sh_offset = shdr.sh_offset,
+            .sh_size = shdr.sh_size,
+            .sh_link = shdr.sh_link,
+            .sh_info = shdr.sh_info,
+            .sh_addralign = shdr.sh_addralign,
+            .sh_entsize = shdr.sh_entsize,
+        };
+    }
+};
+
+pub const SectionHeaderBufferIterator = struct {
+    elf_header: Header,
+    buf: []const u8,
+    index: usize = 0,
+
+    pub fn next(it: *SectionHeaderBufferIterator) !?Elf64_Shdr {
+        if (it.index >= it.elf_header.shnum) return null;
+        defer it.index += 1;
+
+        if (it.elf_header.is_64) {
+            const offset = it.elf_header.shoff + @sizeOf(Elf64_Shdr) * it.index;
+            if (it.buf.len < offset + @sizeOf(Elf64_Shdr)) return error.InvalidElfHeader;
+            var shdr = std.mem.bytesToValue(Elf64_Shdr, it.buf[offset .. offset + @sizeOf(Elf64_Shdr)]);
+            if (native_endian != it.elf_header.endian) std.mem.byteSwapAllFields(Elf64_Shdr, &shdr);
+            return shdr;
+        }
+
+        const offset = it.elf_header.shoff + @sizeOf(Elf32_Shdr) * it.index;
+        if (it.buf.len < offset + @sizeOf(Elf32_Shdr)) return error.InvalidElfHeader;
+        var shdr = std.mem.bytesToValue(Elf32_Shdr, it.buf[offset .. offset + @sizeOf(Elf32_Shdr)]);
+        if (native_endian != it.elf_header.endian) std.mem.byteSwapAllFields(Elf32_Shdr, &shdr);
         return .{
             .sh_name = shdr.sh_name,
             .sh_type = shdr.sh_type,
