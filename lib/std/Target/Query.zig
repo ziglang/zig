@@ -423,7 +423,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
                 try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
-                try result.print(gpa, "{d}", .{v});
+                try result.print(gpa, "{f}", .{v});
             },
         }
     }
@@ -437,7 +437,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
             .windows => |v| {
                 // This is counting on a custom format() function defined on `WindowsVersion`
                 // to add a prefix '.' and make there be a total of three dots.
-                try result.print(gpa, "..{d}", .{v});
+                try result.print(gpa, "..{f}", .{v});
             },
         }
     }
@@ -728,5 +728,21 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-android.30", text);
+    }
+    {
+        const query = try Query.parse(.{
+            .arch_os_abi = "x86-windows.xp...win8-msvc",
+        });
+        const target = try std.zig.system.resolveTargetQuery(query);
+
+        try std.testing.expect(target.cpu.arch == .x86);
+        try std.testing.expect(target.os.tag == .windows);
+        try std.testing.expect(target.os.version_range.windows.min == .xp);
+        try std.testing.expect(target.os.version_range.windows.max == .win8);
+        try std.testing.expect(target.abi == .msvc);
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualSlices(u8, "x86-windows.xp...win8-msvc", text);
     }
 }
