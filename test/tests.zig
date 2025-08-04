@@ -385,32 +385,30 @@ const test_targets = blk: {
             .link_libc = true,
         },
 
+        // Similar to Thumb, we need long calls on Hexagon due to relocation range issues.
         .{
-            .target = .{
-                .cpu_arch = .hexagon,
-                .os_tag = .linux,
-                .abi = .none,
-            },
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "hexagon-linux-none",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
             // https://github.com/llvm/llvm-project/pull/111217
             .skip_modules = &.{"std"},
         },
         .{
-            .target = .{
-                .cpu_arch = .hexagon,
-                .os_tag = .linux,
-                .abi = .musl,
-            },
+            .target = std.Target.Query.parse(.{
+                .arch_os_abi = "hexagon-linux-musl",
+                .cpu_features = "baseline+long_calls",
+            }) catch unreachable,
             .link_libc = true,
             // https://github.com/llvm/llvm-project/pull/111217
             .skip_modules = &.{"std"},
         },
         // Currently crashes in qemu-hexagon.
         // .{
-        //     .target = .{
-        //         .cpu_arch = .hexagon,
-        //         .os_tag = .linux,
-        //         .abi = .musl,
-        //     },
+        //     .target = std.Target.Query.parse(.{
+        //         .arch_os_abi = "hexagon-linux-musl",
+        //         .cpu_features = "baseline+long_calls",
+        //     }) catch unreachable,
         //     .linkage = .dynamic,
         //     .link_libc = true,
         //     // https://github.com/llvm/llvm-project/pull/111217
