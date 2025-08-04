@@ -6970,11 +6970,11 @@ pub const utsname = switch (native_os) {
         domainname: [256:0]u8,
     },
     .macos => extern struct {
-        sysname: [256:0]u8,
-        nodename: [256:0]u8,
-        release: [256:0]u8,
-        version: [256:0]u8,
-        machine: [256:0]u8,
+        sysname: [255:0]u8,
+        nodename: [255:0]u8,
+        release: [255:0]u8,
+        version: [255:0]u8,
+        machine: [255:0]u8,
     },
     // https://github.com/SerenityOS/serenity/blob/d794ed1de7a46482272683f8dc4c858806390f29/Kernel/API/POSIX/sys/utsname.h#L17-L23
     .serenity => extern struct {
@@ -6984,7 +6984,7 @@ pub const utsname = switch (native_os) {
         version: [UTSNAME_ENTRY_LEN:0]u8,
         machine: [UTSNAME_ENTRY_LEN:0]u8,
 
-        const UTSNAME_ENTRY_LEN = 65;
+        const UTSNAME_ENTRY_LEN = 64;
     },
     else => void,
 };
