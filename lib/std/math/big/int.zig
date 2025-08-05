@@ -1710,7 +1710,7 @@ pub const Mutable = struct {
 
         if (xy_trailing != 0 and r.limbs[r.len - 1] != 0) {
             // Manually shift here since we know its limb aligned.
-            mem.copyBackwards(Limb, r.limbs[xy_trailing..], r.limbs[0..r.len]);
+            @memmove(r.limbs[xy_trailing..][0..r.len], r.limbs[0..r.len]);
             @memset(r.limbs[0..xy_trailing], 0);
             r.len += xy_trailing;
         }
@@ -3836,8 +3836,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) usize {
         std.debug.assert(@intFromPtr(r.ptr) >= @intFromPtr(a.ptr));
 
     if (shift == 0) {
-        if (a.ptr != r.ptr)
-            std.mem.copyBackwards(Limb, r[0..a.len], a);
+        if (a.ptr != r.ptr) @memmove(r[0..a.len], a);
         return a.len;
     }
     if (shift >= limb_bits) {
@@ -3891,8 +3890,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) usize {
     if (shift == 0) {
         std.debug.assert(r.len >= a.len);
 
-        if (a.ptr != r.ptr)
-            std.mem.copyForwards(Limb, r[0..a.len], a);
+        if (a.ptr != r.ptr) @memmove(r[0..a.len], a);
         return a.len;
     }
     if (shift >= limb_bits) {

@@ -158,7 +158,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
             assert(self.items.len < self.capacity);
             self.items.len += 1;
 
-            mem.copyBackwards(T, self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
+            @memmove(self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
             self.items[i] = item;
         }
 
@@ -216,7 +216,7 @@ pub fn ArrayListAligned(comptime T: type, comptime alignment: ?mem.Alignment) ty
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
             self.items.len = new_len;
-            mem.copyBackwards(T, self.items[index + count ..], to_move);
+            @memmove(self.items[index + count ..][0..to_move.len], to_move);
             const result = self.items[index..][0..count];
             @memset(result, undefined);
             return result;
@@ -746,7 +746,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             assert(self.items.len < self.capacity);
             self.items.len += 1;
 
-            mem.copyBackwards(T, self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
+            @memmove(self.items[i + 1 .. self.items.len], self.items[i .. self.items.len - 1]);
             self.items[i] = item;
         }
 
@@ -782,7 +782,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             assert(self.capacity >= new_len);
             const to_move = self.items[index..];
             self.items.len = new_len;
-            mem.copyBackwards(T, self.items[index + count ..], to_move);
+            @memmove(self.items[index + count ..][0..to_move.len], to_move);
             const result = self.items[index..][0..count];
             @memset(result, undefined);
             return result;
@@ -848,11 +848,8 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
             } else {
                 const extra = range.len - new_items.len;
                 @memcpy(range[0..new_items.len], new_items);
-                std.mem.copyForwards(
-                    T,
-                    self.items[after_range - extra ..],
-                    self.items[after_range..],
-                );
+                const src = self.items[after_range..];
+                @memmove(self.items[after_range - extra ..][0..src.len], src);
                 @memset(self.items[self.items.len - extra ..], undefined);
                 self.items.len -= extra;
             }
