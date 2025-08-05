@@ -118,22 +118,6 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // destWriter must be compatible with std.io.GenericWriter's writeAll interface
-    // sourceReader must be compatible with `std.io.GenericReader` read interface
-    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
-        while (true) {
-            var tempSource: [3]u8 = undefined;
-            const bytesRead = try sourceReader.read(&tempSource);
-            if (bytesRead == 0) {
-                break;
-            }
-
-            var temp: [5]u8 = undefined;
-            const s = encoder.encode(&temp, tempSource[0..bytesRead]);
-            try destWriter.writeAll(s);
-        }
-    }
-
     /// dest.len must at least be what you get from ::calcSize.
     pub fn encode(encoder: *const Base64Encoder, dest: []u8, source: []const u8) []const u8 {
         const out_len = encoder.calcSize(source.len);
@@ -523,14 +507,6 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var buffer: [0x100]u8 = undefined;
         var writer: std.Io.Writer = .fixed(&buffer);
         try codecs.Encoder.encodeWriter(&writer, expected_decoded);
-        try testing.expectEqualSlices(u8, expected_encoded, writer.buffered());
-    }
-    {
-        // reader to writer encode
-        var stream: std.Io.Reader = .fixed(expected_decoded);
-        var buffer: [0x100]u8 = undefined;
-        var writer: std.Io.Writer = .fixed(&buffer);
-        try codecs.Encoder.encodeFromReaderToWriter(&writer, &stream);
         try testing.expectEqualSlices(u8, expected_encoded, writer.buffered());
     }
 
