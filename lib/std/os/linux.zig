@@ -144,6 +144,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
+    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
