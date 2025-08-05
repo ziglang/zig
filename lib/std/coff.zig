@@ -1350,8 +1350,10 @@ pub const Strtab = struct {
 };
 
 pub const ImportHeader = extern struct {
-    sig1: IMAGE.FILE.MACHINE,
-    sig2: u16,
+    /// Must be IMAGE_FILE_MACHINE_UNKNOWN
+    sig1: IMAGE.FILE.MACHINE = .UNKNOWN,
+    /// Must be 0xFFFF
+    sig2: u16 = 0xFFFF,
     version: u16,
     machine: IMAGE.FILE.MACHINE,
     time_date_stamp: u32,
