@@ -2238,7 +2238,6 @@ const ModuleTestOptions = struct {
     desc: []const u8,
     optimize_modes: []const OptimizeMode,
     include_paths: []const []const u8,
-    windows_libs: []const []const u8,
     skip_single_threaded: bool,
     skip_non_native: bool,
     skip_freebsd: bool,
@@ -2372,10 +2371,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         const use_pic = if (test_target.pic == true) "-pic" else "";
 
         for (options.include_paths) |include_path| these_tests.root_module.addIncludePath(b.path(include_path));
-
-        if (target.os.tag == .windows) {
-            for (options.windows_libs) |lib| these_tests.root_module.linkSystemLibrary(lib, .{});
-        }
 
         const qualified_name = b.fmt("{s}-{s}-{s}-{s}{s}{s}{s}{s}{s}{s}", .{
             options.name,
@@ -2671,10 +2666,6 @@ pub fn addIncrementalTests(b: *std.Build, test_step: *Step) !void {
             .optimize = .Debug,
         }),
     });
-
-    if (b.graph.host.result.os.tag == .windows) {
-        incr_check.root_module.linkSystemLibrary("advapi32", .{});
-    }
 
     var dir = try b.build_root.handle.openDir("test/incremental", .{ .iterate = true });
     defer dir.close();
