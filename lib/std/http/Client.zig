@@ -682,7 +682,7 @@ pub const Response = struct {
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *Response, buffer: []u8) *Reader {
+    pub fn reader(response: *const Response, buffer: []u8) *Reader {
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
@@ -805,6 +805,11 @@ pub const Request = struct {
         unhandled = std.math.maxInt(u16),
         _,
 
+        pub fn init(n: u16) RedirectBehavior {
+            assert(n != std.math.maxInt(u16));
+            return @enumFromInt(n);
+        }
+
         pub fn subtractOne(rb: *RedirectBehavior) void {
             switch (rb.*) {
                 .not_allowed => unreachable,
@@ -853,6 +858,14 @@ pub const Request = struct {
         const result = try sendBodyUnflushed(r, buffer);
         try r.connection.?.flush();
         return result;
+    }
+
+    /// Transfers the HTTP head and body over the connection and flushes.
+    pub fn sendBodyComplete(r: *Request, body: []u8) Writer.Error!void {
+        r.transfer_encoding = .{ .content_length = body.len };
+        var bw = try sendBodyUnflushed(r, body);
+        bw.writer.end = body.len;
+        try bw.end();
     }
 
     /// Transfers the HTTP head over the connection, which is not flushed until
@@ -1296,7 +1309,7 @@ pub const basic_authorization = struct {
     pub fn value(uri: Uri, out: []u8) []u8 {
         var bw: Writer = .fixed(out);
         write(uri, &bw) catch unreachable;
-        return bw.getWritten();
+        return bw.buffered();
     }
 
     pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
