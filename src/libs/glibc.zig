@@ -1130,18 +1130,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 }
 
-pub fn sharedObjectsCount(target: *const std.Target) u8 {
-    const target_version = target.os.versionRange().gnuLibCVersion() orelse return 0;
-    var count: u8 = 0;
-    for (libs) |lib| {
-        if (lib.removed_in) |rem_in| {
-            if (target_version.order(rem_in) != .lt) continue;
-        }
-        count += 1;
-    }
-    return count;
-}
-
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     const target_version = comp.getTarget().os.versionRange().gnuLibCVersion().?;
 
