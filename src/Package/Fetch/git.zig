@@ -585,17 +585,17 @@ const ObjectCache = struct {
 /// [protocol-common](https://git-scm.com/docs/protocol-common). The special
 /// meanings of the delimiter and response-end packets are documented in
 /// [protocol-v2](https://git-scm.com/docs/protocol-v2).
-const Packet = union(enum) {
+pub const Packet = union(enum) {
     flush,
     delimiter,
     response_end,
     data: []const u8,
 
-    const max_data_length = 65516;
+    pub const max_data_length = 65516;
 
     /// Reads a packet in pkt-line format.
-    fn read(reader: anytype, buf: *[max_data_length]u8) !Packet {
-        const length = std.fmt.parseUnsigned(u16, &try reader.readBytesNoEof(4), 16) catch return error.InvalidPacket;
+    fn read(reader: *std.Io.Reader) !Packet {
+        const length = std.fmt.parseUnsigned(u16, try reader.take(4), 16) catch return error.InvalidPacket;
         switch (length) {
             0 => return .flush,
             1 => return .delimiter,
@@ -603,13 +603,11 @@ const Packet = union(enum) {
             3 => return error.InvalidPacket,
             else => if (length - 4 > max_data_length) return error.InvalidPacket,
         }
-        const data = buf[0 .. length - 4];
-        try reader.readNoEof(data);
-        return .{ .data = data };
+        return .{ .data = try reader.take(length - 4) };
     }
 
     /// Writes a packet in pkt-line format.
-    fn write(packet: Packet, writer: anytype) !void {
+    fn write(packet: Packet, writer: *std.Io.Writer) !void {
         switch (packet) {
             .flush => try writer.writeAll("0000"),
             .delimiter => try writer.writeAll("0001"),
@@ -657,8 +655,10 @@ pub const Session = struct {
         allocator: Allocator,
         transport: *std.http.Client,
         uri: std.Uri,
-        http_headers_buffer: []u8,
+        /// Asserted to be at least `Packet.max_data_length`
+        response_buffer: []u8,
     ) !Session {
+        assert(response_buffer.len >= Packet.max_data_length);
         var session: Session = .{
             .transport = transport,
             .location = try .init(allocator, uri),
@@ -668,7 +668,8 @@ pub const Session = struct {
             .allocator = allocator,
         };
         errdefer session.deinit();
-        var capability_iterator = try session.getCapabilities(http_headers_buffer);
+        var capability_iterator: CapabilityIterator = undefined;
+        try session.getCapabilities(&capability_iterator, response_buffer);
         defer capability_iterator.deinit();
         while (try capability_iterator.next()) |capability| {
             if (mem.eql(u8, capability.key, "agent")) {
@@ -743,7 +744,8 @@ pub const Session = struct {
     ///
     /// The `session.location` is updated if the server returns a redirect, so
     /// that subsequent session functions do not need to handle redirects.
-    fn getCapabilities(session: *Session, http_headers_buffer: []u8) !CapabilityIterator {
+    fn getCapabilities(session: *Session, it: *CapabilityIterator, response_buffer: []u8) !void {
+        assert(response_buffer.len >= Packet.max_data_length);
         var info_refs_uri = session.location.uri;
         {
             const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
@@ -757,19 +759,22 @@ pub const Session = struct {
         info_refs_uri.fragment = null;
 
         const max_redirects = 3;
-        var request = try session.transport.open(.GET, info_refs_uri, .{
-            .redirect_behavior = @enumFromInt(max_redirects),
-            .server_header_buffer = http_headers_buffer,
-            .extra_headers = &.{
-                .{ .name = "Git-Protocol", .value = "version=2" },
-            },
-        });
-        errdefer request.deinit();
-        try request.send();
-        try request.finish();
+        it.* = .{
+            .request = try session.transport.request(.GET, info_refs_uri, .{
+                .redirect_behavior = .init(max_redirects),
+                .extra_headers = &.{
+                    .{ .name = "Git-Protocol", .value = "version=2" },
+                },
+            }),
+            .reader = undefined,
+        };
+        errdefer it.deinit();
+        const request = &it.request;
+        try request.sendBodiless();
 
-        try request.wait();
-        if (request.response.status != .ok) return error.ProtocolError;
+        var redirect_buffer: [1024]u8 = undefined;
+        const response = try request.receiveHead(&redirect_buffer);
+        if (response.head.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
             const request_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
@@ -784,8 +789,7 @@ pub const Session = struct {
             session.location = new_location;
         }
 
-        const reader = request.reader();
-        var buf: [Packet.max_data_length]u8 = undefined;
+        it.reader = response.reader(response_buffer);
         var state: enum { response_start, response_content } = .response_start;
         while (true) {
             // Some Git servers (at least GitHub) include an additional
@@ -795,15 +799,15 @@ pub const Session = struct {
             // Thus, we need to skip any such useless additional responses
             // before we get the one we're actually looking for. The responses
             // will be delimited by flush packets.
-            const packet = Packet.read(reader, &buf) catch |e| switch (e) {
+            const packet = Packet.read(it.reader) catch |err| switch (err) {
                 error.EndOfStream => return error.UnsupportedProtocol, // 'version 2' packet not found
-                else => |other| return other,
+                else => |e| return e,
             };
             switch (packet) {
                 .flush => state = .response_start,
                 .data => |data| switch (state) {
                     .response_start => if (mem.eql(u8, Packet.normalizeText(data), "version 2")) {
-                        return .{ .request = request };
+                        return;
                     } else {
                         state = .response_content;
                     },
@@ -816,7 +820,7 @@ pub const Session = struct {
 
     const CapabilityIterator = struct {
         request: std.http.Client.Request,
-        buf: [Packet.max_data_length]u8 = undefined,
+        reader: *std.Io.Reader,
 
         const Capability = struct {
             key: []const u8,
@@ -830,13 +834,13 @@ pub const Session = struct {
             }
         };
 
-        fn deinit(iterator: *CapabilityIterator) void {
-            iterator.request.deinit();
-            iterator.* = undefined;
+        fn deinit(it: *CapabilityIterator) void {
+            it.request.deinit();
+            it.* = undefined;
         }
 
-        fn next(iterator: *CapabilityIterator) !?Capability {
-            switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
+        fn next(it: *CapabilityIterator) !?Capability {
+            switch (try Packet.read(it.reader)) {
                 .flush => return null,
                 .data => |data| return Capability.parse(Packet.normalizeText(data)),
                 else => return error.UnexpectedPacket,
@@ -854,11 +858,13 @@ pub const Session = struct {
         include_symrefs: bool = false,
         /// Whether to include the peeled object ID for returned tag refs.
         include_peeled: bool = false,
-        server_header_buffer: []u8,
+        /// Asserted to be at least `Packet.max_data_length`.
+        buffer: []u8,
     };
 
     /// Returns an iterator over refs known to the server.
-    pub fn listRefs(session: Session, options: ListRefsOptions) !RefIterator {
+    pub fn listRefs(session: Session, it: *RefIterator, options: ListRefsOptions) !void {
+        assert(options.buffer.len >= Packet.max_data_length);
         var upload_pack_uri = session.location.uri;
         {
             const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
@@ -871,59 +877,56 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body: std.ArrayListUnmanaged(u8) = .empty;
-        defer body.deinit(session.allocator);
-        const body_writer = body.writer(session.allocator);
-        try Packet.write(.{ .data = "command=ls-refs\n" }, body_writer);
+        var body: std.Io.Writer = .fixed(options.buffer);
+        try Packet.write(.{ .data = "command=ls-refs\n" }, &body);
         if (session.supports_agent) {
-            try Packet.write(.{ .data = agent_capability }, body_writer);
+            try Packet.write(.{ .data = agent_capability }, &body);
         }
         {
-            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={s}\n", .{@tagName(session.object_format)});
+            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={t}\n", .{
+                session.object_format,
+            });
             defer session.allocator.free(object_format_packet);
-            try Packet.write(.{ .data = object_format_packet }, body_writer);
+            try Packet.write(.{ .data = object_format_packet }, &body);
         }
-        try Packet.write(.delimiter, body_writer);
+        try Packet.write(.delimiter, &body);
         for (options.ref_prefixes) |ref_prefix| {
             const ref_prefix_packet = try std.fmt.allocPrint(session.allocator, "ref-prefix {s}\n", .{ref_prefix});
             defer session.allocator.free(ref_prefix_packet);
-            try Packet.write(.{ .data = ref_prefix_packet }, body_writer);
+            try Packet.write(.{ .data = ref_prefix_packet }, &body);
         }
         if (options.include_symrefs) {
-            try Packet.write(.{ .data = "symrefs\n" }, body_writer);
+            try Packet.write(.{ .data = "symrefs\n" }, &body);
         }
         if (options.include_peeled) {
-            try Packet.write(.{ .data = "peel\n" }, body_writer);
+            try Packet.write(.{ .data = "peel\n" }, &body);
         }
-        try Packet.write(.flush, body_writer);
+        try Packet.write(.flush, &body);
 
-        var request = try session.transport.open(.POST, upload_pack_uri, .{
-            .redirect_behavior = .unhandled,
-            .server_header_buffer = options.server_header_buffer,
-            .extra_headers = &.{
-                .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
-                .{ .name = "Git-Protocol", .value = "version=2" },
-            },
-        });
-        errdefer request.deinit();
-        request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.send();
-        try request.writeAll(body.items);
-        try request.finish();
-
-        try request.wait();
-        if (request.response.status != .ok) return error.ProtocolError;
-
-        return .{
+        it.* = .{
+            .request = try session.transport.request(.POST, upload_pack_uri, .{
+                .redirect_behavior = .unhandled,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                    .{ .name = "Git-Protocol", .value = "version=2" },
+                },
+            }),
+            .reader = undefined,
             .format = session.object_format,
-            .request = request,
         };
+        const request = &it.request;
+        errdefer request.deinit();
+        try request.sendBodyComplete(body.buffered());
+
+        const response = try request.receiveHead(options.buffer);
+        if (response.head.status != .ok) return error.ProtocolError;
+        it.reader = response.reader(options.buffer);
     }
 
     pub const RefIterator = struct {
         format: Oid.Format,
         request: std.http.Client.Request,
-        buf: [Packet.max_data_length]u8 = undefined,
+        reader: *std.Io.Reader,
 
         pub const Ref = struct {
             oid: Oid,
@@ -937,13 +940,13 @@ pub const Session = struct {
             iterator.* = undefined;
         }
 
-        pub fn next(iterator: *RefIterator) !?Ref {
-            switch (try Packet.read(iterator.request.reader(), &iterator.buf)) {
+        pub fn next(it: *RefIterator) !?Ref {
+            switch (try Packet.read(it.reader)) {
                 .flush => return null,
                 .data => |data| {
                     const ref_data = Packet.normalizeText(data);
                     const oid_sep_pos = mem.indexOfScalar(u8, ref_data, ' ') orelse return error.InvalidRefPacket;
-                    const oid = Oid.parse(iterator.format, data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
+                    const oid = Oid.parse(it.format, data[0..oid_sep_pos]) catch return error.InvalidRefPacket;
 
                     const name_sep_pos = mem.indexOfScalarPos(u8, ref_data, oid_sep_pos + 1, ' ') orelse ref_data.len;
                     const name = ref_data[oid_sep_pos + 1 .. name_sep_pos];
@@ -957,7 +960,7 @@ pub const Session = struct {
                         if (mem.startsWith(u8, attribute, "symref-target:")) {
                             symref_target = attribute["symref-target:".len..];
                         } else if (mem.startsWith(u8, attribute, "peeled:")) {
-                            peeled = Oid.parse(iterator.format, attribute["peeled:".len..]) catch return error.InvalidRefPacket;
+                            peeled = Oid.parse(it.format, attribute["peeled:".len..]) catch return error.InvalidRefPacket;
                         }
                         last_sep_pos = next_sep_pos;
                     }
@@ -973,9 +976,12 @@ pub const Session = struct {
     /// performed if the server supports it.
     pub fn fetch(
         session: Session,
+        fs: *FetchStream,
         wants: []const []const u8,
-        http_headers_buffer: []u8,
-    ) !FetchStream {
+        /// Asserted to be at least `Packet.max_data_length`.
+        response_buffer: []u8,
+    ) !void {
+        assert(response_buffer.len >= Packet.max_data_length);
         var upload_pack_uri = session.location.uri;
         {
             const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
@@ -988,63 +994,71 @@ pub const Session = struct {
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
-        var body: std.ArrayListUnmanaged(u8) = .empty;
-        defer body.deinit(session.allocator);
-        const body_writer = body.writer(session.allocator);
-        try Packet.write(.{ .data = "command=fetch\n" }, body_writer);
+        var body: std.Io.Writer = .fixed(response_buffer);
+        try Packet.write(.{ .data = "command=fetch\n" }, &body);
         if (session.supports_agent) {
-            try Packet.write(.{ .data = agent_capability }, body_writer);
+            try Packet.write(.{ .data = agent_capability }, &body);
         }
         {
             const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={s}\n", .{@tagName(session.object_format)});
             defer session.allocator.free(object_format_packet);
-            try Packet.write(.{ .data = object_format_packet }, body_writer);
+            try Packet.write(.{ .data = object_format_packet }, &body);
         }
-        try Packet.write(.delimiter, body_writer);
+        try Packet.write(.delimiter, &body);
         // Our packfile parser supports the OFS_DELTA object type
-        try Packet.write(.{ .data = "ofs-delta\n" }, body_writer);
+        try Packet.write(.{ .data = "ofs-delta\n" }, &body);
         // We do not currently convey server progress information to the user
-        try Packet.write(.{ .data = "no-progress\n" }, body_writer);
+        try Packet.write(.{ .data = "no-progress\n" }, &body);
         if (session.supports_shallow) {
-            try Packet.write(.{ .data = "deepen 1\n" }, body_writer);
+            try Packet.write(.{ .data = "deepen 1\n" }, &body);
         }
         for (wants) |want| {
             var buf: [Packet.max_data_length]u8 = undefined;
             const arg = std.fmt.bufPrint(&buf, "want {s}\n", .{want}) catch unreachable;
-            try Packet.write(.{ .data = arg }, body_writer);
+            try Packet.write(.{ .data = arg }, &body);
         }
-        try Packet.write(.{ .data = "done\n" }, body_writer);
-        try Packet.write(.flush, body_writer);
+        try Packet.write(.{ .data = "done\n" }, &body);
+        try Packet.write(.flush, &body);
 
-        var request = try session.transport.open(.POST, upload_pack_uri, .{
-            .redirect_behavior = .not_allowed,
-            .server_header_buffer = http_headers_buffer,
-            .extra_headers = &.{
-                .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
-                .{ .name = "Git-Protocol", .value = "version=2" },
-            },
-        });
+        fs.* = .{
+            .request = try session.transport.request(.POST, upload_pack_uri, .{
+                .redirect_behavior = .not_allowed,
+                .extra_headers = &.{
+                    .{ .name = "Content-Type", .value = "application/x-git-upload-pack-request" },
+                    .{ .name = "Git-Protocol", .value = "version=2" },
+                },
+            }),
+            .input = undefined,
+            .reader = undefined,
+            .remaining_len = undefined,
+        };
+        const request = &fs.request;
         errdefer request.deinit();
-        request.transfer_encoding = .{ .content_length = body.items.len };
-        try request.send();
-        try request.writeAll(body.items);
-        try request.finish();
 
-        try request.wait();
-        if (request.response.status != .ok) return error.ProtocolError;
+        try request.sendBodyComplete(body.buffered());
 
-        const reader = request.reader();
+        const response = try request.receiveHead(&.{});
+        if (response.head.status != .ok) return error.ProtocolError;
+
+        const reader = response.reader(response_buffer);
         // We are not interested in any of the sections of the returned fetch
         // data other than the packfile section, since we aren't doing anything
         // complex like ref negotiation (this is a fresh clone).
         var state: enum { section_start, section_content } = .section_start;
         while (true) {
-            var buf: [Packet.max_data_length]u8 = undefined;
-            const packet = try Packet.read(reader, &buf);
+            const packet = try Packet.read(reader);
             switch (state) {
                 .section_start => switch (packet) {
                     .data => |data| if (mem.eql(u8, Packet.normalizeText(data), "packfile")) {
-                        return .{ .request = request };
+                        fs.input = reader;
+                        fs.reader = .{
+                            .buffer = &.{},
+                            .vtable = &.{ .stream = FetchStream.stream },
+                            .seek = 0,
+                            .end = 0,
+                        };
+                        fs.remaining_len = 0;
+                        return;
                     } else {
                         state = .section_content;
                     },
@@ -1061,20 +1075,23 @@ pub const Session = struct {
 
     pub const FetchStream = struct {
         request: std.http.Client.Request,
-        buf: [Packet.max_data_length]u8 = undefined,
-        pos: usize = 0,
-        len: usize = 0,
+        input: *std.Io.Reader,
+        reader: std.Io.Reader,
+        err: ?Error = null,
+        remaining_len: usize,
 
-        pub fn deinit(stream: *FetchStream) void {
-            stream.request.deinit();
+        pub fn deinit(fs: *FetchStream) void {
+            fs.request.deinit();
         }
 
-        pub const ReadError = std.http.Client.Request.ReadError || error{
+        pub const Error = error{
             InvalidPacket,
             ProtocolError,
             UnexpectedPacket,
+            WriteFailed,
+            ReadFailed,
+            EndOfStream,
         };
-        pub const Reader = std.io.GenericReader(*FetchStream, ReadError, read);
 
         const StreamCode = enum(u8) {
             pack_data = 1,
@@ -1083,33 +1100,41 @@ pub const Session = struct {
             _,
         };
 
-        pub fn reader(stream: *FetchStream) Reader {
-            return .{ .context = stream };
-        }
-
-        pub fn read(stream: *FetchStream, buf: []u8) !usize {
-            if (stream.pos == stream.len) {
+        pub fn stream(r: *std.Io.Reader, w: *std.Io.Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
+            const fs: *FetchStream = @alignCast(@fieldParentPtr("reader", r));
+            const input = fs.input;
+            if (fs.remaining_len == 0) {
                 while (true) {
-                    switch (try Packet.read(stream.request.reader(), &stream.buf)) {
-                        .flush => return 0,
+                    switch (Packet.read(input) catch |err| {
+                        fs.err = err;
+                        return error.ReadFailed;
+                    }) {
+                        .flush => return error.EndOfStream,
                         .data => |data| if (data.len > 1) switch (@as(StreamCode, @enumFromInt(data[0]))) {
                             .pack_data => {
-                                stream.pos = 1;
-                                stream.len = data.len;
+                                input.toss(1);
+                                fs.remaining_len = data.len;
                                 break;
                             },
-                            .fatal_error => return error.ProtocolError,
+                            .fatal_error => {
+                                fs.err = error.ProtocolError;
+                                return error.ReadFailed;
+                            },
                             else => {},
                         },
-                        else => return error.UnexpectedPacket,
+                        else => {
+                            fs.err = error.UnexpectedPacket;
+                            return error.ReadFailed;
+                        },
                     }
                 }
             }
-
-            const size = @min(buf.len, stream.len - stream.pos);
-            @memcpy(buf[0..size], stream.buf[stream.pos .. stream.pos + size]);
-            stream.pos += size;
-            return size;
+            const buf = limit.slice(try w.writableSliceGreedy(1));
+            const n = @min(buf.len, fs.remaining_len);
+            @memcpy(buf[0..n], input.buffered()[0..n]);
+            input.toss(n);
+            fs.remaining_len -= n;
+            return n;
         }
     };
 };
