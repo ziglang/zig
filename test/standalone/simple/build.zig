@@ -50,10 +50,6 @@ pub fn build(b: *std.Build) void {
                 });
                 if (case.link_libc) exe.root_module.link_libc = true;
 
-                if (resolved_target.result.os.tag == .windows) {
-                    exe.root_module.linkSystemLibrary("advapi32", .{});
-                }
-
                 _ = exe.getEmittedBin();
 
                 step.dependOn(&exe.step);
@@ -69,10 +65,6 @@ pub fn build(b: *std.Build) void {
                     }),
                 });
                 if (case.link_libc) exe.root_module.link_libc = true;
-
-                if (resolved_target.result.os.tag == .windows) {
-                    exe.root_module.linkSystemLibrary("advapi32", .{});
-                }
 
                 const run = b.addRunArtifact(exe);
                 step.dependOn(&run.step);
