@@ -519,33 +519,33 @@ pub const Reader = struct {
         w: *Writer,
         limit: std.Io.Limit,
     ) std.Io.Reader.StreamError!usize {
-        const reader: *Reader = @fieldParentPtr("interface", io_r);
+        const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
             return error.EndOfStream;
         }
-        const n = try reader.in.stream(w, limit.min(.limited(remaining)));
+        const n = try reader.in.stream(w, limit.min(.limited64(remaining)));
         remaining_content_length.* = remaining - n;
         return n;
     }
 
     fn contentLengthDiscard(io_r: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
-        const reader: *Reader = @fieldParentPtr("interface", io_r);
+        const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         const remaining_content_length = &reader.state.body_remaining_content_length;
         const remaining = remaining_content_length.*;
         if (remaining == 0) {
             reader.state = .ready;
             return error.EndOfStream;
         }
-        const n = try reader.in.discard(limit.min(.limited(remaining)));
+        const n = try reader.in.discard(limit.min(.limited64(remaining)));
         remaining_content_length.* = remaining - n;
         return n;
     }
 
     fn chunkedStream(io_r: *std.Io.Reader, w: *Writer, limit: std.Io.Limit) std.Io.Reader.StreamError!usize {
-        const reader: *Reader = @fieldParentPtr("interface", io_r);
+        const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
             .body_remaining_chunk_len => |*x| x,
@@ -591,7 +591,7 @@ pub const Reader = struct {
                     }
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
-                const n = try in.stream(w, limit.min(.limited(cp.chunk_len)));
+                const n = try in.stream(w, limit.min(.limited64(cp.chunk_len)));
                 chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
                 return n;
             },
@@ -607,7 +607,7 @@ pub const Reader = struct {
                 continue :len .head;
             },
             else => |remaining_chunk_len| {
-                const n = try in.stream(w, limit.min(.limited(@intFromEnum(remaining_chunk_len) - 2)));
+                const n = try in.stream(w, limit.min(.limited64(@intFromEnum(remaining_chunk_len) - 2)));
                 chunk_len_ptr.* = .init(@intFromEnum(remaining_chunk_len) - n);
                 return n;
             },
@@ -615,7 +615,7 @@ pub const Reader = struct {
     }
 
     fn chunkedDiscard(io_r: *std.Io.Reader, limit: std.Io.Limit) std.Io.Reader.Error!usize {
-        const reader: *Reader = @fieldParentPtr("interface", io_r);
+        const reader: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
         const chunk_len_ptr = switch (reader.state) {
             .ready => return error.EndOfStream,
             .body_remaining_chunk_len => |*x| x,
@@ -659,7 +659,7 @@ pub const Reader = struct {
                     }
                 }
                 if (cp.chunk_len == 0) return parseTrailers(reader, 0);
-                const n = try in.discard(limit.min(.limited(cp.chunk_len)));
+                const n = try in.discard(limit.min(.limited64(cp.chunk_len)));
                 chunk_len_ptr.* = .init(cp.chunk_len + 2 - n);
                 return n;
             },
@@ -675,7 +675,7 @@ pub const Reader = struct {
                 continue :len .head;
             },
             else => |remaining_chunk_len| {
-                const n = try in.discard(limit.min(.limited(remaining_chunk_len.int() - 2)));
+                const n = try in.discard(limit.min(.limited64(remaining_chunk_len.int() - 2)));
                 chunk_len_ptr.* = .init(remaining_chunk_len.int() - n);
                 return n;
             },
@@ -758,7 +758,7 @@ pub const BodyWriter = struct {
 
     /// How many zeroes to reserve for hex-encoded chunk length.
     const chunk_len_digits = 8;
-    const max_chunk_len: usize = std.math.pow(usize, 16, chunk_len_digits) - 1;
+    const max_chunk_len: usize = std.math.pow(u64, 16, chunk_len_digits) - 1;
     const chunk_header_template = ("0" ** chunk_len_digits) ++ "\r\n";
 
     comptime {
@@ -918,7 +918,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn contentLengthDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const n = try out.writeSplatHeader(w.buffered(), data, splat);
@@ -927,7 +927,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn noneDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const n = try out.writeSplatHeader(w.buffered(), data, splat);
@@ -935,7 +935,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn elidingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         const slice = data[0 .. data.len - 1];
         const pattern = data[slice.len];
         var written: usize = pattern.len * splat;
@@ -949,7 +949,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn elidingSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         if (File.Handle == void) return error.Unimplemented;
         if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
         switch (bw.state) {
@@ -976,7 +976,7 @@ pub const BodyWriter = struct {
 
     /// Returns `null` if size cannot be computed without making any syscalls.
     pub fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const n = try out.sendFileHeader(w.buffered(), file_reader, limit);
@@ -984,7 +984,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const n = try out.sendFileHeader(w.buffered(), file_reader, limit);
@@ -993,7 +993,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const data_len = Writer.countSendFileLowerBound(w.end, file_reader, limit) orelse {
             // If the file size is unknown, we cannot lower to a `sendFile` since we would
@@ -1041,7 +1041,7 @@ pub const BodyWriter = struct {
     }
 
     pub fn chunkedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const bw: *BodyWriter = @fieldParentPtr("writer", w);
+        const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
         const data_len = w.end + Writer.countSplat(data, splat);
