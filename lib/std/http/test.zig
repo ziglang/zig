@@ -414,7 +414,8 @@ test "general client/server API coverage" {
             log.info("{f} {t} {s}", .{ request.head.method, request.head.version, request.head.target });
 
             const gpa = std.testing.allocator;
-            const body = try (try request.readerExpectContinue(&.{})).allocRemaining(gpa, .unlimited);
+            const reader = (try request.readerExpectContinue(&.{}));
+            const body = try reader.allocRemaining(gpa, .unlimited);
             defer gpa.free(body);
 
             if (mem.startsWith(u8, request.head.target, "/get")) {
