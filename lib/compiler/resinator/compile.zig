@@ -550,7 +550,7 @@ pub const Compiler = struct {
         // so get it here to simplify future usage.
         const filename_token = node.filename.getFirstToken();
 
-        const file = self.searchForFile(filename_utf8) catch |err| switch (err) {
+        const file_handle = self.searchForFile(filename_utf8) catch |err| switch (err) {
             error.OutOfMemory => |e| return e,
             else => |e| {
                 const filename_string_index = try self.diagnostics.putString(filename_utf8);
@@ -564,13 +564,15 @@ pub const Compiler = struct {
                 });
             },
         };
-        defer file.close();
+        defer file_handle.close();
+        var file_buffer: [2048]u8 = undefined;
+        var file_reader = file_handle.reader(&file_buffer);
 
         if (maybe_predefined_type) |predefined_type| {
             switch (predefined_type) {
                 .GROUP_ICON, .GROUP_CURSOR => {
                     // Check for animated icon first
-                    if (ani.isAnimatedIcon(file.deprecatedReader())) {
+                    if (ani.isAnimatedIcon(file_reader.interface.adaptToOldInterface())) {
                         // Animated icons are just put into the resource unmodified,
                         // and the resource type changes to ANIICON/ANICURSOR
 
@@ -582,18 +584,18 @@ pub const Compiler = struct {
                         header.type_value.ordinal = @intFromEnum(new_predefined_type);
                         header.memory_flags = MemoryFlags.defaults(new_predefined_type);
                         header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                        header.data_size = @intCast(try file.getEndPos());
+                        header.data_size = @intCast(try file_reader.getSize());
 
                         try header.write(writer, self.errContext(node.id));
-                        try file.seekTo(0);
-                        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
+                        try file_reader.seekTo(0);
+                        try writeResourceData(writer, &file_reader.interface, header.data_size);
                         return;
                     }
 
                     // isAnimatedIcon moved the file cursor so reset to the start
-                    try file.seekTo(0);
+                    try file_reader.seekTo(0);
 
-                    const icon_dir = ico.read(self.allocator, file.deprecatedReader(), try file.getEndPos()) catch |err| switch (err) {
+                    const icon_dir = ico.read(self.allocator, file_reader.interface.adaptToOldInterface(), try file_reader.getSize()) catch |err| switch (err) {
                         error.OutOfMemory => |e| return e,
                         else => |e| {
                             return self.iconReadError(
@@ -671,15 +673,15 @@ pub const Compiler = struct {
                             try writer.writeInt(u16, entry.type_specific_data.cursor.hotspot_y, .little);
                         }
 
-                        try file.seekTo(entry.data_offset_from_start_of_file);
-                        var header_bytes = file.deprecatedReader().readBytesNoEof(16) catch {
+                        try file_reader.seekTo(entry.data_offset_from_start_of_file);
+                        var header_bytes = (file_reader.interface.takeArray(16) catch {
                             return self.iconReadError(
                                 error.UnexpectedEOF,
                                 filename_utf8,
                                 filename_token,
                                 predefined_type,
                             );
-                        };
+                        }).*;
 
                         const image_format = ico.ImageFormat.detect(&header_bytes);
                         if (!image_format.validate(&header_bytes)) {
@@ -802,8 +804,8 @@ pub const Compiler = struct {
                             },
                         }
 
-                        try file.seekTo(entry.data_offset_from_start_of_file);
-                        try writeResourceDataNoPadding(writer, file.deprecatedReader(), entry.data_size_in_bytes);
+                        try file_reader.seekTo(entry.data_offset_from_start_of_file);
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, entry.data_size_in_bytes);
                         try writeDataPadding(writer, full_data_size);
 
                         if (self.state.icon_id == std.math.maxInt(u16)) {
@@ -857,9 +859,9 @@ pub const Compiler = struct {
                 },
                 .BITMAP => {
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                    const file_size = try file.getEndPos();
+                    const file_size = try file_reader.getSize();
 
-                    const bitmap_info = bmp.read(file.deprecatedReader(), file_size) catch |err| {
+                    const bitmap_info = bmp.read(file_reader.interface.adaptToOldInterface(), file_size) catch |err| {
                         const filename_string_index = try self.diagnostics.putString(filename_utf8);
                         return self.addErrorDetailsAndFail(.{
                             .err = .bmp_read_error,
@@ -921,18 +923,17 @@ pub const Compiler = struct {
 
                     header.data_size = bmp_bytes_to_write;
                     try header.write(writer, self.errContext(node.id));
-                    try file.seekTo(bmp.file_header_len);
-                    const file_reader = file.deprecatedReader();
-                    try writeResourceDataNoPadding(writer, file_reader, bitmap_info.dib_header_size);
+                    try file_reader.seekTo(bmp.file_header_len);
+                    try writeResourceDataNoPadding(writer, &file_reader.interface, bitmap_info.dib_header_size);
                     if (bitmap_info.getBitmasksByteLen() > 0) {
-                        try writeResourceDataNoPadding(writer, file_reader, bitmap_info.getBitmasksByteLen());
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, bitmap_info.getBitmasksByteLen());
                     }
                     if (bitmap_info.getExpectedPaletteByteLen() > 0) {
-                        try writeResourceDataNoPadding(writer, file_reader, @intCast(bitmap_info.getActualPaletteByteLen()));
+                        try writeResourceDataNoPadding(writer, &file_reader.interface, @intCast(bitmap_info.getActualPaletteByteLen()));
                     }
-                    try file.seekTo(bitmap_info.pixel_data_offset);
+                    try file_reader.seekTo(bitmap_info.pixel_data_offset);
                     const pixel_bytes: u32 = @intCast(file_size - bitmap_info.pixel_data_offset);
-                    try writeResourceDataNoPadding(writer, file_reader, pixel_bytes);
+                    try writeResourceDataNoPadding(writer, &file_reader.interface, pixel_bytes);
                     try writeDataPadding(writer, bmp_bytes_to_write);
                     return;
                 },
@@ -956,7 +957,7 @@ pub const Compiler = struct {
                         return;
                     }
                     header.applyMemoryFlags(node.common_resource_attributes, self.source);
-                    const file_size = try file.getEndPos();
+                    const file_size = try file_reader.getSize();
                     if (file_size > std.math.maxInt(u32)) {
                         return self.addErrorDetailsAndFail(.{
                             .err = .resource_data_size_exceeds_max,
@@ -968,8 +969,9 @@ pub const Compiler = struct {
                     header.data_size = @intCast(file_size);
                     try header.write(writer, self.errContext(node.id));
 
-                    var header_slurping_reader = headerSlurpingReader(148, file.deprecatedReader());
-                    try writeResourceData(writer, header_slurping_reader.reader(), header.data_size);
+                    var header_slurping_reader = headerSlurpingReader(148, file_reader.interface.adaptToOldInterface());
+                    var adapter = header_slurping_reader.reader().adaptToNewApi(&.{});
+                    try writeResourceData(writer, &adapter.new_interface, header.data_size);
 
                     try self.state.font_dir.add(self.arena, FontDir.Font{
                         .id = header.name_value.ordinal,
@@ -992,7 +994,7 @@ pub const Compiler = struct {
         }
 
         // Fallback to just writing out the entire contents of the file
-        const data_size = try file.getEndPos();
+        const data_size = try file_reader.getSize();
         if (data_size > std.math.maxInt(u32)) {
             return self.addErrorDetailsAndFail(.{
                 .err = .resource_data_size_exceeds_max,
@@ -1002,7 +1004,7 @@ pub const Compiler = struct {
         // We now know that the data size will fit in a u32
         header.data_size = @intCast(data_size);
         try header.write(writer, self.errContext(node.id));
-        try writeResourceData(writer, file.deprecatedReader(), header.data_size);
+        try writeResourceData(writer, &file_reader.interface, header.data_size);
     }
 
     fn iconReadError(
@@ -1250,8 +1252,8 @@ pub const Compiler = struct {
         const data_len: u32 = @intCast(data_buffer.items.len);
         try self.writeResourceHeader(writer, node.id, node.type, data_len, node.common_resource_attributes, self.state.language);
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_len);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_len);
     }
 
     pub fn writeResourceHeader(self: *Compiler, writer: anytype, id_token: Token, type_token: Token, data_size: u32, common_resource_attributes: []Token, language: res.Language) !void {
@@ -1266,15 +1268,15 @@ pub const Compiler = struct {
         try header.write(writer, self.errContext(id_token));
     }
 
-    pub fn writeResourceDataNoPadding(writer: anytype, data_reader: anytype, data_size: u32) !void {
-        var limited_reader = std.io.limitedReader(data_reader, data_size);
-
-        const FifoBuffer = std.fifo.LinearFifo(u8, .{ .Static = 4096 });
-        var fifo = FifoBuffer.init();
-        try fifo.pump(limited_reader.reader(), writer);
+    pub fn writeResourceDataNoPadding(writer: anytype, data_reader: *std.Io.Reader, data_size: u32) !void {
+        var adapted = writer.adaptToNewApi();
+        var buffer: [128]u8 = undefined;
+        adapted.new_interface.buffer = &buffer;
+        try data_reader.streamExact(&adapted.new_interface, data_size);
+        try adapted.new_interface.flush();
     }
 
-    pub fn writeResourceData(writer: anytype, data_reader: anytype, data_size: u32) !void {
+    pub fn writeResourceData(writer: anytype, data_reader: *std.Io.Reader, data_size: u32) !void {
         try writeResourceDataNoPadding(writer, data_reader, data_size);
         try writeDataPadding(writer, data_size);
     }
@@ -1339,8 +1341,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
@@ -1732,8 +1734,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     fn writeDialogHeaderAndStrings(
@@ -2046,8 +2048,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Weight and italic carry over from previous FONT statements within a single resource,
@@ -2121,8 +2123,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
@@ -2386,8 +2388,8 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-        try writeResourceData(writer, data_fbs.reader(), data_size);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects writer to be a LimitedWriter limited to u16, meaning all writes to
@@ -3321,8 +3323,8 @@ pub const StringTable = struct {
             // we fully control and know are numbers, so they have a fixed size.
             try header.writeAssertNoOverflow(writer);
 
-            var data_fbs = std.io.fixedBufferStream(data_buffer.items);
-            try Compiler.writeResourceData(writer, data_fbs.reader(), data_size);
+            var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+            try Compiler.writeResourceData(writer, &data_fbs, data_size);
         }
     };
 

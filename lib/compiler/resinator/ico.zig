@@ -18,7 +18,8 @@ pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadEr
     if (empty_reader_errorset) {
         return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
             error.EndOfStream => error.UnexpectedEOF,
-            else => |e| return e,
+            error.OutOfMemory, error.InvalidHeader, error.InvalidImageType, error.ImpossibleDataSize, error.UnexpectedEOF, error.ReadError => |e| return e,
+            else => return error.ReadError,
         };
     } else {
         return readAnyError(allocator, reader, max_size) catch |err| switch (err) {

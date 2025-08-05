@@ -105,31 +105,33 @@ pub const ResourceAndSize = struct {
 
 pub fn parseResource(allocator: Allocator, reader: anytype, max_size: u64) !ResourceAndSize {
     var header_counting_reader = std.io.countingReader(reader);
-    const header_reader = header_counting_reader.reader();
-    const data_size = try header_reader.readInt(u32, .little);
-    const header_size = try header_reader.readInt(u32, .little);
+    var buffer: [1024]u8 = undefined;
+    var header_reader_adapter = header_counting_reader.reader().adaptToNewApi(&buffer);
+    const header_reader = &header_reader_adapter.new_interface;
+    const data_size = try header_reader.takeInt(u32, .little);
+    const header_size = try header_reader.takeInt(u32, .little);
     const total_size: u64 = @as(u64, header_size) + data_size;
     if (total_size > max_size) return error.ImpossibleSize;
 
     var header_bytes_available = header_size -| 8;
-    var type_reader = std.io.limitedReader(header_reader, header_bytes_available);
-    const type_value = try parseNameOrOrdinal(allocator, type_reader.reader());
+    var type_reader: std.Io.Reader = .fixed(try header_reader.take(header_bytes_available));
+    const type_value = try parseNameOrOrdinal(allocator, &type_reader);
     errdefer type_value.deinit(allocator);
 
     header_bytes_available -|= @intCast(type_value.byteLen());
-    var name_reader = std.io.limitedReader(header_reader, header_bytes_available);
-    const name_value = try parseNameOrOrdinal(allocator, name_reader.reader());
+    var name_reader: std.Io.Reader = .fixed(try header_reader.take(header_bytes_available));
+    const name_value = try parseNameOrOrdinal(allocator, &name_reader);
     errdefer name_value.deinit(allocator);
 
     const padding_after_name = numPaddingBytesNeeded(@intCast(header_counting_reader.bytes_read));
-    try header_reader.skipBytes(padding_after_name, .{ .buf_size = 3 });
+    try header_reader.discardAll(padding_after_name);
 
     std.debug.assert(header_counting_reader.bytes_read % 4 == 0);
-    const data_version = try header_reader.readInt(u32, .little);
-    const memory_flags: MemoryFlags = @bitCast(try header_reader.readInt(u16, .little));
-    const language: Language = @bitCast(try header_reader.readInt(u16, .little));
-    const version = try header_reader.readInt(u32, .little);
-    const characteristics = try header_reader.readInt(u32, .little);
+    const data_version = try header_reader.takeInt(u32, .little);
+    const memory_flags: MemoryFlags = @bitCast(try header_reader.takeInt(u16, .little));
+    const language: Language = @bitCast(try header_reader.takeInt(u16, .little));
+    const version = try header_reader.takeInt(u32, .little);
+    const characteristics = try header_reader.takeInt(u32, .little);
 
     const header_bytes_read = header_counting_reader.bytes_read;
     if (header_size != header_bytes_read) return error.HeaderSizeMismatch;
@@ -156,10 +158,10 @@ pub fn parseResource(allocator: Allocator, reader: anytype, max_size: u64) !Reso
     };
 }
 
-pub fn parseNameOrOrdinal(allocator: Allocator, reader: anytype) !NameOrOrdinal {
-    const first_code_unit = try reader.readInt(u16, .little);
+pub fn parseNameOrOrdinal(allocator: Allocator, reader: *std.Io.Reader) !NameOrOrdinal {
+    const first_code_unit = try reader.takeInt(u16, .little);
     if (first_code_unit == 0xFFFF) {
-        const ordinal_value = try reader.readInt(u16, .little);
+        const ordinal_value = try reader.takeInt(u16, .little);
         return .{ .ordinal = ordinal_value };
     }
     var name_buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 16);
@@ -167,7 +169,7 @@ pub fn parseNameOrOrdinal(allocator: Allocator, reader: anytype) !NameOrOrdinal 
     var code_unit = first_code_unit;
     while (code_unit != 0) {
         try name_buf.append(allocator, std.mem.nativeToLittle(u16, code_unit));
-        code_unit = try reader.readInt(u16, .little);
+        code_unit = try reader.takeInt(u16, .little);
     }
     return .{ .name = try name_buf.toOwnedSliceSentinel(allocator, 0) };
 }

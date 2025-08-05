@@ -1078,7 +1078,7 @@ const CorrespondingLines = struct {
     at_eof: bool = false,
     span: SourceMappings.CorrespondingSpan,
     file: std.fs.File,
-    buffered_reader: *std.Io.Reader,
+    buffered_reader: std.fs.File.Reader,
     code_page: SupportedCodePage,
 
     pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
@@ -1099,7 +1099,7 @@ const CorrespondingLines = struct {
             .buffered_reader = undefined,
             .code_page = err_details.code_page,
         };
-        corresponding_lines.buffered_reader = corresponding_lines.file.reader();
+        corresponding_lines.buffered_reader = corresponding_lines.file.reader(&.{});
         errdefer corresponding_lines.deinit();
 
         var fbs = std.io.fixedBufferStream(&corresponding_lines.line_buf);
@@ -1107,7 +1107,7 @@ const CorrespondingLines = struct {
 
         try corresponding_lines.writeLineFromStreamVerbatim(
             writer,
-            corresponding_lines.buffered_reader.reader(),
+            corresponding_lines.buffered_reader.interface.adaptToOldInterface(),
             corresponding_span.start_line,
         );
 
@@ -1150,7 +1150,7 @@ const CorrespondingLines = struct {
 
         try self.writeLineFromStreamVerbatim(
             writer,
-            self.buffered_reader.reader(),
+            self.buffered_reader.interface.adaptToOldInterface(),
             self.line_num,
         );
 
