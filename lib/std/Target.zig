@@ -3179,6 +3179,10 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             },
             else => {},
         },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
+            else => {},
+        },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
             .aix => switch (c_type) {
                 .double, .longdouble => return 4,
@@ -3280,6 +3284,10 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 4,
                 else => {},
             },
+        },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
+            else => {},
         },
         .wasm32, .wasm64 => switch (target.os.tag) {
             .emscripten => switch (c_type) {
