@@ -367,8 +367,11 @@ pub fn appendRemainingUnlimited(
     const buffer_contents = r.buffer[r.seek..r.end];
     try list.ensureUnusedCapacity(gpa, buffer_contents.len + bump);
     list.appendSliceAssumeCapacity(buffer_contents);
-    r.seek = 0;
-    r.end = 0;
+    // If statement protects `ending`.
+    if (r.end != 0) {
+        r.seek = 0;
+        r.end = 0;
+    }
     // From here, we leave `buffer` empty, appending directly to `list`.
     var writer: Writer = .{
         .buffer = undefined,
