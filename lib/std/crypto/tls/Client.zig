@@ -910,7 +910,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
 }
 
 fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
-    const c: *Client = @fieldParentPtr("writer", w);
+    const c: *Client = @alignCast(@fieldParentPtr("writer", w));
     if (true) @panic("update to use the buffer and flush");
     const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
     const output = c.output;
@@ -1046,7 +1046,7 @@ pub fn eof(c: Client) bool {
 }
 
 fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
-    const c: *Client = @fieldParentPtr("reader", r);
+    const c: *Client = @alignCast(@fieldParentPtr("reader", r));
     if (c.eof()) return error.EndOfStream;
     const input = c.input;
     // If at least one full encrypted record is not buffered, read once.

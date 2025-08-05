@@ -82,7 +82,7 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             if (connection.protocol != criteria.protocol) continue;
             if (connection.port != criteria.port) continue;
 
@@ -127,7 +127,7 @@ pub const ConnectionPool = struct {
         if (connection.closing or pool.free_size == 0) return connection.destroy();
 
         if (pool.free_len >= pool.free_size) {
-            const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
+            const popped: *Connection = @alignCast(@fieldParentPtr("pool_node", pool.free.popFirst().?));
             pool.free_len -= 1;
 
             popped.destroy();
@@ -183,14 +183,14 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.first;
         while (next) |node| {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
             connection.destroy();
         }
 
         next = pool.used.first;
         while (next) |node| {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
             connection.destroy();
         }
@@ -366,11 +366,11 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return tls.host();
             },
             .plain => {
-                const plain: *Plain = @fieldParentPtr("connection", c);
+                const plain: *Plain = @alignCast(@fieldParentPtr("connection", c));
                 return plain.host();
             },
         };
@@ -383,11 +383,11 @@ pub const Connection = struct {
         switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 tls.destroy();
             },
             .plain => {
-                const plain: *Plain = @fieldParentPtr("connection", c);
+                const plain: *Plain = @alignCast(@fieldParentPtr("connection", c));
                 plain.destroy();
             },
         }
@@ -399,7 +399,7 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return &tls.client.writer;
             },
             .plain => &c.stream_writer.interface,
@@ -412,7 +412,7 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return &tls.client.reader;
             },
             .plain => c.stream_reader.interface(),
@@ -422,7 +422,7 @@ pub const Connection = struct {
     pub fn flush(c: *Connection) Writer.Error!void {
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
-            const tls: *Tls = @fieldParentPtr("connection", c);
+            const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
             try tls.client.writer.flush();
         }
         try c.stream_writer.interface.flush();
@@ -434,7 +434,7 @@ pub const Connection = struct {
     pub fn end(c: *Connection) Writer.Error!void {
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
-            const tls: *Tls = @fieldParentPtr("connection", c);
+            const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
             try tls.client.end();
             try tls.client.writer.flush();
         }
