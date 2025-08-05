@@ -603,7 +603,7 @@ fn tossBitsEnding(d: *Decompress, n: u4) !void {
         error.EndOfStream => unreachable,
     };
     d.next_bits = next_int >> needed_bits;
-    d.remaining_bits = @intCast(@as(usize, n) * 8 -| @as(usize, needed_bits));
+    d.remaining_bits = @intCast(@as(usize, buffered_n) * 8 -| @as(usize, needed_bits));
 }
 
 fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
