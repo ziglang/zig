@@ -367,13 +367,55 @@ pub fn shuffleWithIndex(r: Random, comptime T: type, buf: []T, comptime Index: t
         return;
     }
 
-    // `i <= j < max <= maxInt(MinInt)`
-    const max: MinInt = @intCast(buf.len);
-    var i: MinInt = 0;
-    while (i < max - 1) : (i += 1) {
-        const j: MinInt = @intCast(r.intRangeLessThan(Index, i, max));
-        mem.swap(T, &buf[i], &buf[j]);
+    if (buf.len * @sizeOf(T) < 1024 * 1024) {
+        // `i <= j < max <= maxInt(MinInt)`
+        const max: MinInt = @intCast(buf.len);
+        var i: MinInt = 0;
+        while (i < max - 1) : (i += 1) {
+            const j: MinInt = @intCast(r.intRangeLessThan(Index, i, max));
+            mem.swap(T, &buf[i], &buf[j]);
+        }
+        return;
     }
+
+    // Used to generate random indices to swap items with
+    // and prefetch elements at those indices in advance
+    const ShuffleQueue = struct {
+        ringbuf: [32]usize = undefined,
+        swap_idx: usize = 0,
+
+        // Prefetch and enqueue a random index, whom <= idx < slice.len
+        fn push(q: *@This(), ra: Random, slice: []T, whom: usize) void {
+            const min: MinInt = @intCast(whom);
+            const max: MinInt = @intCast(slice.len);
+
+            // Index whom to swap with
+            const idx: usize = @intCast(ra.intRangeLessThan(MinInt, min, max));
+            q.ringbuf[whom % q.ringbuf.len] = idx;
+            @prefetch(&slice[idx], .{ .rw = .write });
+        }
+
+        // Pop an index from the queue and perform a swap
+        fn pop(q: *@This(), slice: []T) void {
+            const idx = q.ringbuf[q.swap_idx % q.ringbuf.len];
+            std.mem.swap(T, &slice[q.swap_idx], &slice[idx]);
+            q.swap_idx += 1;
+        }
+    };
+
+    var q: ShuffleQueue = .{};
+    const q_size = @min(q.ringbuf.len, buf.len - 1);
+
+    for (0..q_size) |idx|
+        q.push(r, buf, idx);
+
+    for (q_size..buf.len - 1) |idx| {
+        q.pop(buf);
+        q.push(r, buf, idx);
+    }
+
+    for (0..q_size) |_|
+        q.pop(buf);
 }
 
 /// Randomly selects an index into `proportions`, where the likelihood of each
