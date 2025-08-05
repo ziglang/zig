@@ -373,7 +373,7 @@ fn streamInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader
                 d.state = .{ .stored_block = @intCast(remaining_len - n) };
             }
             w.advance(n);
-            return n;
+            return @intFromEnum(limit) - remaining + n;
         },
         .fixed_block => {
             while (remaining > 0) {
@@ -1265,6 +1265,7 @@ fn testDecompress(container: Container, compressed: []const u8, expected_plain: 
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, container, &.{});
-    _ = try decompress.reader.streamRemaining(&aw.writer);
+    const decompressed_len = try decompress.reader.streamRemaining(&aw.writer);
+    try testing.expectEqual(expected_plain.len, decompressed_len);
     try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
 }

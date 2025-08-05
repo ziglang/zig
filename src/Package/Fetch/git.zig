@@ -1678,7 +1678,7 @@ test "SHA-256 packfile indexing and checkout" {
 /// Checks out a commit of a packfile. Intended for experimenting with and
 /// benchmarking possible optimizations to the indexing and checkout behavior.
 pub fn main() !void {
-    const allocator = std.heap.c_allocator;
+    const allocator = std.heap.smp_allocator;
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -1703,12 +1703,14 @@ pub fn main() !void {
     std.debug.print("Starting index...\n", .{});
     var index_file = try git_dir.createFile("idx", .{ .read = true });
     defer index_file.close();
-    var index_buffered_writer = std.io.bufferedWriter(index_file.deprecatedWriter());
-    try indexPack(allocator, format, &pack_file_reader, index_buffered_writer.writer());
-    try index_buffered_writer.flush();
+    var index_file_buffer: [4096]u8 = undefined;
+    var index_file_writer = index_file.writer(&index_file_buffer);
+    try indexPack(allocator, format, &pack_file_reader, &index_file_writer);
 
     std.debug.print("Starting checkout...\n", .{});
-    var repository = try Repository.init(allocator, format, &pack_file_reader, index_file);
+    var index_file_reader = index_file.reader(&index_file_buffer);
+    var repository: Repository = undefined;
+    try repository.init(allocator, format, &pack_file_reader, &index_file_reader);
     defer repository.deinit();
     var diagnostics: Diagnostics = .{ .allocator = allocator };
     defer diagnostics.deinit();
