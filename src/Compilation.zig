@@ -2103,6 +2103,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .local_zir_cache = local_zir_cache,
                 .error_limit = error_limit,
                 .llvm_object = null,
+                .analysis_roots_buffer = undefined,
+                .analysis_roots_len = 0,
             };
             try zcu.init(options.thread_pool.getIdCount());
             break :blk zcu;
@@ -2933,22 +2935,26 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             try comp.appendFileSystemInput(embed_file.path);
         }
 
-        zcu.analysis_roots.clear();
+        zcu.analysis_roots_len = 0;
 
-        zcu.analysis_roots.appendAssumeCapacity(zcu.std_mod);
+        zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.std_mod;
+        zcu.analysis_roots_len += 1;
 
         // Normally we rely on importing std to in turn import the root source file in the start code.
         // However, the main module is distinct from the root module in tests, so that won't happen there.
         if (comp.config.is_test and zcu.main_mod != zcu.std_mod) {
-            zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.main_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = compiler_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(ubsan_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = ubsan_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
     }
 
@@ -4745,7 +4751,7 @@ fn performAllTheWork(
         try zcu.flushRetryableFailures();
 
         // It's analysis time! Queue up our initial analysis.
-        for (zcu.analysis_roots.slice()) |mod| {
+        for (zcu.analysisRoots()) |mod| {
             try comp.queueJob(.{ .analyze_mod = mod });
         }
 

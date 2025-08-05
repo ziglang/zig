@@ -517,17 +517,21 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var buffer: [0x100]u8 = undefined;
         const encoded = codecs.Encoder.encode(&buffer, expected_decoded);
         try testing.expectEqualSlices(u8, expected_encoded, encoded);
-
+    }
+    {
         // stream encode
-        var list = try std.BoundedArray(u8, 0x100).init(0);
-        try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
-
+        var buffer: [0x100]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try codecs.Encoder.encodeWriter(&writer, expected_decoded);
+        try testing.expectEqualSlices(u8, expected_encoded, writer.buffered());
+    }
+    {
         // reader to writer encode
-        var stream = std.io.fixedBufferStream(expected_decoded);
-        list = try std.BoundedArray(u8, 0x100).init(0);
-        try codecs.Encoder.encodeFromReaderToWriter(list.writer(), stream.reader());
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+        var stream: std.Io.Reader = .fixed(expected_decoded);
+        var buffer: [0x100]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try codecs.Encoder.encodeFromReaderToWriter(&writer, &stream);
+        try testing.expectEqualSlices(u8, expected_encoded, writer.buffered());
     }
 
     // Base64Decoder

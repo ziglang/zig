@@ -249,33 +249,6 @@ pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) anyerror![num_bytes
     return bytes;
 }
 
-/// Reads bytes until `bounded.len` is equal to `num_bytes`,
-/// or the stream ends.
-///
-/// * it is assumed that `num_bytes` will not exceed `bounded.capacity()`
-pub fn readIntoBoundedBytes(
-    self: Self,
-    comptime num_bytes: usize,
-    bounded: *std.BoundedArray(u8, num_bytes),
-) anyerror!void {
-    while (bounded.len < num_bytes) {
-        // get at most the number of bytes free in the bounded array
-        const bytes_read = try self.read(bounded.unusedCapacitySlice());
-        if (bytes_read == 0) return;
-
-        // bytes_read will never be larger than @TypeOf(bounded.len)
-        // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
-        bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
-    }
-}
-
-/// Reads at most `num_bytes` and returns as a bounded array.
-pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) anyerror!std.BoundedArray(u8, num_bytes) {
-    var result = std.BoundedArray(u8, num_bytes){};
-    try self.readIntoBoundedBytes(num_bytes, &result);
-    return result;
-}
-
 pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
     const bytes = try self.readBytesNoEof(@divExact(@typeInfo(T).int.bits, 8));
     return mem.readInt(T, &bytes, endian);

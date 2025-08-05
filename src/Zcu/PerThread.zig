@@ -2116,8 +2116,9 @@ pub fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
     // multi-threaded environment (where things like file indices could differ between compiler runs).
 
     // The roots of our file liveness analysis will be the analysis roots.
-    try zcu.alive_files.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
-    for (zcu.analysis_roots.slice()) |mod| {
+    const analysis_roots = zcu.analysisRoots();
+    try zcu.alive_files.ensureTotalCapacity(gpa, analysis_roots.len);
+    for (analysis_roots) |mod| {
         const file_index = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const file = zcu.fileByIndex(file_index);
 

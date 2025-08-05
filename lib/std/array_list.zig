@@ -657,6 +657,7 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
 
         /// Initialize with externally-managed memory. The buffer determines the
         /// capacity, and the length is set to zero.
+        ///
         /// When initialized this way, all functions that accept an Allocator
         /// argument cause illegal behavior.
         pub fn initBuffer(buffer: Slice) Self {

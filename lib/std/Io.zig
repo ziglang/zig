@@ -231,21 +231,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readBytesNoEof(num_bytes));
         }
 
-        pub inline fn readIntoBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-            bounded: *std.BoundedArray(u8, num_bytes),
-        ) Error!void {
-            return @errorCast(self.any().readIntoBoundedBytes(num_bytes, bounded));
-        }
-
-        pub inline fn readBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-        ) Error!std.BoundedArray(u8, num_bytes) {
-            return @errorCast(self.any().readBoundedBytes(num_bytes));
-        }
-
         pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
             return @errorCast(self.any().readInt(T, endian));
         }
