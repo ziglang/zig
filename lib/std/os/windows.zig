@@ -1332,7 +1332,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1400,7 +1400,7 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1449,12 +1449,7 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 

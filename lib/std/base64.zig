@@ -118,22 +118,6 @@ pub const Base64Encoder = struct {
         }
     }
 
-    // destWriter must be compatible with std.io.GenericWriter's writeAll interface
-    // sourceReader must be compatible with `std.io.GenericReader` read interface
-    pub fn encodeFromReaderToWriter(encoder: *const Base64Encoder, destWriter: anytype, sourceReader: anytype) !void {
-        while (true) {
-            var tempSource: [3]u8 = undefined;
-            const bytesRead = try sourceReader.read(&tempSource);
-            if (bytesRead == 0) {
-                break;
-            }
-
-            var temp: [5]u8 = undefined;
-            const s = encoder.encode(&temp, tempSource[0..bytesRead]);
-            try destWriter.writeAll(s);
-        }
-    }
-
     /// dest.len must at least be what you get from ::calcSize.
     pub fn encode(encoder: *const Base64Encoder, dest: []u8, source: []const u8) []const u8 {
         const out_len = encoder.calcSize(source.len);
@@ -517,17 +501,13 @@ fn testAllApis(codecs: Codecs, expected_decoded: []const u8, expected_encoded: [
         var buffer: [0x100]u8 = undefined;
         const encoded = codecs.Encoder.encode(&buffer, expected_decoded);
         try testing.expectEqualSlices(u8, expected_encoded, encoded);
-
+    }
+    {
         // stream encode
-        var list = try std.BoundedArray(u8, 0x100).init(0);
-        try codecs.Encoder.encodeWriter(list.writer(), expected_decoded);
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
-
-        // reader to writer encode
-        var stream = std.io.fixedBufferStream(expected_decoded);
-        list = try std.BoundedArray(u8, 0x100).init(0);
-        try codecs.Encoder.encodeFromReaderToWriter(list.writer(), stream.reader());
-        try testing.expectEqualSlices(u8, expected_encoded, list.slice());
+        var buffer: [0x100]u8 = undefined;
+        var writer: std.Io.Writer = .fixed(&buffer);
+        try codecs.Encoder.encodeWriter(&writer, expected_decoded);
+        try testing.expectEqualSlices(u8, expected_encoded, writer.buffered());
     }
 
     // Base64Decoder

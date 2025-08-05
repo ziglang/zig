@@ -2631,7 +2631,7 @@ fn reparentOwnedErrorMsg(
 
     const orig_notes = msg.notes.len;
     msg.notes = try sema.gpa.realloc(msg.notes, orig_notes + 1);
-    std.mem.copyBackwards(Zcu.ErrorMsg, msg.notes[1..], msg.notes[0..orig_notes]);
+    @memmove(msg.notes[1..][0..orig_notes], msg.notes[0..orig_notes]);
     msg.notes[0] = .{
         .src_loc = msg.src_loc,
         .msg = msg.msg,
@@ -14464,8 +14464,8 @@ fn analyzeTupleMul(
             }
         }
         for (0..factor) |i| {
-            mem.copyForwards(InternPool.Index, types[tuple_len * i ..], types[0..tuple_len]);
-            mem.copyForwards(InternPool.Index, values[tuple_len * i ..], values[0..tuple_len]);
+            @memmove(types[tuple_len * i ..][0..tuple_len], types[0..tuple_len]);
+            @memmove(values[tuple_len * i ..][0..tuple_len], values[0..tuple_len]);
         }
         break :rs runtime_src;
     };
