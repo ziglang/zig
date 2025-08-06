@@ -163,6 +163,10 @@ pub fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral 
         't' => return .{ .success = '\t' },
         '\'' => return .{ .success = '\'' },
         '"' => return .{ .success = '"' },
+        'a' => return .{ .success = 0x07 },
+        'b' => return .{ .success = 0x08 },
+        'f' => return .{ .success = 0x0C },
+        'v' => return .{ .success = 0x0B },
         'x' => {
             var value: u8 = 0;
             var i: usize = offset.*;
@@ -234,6 +238,10 @@ pub fn parseEscapeSequence(slice: []const u8, offset: *usize) ParsedCharLiteral 
 }
 
 test parseCharLiteral {
+    try std.testing.expectEqual(
+        ParsedCharLiteral{ .success = 0x07 },
+        parseCharLiteral("'\\a'"),
+    );
     try std.testing.expectEqual(
         ParsedCharLiteral{ .success = 'a' },
         parseCharLiteral("'a'"),
