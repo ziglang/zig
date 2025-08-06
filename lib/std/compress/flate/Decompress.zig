@@ -550,14 +550,14 @@ fn peekBitsEnding(d: *Decompress, comptime U: type) !U {
     var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
     var i: usize = 0;
     while (remaining_needed_bits >= 8) {
-        const byte = try specialPeek(in, next_bits, i);
+        const byte = try specialPeek(in, remaining_bits, i);
         u |= @as(Bits, byte) << @intCast(i * 8);
         remaining_needed_bits -= 8;
         i += 1;
     }
     if (remaining_needed_bits != 0) {
-        const byte = try specialPeek(in, next_bits, i);
-        u |= @as(Bits, byte) << @intCast((i * 8) + remaining_needed_bits);
+        const byte = try specialPeek(in, remaining_bits, i);
+        u |= @as(Bits, byte) << @intCast(i * 8);
     }
     return @truncate((u << remaining_bits) | next_bits);
 }
@@ -1031,11 +1031,7 @@ test "failing invalid-tree01" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree01.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree02" {
-    try testFailure(
-        .raw,
-        @embedFile("testdata/fuzz/invalid-tree02.input"),
-        if (@sizeOf(Bits) == 4) error.IncompleteHuffmanTree else error.EndOfStream,
-    );
+    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree02.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree03" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree03.input"), error.IncompleteHuffmanTree);
@@ -1068,7 +1064,7 @@ test "failing puff10" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff10.input"), error.InvalidCode);
 }
 test "failing puff11" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/puff11.input"), error.EndOfStream);
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff11.input"), error.InvalidMatch);
 }
 test "failing puff12" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff12.input"), error.InvalidDynamicBlockHeader);
@@ -1080,11 +1076,7 @@ test "failing puff14" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff14.input"), error.EndOfStream);
 }
 test "failing puff15" {
-    try testFailure(
-        .raw,
-        @embedFile("testdata/fuzz/puff15.input"),
-        if (@sizeOf(Bits) == 4) error.EndOfStream else error.IncompleteHuffmanTree,
-    );
+    try testFailure(.raw, @embedFile("testdata/fuzz/puff15.input"), error.IncompleteHuffmanTree);
 }
 test "failing puff16" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff16.input"), error.InvalidDynamicBlockHeader);
@@ -1144,7 +1136,7 @@ test "deflate-stream" {
 }
 
 test "empty-distance-alphabet01" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/empty-distance-alphabet01.input"), error.EndOfStream);
+    try testDecompress(.raw, @embedFile("testdata/fuzz/empty-distance-alphabet01.input"), "");
 }
 
 test "empty-distance-alphabet02" {
