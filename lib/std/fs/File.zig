@@ -1227,12 +1227,10 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
+                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
-                    r.pos += n;
-                    remaining -= n;
                 }
                 r.interface.seek = 0;
                 r.interface.end = 0;
@@ -1407,7 +1405,7 @@ pub const Reader = struct {
                     var trash_buffer: [128]u8 = undefined;
                     const trash = &trash_buffer;
                     if (is_windows) {
-                        const n = windows.ReadFile(file.handle, trash, null) catch |err| {
+                        const n = windows.ReadFile(file.handle, trash[0..@min(128, @intFromEnum(limit))], null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
