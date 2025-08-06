@@ -3932,11 +3932,12 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
     // Whilst constructing our mapping, we will also initialize optional and error union payloads when
     // we encounter the corresponding pointers. For this reason, the ordering of `to_map` matters.
     var to_map = try std.ArrayList(Air.Inst.Index).initCapacity(sema.arena, stores.len);
+
     for (stores) |store_inst_idx| {
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
         const ptr_to_map = switch (store_inst.tag) {
             .store, .store_safe => store_inst.data.bin_op.lhs.toIndex().?, // Map the pointer being stored to.
-            .set_union_tag => continue, // Ignore for now; handled after we map pointers
+            .set_union_tag => store_inst.data.bin_op.lhs.toIndex().?, // Map the union pointer.
             .optional_payload_ptr_set, .errunion_payload_ptr_set => store_inst_idx, // Map the generated pointer itself.
             else => unreachable,
         };
@@ -4053,13 +4054,12 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
                 const maybe_union_ty = Value.fromInterned(decl_parent_ptr).typeOf(zcu).childType(zcu);
                 if (zcu.typeToUnion(maybe_union_ty)) |union_obj| {
                     // As this is a union field, we must store to the pointer now to set the tag.
-                    // If the payload is OPV, there will not be a payload store, so we store that value.
-                    // Otherwise, there will be a payload store to process later, so undef will suffice.
+                    // The payload value will be stored later, so undef is a sufficent payload for now.
                     const payload_ty: Type = .fromInterned(union_obj.field_types.get(&zcu.intern_pool)[idx]);
-                    const payload_val = try sema.typeHasOnePossibleValue(payload_ty) orelse try pt.undefValue(payload_ty);
+                    const payload_val = try pt.undefValue(payload_ty);
                     const tag_val = try pt.enumValueFieldIndex(.fromInterned(union_obj.enum_tag_ty), idx);
                     const store_val = try pt.unionValue(maybe_union_ty, tag_val, payload_val);
-                    try sema.storePtrVal(block, LazySrcLoc.unneeded, Value.fromInterned(decl_parent_ptr), store_val, maybe_union_ty);
+                    try sema.storePtrVal(block, .unneeded, .fromInterned(decl_parent_ptr), store_val, maybe_union_ty);
                 }
                 break :ptr (try Value.fromInterned(decl_parent_ptr).ptrField(idx, pt)).toIntern();
             },
