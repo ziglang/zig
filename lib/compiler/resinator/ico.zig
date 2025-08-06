@@ -14,12 +14,12 @@ pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadEr
     // Some Reader implementations have an empty ReadError error set which would
     // cause 'unreachable else' if we tried to use an else in the switch, so we
     // need to detect this case and not try to translate to ReadError
+    const anyerror_reader_errorset = @TypeOf(reader).Error == anyerror;
     const empty_reader_errorset = @typeInfo(@TypeOf(reader).Error).error_set == null or @typeInfo(@TypeOf(reader).Error).error_set.?.len == 0;
-    if (empty_reader_errorset) {
+    if (empty_reader_errorset and !anyerror_reader_errorset) {
         return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
             error.EndOfStream => error.UnexpectedEOF,
-            error.OutOfMemory, error.InvalidHeader, error.InvalidImageType, error.ImpossibleDataSize, error.UnexpectedEOF, error.ReadError => |e| return e,
-            else => return error.ReadError,
+            else => |e| return e,
         };
     } else {
         return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
