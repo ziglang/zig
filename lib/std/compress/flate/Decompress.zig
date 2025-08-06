@@ -25,8 +25,7 @@ state: State,
 
 err: ?Error,
 
-/// TODO: change this to usize
-const Bits = u64;
+const Bits = usize;
 
 const BlockType = enum(u2) {
     stored = 0,
@@ -1032,7 +1031,11 @@ test "failing invalid-tree01" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree01.input"), error.IncompleteHuffmanTree);
 }
 test "failing invalid-tree02" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree02.input"), error.EndOfStream);
+    try testFailure(
+        .raw,
+        @embedFile("testdata/fuzz/invalid-tree02.input"),
+        if (@sizeOf(Bits) == 4) error.IncompleteHuffmanTree else error.EndOfStream,
+    );
 }
 test "failing invalid-tree03" {
     try testFailure(.raw, @embedFile("testdata/fuzz/invalid-tree03.input"), error.IncompleteHuffmanTree);
@@ -1077,7 +1080,11 @@ test "failing puff14" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff14.input"), error.EndOfStream);
 }
 test "failing puff15" {
-    try testFailure(.raw, @embedFile("testdata/fuzz/puff15.input"), error.IncompleteHuffmanTree);
+    try testFailure(
+        .raw,
+        @embedFile("testdata/fuzz/puff15.input"),
+        if (@sizeOf(Bits) == 4) error.EndOfStream else error.IncompleteHuffmanTree,
+    );
 }
 test "failing puff16" {
     try testFailure(.raw, @embedFile("testdata/fuzz/puff16.input"), error.InvalidDynamicBlockHeader);
