@@ -610,8 +610,8 @@ pub fn getrandom(buffer: []u8) GetRandomError!void {
     if (@TypeOf(system.getrandom) != void) {
         var buf = buffer;
         const use_c = native_os != .linux or
-            (!builtin.abi.isAndroid() and std.c.versionCheck(std.SemanticVersion{ .major = 2, .minor = 25, .patch = 0 })) or
-            (builtin.abi.isAndroid() and std.c.versionCheck(std.SemanticVersion{ .major = 28, .minor = 0, .patch = 0 }));
+            (builtin.abi.isAndroid() and std.c.versionCheck(.{ .major = 28, .minor = 0, .patch = 0 })) or
+            std.c.versionCheck(.{ .major = 2, .minor = 25, .patch = 0 });
 
         while (buf.len != 0) {
             const num_read: usize, const err = if (use_c) res: {
