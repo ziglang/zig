@@ -9109,7 +9109,7 @@ pub const perf_event_attr = extern struct {
     __reserved_2: u16 = 0,
 
     aux_sample_size: u32 = 0,
-    aux_action: packed struct {
+    aux_action: packed struct(u32) {
         /// start AUX area tracing paused
         start_paused: bool = false,
         /// on overflow, pause AUX area tracing
@@ -9151,7 +9151,7 @@ pub const perf_event_mmap_page = extern struct {
     time_enabled: u64,
     /// Time the event was running
     time_running: u64,
-    capabilities: packed struct {
+    capabilities: packed struct(u64) {
         /// If kernel version < 3.12
         /// this rapresents both user_rdpmc and user_time (user_rdpmc | user_time)
         /// otherwise deprecated.
