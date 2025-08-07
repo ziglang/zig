@@ -549,27 +549,17 @@ fn peekBitsEnding(d: *Decompress, comptime U: type) !U {
     var u: Bits = 0;
     var remaining_needed_bits = @bitSizeOf(U) - remaining_bits;
     var i: usize = 0;
-    while (remaining_needed_bits >= 8) {
-        const byte = try specialPeek(in, remaining_bits, i);
-        u |= @as(Bits, byte) << @intCast(i * 8);
-        remaining_needed_bits -= 8;
+    while (remaining_needed_bits > 0) {
+        const peeked = in.peek(i + 1) catch |err| switch (err) {
+            error.ReadFailed => return error.ReadFailed,
+            error.EndOfStream => break,
+        };
+        u |= @as(Bits, peeked[i]) << @intCast(i * 8);
+        remaining_needed_bits -|= 8;
         i += 1;
     }
-    if (remaining_needed_bits != 0) {
-        const byte = try specialPeek(in, remaining_bits, i);
-        u |= @as(Bits, byte) << @intCast(i * 8);
-    }
+    if (remaining_bits == 0 and i == 0) return error.EndOfStream;
     return @truncate((u << remaining_bits) | next_bits);
-}
-
-/// If there is any unconsumed data, handles EndOfStream by pretending there
-/// are zeroes afterwards.
-fn specialPeek(in: *Reader, next_bits: Bits, i: usize) Reader.Error!u8 {
-    const peeked = in.peek(i + 1) catch |err| switch (err) {
-        error.ReadFailed => return error.ReadFailed,
-        error.EndOfStream => if (next_bits == 0 and i == 0) return error.EndOfStream else return 0,
-    };
-    return peeked[i];
 }
 
 fn tossBits(d: *Decompress, n: u4) !void {
