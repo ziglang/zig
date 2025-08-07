@@ -319,16 +319,7 @@ pub fn add(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try addScalar(sema, block, elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, is_int, elem_idx)).toIntern();
             }
-
-            if (is_int) {
-                const result_val = try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } });
-                return .fromInterned(result_val);
-            } else {
-                return pt.aggregateValue(ty, elem_vals);
-            }
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -482,16 +473,7 @@ pub fn sub(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try subScalar(sema, block, elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, is_int, elem_idx)).toIntern();
             }
-
-            if (is_int) {
-                const result_val = try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } });
-                return .fromInterned(result_val);
-            } else {
-                return pt.aggregateValue(ty, elem_vals);
-            }
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -654,16 +636,7 @@ pub fn mul(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try mulScalar(sema, block, elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, is_int, elem_idx)).toIntern();
             }
-
-            if (is_int) {
-                const result_val = try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } });
-                return .fromInterned(result_val);
-            } else {
-                return pt.aggregateValue(ty, elem_vals);
-            }
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -829,16 +802,7 @@ pub fn div(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try divScalar(sema, block, elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, op, is_int, elem_idx)).toIntern();
             }
-
-            if (is_int) {
-                const result_val = try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } });
-                return .fromInterned(result_val);
-            } else {
-                return pt.aggregateValue(ty, elem_vals);
-            }
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -998,13 +962,14 @@ pub const ShlOp = enum { shl, shl_sat, shl_exact };
 
 /// Applies the `<<` operator to comptime-known values.
 /// `lhs_ty` is an int, comptime_int, or vector thereof.
-/// If it is a vector, he type of `rhs` has to also be a vector of the same length.
+/// If it is a vector, the type of `rhs` has to also be a vector of the same length.
 pub fn shl(
     sema: *Sema,
     block: *Block,
     lhs_ty: Type,
     lhs_val: Value,
     rhs_val: Value,
+    src: LazySrcLoc,
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
     op: ShlOp,
@@ -1012,7 +977,7 @@ pub fn shl(
     const pt = sema.pt;
     const zcu = pt.zcu;
     switch (lhs_ty.zigTypeTag(zcu)) {
-        .int, .comptime_int => return shlScalar(sema, block, lhs_ty, lhs_val, rhs_val, lhs_src, rhs_src, op, null),
+        .int, .comptime_int => return shlScalar(sema, block, lhs_ty, lhs_val, rhs_val, src, lhs_src, rhs_src, op, null),
         .vector => {
             const lhs_elem_ty = lhs_ty.childType(zcu);
             const len = lhs_ty.vectorLen(zcu);
@@ -1021,22 +986,15 @@ pub fn shl(
             for (elem_vals, 0..) |*result_elem, elem_idx| {
                 const lhs_elem = try lhs_val.elemValue(pt, elem_idx);
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
-                result_elem.* = (try shlScalar(sema, block, lhs_elem_ty, lhs_elem, rhs_elem, lhs_src, rhs_src, op, elem_idx)).toIntern();
+                result_elem.* = (try shlScalar(sema, block, lhs_elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, op, elem_idx)).toIntern();
             }
-            if (op == .shl_sat) {
-                return pt.aggregateValue(lhs_ty, elem_vals);
-            } else {
-                return .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = lhs_ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } }));
-            }
+            return pt.aggregateValue(lhs_ty, elem_vals);
         },
         else => unreachable,
     }
 }
 /// `lhs_ty` is an int, comptime_int, or vector thereof.
-/// If it is a vector, he type of `rhs` has to also be a vector of the same length.
+/// If it is a vector, the type of `rhs` has to also be a vector of the same length.
 pub fn shlWithOverflow(
     sema: *Sema,
     block: *Block,
@@ -1084,6 +1042,7 @@ fn shlScalar(
     lhs_ty: Type,
     lhs_val: Value,
     rhs_val: Value,
+    src: LazySrcLoc,
     lhs_src: LazySrcLoc,
     rhs_src: LazySrcLoc,
     op: ShlOp,
@@ -1114,7 +1073,7 @@ fn shlScalar(
             .shl_exact => {
                 const shifted = try intShlWithOverflow(sema, block, lhs_ty, lhs_val, rhs_val, rhs_src, false, vec_idx);
                 if (shifted.overflow) {
-                    return sema.failWithIntegerOverflow(block, lhs_src, lhs_ty, shifted.val, vec_idx);
+                    return sema.failWithIntegerOverflow(block, src, lhs_ty, shifted.val, vec_idx);
                 }
                 return shifted.val;
             },
@@ -1164,7 +1123,7 @@ pub const ShrOp = enum { shr, shr_exact };
 
 /// Applies the `>>` operator to comptime-known values.
 /// `lhs_ty` is an int, comptime_int, or vector thereof.
-/// If it is a vector, he type of `rhs` has to also be a vector of the same length.
+/// If it is a vector, the type of `rhs` has to also be a vector of the same length.
 pub fn shr(
     sema: *Sema,
     block: *Block,
@@ -1193,13 +1152,7 @@ pub fn shr(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try shrScalar(sema, block, lhs_elem_ty, rhs_elem_ty, lhs_elem, rhs_elem, src, lhs_src, rhs_src, op, elem_idx)).toIntern();
             }
-            switch (op) {
-                .shr => return pt.aggregateValue(lhs_ty, elem_vals),
-                .shr_exact => return .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = lhs_ty.toIntern(),
-                    .storage = .{ .elems = elem_vals },
-                } })),
-            }
+            return pt.aggregateValue(lhs_ty, elem_vals);
         },
         else => unreachable,
     }

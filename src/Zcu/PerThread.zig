@@ -3675,7 +3675,7 @@ pub fn unionValue(pt: Zcu.PerThread, union_ty: Type, tag: Value, val: Value) All
 pub fn aggregateValue(pt: Zcu.PerThread, ty: Type, elems: []const InternPool.Index) Allocator.Error!Value {
     for (elems) |elem| {
         if (!Value.fromInterned(elem).isUndef(pt.zcu)) break;
-    } else { // all-undef
+    } else if (elems.len > 0) { // all-undef
         return pt.undefValue(ty);
     }
     return .fromInterned(try pt.intern(.{ .aggregate = .{
