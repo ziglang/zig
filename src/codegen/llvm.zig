@@ -9234,8 +9234,7 @@ pub const FuncGen = struct {
 
         const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
 
-        safety: {
-            if (!safety) break :safety;
+        bounds_check: {
             const dest_scalar = dest_ty.scalarType(zcu);
             const operand_scalar = operand_ty.scalarType(zcu);
 
@@ -9254,7 +9253,7 @@ pub const FuncGen = struct {
                 };
             };
 
-            if (!have_min_check and !have_max_check) break :safety;
+            if (!have_min_check and !have_max_check) break :bounds_check;
 
             const operand_llvm_ty = try o.lowerType(pt, operand_ty);
             const operand_scalar_llvm_ty = try o.lowerType(pt, operand_scalar);
@@ -9276,7 +9275,11 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMinOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
+                if (safety) {
+                    try fg.buildSimplePanic(panic_id);
+                } else {
+                    _ = try fg.wip.@"unreachable"();
+                }
                 fg.wip.cursor = .{ .block = ok_block };
             }
 
@@ -9292,7 +9295,11 @@ pub const FuncGen = struct {
                 const ok_block = try fg.wip.block(1, "IntMaxOk");
                 _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
                 fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
+                if (safety) {
+                    try fg.buildSimplePanic(panic_id);
+                } else {
+                    _ = try fg.wip.@"unreachable"();
+                }
                 fg.wip.cursor = .{ .block = ok_block };
             }
         }
