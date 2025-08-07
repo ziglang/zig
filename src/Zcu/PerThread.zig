@@ -3327,10 +3327,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
                     .byte_offset = 0,
                 } }),
             };
-            test_fn_val.* = try pt.intern(.{ .aggregate = .{
-                .ty = test_fn_ty.toIntern(),
-                .storage = .{ .elems = &test_fn_fields },
-            } });
+            test_fn_val.* = (try pt.aggregateValue(test_fn_ty, &test_fn_fields)).toIntern();
         }
 
         const array_ty = try pt.arrayType(.{
@@ -3338,13 +3335,9 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_val = try pt.intern(.{ .aggregate = .{
-            .ty = array_ty.toIntern(),
-            .storage = .{ .elems = test_fn_vals },
-        } });
         break :array .{
             .orig_ty = (try pt.singleConstPtrType(array_ty)).toIntern(),
-            .val = array_val,
+            .val = (try pt.aggregateValue(array_ty, test_fn_vals)).toIntern(),
         };
     };
 
@@ -3685,15 +3678,15 @@ pub fn aggregateValue(pt: Zcu.PerThread, ty: Type, elems: []const InternPool.Ind
 }
 
 /// Asserts that `ty` is either an array or a vector.
-pub fn aggregateSplatValue(pt: Zcu.PerThread, ty: Type, repeated: Value) Allocator.Error!Value {
+pub fn aggregateSplatValue(pt: Zcu.PerThread, ty: Type, repeated_elem: Value) Allocator.Error!Value {
     switch (ty.zigTypeTag(pt.zcu)) {
         .array, .vector => {},
         else => unreachable,
     }
-    if (repeated.isUndef(pt.zcu)) return pt.undefValue(ty);
+    if (repeated_elem.isUndef(pt.zcu)) return pt.undefValue(ty);
     return .fromInterned(try pt.intern(.{ .aggregate = .{
         .ty = ty.toIntern(),
-        .storage = .{ .repeated_elem = repeated.toIntern() },
+        .storage = .{ .repeated_elem = repeated_elem.toIntern() },
     } }));
 }
 
