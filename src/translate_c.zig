@@ -4008,11 +4008,11 @@ fn transCreateCompoundAssign(
 }
 
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const const_casted = try Tag.const_cast.create(c.arena, expr);
-    const volatile_casted = try Tag.volatile_cast.create(c.arena, const_casted);
+    const volatile_casted = try Tag.volatile_cast.create(c.arena, expr);
+    const const_casted = try Tag.const_cast.create(c.arena, volatile_casted);
     return Tag.as.create(c.arena, .{
         .lhs = dst_type_node,
-        .rhs = try Tag.ptr_cast.create(c.arena, volatile_casted),
+        .rhs = try Tag.ptr_cast.create(c.arena, const_casted),
     });
 }
 

@@ -1091,7 +1091,7 @@ test "initialize pointer to anyopaque with reference to empty array initializer"
     const ptr: *const anyopaque = &.{};
     // The above acts like an untyped initializer, since the `.{}` has no result type.
     // So, `ptr` points in memory to an empty tuple (`@TypeOf(.{})`).
-    const casted: *const @TypeOf(.{}) = @alignCast(@ptrCast(ptr));
+    const casted: *const @TypeOf(.{}) = @ptrCast(@alignCast(ptr));
     const loaded = casted.*;
     // `val` should be a `@TypeOf(.{})`, as expected.
     // We can't check the value, but it's zero-bit, so the type matching is good enough.

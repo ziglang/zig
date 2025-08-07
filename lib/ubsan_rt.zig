@@ -58,8 +58,8 @@ const Value = extern struct {
         }
 
         return switch (size) {
-            64 => @as(*const u64, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const u128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const u64, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const u128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         };
     }
@@ -74,8 +74,8 @@ const Value = extern struct {
             return (handle << extra_bits) >> extra_bits;
         }
         return switch (size) {
-            64 => @as(*const i64, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const i128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const i64, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const i128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         };
     }
@@ -92,9 +92,9 @@ const Value = extern struct {
             }, @bitCast(@intFromPtr(value.handle)));
         }
         return @floatCast(switch (size) {
-            64 => @as(*const f64, @alignCast(@ptrCast(value.handle))).*,
-            80 => @as(*const f80, @alignCast(@ptrCast(value.handle))).*,
-            128 => @as(*const f128, @alignCast(@ptrCast(value.handle))).*,
+            64 => @as(*const f64, @ptrCast(@alignCast(value.handle))).*,
+            80 => @as(*const f80, @ptrCast(@alignCast(value.handle))).*,
+            128 => @as(*const f128, @ptrCast(@alignCast(value.handle))).*,
             else => @trap(),
         });
     }

@@ -8,7 +8,7 @@ test "anyopaque extern symbol" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const a = @extern(*anyopaque, .{ .name = "a_mystery_symbol" });
-    const b: *i32 = @alignCast(@ptrCast(a));
+    const b: *i32 = @ptrCast(@alignCast(a));
     try expect(b.* == 1234);
 }
 
