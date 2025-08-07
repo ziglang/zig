@@ -9131,7 +9131,7 @@ pub const perf_event_header = extern struct {
     /// Event type: sample/mmap/fork/etc.
     type: PERF.RECORD,
     /// Additional informations on the event: kernel/user/hypervisor/etc.
-    miscs: u16,
+    misc: u16,
     /// Size of the following record
     size: u16,
 };
