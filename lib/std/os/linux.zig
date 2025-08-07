@@ -9129,7 +9129,7 @@ pub const perf_event_attr = extern struct {
 
 pub const perf_event_header = extern struct {
     /// Event type: sample/mmap/fork/etc.
-    type: u32,
+    type: PERF.RECORD,
     /// Additional informations on the event: kernel/user/hypervisor/etc.
     miscs: u16,
     /// Size of the following record
@@ -9317,29 +9317,28 @@ pub const PERF = struct {
         };
     };
 
-    pub const RECORD = struct {
-        pub const MMAP = 1;
-        pub const LOST = 2;
-        pub const COMM = 3;
-        pub const EXIT = 4;
-        pub const THROTTLE = 5;
-        pub const UNTHROTTLE = 6;
-        pub const FORK = 7;
-        pub const READ = 8;
-        pub const SAMPLE = 9;
-        pub const MMAP2 = 10;
-        pub const AUX = 11;
-        pub const ITRACE_START = 12;
-        pub const LOST_SAMPLES = 13;
-        pub const SWITCH = 14;
-        pub const SWITCH_CPU_WIDE = 15;
-        pub const NAMESPACES = 16;
-        pub const KSYMBOL = 17;
-        pub const BPF_EVENT = 18;
-        pub const CGROUP = 19;
-        pub const TEXT_POKE = 20;
-        pub const AUX_OUTPUT_HW_ID = 21;
-        pub const MAX = 22;
+    pub const RECORD = enum(u32) {
+        MMAP = 1,
+        LOST = 2,
+        COMM = 3,
+        EXIT = 4,
+        THROTTLE = 5,
+        UNTHROTTLE = 6,
+        FORK = 7,
+        READ = 8,
+        SAMPLE = 9,
+        MMAP2 = 10,
+        AUX = 11,
+        ITRACE_START = 12,
+        LOST_SAMPLES = 13,
+        SWITCH = 14,
+        SWITCH_CPU_WIDE = 15,
+        NAMESPACES = 16,
+        KSYMBOL = 17,
+        BPF_EVENT = 18,
+        CGROUP = 19,
+        TEXT_POKE = 20,
+        AUX_OUTPUT_HW_ID = 21,
 
         pub const MISC = struct {
             pub const CPUMODE_MASK = 7 << 0;
