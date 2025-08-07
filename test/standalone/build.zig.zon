@@ -208,6 +208,9 @@
         .run_cwd = .{
             .path = "run_cwd",
         },
+        .tsan = .{
+            .path = "tsan",
+        },
     },
     .paths = .{
         "build.zig",
