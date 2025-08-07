@@ -42,7 +42,7 @@ connection_pool: ConnectionPool = .{},
 ///
 /// If the entire HTTP header cannot fit in this amount of bytes,
 /// `error.HttpHeadersOversize` will be returned from `Request.wait`.
-read_buffer_size: usize = 4096,
+read_buffer_size: usize = 4096 + if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
 /// Each `Connection` allocates this amount for the writer buffer.
 write_buffer_size: usize = 1024,
 
@@ -304,15 +304,16 @@ pub const Connection = struct {
             const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
             const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.tls_buffer_size];
             const tls_write_buffer = tls_read_buffer.ptr[tls_read_buffer.len..][0..client.tls_buffer_size];
-            const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
-            assert(base.ptr + alloc_len == socket_write_buffer.ptr + socket_write_buffer.len);
+            const write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
+            const read_buffer = write_buffer.ptr[write_buffer.len..][0..client.read_buffer_size];
+            assert(base.ptr + alloc_len == read_buffer.ptr + read_buffer.len);
             @memcpy(host_buffer, remote_host);
             const tls: *Tls = @ptrCast(base);
             tls.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(socket_write_buffer),
-                    .stream_reader = stream.reader(&.{}),
+                    .stream_writer = stream.writer(tls_write_buffer),
+                    .stream_reader = stream.reader(tls_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -328,8 +329,8 @@ pub const Connection = struct {
                         .host = .{ .explicit = remote_host },
                         .ca = .{ .bundle = client.ca_bundle },
                         .ssl_key_log = client.ssl_key_log,
-                        .read_buffer = tls_read_buffer,
-                        .write_buffer = tls_write_buffer,
+                        .read_buffer = read_buffer,
+                        .write_buffer = write_buffer,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -347,7 +348,8 @@ pub const Connection = struct {
         }
 
         fn allocLen(client: *Client, host_len: usize) usize {
-            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size + client.write_buffer_size;
+            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size +
+                client.write_buffer_size + client.read_buffer_size;
         }
 
         fn host(tls: *Tls) []u8 {
@@ -355,6 +357,21 @@ pub const Connection = struct {
             return base[@sizeOf(Tls)..][0..tls.connection.host_len];
         }
     };
+
+    pub const ReadError = std.crypto.tls.Client.ReadError || std.net.Stream.ReadError;
+
+    pub fn getReadError(c: *const Connection) ?ReadError {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *const Tls = @alignCast(@fieldParentPtr("connection", c));
+                return tls.client.read_err orelse c.stream_reader.getError();
+            },
+            .plain => {
+                return c.stream_reader.getError();
+            },
+        };
+    }
 
     fn getStream(c: *Connection) net.Stream {
         return c.stream_reader.getStream();
@@ -434,7 +451,6 @@ pub const Connection = struct {
             if (disable_tls) unreachable;
             const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
             try tls.client.end();
-            try tls.client.writer.flush();
         }
         try c.stream_writer.interface.flush();
     }
@@ -874,6 +890,7 @@ pub const Request = struct {
         var bw = try sendBodyUnflushed(r, body);
         bw.writer.end = body.len;
         try bw.end();
+        try r.connection.?.flush();
     }
 
     /// Transfers the HTTP head over the connection, which is not flushed until
@@ -1063,6 +1080,9 @@ pub const Request = struct {
     /// buffer capacity would be exceeded, `error.HttpRedirectLocationOversize`
     /// is returned instead. This buffer may be empty if no redirects are to be
     /// handled.
+    ///
+    /// If this fails with `error.ReadFailed` then the `Connection.getReadError`
+    /// method of `r.connection` can be used to get more detailed information.
     pub fn receiveHead(r: *Request, redirect_buffer: []u8) ReceiveHeadError!Response {
         var aux_buf = redirect_buffer;
         while (true) {

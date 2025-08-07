@@ -998,15 +998,21 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             .buffer = reader_buffer,
         } };
         const request = &resource.http_request.request;
-        defer request.deinit();
+        errdefer request.deinit();
 
         request.sendBodiless() catch |err|
             return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
 
         var redirect_buffer: [1024]u8 = undefined;
         const response = &resource.http_request.response;
-        response.* = request.receiveHead(&redirect_buffer) catch |err|
-            return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{err}));
+        response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
+            error.ReadFailed => {
+                return f.fail(f.location_tok, try eb.printString("HTTP response read failure: {t}", .{
+                    request.connection.?.getReadError().?,
+                }));
+            },
+            else => |e| return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{e})),
+        };
 
         if (response.head.status != .ok) return f.fail(f.location_tok, try eb.printString(
             "bad HTTP response code: '{d} {s}'",
