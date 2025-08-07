@@ -2086,7 +2086,7 @@ const IndexHeader = struct {
     /// Returns the attached array of indexes.  I must match the type
     /// returned by capacityIndexType.
     fn indexes(header: *IndexHeader, comptime I: type) []Index(I) {
-        const start_ptr: [*]Index(I) = @alignCast(@ptrCast(@as([*]u8, @ptrCast(header)) + @sizeOf(IndexHeader)));
+        const start_ptr: [*]Index(I) = @ptrCast(@alignCast(@as([*]u8, @ptrCast(header)) + @sizeOf(IndexHeader)));
         return start_ptr[0..header.length()];
     }
 
@@ -2122,7 +2122,7 @@ const IndexHeader = struct {
         const nbytes = @sizeOf(IndexHeader) + index_size * len;
         const bytes = try gpa.alignedAlloc(u8, .of(IndexHeader), nbytes);
         @memset(bytes[@sizeOf(IndexHeader)..], 0xff);
-        const result: *IndexHeader = @alignCast(@ptrCast(bytes.ptr));
+        const result: *IndexHeader = @ptrCast(@alignCast(bytes.ptr));
         result.* = .{
             .bit_index = new_bit_index,
         };

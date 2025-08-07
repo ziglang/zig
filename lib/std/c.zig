@@ -11309,7 +11309,7 @@ const private = struct {
     extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
     extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-    extern "c" fn _msize(memblock: ?*anyopaque) usize;
+    extern "c" fn _msize(?*const anyopaque) usize;
     extern "c" fn malloc_size(?*const anyopaque) usize;
     extern "c" fn malloc_usable_size(?*const anyopaque) usize;
     extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;

@@ -1689,7 +1689,7 @@ pub fn adaptToOldInterface(r: *Reader) std.Io.AnyReader {
 }
 
 fn derpRead(context: *const anyopaque, buffer: []u8) anyerror!usize {
-    const r: *Reader = @constCast(@alignCast(@ptrCast(context)));
+    const r: *Reader = @ptrCast(@alignCast(@constCast(context)));
     return r.readSliceShort(buffer);
 }
 
