@@ -20,8 +20,6 @@ export fn g(e: E) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:16: error: cannot inline '_' prong
 // :18:16: error: cannot inline '_' prong

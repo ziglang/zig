@@ -1117,8 +1117,6 @@ test "switch on non-exhaustive enum" {
         }
     };
 
-    var e: E = .a;
-    _ = &e;
-    try E.doTheTest(e);
+    try E.doTheTest(.a);
     try comptime E.doTheTest(.a);
 }

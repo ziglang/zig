@@ -12,7 +12,5 @@ export fn f(e: E) void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :10:14: error: unreachable else prong; all explicit cases already handled
