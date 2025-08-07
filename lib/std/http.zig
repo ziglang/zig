@@ -496,7 +496,7 @@ pub const Reader = struct {
                     return reader.in;
                 },
                 .deflate => {
-                    decompressor.* = .{ .flate = .init(reader.in, .raw, decompression_buffer) };
+                    decompressor.* = .{ .flate = .init(reader.in, .zlib, decompression_buffer) };
                     return &decompressor.flate.reader;
                 },
                 .gzip => {
@@ -730,7 +730,7 @@ pub const Decompressor = union(enum) {
                 return transfer_reader;
             },
             .deflate => {
-                decompressor.* = .{ .flate = .init(transfer_reader, .raw, buffer) };
+                decompressor.* = .{ .flate = .init(transfer_reader, .zlib, buffer) };
                 return &decompressor.flate.reader;
             },
             .gzip => {

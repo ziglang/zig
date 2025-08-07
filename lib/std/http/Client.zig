@@ -115,8 +115,6 @@ pub const ConnectionPool = struct {
     /// Tries to release a connection back to the connection pool.
     /// If the connection is marked as closing, it will be closed instead.
     ///
-    /// `allocator` must be the same one used to create `connection`.
-    ///
     /// Threadsafe.
     pub fn release(pool: *ConnectionPool, connection: *Connection) void {
         pool.mutex.lock();
@@ -484,10 +482,8 @@ pub const Response = struct {
             };
             var it = mem.splitSequence(u8, bytes, "\r\n");
 
-            const first_line = it.next().?;
-            if (first_line.len < 12) {
-                return error.HttpHeadersInvalid;
-            }
+            const first_line = it.first();
+            if (first_line.len < 12) return error.HttpHeadersInvalid;
 
             const version: http.Version = switch (int64(first_line[0..8])) {
                 int64("HTTP/1.0") => .@"HTTP/1.0",
