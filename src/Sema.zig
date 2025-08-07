@@ -12007,9 +12007,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     // it to a prong with explicit items.
     // Although this is potentially the same as `inline else` it does not count
     // towards the backward branch quota because it's an implementation detail.
-    if (special_members_only) |special| gen: {
+    if (special_members_only != null) gen: {
         assert(cond_ty.isNonexhaustiveEnum(zcu));
-        _ = special;
 
         var min_i: usize = math.maxInt(usize);
         var max_i: usize = 0;
