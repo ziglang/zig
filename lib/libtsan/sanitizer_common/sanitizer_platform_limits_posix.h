@@ -1043,7 +1043,6 @@ extern unsigned struct_hd_geometry_sz;
 extern unsigned struct_input_absinfo_sz;
 extern unsigned struct_input_id_sz;
 extern unsigned struct_mtpos_sz;
-extern unsigned struct_termio_sz;
 extern unsigned struct_vt_consize_sz;
 extern unsigned struct_vt_sizes_sz;
 extern unsigned struct_vt_stat_sz;
