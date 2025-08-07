@@ -928,7 +928,7 @@ pub const Request = struct {
         const connection = r.connection.?;
         const w = connection.writer();
 
-        try r.method.format(w);
+        try w.writeAll(@tagName(r.method));
         try w.writeByte(' ');
 
         if (r.method == .CONNECT) {

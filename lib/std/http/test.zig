@@ -413,7 +413,7 @@ test "general client/server API coverage" {
             const log = std.log.scoped(.server);
             const gpa = std.testing.allocator;
 
-            log.info("{f} {t} {s}", .{ request.head.method, request.head.version, request.head.target });
+            log.info("{t} {t} {s}", .{ request.head.method, request.head.version, request.head.target });
             const target = try gpa.dupe(u8, request.head.target);
             defer gpa.free(target);
 
