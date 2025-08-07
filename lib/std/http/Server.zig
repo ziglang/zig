@@ -55,8 +55,8 @@ pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
 
 pub const Request = struct {
     server: *Server,
-    /// Pointers in this struct are invalidated with the next call to
-    /// `receiveHead`.
+    /// Pointers in this struct are invalidated when the request body stream is
+    /// initialized.
     head: Head,
     head_buffer: []const u8,
     respond_err: ?RespondError = null,
@@ -223,6 +223,14 @@ pub const Request = struct {
 
         inline fn int64(array: *const [8]u8) u64 {
             return @bitCast(array.*);
+        }
+
+        /// Help the programmer avoid bugs by calling this when the string
+        /// memory of `Head` becomes invalidated.
+        fn invalidateStrings(h: *Head) void {
+            h.target = undefined;
+            if (h.expect) |*s| s.* = undefined;
+            if (h.content_type) |*s| s.* = undefined;
         }
     };
 
@@ -578,9 +586,12 @@ pub const Request = struct {
     /// this function.
     ///
     /// Asserts that this function is only called once.
+    ///
+    /// Invalidates the string memory inside `Head`.
     pub fn readerExpectNone(request: *Request, buffer: []u8) *Reader {
         assert(request.server.reader.state == .received_head);
         assert(request.head.expect == null);
+        request.head.invalidateStrings();
         if (!request.head.method.requestHasBody()) return .ending;
         return request.server.reader.bodyReader(buffer, request.head.transfer_encoding, request.head.content_length);
     }

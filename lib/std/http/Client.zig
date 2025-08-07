@@ -444,8 +444,8 @@ pub const Connection = struct {
 
 pub const Response = struct {
     request: *Request,
-    /// Pointers in this struct are invalidated with the next call to
-    /// `receiveHead`.
+    /// Pointers in this struct are invalidated when the response body stream
+    /// is initialized.
     head: Head,
 
     pub const Head = struct {
@@ -671,6 +671,16 @@ pub const Response = struct {
             try expectEqual(@as(u10, 418), parseInt3("418"));
             try expectEqual(@as(u10, 999), parseInt3("999"));
         }
+
+        /// Help the programmer avoid bugs by calling this when the string
+        /// memory of `Head` becomes invalidated.
+        fn invalidateStrings(h: *Head) void {
+            h.bytes = undefined;
+            h.reason = undefined;
+            if (h.location) |*s| s.* = undefined;
+            if (h.content_type) |*s| s.* = undefined;
+            if (h.content_disposition) |*s| s.* = undefined;
+        }
     };
 
     /// If compressed body has been negotiated this will return compressed bytes.
@@ -682,7 +692,8 @@ pub const Response = struct {
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *const Response, buffer: []u8) *Reader {
+    pub fn reader(response: *Response, buffer: []u8) *Reader {
+        response.head.invalidateStrings();
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
@@ -703,6 +714,7 @@ pub const Response = struct {
         decompressor: *http.Decompressor,
         decompression_buffer: []u8,
     ) *Reader {
+        response.head.invalidateStrings();
         const head = &response.head;
         return response.request.reader.bodyReaderDecompressing(
             head.transfer_encoding,
