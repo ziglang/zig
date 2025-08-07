@@ -196,10 +196,3 @@ test "Saturating Shift Left" {
     try expectEqual(170141183460469231731687303715884105727, S.shlSat(@as(i128, 0x2fe6bc5448c55ce18252e2c9d4477750), 0x31));
     try expectEqual(0, S.shlSat(@as(i128, 0), 127));
 }
-
-test "shift by partially undef vector" {
-    comptime {
-        const a: @Vector(1, u8) = .{undefined};
-        _ = a >> @splat(4);
-    }
-}

@@ -13826,11 +13826,9 @@ fn zirShr(
                     else => unreachable,
                 })).toIntern());
             }
-            if (rhs_val.isUndef(zcu)) switch (air_tag) {
-                .shr => return pt.undefRef(lhs_ty),
-                .shr_exact => return sema.failWithUseOfUndef(block, rhs_src, null),
-                else => unreachable,
-            };
+            if (rhs_val.isUndef(zcu)) {
+                return sema.failWithUseOfUndef(block, rhs_src, null);
+            }
             const bits_val = try pt.intValue(.comptime_int, scalar_ty.intInfo(zcu).bits);
             switch (rhs_ty.zigTypeTag(zcu)) {
                 .int, .comptime_int => {
@@ -13849,11 +13847,9 @@ fn zirShr(
                     var elem_idx: usize = 0;
                     while (elem_idx < rhs_ty.vectorLen(zcu)) : (elem_idx += 1) {
                         const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
-                        if (rhs_elem.isUndef(zcu)) switch (air_tag) {
-                            .shr => continue,
-                            .shr_exact => return sema.failWithUseOfUndef(block, rhs_src, elem_idx),
-                            else => unreachable,
-                        };
+                        if (rhs_elem.isUndef(zcu)) {
+                            return sema.failWithUseOfUndef(block, rhs_src, elem_idx);
+                        }
                         switch (try rhs_elem.orderAgainstZeroSema(pt)) {
                             .gt => {
                                 if (try rhs_elem.compareHeteroSema(.gte, bits_val, pt)) {
@@ -13875,11 +13871,7 @@ fn zirShr(
                 return sema.fail(block, src, "LHS of shift must be a fixed-width integer type, or RHS must be comptime-known", .{});
             }
             if (maybe_lhs_val) |lhs_val| {
-                switch (air_tag) {
-                    .shr => if (lhs_val.isUndef(zcu)) return pt.undefRef(lhs_ty),
-                    .shr_exact => try sema.checkAllScalarsDefined(block, lhs_src, lhs_val),
-                    else => unreachable,
-                }
+                try sema.checkAllScalarsDefined(block, lhs_src, lhs_val);
             }
         }
         break :rs rhs_src;

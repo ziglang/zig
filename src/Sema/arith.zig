@@ -1221,16 +1221,9 @@ fn shrScalar(
     const pt = sema.pt;
     const zcu = pt.zcu;
 
-    switch (op) {
-        .shr => {
-            if (lhs_val.isUndef(zcu)) return lhs_val;
-            if (rhs_val.isUndef(zcu)) return pt.undefValue(lhs_ty);
-        },
-        .shr_exact => {
-            if (lhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, lhs_src, vec_idx);
-            if (rhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, vec_idx);
-        },
-    }
+    if (lhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, lhs_src, vec_idx);
+    if (rhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, vec_idx);
+
     switch (try rhs_val.orderAgainstZeroSema(pt)) {
         .gt => {},
         .eq => return lhs_val,
