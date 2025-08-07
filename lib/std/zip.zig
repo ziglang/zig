@@ -536,15 +536,15 @@ pub const Iterator = struct {
                     @as(u64, local_header.extra_len);
             };
 
-            if (isBadFilename(filename))
-                return error.ZipBadFilename;
-
             if (options.allow_backslashes) {
                 std.mem.replaceScalar(u8, filename, '\\', '/');
             } else {
                 if (std.mem.indexOfScalar(u8, filename, '\\')) |_|
                     return error.ZipFilenameHasBackslash;
             }
+
+            if (isBadFilename(filename))
+                return error.ZipBadFilename;
 
             // All entries that end in '/' are directories
             if (filename[filename.len - 1] == '/') {
