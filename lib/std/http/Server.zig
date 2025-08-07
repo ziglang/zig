@@ -97,10 +97,9 @@ pub const Request = struct {
 
             const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;
-            if (method_end > 24) return error.HttpHeadersInvalid;
 
-            const method_str = first_line[0..method_end];
-            const method: http.Method = @enumFromInt(http.Method.parse(method_str));
+            const method = std.meta.stringToEnum(http.Method, first_line[0..method_end]) orelse
+                return error.UnknownHttpMethod;
 
             const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;

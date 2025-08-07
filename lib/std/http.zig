@@ -20,51 +20,32 @@ pub const Version = enum {
 /// https://datatracker.ietf.org/doc/html/rfc7231#section-4 Initial definition
 ///
 /// https://datatracker.ietf.org/doc/html/rfc5789#section-2 PATCH
-pub const Method = enum(u64) {
-    GET = parse("GET"),
-    HEAD = parse("HEAD"),
-    POST = parse("POST"),
-    PUT = parse("PUT"),
-    DELETE = parse("DELETE"),
-    CONNECT = parse("CONNECT"),
-    OPTIONS = parse("OPTIONS"),
-    TRACE = parse("TRACE"),
-    PATCH = parse("PATCH"),
-
-    _,
-
-    /// Converts `s` into a type that may be used as a `Method` field.
-    /// Asserts that `s` is 24 or fewer bytes.
-    pub fn parse(s: []const u8) u64 {
-        var x: u64 = 0;
-        const len = @min(s.len, @sizeOf(@TypeOf(x)));
-        @memcpy(std.mem.asBytes(&x)[0..len], s[0..len]);
-        return x;
-    }
-
-    pub fn format(self: Method, w: *Writer) Writer.Error!void {
-        const bytes: []const u8 = @ptrCast(&@intFromEnum(self));
-        const str = std.mem.sliceTo(bytes, 0);
-        try w.writeAll(str);
-    }
+pub const Method = enum {
+    GET,
+    HEAD,
+    POST,
+    PUT,
+    DELETE,
+    CONNECT,
+    OPTIONS,
+    TRACE,
+    PATCH,
 
     /// Returns true if a request of this method is allowed to have a body
     /// Actual behavior from servers may vary and should still be checked
-    pub fn requestHasBody(self: Method) bool {
-        return switch (self) {
+    pub fn requestHasBody(m: Method) bool {
+        return switch (m) {
             .POST, .PUT, .PATCH => true,
             .GET, .HEAD, .DELETE, .CONNECT, .OPTIONS, .TRACE => false,
-            else => true,
         };
     }
 
     /// Returns true if a response to this method is allowed to have a body
     /// Actual behavior from clients may vary and should still be checked
-    pub fn responseHasBody(self: Method) bool {
-        return switch (self) {
+    pub fn responseHasBody(m: Method) bool {
+        return switch (m) {
             .GET, .POST, .DELETE, .CONNECT, .OPTIONS, .PATCH => true,
             .HEAD, .PUT, .TRACE => false,
-            else => true,
         };
     }
 
@@ -73,11 +54,10 @@ pub const Method = enum(u64) {
     /// https://developer.mozilla.org/en-US/docs/Glossary/Safe/HTTP
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.1
-    pub fn safe(self: Method) bool {
-        return switch (self) {
+    pub fn safe(m: Method) bool {
+        return switch (m) {
             .GET, .HEAD, .OPTIONS, .TRACE => true,
             .POST, .PUT, .DELETE, .CONNECT, .PATCH => false,
-            else => false,
         };
     }
 
@@ -88,11 +68,10 @@ pub const Method = enum(u64) {
     /// https://developer.mozilla.org/en-US/docs/Glossary/Idempotent
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.2
-    pub fn idempotent(self: Method) bool {
-        return switch (self) {
+    pub fn idempotent(m: Method) bool {
+        return switch (m) {
             .GET, .HEAD, .PUT, .DELETE, .OPTIONS, .TRACE => true,
             .CONNECT, .POST, .PATCH => false,
-            else => false,
         };
     }
 
@@ -102,11 +81,10 @@ pub const Method = enum(u64) {
     /// https://developer.mozilla.org/en-US/docs/Glossary/cacheable
     ///
     /// https://datatracker.ietf.org/doc/html/rfc7231#section-4.2.3
-    pub fn cacheable(self: Method) bool {
-        return switch (self) {
+    pub fn cacheable(m: Method) bool {
+        return switch (m) {
             .GET, .HEAD => true,
             .POST, .PUT, .DELETE, .CONNECT, .OPTIONS, .TRACE, .PATCH => false,
-            else => false,
         };
     }
 };
