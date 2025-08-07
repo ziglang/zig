@@ -6660,7 +6660,7 @@ pub const CopyFileRangeError = error{
 /// Maximum offsets on Linux and FreeBSD are `maxInt(i64)`.
 pub fn copy_file_range(fd_in: fd_t, off_in: u64, fd_out: fd_t, off_out: u64, len: usize, flags: u32) CopyFileRangeError!usize {
     if (builtin.os.tag == .freebsd or
-        (comptime builtin.os.tag == .linux and std.c.versionCheck(if (!builtin.abi.isAndroid()) .{ .major = 2, .minor = 27, .patch = 0 } else .{ .major = 34, .minor = 0, .patch = 0 })))
+        (comptime builtin.os.tag == .linux and std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 })))
     {
         var off_in_copy: i64 = @bitCast(off_in);
         var off_out_copy: i64 = @bitCast(off_out);
@@ -6970,7 +6970,7 @@ pub fn memfd_createZ(name: [*:0]const u8, flags: u32) MemFdCreateError!fd_t {
     switch (native_os) {
         .linux => {
             // memfd_create is available only in glibc versions starting with 2.27 and bionic versions starting with 30.
-            const use_c = if (!builtin.abi.isAndroid()) std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 }) else std.c.versionCheck(.{ .major = 30, .minor = 0, .patch = 0 });
+            const use_c = std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 30, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 });
             const sys = if (use_c) std.c else linux;
             const rc = sys.memfd_create(name, flags);
             switch (errno(rc)) {
