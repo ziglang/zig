@@ -400,7 +400,8 @@ pub fn run(f: *Fetch) RunError!void {
                         .{ path_or_url, file_err, uri_err },
                     ));
                 };
-                var resource = try f.initResource(uri, &server_header_buffer);
+                var resource: Resource = undefined;
+                try f.initResource(uri, &resource, &server_header_buffer);
                 return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, null);
             }
         },
@@ -466,7 +467,8 @@ pub fn run(f: *Fetch) RunError!void {
         try eb.printString("invalid URI: {s}", .{@errorName(err)}),
     );
     var buffer: [init_resource_buffer_size]u8 = undefined;
-    var resource = try f.initResource(uri, &buffer);
+    var resource: Resource = undefined;
+    try f.initResource(uri, &resource, &buffer);
     return f.runResource(try uri.path.toRawMaybeAlloc(arena), &resource, remote.hash);
 }
 
@@ -880,7 +882,7 @@ const Resource = union(enum) {
 
     const HttpRequest = struct {
         request: std.http.Client.Request,
-        head: std.http.Client.Response.Head,
+        response: std.http.Client.Response,
         buffer: []u8,
     };
 
@@ -900,13 +902,7 @@ const Resource = union(enum) {
     fn reader(resource: *Resource) *std.Io.Reader {
         return switch (resource.*) {
             .file => |*file_reader| return &file_reader.interface,
-            .http_request => |*http_request| {
-                const response: std.http.Client.Response = .{
-                    .request = &http_request.request,
-                    .head = http_request.head,
-                };
-                return response.reader(http_request.buffer);
-            },
+            .http_request => |*http_request| return http_request.response.reader(http_request.buffer),
             .git => |*g| return &g.fetch_stream.reader,
             .dir => unreachable,
         };
@@ -974,7 +970,7 @@ const FileType = enum {
 
 const init_resource_buffer_size = git.Packet.max_data_length;
 
-fn initResource(f: *Fetch, uri: std.Uri, reader_buffer: []u8) RunError!Resource {
+fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
     const gpa = f.arena.child_allocator;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
@@ -986,7 +982,8 @@ fn initResource(f: *Fetch, uri: std.Uri, reader_buffer: []u8) RunError!Resource 
                 f.parent_package_root, path, err,
             }));
         };
-        return .{ .file = file.reader(reader_buffer) };
+        resource.* = .{ .file = file.reader(reader_buffer) };
+        return;
     }
 
     const http_client = f.job_queue.http_client;
@@ -994,15 +991,21 @@ fn initResource(f: *Fetch, uri: std.Uri, reader_buffer: []u8) RunError!Resource 
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
-        var request = http_client.request(.GET, uri, .{}) catch |err|
-            return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err}));
+        resource.* = .{ .http_request = .{
+            .request = http_client.request(.GET, uri, .{}) catch |err|
+                return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
+            .response = undefined,
+            .buffer = reader_buffer,
+        } };
+        const request = &resource.http_request.request;
         defer request.deinit();
 
         request.sendBodiless() catch |err|
             return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
 
         var redirect_buffer: [1024]u8 = undefined;
-        const response = request.receiveHead(&redirect_buffer) catch |err|
+        const response = &resource.http_request.response;
+        response.* = request.receiveHead(&redirect_buffer) catch |err|
             return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{err}));
 
         if (response.head.status != .ok) return f.fail(f.location_tok, try eb.printString(
@@ -1010,11 +1013,7 @@ fn initResource(f: *Fetch, uri: std.Uri, reader_buffer: []u8) RunError!Resource 
             .{ response.head.status, response.head.status.phrase() orelse "" },
         ));
 
-        return .{ .http_request = .{
-            .request = request,
-            .head = response.head,
-            .buffer = reader_buffer,
-        } };
+        return;
     }
 
     if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or
@@ -1087,13 +1086,12 @@ fn initResource(f: *Fetch, uri: std.Uri, reader_buffer: []u8) RunError!Resource 
         };
         errdefer fetch_stream.deinit();
 
-        if (true) @panic("TODO this moves fetch_stream, invalidating its reader");
-
-        return .{ .git = .{
+        resource.* = .{ .git = .{
             .session = session,
             .fetch_stream = fetch_stream,
             .want_oid = want_oid,
         } };
+        return;
     }
 
     return f.fail(f.location_tok, try eb.printString("unsupported URL scheme: {s}", .{uri.scheme}));
@@ -1111,7 +1109,7 @@ fn unpackResource(
             return f.fail(f.location_tok, try eb.printString("unknown file type: '{s}'", .{uri_path})),
 
         .http_request => |*http_request| ft: {
-            const head = &http_request.head;
+            const head = &http_request.response.head;
 
             // Content-Type takes first precedence.
             const content_type = head.content_type orelse

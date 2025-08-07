@@ -773,7 +773,7 @@ pub const Session = struct {
         try request.sendBodiless();
 
         var redirect_buffer: [1024]u8 = undefined;
-        const response = try request.receiveHead(&redirect_buffer);
+        var response = try request.receiveHead(&redirect_buffer);
         if (response.head.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
@@ -918,7 +918,7 @@ pub const Session = struct {
         errdefer request.deinit();
         try request.sendBodyComplete(body.buffered());
 
-        const response = try request.receiveHead(options.buffer);
+        var response = try request.receiveHead(options.buffer);
         if (response.head.status != .ok) return error.ProtocolError;
         it.reader = response.reader(options.buffer);
     }
@@ -1037,7 +1037,7 @@ pub const Session = struct {
 
         try request.sendBodyComplete(body.buffered());
 
-        const response = try request.receiveHead(&.{});
+        var response = try request.receiveHead(&.{});
         if (response.head.status != .ok) return error.ProtocolError;
 
         const reader = response.reader(response_buffer);
