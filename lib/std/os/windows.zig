@@ -408,7 +408,12 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
     }
 }
 
-pub const RtlGenRandomError = error{Unexpected};
+pub const RtlGenRandomError = error{
+    /// `RtlGenRandom` has been known to fail in situations where the system is under heavy load.
+    /// Unfortunately, it does not call `SetLastError`, so it is not possible to get more specific
+    /// error information; it could actually be due to an out-of-memory condition, for example.
+    SystemResources,
+};
 
 /// Call RtlGenRandom() instead of CryptGetRandom() on Windows
 /// https://github.com/rust-lang-nursery/rand/issues/111
@@ -422,7 +427,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
+            return error.SystemResources;
         }
 
         total_read += to_read;
