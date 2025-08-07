@@ -1695,7 +1695,7 @@ pub fn open(
 }
 
 pub const FetchOptions = struct {
-    server_header_buffer: ?[]u8 = null,
+    server_header_buffer: []u8,
     redirect_behavior: ?Request.RedirectBehavior = null,
 
     /// If the server sends a body, it will be appended to this ArrayList.
@@ -1733,25 +1733,19 @@ pub const FetchOptions = struct {
     };
 };
 
-pub const FetchResult = struct {
-    status: http.Status,
-};
-
 /// Perform a one-shot HTTP request with the provided options.
 ///
 /// This function is threadsafe.
-pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
+pub fn fetch(client: *Client, options: FetchOptions) !Response {
     const uri = switch (options.location) {
         .url => |u| try Uri.parse(u),
         .uri => |u| u,
     };
-    var server_header_buffer: [16 * 1024]u8 = undefined;
-
     const method: http.Method = options.method orelse
         if (options.payload != null) .POST else .GET;
 
     var req = try open(client, method, uri, .{
-        .server_header_buffer = options.server_header_buffer orelse &server_header_buffer,
+        .server_header_buffer = options.server_header_buffer,
         .redirect_behavior = options.redirect_behavior orelse
             if (options.payload == null) @enumFromInt(3) else .unhandled,
         .headers = options.headers,
@@ -1793,9 +1787,7 @@ pub fn fetch(client: *Client, options: FetchOptions) !FetchResult {
         },
     }
 
-    return .{
-        .status = req.response.status,
-    };
+    return req.response;
 }
 
 test {
