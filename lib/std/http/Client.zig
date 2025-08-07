@@ -13,8 +13,8 @@ const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
-const Reader = std.io.Reader;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 const Client = @This();
 
@@ -704,12 +704,12 @@ pub const Response = struct {
     ///
     /// See also:
     /// * `readerDecompressing`
-    pub fn reader(response: *Response, buffer: []u8) *Reader {
+    pub fn reader(response: *Response, transfer_buffer: []u8) *Reader {
         response.head.invalidateStrings();
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
-        return req.reader.bodyReader(buffer, head.transfer_encoding, head.content_length);
+        return req.reader.bodyReader(transfer_buffer, head.transfer_encoding, head.content_length);
     }
 
     /// If compressed body has been negotiated this will return decompressed bytes.
@@ -723,12 +723,14 @@ pub const Response = struct {
     /// * `reader`
     pub fn readerDecompressing(
         response: *Response,
+        transfer_buffer: []u8,
         decompressor: *http.Decompressor,
         decompression_buffer: []u8,
     ) *Reader {
         response.head.invalidateStrings();
         const head = &response.head;
         return response.request.reader.bodyReaderDecompressing(
+            transfer_buffer,
             head.transfer_encoding,
             head.content_length,
             head.content_encoding,
@@ -1322,7 +1324,7 @@ pub const basic_authorization = struct {
         const user: Uri.Component = uri.user orelse .empty;
         const password: Uri.Component = uri.password orelse .empty;
 
-        var dw: std.io.Writer.Discarding = .init(&.{});
+        var dw: Writer.Discarding = .init(&.{});
         user.formatUser(&dw.writer) catch unreachable; // discarding
         const user_len = dw.count + dw.writer.end;
 
@@ -1696,8 +1698,8 @@ pub const FetchOptions = struct {
     /// `null` means it will be heap-allocated.
     decompress_buffer: ?[]u8 = null,
     redirect_behavior: ?Request.RedirectBehavior = null,
-    /// If the server sends a body, it will be stored here.
-    response_storage: ?ResponseStorage = null,
+    /// If the server sends a body, it will be written here.
+    response_writer: ?*Writer = null,
 
     location: Location,
     method: ?http.Method = null,
@@ -1725,7 +1727,7 @@ pub const FetchOptions = struct {
         list: *std.ArrayListUnmanaged(u8),
         /// If null then only the existing capacity will be used.
         allocator: ?Allocator = null,
-        append_limit: std.io.Limit = .unlimited,
+        append_limit: std.Io.Limit = .unlimited,
     };
 };
 
@@ -1778,7 +1780,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     var response = try req.receiveHead(redirect_buffer);
 
-    const storage = options.response_storage orelse {
+    const response_writer = options.response_writer orelse {
         const reader = response.reader(&.{});
         _ = reader.discardRemaining() catch |err| switch (err) {
             error.ReadFailed => return response.bodyErr().?,
@@ -1794,21 +1796,14 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     };
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
 
+    var transfer_buffer: [64]u8 = undefined;
     var decompressor: http.Decompressor = undefined;
-    const reader = response.readerDecompressing(&decompressor, decompress_buffer);
-    const list = storage.list;
+    const reader = response.readerDecompressing(&transfer_buffer, &decompressor, decompress_buffer);
 
-    if (storage.allocator) |allocator| {
-        reader.appendRemaining(allocator, null, list, storage.append_limit) catch |err| switch (err) {
-            error.ReadFailed => return response.bodyErr().?,
-            else => |e| return e,
-        };
-    } else {
-        const buf = storage.append_limit.slice(list.unusedCapacitySlice());
-        list.items.len += reader.readSliceShort(buf) catch |err| switch (err) {
-            error.ReadFailed => return response.bodyErr().?,
-        };
-    }
+    _ = reader.streamRemaining(response_writer) catch |err| switch (err) {
+        error.ReadFailed => return response.bodyErr().?,
+        else => |e| return e,
+    };
 
     return .{ .status = response.head.status };
 }

@@ -412,7 +412,7 @@ pub const Reader = struct {
     /// * `interfaceDecompressing`
     pub fn bodyReader(
         reader: *Reader,
-        buffer: []u8,
+        transfer_buffer: []u8,
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
     ) *std.Io.Reader {
@@ -421,7 +421,7 @@ pub const Reader = struct {
             .chunked => {
                 reader.state = .{ .body_remaining_chunk_len = .head };
                 reader.interface = .{
-                    .buffer = buffer,
+                    .buffer = transfer_buffer,
                     .seek = 0,
                     .end = 0,
                     .vtable = &.{
@@ -435,7 +435,7 @@ pub const Reader = struct {
                 if (content_length) |len| {
                     reader.state = .{ .body_remaining_content_length = len };
                     reader.interface = .{
-                        .buffer = buffer,
+                        .buffer = transfer_buffer,
                         .seek = 0,
                         .end = 0,
                         .vtable = &.{
@@ -460,6 +460,7 @@ pub const Reader = struct {
     /// * `interface`
     pub fn bodyReaderDecompressing(
         reader: *Reader,
+        transfer_buffer: []u8,
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
         content_encoding: ContentEncoding,
@@ -488,7 +489,7 @@ pub const Reader = struct {
                 .compress => unreachable,
             }
         }
-        const transfer_reader = bodyReader(reader, &.{}, transfer_encoding, content_length);
+        const transfer_reader = bodyReader(reader, transfer_buffer, transfer_encoding, content_length);
         return decompressor.init(transfer_reader, decompression_buffer, content_encoding);
     }
 
