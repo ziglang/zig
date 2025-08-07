@@ -312,7 +312,6 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "resinator",
             .root_src_path = "resinator/main.zig",
-            .windows_libs = &.{"advapi32"},
             .depend_on_aro = true,
             .prepend_zig_lib_dir_path = true,
             .server = use_server,
@@ -337,7 +336,6 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return jitCmd(gpa, arena, cmd_args, .{
             .cmd_name = "std",
             .root_src_path = "std-docs.zig",
-            .windows_libs = &.{"ws2_32"},
             .prepend_zig_lib_dir_path = true,
             .prepend_zig_exe_path = true,
             .prepend_global_cache_path = true,
@@ -3659,6 +3657,7 @@ fn buildOutputType(
             } else if (target.os.tag == .windows) {
                 try test_exec_args.appendSlice(arena, &.{
                     "--subsystem", "console",
+                    "-lkernel32",  "-lntdll",
                 });
             }
 
@@ -3862,8 +3861,7 @@ fn createModule(
                     .only_compiler_rt => continue,
                 }
 
-                // We currently prefer import libraries provided by MinGW-w64 even for MSVC.
-                if (target.os.tag == .windows) {
+                if (target.isMinGW()) {
                     const exists = mingw.libExists(arena, target, create_module.dirs.zig_lib, lib_name) catch |err| {
                         fatal("failed to check zig installation for DLL import libs: {s}", .{
                             @errorName(err),
@@ -4796,7 +4794,8 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             writeSimpleTemplateFile(Package.Manifest.basename,
                 \\.{{
                 \\    .name = .{s},
-                \\    .version = "{s}",
+                \\    .version = "0.0.1",
+                \\    .minimum_zig_version = "{s}",
                 \\    .paths = .{{""}},
                 \\    .fingerprint = 0x{x},
                 \\}}
@@ -4811,6 +4810,7 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             };
             writeSimpleTemplateFile(Package.build_zig_basename,
                 \\const std = @import("std");
+                \\
                 \\pub fn build(b: *std.Build) void {{
                 \\    _ = b; // stub
                 \\}}
@@ -4891,6 +4891,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var fetch_mode: Package.Fetch.JobQueue.Mode = .needed;
     var system_pkg_dir_path: ?[]const u8 = null;
     var debug_target: ?[]const u8 = null;
+    var debug_libc_paths_file: ?[]const u8 = null;
 
     const argv_index_exe = child_argv.items.len;
     _ = try child_argv.addOne();
@@ -5014,6 +5015,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     } else {
                         warn("Zig was compiled without debug extensions. --debug-target has no effect.", .{});
                     }
+                } else if (mem.eql(u8, arg, "--debug-libc")) {
+                    if (i + 1 >= args.len) fatal("expected argument after '{s}'", .{arg});
+                    i += 1;
+                    if (build_options.enable_debug_extensions) {
+                        debug_libc_paths_file = args[i];
+                    } else {
+                        warn("Zig was compiled without debug extensions. --debug-libc has no effect.", .{});
+                    }
                 } else if (mem.eql(u8, arg, "--verbose-link")) {
                     verbose_link = true;
                 } else if (mem.eql(u8, arg, "--verbose-cc")) {
@@ -5100,6 +5109,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             .is_native_abi = true,
             .is_explicit_dynamic_linker = false,
         };
+    };
+    // Likewise, `--debug-libc` allows overriding the libc installation.
+    const libc_installation: ?*const LibCInstallation = lci: {
+        const paths_file = debug_libc_paths_file orelse break :lci null;
+        if (!build_options.enable_debug_extensions) unreachable;
+        const lci = try arena.create(LibCInstallation);
+        lci.* = try .parse(arena, paths_file, &resolved_target.result);
+        break :lci lci;
     };
 
     process.raiseFileDescriptorLimit();
@@ -5356,15 +5373,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
-            var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
-
-            if (resolved_target.result.os.tag == .windows) {
-                try windows_libs.ensureUnusedCapacity(arena, 2);
-                windows_libs.putAssumeCapacity("advapi32", {});
-                windows_libs.putAssumeCapacity("ws2_32", {}); // for `--listen` (web interface)
-            }
-
             const comp = Compilation.create(gpa, arena, .{
+                .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
                 .config = config,
@@ -5385,7 +5395,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .cache_mode = .whole,
                 .reference_trace = reference_trace,
                 .debug_compile_errors = debug_compile_errors,
-                .windows_lib_names = windows_libs.keys(),
             }) catch |err| {
                 fatal("unable to create compilation: {s}", .{@errorName(err)});
             };
@@ -5489,7 +5498,6 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 const JitCmdOptions = struct {
     cmd_name: []const u8,
     root_src_path: []const u8,
-    windows_libs: []const []const u8 = &.{},
     prepend_zig_lib_dir_path: bool = false,
     prepend_global_cache_path: bool = false,
     prepend_zig_exe_path: bool = false,
@@ -5606,13 +5614,6 @@ fn jitCmd(
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
 
-        var windows_libs: std.StringArrayHashMapUnmanaged(void) = .empty;
-
-        if (resolved_target.result.os.tag == .windows) {
-            try windows_libs.ensureUnusedCapacity(arena, options.windows_libs.len);
-            for (options.windows_libs) |lib| windows_libs.putAssumeCapacity(lib, {});
-        }
-
         const comp = Compilation.create(gpa, arena, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
@@ -5623,7 +5624,6 @@ fn jitCmd(
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .cache_mode = .whole,
-            .windows_lib_names = windows_libs.keys(),
         }) catch |err| {
             fatal("unable to create compilation: {s}", .{@errorName(err)});
         };

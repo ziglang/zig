@@ -12210,11 +12210,14 @@ fn lowerFnRetTy(o: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key.FuncType)
         },
         .riscv64_lp64, .riscv32_ilp32 => switch (riscv_c_abi.classifyType(return_type, zcu)) {
             .memory => return .void,
-            .integer => {
-                return o.builder.intType(@intCast(return_type.bitSize(zcu)));
-            },
+            .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => {
-                return o.builder.structType(.normal, &.{ .i64, .i64 });
+                const integer: Builder.Type = switch (zcu.getTarget().cpu.arch) {
+                    .riscv64 => .i64,
+                    .riscv32 => .i32,
+                    else => unreachable,
+                };
+                return o.builder.structType(.normal, &.{ integer, integer });
             },
             .byval => return o.lowerType(pt, return_type),
             .fields => {

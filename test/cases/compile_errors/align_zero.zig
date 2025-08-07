@@ -1,52 +1,80 @@
-pub var global_var: i32 align(0) = undefined;
+var global_var: i32 align(0) = undefined;
 
-pub export fn a() void {
+export fn a() void {
     _ = &global_var;
 }
 
-pub extern var extern_var: i32 align(0);
+extern var extern_var: i32 align(0);
 
-pub export fn b() void {
+export fn b() void {
     _ = &extern_var;
 }
 
-pub export fn c() align(0) void {}
+export fn c() align(0) void {}
 
-pub export fn d() void {
+export fn d() void {
     _ = *align(0) fn () i32;
 }
 
-pub export fn e() void {
+export fn e() void {
     var local_var: i32 align(0) = undefined;
     _ = &local_var;
 }
 
-pub export fn f() void {
+export fn f() void {
     _ = *align(0) i32;
 }
 
-pub export fn g() void {
+export fn g() void {
     _ = []align(0) i32;
 }
 
-pub export fn h() void {
+export fn h() void {
     _ = struct { field: i32 align(0) };
 }
 
-pub export fn i() void {
+export fn i() void {
     _ = union { field: i32 align(0) };
 }
 
+export fn j() void {
+    _ = @Type(.{ .@"struct" = .{
+        .layout = .auto,
+        .fields = &.{.{
+            .name = "test",
+            .type = u32,
+            .default_value_ptr = null,
+            .is_comptime = false,
+            .alignment = 0,
+        }},
+        .decls = &.{},
+        .is_tuple = false,
+    } });
+}
+
+export fn k() void {
+    _ = @Type(.{ .pointer = .{
+        .size = .one,
+        .is_const = false,
+        .is_volatile = false,
+        .alignment = 0,
+        .address_space = .generic,
+        .child = u32,
+        .is_allowzero = false,
+        .sentinel_ptr = null,
+    } });
+}
+
 // error
-// backend=stage2
-// target=native
 //
-// :1:31: error: alignment must be >= 1
-// :7:38: error: alignment must be >= 1
-// :13:25: error: alignment must be >= 1
+// :1:27: error: alignment must be >= 1
+// :7:34: error: alignment must be >= 1
+// :13:21: error: alignment must be >= 1
 // :16:16: error: alignment must be >= 1
 // :20:30: error: alignment must be >= 1
 // :25:16: error: alignment must be >= 1
 // :29:17: error: alignment must be >= 1
 // :33:35: error: alignment must be >= 1
 // :37:34: error: alignment must be >= 1
+// :41:9: error: alignment must be >= 1
+// :56:9: error: alignment must be >= 1

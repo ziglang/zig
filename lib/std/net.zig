@@ -1944,7 +1944,7 @@ pub const Stream = struct {
             pub const Error = ReadError;
 
             pub fn getStream(r: *const Reader) Stream {
-                return r.stream;
+                return r.net_stream;
             }
 
             pub fn getError(r: *const Reader) ?Error {

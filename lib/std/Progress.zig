@@ -1006,7 +1006,7 @@ fn serializeIpc(start_serialized_len: usize, serialized_buffer: *Serialized.Buff
                         continue;
                     }
                     const src = pipe_buf[m.remaining_read_trash_bytes..n];
-                    std.mem.copyForwards(u8, &pipe_buf, src);
+                    @memmove(pipe_buf[0..src.len], src);
                     m.remaining_read_trash_bytes = 0;
                     bytes_read = src.len;
                     continue;

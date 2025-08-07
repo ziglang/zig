@@ -502,10 +502,24 @@ pub const Header = struct {
         };
     }
 
+    pub fn iterateProgramHeadersBuffer(h: Header, buf: []const u8) ProgramHeaderBufferIterator {
+        return .{
+            .elf_header = h,
+            .buf = buf,
+        };
+    }
+
     pub fn iterateSectionHeaders(h: Header, file_reader: *std.fs.File.Reader) SectionHeaderIterator {
         return .{
             .elf_header = h,
             .file_reader = file_reader,
+        };
+    }
+
+    pub fn iterateSectionHeadersBuffer(h: Header, buf: []const u8) SectionHeaderBufferIterator {
+        return .{
+            .elf_header = h,
+            .buf = buf,
         };
     }
 
@@ -570,28 +584,47 @@ pub const ProgramHeaderIterator = struct {
         if (it.index >= it.elf_header.phnum) return null;
         defer it.index += 1;
 
-        if (it.elf_header.is_64) {
-            const offset = it.elf_header.phoff + @sizeOf(Elf64_Phdr) * it.index;
-            try it.file_reader.seekTo(offset);
-            const phdr = try it.file_reader.interface.takeStruct(Elf64_Phdr, it.elf_header.endian);
-            return phdr;
-        }
-
-        const offset = it.elf_header.phoff + @sizeOf(Elf32_Phdr) * it.index;
+        const offset = it.elf_header.phoff + if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr) * it.index;
         try it.file_reader.seekTo(offset);
-        const phdr = try it.file_reader.interface.takeStruct(Elf32_Phdr, it.elf_header.endian);
-        return .{
-            .p_type = phdr.p_type,
-            .p_offset = phdr.p_offset,
-            .p_vaddr = phdr.p_vaddr,
-            .p_paddr = phdr.p_paddr,
-            .p_filesz = phdr.p_filesz,
-            .p_memsz = phdr.p_memsz,
-            .p_flags = phdr.p_flags,
-            .p_align = phdr.p_align,
-        };
+
+        return takePhdr(&it.file_reader.interface, it.elf_header);
     }
 };
+
+pub const ProgramHeaderBufferIterator = struct {
+    elf_header: Header,
+    buf: []const u8,
+    index: usize = 0,
+
+    pub fn next(it: *ProgramHeaderBufferIterator) !?Elf64_Phdr {
+        if (it.index >= it.elf_header.phnum) return null;
+        defer it.index += 1;
+
+        const offset = it.elf_header.phoff + if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr) * it.index;
+        var reader = std.Io.Reader.fixed(it.buf[offset..]);
+
+        return takePhdr(&reader, it.elf_header);
+    }
+};
+
+fn takePhdr(reader: *std.io.Reader, elf_header: Header) !?Elf64_Phdr {
+    if (elf_header.is_64) {
+        const phdr = try reader.takeStruct(Elf64_Phdr, elf_header.endian);
+        return phdr;
+    }
+
+    const phdr = try reader.takeStruct(Elf32_Phdr, elf_header.endian);
+    return .{
+        .p_type = phdr.p_type,
+        .p_offset = phdr.p_offset,
+        .p_vaddr = phdr.p_vaddr,
+        .p_paddr = phdr.p_paddr,
+        .p_filesz = phdr.p_filesz,
+        .p_memsz = phdr.p_memsz,
+        .p_flags = phdr.p_flags,
+        .p_align = phdr.p_align,
+    };
+}
 
 pub const SectionHeaderIterator = struct {
     elf_header: Header,
@@ -602,28 +635,49 @@ pub const SectionHeaderIterator = struct {
         if (it.index >= it.elf_header.shnum) return null;
         defer it.index += 1;
 
-        if (it.elf_header.is_64) {
-            try it.file_reader.seekTo(it.elf_header.shoff + @sizeOf(Elf64_Shdr) * it.index);
-            const shdr = try it.file_reader.interface.takeStruct(Elf64_Shdr, it.elf_header.endian);
-            return shdr;
-        }
+        const offset = it.elf_header.shoff + if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr) * it.index;
+        try it.file_reader.seekTo(offset);
 
-        try it.file_reader.seekTo(it.elf_header.shoff + @sizeOf(Elf32_Shdr) * it.index);
-        const shdr = try it.file_reader.interface.takeStruct(Elf32_Shdr, it.elf_header.endian);
-        return .{
-            .sh_name = shdr.sh_name,
-            .sh_type = shdr.sh_type,
-            .sh_flags = shdr.sh_flags,
-            .sh_addr = shdr.sh_addr,
-            .sh_offset = shdr.sh_offset,
-            .sh_size = shdr.sh_size,
-            .sh_link = shdr.sh_link,
-            .sh_info = shdr.sh_info,
-            .sh_addralign = shdr.sh_addralign,
-            .sh_entsize = shdr.sh_entsize,
-        };
+        return takeShdr(&it.file_reader.interface, it.elf_header);
     }
 };
+
+pub const SectionHeaderBufferIterator = struct {
+    elf_header: Header,
+    buf: []const u8,
+    index: usize = 0,
+
+    pub fn next(it: *SectionHeaderBufferIterator) !?Elf64_Shdr {
+        if (it.index >= it.elf_header.shnum) return null;
+        defer it.index += 1;
+
+        const offset = it.elf_header.shoff + if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr) * it.index;
+        var reader = std.Io.Reader.fixed(it.buf[offset..]);
+
+        return takeShdr(&reader, it.elf_header);
+    }
+};
+
+fn takeShdr(reader: *std.Io.Reader, elf_header: Header) !?Elf64_Shdr {
+    if (elf_header.is_64) {
+        const shdr = try reader.takeStruct(Elf64_Shdr, elf_header.endian);
+        return shdr;
+    }
+
+    const shdr = try reader.takeStruct(Elf32_Shdr, elf_header.endian);
+    return .{
+        .sh_name = shdr.sh_name,
+        .sh_type = shdr.sh_type,
+        .sh_flags = shdr.sh_flags,
+        .sh_addr = shdr.sh_addr,
+        .sh_offset = shdr.sh_offset,
+        .sh_size = shdr.sh_size,
+        .sh_link = shdr.sh_link,
+        .sh_info = shdr.sh_info,
+        .sh_addralign = shdr.sh_addralign,
+        .sh_entsize = shdr.sh_entsize,
+    };
+}
 
 pub const ELFCLASSNONE = 0;
 pub const ELFCLASS32 = 1;

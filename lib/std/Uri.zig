@@ -377,7 +377,8 @@ pub fn parse(text: []const u8) ParseError!Uri {
 
 pub const ResolveInPlaceError = ParseError || error{NoSpaceLeft};
 
-/// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
+/// Resolves a URI against a base URI, conforming to
+/// [RFC 3986, Section 5](https://www.rfc-editor.org/rfc/rfc3986#section-5)
 ///
 /// Assumes new location is already copied to the beginning of `aux_buf.*`.
 /// Parses that new location as a URI, and then resolves the path in place.

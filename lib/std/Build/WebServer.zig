@@ -251,48 +251,44 @@ pub fn now(s: *const WebServer) i64 {
 fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
-    var read_buf: [0x4000]u8 = undefined;
-    var server: std.http.Server = .init(connection, &read_buf);
+    var send_buffer: [4096]u8 = undefined;
+    var recv_buffer: [4096]u8 = undefined;
+    var connection_reader = connection.stream.reader(&recv_buffer);
+    var connection_writer = connection.stream.writer(&send_buffer);
+    var server: http.Server = .init(connection_reader.interface(), &connection_writer.interface);
 
     while (true) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
-            else => {
-                log.err("failed to receive http request: {s}", .{@errorName(err)});
-                return;
-            },
+            else => return log.err("failed to receive http request: {t}", .{err}),
         };
-        var ws_send_buf: [0x4000]u8 = undefined;
-        var ws_recv_buf: [0x4000]u8 align(4) = undefined;
-        if (std.http.WebSocket.init(&request, &ws_send_buf, &ws_recv_buf) catch |err| {
-            log.err("failed to initialize websocket connection: {s}", .{@errorName(err)});
-            return;
-        }) |ws_init| {
-            var web_socket = ws_init;
-            ws.serveWebSocket(&web_socket) catch |err| {
-                log.err("failed to serve websocket: {s}", .{@errorName(err)});
-                return;
-            };
-            comptime unreachable;
-        } else {
-            ws.serveRequest(&request) catch |err| switch (err) {
-                error.AlreadyReported => return,
-                else => {
-                    log.err("failed to serve '{s}': {s}", .{ request.head.target, @errorName(err) });
+        switch (request.upgradeRequested()) {
+            .websocket => |opt_key| {
+                const key = opt_key orelse return log.err("missing websocket key", .{});
+                var web_socket = request.respondWebSocket(.{ .key = key }) catch {
+                    return log.err("failed to respond web socket: {t}", .{connection_writer.err.?});
+                };
+                ws.serveWebSocket(&web_socket) catch |err| {
+                    log.err("failed to serve websocket: {t}", .{err});
                     return;
-                },
-            };
+                };
+                comptime unreachable;
+            },
+            .other => |name| return log.err("unknown upgrade request: {s}", .{name}),
+            .none => {
+                ws.serveRequest(&request) catch |err| switch (err) {
+                    error.AlreadyReported => return,
+                    else => {
+                        log.err("failed to serve '{s}': {t}", .{ request.head.target, err });
+                        return;
+                    },
+                };
+            },
         }
     }
 }
 
-fn makeIov(s: []const u8) std.posix.iovec_const {
-    return .{
-        .base = s.ptr,
-        .len = s.len,
-    };
-}
-fn serveWebSocket(ws: *WebServer, sock: *std.http.WebSocket) !noreturn {
+fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
     var prev_build_status = ws.build_status.load(.monotonic);
 
     const prev_step_status_bits = try ws.gpa.alloc(u8, ws.step_status_bits.len);
@@ -312,11 +308,8 @@ fn serveWebSocket(ws: *WebServer, sock: *std.http.WebSocket) !noreturn {
             .timestamp = ws.now(),
             .steps_len = @intCast(ws.all_steps.len),
         };
-        try sock.writeMessagev(&.{
-            makeIov(@ptrCast(&hello_header)),
-            makeIov(ws.step_names_trailing),
-            makeIov(prev_step_status_bits),
-        }, .binary);
+        var bufs: [3][]const u8 = .{ @ptrCast(&hello_header), ws.step_names_trailing, prev_step_status_bits };
+        try sock.writeMessageVec(&bufs, .binary);
     }
 
     var prev_fuzz: Fuzz.Previous = .init;
@@ -380,7 +373,7 @@ fn serveWebSocket(ws: *WebServer, sock: *std.http.WebSocket) !noreturn {
         std.Thread.Futex.timedWait(&ws.update_id, start_update_id, std.time.ns_per_ms * default_update_interval_ms) catch {};
     }
 }
-fn recvWebSocketMessages(ws: *WebServer, sock: *std.http.WebSocket) void {
+fn recvWebSocketMessages(ws: *WebServer, sock: *http.Server.WebSocket) void {
     while (true) {
         const msg = sock.readSmallMessage() catch return;
         if (msg.opcode != .binary) continue;
@@ -402,7 +395,7 @@ fn recvWebSocketMessages(ws: *WebServer, sock: *std.http.WebSocket) void {
     }
 }
 
-fn serveRequest(ws: *WebServer, req: *std.http.Server.Request) !void {
+fn serveRequest(ws: *WebServer, req: *http.Server.Request) !void {
     // Strip an optional leading '/debug' component from the request.
     const target: []const u8, const debug: bool = target: {
         if (mem.eql(u8, req.head.target, "/debug")) break :target .{ "/", true };
@@ -431,7 +424,7 @@ fn serveRequest(ws: *WebServer, req: *std.http.Server.Request) !void {
 
 fn serveLibFile(
     ws: *WebServer,
-    request: *std.http.Server.Request,
+    request: *http.Server.Request,
     sub_path: []const u8,
     content_type: []const u8,
 ) !void {
@@ -442,7 +435,7 @@ fn serveLibFile(
 }
 fn serveClientWasm(
     ws: *WebServer,
-    req: *std.http.Server.Request,
+    req: *http.Server.Request,
     optimize_mode: std.builtin.OptimizeMode,
 ) !void {
     var arena_state: std.heap.ArenaAllocator = .init(ws.gpa);
@@ -456,12 +449,12 @@ fn serveClientWasm(
 
 pub fn serveFile(
     ws: *WebServer,
-    request: *std.http.Server.Request,
+    request: *http.Server.Request,
     path: Cache.Path,
     content_type: []const u8,
 ) !void {
     const gpa = ws.gpa;
-    // The desired API is actually sendfile, which will require enhancing std.http.Server.
+    // The desired API is actually sendfile, which will require enhancing http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
     const file_contents = path.root_dir.handle.readFileAlloc(gpa, path.sub_path, 10 * 1024 * 1024) catch |err| {
@@ -478,14 +471,13 @@ pub fn serveFile(
 }
 pub fn serveTarFile(
     ws: *WebServer,
-    request: *std.http.Server.Request,
+    request: *http.Server.Request,
     paths: []const Cache.Path,
 ) !void {
     const gpa = ws.gpa;
 
-    var send_buf: [0x4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buf,
+    var send_buffer: [0x4000]u8 = undefined;
+    var response = try request.respondStreaming(&send_buffer, .{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "Content-Type", .value = "application/x-tar" },
@@ -497,10 +489,7 @@ pub fn serveTarFile(
     var cached_cwd_path: ?[]const u8 = null;
     defer if (cached_cwd_path) |p| gpa.free(p);
 
-    var response_buf: [1024]u8 = undefined;
-    var adapter = response.writer().adaptToNewApi();
-    adapter.new_interface.buffer = &response_buf;
-    var archiver: std.tar.Writer = .{ .underlying_writer = &adapter.new_interface };
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response.writer };
 
     for (paths) |path| {
         var file = path.root_dir.handle.openFile(path.sub_path, .{}) catch |err| {
@@ -526,7 +515,6 @@ pub fn serveTarFile(
     }
 
     // intentionally not calling `archiver.finishPedantically`
-    try adapter.new_interface.flush();
     try response.end();
 }
 
@@ -804,7 +792,7 @@ pub fn wait(ws: *WebServer) RunnerRequest {
     }
 }
 
-const cache_control_header: std.http.Header = .{
+const cache_control_header: http.Header = .{
     .name = "Cache-Control",
     .value = "max-age=0, must-revalidate",
 };
@@ -819,5 +807,6 @@ const Build = std.Build;
 const Cache = Build.Cache;
 const Fuzz = Build.Fuzz;
 const abi = Build.abi;
+const http = std.http;
 
 const WebServer = @This();

@@ -2103,6 +2103,8 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .local_zir_cache = local_zir_cache,
                 .error_limit = error_limit,
                 .llvm_object = null,
+                .analysis_roots_buffer = undefined,
+                .analysis_roots_len = 0,
             };
             try zcu.init(options.thread_pool.getIdCount());
             break :blk zcu;
@@ -2183,8 +2185,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
 
-        comp.windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
-        errdefer comp.windows_libs.deinit(gpa);
+        errdefer {
+            for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
+            comp.windows_libs.deinit(gpa);
+        }
+        try comp.windows_libs.ensureUnusedCapacity(gpa, options.windows_lib_names.len);
+        for (options.windows_lib_names) |windows_lib| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, windows_lib), {});
 
         // Prevent some footguns by making the "any" fields of config reflect
         // the default Module settings.
@@ -2378,7 +2384,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
-    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.c_object_table.count());
 
     // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     const win32_resource_count =
@@ -2386,10 +2391,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     if (win32_resource_count > 0) {
         dev.check(.win32_resource);
         try comp.win32_resource_table.ensureTotalCapacity(gpa, win32_resource_count);
-        // Add this after adding logic to updateWin32Resource to pass the
-        // result into link.loadInput. loadInput integration is not implemented
-        // for Windows linking logic yet.
-        //comp.link_task_queue.pending_prelink_tasks += @intCast(win32_resource_count);
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -2415,13 +2416,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
     if (comp.emit_bin != null and target.ofmt != .c) {
         if (!comp.skip_linker_dependencies) {
-            // These DLLs are always loaded into every Windows process.
-            if (target.os.tag == .windows and is_exe_or_dyn_lib) {
-                try comp.windows_libs.ensureUnusedCapacity(gpa, 2);
-                comp.windows_libs.putAssumeCapacity("kernel32", {});
-                comp.windows_libs.putAssumeCapacity("ntdll", {});
-            }
-
             // If we need to build libc for the target, add work items for it.
             // We go through the work queue so that building can be done in parallel.
             // If linking against host libc installation, instead queue up jobs
@@ -2455,62 +2449,51 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
                         comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     switch (comp.config.link_mode) {
                         .static => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_a)] = true,
                         .dynamic => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_so)] = true,
                     }
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isGnuLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isFreeBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (freebsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.freebsd_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.freebsd_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += freebsd.sharedObjectsCount();
                 } else if (target.isNetBSDLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     if (netbsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.netbsd_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.netbsd_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += netbsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.execModelCrtFile(comp.config.wasi_exec_model))] = true;
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.CrtFile.libc_a)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 2;
                 } else if (target.isMinGW()) {
                     if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, name), {});
                 } else {
                     return error.LibCUnavailable;
                 }
@@ -2520,7 +2503,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     target.isMinGW())
                 {
                     comp.queued_jobs.zigc_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
 
@@ -2537,50 +2519,41 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             }
             if (comp.wantBuildLibUnwindFromSource()) {
                 comp.queued_jobs.libunwind = true;
-                comp.link_task_queue.pending_prelink_tasks += 1;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
                 comp.queued_jobs.libcxx = true;
                 comp.queued_jobs.libcxxabi = true;
-                comp.link_task_queue.pending_prelink_tasks += 2;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
                 comp.queued_jobs.libtsan = true;
-                comp.link_task_queue.pending_prelink_tasks += 1;
             }
 
             if (can_build_compiler_rt) {
                 if (comp.compiler_rt_strat == .lib) {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.compiler_rt_strat == .obj) {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
                     // In this case we are making a static library, so we ask
                     // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.compiler_rt_strat == .dyn_lib) {
                     // hack for stage2_x86_64 + coff
                     log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
                     comp.queued_jobs.compiler_rt_dyn_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (comp.ubsan_rt_strat == .lib) {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
                     comp.queued_jobs.ubsan_rt_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (comp.ubsan_rt_strat == .obj) {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
 
                 if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
                     log.debug("queuing a job to build libfuzzer", .{});
                     comp.queued_jobs.fuzzer_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
         }
@@ -2588,8 +2561,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         try comp.link_task_queue.queued_prelink.append(gpa, .load_explicitly_provided);
     }
     log.debug("queued prelink tasks: {d}", .{comp.link_task_queue.queued_prelink.items.len});
-    log.debug("pending prelink tasks: {d}", .{comp.link_task_queue.pending_prelink_tasks});
-
     return comp;
 }
 
@@ -2608,6 +2579,7 @@ pub fn destroy(comp: *Compilation) void {
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
+    for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
 
     {
@@ -2933,22 +2905,26 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             try comp.appendFileSystemInput(embed_file.path);
         }
 
-        zcu.analysis_roots.clear();
+        zcu.analysis_roots_len = 0;
 
-        zcu.analysis_roots.appendAssumeCapacity(zcu.std_mod);
+        zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.std_mod;
+        zcu.analysis_roots_len += 1;
 
         // Normally we rely on importing std to in turn import the root source file in the start code.
         // However, the main module is distinct from the root module in tests, so that won't happen there.
         if (comp.config.is_test and zcu.main_mod != zcu.std_mod) {
-            zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.main_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = compiler_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(ubsan_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = ubsan_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
     }
 
@@ -4404,10 +4380,8 @@ fn performAllTheWork(
     comp.link_task_wait_group.reset();
     defer comp.link_task_wait_group.wait();
 
-    comp.link_prog_node.increaseEstimatedTotalItems(
-        comp.link_task_queue.queued_prelink.items.len + // already queued prelink tasks
-            comp.link_task_queue.pending_prelink_tasks, // prelink tasks which will be queued
-    );
+    // Already-queued prelink tasks
+    comp.link_prog_node.increaseEstimatedTotalItems(comp.link_task_queue.queued_prelink.items.len);
     comp.link_task_queue.start(comp);
 
     if (comp.emit_docs != null) {
@@ -4423,6 +4397,7 @@ fn performAllTheWork(
         // compiler-rt due to LLD bugs as well, e.g.:
         //
         // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4440,6 +4415,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4458,6 +4434,7 @@ fn performAllTheWork(
 
     // hack for stage2_x86_64 + coff
     if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4475,6 +4452,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "fuzzer.zig",
@@ -4489,6 +4467,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "ubsan_rt.zig",
@@ -4505,6 +4484,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "ubsan_rt.zig",
@@ -4521,40 +4501,49 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.freebsd_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildFreeBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.netbsd_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildNetBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libunwind) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxx) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibCxx, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxxabi) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibCxxAbi, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libtsan) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.zigc_lib and comp.zigc_static_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibZigC, .{ comp, main_progress_node });
     }
 
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.musl_crt_file[i]) {
             const tag: musl.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4562,6 +4551,7 @@ fn performAllTheWork(
     for (0..@typeInfo(glibc.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.glibc_crt_file[i]) {
             const tag: glibc.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4569,6 +4559,7 @@ fn performAllTheWork(
     for (0..@typeInfo(freebsd.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.freebsd_crt_file[i]) {
             const tag: freebsd.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4576,6 +4567,7 @@ fn performAllTheWork(
     for (0..@typeInfo(netbsd.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.netbsd_crt_file[i]) {
             const tag: netbsd.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildNetBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4583,6 +4575,7 @@ fn performAllTheWork(
     for (0..@typeInfo(wasi_libc.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.wasi_libc_crt_file[i]) {
             const tag: wasi_libc.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4590,6 +4583,7 @@ fn performAllTheWork(
     for (0..@typeInfo(mingw.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.mingw_crt_file[i]) {
             const tag: mingw.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildMingwCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4661,12 +4655,14 @@ fn performAllTheWork(
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
+            comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
+            comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
@@ -4745,7 +4741,7 @@ fn performAllTheWork(
         try zcu.flushRetryableFailures();
 
         // It's analysis time! Queue up our initial analysis.
-        for (zcu.analysis_roots.slice()) |mod| {
+        for (zcu.analysisRoots()) |mod| {
             try comp.queueJob(.{ .analyze_mod = mod });
         }
 
@@ -4769,15 +4765,14 @@ fn performAllTheWork(
         }
     };
 
+    // We aren't going to queue any more prelink tasks.
+    comp.link_task_queue.finishPrelinkItem(comp);
+
     if (!comp.separateCodegenThreadOk()) {
         // Waits until all input files have been parsed.
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
-        if (comp.link_task_queue.pending_prelink_tasks > 0) {
-            // Indicates an error occurred preventing prelink phase from completing.
-            return;
-        }
     }
 
     if (comp.zcu != null) {
@@ -5564,6 +5559,7 @@ fn workerUpdateCObject(
     c_object: *CObject,
     progress_node: std.Progress.Node,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -5581,6 +5577,7 @@ fn workerUpdateWin32Resource(
     win32_resource: *Win32Resource,
     progress_node: std.Progress.Node,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.updateWin32Resource(win32_resource, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -5624,6 +5621,7 @@ fn buildRt(
     options: RtOptions,
     out: *?CrtFile,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.buildOutputFromZig(
         root_source_name,
         root_name,
@@ -5642,6 +5640,7 @@ fn buildRt(
 }
 
 fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (musl.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.musl_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5653,6 +5652,7 @@ fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.P
 }
 
 fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (glibc.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.glibc_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5664,6 +5664,7 @@ fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std
 }
 
 fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (glibc.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.glibc_shared_objects = false;
@@ -5676,6 +5677,7 @@ fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) voi
 }
 
 fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (freebsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.freebsd_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5687,6 +5689,7 @@ fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node:
 }
 
 fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (freebsd.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.freebsd_shared_objects = false;
@@ -5699,6 +5702,7 @@ fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) v
 }
 
 fn buildNetBSDCrtFile(comp: *Compilation, crt_file: netbsd.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (netbsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.netbsd_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5710,6 +5714,7 @@ fn buildNetBSDCrtFile(comp: *Compilation, crt_file: netbsd.CrtFile, prog_node: s
 }
 
 fn buildNetBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (netbsd.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.netbsd_shared_objects = false;
@@ -5722,6 +5727,7 @@ fn buildNetBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) vo
 }
 
 fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (mingw.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.mingw_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5733,6 +5739,7 @@ fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std
 }
 
 fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (wasi_libc.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
@@ -5744,6 +5751,7 @@ fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_no
 }
 
 fn buildLibUnwind(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libunwind.buildStaticLib(comp, prog_node)) |_| {
         comp.queued_jobs.libunwind = false;
     } else |err| switch (err) {
@@ -5753,6 +5761,7 @@ fn buildLibUnwind(comp: *Compilation, prog_node: std.Progress.Node) void {
 }
 
 fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libcxx.buildLibCxx(comp, prog_node)) |_| {
         comp.queued_jobs.libcxx = false;
     } else |err| switch (err) {
@@ -5762,6 +5771,7 @@ fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) void {
 }
 
 fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libcxx.buildLibCxxAbi(comp, prog_node)) |_| {
         comp.queued_jobs.libcxxabi = false;
     } else |err| switch (err) {
@@ -5771,6 +5781,7 @@ fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) void {
 }
 
 fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libtsan.buildTsan(comp, prog_node)) |_| {
         comp.queued_jobs.libtsan = false;
     } else |err| switch (err) {
@@ -5780,6 +5791,7 @@ fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
 }
 
 fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.buildOutputFromZig(
         "c.zig",
         "zigc",
@@ -7717,6 +7729,7 @@ pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
 pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) void {
+    comp.link_prog_node.increaseEstimatedTotalItems(tasks.len);
     comp.link_task_queue.enqueuePrelink(comp, tasks) catch |err| switch (err) {
         error.OutOfMemory => return comp.setAllocFailure(),
     };
@@ -7787,6 +7800,27 @@ fn getCrtPathsInner(
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
         .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
+}
+
+pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
+    // Avoid deadlocking on building import libs such as kernel32.lib
+    // This can happen when the user uses `build-exe foo.obj -lkernel32` and
+    // then when we create a sub-Compilation for zig libc, it also tries to
+    // build kernel32.lib.
+    if (comp.skip_linker_dependencies) return;
+    const target = &comp.root_mod.resolved_target.result;
+    if (target.os.tag != .windows or target.ofmt == .c) return;
+
+    // This happens when an `extern "foo"` function is referenced.
+    // If we haven't seen this library yet and we're targeting Windows, we need
+    // to queue up a work item to produce the DLL import library for this.
+    const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
+    if (gop.found_existing) return;
+    {
+        errdefer _ = comp.windows_libs.pop();
+        gop.key_ptr.* = try comp.gpa.dupe(u8, lib_name);
+    }
+    try comp.queueJob(.{ .windows_import_lib = gop.index });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including

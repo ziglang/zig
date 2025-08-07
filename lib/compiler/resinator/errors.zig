@@ -1112,7 +1112,7 @@ const CorrespondingLines = struct {
 
         try corresponding_lines.writeLineFromStreamVerbatim(
             writer,
-            corresponding_lines.buffered_reader.reader(),
+            corresponding_lines.buffered_reader.interface.adaptToOldInterface(),
             corresponding_span.start_line,
         );
 
@@ -1155,7 +1155,7 @@ const CorrespondingLines = struct {
 
         try self.writeLineFromStreamVerbatim(
             writer,
-            self.buffered_reader.reader(),
+            self.buffered_reader.interface.adaptToOldInterface(),
             self.line_num,
         );
 

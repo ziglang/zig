@@ -373,7 +373,7 @@ fn streamInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader
                 d.state = .{ .stored_block = @intCast(remaining_len - n) };
             }
             w.advance(n);
-            return n;
+            return @intFromEnum(limit) - remaining + n;
         },
         .fixed_block => {
             while (remaining > 0) {
@@ -603,7 +603,7 @@ fn tossBitsEnding(d: *Decompress, n: u4) !void {
         error.EndOfStream => unreachable,
     };
     d.next_bits = next_int >> needed_bits;
-    d.remaining_bits = @intCast(@as(usize, n) * 8 -| @as(usize, needed_bits));
+    d.remaining_bits = @intCast(@as(usize, buffered_n) * 8 -| @as(usize, needed_bits));
 }
 
 fn takeBitsRuntime(d: *Decompress, n: u4) !u16 {
@@ -1265,6 +1265,7 @@ fn testDecompress(container: Container, compressed: []const u8, expected_plain: 
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, container, &.{});
-    _ = try decompress.reader.streamRemaining(&aw.writer);
+    const decompressed_len = try decompress.reader.streamRemaining(&aw.writer);
+    try testing.expectEqual(expected_plain.len, decompressed_len);
     try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
 }

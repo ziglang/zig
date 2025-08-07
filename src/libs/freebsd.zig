@@ -977,10 +977,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 }
 
-pub fn sharedObjectsCount() u8 {
-    return libs.len;
-}
-
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;

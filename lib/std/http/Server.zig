@@ -6,7 +6,8 @@ const mem = std.mem;
 const Uri = std.Uri;
 const assert = std.debug.assert;
 const testing = std.testing;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 const Server = @This();
 
@@ -21,7 +22,7 @@ reader: http.Reader,
 /// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
 ///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(in: *std.io.Reader, out: *Writer) Server {
+pub fn init(in: *Reader, out: *Writer) Server {
     return .{
         .reader = .{
             .in = in,
@@ -33,33 +34,31 @@ pub fn init(in: *std.io.Reader, out: *Writer) Server {
     };
 }
 
-pub fn deinit(s: *Server) void {
-    s.reader.restituteHeadBuffer();
-}
-
 pub const ReceiveHeadError = http.Reader.HeadError || error{
     /// Client sent headers that did not conform to the HTTP protocol.
     ///
-    /// To find out more detailed diagnostics, `http.Reader.head_buffer` can be
+    /// To find out more detailed diagnostics, `Request.head_buffer` can be
     /// passed directly to `Request.Head.parse`.
     HttpHeadersInvalid,
 };
 
 pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
-    try s.reader.receiveHead();
+    const head_buffer = try s.reader.receiveHead();
     return .{
         .server = s,
+        .head_buffer = head_buffer,
         // No need to track the returned error here since users can repeat the
         // parse with the header buffer to get detailed diagnostics.
-        .head = Request.Head.parse(s.reader.head_buffer) catch return error.HttpHeadersInvalid,
+        .head = Request.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
     };
 }
 
 pub const Request = struct {
     server: *Server,
-    /// Pointers in this struct are invalidated with the next call to
-    /// `receiveHead`.
+    /// Pointers in this struct are invalidated when the request body stream is
+    /// initialized.
     head: Head,
+    head_buffer: []const u8,
     respond_err: ?RespondError = null,
 
     pub const RespondError = error{
@@ -98,10 +97,9 @@ pub const Request = struct {
 
             const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;
-            if (method_end > 24) return error.HttpHeadersInvalid;
 
-            const method_str = first_line[0..method_end];
-            const method: http.Method = @enumFromInt(http.Method.parse(method_str));
+            const method = std.meta.stringToEnum(http.Method, first_line[0..method_end]) orelse
+                return error.UnknownHttpMethod;
 
             const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;
@@ -225,11 +223,19 @@ pub const Request = struct {
         inline fn int64(array: *const [8]u8) u64 {
             return @bitCast(array.*);
         }
+
+        /// Help the programmer avoid bugs by calling this when the string
+        /// memory of `Head` becomes invalidated.
+        fn invalidateStrings(h: *Head) void {
+            h.target = undefined;
+            if (h.expect) |*s| s.* = undefined;
+            if (h.content_type) |*s| s.* = undefined;
+        }
     };
 
-    pub fn iterateHeaders(r: *Request) http.HeaderIterator {
+    pub fn iterateHeaders(r: *const Request) http.HeaderIterator {
         assert(r.server.reader.state == .received_head);
-        return http.HeaderIterator.init(r.server.reader.head_buffer);
+        return http.HeaderIterator.init(r.head_buffer);
     }
 
     test iterateHeaders {
@@ -244,7 +250,6 @@ pub const Request = struct {
             .reader = .{
                 .in = undefined,
                 .state = .received_head,
-                .head_buffer = @constCast(request_bytes),
                 .interface = undefined,
             },
             .out = undefined,
@@ -253,6 +258,7 @@ pub const Request = struct {
         var request: Request = .{
             .server = &server,
             .head = undefined,
+            .head_buffer = @constCast(request_bytes),
         };
 
         var it = request.iterateHeaders();
@@ -435,10 +441,8 @@ pub const Request = struct {
 
         for (o.extra_headers) |header| {
             assert(header.name.len != 0);
-            try out.writeAll(header.name);
-            try out.writeAll(": ");
-            try out.writeAll(header.value);
-            try out.writeAll("\r\n");
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
         }
 
         try out.writeAll("\r\n");
@@ -453,7 +457,13 @@ pub const Request = struct {
         return if (elide_body) .{
             .http_protocol_output = request.server.out,
             .state = state,
-            .writer = .discarding(buffer),
+            .writer = .{
+                .buffer = buffer,
+                .vtable = &.{
+                    .drain = http.BodyWriter.elidingDrain,
+                    .sendFile = http.BodyWriter.elidingSendFile,
+                },
+            },
         } else .{
             .http_protocol_output = request.server.out,
             .state = state,
@@ -484,10 +494,11 @@ pub const Request = struct {
         none,
     };
 
+    /// Does not invalidate `request.head`.
     pub fn upgradeRequested(request: *const Request) UpgradeRequest {
         switch (request.head.version) {
-            .@"HTTP/1.0" => return null,
-            .@"HTTP/1.1" => if (request.head.method != .GET) return null,
+            .@"HTTP/1.0" => return .none,
+            .@"HTTP/1.1" => if (request.head.method != .GET) return .none,
         }
 
         var sec_websocket_key: ?[]const u8 = null;
@@ -515,7 +526,7 @@ pub const Request = struct {
 
     /// The header is not guaranteed to be sent until `WebSocket.flush` is
     /// called on the returned struct.
-    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) Writer.Error!WebSocket {
+    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) ExpectContinueError!WebSocket {
         if (request.head.expect != null) return error.HttpExpectationFailed;
 
         const out = request.server.out;
@@ -534,16 +545,14 @@ pub const Request = struct {
         try out.print("{s} {d} {s}\r\n", .{ @tagName(version), @intFromEnum(status), phrase });
         try out.writeAll("connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: ");
         const base64_digest = try out.writableArray(28);
-        assert(std.base64.standard.Encoder.encode(&base64_digest, &digest).len == base64_digest.len);
+        assert(std.base64.standard.Encoder.encode(base64_digest, &digest).len == base64_digest.len);
         out.advance(base64_digest.len);
         try out.writeAll("\r\n");
 
         for (options.extra_headers) |header| {
             assert(header.name.len != 0);
-            try out.writeAll(header.name);
-            try out.writeAll(": ");
-            try out.writeAll(header.value);
-            try out.writeAll("\r\n");
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
         }
 
         try out.writeAll("\r\n");
@@ -564,7 +573,7 @@ pub const Request = struct {
     ///
     /// See `readerExpectNone` for an infallible alternative that cannot write
     /// to the server output stream.
-    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*std.io.Reader {
+    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*Reader {
         const flush = request.head.expect != null;
         try writeExpectContinue(request);
         if (flush) try request.server.out.flush();
@@ -576,9 +585,12 @@ pub const Request = struct {
     /// this function.
     ///
     /// Asserts that this function is only called once.
-    pub fn readerExpectNone(request: *Request, buffer: []u8) *std.io.Reader {
+    ///
+    /// Invalidates the string memory inside `Head`.
+    pub fn readerExpectNone(request: *Request, buffer: []u8) *Reader {
         assert(request.server.reader.state == .received_head);
         assert(request.head.expect == null);
+        request.head.invalidateStrings();
         if (!request.head.method.requestHasBody()) return .ending;
         return request.server.reader.bodyReader(buffer, request.head.transfer_encoding, request.head.content_length);
     }
@@ -640,7 +652,7 @@ pub const Request = struct {
 /// See https://tools.ietf.org/html/rfc6455
 pub const WebSocket = struct {
     key: []const u8,
-    input: *std.io.Reader,
+    input: *Reader,
     output: *Writer,
 
     pub const Header0 = packed struct(u8) {
@@ -677,6 +689,8 @@ pub const WebSocket = struct {
         UnexpectedOpCode,
         MessageTooBig,
         MissingMaskBit,
+        ReadFailed,
+        EndOfStream,
     };
 
     pub const SmallMessage = struct {
@@ -691,8 +705,9 @@ pub const WebSocket = struct {
     pub fn readSmallMessage(ws: *WebSocket) ReadSmallTextMessageError!SmallMessage {
         const in = ws.input;
         while (true) {
-            const h0 = in.takeStruct(Header0);
-            const h1 = in.takeStruct(Header1);
+            const header = try in.takeArray(2);
+            const h0: Header0 = @bitCast(header[0]);
+            const h1: Header1 = @bitCast(header[1]);
 
             switch (h0.opcode) {
                 .text, .binary, .pong, .ping => {},
@@ -732,47 +747,49 @@ pub const WebSocket = struct {
     }
 
     pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
-        try writeMessageVecUnflushed(ws, &.{data}, op);
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
         try ws.output.flush();
     }
 
     pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
-        try writeMessageVecUnflushed(ws, &.{data}, op);
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
     }
 
-    pub fn writeMessageVec(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
+    pub fn writeMessageVec(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
         try writeMessageVecUnflushed(ws, data, op);
         try ws.output.flush();
     }
 
-    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: []const []const u8, op: Opcode) Writer.Error!void {
+    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
         const total_len = l: {
             var total_len: u64 = 0;
             for (data) |iovec| total_len += iovec.len;
             break :l total_len;
         };
         const out = ws.output;
-        try out.writeStruct(@as(Header0, .{
+        try out.writeByte(@bitCast(@as(Header0, .{
             .opcode = op,
             .fin = true,
-        }));
+        })));
         switch (total_len) {
-            0...125 => try out.writeStruct(@as(Header1, .{
+            0...125 => try out.writeByte(@bitCast(@as(Header1, .{
                 .payload_len = @enumFromInt(total_len),
                 .mask = false,
-            })),
+            }))),
             126...0xffff => {
-                try out.writeStruct(@as(Header1, .{
+                try out.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len16,
                     .mask = false,
-                }));
+                })));
                 try out.writeInt(u16, @intCast(total_len), .big);
             },
             else => {
-                try out.writeStruct(@as(Header1, .{
+                try out.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len64,
                     .mask = false,
-                }));
+                })));
                 try out.writeInt(u64, total_len, .big);
             },
         }

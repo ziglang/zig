@@ -42,7 +42,7 @@ connection_pool: ConnectionPool = .{},
 ///
 /// If the entire HTTP header cannot fit in this amount of bytes,
 /// `error.HttpHeadersOversize` will be returned from `Request.wait`.
-read_buffer_size: usize = 4096,
+read_buffer_size: usize = 4096 + if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
 /// Each `Connection` allocates this amount for the writer buffer.
 write_buffer_size: usize = 1024,
 
@@ -82,7 +82,7 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.last;
         while (next) |node| : (next = node.prev) {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             if (connection.protocol != criteria.protocol) continue;
             if (connection.port != criteria.port) continue;
 
@@ -115,8 +115,6 @@ pub const ConnectionPool = struct {
     /// Tries to release a connection back to the connection pool.
     /// If the connection is marked as closing, it will be closed instead.
     ///
-    /// `allocator` must be the same one used to create `connection`.
-    ///
     /// Threadsafe.
     pub fn release(pool: *ConnectionPool, connection: *Connection) void {
         pool.mutex.lock();
@@ -127,7 +125,7 @@ pub const ConnectionPool = struct {
         if (connection.closing or pool.free_size == 0) return connection.destroy();
 
         if (pool.free_len >= pool.free_size) {
-            const popped: *Connection = @fieldParentPtr("pool_node", pool.free.popFirst().?);
+            const popped: *Connection = @alignCast(@fieldParentPtr("pool_node", pool.free.popFirst().?));
             pool.free_len -= 1;
 
             popped.destroy();
@@ -183,14 +181,14 @@ pub const ConnectionPool = struct {
 
         var next = pool.free.first;
         while (next) |node| {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
             connection.destroy();
         }
 
         next = pool.used.first;
         while (next) |node| {
-            const connection: *Connection = @fieldParentPtr("pool_node", node);
+            const connection: *Connection = @alignCast(@fieldParentPtr("pool_node", node));
             next = node.next;
             connection.destroy();
         }
@@ -306,15 +304,16 @@ pub const Connection = struct {
             const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
             const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.tls_buffer_size];
             const tls_write_buffer = tls_read_buffer.ptr[tls_read_buffer.len..][0..client.tls_buffer_size];
-            const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
-            assert(base.ptr + alloc_len == socket_write_buffer.ptr + socket_write_buffer.len);
+            const write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
+            const read_buffer = write_buffer.ptr[write_buffer.len..][0..client.read_buffer_size];
+            assert(base.ptr + alloc_len == read_buffer.ptr + read_buffer.len);
             @memcpy(host_buffer, remote_host);
             const tls: *Tls = @ptrCast(base);
             tls.* = .{
                 .connection = .{
                     .client = client,
-                    .stream_writer = stream.writer(socket_write_buffer),
-                    .stream_reader = stream.reader(&.{}),
+                    .stream_writer = stream.writer(tls_write_buffer),
+                    .stream_reader = stream.reader(tls_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -330,8 +329,8 @@ pub const Connection = struct {
                         .host = .{ .explicit = remote_host },
                         .ca = .{ .bundle = client.ca_bundle },
                         .ssl_key_log = client.ssl_key_log,
-                        .read_buffer = tls_read_buffer,
-                        .write_buffer = tls_write_buffer,
+                        .read_buffer = read_buffer,
+                        .write_buffer = write_buffer,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -349,7 +348,8 @@ pub const Connection = struct {
         }
 
         fn allocLen(client: *Client, host_len: usize) usize {
-            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size + client.write_buffer_size;
+            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size +
+                client.write_buffer_size + client.read_buffer_size;
         }
 
         fn host(tls: *Tls) []u8 {
@@ -357,6 +357,21 @@ pub const Connection = struct {
             return base[@sizeOf(Tls)..][0..tls.connection.host_len];
         }
     };
+
+    pub const ReadError = std.crypto.tls.Client.ReadError || std.net.Stream.ReadError;
+
+    pub fn getReadError(c: *const Connection) ?ReadError {
+        return switch (c.protocol) {
+            .tls => {
+                if (disable_tls) unreachable;
+                const tls: *const Tls = @alignCast(@fieldParentPtr("connection", c));
+                return tls.client.read_err orelse c.stream_reader.getError();
+            },
+            .plain => {
+                return c.stream_reader.getError();
+            },
+        };
+    }
 
     fn getStream(c: *Connection) net.Stream {
         return c.stream_reader.getStream();
@@ -366,11 +381,11 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return tls.host();
             },
             .plain => {
-                const plain: *Plain = @fieldParentPtr("connection", c);
+                const plain: *Plain = @alignCast(@fieldParentPtr("connection", c));
                 return plain.host();
             },
         };
@@ -383,11 +398,11 @@ pub const Connection = struct {
         switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 tls.destroy();
             },
             .plain => {
-                const plain: *Plain = @fieldParentPtr("connection", c);
+                const plain: *Plain = @alignCast(@fieldParentPtr("connection", c));
                 plain.destroy();
             },
         }
@@ -399,7 +414,7 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return &tls.client.writer;
             },
             .plain => &c.stream_writer.interface,
@@ -412,7 +427,7 @@ pub const Connection = struct {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
-                const tls: *Tls = @fieldParentPtr("connection", c);
+                const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
                 return &tls.client.reader;
             },
             .plain => c.stream_reader.interface(),
@@ -422,7 +437,7 @@ pub const Connection = struct {
     pub fn flush(c: *Connection) Writer.Error!void {
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
-            const tls: *Tls = @fieldParentPtr("connection", c);
+            const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
             try tls.client.writer.flush();
         }
         try c.stream_writer.interface.flush();
@@ -434,9 +449,8 @@ pub const Connection = struct {
     pub fn end(c: *Connection) Writer.Error!void {
         if (c.protocol == .tls) {
             if (disable_tls) unreachable;
-            const tls: *Tls = @fieldParentPtr("connection", c);
+            const tls: *Tls = @alignCast(@fieldParentPtr("connection", c));
             try tls.client.end();
-            try tls.client.writer.flush();
         }
         try c.stream_writer.interface.flush();
     }
@@ -444,8 +458,8 @@ pub const Connection = struct {
 
 pub const Response = struct {
     request: *Request,
-    /// Pointers in this struct are invalidated with the next call to
-    /// `receiveHead`.
+    /// Pointers in this struct are invalidated when the response body stream
+    /// is initialized.
     head: Head,
 
     pub const Head = struct {
@@ -484,10 +498,8 @@ pub const Response = struct {
             };
             var it = mem.splitSequence(u8, bytes, "\r\n");
 
-            const first_line = it.next().?;
-            if (first_line.len < 12) {
-                return error.HttpHeadersInvalid;
-            }
+            const first_line = it.first();
+            if (first_line.len < 12) return error.HttpHeadersInvalid;
 
             const version: http.Version = switch (int64(first_line[0..8])) {
                 int64("HTTP/1.0") => .@"HTTP/1.0",
@@ -671,6 +683,16 @@ pub const Response = struct {
             try expectEqual(@as(u10, 418), parseInt3("418"));
             try expectEqual(@as(u10, 999), parseInt3("999"));
         }
+
+        /// Help the programmer avoid bugs by calling this when the string
+        /// memory of `Head` becomes invalidated.
+        fn invalidateStrings(h: *Head) void {
+            h.bytes = undefined;
+            h.reason = undefined;
+            if (h.location) |*s| s.* = undefined;
+            if (h.content_type) |*s| s.* = undefined;
+            if (h.content_disposition) |*s| s.* = undefined;
+        }
     };
 
     /// If compressed body has been negotiated this will return compressed bytes.
@@ -683,6 +705,7 @@ pub const Response = struct {
     /// See also:
     /// * `readerDecompressing`
     pub fn reader(response: *Response, buffer: []u8) *Reader {
+        response.head.invalidateStrings();
         const req = response.request;
         if (!req.method.responseHasBody()) return .ending;
         const head = &response.head;
@@ -703,6 +726,7 @@ pub const Response = struct {
         decompressor: *http.Decompressor,
         decompression_buffer: []u8,
     ) *Reader {
+        response.head.invalidateStrings();
         const head = &response.head;
         return response.request.reader.bodyReaderDecompressing(
             head.transfer_encoding,
@@ -805,6 +829,11 @@ pub const Request = struct {
         unhandled = std.math.maxInt(u16),
         _,
 
+        pub fn init(n: u16) RedirectBehavior {
+            assert(n != std.math.maxInt(u16));
+            return @enumFromInt(n);
+        }
+
         pub fn subtractOne(rb: *RedirectBehavior) void {
             switch (rb.*) {
                 .not_allowed => unreachable,
@@ -821,7 +850,6 @@ pub const Request = struct {
 
     /// Returns the request's `Connection` back to the pool of the `Client`.
     pub fn deinit(r: *Request) void {
-        r.reader.restituteHeadBuffer();
         if (r.connection) |connection| {
             connection.closing = connection.closing or switch (r.reader.state) {
                 .ready => false,
@@ -854,6 +882,15 @@ pub const Request = struct {
         const result = try sendBodyUnflushed(r, buffer);
         try r.connection.?.flush();
         return result;
+    }
+
+    /// Transfers the HTTP head and body over the connection and flushes.
+    pub fn sendBodyComplete(r: *Request, body: []u8) Writer.Error!void {
+        r.transfer_encoding = .{ .content_length = body.len };
+        var bw = try sendBodyUnflushed(r, body);
+        bw.writer.end = body.len;
+        try bw.end();
+        try r.connection.?.flush();
     }
 
     /// Transfers the HTTP head over the connection, which is not flushed until
@@ -908,13 +945,13 @@ pub const Request = struct {
         const connection = r.connection.?;
         const w = connection.writer();
 
-        try r.method.write(w);
+        try w.writeAll(@tagName(r.method));
         try w.writeByte(' ');
 
         if (r.method == .CONNECT) {
-            try uri.writeToStream(.{ .authority = true }, w);
+            try uri.writeToStream(w, .{ .authority = true });
         } else {
-            try uri.writeToStream(.{
+            try uri.writeToStream(w, .{
                 .scheme = connection.proxied,
                 .authentication = connection.proxied,
                 .authority = connection.proxied,
@@ -928,7 +965,7 @@ pub const Request = struct {
 
         if (try emitOverridableHeader("host: ", r.headers.host, w)) {
             try w.writeAll("host: ");
-            try uri.writeToStream(.{ .authority = true }, w);
+            try uri.writeToStream(w, .{ .authority = true });
             try w.writeAll("\r\n");
         }
 
@@ -1043,13 +1080,16 @@ pub const Request = struct {
     /// buffer capacity would be exceeded, `error.HttpRedirectLocationOversize`
     /// is returned instead. This buffer may be empty if no redirects are to be
     /// handled.
+    ///
+    /// If this fails with `error.ReadFailed` then the `Connection.getReadError`
+    /// method of `r.connection` can be used to get more detailed information.
     pub fn receiveHead(r: *Request, redirect_buffer: []u8) ReceiveHeadError!Response {
         var aux_buf = redirect_buffer;
         while (true) {
-            try r.reader.receiveHead();
+            const head_buffer = try r.reader.receiveHead();
             const response: Response = .{
                 .request = r,
-                .head = Response.Head.parse(r.reader.head_buffer) catch return error.HttpHeadersInvalid,
+                .head = Response.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
             };
             const head = &response.head;
 
@@ -1121,7 +1161,6 @@ pub const Request = struct {
             _ = reader.discardRemaining() catch |err| switch (err) {
                 error.ReadFailed => return r.reader.body_err.?,
             };
-            r.reader.restituteHeadBuffer();
         }
         const new_uri = r.uri.resolveInPlace(location.len, aux_buf) catch |err| switch (err) {
             error.UnexpectedCharacter => return error.HttpRedirectLocationInvalid,
@@ -1298,16 +1337,17 @@ pub const basic_authorization = struct {
     pub fn value(uri: Uri, out: []u8) []u8 {
         var bw: Writer = .fixed(out);
         write(uri, &bw) catch unreachable;
-        return bw.getWritten();
+        return bw.buffered();
     }
 
     pub fn write(uri: Uri, out: *Writer) Writer.Error!void {
-        var buf: [max_user_len + ":".len + max_password_len]u8 = undefined;
+        var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
-        w.print("{fuser}:{fpassword}", .{
-            uri.user orelse Uri.Component.empty,
-            uri.password orelse Uri.Component.empty,
-        }) catch unreachable;
+        const user: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.user orelse .empty;
+        user.formatUser(&w) catch unreachable;
+        w.writeByte(':') catch unreachable;
+        password.formatPassword(&w) catch unreachable;
         try out.print("Basic {b64}", .{w.buffered()});
     }
 };
@@ -1697,6 +1737,7 @@ pub const FetchError = Uri.ParseError || RequestError || Request.ReceiveHeadErro
     StreamTooLong,
     /// TODO provide optional diagnostics when this occurs or break into more error codes
     WriteFailed,
+    UnsupportedCompressionMethod,
 };
 
 /// Perform a one-shot HTTP request with the provided options.
@@ -1748,7 +1789,8 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     const decompress_buffer: []u8 = switch (response.head.content_encoding) {
         .identity => &.{},
         .zstd => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.zstd.default_window_len),
-        else => options.decompress_buffer orelse try client.allocator.alloc(u8, 8 * 1024),
+        .deflate, .gzip => options.decompress_buffer orelse try client.allocator.alloc(u8, std.compress.flate.max_window_len),
+        .compress => return error.UnsupportedCompressionMethod,
     };
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
 

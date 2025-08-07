@@ -2311,3 +2311,11 @@ test "set mutable union by switching on same union" {
     try expect(val == .bar);
     try expect(val.bar == 2);
 }
+
+test "initialize empty field of union inside comptime-known struct constant" {
+    const Inner = union { none: void, some: u8 };
+    const Wrapper = struct { inner: Inner };
+
+    const val: Wrapper = .{ .inner = .{ .none = {} } };
+    comptime assert(val.inner.none == {});
+}

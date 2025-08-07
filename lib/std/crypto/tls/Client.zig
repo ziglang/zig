@@ -8,8 +8,8 @@ const mem = std.mem;
 const crypto = std.crypto;
 const assert = std.debug.assert;
 const Certificate = std.crypto.Certificate;
-const Reader = std.io.Reader;
-const Writer = std.io.Writer;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
 
 const max_ciphertext_len = tls.max_ciphertext_len;
 const hmacExpandLabel = tls.hmacExpandLabel;
@@ -27,6 +27,8 @@ reader: Reader,
 
 /// The encrypted stream from the client to the server. Bytes are pushed here
 /// via `writer`.
+///
+/// The buffer is asserted to have capacity at least `min_buffer_len`.
 output: *Writer,
 /// The plaintext stream from the client to the server.
 writer: Writer,
@@ -122,7 +124,6 @@ pub const Options = struct {
     /// the amount of data expected, such as HTTP with the Content-Length header.
     allow_truncation_attacks: bool = false,
     write_buffer: []u8,
-    /// Asserted to have capacity at least `min_buffer_len`.
     read_buffer: []u8,
     /// Populated when `error.TlsAlert` is returned from `init`.
     alert: ?*tls.Alert = null,
@@ -185,6 +186,7 @@ const InitError = error{
 /// `input` is asserted to have buffer capacity at least `min_buffer_len`.
 pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
+    assert(output.buffer.len >= min_buffer_len);
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -278,6 +280,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     {
         var iovecs: [2][]const u8 = .{ cleartext_header, host };
         try output.writeVecAll(iovecs[0..if (host.len == 0) 1 else 2]);
+        try output.flush();
     }
 
     var tls_version: tls.ProtocolVersion = undefined;
@@ -328,7 +331,9 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var cleartext_bufs: [2][tls.max_ciphertext_inner_record_len]u8 = undefined;
     fragment: while (true) {
         // Ensure the input buffer pointer is stable in this scope.
-        input.rebaseCapacity(tls.max_ciphertext_record_len);
+        input.rebase(tls.max_ciphertext_record_len) catch |err| switch (err) {
+            error.EndOfStream => {}, // We have assurance the remainder of stream can be buffered.
+        };
         const record_header = input.peek(tls.record_header_len) catch |err| switch (err) {
             error.EndOfStream => return error.TlsConnectionTruncated,
             error.ReadFailed => return error.ReadFailed,
@@ -761,6 +766,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                     &client_verify_msg,
                                 };
                                 try output.writeVecAll(&all_msgs_vec);
+                                try output.flush();
                             },
                         }
                         write_seq += 1;
@@ -826,6 +832,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                         &finished_msg,
                                     };
                                     try output.writeVecAll(&all_msgs_vec);
+                                    try output.flush();
 
                                     const client_secret = hkdfExpandLabel(P.Hkdf, pv.master_secret, "c ap traffic", &handshake_hash, P.Hash.digest_length);
                                     const server_secret = hkdfExpandLabel(P.Hkdf, pv.master_secret, "s ap traffic", &handshake_hash, P.Hash.digest_length);
@@ -875,7 +882,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                 .buffer = options.write_buffer,
                                 .vtable = &.{
                                     .drain = drain,
-                                    .sendFile = Writer.unimplementedSendFile,
+                                    .flush = flush,
                                 },
                             },
                             .tls_version = tls_version,
@@ -908,32 +915,57 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
 }
 
 fn drain(w: *Writer, data: []const []const u8, splat: usize) Writer.Error!usize {
-    const c: *Client = @fieldParentPtr("writer", w);
-    if (true) @panic("update to use the buffer and flush");
-    const sliced_data = if (splat == 0) data[0..data.len -| 1] else data;
+    const c: *Client = @alignCast(@fieldParentPtr("writer", w));
     const output = c.output;
     const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
-    var total_clear: usize = 0;
     var ciphertext_end: usize = 0;
-    for (sliced_data) |buf| {
-        const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
-        total_clear += prepared.cleartext_len;
-        ciphertext_end += prepared.ciphertext_end;
-        if (total_clear < buf.len) break;
+    var total_clear: usize = 0;
+    done: {
+        {
+            const buf = w.buffered();
+            const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
+            total_clear += prepared.cleartext_len;
+            ciphertext_end += prepared.ciphertext_end;
+            if (prepared.cleartext_len < buf.len) break :done;
+        }
+        for (data[0 .. data.len - 1]) |buf| {
+            if (buf.len < min_buffer_len) break :done;
+            const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
+            total_clear += prepared.cleartext_len;
+            ciphertext_end += prepared.ciphertext_end;
+            if (prepared.cleartext_len < buf.len) break :done;
+        }
+        const buf = data[data.len - 1];
+        for (0..splat) |_| {
+            if (buf.len < min_buffer_len) break :done;
+            const prepared = prepareCiphertextRecord(c, ciphertext_buf[ciphertext_end..], buf, .application_data);
+            total_clear += prepared.cleartext_len;
+            ciphertext_end += prepared.ciphertext_end;
+            if (prepared.cleartext_len < buf.len) break :done;
+        }
     }
     output.advance(ciphertext_end);
-    return total_clear;
+    return w.consume(total_clear);
+}
+
+fn flush(w: *Writer) Writer.Error!void {
+    const c: *Client = @alignCast(@fieldParentPtr("writer", w));
+    const output = c.output;
+    const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
+    const prepared = prepareCiphertextRecord(c, ciphertext_buf, w.buffered(), .application_data);
+    output.advance(prepared.ciphertext_end);
+    w.end = 0;
 }
 
 /// Sends a `close_notify` alert, which is necessary for the server to
 /// distinguish between a properly finished TLS session, or a truncation
 /// attack.
 pub fn end(c: *Client) Writer.Error!void {
+    try flush(&c.writer);
     const output = c.output;
     const ciphertext_buf = try output.writableSliceGreedy(min_buffer_len);
     const prepared = prepareCiphertextRecord(c, ciphertext_buf, &tls.close_notify_alert, .alert);
-    output.advance(prepared.cleartext_len);
-    return prepared.ciphertext_end;
+    output.advance(prepared.ciphertext_end);
 }
 
 fn prepareCiphertextRecord(
@@ -1043,8 +1075,8 @@ pub fn eof(c: Client) bool {
     return c.received_close_notify;
 }
 
-fn stream(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
-    const c: *Client = @fieldParentPtr("reader", r);
+fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+    const c: *Client = @alignCast(@fieldParentPtr("reader", r));
     if (c.eof()) return error.EndOfStream;
     const input = c.input;
     // If at least one full encrypted record is not buffered, read once.
