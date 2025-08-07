@@ -906,12 +906,7 @@ pub fn modRem(
                 const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
                 result_elem.* = (try modRemScalar(sema, block, elem_ty, lhs_elem, rhs_elem, lhs_src, rhs_src, op, elem_idx)).toIntern();
             }
-
-            const result_val = try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = elem_vals },
-            } });
-            return .fromInterned(result_val);
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => return modRemScalar(sema, block, ty, lhs_val, rhs_val, lhs_src, rhs_src, op, null),
     }
@@ -1022,14 +1017,11 @@ pub fn shlWithOverflow(
                 wr.* = elem_result.wrapped_result.toIntern();
             }
             return .{
-                .overflow_bit = .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = (try pt.vectorType(.{ .len = @intCast(overflow_bits.len), .child = .u1_type })).toIntern(),
-                    .storage = .{ .elems = overflow_bits },
-                } })),
-                .wrapped_result = .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = lhs_ty.toIntern(),
-                    .storage = .{ .elems = wrapped_results },
-                } })),
+                .overflow_bit = try pt.aggregateValue(try pt.vectorType(.{
+                    .len = @intCast(overflow_bits.len),
+                    .child = .u1_type,
+                }), overflow_bits),
+                .wrapped_result = try pt.aggregateValue(lhs_ty, wrapped_results),
             };
         },
         else => unreachable,
@@ -1222,10 +1214,7 @@ pub fn truncate(
                         dest_bits,
                     )).toIntern();
             }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = dest_ty.toIntern(),
-                .storage = .{ .elems = elem_vals },
-            } }));
+            return pt.aggregateValue(dest_ty, elem_vals);
         },
         else => unreachable,
     }
@@ -1256,10 +1245,7 @@ pub fn bitwiseNot(sema: *Sema, ty: Type, val: Value) CompileError!Value {
                 else
                     (try intBitwiseNot(sema, elem_val, elem_ty)).toIntern();
             }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = elem_vals },
-            } }));
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -1357,10 +1343,7 @@ pub fn bitReverse(sema: *Sema, val: Value, ty: Type) CompileError!Value {
                 else
                     (try intBitReverse(sema, elem_val, elem_ty)).toIntern();
             }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = elem_vals },
-            } }));
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }
@@ -1389,10 +1372,7 @@ pub fn byteSwap(sema: *Sema, val: Value, ty: Type) CompileError!Value {
                 else
                     (try intByteSwap(sema, elem_val, elem_ty)).toIntern();
             }
-            return .fromInterned(try pt.intern(.{ .aggregate = .{
-                .ty = ty.toIntern(),
-                .storage = .{ .elems = elem_vals },
-            } }));
+            return pt.aggregateValue(ty, elem_vals);
         },
         else => unreachable,
     }

@@ -1586,10 +1586,7 @@ pub fn sqrt(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try sqrtScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return sqrtScalar(val, float_type, pt);
 }
@@ -1620,10 +1617,7 @@ pub fn sin(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try sinScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return sinScalar(val, float_type, pt);
 }
@@ -1654,10 +1648,7 @@ pub fn cos(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try cosScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return cosScalar(val, float_type, pt);
 }
@@ -1688,10 +1679,7 @@ pub fn tan(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try tanScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return tanScalar(val, float_type, pt);
 }
@@ -1722,10 +1710,7 @@ pub fn exp(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try expScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return expScalar(val, float_type, pt);
 }
@@ -1756,10 +1741,7 @@ pub fn exp2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try exp2Scalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return exp2Scalar(val, float_type, pt);
 }
@@ -1790,10 +1772,7 @@ pub fn log(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !V
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try logScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return logScalar(val, float_type, pt);
 }
@@ -1824,10 +1803,7 @@ pub fn log2(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try log2Scalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return log2Scalar(val, float_type, pt);
 }
@@ -1858,10 +1834,7 @@ pub fn log10(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try log10Scalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return log10Scalar(val, float_type, pt);
 }
@@ -1892,10 +1865,7 @@ pub fn abs(val: Value, ty: Type, arena: Allocator, pt: Zcu.PerThread) !Value {
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try absScalar(elem_val, scalar_ty, pt, arena)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = ty.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(ty, result_data);
     }
     return absScalar(val, ty, pt, arena);
 }
@@ -1945,10 +1915,7 @@ pub fn floor(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try floorScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return floorScalar(val, float_type, pt);
 }
@@ -1979,10 +1946,7 @@ pub fn ceil(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) !
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try ceilScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return ceilScalar(val, float_type, pt);
 }
@@ -2013,10 +1977,7 @@ pub fn round(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try roundScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return roundScalar(val, float_type, pt);
 }
@@ -2047,10 +2008,7 @@ pub fn trunc(val: Value, float_type: Type, arena: Allocator, pt: Zcu.PerThread) 
             const elem_val = try val.elemValue(pt, i);
             scalar.* = (try truncScalar(elem_val, scalar_ty, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return truncScalar(val, float_type, pt);
 }
@@ -2090,10 +2048,7 @@ pub fn mulAdd(
             const addend_elem = try addend.elemValue(pt, i);
             scalar.* = (try mulAddScalar(scalar_ty, mulend1_elem, mulend2_elem, addend_elem, pt)).toIntern();
         }
-        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-            .ty = float_type.toIntern(),
-            .storage = .{ .elems = result_data },
-        } }));
+        return pt.aggregateValue(float_type, result_data);
     }
     return mulAddScalar(float_type, mulend1, mulend2, addend, pt);
 }
@@ -2978,17 +2933,17 @@ pub fn resolveLazy(
                     }
                     if (resolved_elems.len > 0) resolved_elems[i] = resolved_elem;
                 }
-                return if (resolved_elems.len == 0) val else Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = aggregate.ty,
-                    .storage = .{ .elems = resolved_elems },
-                } }));
+                return if (resolved_elems.len == 0)
+                    val
+                else
+                    pt.aggregateValue(.fromInterned(aggregate.ty), resolved_elems);
             },
             .repeated_elem => |elem| {
-                const resolved_elem = (try Value.fromInterned(elem).resolveLazy(arena, pt)).toIntern();
-                return if (resolved_elem == elem) val else Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = aggregate.ty,
-                    .storage = .{ .repeated_elem = resolved_elem },
-                } }));
+                const resolved_elem = try Value.fromInterned(elem).resolveLazy(arena, pt);
+                return if (resolved_elem.toIntern() == elem)
+                    val
+                else
+                    pt.aggregateSplatValue(.fromInterned(aggregate.ty), resolved_elem);
             },
         },
         .un => |un| {
@@ -3205,10 +3160,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
                     const field_ty = ty.fieldType(field_idx, zcu);
                     field_val.* = (try uninterpret(@field(val, field.name), field_ty, pt)).toIntern();
                 }
-                return .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = &field_vals },
-                } }));
+                return pt.aggregateValue(ty, &field_vals);
             },
             .by_name => {
                 const struct_obj = zcu.typeToStruct(ty) orelse return error.TypeMismatch;
@@ -3230,10 +3182,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
                         field_val.* = default_init;
                     }
                 }
-                return .fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = field_vals },
-                } }));
+                return pt.aggregateValue(ty, &field_vals);
             },
         },
     };

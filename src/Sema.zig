@@ -14838,8 +14838,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
 
     if (maybe_lhs_val) |lhs_val| {
         if (maybe_rhs_val) |rhs_val| {
-            const result = try arith.div(sema, block, resolved_type, lhs_val, rhs_val, src, lhs_src, rhs_src, .div);
-            return Air.internedToRef(result.toIntern());
+            return .fromValue(try arith.div(sema, block, resolved_type, lhs_val, rhs_val, src, lhs_src, rhs_src, .div));
         }
         if (allow_div_zero) {
             if (lhs_val.isUndef(zcu)) return pt.undefRef(resolved_type);

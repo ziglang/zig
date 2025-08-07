@@ -2490,15 +2490,11 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
 
             inline .array_type, .vector_type => |seq_type, seq_tag| {
                 const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
-                if (seq_type.len + @intFromBool(has_sentinel) == 0) return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = &.{} },
-                } }));
+                if (seq_type.len + @intFromBool(has_sentinel) == 0) {
+                    return try pt.aggregateValue(ty, &.{});
+                }
                 if (try Type.fromInterned(seq_type.child).onePossibleValue(pt)) |opv| {
-                    return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .repeated_elem = opv.toIntern() },
-                    } }));
+                    return try pt.aggregateSplatValue(ty, opv);
                 }
                 return null;
             },
@@ -2567,10 +2563,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
 
                 // In this case the struct has no runtime-known fields and
                 // therefore has one possible value.
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = field_vals },
-                } }));
+                return try pt.aggregateValue(ty, field_vals);
             },
 
             .tuple_type => |tuple| {
@@ -2582,10 +2575,7 @@ pub fn onePossibleValue(starting_type: Type, pt: Zcu.PerThread) !?Value {
                 // TODO: write something like getCoercedInts to avoid needing to dupe
                 const duped_values = try zcu.gpa.dupe(InternPool.Index, tuple.values.get(ip));
                 defer zcu.gpa.free(duped_values);
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = ty.toIntern(),
-                    .storage = .{ .elems = duped_values },
-                } }));
+                return try pt.aggregateValue(ty, duped_values);
             },
 
             .union_type => {
@@ -2957,10 +2947,7 @@ pub fn getParentNamespace(ty: Type, zcu: *Zcu) InternPool.OptionalNamespaceIndex
 pub fn minInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const scalar = try minIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
-    return if (ty.zigTypeTag(zcu) == .vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
-        .ty = dest_ty.toIntern(),
-        .storage = .{ .repeated_elem = scalar.toIntern() },
-    } })) else scalar;
+    return if (ty.zigTypeTag(zcu) == .vector) pt.aggregateSplatValue(dest_ty, scalar) else scalar;
 }
 
 /// Asserts that the type is an integer.
@@ -2987,10 +2974,7 @@ pub fn minIntScalar(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
 pub fn maxInt(ty: Type, pt: Zcu.PerThread, dest_ty: Type) !Value {
     const zcu = pt.zcu;
     const scalar = try maxIntScalar(ty.scalarType(zcu), pt, dest_ty.scalarType(zcu));
-    return if (ty.zigTypeTag(zcu) == .vector) Value.fromInterned(try pt.intern(.{ .aggregate = .{
-        .ty = dest_ty.toIntern(),
-        .storage = .{ .repeated_elem = scalar.toIntern() },
-    } })) else scalar;
+    return if (ty.zigTypeTag(zcu) == .vector) pt.aggregateSplatValue(dest_ty, scalar) else scalar;
 }
 
 /// The returned Value will have type dest_ty.
