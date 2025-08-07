@@ -15154,13 +15154,10 @@ fn addDivIntOverflowSafety(
                 const elem_val = try lhs_val.elemValue(pt, elem_idx);
                 elem_ok.* = if (elem_val.eqlScalarNum(min_int_scalar, zcu)) .bool_false else .bool_true;
             }
-            break :ok Air.internedToRef(try pt.intern(.{ .aggregate = .{
-                .ty = (try pt.vectorType(.{
-                    .len = vec_len,
-                    .child = .bool_type,
-                })).toIntern(),
-                .storage = .{ .elems = elems_ok },
-            } }));
+            break :ok .fromValue(try pt.aggregateValue(try pt.vectorType(.{
+                .len = vec_len,
+                .child = .bool_type,
+            }), elems_ok));
         } else ok: {
             // The operand isn't comptime-known; add a runtime comparison.
             const min_int_ref = Air.internedToRef(min_int.toIntern());
@@ -15175,13 +15172,10 @@ fn addDivIntOverflowSafety(
                 const elem_val = try rhs_val.elemValue(pt, elem_idx);
                 elem_ok.* = if (elem_val.eqlScalarNum(neg_one_scalar, zcu)) .bool_false else .bool_true;
             }
-            break :ok Air.internedToRef(try pt.intern(.{ .aggregate = .{
-                .ty = (try pt.vectorType(.{
-                    .len = vec_len,
-                    .child = .bool_type,
-                })).toIntern(),
-                .storage = .{ .elems = elems_ok },
-            } }));
+            break :ok .fromValue(try pt.aggregateValue(try pt.vectorType(.{
+                .len = vec_len,
+                .child = .bool_type,
+            }), elems_ok));
         } else ok: {
             // The operand isn't comptime-known; add a runtime comparison.
             const neg_one_ref = Air.internedToRef(neg_one.toIntern());
@@ -19057,10 +19051,7 @@ fn arrayInitEmpty(sema: *Sema, block: *Block, src: LazySrcLoc, obj_ty: Type) Com
             return sema.fail(block, src, "expected {d} vector elements; found 0", .{arr_len});
         }
     }
-    return Air.internedToRef((try pt.intern(.{ .aggregate = .{
-        .ty = obj_ty.toIntern(),
-        .storage = .{ .elems = &.{} },
-    } })));
+    return .fromValue(try pt.aggregateValue(obj_ty, &.{}));
 }
 
 fn zirUnionInit(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -23478,40 +23469,23 @@ fn zirSplat(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
     }
 
     // We also need this case because `[0:s]T` is not OPV.
-    if (len == 0) {
-        const empty_aggregate = try pt.intern(.{ .aggregate = .{
-            .ty = dest_ty.toIntern(),
-            .storage = .{ .elems = &.{} },
-        } });
-        return Air.internedToRef(empty_aggregate);
-    }
+    if (len == 0) return .fromValue(try pt.aggregateValue(dest_ty, &.{}));
 
     const maybe_sentinel = dest_ty.sentinel(zcu);
 
     if (try sema.resolveValue(scalar)) |scalar_val| {
-        if (scalar_val.isUndef(zcu) and maybe_sentinel == null) {
-            return pt.undefRef(dest_ty);
+        full: {
+            if (dest_ty.zigTypeTag(zcu) == .vector) break :full;
+            const sentinel = maybe_sentinel orelse break :full;
+            if (sentinel.toIntern() == scalar_val.toIntern()) break :full;
+            // This is a array with non-zero length and a sentinel which does not match the element.
+            // We have to use the full `elems` representation.
+            const elems = try sema.arena.alloc(InternPool.Index, len + 1);
+            @memset(elems[0..len], scalar_val.toIntern());
+            elems[len] = sentinel.toIntern();
+            return .fromValue(try pt.aggregateValue(dest_ty, elems));
         }
-        // TODO: I didn't want to put `.aggregate` on a separate line here; `zig fmt` bugs have forced my hand
-        return Air.internedToRef(try pt.intern(.{
-            .aggregate = .{
-                .ty = dest_ty.toIntern(),
-                .storage = s: {
-                    full: {
-                        if (dest_ty.zigTypeTag(zcu) == .vector) break :full;
-                        const sentinel = maybe_sentinel orelse break :full;
-                        if (sentinel.toIntern() == scalar_val.toIntern()) break :full;
-                        // This is a array with non-zero length and a sentinel which does not match the element.
-                        // We have to use the full `elems` representation.
-                        const elems = try sema.arena.alloc(InternPool.Index, len + 1);
-                        @memset(elems[0..len], scalar_val.toIntern());
-                        elems[len] = sentinel.toIntern();
-                        break :s .{ .elems = elems };
-                    }
-                    break :s .{ .repeated_elem = scalar_val.toIntern() };
-                },
-            },
-        }));
+        return .fromValue(try pt.aggregateSplatValue(dest_ty, scalar_val));
     }
 
     try sema.requireRuntimeBlock(block, src, scalar_src);
@@ -35923,11 +35897,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             => switch (ip.indexToKey(ty.toIntern())) {
                 inline .array_type, .vector_type => |seq_type, seq_tag| {
                     const has_sentinel = seq_tag == .array_type and seq_type.sentinel != .none;
-                    if (seq_type.len + @intFromBool(has_sentinel) == 0) return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                        .ty = ty.toIntern(),
-                        .storage = .{ .elems = &.{} },
-                    } }));
-
+                    if (seq_type.len + @intFromBool(has_sentinel) == 0) return try pt.aggregateValue(ty, &.{});
                     if (try sema.typeHasOnePossibleValue(.fromInterned(seq_type.child))) |opv| {
                         return try pt.aggregateSplatValue(ty, opv);
                     }
@@ -35944,10 +35914,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
                     if (struct_type.field_types.len == 0) {
                         // In this case the struct has no fields at all and
                         // therefore has one possible value.
-                        return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                            .ty = ty.toIntern(),
-                            .storage = .{ .elems = &.{} },
-                        } }));
+                        return try pt.aggregateValue(ty, &.{});
                     }
 
                     const field_vals = try sema.arena.alloc(
