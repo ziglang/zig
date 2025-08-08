@@ -5726,6 +5726,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             .global = comp.config,
             .parent = parent_mod,
         }) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
             // None of these are possible because we are creating a package with
             // the exact same configuration as the parent package, which already
             // passed these checks.
@@ -5739,8 +5740,6 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
             error.StackCheckUnsupportedByTarget => unreachable,
             error.StackProtectorUnsupportedByTarget => unreachable,
             error.StackProtectorUnavailableWithoutLibC => unreachable,
-
-            else => |e| return e,
         };
         const c_import_file_path: Compilation.Path = try c_import_mod.root.join(gpa, comp.dirs, "cimport.zig");
         errdefer c_import_file_path.deinit(gpa);

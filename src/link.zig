@@ -509,6 +509,8 @@ pub const File = struct {
         };
     };
 
+    pub const OpenError = @typeInfo(@typeInfo(@TypeOf(open)).@"fn".return_type.?).error_union.error_set;
+
     /// Attempts incremental linking, if the file already exists. If
     /// incremental linking fails, falls back to truncating the file and
     /// rewriting it. A malicious file is detected as incremental link failure

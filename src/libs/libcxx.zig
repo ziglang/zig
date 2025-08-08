@@ -102,7 +102,7 @@ const libcxx_thread_files = [_][]const u8{
 
 pub const BuildError = error{
     OutOfMemory,
-    SubCompilationFailed,
+    AlreadyReported,
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
@@ -144,12 +144,12 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxx,
             "unable to build libc++: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const root_mod = Module.create(arena, .{
@@ -177,12 +177,12 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .cc_argv = &.{},
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxx,
             "unable to build libc++: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const libcxx_files = if (comp.config.any_non_single_threaded)
@@ -255,7 +255,10 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         });
     }
 
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .libcxx;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -276,24 +279,19 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libcxx,
-            "unable to build libc++: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: create compilation failed: {t}", .{err}),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: create compilation failed: {f}", .{sub_create_diag}),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libcxx, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
-                .libcxx,
-                "unable to build libc++: compilation failed: {s}",
-                .{@errorName(e)},
-            );
-            return error.SubCompilationFailed;
+            comp.lockAndSetMiscFailure(misc_task, "unable to build libc++: compilation failed: {t}", .{e});
+            return error.AlreadyReported;
         },
     };
 
@@ -345,12 +343,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .lto = comp.config.lto,
         .any_sanitize_thread = comp.config.any_sanitize_thread,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxxabi,
             "unable to build libc++abi: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const root_mod = Module.create(arena, .{
@@ -379,12 +377,12 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .cc_argv = &.{},
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libcxxabi,
             "unable to build libc++abi: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
@@ -446,7 +444,10 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         });
     }
 
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .libcxxabi;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -467,24 +468,23 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libcxxabi,
-            "unable to build libc++abi: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++abi: create compilation failed: {t}", .{err}),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build libc++abi: create compilation failed: {f}", .{sub_create_diag}),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libcxxabi, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
+            comp.lockAndSetMiscFailure(
                 .libcxxabi,
                 "unable to build libc++abi: compilation failed: {s}",
                 .{@errorName(e)},
             );
-            return error.SubCompilationFailed;
+            return error.AlreadyReported;
         },
     };
 

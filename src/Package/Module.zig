@@ -92,6 +92,20 @@ pub const ResolvedTarget = struct {
     llvm_cpu_features: ?[*:0]const u8 = null,
 };
 
+pub const CreateError = error{
+    OutOfMemory,
+    ValgrindUnsupportedOnTarget,
+    TargetRequiresSingleThreaded,
+    BackendRequiresSingleThreaded,
+    TargetRequiresPic,
+    PieRequiresPic,
+    DynamicLinkingRequiresPic,
+    TargetHasNoRedZone,
+    StackCheckUnsupportedByTarget,
+    StackProtectorUnsupportedByTarget,
+    StackProtectorUnavailableWithoutLibC,
+};
+
 /// At least one of `parent` and `resolved_target` must be non-null.
 pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
     if (options.inherited.sanitize_thread == true) assert(options.global.any_sanitize_thread);

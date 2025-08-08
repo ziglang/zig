@@ -8,7 +8,7 @@ const Module = @import("../Package/Module.zig");
 
 pub const BuildError = error{
     OutOfMemory,
-    SubCompilationFailed,
+    AlreadyReported,
     ZigCompilerNotBuiltWithLLVMExtensions,
     TSANUnsupportedCPUArchitecture,
 };
@@ -66,12 +66,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         // LLVM disables LTO for its libtsan.
         .lto = .none,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libtsan,
             "unable to build thread sanitizer runtime: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const common_flags = [_][]const u8{
@@ -105,12 +105,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .cc_argv = &common_flags,
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libtsan,
             "unable to build thread sanitizer runtime: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
@@ -273,7 +273,11 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         null;
     // Workaround for https://github.com/llvm/llvm-project/issues/97627
     const headerpad_size: ?u32 = if (target.os.tag.isDarwin()) 32 else null;
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+
+    const misc_task: Compilation.MiscTask = .libtsan;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -297,24 +301,19 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .install_name = install_name,
         .headerpad_size = headerpad_size,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libtsan,
-            "unable to build thread sanitizer runtime: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {t}", .{ misc_task, err }),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {f}", .{ misc_task, sub_create_diag }),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
-                .libtsan,
-                "unable to build thread sanitizer runtime: compilation failed: {s}",
-                .{@errorName(e)},
-            );
-            return error.SubCompilationFailed;
+            comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: compilation failed: {s}", .{ misc_task, @errorName(e) });
+            return error.AlreadyReported;
         },
     };
 
