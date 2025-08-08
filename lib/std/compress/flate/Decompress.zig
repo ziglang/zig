@@ -31,6 +31,7 @@ const BlockType = enum(u2) {
     stored = 0,
     fixed = 1,
     dynamic = 2,
+    invalid = 3,
 };
 
 const State = union(enum) {
@@ -49,6 +50,7 @@ pub const Error = Container.Error || error{
     InvalidCode,
     InvalidMatch,
     WrongStoredBlockNlen,
+    InvalidBlockType,
     InvalidDynamicBlockHeader,
     ReadFailed,
     OversubscribedHuffmanTree,
@@ -360,6 +362,7 @@ fn streamInner(d: *Decompress, w: *Writer, limit: std.Io.Limit) (Error || Reader
 
                     continue :sw .dynamic_block;
                 },
+                .invalid => return error.InvalidBlockType,
             }
         },
         .stored_block => |remaining_len| {
@@ -1139,6 +1142,10 @@ test "puff03" {
 
 test "puff09" {
     try testDecompress(.raw, @embedFile("testdata/fuzz/puff09.input"), "P");
+}
+
+test "invalid block type" {
+    try testFailure(.raw, &[_]u8{0b110}, error.InvalidBlockType);
 }
 
 test "bug 18966" {
