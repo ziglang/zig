@@ -1181,7 +1181,7 @@ pub const Cpu = struct {
         pub const Set = struct {
             ints: [usize_count]usize,
 
-            pub const needed_bit_count = 317;
+            pub const needed_bit_count = 421;
             pub const byte_count = (needed_bit_count + 7) / 8;
             pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
             pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
@@ -1825,6 +1825,8 @@ pub const Cpu = struct {
                 .spirv_kernel,
                 .spirv_fragment,
                 .spirv_vertex,
+                .spirv_task,
+                .spirv_mesh,
                 => &.{ .spirv32, .spirv64 },
             };
         }
@@ -3126,6 +3128,13 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
+        .opengl => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float => return 32,
+            .long, .ulong, .longlong, .ulonglong, .double, .longdouble => return 64,
+        },
+
         .opencl, .vulkan => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
@@ -3162,7 +3171,6 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .ps3,
         .contiki,
-        .managarm,
         .opengl,
         => @panic("specify the C integer and float type sizes for this OS"),
     }

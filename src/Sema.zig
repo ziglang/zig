@@ -9138,6 +9138,8 @@ fn callConvIsCallable(cc: std.builtin.CallingConvention.Tag) bool {
         .spirv_kernel,
         .spirv_fragment,
         .spirv_vertex,
+        .spirv_task,
+        .spirv_mesh,
         => false,
 
         else => true,

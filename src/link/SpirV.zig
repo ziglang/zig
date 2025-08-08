@@ -198,6 +198,8 @@ pub fn updateExports(
                 .spirv_vertex => .vertex,
                 .spirv_fragment => .fragment,
                 .spirv_kernel => .gl_compute,
+                .spirv_task => .task_ext,
+                .spirv_mesh => .mesh_ext,
                 // TODO: We should integrate with the Linkage capability and export this function
                 .spirv_device => return,
                 else => unreachable,

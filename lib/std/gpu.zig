@@ -22,7 +22,7 @@ pub extern const instance_index: u32 addrspace(.input);
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn location(comptime ptr: anytype, comptime loc: u32) void {
+pub inline fn location(comptime ptr: anytype, comptime loc: u32) void {
     asm volatile (
         \\OpDecorate %ptr Location $loc
         :
@@ -33,7 +33,7 @@ pub fn location(comptime ptr: anytype, comptime loc: u32) void {
 
 /// Forms the main linkage for `input` and `output` address spaces.
 /// `ptr` must be a reference to variable or struct field.
-pub fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
+pub inline fn binding(comptime ptr: anytype, comptime set: u32, comptime bind: u32) void {
     asm volatile (
         \\OpDecorate %ptr DescriptorSet $set
         \\OpDecorate %ptr Binding $bind
@@ -66,6 +66,15 @@ pub const ExecutionMode = union(Tag) {
     depth_unchanged,
     /// Indicates the workgroup size in the x, y, and z dimensions.
     local_size: LocalSize,
+    output_vertices: OutputVertices,
+    /// Stage output primitive is lines
+    output_lines_ext,
+    /// Stage output primitive is triangles.
+    /// Only valid with the MeshEXT Execution Model.
+    output_primitives_ext: OutputPrimitivesEXT,
+    // For the mesh stage, the maximum number of primitives the shader will ever emit for the invocation group.
+    // Only valid with the MeshEXT Execution Model.
+    output_triangles_ext,
 
     pub const Tag = enum(u32) {
         origin_upper_left = 7,
@@ -75,13 +84,29 @@ pub const ExecutionMode = union(Tag) {
         depth_less = 15,
         depth_unchanged = 16,
         local_size = 17,
+        output_vertices = 26,
+        output_lines_ext = 5269,
+        output_primitives_ext = 5270,
+        output_triangles_ext = 5298,
     };
 
     pub const LocalSize = struct { x: u32, y: u32, z: u32 };
+    pub const OutputVertices = struct { vertex_count: u32 };
+    pub const OutputPrimitivesEXT = struct { primitive_count: u32 };
 };
 
+inline fn invalidExecutionMode(comptime mode: ExecutionMode, comptime cc: std.builtin.CallingConvention) noreturn {
+    @compileError(
+        \\invalid execution mode '
+    ++ @tagName(mode) ++
+        \\' for function with '
+    ++ @tagName(cc) ++
+        \\' calling convention
+    );
+}
+
 /// Declare the mode entry point executes in.
-pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
+pub inline fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode) void {
     const cc = @typeInfo(@TypeOf(entry_point)).@"fn".calling_convention;
     switch (mode) {
         .origin_upper_left,
@@ -92,13 +117,7 @@ pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode
         .depth_unchanged,
         => {
             if (cc != .spirv_fragment) {
-                @compileError(
-                    \\invalid execution mode '
-                ++ @tagName(mode) ++
-                    \\' for function with '
-                ++ @tagName(cc) ++
-                    \\' calling convention
-                );
+                invalidExecutionMode(mode, cc);
             }
             asm volatile (
                 \\OpExecutionMode %entry_point $mode
@@ -108,20 +127,59 @@ pub fn executionMode(comptime entry_point: anytype, comptime mode: ExecutionMode
             );
         },
         .local_size => |size| {
-            if (cc != .spirv_kernel) {
+            switch (cc) {
+                .spirv_kernel, .spirv_task, .spirv_mesh => {
+                    asm volatile (
+                        \\OpExecutionMode %entry_point LocalSize $x $y $z
+                        :
+                        : [entry_point] "" (entry_point),
+                          [x] "c" (size.x),
+                          [y] "c" (size.y),
+                          [z] "c" (size.z),
+                    );
+                },
+                else => {
+                    invalidExecutionMode(mode, cc);
+                },
+            }
+        },
+        .output_vertices => |output_vertices| {
+            if (cc != .spirv_mesh) {
+                invalidExecutionMode(mode, cc);
+            }
+            asm volatile (
+                \\OpExecutionMode %entry_point OutputVertices $vertex_count
+                :
+                : [entry_point] "" (entry_point),
+                  [vertex_count] "c" (output_vertices.vertex_count),
+            );
+        },
+        .output_primitives_ext => |output_primitives| {
+            if (cc != .spirv_mesh) {
                 @compileError(
-                    \\invalid execution mode 'local_size' for function with '
+                    \\invalid execution mode '
+                ++ @tagName(mode) ++
+                    \\' for function with '
                 ++ @tagName(cc) ++
                     \\' calling convention
                 );
             }
             asm volatile (
-                \\OpExecutionMode %entry_point LocalSize $x $y $z
+                \\OpExecutionMode %entry_point OutputVertices $primitive_count
                 :
                 : [entry_point] "" (entry_point),
-                  [x] "c" (size.x),
-                  [y] "c" (size.y),
-                  [z] "c" (size.z),
+                  [primitive_count] "c" (output_primitives.primitive_count),
+            );
+        },
+        .output_lines_ext, .output_triangles_ext => {
+            if (cc != .spirv_mesh) {
+                invalidExecutionMode(mode, cc);
+            }
+            asm volatile (
+                \\OpExecutionMode %entry_point $mode
+                :
+                : [entry_point] "" (entry_point),
+                  [mode] "c" (@intFromEnum(mode)),
             );
         },
     }

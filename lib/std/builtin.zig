@@ -348,6 +348,8 @@ pub const CallingConvention = union(enum(u8)) {
     spirv_kernel,
     spirv_fragment,
     spirv_vertex,
+    spirv_task,
+    spirv_mesh,
 
     /// Options shared across most calling conventions.
     pub const CommonOptions = struct {

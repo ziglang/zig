@@ -61,8 +61,8 @@ cache: struct {
     struct_types: std.ArrayHashMapUnmanaged(StructType, Id, StructType.HashContext, true) = .empty,
     fn_types: std.ArrayHashMapUnmanaged(FnType, Id, FnType.HashContext, true) = .empty,
 
-    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
-    extensions: std.StringHashMapUnmanaged(void) = .empty,
+    capabilities: std.EnumSet(spec.Capability) = .initEmpty(),
+    extensions: std.EnumSet(spec.Extension) = .initEmpty(),
     extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
     decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
     builtins: std.AutoHashMapUnmanaged(struct { spec.BuiltIn, spec.StorageClass }, Decl.Index) = .empty,
@@ -229,8 +229,6 @@ pub fn deinit(module: *Module) void {
     module.cache.array_types.deinit(module.gpa);
     module.cache.struct_types.deinit(module.gpa);
     module.cache.fn_types.deinit(module.gpa);
-    module.cache.capabilities.deinit(module.gpa);
-    module.cache.extensions.deinit(module.gpa);
     module.cache.extended_instruction_set.deinit(module.gpa);
     module.cache.decorations.deinit(module.gpa);
     module.cache.builtins.deinit(module.gpa);
@@ -325,16 +323,40 @@ fn entryPoints(module: *Module) !Section {
             .interface = interface.items,
         });
 
-        if (entry_point.exec_mode == null and entry_point.exec_model == .fragment) {
+        if (entry_point.exec_mode == null) {
             switch (target.os.tag) {
                 .vulkan, .opengl => |tag| {
-                    try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
-                        .entry_point = entry_point_id,
-                        .mode = if (tag == .vulkan) .origin_upper_left else .origin_lower_left,
-                    });
+                    switch (entry_point.exec_model) {
+                        .fragment => {
+                            try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                                .entry_point = entry_point_id,
+                                .mode = if (tag == .vulkan) .origin_upper_left else .origin_lower_left,
+                            });
+                        },
+                        .mesh_ext => {
+                            try addExtension(module, .SPV_EXT_mesh_shader);
+                            try addCapability(module, .mesh_shading_ext);
+                            try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                                .entry_point = entry_point_id,
+                                .mode = .output_triangles_ext,
+                            });
+                            try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                                .entry_point = entry_point_id,
+                                .mode = .{ .output_primitives_ext = .{ .primitive_count = 1 } },
+                            });
+                            try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
+                                .entry_point = entry_point_id,
+                                .mode = .{ .output_vertices = .{ .vertex_count = 3 } },
+                            });
+                        },
+                        .task_ext => {
+                            try addExtension(module, .SPV_EXT_mesh_shader);
+                            try addCapability(module, .mesh_shading_ext);
+                        },
+                        else => {},
+                    }
                 },
-                .opencl => {},
-                else => unreachable,
+                else => {},
             }
         }
     }
@@ -355,7 +377,7 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
             try module.addCapability(.shader);
             try module.addCapability(.matrix);
             if (target.cpu.arch == .spirv64) {
-                try module.addExtension("SPV_KHR_physical_storage_buffer");
+                try module.addExtension(.SPV_KHR_physical_storage_buffer);
                 try module.addCapability(.physical_storage_buffer_addresses);
             }
         },
@@ -366,27 +388,24 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
         else => unreachable,
     }
     if (target.cpu.arch == .spirv64) try module.addCapability(.int64);
-    if (target.cpu.has(.spirv, .int64)) try module.addCapability(.int64);
-    if (target.cpu.has(.spirv, .float16)) {
-        if (target.os.tag == .opencl) try module.addExtension("cl_khr_fp16");
-        try module.addCapability(.float16);
+    inline for (@typeInfo(spec.Capability).@"enum".fields) |field| {
+        if (target.cpu.has(.spirv, std.meta.stringToEnum(std.Target.spirv.Feature, field.name).?)) {
+            try module.addCapability(@enumFromInt(field.value));
+        }
     }
-    if (target.cpu.has(.spirv, .float64)) try module.addCapability(.float64);
-    if (target.cpu.has(.spirv, .generic_pointer)) try module.addCapability(.generic_pointer);
-    if (target.cpu.has(.spirv, .vector16)) try module.addCapability(.vector16);
-    if (target.cpu.has(.spirv, .storage_push_constant16)) {
-        try module.addExtension("SPV_KHR_16bit_storage");
-        try module.addCapability(.storage_push_constant16);
+
+    inline for (@typeInfo(spec.Extension).@"enum".fields) |field| {
+        const ext: spec.Extension = @enumFromInt(field.value);
+        switch (ext) {
+            .v1_0, .v1_1, .v1_2, .v1_3, .v1_4, .v1_5, .v1_6 => continue,
+            else => {
+                if (target.cpu.has(.spirv, std.meta.stringToEnum(std.Target.spirv.Feature, field.name).?)) {
+                    try module.addExtension(ext);
+                }
+            },
+        }
     }
-    if (target.cpu.has(.spirv, .arbitrary_precision_integers)) {
-        try module.addExtension("SPV_INTEL_arbitrary_precision_integers");
-        try module.addCapability(.arbitrary_precision_integers_intel);
-    }
-    if (target.cpu.has(.spirv, .variable_pointers)) {
-        try module.addExtension("SPV_KHR_variable_pointers");
-        try module.addCapability(.variable_pointers_storage_buffer);
-        try module.addCapability(.variable_pointers);
-    }
+
     // These are well supported
     try module.addCapability(.int8);
     try module.addCapability(.int16);
@@ -479,15 +498,15 @@ pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
 }
 
 pub fn addCapability(module: *Module, cap: spec.Capability) !void {
-    const entry = try module.cache.capabilities.getOrPut(module.gpa, cap);
-    if (entry.found_existing) return;
+    if (module.cache.capabilities.contains(cap)) return;
+    module.cache.capabilities.insert(cap);
     try module.sections.capabilities.emit(module.gpa, .OpCapability, .{ .capability = cap });
 }
 
-pub fn addExtension(module: *Module, ext: []const u8) !void {
-    const entry = try module.cache.extensions.getOrPut(module.gpa, ext);
-    if (entry.found_existing) return;
-    try module.sections.extensions.emit(module.gpa, .OpExtension, .{ .name = ext });
+pub fn addExtension(module: *Module, ext: spec.Extension) !void {
+    if (module.cache.extensions.contains(ext)) return;
+    module.cache.extensions.insert(ext);
+    try module.sections.extensions.emit(module.gpa, .OpExtension, .{ .name = @tagName(ext) });
 }
 
 /// Imports or returns the existing id of an extended instruction set
@@ -547,7 +566,7 @@ pub fn backingIntBits(module: *Module, bits: u16) struct { u16, bool } {
     assert(bits != 0);
     const target = module.zcu.getTarget();
 
-    if (target.cpu.has(.spirv, .arbitrary_precision_integers) and bits <= 32) {
+    if (target.cpu.has(.spirv, .arbitrary_precision_integers_intel) and bits <= 32) {
         return .{ bits, false };
     }
 
