@@ -724,8 +724,8 @@ pub const Response = struct {
     pub fn readerDecompressing(
         response: *Response,
         transfer_buffer: []u8,
-        decompressor: *http.Decompressor,
-        decompression_buffer: []u8,
+        decompress: *http.Decompress,
+        decompress_buffer: []u8,
     ) *Reader {
         response.head.invalidateStrings();
         const head = &response.head;
@@ -734,8 +734,8 @@ pub const Response = struct {
             head.transfer_encoding,
             head.content_length,
             head.content_encoding,
-            decompressor,
-            decompression_buffer,
+            decompress,
+            decompress_buffer,
         );
     }
 
@@ -1797,8 +1797,8 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
     defer if (options.decompress_buffer == null) client.allocator.free(decompress_buffer);
 
     var transfer_buffer: [64]u8 = undefined;
-    var decompressor: http.Decompressor = undefined;
-    const reader = response.readerDecompressing(&transfer_buffer, &decompressor, decompress_buffer);
+    var decompress: http.Decompress = undefined;
+    const reader = response.readerDecompressing(&transfer_buffer, &decompress, decompress_buffer);
 
     _ = reader.streamRemaining(response_writer) catch |err| switch (err) {
         error.ReadFailed => return response.bodyErr().?,

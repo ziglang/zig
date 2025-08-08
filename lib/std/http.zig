@@ -292,6 +292,14 @@ pub const ContentEncoding = enum {
         });
         return map.get(s);
     }
+
+    pub fn minBufferCapacity(ce: ContentEncoding) usize {
+        return switch (ce) {
+            .zstd => std.compress.zstd.default_window_len,
+            .gzip, .deflate => std.compress.flate.max_window_len,
+            .compress, .identity => 0,
+        };
+    }
 };
 
 pub const Connection = enum {
@@ -464,8 +472,8 @@ pub const Reader = struct {
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
         content_encoding: ContentEncoding,
-        decompressor: *Decompressor,
-        decompression_buffer: []u8,
+        decompress: *Decompress,
+        decompress_buffer: []u8,
     ) *std.Io.Reader {
         if (transfer_encoding == .none and content_length == null) {
             assert(reader.state == .received_head);
@@ -475,22 +483,22 @@ pub const Reader = struct {
                     return reader.in;
                 },
                 .deflate => {
-                    decompressor.* = .{ .flate = .init(reader.in, .zlib, decompression_buffer) };
-                    return &decompressor.flate.reader;
+                    decompress.* = .{ .flate = .init(reader.in, .zlib, decompress_buffer) };
+                    return &decompress.flate.reader;
                 },
                 .gzip => {
-                    decompressor.* = .{ .flate = .init(reader.in, .gzip, decompression_buffer) };
-                    return &decompressor.flate.reader;
+                    decompress.* = .{ .flate = .init(reader.in, .gzip, decompress_buffer) };
+                    return &decompress.flate.reader;
                 },
                 .zstd => {
-                    decompressor.* = .{ .zstd = .init(reader.in, decompression_buffer, .{ .verify_checksum = false }) };
-                    return &decompressor.zstd.reader;
+                    decompress.* = .{ .zstd = .init(reader.in, decompress_buffer, .{ .verify_checksum = false }) };
+                    return &decompress.zstd.reader;
                 },
                 .compress => unreachable,
             }
         }
         const transfer_reader = bodyReader(reader, transfer_buffer, transfer_encoding, content_length);
-        return decompressor.init(transfer_reader, decompression_buffer, content_encoding);
+        return decompress.init(transfer_reader, decompress_buffer, content_encoding);
     }
 
     fn contentLengthStream(
@@ -692,33 +700,33 @@ pub const Reader = struct {
     }
 };
 
-pub const Decompressor = union(enum) {
+pub const Decompress = union(enum) {
     flate: std.compress.flate.Decompress,
     zstd: std.compress.zstd.Decompress,
     none: *std.Io.Reader,
 
     pub fn init(
-        decompressor: *Decompressor,
+        decompress: *Decompress,
         transfer_reader: *std.Io.Reader,
         buffer: []u8,
         content_encoding: ContentEncoding,
     ) *std.Io.Reader {
         switch (content_encoding) {
             .identity => {
-                decompressor.* = .{ .none = transfer_reader };
+                decompress.* = .{ .none = transfer_reader };
                 return transfer_reader;
             },
             .deflate => {
-                decompressor.* = .{ .flate = .init(transfer_reader, .zlib, buffer) };
-                return &decompressor.flate.reader;
+                decompress.* = .{ .flate = .init(transfer_reader, .zlib, buffer) };
+                return &decompress.flate.reader;
             },
             .gzip => {
-                decompressor.* = .{ .flate = .init(transfer_reader, .gzip, buffer) };
-                return &decompressor.flate.reader;
+                decompress.* = .{ .flate = .init(transfer_reader, .gzip, buffer) };
+                return &decompress.flate.reader;
             },
             .zstd => {
-                decompressor.* = .{ .zstd = .init(transfer_reader, buffer, .{ .verify_checksum = false }) };
-                return &decompressor.zstd.reader;
+                decompress.* = .{ .zstd = .init(transfer_reader, buffer, .{ .verify_checksum = false }) };
+                return &decompress.zstd.reader;
             },
             .compress => unreachable,
         }
