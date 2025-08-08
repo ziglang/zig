@@ -2634,7 +2634,7 @@ pub const Allocating = struct {
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
-        const pos = file_reader.pos;
+        const pos = file_reader.logicalPos();
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
         if (additional == 0) return error.EndOfStream;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
