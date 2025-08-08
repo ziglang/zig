@@ -206,19 +206,6 @@ pub const Decompress = struct {
     }
 };
 
-fn isBadFilename(filename: []const u8) bool {
-    if (filename.len == 0 or filename[0] == '/')
-        return true;
-
-    var it = std.mem.splitScalar(u8, filename, '/');
-    while (it.next()) |part| {
-        if (std.mem.eql(u8, part, ".."))
-            return true;
-    }
-
-    return false;
-}
-
 fn isMaxInt(uint: anytype) bool {
     return uint == std.math.maxInt(@TypeOf(uint));
 }
@@ -543,7 +530,7 @@ pub const Iterator = struct {
                     return error.ZipFilenameHasBackslash;
             }
 
-            if (isBadFilename(filename))
+            if (std.fs.path.hasDirectoryTraversal(filename))
                 return error.ZipBadFilename;
 
             // All entries that end in '/' are directories
