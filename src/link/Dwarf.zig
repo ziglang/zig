@@ -1,4 +1,4 @@
-gpa: std.mem.Allocator,
+gpa: Allocator,
 bin_file: *link.File,
 format: DW.Format,
 endian: std.builtin.Endian,
@@ -21,6 +21,7 @@ debug_rnglists: DebugRngLists,
 debug_str: StringSection,
 
 pub const UpdateError = error{
+    WriteFailed,
     ReinterpretDeclRef,
     Unimplemented,
     EndOfStream,
@@ -50,7 +51,7 @@ const ModInfo = struct {
     dirs: std.AutoArrayHashMapUnmanaged(Unit.Index, void),
     files: std.AutoArrayHashMapUnmanaged(Zcu.File.Index, void),
 
-    fn deinit(mod_info: *ModInfo, gpa: std.mem.Allocator) void {
+    fn deinit(mod_info: *ModInfo, gpa: Allocator) void {
         mod_info.dirs.deinit(gpa);
         mod_info.files.deinit(gpa);
         mod_info.* = undefined;
@@ -220,7 +221,7 @@ const StringSection = struct {
         .section = Section.init,
     };
 
-    fn deinit(str_sec: *StringSection, gpa: std.mem.Allocator) void {
+    fn deinit(str_sec: *StringSection, gpa: Allocator) void {
         str_sec.contents.deinit(gpa);
         str_sec.map.deinit(gpa);
         str_sec.section.deinit(gpa);
@@ -297,7 +298,7 @@ pub const Section = struct {
         .len = 0,
     };
 
-    fn deinit(sec: *Section, gpa: std.mem.Allocator) void {
+    fn deinit(sec: *Section, gpa: Allocator) void {
         for (sec.units.items) |*unit| unit.deinit(gpa);
         sec.units.deinit(gpa);
         sec.* = undefined;
@@ -357,7 +358,7 @@ pub const Section = struct {
         if (sec.last == unit.toOptional()) sec.last = unit_ptr.prev;
     }
 
-    fn popUnit(sec: *Section, gpa: std.mem.Allocator) void {
+    fn popUnit(sec: *Section, gpa: Allocator) void {
         const unit_index: Unit.Index = @enumFromInt(sec.units.items.len - 1);
         sec.unlinkUnit(unit_index);
         var unit = sec.units.pop().?;
@@ -518,7 +519,7 @@ const Unit = struct {
         unit.cross_section_relocs.clearRetainingCapacity();
     }
 
-    fn deinit(unit: *Unit, gpa: std.mem.Allocator) void {
+    fn deinit(unit: *Unit, gpa: Allocator) void {
         for (unit.entries.items) |*entry| entry.deinit(gpa);
         unit.entries.deinit(gpa);
         unit.cross_unit_relocs.deinit(gpa);
@@ -526,7 +527,7 @@ const Unit = struct {
         unit.* = undefined;
     }
 
-    fn addEntry(unit: *Unit, gpa: std.mem.Allocator) std.mem.Allocator.Error!Entry.Index {
+    fn addEntry(unit: *Unit, gpa: Allocator) Allocator.Error!Entry.Index {
         if (unit.free.unwrap()) |entry| {
             const entry_ptr = unit.getEntry(entry);
             unit.free = entry_ptr.next;
@@ -780,7 +781,7 @@ const Entry = struct {
         entry.external_relocs.clearRetainingCapacity();
     }
 
-    fn deinit(entry: *Entry, gpa: std.mem.Allocator) void {
+    fn deinit(entry: *Entry, gpa: Allocator) void {
         entry.cross_entry_relocs.deinit(gpa);
         entry.cross_unit_relocs.deinit(gpa);
         entry.cross_section_relocs.deinit(gpa);
@@ -1133,7 +1134,7 @@ pub const Loc = union(enum) {
         };
     }
 
-    fn writeReg(reg: u32, op0: u8, opx: u8, writer: anytype) @TypeOf(writer).Error!void {
+    fn writeReg(reg: u32, op0: u8, opx: u8, writer: anytype) !void {
         if (std.math.cast(u5, reg)) |small_reg| {
             try writer.writeByte(op0 + small_reg);
         } else {
@@ -1142,7 +1143,7 @@ pub const Loc = union(enum) {
         }
     }
 
-    fn write(loc: Loc, adapter: anytype) UpdateError!void {
+    fn write(loc: Loc, adapter: anytype) !void {
         const writer = adapter.writer();
         switch (loc) {
             .empty => {},
@@ -1712,15 +1713,15 @@ pub const WipNav = struct {
         wip_nav.func = func;
     }
 
-    fn externalReloc(wip_nav: *WipNav, sec: *Section, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    fn externalReloc(wip_nav: *WipNav, sec: *Section, reloc: ExternalReloc) Allocator.Error!void {
         try sec.getUnit(wip_nav.unit).getEntry(wip_nav.entry).external_relocs.append(wip_nav.dwarf.gpa, reloc);
     }
 
-    pub fn infoExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    pub fn infoExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) Allocator.Error!void {
         try wip_nav.externalReloc(&wip_nav.dwarf.debug_info.section, reloc);
     }
 
-    fn frameExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) std.mem.Allocator.Error!void {
+    fn frameExternalReloc(wip_nav: *WipNav, reloc: ExternalReloc) Allocator.Error!void {
         try wip_nav.externalReloc(&wip_nav.dwarf.debug_frame.section, reloc);
     }
 
@@ -1768,33 +1769,33 @@ pub const WipNav = struct {
     }
 
     const ExprLocCounter = struct {
-        const Stream = std.io.CountingWriter(std.io.NullWriter);
-        stream: Stream,
+        stream: Writer.Discarding,
         section_offset_bytes: u32,
         address_size: AddressSize,
-        fn init(dwarf: *Dwarf) ExprLocCounter {
+        fn init(dwarf: *Dwarf, trash_buffer: []u8) ExprLocCounter {
             return .{
-                .stream = std.io.countingWriter(std.io.null_writer),
+                .stream = .init(trash_buffer),
                 .section_offset_bytes = dwarf.sectionOffsetBytes(),
                 .address_size = dwarf.address_size,
             };
         }
-        fn writer(counter: *ExprLocCounter) Stream.Writer {
-            return counter.stream.writer();
+        fn writer(counter: *ExprLocCounter) *Writer {
+            return &counter.stream.writer;
         }
         fn endian(_: ExprLocCounter) std.builtin.Endian {
             return @import("builtin").cpu.arch.endian();
         }
         fn addrSym(counter: *ExprLocCounter, _: u32) error{}!void {
-            counter.stream.bytes_written += @intFromEnum(counter.address_size);
+            counter.stream.count += @intFromEnum(counter.address_size);
         }
         fn infoEntry(counter: *ExprLocCounter, _: Unit.Index, _: Entry.Index) error{}!void {
-            counter.stream.bytes_written += counter.section_offset_bytes;
+            counter.stream.count += counter.section_offset_bytes;
         }
     };
 
     fn infoExprLoc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
-        var counter: ExprLocCounter = .init(wip_nav.dwarf);
+        var trash_buffer: [64]u8 = undefined;
+        var counter: ExprLocCounter = .init(wip_nav.dwarf, &trash_buffer);
         try loc.write(&counter);
 
         const adapter: struct {
@@ -1812,7 +1813,7 @@ pub const WipNav = struct {
                 try ctx.wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
-        try uleb128(adapter.writer(), counter.stream.bytes_written);
+        try uleb128(adapter.writer(), counter.stream.fullCount());
         try loc.write(adapter);
     }
 
@@ -1826,7 +1827,8 @@ pub const WipNav = struct {
     }
 
     fn frameExprLoc(wip_nav: *WipNav, loc: Loc) UpdateError!void {
-        var counter: ExprLocCounter = .init(wip_nav.dwarf);
+        var trash_buffer: [64]u8 = undefined;
+        var counter: ExprLocCounter = .init(wip_nav.dwarf, &trash_buffer);
         try loc.write(&counter);
 
         const adapter: struct {
@@ -1844,7 +1846,7 @@ pub const WipNav = struct {
                 try ctx.wip_nav.sectionOffset(.debug_frame, .debug_info, unit, entry, 0);
             }
         } = .{ .wip_nav = wip_nav };
-        try uleb128(adapter.writer(), counter.stream.bytes_written);
+        try uleb128(adapter.writer(), counter.stream.fullCount());
         try loc.write(adapter);
     }
 
@@ -1922,7 +1924,7 @@ pub const WipNav = struct {
         try wip_nav.infoSectionOffset(.debug_info, unit, entry, 0);
     }
 
-    fn refForward(wip_nav: *WipNav) std.mem.Allocator.Error!u32 {
+    fn refForward(wip_nav: *WipNav) Allocator.Error!u32 {
         const dwarf = wip_nav.dwarf;
         const cross_entry_relocs = &dwarf.debug_info.section.getUnit(wip_nav.unit).getEntry(wip_nav.entry).cross_entry_relocs;
         const reloc_index: u32 = @intCast(cross_entry_relocs.items.len);
@@ -6022,14 +6024,14 @@ fn sectionOffsetBytes(dwarf: *Dwarf) u32 {
 
 fn uleb128Bytes(value: anytype) u32 {
     var trash_buffer: [64]u8 = undefined;
-    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    var d: Writer.Discarding = .init(&trash_buffer);
     d.writer.writeUleb128(value) catch unreachable;
     return @intCast(d.count + d.writer.end);
 }
 
 fn sleb128Bytes(value: anytype) u32 {
     var trash_buffer: [64]u8 = undefined;
-    var d: std.Io.Writer.Discarding = .init(&trash_buffer);
+    var d: Writer.Discarding = .init(&trash_buffer);
     d.writer.writeSleb128(value) catch unreachable;
     return @intCast(d.count + d.writer.end);
 }
@@ -6057,3 +6059,5 @@ const sleb128 = std.leb.writeIleb128;
 const std = @import("std");
 const target_info = @import("../target.zig");
 const uleb128 = std.leb.writeUleb128;
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
