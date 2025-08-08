@@ -13718,6 +13718,7 @@ fn zirShl(
                     .shl, .shl_exact => try sema.checkAllScalarsDefined(block, lhs_src, lhs_val),
                     else => unreachable,
                 }
+                if (try lhs_val.compareAllWithZeroSema(.eq, pt)) return lhs;
             }
         }
         break :rs rhs_src;
@@ -13884,6 +13885,7 @@ fn zirShr(
             }
             if (maybe_lhs_val) |lhs_val| {
                 try sema.checkAllScalarsDefined(block, lhs_src, lhs_val);
+                if (try lhs_val.compareAllWithZeroSema(.eq, pt)) return lhs;
             }
         }
         break :rs rhs_src;
@@ -15615,23 +15617,66 @@ fn zirOverflowArithmetic(
                 }
             },
             .shl_with_overflow => {
+                // If either of the arguments is undefined, IB is possible and we return an error.
                 // If lhs is zero, the result is zero and no overflow occurred.
-                // If rhs is zero, the result is lhs (even if undefined) and no overflow occurred.
+                // If rhs is zero, the result is lhs and no overflow occurred.
                 // Oterhwise if either of the arguments is undefined, both results are undefined.
-                if (maybe_lhs_val) |lhs_val| {
-                    if (!lhs_val.isUndef(zcu) and (try lhs_val.compareAllWithZeroSema(.eq, pt))) {
-                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
-                    }
-                }
+                const scalar_ty = lhs_ty.scalarType(zcu);
                 if (maybe_rhs_val) |rhs_val| {
-                    if (!rhs_val.isUndef(zcu) and (try rhs_val.compareAllWithZeroSema(.eq, pt))) {
-                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
-                    }
-                }
-                if (maybe_lhs_val) |lhs_val| {
-                    if (maybe_rhs_val) |rhs_val| {
+                    if (maybe_lhs_val) |lhs_val| {
                         const result = try arith.shlWithOverflow(sema, block, lhs_ty, lhs_val, rhs_val, lhs_src, rhs_src);
                         break :result .{ .overflow_bit = result.overflow_bit, .wrapped = result.wrapped_result };
+                    }
+                    if (rhs_val.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, null);
+                    const bits = scalar_ty.intInfo(zcu).bits;
+                    switch (rhs_ty.zigTypeTag(zcu)) {
+                        .int, .comptime_int => {
+                            switch (try rhs_val.orderAgainstZeroSema(pt)) {
+                                .gt => {
+                                    var rhs_space: Value.BigIntSpace = undefined;
+                                    const rhs_bigint = try rhs_val.toBigIntSema(&rhs_space, pt);
+                                    if (rhs_bigint.orderAgainstScalar(bits) != .lt) {
+                                        return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs_val, rhs_src, null);
+                                    }
+                                },
+                                .eq => break :result .{ .overflow_bit = .zero_u1, .inst = lhs },
+                                .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_val, null),
+                            }
+                        },
+                        .vector => {
+                            var any_positive: bool = false;
+                            for (0..rhs_ty.vectorLen(zcu)) |elem_idx| {
+                                const rhs_elem = try rhs_val.elemValue(pt, elem_idx);
+                                if (rhs_elem.isUndef(zcu)) return sema.failWithUseOfUndef(block, rhs_src, elem_idx);
+                                switch (try rhs_elem.orderAgainstZeroSema(pt)) {
+                                    .gt => {
+                                        var rhs_elem_space: Value.BigIntSpace = undefined;
+                                        const rhs_elem_bigint = try rhs_elem.toBigIntSema(&rhs_elem_space, pt);
+                                        if (rhs_elem_bigint.orderAgainstScalar(bits) != .lt) {
+                                            return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs_elem, rhs_src, elem_idx);
+                                        }
+                                        any_positive = true;
+                                    },
+                                    .eq => {},
+                                    .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_elem, elem_idx),
+                                }
+                            }
+                            if (!any_positive) break :result .{ .overflow_bit = .zero_u1, .inst = lhs };
+                        },
+                        else => unreachable,
+                    }
+                    if (try rhs_val.compareAllWithZeroSema(.eq, pt)) {
+                        break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
+                    }
+                } else {
+                    if (scalar_ty.toIntern() == .comptime_int_type) {
+                        return sema.fail(block, src, "LHS of shift must be a fixed-width integer type, or RHS must be comptime-known", .{});
+                    }
+                    if (maybe_lhs_val) |lhs_val| {
+                        try sema.checkAllScalarsDefined(block, lhs_src, lhs_val);
+                        if (try lhs_val.compareAllWithZeroSema(.eq, pt)) {
+                            break :result .{ .overflow_bit = try sema.splat(overflow_ty, .zero_u1), .inst = lhs };
+                        }
                     }
                 }
             },
@@ -15645,9 +15690,6 @@ fn zirOverflowArithmetic(
             .shl_with_overflow => .shl_with_overflow,
             else => unreachable,
         };
-
-        const runtime_src = if (maybe_lhs_val == null) lhs_src else rhs_src;
-        try sema.requireRuntimeBlock(block, src, runtime_src);
 
         return block.addInst(.{
             .tag = air_tag,
