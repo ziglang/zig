@@ -4,7 +4,7 @@
 
 comptime {
     // Total expected errors:
-    // 29*15*6 + 26*14*5 = 4256
+    // 29*14*6 + 26*14*5 = 4256
 
     testType(u8);
     testType(i8);
