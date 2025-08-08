@@ -188,7 +188,7 @@ pub const Diagnostics = union {
     overflow_resource: usize,
 };
 
-pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resource, options: CoffOptions, diagnostics: ?*Diagnostics) !void {
+pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []const Resource, options: CoffOptions, diagnostics: ?*Diagnostics) !void {
     var resource_tree = ResourceTree.init(allocator, options);
     defer resource_tree.deinit();
 
@@ -232,7 +232,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
         .flags = flags,
     };
 
-    try writer.writeStructEndian(coff_header, .little);
+    try writer.writeStruct(coff_header, .little);
 
     const rsrc01_header = std.coff.SectionHeader{
         .name = ".rsrc$01".*,
@@ -250,7 +250,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
             .MEM_READ = 1,
         },
     };
-    try writer.writeStructEndian(rsrc01_header, .little);
+    try writer.writeStruct(rsrc01_header, .little);
 
     const rsrc02_header = std.coff.SectionHeader{
         .name = ".rsrc$02".*,
@@ -268,7 +268,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
             .MEM_READ = 1,
         },
     };
-    try writer.writeStructEndian(rsrc02_header, .little);
+    try writer.writeStruct(rsrc02_header, .little);
 
     // TODO: test surrogate pairs
     try resource_tree.sort();
@@ -665,13 +665,13 @@ const ResourceTree = struct {
     pub fn writeCoff(
         self: *const ResourceTree,
         allocator: Allocator,
-        w: anytype,
+        w: *std.Io.Writer,
         resources_in_data_order: []const Resource,
         lengths: Lengths,
         coff_string_table: *StringTable,
     ) ![]const std.coff.Symbol {
         if (self.type_to_name_map.count() == 0) {
-            try w.writeByteNTimes(0, 16);
+            try w.splatByteAll(0, 16);
             return &.{};
         }
 
@@ -710,7 +710,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = self.type_to_name_map.iterator();
             while (it.next()) |entry| {
@@ -745,7 +745,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = name_to_lang_map.iterator();
             while (it.next()) |entry| {
@@ -786,7 +786,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = lang_to_resources_map.iterator();
             while (it.next()) |entry| {
@@ -819,7 +819,7 @@ const ResourceTree = struct {
                 .size = @intCast(orig_resource.data.len),
                 .codepage = 0,
             };
-            try w.writeStructEndian(data_entry, .little);
+            try w.writeStruct(data_entry, .little);
         }
 
         for (self.rsrc_string_table.keys()) |v| {
@@ -828,7 +828,7 @@ const ResourceTree = struct {
             try w.writeAll(std.mem.sliceAsBytes(str));
         }
 
-        try w.writeByteNTimes(0, lengths.padding);
+        try w.splatByteAll(0, lengths.padding);
 
         for (relocations.list.items) |relocation| {
             try writeRelocation(w, std.coff.Relocation{
@@ -842,13 +842,13 @@ const ResourceTree = struct {
             for (self.deduplicated_data.keys()) |data| {
                 const padding_bytes: u4 = @intCast((8 -% data.len) % 8);
                 try w.writeAll(data);
-                try w.writeByteNTimes(0, padding_bytes);
+                try w.splatByteAll(0, padding_bytes);
             }
         } else {
             for (resources_in_data_order) |resource| {
                 const padding_bytes: u4 = @intCast((8 -% resource.data.len) % 8);
                 try w.writeAll(resource.data);
-                try w.writeByteNTimes(0, padding_bytes);
+                try w.splatByteAll(0, padding_bytes);
             }
         }
 
