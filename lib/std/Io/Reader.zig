@@ -426,7 +426,7 @@ pub fn readVec(r: *Reader, data: [][]u8) Error!usize {
 /// Writes to `Reader.buffer` or `data`, whichever has larger capacity.
 pub fn defaultReadVec(r: *Reader, data: [][]u8) Error!usize {
     const first = data[0];
-    if (r.seek == r.end and first.len >= r.buffer.len) {
+    if (first.len >= r.buffer.len - r.end) {
         var writer: Writer = .{
             .buffer = first,
             .end = 0,
