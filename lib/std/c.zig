@@ -2624,6 +2624,85 @@ pub const _SC = if (builtin.abi.isAndroid()) enum(c_int) {
     else => void,
 };
 
+pub const _CS = switch (native_os) {
+    .macos, .ios, .driverkit, .watchos, .tvos, .visionos => enum(c_int) {
+        PATH = 1,
+
+        POSIX_V6_ILP32_OFF32_CFLAGS = 2,
+        POSIX_V6_ILP32_OFF32_LDFLAGS = 3,
+        POSIX_V6_ILP32_OFF32_LIBS = 4,
+        POSIX_V6_ILP32_OFFBIG_CFLAGS = 5,
+        POSIX_V6_ILP32_OFFBIG_LDFLAGS = 6,
+        POSIX_V6_ILP32_OFFBIG_LIBS = 7,
+        POSIX_V6_LP64_OFF64_CFLAGS = 8,
+        POSIX_V6_LP64_OFF64_LDFLAGS = 9,
+        POSIX_V6_LP64_OFF64_LIBS = 10,
+        POSIX_V6_LPBIG_OFFBIG_CFLAGS = 11,
+        POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 12,
+        POSIX_V6_LPBIG_OFFBIG_LIBS = 13,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 14,
+
+        XBS5_ILP32_OFF32_CFLAGS = 20,
+        XBS5_ILP32_OFF32_LDFLAGS = 21,
+        XBS5_ILP32_OFF32_LIBS = 22,
+        XBS5_ILP32_OFF32_LINTFLAGS = 23,
+        XBS5_ILP32_OFFBIG_CFLAGS = 24,
+        XBS5_ILP32_OFFBIG_LDFLAGS = 25,
+        XBS5_ILP32_OFFBIG_LIBS = 26,
+        XBS5_ILP32_OFFBIG_LINTFLAGS = 27,
+        XBS5_LP64_OFF64_CFLAGS = 28,
+        XBS5_LP64_OFF64_LDFLAGS = 29,
+        XBS5_LP64_OFF64_LIBS = 30,
+        XBS5_LP64_OFF64_LINTFLAGS = 31,
+        XBS5_LPBIG_OFFBIG_CFLAGS = 32,
+        XBS5_LPBIG_OFFBIG_LDFLAGS = 33,
+        XBS5_LPBIG_OFFBIG_LIBS = 34,
+        XBS5_LPBIG_OFFBIG_LINTFLAGS = 35,
+
+        DARWIN_USER_DIR = 65536,
+        DARWIN_USER_TEMP_DIR = 65537,
+        DARWIN_USER_CACHE_DIR = 65538,
+    },
+
+    // TODO: other platform-specific constants
+    .linux, .freebsd, .openbsd, .dragonfly => enum(c_int) {
+        PATH = 1,
+
+        POSIX_V6_ILP32_OFF32_CFLAGS = 2,
+        POSIX_V6_ILP32_OFF32_LDFLAGS = 3,
+        POSIX_V6_ILP32_OFF32_LIBS = 4,
+        POSIX_V6_ILP32_OFFBIG_CFLAGS = 5,
+        POSIX_V6_ILP32_OFFBIG_LDFLAGS = 6,
+        POSIX_V6_ILP32_OFFBIG_LIBS = 7,
+        POSIX_V6_LP64_OFF64_CFLAGS = 8,
+        POSIX_V6_LP64_OFF64_LDFLAGS = 9,
+        POSIX_V6_LP64_OFF64_LIBS = 10,
+        POSIX_V6_LPBIG_OFFBIG_CFLAGS = 11,
+        POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 12,
+        POSIX_V6_LPBIG_OFFBIG_LIBS = 13,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 14,
+
+        XBS5_ILP32_OFF32_CFLAGS = 20,
+        XBS5_ILP32_OFF32_LDFLAGS = 21,
+        XBS5_ILP32_OFF32_LIBS = 22,
+        XBS5_ILP32_OFF32_LINTFLAGS = 23,
+        XBS5_ILP32_OFFBIG_CFLAGS = 24,
+        XBS5_ILP32_OFFBIG_LDFLAGS = 25,
+        XBS5_ILP32_OFFBIG_LIBS = 26,
+        XBS5_ILP32_OFFBIG_LINTFLAGS = 27,
+        XBS5_LP64_OFF64_CFLAGS = 28,
+        XBS5_LP64_OFF64_LDFLAGS = 29,
+        XBS5_LP64_OFF64_LIBS = 30,
+        XBS5_LP64_OFF64_LINTFLAGS = 31,
+        XBS5_LPBIG_OFFBIG_CFLAGS = 32,
+        XBS5_LPBIG_OFFBIG_LDFLAGS = 33,
+        XBS5_LPBIG_OFFBIG_LIBS = 34,
+        XBS5_LPBIG_OFFBIG_LINTFLAGS = 35,
+    },
+
+    else => void,
+};
+
 pub const SEEK = switch (native_os) {
     .linux => linux.SEEK,
     .emscripten => emscripten.SEEK,
@@ -10594,6 +10673,10 @@ pub const sysconf = switch (native_os) {
     .solaris => solaris.sysconf,
     else => private.sysconf,
 };
+pub const confstr = switch (native_os) {
+    .dragonfly, .netbsd, .freebsd, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.confstr,
+    else => {},
+};
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
@@ -11398,6 +11481,7 @@ const private = struct {
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;
+    extern "c" fn confstr(cs: c_int, buf: [*:0]u8, len: usize) usize;
 
     extern "c" fn pthread_setname_np(thread: pthread_t, name: [*:0]const u8) c_int;
     extern "c" fn getcontext(ucp: *ucontext_t) c_int;
