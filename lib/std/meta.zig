@@ -1249,3 +1249,45 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(StructWithComptimeFields));
 }
+
+/// True if the given value is known at comptime
+pub inline fn comptimeKnown(value: anytype) bool {
+    const TupleType = @TypeOf(.{value});
+    const tuple_fields = @typeInfo(TupleType).@"struct".fields;
+    const value_field = tuple_fields[0];
+    return value_field.is_comptime;
+}
+
+test comptimeKnown {
+    // comptime_int literal
+    try testing.expect(comptimeKnown(1337));
+
+    // integer literal
+    try testing.expect(comptimeKnown(@as(u16, 999)));
+
+    // comptime_int constant
+    const integer_constant = 42;
+    try testing.expect(comptimeKnown(integer_constant));
+
+    // integer constant, initialized by comptime-known value
+    const constant_value: u32 = 0xDEADBEEF;
+    try testing.expect(comptimeKnown(constant_value));
+
+    // integer variable
+    var variable: u8 = 0;
+    while (variable < 10) : (variable += 1) {
+        try testing.expect(!comptimeKnown(variable));
+    }
+    try testing.expect(!comptimeKnown(variable));
+
+    // integer constant, initialized by runtime value
+    const runtime_constant: u8 = variable;
+    try testing.expect(!comptimeKnown(runtime_constant));
+
+    // integer comptime-variable
+    comptime var compile_variable: u8 = 0;
+    inline while (compile_variable < 10) : (compile_variable += 1) {
+        try testing.expect(comptimeKnown(compile_variable));
+    }
+    try testing.expect(comptimeKnown(compile_variable));
+}
