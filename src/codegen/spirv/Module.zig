@@ -1,57 +1,100 @@
-//! This structure represents a SPIR-V (sections) module being compiled, and keeps track of all relevant information.
-//! That includes the actual instructions, the current result-id bound, and data structures for querying result-id's
-//! of data which needs to be persistent over different calls to Decl code generation.
+//! This structure represents a SPIR-V (sections) module being compiled, and keeps
+//! track of all relevant information. That includes the actual instructions, the
+//! current result-id bound, and data structures for querying result-id's of data
+//! which needs to be persistent over different calls to Decl code generation.
 //!
-//! A SPIR-V binary module supports both little- and big endian layout. The layout is detected by the magic word in the
-//! header. Therefore, we can ignore any byte order throughout the implementation, and just use the host byte order,
-//! and make this a problem for the consumer.
-const Module = @This();
-
+//! A SPIR-V binary module supports both little- and big endian layout. The layout
+//! is detected by the magic word in the header. Therefore, we can ignore any byte
+//! order throughout the implementation, and just use the host byte order, and make
+//! this a problem for the consumer.
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const autoHashStrat = std.hash.autoHashStrat;
-const Wyhash = std.hash.Wyhash;
 
+const Zcu = @import("../../Zcu.zig");
+const InternPool = @import("../../InternPool.zig");
+const Section = @import("Section.zig");
 const spec = @import("spec.zig");
 const Word = spec.Word;
 const Id = spec.Id;
 
-const Section = @import("Section.zig");
+const Module = @This();
 
-/// This structure represents a function that isc in-progress of being emitted.
-/// Commonly, the contents of this structure will be merged with the appropriate
-/// sections of the module and re-used. Note that the SPIR-V module system makes
-/// no attempt of compacting result-id's, so any Fn instance should ultimately
-/// be merged into the module it's result-id's are allocated from.
-pub const Fn = struct {
-    /// The prologue of this function; this section contains the function's
-    /// OpFunction, OpFunctionParameter, OpLabel and OpVariable instructions, and
-    /// is separated from the actual function contents as OpVariable instructions
-    /// must appear in the first block of a function definition.
-    prologue: Section = .{},
-    /// The code of the body of this function.
-    /// This section should also contain the OpFunctionEnd instruction marking
-    /// the end of this function definition.
-    body: Section = .{},
-    /// The decl dependencies that this function depends on.
-    decl_deps: std.AutoArrayHashMapUnmanaged(Decl.Index, void) = .empty,
+gpa: Allocator,
+arena: Allocator,
+zcu: *Zcu,
+nav_link: std.AutoHashMapUnmanaged(InternPool.Nav.Index, Decl.Index) = .empty,
+uav_link: std.AutoHashMapUnmanaged(struct { InternPool.Index, spec.StorageClass }, Decl.Index) = .empty,
+intern_map: std.AutoHashMapUnmanaged(struct { InternPool.Index, Repr }, Id) = .empty,
+decls: std.ArrayListUnmanaged(Decl) = .empty,
+decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
+entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
+/// This map serves a dual purpose:
+/// - It keeps track of pointers that are currently being emitted, so that we can tell
+///   if they are recursive and need an OpTypeForwardPointer.
+/// - It caches pointers by child-type. This is required because sometimes we rely on
+///   ID-equality for pointers, and pointers constructed via `ptrType()` aren't interned
+///   via the usual `intern_map` mechanism.
+ptr_types: std.AutoHashMapUnmanaged(struct { Id, spec.StorageClass }, Id) = .{},
+/// For test declarations compiled for Vulkan target, we have to add a buffer.
+/// We only need to generate this once, this holds the link information related to that.
+error_buffer: ?Decl.Index = null,
+/// SPIR-V instructions return result-ids.
+/// This variable holds the module-wide counter for these.
+next_result_id: Word = 1,
+/// Some types shouldn't be emitted more than one time, but cannot be caught by
+/// the `intern_map` during codegen. Sometimes, IDs are compared to check if
+/// types are the same, so we can't delay until the dedup pass. Therefore,
+/// this is an ad-hoc structure to cache types where required.
+/// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
+/// non-pointer types.
+/// Additionally, this is used for other values which can be cached, for example,
+/// built-in variables.
+cache: struct {
+    bool_type: ?Id = null,
+    void_type: ?Id = null,
+    opaque_types: std.StringHashMapUnmanaged(Id) = .empty,
+    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
+    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
+    vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
+    array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
+    struct_types: std.ArrayHashMapUnmanaged(StructType, Id, StructType.HashContext, true) = .empty,
+    fn_types: std.ArrayHashMapUnmanaged(FnType, Id, FnType.HashContext, true) = .empty,
 
-    /// Reset this function without deallocating resources, so that
-    /// it may be used to emit code for another function.
-    pub fn reset(self: *Fn) void {
-        self.prologue.reset();
-        self.body.reset();
-        self.decl_deps.clearRetainingCapacity();
-    }
+    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
+    extensions: std.StringHashMapUnmanaged(void) = .empty,
+    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
+    decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
+    builtins: std.AutoHashMapUnmanaged(struct { spec.BuiltIn, spec.StorageClass }, Decl.Index) = .empty,
+    strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
 
-    /// Free the resources owned by this function.
-    pub fn deinit(self: *Fn, a: Allocator) void {
-        self.prologue.deinit(a);
-        self.body.deinit(a);
-        self.decl_deps.deinit(a);
-        self.* = undefined;
-    }
+    bool_const: [2]?Id = .{ null, null },
+    constants: std.ArrayHashMapUnmanaged(Constant, Id, Constant.HashContext, true) = .empty,
+} = .{},
+/// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
+sections: struct {
+    capabilities: Section = .{},
+    extensions: Section = .{},
+    extended_instruction_set: Section = .{},
+    memory_model: Section = .{},
+    execution_modes: Section = .{},
+    debug_strings: Section = .{},
+    debug_names: Section = .{},
+    annotations: Section = .{},
+    globals: Section = .{},
+    functions: Section = .{},
+} = .{},
+
+pub const big_int_bits = 32;
+
+/// Data can be lowered into in two basic representations: indirect, which is when
+/// a type is stored in memory, and direct, which is how a type is stored when its
+/// a direct SPIR-V value.
+pub const Repr = enum {
+    /// A SPIR-V value as it would be used in operations.
+    direct,
+    /// A SPIR-V value as it is stored in memory.
+    indirect,
 };
 
 /// Declarations, both functions and globals, can have dependencies. These are used for 2 things:
@@ -82,201 +125,166 @@ pub const Decl = struct {
     /// - For `invocation_global`, this is the result-id of the associated InvocationGlobal instruction.
     result_id: Id,
     /// The offset of the first dependency of this decl in the `decl_deps` array.
-    begin_dep: u32,
+    begin_dep: usize = 0,
     /// The past-end offset of the dependencies of this decl in the `decl_deps` array.
-    end_dep: u32,
+    end_dep: usize = 0,
 };
 
 /// This models a kernel entry point.
 pub const EntryPoint = struct {
     /// The declaration that should be exported.
-    decl_index: ?Decl.Index = null,
+    decl_index: Decl.Index,
     /// The name of the kernel to be exported.
-    name: ?[]const u8 = null,
+    name: []const u8,
     /// Calling Convention
-    exec_model: ?spec.ExecutionModel = null,
+    exec_model: spec.ExecutionModel,
     exec_mode: ?spec.ExecutionMode = null,
 };
 
-/// A general-purpose allocator which may be used to allocate resources for this module
-gpa: Allocator,
+const StructType = struct {
+    fields: []const Id,
+    ip_index: InternPool.Index,
 
-/// Arena for things that need to live for the length of this program.
-arena: std.heap.ArenaAllocator,
+    const HashContext = struct {
+        pub fn hash(_: @This(), ty: StructType) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.sliceAsBytes(ty.fields));
+            hasher.update(std.mem.asBytes(&ty.ip_index));
+            return @truncate(hasher.final());
+        }
 
-/// Target info
-target: *const std.Target,
-
-/// The target SPIR-V version
-version: spec.Version,
-
-/// Module layout, according to SPIR-V Spec section 2.4, "Logical Layout of a Module".
-sections: struct {
-    /// Capability instructions
-    capabilities: Section = .{},
-    /// OpExtension instructions
-    extensions: Section = .{},
-    /// OpExtInstImport
-    extended_instruction_set: Section = .{},
-    /// memory model defined by target
-    memory_model: Section = .{},
-    /// OpEntryPoint instructions - Handled by `self.entry_points`.
-    /// OpExecutionMode and OpExecutionModeId instructions.
-    execution_modes: Section = .{},
-    /// OpString, OpSourcExtension, OpSource, OpSourceContinued.
-    debug_strings: Section = .{},
-    // OpName, OpMemberName.
-    debug_names: Section = .{},
-    // OpModuleProcessed - skip for now.
-    /// Annotation instructions (OpDecorate etc).
-    annotations: Section = .{},
-    /// Type declarations, constants, global variables
-    /// From this section, OpLine and OpNoLine is allowed.
-    /// According to the SPIR-V documentation, this section normally
-    /// also holds type and constant instructions. These are managed
-    /// via the cache instead, which is the sole structure that
-    /// manages that section. These will be inserted between this and
-    /// the previous section when emitting the final binary.
-    /// TODO: Do we need this section? Globals are also managed with another mechanism.
-    types_globals_constants: Section = .{},
-    // Functions without a body - skip for now.
-    /// Regular function definitions.
-    functions: Section = .{},
-} = .{},
-
-/// SPIR-V instructions return result-ids. This variable holds the module-wide counter for these.
-next_result_id: Word,
-
-/// Cache for results of OpString instructions.
-strings: std.StringArrayHashMapUnmanaged(Id) = .empty,
-
-/// Some types shouldn't be emitted more than one time, but cannot be caught by
-/// the `intern_map` during codegen. Sometimes, IDs are compared to check if
-/// types are the same, so we can't delay until the dedup pass. Therefore,
-/// this is an ad-hoc structure to cache types where required.
-/// According to the SPIR-V specification, section 2.8, this includes all non-aggregate
-/// non-pointer types.
-/// Additionally, this is used for other values which can be cached, for example,
-/// built-in variables.
-cache: struct {
-    bool_type: ?Id = null,
-    void_type: ?Id = null,
-    int_types: std.AutoHashMapUnmanaged(std.builtin.Type.Int, Id) = .empty,
-    float_types: std.AutoHashMapUnmanaged(std.builtin.Type.Float, Id) = .empty,
-    vector_types: std.AutoHashMapUnmanaged(struct { Id, u32 }, Id) = .empty,
-    array_types: std.AutoHashMapUnmanaged(struct { Id, Id }, Id) = .empty,
-
-    capabilities: std.AutoHashMapUnmanaged(spec.Capability, void) = .empty,
-    extensions: std.StringHashMapUnmanaged(void) = .empty,
-    extended_instruction_set: std.AutoHashMapUnmanaged(spec.InstructionSet, Id) = .empty,
-    decorations: std.AutoHashMapUnmanaged(struct { Id, spec.Decoration }, void) = .empty,
-    builtins: std.AutoHashMapUnmanaged(struct { Id, spec.BuiltIn }, Decl.Index) = .empty,
-
-    bool_const: [2]?Id = .{ null, null },
-} = .{},
-
-/// Set of Decls, referred to by Decl.Index.
-decls: std.ArrayListUnmanaged(Decl) = .empty,
-
-/// List of dependencies, per decl. This list holds all the dependencies, sliced by the
-/// begin_dep and end_dep in `self.decls`.
-decl_deps: std.ArrayListUnmanaged(Decl.Index) = .empty,
-
-/// The list of entry points that should be exported from this module.
-entry_points: std.AutoArrayHashMapUnmanaged(Id, EntryPoint) = .empty,
-
-pub fn init(gpa: Allocator, target: *const std.Target) Module {
-    const version_minor: u8 = blk: {
-        // Prefer higher versions
-        if (target.cpu.has(.spirv, .v1_6)) break :blk 6;
-        if (target.cpu.has(.spirv, .v1_5)) break :blk 5;
-        if (target.cpu.has(.spirv, .v1_4)) break :blk 4;
-        if (target.cpu.has(.spirv, .v1_3)) break :blk 3;
-        if (target.cpu.has(.spirv, .v1_2)) break :blk 2;
-        if (target.cpu.has(.spirv, .v1_1)) break :blk 1;
-        break :blk 0;
+        pub fn eql(_: @This(), a: StructType, b: StructType, _: usize) bool {
+            return a.ip_index == b.ip_index and std.mem.eql(Id, a.fields, b.fields);
+        }
     };
-
-    return .{
-        .gpa = gpa,
-        .arena = std.heap.ArenaAllocator.init(gpa),
-        .target = target,
-        .version = .{ .major = 1, .minor = version_minor },
-        .next_result_id = 1, // 0 is an invalid SPIR-V result id, so start counting at 1.
-    };
-}
-
-pub fn deinit(self: *Module) void {
-    self.sections.capabilities.deinit(self.gpa);
-    self.sections.extensions.deinit(self.gpa);
-    self.sections.extended_instruction_set.deinit(self.gpa);
-    self.sections.memory_model.deinit(self.gpa);
-    self.sections.execution_modes.deinit(self.gpa);
-    self.sections.debug_strings.deinit(self.gpa);
-    self.sections.debug_names.deinit(self.gpa);
-    self.sections.annotations.deinit(self.gpa);
-    self.sections.types_globals_constants.deinit(self.gpa);
-    self.sections.functions.deinit(self.gpa);
-
-    self.strings.deinit(self.gpa);
-
-    self.cache.int_types.deinit(self.gpa);
-    self.cache.float_types.deinit(self.gpa);
-    self.cache.vector_types.deinit(self.gpa);
-    self.cache.array_types.deinit(self.gpa);
-    self.cache.capabilities.deinit(self.gpa);
-    self.cache.extensions.deinit(self.gpa);
-    self.cache.extended_instruction_set.deinit(self.gpa);
-    self.cache.decorations.deinit(self.gpa);
-    self.cache.builtins.deinit(self.gpa);
-
-    self.decls.deinit(self.gpa);
-    self.decl_deps.deinit(self.gpa);
-    self.entry_points.deinit(self.gpa);
-
-    self.arena.deinit();
-
-    self.* = undefined;
-}
-
-pub const IdRange = struct {
-    base: u32,
-    len: u32,
-
-    pub fn at(range: IdRange, i: usize) Id {
-        assert(i < range.len);
-        return @enumFromInt(range.base + i);
-    }
 };
 
-pub fn allocIds(self: *Module, n: u32) IdRange {
-    defer self.next_result_id += n;
-    return .{
-        .base = self.next_result_id,
-        .len = n,
+const FnType = struct {
+    return_ty: Id,
+    params: []const Id,
+
+    const HashContext = struct {
+        pub fn hash(_: @This(), ty: FnType) u32 {
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.asBytes(&ty.return_ty));
+            hasher.update(std.mem.sliceAsBytes(ty.params));
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(_: @This(), a: FnType, b: FnType, _: usize) bool {
+            return a.return_ty == b.return_ty and
+                std.mem.eql(Id, a.params, b.params);
+        }
     };
+};
+
+const Constant = struct {
+    ty: Id,
+    value: spec.LiteralContextDependentNumber,
+
+    const HashContext = struct {
+        pub fn hash(_: @This(), value: Constant) u32 {
+            const Tag = @typeInfo(spec.LiteralContextDependentNumber).@"union".tag_type.?;
+            var hasher = std.hash.Wyhash.init(0);
+            hasher.update(std.mem.asBytes(&value.ty));
+            hasher.update(std.mem.asBytes(&@as(Tag, value.value)));
+            switch (value.value) {
+                inline else => |v| hasher.update(std.mem.asBytes(&v)),
+            }
+            return @truncate(hasher.final());
+        }
+
+        pub fn eql(_: @This(), a: Constant, b: Constant, _: usize) bool {
+            if (a.ty != b.ty) return false;
+            const Tag = @typeInfo(spec.LiteralContextDependentNumber).@"union".tag_type.?;
+            if (@as(Tag, a.value) != @as(Tag, b.value)) return false;
+            return switch (a.value) {
+                inline else => |v, tag| v == @field(b.value, @tagName(tag)),
+            };
+        }
+    };
+};
+
+pub fn deinit(module: *Module) void {
+    module.nav_link.deinit(module.gpa);
+    module.uav_link.deinit(module.gpa);
+    module.intern_map.deinit(module.gpa);
+    module.ptr_types.deinit(module.gpa);
+
+    module.sections.capabilities.deinit(module.gpa);
+    module.sections.extensions.deinit(module.gpa);
+    module.sections.extended_instruction_set.deinit(module.gpa);
+    module.sections.memory_model.deinit(module.gpa);
+    module.sections.execution_modes.deinit(module.gpa);
+    module.sections.debug_strings.deinit(module.gpa);
+    module.sections.debug_names.deinit(module.gpa);
+    module.sections.annotations.deinit(module.gpa);
+    module.sections.globals.deinit(module.gpa);
+    module.sections.functions.deinit(module.gpa);
+
+    module.cache.opaque_types.deinit(module.gpa);
+    module.cache.int_types.deinit(module.gpa);
+    module.cache.float_types.deinit(module.gpa);
+    module.cache.vector_types.deinit(module.gpa);
+    module.cache.array_types.deinit(module.gpa);
+    module.cache.struct_types.deinit(module.gpa);
+    module.cache.fn_types.deinit(module.gpa);
+    module.cache.capabilities.deinit(module.gpa);
+    module.cache.extensions.deinit(module.gpa);
+    module.cache.extended_instruction_set.deinit(module.gpa);
+    module.cache.decorations.deinit(module.gpa);
+    module.cache.builtins.deinit(module.gpa);
+    module.cache.strings.deinit(module.gpa);
+
+    module.cache.constants.deinit(module.gpa);
+
+    module.decls.deinit(module.gpa);
+    module.decl_deps.deinit(module.gpa);
+    module.entry_points.deinit(module.gpa);
+
+    module.* = undefined;
 }
 
-pub fn allocId(self: *Module) Id {
-    return self.allocIds(1).at(0);
+/// Fetch or allocate a result id for nav index. This function also marks the nav as alive.
+/// Note: Function does not actually generate the nav, it just allocates an index.
+pub fn resolveNav(module: *Module, ip: *InternPool, nav_index: InternPool.Nav.Index) !Decl.Index {
+    const entry = try module.nav_link.getOrPut(module.gpa, nav_index);
+    if (!entry.found_existing) {
+        const nav = ip.getNav(nav_index);
+        // TODO: Extern fn?
+        const kind: Decl.Kind = if (ip.isFunctionType(nav.typeOf(ip)))
+            .func
+        else switch (nav.getAddrspace()) {
+            .generic => .invocation_global,
+            else => .global,
+        };
+        entry.value_ptr.* = try module.allocDecl(kind);
+    }
+
+    return entry.value_ptr.*;
 }
 
-pub fn idBound(self: Module) Word {
-    return self.next_result_id;
+pub fn allocIds(module: *Module, n: u32) spec.IdRange {
+    defer module.next_result_id += n;
+    return .{ .base = module.next_result_id, .len = n };
 }
 
-pub fn hasFeature(self: *Module, feature: std.Target.spirv.Feature) bool {
-    return self.target.cpu.has(.spirv, feature);
+pub fn allocId(module: *Module) Id {
+    return module.allocIds(1).at(0);
 }
 
-fn addEntryPointDeps(
-    self: *Module,
+pub fn idBound(module: Module) Word {
+    return module.next_result_id;
+}
+
+pub fn addEntryPointDeps(
+    module: *Module,
     decl_index: Decl.Index,
     seen: *std.DynamicBitSetUnmanaged,
     interface: *std.ArrayList(Id),
 ) !void {
-    const decl = self.declPtr(decl_index);
-    const deps = self.decl_deps.items[decl.begin_dep..decl.end_dep];
+    const decl = module.declPtr(decl_index);
+    const deps = module.decl_deps.items[decl.begin_dep..decl.end_dep];
 
     if (seen.isSet(@intFromEnum(decl_index))) {
         return;
@@ -289,36 +297,38 @@ fn addEntryPointDeps(
     }
 
     for (deps) |dep| {
-        try self.addEntryPointDeps(dep, seen, interface);
+        try module.addEntryPointDeps(dep, seen, interface);
     }
 }
 
-fn entryPoints(self: *Module) !Section {
-    var entry_points = Section{};
-    errdefer entry_points.deinit(self.gpa);
+fn entryPoints(module: *Module) !Section {
+    const target = module.zcu.getTarget();
 
-    var interface = std.ArrayList(Id).init(self.gpa);
+    var entry_points = Section{};
+    errdefer entry_points.deinit(module.gpa);
+
+    var interface = std.ArrayList(Id).init(module.gpa);
     defer interface.deinit();
 
-    var seen = try std.DynamicBitSetUnmanaged.initEmpty(self.gpa, self.decls.items.len);
-    defer seen.deinit(self.gpa);
+    var seen = try std.DynamicBitSetUnmanaged.initEmpty(module.gpa, module.decls.items.len);
+    defer seen.deinit(module.gpa);
 
-    for (self.entry_points.keys(), self.entry_points.values()) |entry_point_id, entry_point| {
+    for (module.entry_points.keys(), module.entry_points.values()) |entry_point_id, entry_point| {
         interface.items.len = 0;
-        seen.setRangeValue(.{ .start = 0, .end = self.decls.items.len }, false);
+        seen.setRangeValue(.{ .start = 0, .end = module.decls.items.len }, false);
 
-        try self.addEntryPointDeps(entry_point.decl_index.?, &seen, &interface);
-        try entry_points.emit(self.gpa, .OpEntryPoint, .{
-            .execution_model = entry_point.exec_model.?,
+        try module.addEntryPointDeps(entry_point.decl_index, &seen, &interface);
+        try entry_points.emit(module.gpa, .OpEntryPoint, .{
+            .execution_model = entry_point.exec_model,
             .entry_point = entry_point_id,
-            .name = entry_point.name.?,
+            .name = entry_point.name,
             .interface = interface.items,
         });
 
         if (entry_point.exec_mode == null and entry_point.exec_model == .fragment) {
-            switch (self.target.os.tag) {
+            switch (target.os.tag) {
                 .vulkan, .opengl => |tag| {
-                    try self.sections.execution_modes.emit(self.gpa, .OpExecutionMode, .{
+                    try module.sections.execution_modes.emit(module.gpa, .OpExecutionMode, .{
                         .entry_point = entry_point_id,
                         .mode = if (tag == .vulkan) .origin_upper_left else .origin_lower_left,
                     });
@@ -332,83 +342,100 @@ fn entryPoints(self: *Module) !Section {
     return entry_points;
 }
 
-pub fn finalize(self: *Module, a: Allocator) ![]Word {
+pub fn finalize(module: *Module, gpa: Allocator) ![]Word {
+    const target = module.zcu.getTarget();
+
     // Emit capabilities and extensions
-    switch (self.target.os.tag) {
+    switch (target.os.tag) {
         .opengl => {
-            try self.addCapability(.shader);
-            try self.addCapability(.matrix);
+            try module.addCapability(.shader);
+            try module.addCapability(.matrix);
         },
         .vulkan => {
-            try self.addCapability(.shader);
-            try self.addCapability(.matrix);
-            if (self.target.cpu.arch == .spirv64) {
-                try self.addExtension("SPV_KHR_physical_storage_buffer");
-                try self.addCapability(.physical_storage_buffer_addresses);
+            try module.addCapability(.shader);
+            try module.addCapability(.matrix);
+            if (target.cpu.arch == .spirv64) {
+                try module.addExtension("SPV_KHR_physical_storage_buffer");
+                try module.addCapability(.physical_storage_buffer_addresses);
             }
         },
         .opencl, .amdhsa => {
-            try self.addCapability(.kernel);
-            try self.addCapability(.addresses);
+            try module.addCapability(.kernel);
+            try module.addCapability(.addresses);
         },
         else => unreachable,
     }
-    if (self.target.cpu.arch == .spirv64) try self.addCapability(.int64);
-    if (self.target.cpu.has(.spirv, .int64)) try self.addCapability(.int64);
-    if (self.target.cpu.has(.spirv, .float16)) try self.addCapability(.float16);
-    if (self.target.cpu.has(.spirv, .float64)) try self.addCapability(.float64);
-    if (self.target.cpu.has(.spirv, .generic_pointer)) try self.addCapability(.generic_pointer);
-    if (self.target.cpu.has(.spirv, .vector16)) try self.addCapability(.vector16);
-    if (self.target.cpu.has(.spirv, .storage_push_constant16)) {
-        try self.addExtension("SPV_KHR_16bit_storage");
-        try self.addCapability(.storage_push_constant16);
+    if (target.cpu.arch == .spirv64) try module.addCapability(.int64);
+    if (target.cpu.has(.spirv, .int64)) try module.addCapability(.int64);
+    if (target.cpu.has(.spirv, .float16)) {
+        if (target.os.tag == .opencl) try module.addExtension("cl_khr_fp16");
+        try module.addCapability(.float16);
     }
-    if (self.target.cpu.has(.spirv, .arbitrary_precision_integers)) {
-        try self.addExtension("SPV_INTEL_arbitrary_precision_integers");
-        try self.addCapability(.arbitrary_precision_integers_intel);
+    if (target.cpu.has(.spirv, .float64)) try module.addCapability(.float64);
+    if (target.cpu.has(.spirv, .generic_pointer)) try module.addCapability(.generic_pointer);
+    if (target.cpu.has(.spirv, .vector16)) try module.addCapability(.vector16);
+    if (target.cpu.has(.spirv, .storage_push_constant16)) {
+        try module.addExtension("SPV_KHR_16bit_storage");
+        try module.addCapability(.storage_push_constant16);
     }
-    if (self.target.cpu.has(.spirv, .variable_pointers)) {
-        try self.addExtension("SPV_KHR_variable_pointers");
-        try self.addCapability(.variable_pointers_storage_buffer);
-        try self.addCapability(.variable_pointers);
+    if (target.cpu.has(.spirv, .arbitrary_precision_integers)) {
+        try module.addExtension("SPV_INTEL_arbitrary_precision_integers");
+        try module.addCapability(.arbitrary_precision_integers_intel);
+    }
+    if (target.cpu.has(.spirv, .variable_pointers)) {
+        try module.addExtension("SPV_KHR_variable_pointers");
+        try module.addCapability(.variable_pointers_storage_buffer);
+        try module.addCapability(.variable_pointers);
     }
     // These are well supported
-    try self.addCapability(.int8);
-    try self.addCapability(.int16);
+    try module.addCapability(.int8);
+    try module.addCapability(.int16);
 
     // Emit memory model
-    const addressing_model: spec.AddressingModel = switch (self.target.os.tag) {
+    const addressing_model: spec.AddressingModel = switch (target.os.tag) {
         .opengl => .logical,
-        .vulkan => if (self.target.cpu.arch == .spirv32) .logical else .physical_storage_buffer64,
-        .opencl => if (self.target.cpu.arch == .spirv32) .physical32 else .physical64,
+        .vulkan => if (target.cpu.arch == .spirv32) .logical else .physical_storage_buffer64,
+        .opencl => if (target.cpu.arch == .spirv32) .physical32 else .physical64,
         .amdhsa => .physical64,
         else => unreachable,
     };
-    try self.sections.memory_model.emit(self.gpa, .OpMemoryModel, .{
+    try module.sections.memory_model.emit(module.gpa, .OpMemoryModel, .{
         .addressing_model = addressing_model,
-        .memory_model = switch (self.target.os.tag) {
+        .memory_model = switch (target.os.tag) {
             .opencl => .open_cl,
             .vulkan, .opengl => .glsl450,
             else => unreachable,
         },
     });
 
-    // See SPIR-V Spec section 2.3, "Physical Layout of a SPIR-V Module and Instruction"
-    // TODO: Audit calls to allocId() in this function to make it idempotent.
-    var entry_points = try self.entryPoints();
-    defer entry_points.deinit(self.gpa);
+    var entry_points = try module.entryPoints();
+    defer entry_points.deinit(module.gpa);
+
+    const version: spec.Version = .{
+        .major = 1,
+        .minor = blk: {
+            // Prefer higher versions
+            if (target.cpu.has(.spirv, .v1_6)) break :blk 6;
+            if (target.cpu.has(.spirv, .v1_5)) break :blk 5;
+            if (target.cpu.has(.spirv, .v1_4)) break :blk 4;
+            if (target.cpu.has(.spirv, .v1_3)) break :blk 3;
+            if (target.cpu.has(.spirv, .v1_2)) break :blk 2;
+            if (target.cpu.has(.spirv, .v1_1)) break :blk 1;
+            break :blk 0;
+        },
+    };
 
     const header = [_]Word{
         spec.magic_number,
-        self.version.toWord(),
+        version.toWord(),
         spec.zig_generator_id,
-        self.idBound(),
+        module.idBound(),
         0, // Schema (currently reserved for future use)
     };
 
     var source = Section{};
-    defer source.deinit(self.gpa);
-    try self.sections.debug_strings.emit(self.gpa, .OpSource, .{
+    defer source.deinit(module.gpa);
+    try module.sections.debug_strings.emit(module.gpa, .OpSource, .{
         .source_language = .zig,
         .version = 0,
         // We cannot emit these because the Khronos translator does not parse this instruction
@@ -421,26 +448,26 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
     // Note: needs to be kept in order according to section 2.3!
     const buffers = &[_][]const Word{
         &header,
-        self.sections.capabilities.toWords(),
-        self.sections.extensions.toWords(),
-        self.sections.extended_instruction_set.toWords(),
-        self.sections.memory_model.toWords(),
+        module.sections.capabilities.toWords(),
+        module.sections.extensions.toWords(),
+        module.sections.extended_instruction_set.toWords(),
+        module.sections.memory_model.toWords(),
         entry_points.toWords(),
-        self.sections.execution_modes.toWords(),
+        module.sections.execution_modes.toWords(),
         source.toWords(),
-        self.sections.debug_strings.toWords(),
-        self.sections.debug_names.toWords(),
-        self.sections.annotations.toWords(),
-        self.sections.types_globals_constants.toWords(),
-        self.sections.functions.toWords(),
+        module.sections.debug_strings.toWords(),
+        module.sections.debug_names.toWords(),
+        module.sections.annotations.toWords(),
+        module.sections.globals.toWords(),
+        module.sections.functions.toWords(),
     };
 
     var total_result_size: usize = 0;
     for (buffers) |buffer| {
         total_result_size += buffer.len;
     }
-    const result = try a.alloc(Word, total_result_size);
-    errdefer a.free(result);
+    const result = try gpa.alloc(Word, total_result_size);
+    errdefer comptime unreachable;
 
     var offset: usize = 0;
     for (buffers) |buffer| {
@@ -451,34 +478,27 @@ pub fn finalize(self: *Module, a: Allocator) ![]Word {
     return result;
 }
 
-/// Merge the sections making up a function declaration into this module.
-pub fn addFunction(self: *Module, decl_index: Decl.Index, func: Fn) !void {
-    try self.sections.functions.append(self.gpa, func.prologue);
-    try self.sections.functions.append(self.gpa, func.body);
-    try self.declareDeclDeps(decl_index, func.decl_deps.keys());
+pub fn addCapability(module: *Module, cap: spec.Capability) !void {
+    const entry = try module.cache.capabilities.getOrPut(module.gpa, cap);
+    if (entry.found_existing) return;
+    try module.sections.capabilities.emit(module.gpa, .OpCapability, .{ .capability = cap });
 }
 
-pub fn addCapability(self: *Module, cap: spec.Capability) !void {
-    const entry = try self.cache.capabilities.getOrPut(self.gpa, cap);
+pub fn addExtension(module: *Module, ext: []const u8) !void {
+    const entry = try module.cache.extensions.getOrPut(module.gpa, ext);
     if (entry.found_existing) return;
-    try self.sections.capabilities.emit(self.gpa, .OpCapability, .{ .capability = cap });
-}
-
-pub fn addExtension(self: *Module, ext: []const u8) !void {
-    const entry = try self.cache.extensions.getOrPut(self.gpa, ext);
-    if (entry.found_existing) return;
-    try self.sections.extensions.emit(self.gpa, .OpExtension, .{ .name = ext });
+    try module.sections.extensions.emit(module.gpa, .OpExtension, .{ .name = ext });
 }
 
 /// Imports or returns the existing id of an extended instruction set
-pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !Id {
+pub fn importInstructionSet(module: *Module, set: spec.InstructionSet) !Id {
     assert(set != .core);
 
-    const gop = try self.cache.extended_instruction_set.getOrPut(self.gpa, set);
+    const gop = try module.cache.extended_instruction_set.getOrPut(module.gpa, set);
     if (gop.found_existing) return gop.value_ptr.*;
 
-    const result_id = self.allocId();
-    try self.sections.extended_instruction_set.emit(self.gpa, .OpExtInstImport, .{
+    const result_id = module.allocId();
+    try module.sections.extended_instruction_set.emit(module.gpa, .OpExtInstImport, .{
         .id_result = result_id,
         .name = @tagName(set),
     });
@@ -487,104 +507,130 @@ pub fn importInstructionSet(self: *Module, set: spec.InstructionSet) !Id {
     return result_id;
 }
 
-/// Fetch the result-id of an instruction corresponding to a string.
-pub fn resolveString(self: *Module, string: []const u8) !Id {
-    if (self.strings.get(string)) |id| {
-        return id;
-    }
+pub fn boolType(module: *Module) !Id {
+    if (module.cache.bool_type) |id| return id;
 
-    const id = self.allocId();
-    try self.strings.put(self.gpa, try self.arena.allocator().dupe(u8, string), id);
-
-    try self.sections.debug_strings.emit(self.gpa, .OpString, .{
-        .id_result = id,
-        .string = string,
-    });
-
-    return id;
-}
-
-pub fn structType(self: *Module, result_id: Id, types: []const Id, maybe_names: ?[]const []const u8) !void {
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeStruct, .{
-        .id_result = result_id,
-        .id_ref = types,
-    });
-
-    if (maybe_names) |names| {
-        assert(names.len == types.len);
-        for (names, 0..) |name, i| {
-            try self.memberDebugName(result_id, @intCast(i), name);
-        }
-    }
-}
-
-pub fn boolType(self: *Module) !Id {
-    if (self.cache.bool_type) |id| return id;
-
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeBool, .{
+    const result_id = module.allocId();
+    try module.sections.globals.emit(module.gpa, .OpTypeBool, .{
         .id_result = result_id,
     });
-    self.cache.bool_type = result_id;
+    module.cache.bool_type = result_id;
     return result_id;
 }
 
-pub fn voidType(self: *Module) !Id {
-    if (self.cache.void_type) |id| return id;
+pub fn voidType(module: *Module) !Id {
+    if (module.cache.void_type) |id| return id;
 
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVoid, .{
+    const result_id = module.allocId();
+    try module.sections.globals.emit(module.gpa, .OpTypeVoid, .{
         .id_result = result_id,
     });
-    self.cache.void_type = result_id;
-    try self.debugName(result_id, "void");
+    module.cache.void_type = result_id;
+    try module.debugName(result_id, "void");
     return result_id;
 }
 
-pub fn intType(self: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
+pub fn opaqueType(module: *Module, name: []const u8) !Id {
+    if (module.cache.opaque_types.get(name)) |id| return id;
+    const result_id = module.allocId();
+    const name_dup = try module.arena.dupe(u8, name);
+    try module.sections.globals.emit(module.gpa, .OpTypeOpaque, .{
+        .id_result = result_id,
+        .literal_string = name_dup,
+    });
+    try module.debugName(result_id, name_dup);
+    try module.cache.opaque_types.put(module.gpa, name_dup, result_id);
+    return result_id;
+}
+
+pub fn backingIntBits(module: *Module, bits: u16) struct { u16, bool } {
+    assert(bits != 0);
+    const target = module.zcu.getTarget();
+
+    if (target.cpu.has(.spirv, .arbitrary_precision_integers) and bits <= 32) {
+        return .{ bits, false };
+    }
+
+    // We require Int8 and Int16 capabilities and benefit Int64 when available.
+    // 32-bit integers are always supported (see spec, 2.16.1, Data rules).
+    const ints = [_]struct { bits: u16, enabled: bool }{
+        .{ .bits = 8, .enabled = true },
+        .{ .bits = 16, .enabled = true },
+        .{ .bits = 32, .enabled = true },
+        .{
+            .bits = 64,
+            .enabled = target.cpu.has(.spirv, .int64) or target.cpu.arch == .spirv64,
+        },
+    };
+
+    for (ints) |int| {
+        if (bits <= int.bits and int.enabled) return .{ int.bits, false };
+    }
+
+    // Big int
+    return .{ std.mem.alignForward(u16, bits, big_int_bits), true };
+}
+
+pub fn intType(module: *Module, signedness: std.builtin.Signedness, bits: u16) !Id {
     assert(bits > 0);
-    const entry = try self.cache.int_types.getOrPut(self.gpa, .{ .signedness = signedness, .bits = bits });
+
+    const target = module.zcu.getTarget();
+    const actual_signedness = switch (target.os.tag) {
+        // Kernel only supports unsigned ints.
+        .opencl, .amdhsa => .unsigned,
+        else => signedness,
+    };
+    const backing_bits, const big_int = module.backingIntBits(bits);
+    if (big_int) {
+        // TODO: support composite integers larger than 64 bit
+        assert(backing_bits <= 64);
+        const u32_ty = try module.intType(.unsigned, 32);
+        const len_id = try module.constant(u32_ty, .{ .uint32 = backing_bits / big_int_bits });
+        return module.arrayType(len_id, u32_ty);
+    }
+
+    const entry = try module.cache.int_types.getOrPut(module.gpa, .{ .signedness = actual_signedness, .bits = backing_bits });
     if (!entry.found_existing) {
-        const result_id = self.allocId();
+        const result_id = module.allocId();
         entry.value_ptr.* = result_id;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeInt, .{
+        try module.sections.globals.emit(module.gpa, .OpTypeInt, .{
             .id_result = result_id,
-            .width = bits,
-            .signedness = switch (signedness) {
+            .width = backing_bits,
+            .signedness = switch (actual_signedness) {
                 .signed => 1,
                 .unsigned => 0,
             },
         });
 
-        switch (signedness) {
-            .signed => try self.debugNameFmt(result_id, "i{}", .{bits}),
-            .unsigned => try self.debugNameFmt(result_id, "u{}", .{bits}),
+        switch (actual_signedness) {
+            .signed => try module.debugNameFmt(result_id, "i{}", .{backing_bits}),
+            .unsigned => try module.debugNameFmt(result_id, "u{}", .{backing_bits}),
         }
     }
     return entry.value_ptr.*;
 }
 
-pub fn floatType(self: *Module, bits: u16) !Id {
+pub fn floatType(module: *Module, bits: u16) !Id {
     assert(bits > 0);
-    const entry = try self.cache.float_types.getOrPut(self.gpa, .{ .bits = bits });
+    const entry = try module.cache.float_types.getOrPut(module.gpa, .{ .bits = bits });
     if (!entry.found_existing) {
-        const result_id = self.allocId();
+        const result_id = module.allocId();
         entry.value_ptr.* = result_id;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFloat, .{
+        try module.sections.globals.emit(module.gpa, .OpTypeFloat, .{
             .id_result = result_id,
             .width = bits,
         });
-        try self.debugNameFmt(result_id, "f{}", .{bits});
+        try module.debugNameFmt(result_id, "f{}", .{bits});
     }
     return entry.value_ptr.*;
 }
 
-pub fn vectorType(self: *Module, len: u32, child_ty_id: Id) !Id {
-    const entry = try self.cache.vector_types.getOrPut(self.gpa, .{ child_ty_id, len });
+pub fn vectorType(module: *Module, len: u32, child_ty_id: Id) !Id {
+    const entry = try module.cache.vector_types.getOrPut(module.gpa, .{ child_ty_id, len });
     if (!entry.found_existing) {
-        const result_id = self.allocId();
+        const result_id = module.allocId();
         entry.value_ptr.* = result_id;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeVector, .{
+        try module.sections.globals.emit(module.gpa, .OpTypeVector, .{
             .id_result = result_id,
             .component_type = child_ty_id,
             .component_count = len,
@@ -593,12 +639,12 @@ pub fn vectorType(self: *Module, len: u32, child_ty_id: Id) !Id {
     return entry.value_ptr.*;
 }
 
-pub fn arrayType(self: *Module, len_id: Id, child_ty_id: Id) !Id {
-    const entry = try self.cache.array_types.getOrPut(self.gpa, .{ child_ty_id, len_id });
+pub fn arrayType(module: *Module, len_id: Id, child_ty_id: Id) !Id {
+    const entry = try module.cache.array_types.getOrPut(module.gpa, .{ child_ty_id, len_id });
     if (!entry.found_existing) {
-        const result_id = self.allocId();
+        const result_id = module.allocId();
         entry.value_ptr.* = result_id;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpTypeArray, .{
+        try module.sections.globals.emit(module.gpa, .OpTypeArray, .{
             .id_result = result_id,
             .element_type = child_ty_id,
             .length = len_id,
@@ -607,37 +653,114 @@ pub fn arrayType(self: *Module, len_id: Id, child_ty_id: Id) !Id {
     return entry.value_ptr.*;
 }
 
-pub fn functionType(self: *Module, return_ty_id: Id, param_type_ids: []const Id) !Id {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpTypeFunction, .{
+pub fn ptrType(module: *Module, child_ty_id: Id, storage_class: spec.StorageClass) !Id {
+    const key = .{ child_ty_id, storage_class };
+    const gop = try module.ptr_types.getOrPut(module.gpa, key);
+    if (!gop.found_existing) {
+        gop.value_ptr.* = module.allocId();
+        try module.sections.globals.emit(module.gpa, .OpTypePointer, .{
+            .id_result = gop.value_ptr.*,
+            .storage_class = storage_class,
+            .type = child_ty_id,
+        });
+        return gop.value_ptr.*;
+    }
+    return gop.value_ptr.*;
+}
+
+pub fn structType(
+    module: *Module,
+    types: []const Id,
+    maybe_names: ?[]const []const u8,
+    maybe_offsets: ?[]const u32,
+    ip_index: InternPool.Index,
+) !Id {
+    const target = module.zcu.getTarget();
+
+    if (module.cache.struct_types.get(.{ .fields = types, .ip_index = ip_index })) |id| return id;
+    const result_id = module.allocId();
+    const types_dup = try module.arena.dupe(Id, types);
+    try module.sections.globals.emit(module.gpa, .OpTypeStruct, .{
+        .id_result = result_id,
+        .id_ref = types_dup,
+    });
+
+    if (maybe_names) |names| {
+        assert(names.len == types.len);
+        for (names, 0..) |name, i| {
+            try module.memberDebugName(result_id, @intCast(i), name);
+        }
+    }
+
+    switch (target.os.tag) {
+        .vulkan, .opengl => {
+            if (maybe_offsets) |offsets| {
+                assert(offsets.len == types.len);
+                for (offsets, 0..) |offset, i| {
+                    try module.decorateMember(
+                        result_id,
+                        @intCast(i),
+                        .{ .offset = .{ .byte_offset = offset } },
+                    );
+                }
+            }
+        },
+        else => {},
+    }
+
+    try module.cache.struct_types.put(
+        module.gpa,
+        .{
+            .fields = types_dup,
+            .ip_index = if (module.zcu.comp.config.root_strip) .none else ip_index,
+        },
+        result_id,
+    );
+    return result_id;
+}
+
+pub fn functionType(module: *Module, return_ty_id: Id, param_type_ids: []const Id) !Id {
+    if (module.cache.fn_types.get(.{
+        .return_ty = return_ty_id,
+        .params = param_type_ids,
+    })) |id| return id;
+    const result_id = module.allocId();
+    const params_dup = try module.arena.dupe(Id, param_type_ids);
+    try module.sections.globals.emit(module.gpa, .OpTypeFunction, .{
         .id_result = result_id,
         .return_type = return_ty_id,
-        .id_ref_2 = param_type_ids,
+        .id_ref_2 = params_dup,
     });
+    try module.cache.fn_types.put(module.gpa, .{
+        .return_ty = return_ty_id,
+        .params = params_dup,
+    }, result_id);
     return result_id;
 }
 
-pub fn constant(self: *Module, result_ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
-    const result_id = self.allocId();
-    const section = &self.sections.types_globals_constants;
-    try section.emit(self.gpa, .OpConstant, .{
-        .id_result_type = result_ty_id,
-        .id_result = result_id,
-        .value = value,
-    });
-    return result_id;
+pub fn constant(module: *Module, ty_id: Id, value: spec.LiteralContextDependentNumber) !Id {
+    const gop = try module.cache.constants.getOrPut(module.gpa, .{ .ty = ty_id, .value = value });
+    if (!gop.found_existing) {
+        gop.value_ptr.* = module.allocId();
+        try module.sections.globals.emit(module.gpa, .OpConstant, .{
+            .id_result_type = ty_id,
+            .id_result = gop.value_ptr.*,
+            .value = value,
+        });
+    }
+    return gop.value_ptr.*;
 }
 
-pub fn constBool(self: *Module, value: bool) !Id {
-    if (self.cache.bool_const[@intFromBool(value)]) |b| return b;
+pub fn constBool(module: *Module, value: bool) !Id {
+    if (module.cache.bool_const[@intFromBool(value)]) |b| return b;
 
-    const result_ty_id = try self.boolType();
-    const result_id = self.allocId();
-    self.cache.bool_const[@intFromBool(value)] = result_id;
+    const result_ty_id = try module.boolType();
+    const result_id = module.allocId();
+    module.cache.bool_const[@intFromBool(value)] = result_id;
 
     switch (value) {
-        inline else => |value_ct| try self.sections.types_globals_constants.emit(
-            self.gpa,
+        inline else => |value_ct| try module.sections.globals.emit(
+            module.gpa,
             if (value_ct) .OpConstantTrue else .OpConstantFalse,
             .{
                 .id_result_type = result_ty_id,
@@ -649,37 +772,40 @@ pub fn constBool(self: *Module, value: bool) !Id {
     return result_id;
 }
 
-/// Return a pointer to a builtin variable. `result_ty_id` must be a **pointer**
-/// with storage class `.Input`.
-pub fn builtin(self: *Module, result_ty_id: Id, spirv_builtin: spec.BuiltIn) !Decl.Index {
-    const entry = try self.cache.builtins.getOrPut(self.gpa, .{ result_ty_id, spirv_builtin });
-    if (!entry.found_existing) {
-        const decl_index = try self.allocDecl(.global);
-        const result_id = self.declPtr(decl_index).result_id;
-        entry.value_ptr.* = decl_index;
-        try self.sections.types_globals_constants.emit(self.gpa, .OpVariable, .{
+pub fn builtin(
+    module: *Module,
+    result_ty_id: Id,
+    spirv_builtin: spec.BuiltIn,
+    storage_class: spec.StorageClass,
+) !Decl.Index {
+    const gop = try module.cache.builtins.getOrPut(module.gpa, .{ spirv_builtin, storage_class });
+    if (!gop.found_existing) {
+        const decl_index = try module.allocDecl(.global);
+        const decl = module.declPtr(decl_index);
+
+        gop.value_ptr.* = decl_index;
+        try module.sections.globals.emit(module.gpa, .OpVariable, .{
             .id_result_type = result_ty_id,
-            .id_result = result_id,
-            .storage_class = .input,
+            .id_result = decl.result_id,
+            .storage_class = storage_class,
         });
-        try self.decorate(result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
-        try self.declareDeclDeps(decl_index, &.{});
+        try module.decorate(decl.result_id, .{ .built_in = .{ .built_in = spirv_builtin } });
     }
-    return entry.value_ptr.*;
+    return gop.value_ptr.*;
 }
 
-pub fn constUndef(self: *Module, ty_id: Id) !Id {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpUndef, .{
+pub fn constUndef(module: *Module, ty_id: Id) !Id {
+    const result_id = module.allocId();
+    try module.sections.globals.emit(module.gpa, .OpUndef, .{
         .id_result_type = ty_id,
         .id_result = result_id,
     });
     return result_id;
 }
 
-pub fn constNull(self: *Module, ty_id: Id) !Id {
-    const result_id = self.allocId();
-    try self.sections.types_globals_constants.emit(self.gpa, .OpConstantNull, .{
+pub fn constNull(module: *Module, ty_id: Id) !Id {
+    const result_id = module.allocId();
+    try module.sections.globals.emit(module.gpa, .OpConstantNull, .{
         .id_result_type = ty_id,
         .id_result = result_id,
     });
@@ -688,13 +814,13 @@ pub fn constNull(self: *Module, ty_id: Id) !Id {
 
 /// Decorate a result-id.
 pub fn decorate(
-    self: *Module,
+    module: *Module,
     target: Id,
     decoration: spec.Decoration.Extended,
 ) !void {
-    const entry = try self.cache.decorations.getOrPut(self.gpa, .{ target, decoration });
-    if (!entry.found_existing) {
-        try self.sections.annotations.emit(self.gpa, .OpDecorate, .{
+    const gop = try module.cache.decorations.getOrPut(module.gpa, .{ target, decoration });
+    if (!gop.found_existing) {
+        try module.sections.annotations.emit(module.gpa, .OpDecorate, .{
             .target = target,
             .decoration = decoration,
         });
@@ -704,79 +830,112 @@ pub fn decorate(
 /// Decorate a result-id which is a member of some struct.
 /// We really don't have to and shouldn't need to cache this.
 pub fn decorateMember(
-    self: *Module,
+    module: *Module,
     structure_type: Id,
     member: u32,
     decoration: spec.Decoration.Extended,
 ) !void {
-    try self.sections.annotations.emit(self.gpa, .OpMemberDecorate, .{
+    try module.sections.annotations.emit(module.gpa, .OpMemberDecorate, .{
         .structure_type = structure_type,
         .member = member,
         .decoration = decoration,
     });
 }
 
-pub fn allocDecl(self: *Module, kind: Decl.Kind) !Decl.Index {
-    try self.decls.append(self.gpa, .{
+pub fn allocDecl(module: *Module, kind: Decl.Kind) !Decl.Index {
+    try module.decls.append(module.gpa, .{
         .kind = kind,
-        .result_id = self.allocId(),
-        .begin_dep = undefined,
-        .end_dep = undefined,
+        .result_id = module.allocId(),
     });
 
-    return @as(Decl.Index, @enumFromInt(@as(u32, @intCast(self.decls.items.len - 1))));
+    return @as(Decl.Index, @enumFromInt(@as(u32, @intCast(module.decls.items.len - 1))));
 }
 
-pub fn declPtr(self: *Module, index: Decl.Index) *Decl {
-    return &self.decls.items[@intFromEnum(index)];
-}
-
-/// Declare ALL dependencies for a decl.
-pub fn declareDeclDeps(self: *Module, decl_index: Decl.Index, deps: []const Decl.Index) !void {
-    const begin_dep: u32 = @intCast(self.decl_deps.items.len);
-    try self.decl_deps.appendSlice(self.gpa, deps);
-    const end_dep: u32 = @intCast(self.decl_deps.items.len);
-
-    const decl = self.declPtr(decl_index);
-    decl.begin_dep = begin_dep;
-    decl.end_dep = end_dep;
+pub fn declPtr(module: *Module, index: Decl.Index) *Decl {
+    return &module.decls.items[@intFromEnum(index)];
 }
 
 /// Declare a SPIR-V function as an entry point. This causes an extra wrapper
 /// function to be generated, which is then exported as the real entry point. The purpose of this
 /// wrapper is to allocate and initialize the structure holding the instance globals.
 pub fn declareEntryPoint(
-    self: *Module,
+    module: *Module,
     decl_index: Decl.Index,
     name: []const u8,
     exec_model: spec.ExecutionModel,
     exec_mode: ?spec.ExecutionMode,
 ) !void {
-    const gop = try self.entry_points.getOrPut(self.gpa, self.declPtr(decl_index).result_id);
+    const gop = try module.entry_points.getOrPut(module.gpa, module.declPtr(decl_index).result_id);
     gop.value_ptr.decl_index = decl_index;
-    gop.value_ptr.name = try self.arena.allocator().dupe(u8, name);
+    gop.value_ptr.name = name;
     gop.value_ptr.exec_model = exec_model;
     // Might've been set by assembler
     if (!gop.found_existing) gop.value_ptr.exec_mode = exec_mode;
 }
 
-pub fn debugName(self: *Module, target: Id, name: []const u8) !void {
-    try self.sections.debug_names.emit(self.gpa, .OpName, .{
+pub fn debugName(module: *Module, target: Id, name: []const u8) !void {
+    try module.sections.debug_names.emit(module.gpa, .OpName, .{
         .target = target,
         .name = name,
     });
 }
 
-pub fn debugNameFmt(self: *Module, target: Id, comptime fmt: []const u8, args: anytype) !void {
-    const name = try std.fmt.allocPrint(self.gpa, fmt, args);
-    defer self.gpa.free(name);
-    try self.debugName(target, name);
+pub fn debugNameFmt(module: *Module, target: Id, comptime fmt: []const u8, args: anytype) !void {
+    const name = try std.fmt.allocPrint(module.gpa, fmt, args);
+    defer module.gpa.free(name);
+    try module.debugName(target, name);
 }
 
-pub fn memberDebugName(self: *Module, target: Id, member: u32, name: []const u8) !void {
-    try self.sections.debug_names.emit(self.gpa, .OpMemberName, .{
+pub fn memberDebugName(module: *Module, target: Id, member: u32, name: []const u8) !void {
+    try module.sections.debug_names.emit(module.gpa, .OpMemberName, .{
         .type = target,
         .member = member,
         .name = name,
     });
+}
+
+pub fn debugString(module: *Module, string: []const u8) !Id {
+    const entry = try module.cache.strings.getOrPut(module.gpa, string);
+    if (!entry.found_existing) {
+        entry.value_ptr.* = module.allocId();
+        try module.sections.debug_strings.emit(module.gpa, .OpString, .{
+            .id_result = entry.value_ptr.*,
+            .string = string,
+        });
+    }
+    return entry.value_ptr.*;
+}
+
+pub fn storageClass(module: *Module, as: std.builtin.AddressSpace) spec.StorageClass {
+    const target = module.zcu.getTarget();
+    return switch (as) {
+        .generic => .function,
+        .global => switch (target.os.tag) {
+            .opencl, .amdhsa => .cross_workgroup,
+            else => .storage_buffer,
+        },
+        .push_constant => .push_constant,
+        .output => .output,
+        .uniform => .uniform,
+        .storage_buffer => .storage_buffer,
+        .physical_storage_buffer => .physical_storage_buffer,
+        .constant => .uniform_constant,
+        .shared => .workgroup,
+        .local => .function,
+        .input => .input,
+        .gs,
+        .fs,
+        .ss,
+        .param,
+        .flash,
+        .flash1,
+        .flash2,
+        .flash3,
+        .flash4,
+        .flash5,
+        .cog,
+        .lut,
+        .hub,
+        => unreachable,
+    };
 }

@@ -191,6 +191,7 @@ pub const Env = enum {
             .spirv => switch (feature) {
                 .spirv_backend,
                 .spirv_linker,
+                .legalize,
                 => true,
                 else => Env.sema.supports(feature),
             },

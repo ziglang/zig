@@ -1365,7 +1365,7 @@ const Local = struct {
                 capacity: u32,
             };
             fn header(list: ListSelf) *Header {
-                return @alignCast(@ptrCast(list.bytes - bytes_offset));
+                return @ptrCast(@alignCast(list.bytes - bytes_offset));
             }
             pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
@@ -1574,7 +1574,7 @@ const Shard = struct {
                 }
             };
             fn header(map: @This()) *Header {
-                return @alignCast(@ptrCast(@as([*]u8, @ptrCast(map.entries)) - entries_offset));
+                return @ptrCast(@alignCast(@as([*]u8, @ptrCast(map.entries)) - entries_offset));
             }
 
             const Entry = extern struct {

@@ -569,7 +569,7 @@ pub fn assertReadable(slice: []const volatile u8) void {
 /// Invokes detectable illegal behavior when the provided array is not aligned
 /// to the provided amount.
 pub fn assertAligned(ptr: anytype, comptime alignment: std.mem.Alignment) void {
-    const aligned_ptr: *align(alignment.toByteUnits()) anyopaque = @alignCast(@ptrCast(ptr));
+    const aligned_ptr: *align(alignment.toByteUnits()) anyopaque = @ptrCast(@alignCast(ptr));
     _ = aligned_ptr;
 }
 

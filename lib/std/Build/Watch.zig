@@ -177,7 +177,13 @@ const Os = switch (builtin.os.tag) {
                         const gop = try w.dir_table.getOrPut(gpa, path);
                         if (!gop.found_existing) {
                             var mount_id: MountId = undefined;
-                            const dir_handle = try Os.getDirHandle(gpa, path, &mount_id);
+                            const dir_handle = Os.getDirHandle(gpa, path, &mount_id) catch |err| switch (err) {
+                                error.FileNotFound => {
+                                    std.debug.assert(w.dir_table.swapRemove(path));
+                                    continue;
+                                },
+                                else => return err,
+                            };
                             const fan_fd = blk: {
                                 const fd_gop = try w.os.poll_fds.getOrPut(gpa, mount_id);
                                 if (!fd_gop.found_existing) {

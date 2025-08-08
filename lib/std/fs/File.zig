@@ -1312,7 +1312,16 @@ pub const Reader = struct {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it
                     // requires page alignment.
-                    return readPositional(r, data[0]);
+                    assert(io_reader.seek == io_reader.end);
+                    io_reader.seek = 0;
+                    io_reader.end = 0;
+                    const first = data[0];
+                    if (first.len >= io_reader.buffer.len) {
+                        return readPositional(r, first);
+                    } else {
+                        io_reader.end += try readPositional(r, io_reader.buffer);
+                        return 0;
+                    }
                 }
                 var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
                 const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
@@ -1342,8 +1351,7 @@ pub const Reader = struct {
                 }
                 r.pos += n;
                 if (n > data_size) {
-                    io_reader.seek = 0;
-                    io_reader.end = n - data_size;
+                    io_reader.end += n - data_size;
                     return data_size;
                 }
                 return n;
@@ -1352,7 +1360,16 @@ pub const Reader = struct {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it
                     // requires page alignment.
-                    return readStreaming(r, data[0]);
+                    assert(io_reader.seek == io_reader.end);
+                    io_reader.seek = 0;
+                    io_reader.end = 0;
+                    const first = data[0];
+                    if (first.len >= io_reader.buffer.len) {
+                        return readStreaming(r, first);
+                    } else {
+                        io_reader.end += try readStreaming(r, io_reader.buffer);
+                        return 0;
+                    }
                 }
                 var iovecs_buffer: [max_buffers_len]posix.iovec = undefined;
                 const dest_n, const data_size = try io_reader.writableVectorPosix(&iovecs_buffer, data);
@@ -1368,8 +1385,7 @@ pub const Reader = struct {
                 }
                 r.pos += n;
                 if (n > data_size) {
-                    io_reader.seek = 0;
-                    io_reader.end = n - data_size;
+                    io_reader.end += n - data_size;
                     return data_size;
                 }
                 return n;
@@ -1922,7 +1938,7 @@ pub const Writer = struct {
 
         const copy_file_range = switch (native_os) {
             .freebsd => std.os.freebsd.copy_file_range,
-            .linux => if (std.c.versionCheck(.{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
+            .linux => if (std.c.versionCheck(if (builtin.abi.isAndroid()) .{ .major = 34, .minor = 0, .patch = 0 } else .{ .major = 2, .minor = 27, .patch = 0 })) std.os.linux.wrapped.copy_file_range else {},
             else => {},
         };
         if (@TypeOf(copy_file_range) != void) cfr: {

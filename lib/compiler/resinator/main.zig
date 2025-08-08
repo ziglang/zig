@@ -325,8 +325,8 @@ pub fn main() !void {
         std.debug.assert(options.output_format == .coff);
 
         // TODO: Maybe use a buffered file reader instead of reading file into memory -> fbs
-        var fbs = std.io.fixedBufferStream(res_data.bytes);
-        break :resources cvtres.parseRes(allocator, fbs.reader(), .{ .max_size = res_data.bytes.len }) catch |err| {
+        var res_reader: std.Io.Reader = .fixed(res_data.bytes);
+        break :resources cvtres.parseRes(allocator, &res_reader, .{ .max_size = res_data.bytes.len }) catch |err| {
             // TODO: Better errors
             try error_handler.emitMessage(allocator, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
             std.process.exit(1);

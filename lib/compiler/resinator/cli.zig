@@ -1141,6 +1141,8 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 }
                 output_format = .res;
             }
+        } else {
+            output_format_source = .output_format_arg;
         }
         options.output_source = .{ .filename = try filepathWithExtension(allocator, options.input_source.filename, output_format.?.extension()) };
     } else {
@@ -1529,21 +1531,21 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     var diagnostics = Diagnostics.init(std.testing.allocator);
     defer diagnostics.deinit();
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
 
     var options = parse(std.testing.allocator, args, &diagnostics) catch |err| switch (err) {
         error.ParseError => {
-            try diagnostics.renderToWriter(args, output.writer(), .no_color);
-            try std.testing.expectEqualStrings(expected_output, output.items);
+            try diagnostics.renderToWriter(args, &output.writer, .no_color);
+            try std.testing.expectEqualStrings(expected_output, output.getWritten());
             return null;
         },
         else => |e| return e,
     };
     errdefer options.deinit();
 
-    try diagnostics.renderToWriter(args, output.writer(), .no_color);
-    try std.testing.expectEqualStrings(expected_output, output.items);
+    try diagnostics.renderToWriter(args, &output.writer, .no_color);
+    try std.testing.expectEqualStrings(expected_output, output.getWritten());
     return options;
 }
 

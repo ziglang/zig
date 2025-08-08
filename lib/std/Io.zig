@@ -231,21 +231,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readBytesNoEof(num_bytes));
         }
 
-        pub inline fn readIntoBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-            bounded: *std.BoundedArray(u8, num_bytes),
-        ) Error!void {
-            return @errorCast(self.any().readIntoBoundedBytes(num_bytes, bounded));
-        }
-
-        pub inline fn readBoundedBytes(
-            self: Self,
-            comptime num_bytes: usize,
-        ) Error!std.BoundedArray(u8, num_bytes) {
-            return @errorCast(self.any().readBoundedBytes(num_bytes));
-        }
-
         pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) NoEofError!T {
             return @errorCast(self.any().readInt(T, endian));
         }
@@ -304,7 +289,7 @@ pub fn GenericReader(
         const Self = @This();
 
         fn typeErasedReadFn(context: *const anyopaque, buffer: []u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             return readFn(ptr.*, buffer);
         }
 
@@ -397,7 +382,7 @@ pub fn GenericWriter(
         }
 
         fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const ptr: *const Context = @alignCast(@ptrCast(context));
+            const ptr: *const Context = @ptrCast(@alignCast(context));
             return writeFn(ptr.*, bytes);
         }
 
@@ -443,19 +428,9 @@ pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
 /// Deprecated in favor of `Writer`.
 pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
 /// Deprecated in favor of `Reader`.
-pub const BufferedReader = @import("Io/buffered_reader.zig").BufferedReader;
-/// Deprecated in favor of `Reader`.
-pub const bufferedReader = @import("Io/buffered_reader.zig").bufferedReader;
-/// Deprecated in favor of `Reader`.
-pub const bufferedReaderSize = @import("Io/buffered_reader.zig").bufferedReaderSize;
-/// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-/// Deprecated in favor of `Reader.Limited`.
-pub const LimitedReader = @import("Io/limited_reader.zig").LimitedReader;
-/// Deprecated in favor of `Reader.Limited`.
-pub const limitedReader = @import("Io/limited_reader.zig").limitedReader;
 /// Deprecated with no replacement; inefficient pattern
 pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
 /// Deprecated with no replacement; inefficient pattern
@@ -941,7 +916,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = BufferedReader;
     _ = BufferedWriter;
     _ = CountingWriter;
     _ = CountingReader;

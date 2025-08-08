@@ -256,7 +256,7 @@ fn updateStats() error{OutOfMemory}!void {
 
     if (recent_coverage_update.items.len == 0) return;
 
-    const hdr: *abi.fuzz.CoverageUpdateHeader = @alignCast(@ptrCast(
+    const hdr: *abi.fuzz.CoverageUpdateHeader = @ptrCast(@alignCast(
         recent_coverage_update.items[0..@sizeOf(abi.fuzz.CoverageUpdateHeader)],
     ));
 

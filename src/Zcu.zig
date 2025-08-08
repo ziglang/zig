@@ -268,7 +268,8 @@ nav_val_analysis_queued: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, voi
 
 /// These are the modules which we initially queue for analysis in `Compilation.update`.
 /// `resolveReferences` will use these as the root of its reachability traversal.
-analysis_roots: std.BoundedArray(*Package.Module, 4) = .{},
+analysis_roots_buffer: [4]*Package.Module,
+analysis_roots_len: usize = 0,
 /// This is the cached result of `Zcu.resolveReferences`. It is computed on-demand, and
 /// reset to `null` when any semantic analysis occurs (since this invalidates the data).
 /// Allocated into `gpa`.
@@ -3650,9 +3651,8 @@ pub fn errorSetBits(zcu: *const Zcu) u16 {
 
     if (zcu.error_limit == 0) return 0;
     if (target.cpu.arch.isSpirV()) {
-        if (!target.cpu.has(.spirv, .storage_push_constant16)) {
-            return 32;
-        }
+        // As expected by https://github.com/Snektron/zig-spirv-test-executor
+        if (zcu.comp.config.is_test) return 32;
     }
 
     return @as(u16, std.math.log2_int(ErrorInt, zcu.error_limit)) + 1;
@@ -4013,8 +4013,8 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
     // This is not a sufficient size, but a lower bound.
     try result.ensureTotalCapacity(gpa, @intCast(zcu.reference_table.count()));
 
-    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
-    for (zcu.analysis_roots.slice()) |mod| {
+    try type_queue.ensureTotalCapacity(gpa, zcu.analysis_roots_len);
+    for (zcu.analysisRoots()) |mod| {
         const file = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const root_ty = zcu.fileRootType(file);
         if (root_ty == .none) continue;
@@ -4200,6 +4200,10 @@ fn resolveReferencesInner(zcu: *Zcu) !std.AutoHashMapUnmanaged(AnalUnit, ?Resolv
     }
 
     return result;
+}
+
+pub fn analysisRoots(zcu: *Zcu) []*Package.Module {
+    return zcu.analysis_roots_buffer[0..zcu.analysis_roots_len];
 }
 
 pub fn fileByIndex(zcu: *const Zcu, file_index: File.Index) *File {
