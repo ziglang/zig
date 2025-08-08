@@ -16798,10 +16798,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // type: ?type,
                     param_ty_val,
                 };
-                param_val.* = try pt.intern(.{ .aggregate = .{
-                    .ty = param_info_ty.toIntern(),
-                    .storage = .{ .elems = &param_fields },
-                } });
+                param_val.* = (try pt.aggregateValue(param_info_ty, &param_fields)).toIntern();
             }
 
             const args_val = v: {
@@ -16809,10 +16806,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = param_vals.len,
                     .child = param_info_ty.toIntern(),
                 });
-                const new_decl_val = try pt.intern(.{ .aggregate = .{
-                    .ty = new_decl_ty.toIntern(),
-                    .storage = .{ .elems = param_vals },
-                } });
+                const new_decl_val = (try pt.aggregateValue(new_decl_ty, param_vals)).toIntern();
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = param_info_ty.toIntern(),
                     .flags = .{
@@ -16870,10 +16864,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"fn"))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = fn_info_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(fn_info_ty, &field_values)).toIntern(),
             })));
         },
         .int => {
@@ -16889,10 +16880,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.int))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = int_info_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(int_info_ty, &field_values)).toIntern(),
             })));
         },
         .float => {
@@ -16905,10 +16893,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.float))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = float_info_ty.toIntern(),
-                    .storage = .{ .elems = &field_vals },
-                } }),
+                .val = (try pt.aggregateValue(float_info_ty, &field_vals)).toIntern(),
             })));
         },
         .pointer => {
@@ -16946,10 +16931,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.pointer))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = pointer_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(pointer_ty, &field_values)).toIntern(),
             })));
         },
         .array => {
@@ -16967,10 +16949,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.array))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = array_field_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(array_field_ty, &field_values)).toIntern(),
             })));
         },
         .vector => {
@@ -16986,10 +16965,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.vector))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = vector_field_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(vector_field_ty, &field_values)).toIntern(),
             })));
         },
         .optional => {
@@ -17002,10 +16978,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.optional))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = optional_field_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(optional_field_ty, &field_values)).toIntern(),
             })));
         },
         .error_set => {
@@ -17051,10 +17024,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                             // name: [:0]const u8,
                             error_name_val,
                         };
-                        field_val.* = try pt.intern(.{ .aggregate = .{
-                            .ty = error_field_ty.toIntern(),
-                            .storage = .{ .elems = &error_field_fields },
-                        } });
+                        field_val.* = (try pt.aggregateValue(error_field_ty, &error_field_fields)).toIntern();
                     }
 
                     break :blk vals;
@@ -17075,10 +17045,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = vals.len,
                     .child = error_field_ty.toIntern(),
                 });
-                const new_decl_val = try pt.intern(.{ .aggregate = .{
-                    .ty = array_errors_ty.toIntern(),
-                    .storage = .{ .elems = vals },
-                } });
+                const new_decl_val = (try pt.aggregateValue(array_errors_ty, vals)).toIntern();
                 const manyptr_errors_ty = slice_errors_ty.slicePtrFieldType(zcu).toIntern();
                 break :v try pt.intern(.{ .slice = .{
                     .ty = slice_errors_ty.toIntern(),
@@ -17117,10 +17084,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.error_union))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = error_union_field_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(error_union_field_ty, &field_values)).toIntern(),
             })));
         },
         .@"enum" => {
@@ -17174,10 +17138,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // value: comptime_int,
                     value_val,
                 };
-                field_val.* = try pt.intern(.{ .aggregate = .{
-                    .ty = enum_field_ty.toIntern(),
-                    .storage = .{ .elems = &enum_field_fields },
-                } });
+                field_val.* = (try pt.aggregateValue(enum_field_ty, &enum_field_fields)).toIntern();
             }
 
             const fields_val = v: {
@@ -17185,10 +17146,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = enum_field_vals.len,
                     .child = enum_field_ty.toIntern(),
                 });
-                const new_decl_val = try pt.intern(.{ .aggregate = .{
-                    .ty = fields_array_ty.toIntern(),
-                    .storage = .{ .elems = enum_field_vals },
-                } });
+                const new_decl_val = (try pt.aggregateValue(fields_array_ty, enum_field_vals)).toIntern();
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = enum_field_ty.toIntern(),
                     .flags = .{
@@ -17228,10 +17186,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"enum"))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = type_enum_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(type_enum_ty, &field_values)).toIntern(),
             })));
         },
         .@"union" => {
@@ -17287,10 +17242,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     // alignment: comptime_int,
                     (try pt.intValue(.comptime_int, alignment.toByteUnits() orelse 0)).toIntern(),
                 };
-                field_val.* = try pt.intern(.{ .aggregate = .{
-                    .ty = union_field_ty.toIntern(),
-                    .storage = .{ .elems = &union_field_fields },
-                } });
+                field_val.* = (try pt.aggregateValue(union_field_ty, &union_field_fields)).toIntern();
             }
 
             const fields_val = v: {
@@ -17298,10 +17250,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = union_field_vals.len,
                     .child = union_field_ty.toIntern(),
                 });
-                const new_decl_val = try pt.intern(.{ .aggregate = .{
-                    .ty = array_fields_ty.toIntern(),
-                    .storage = .{ .elems = union_field_vals },
-                } });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, union_field_vals)).toIntern();
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = union_field_ty.toIntern(),
                     .flags = .{
@@ -17347,10 +17296,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"union"))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = type_union_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(type_union_ty, &field_values)).toIntern(),
             })));
         },
         .@"struct" => {
@@ -17411,10 +17357,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                                 // alignment: comptime_int,
                                 (try pt.intValue(.comptime_int, Type.fromInterned(field_ty).abiAlignment(zcu).toByteUnits() orelse 0)).toIntern(),
                             };
-                            struct_field_val.* = try pt.intern(.{ .aggregate = .{
-                                .ty = struct_field_ty.toIntern(),
-                                .storage = .{ .elems = &struct_field_fields },
-                            } });
+                            struct_field_val.* = (try pt.aggregateValue(struct_field_ty, &struct_field_fields)).toIntern();
                         }
                         break :fv;
                     },
@@ -17481,10 +17424,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                         // alignment: comptime_int,
                         (try pt.intValue(.comptime_int, alignment.toByteUnits() orelse 0)).toIntern(),
                     };
-                    field_val.* = try pt.intern(.{ .aggregate = .{
-                        .ty = struct_field_ty.toIntern(),
-                        .storage = .{ .elems = &struct_field_fields },
-                    } });
+                    field_val.* = (try pt.aggregateValue(struct_field_ty, &struct_field_fields)).toIntern();
                 }
             }
 
@@ -17493,10 +17433,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
                     .len = struct_field_vals.len,
                     .child = struct_field_ty.toIntern(),
                 });
-                const new_decl_val = try pt.intern(.{ .aggregate = .{
-                    .ty = array_fields_ty.toIntern(),
-                    .storage = .{ .elems = struct_field_vals },
-                } });
+                const new_decl_val = (try pt.aggregateValue(array_fields_ty, struct_field_vals)).toIntern();
                 const slice_ty = (try pt.ptrTypeSema(.{
                     .child = struct_field_ty.toIntern(),
                     .flags = .{
@@ -17548,10 +17485,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"struct"))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = type_struct_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(type_struct_ty, &field_values)).toIntern(),
             })));
         },
         .@"opaque" => {
@@ -17567,10 +17501,7 @@ fn zirTypeInfo(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
             return Air.internedToRef((try pt.internUnion(.{
                 .ty = type_info_ty.toIntern(),
                 .tag = (try pt.enumValueFieldIndex(type_info_tag_ty, @intFromEnum(std.builtin.TypeId.@"opaque"))).toIntern(),
-                .val = try pt.intern(.{ .aggregate = .{
-                    .ty = type_opaque_ty.toIntern(),
-                    .storage = .{ .elems = &field_values },
-                } }),
+                .val = (try pt.aggregateValue(type_opaque_ty, &field_values)).toIntern(),
             })));
         },
         .frame => return sema.failWithUseOfAsync(block, src),
@@ -17601,10 +17532,7 @@ fn typeInfoDecls(
         .len = decl_vals.items.len,
         .child = declaration_ty.toIntern(),
     });
-    const new_decl_val = try pt.intern(.{ .aggregate = .{
-        .ty = array_decl_ty.toIntern(),
-        .storage = .{ .elems = decl_vals.items },
-    } });
+    const new_decl_val = (try pt.aggregateValue(array_decl_ty, decl_vals.items)).toIntern();
     const slice_ty = (try pt.ptrTypeSema(.{
         .child = declaration_ty.toIntern(),
         .flags = .{
@@ -17679,10 +17607,7 @@ fn typeInfoNamespaceDecls(
             // name: [:0]const u8,
             name_val,
         };
-        try decl_vals.append(try pt.intern(.{ .aggregate = .{
-            .ty = declaration_ty.toIntern(),
-            .storage = .{ .elems = &fields },
-        } }));
+        try decl_vals.append((try pt.aggregateValue(declaration_ty, &fields)).toIntern());
     }
 }
 
