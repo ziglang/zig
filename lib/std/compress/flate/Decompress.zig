@@ -1246,7 +1246,7 @@ test "zlib should not overshoot" {
 fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !void {
     var reader: Reader = .fixed(in);
     var aw: Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
+    try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&reader, container, &.{});
@@ -1257,7 +1257,7 @@ fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !vo
 fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
     var in: std.Io.Reader = .fixed(compressed);
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
-    try aw.ensureUnusedCapacity(flate.history_len);
+    try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, container, &.{});
