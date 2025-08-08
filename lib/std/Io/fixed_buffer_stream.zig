@@ -17,15 +17,10 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
         pub const GetSeekPosError = error{};
 
         pub const Reader = io.GenericReader(*Self, ReadError, read);
-        pub const Writer = io.GenericWriter(*Self, WriteError, write);
 
         const Self = @This();
 
         pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        pub fn writer(self: *Self) Writer {
             return .{ .context = self };
         }
 
@@ -37,23 +32,6 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             self.pos = end;
 
             return size;
-        }
-
-        /// If the returned number of bytes written is less than requested, the
-        /// buffer is full. Returns `error.NoSpaceLeft` when no bytes would be written.
-        /// Note: `error.NoSpaceLeft` matches the corresponding error from
-        /// `std.fs.File.WriteError`.
-        pub fn write(self: *Self, bytes: []const u8) WriteError!usize {
-            if (bytes.len == 0) return 0;
-            if (self.pos >= self.buffer.len) return error.NoSpaceLeft;
-
-            const n = @min(self.buffer.len - self.pos, bytes.len);
-            @memcpy(self.buffer[self.pos..][0..n], bytes[0..n]);
-            self.pos += n;
-
-            if (n == 0) return error.NoSpaceLeft;
-
-            return n;
         }
 
         pub fn seekTo(self: *Self, pos: u64) SeekError!void {
@@ -84,10 +62,6 @@ pub fn FixedBufferStream(comptime Buffer: type) type {
             return self.pos;
         }
 
-        pub fn getWritten(self: Self) Buffer {
-            return self.buffer[0..self.pos];
-        }
-
         pub fn reset(self: *Self) void {
             self.pos = 0;
         }
@@ -115,49 +89,6 @@ fn Slice(comptime T: type) type {
         },
         else => @compileError("invalid type given to fixedBufferStream"),
     }
-}
-
-test "output" {
-    var buf: [255]u8 = undefined;
-    var fbs = fixedBufferStream(&buf);
-    const stream = fbs.writer();
-
-    try stream.print("{s}{s}!", .{ "Hello", "World" });
-    try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
-}
-
-test "output at comptime" {
-    comptime {
-        var buf: [255]u8 = undefined;
-        var fbs = fixedBufferStream(&buf);
-        const stream = fbs.writer();
-
-        try stream.print("{s}{s}!", .{ "Hello", "World" });
-        try testing.expectEqualSlices(u8, "HelloWorld!", fbs.getWritten());
-    }
-}
-
-test "output 2" {
-    var buffer: [10]u8 = undefined;
-    var fbs = fixedBufferStream(&buffer);
-
-    try fbs.writer().writeAll("Hello");
-    try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello"));
-
-    try fbs.writer().writeAll("world");
-    try testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
-
-    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("!"));
-    try testing.expect(mem.eql(u8, fbs.getWritten(), "Helloworld"));
-
-    fbs.reset();
-    try testing.expect(fbs.getWritten().len == 0);
-
-    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("Hello world!"));
-    try testing.expect(mem.eql(u8, fbs.getWritten(), "Hello worl"));
-
-    try fbs.seekTo((try fbs.getEndPos()) + 1);
-    try testing.expectError(error.NoSpaceLeft, fbs.writer().writeAll("H"));
 }
 
 test "input" {
