@@ -935,12 +935,40 @@ pub fn ArrayListAlignedUnmanaged(comptime T: type, comptime alignment: ?mem.Alig
         /// Remove the element at index `i` from the list and return its value.
         /// Invalidates pointers to the last element.
         /// This operation is O(N).
-        /// Asserts that the list is not empty.
         /// Asserts that the index is in bounds.
         pub fn orderedRemove(self: *Self, i: usize) T {
             const old_item = self.items[i];
             self.replaceRangeAssumeCapacity(i, 1, &.{});
             return old_item;
+        }
+
+        /// Remove the elements indexed by `sorted_indexes`. The indexes to be
+        /// removed correspond to the array list before deletion.
+        ///
+        /// Asserts:
+        /// * Each index to be removed is in bounds.
+        /// * The indexes to be removed are sorted ascending.
+        ///
+        /// Duplicates in `sorted_indexes` are allowed.
+        ///
+        /// This operation is O(N).
+        ///
+        /// Invalidates element pointers beyond the first deleted index.
+        pub fn orderedRemoveMany(self: *Self, sorted_indexes: []const usize) void {
+            if (sorted_indexes.len == 0) return;
+            var shift: usize = 1;
+            for (sorted_indexes[0 .. sorted_indexes.len - 1], sorted_indexes[1..]) |removed, end| {
+                if (removed == end) continue; // allows duplicates in `sorted_indexes`
+                const start = removed + 1;
+                const len = end - start; // safety checks `sorted_indexes` are sorted
+                @memmove(self.items[start - shift ..][0..len], self.items[start..][0..len]); // safety checks initial `sorted_indexes` are in range
+                shift += 1;
+            }
+            const start = sorted_indexes[sorted_indexes.len - 1] + 1;
+            const end = self.items.len;
+            const len = end - start; // safety checks final `sorted_indexes` are in range
+            @memmove(self.items[start - shift ..][0..len], self.items[start..][0..len]);
+            self.items.len = end - shift;
         }
 
         /// Removes the element at the specified index and returns it.
@@ -2424,4 +2452,30 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
         try testing.expectError(error.OutOfMemory, list.insertSlice(0, items));
         try testing.expectError(error.OutOfMemory, list.ensureUnusedCapacity(2));
     }
+}
+
+test "orderedRemoveMany" {
+    const gpa = testing.allocator;
+
+    var list: ArrayListUnmanaged(usize) = .empty;
+    defer list.deinit(gpa);
+
+    for (0..10) |n| {
+        try list.append(gpa, n);
+    }
+
+    list.orderedRemoveMany(&.{ 1, 5, 5, 7, 9 });
+    try testing.expectEqualSlices(usize, &.{ 0, 2, 3, 4, 6, 8 }, list.items);
+
+    list.orderedRemoveMany(&.{0});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, list.items);
+
+    list.orderedRemoveMany(&.{});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, list.items);
+
+    list.orderedRemoveMany(&.{ 1, 2, 3, 4 });
+    try testing.expectEqualSlices(usize, &.{2}, list.items);
+
+    list.orderedRemoveMany(&.{0});
+    try testing.expectEqualSlices(usize, &.{}, list.items);
 }
