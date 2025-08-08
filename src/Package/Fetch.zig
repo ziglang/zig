@@ -1092,17 +1092,17 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
 
         var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
         _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
-        var fetch_stream: git.Session.FetchStream = undefined;
-        session.fetch(&fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-        };
-        errdefer fetch_stream.deinit();
-
         resource.* = .{ .git = .{
             .session = session,
-            .fetch_stream = fetch_stream,
+            .fetch_stream = undefined,
             .want_oid = want_oid,
         } };
+        const fetch_stream = &resource.git.fetch_stream;
+        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
+        };
+        errdefer fetch_stream.deinit(fetch_stream);
+
         return;
     }
 
