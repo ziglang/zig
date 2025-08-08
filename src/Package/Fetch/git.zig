@@ -1114,8 +1114,8 @@ pub const Session = struct {
             }
             const buf = limit.slice(try w.writableSliceGreedy(1));
             const n = @min(buf.len, fs.remaining_len);
-            @memcpy(buf[0..n], input.buffered()[0..n]);
-            input.toss(n);
+            try input.readSliceAll(buf[0..n]);
+            w.advance(n);
             fs.remaining_len -= n;
             return n;
         }
