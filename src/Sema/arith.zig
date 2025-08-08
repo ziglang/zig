@@ -1193,7 +1193,7 @@ pub fn truncate(
 ) CompileError!Value {
     const pt = sema.pt;
     const zcu = pt.zcu;
-    if (val.isUndef(zcu)) return val;
+    if (val.isUndef(zcu)) return pt.undefValue(dest_ty);
     switch (ty.zigTypeTag(zcu)) {
         .int, .comptime_int => return intTruncate(sema, val, dest_ty, dest_signedness, dest_bits),
         .vector => {
@@ -1204,7 +1204,7 @@ pub fn truncate(
             for (elem_vals, 0..) |*result_elem, elem_idx| {
                 const elem_val = try val.elemValue(pt, elem_idx);
                 result_elem.* = if (elem_val.isUndef(zcu))
-                    elem_val.toIntern()
+                    (try pt.undefValue(dest_elem_ty)).toIntern()
                 else
                     (try intTruncate(
                         sema,
