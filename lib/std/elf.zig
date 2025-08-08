@@ -584,7 +584,8 @@ pub const ProgramHeaderIterator = struct {
         if (it.index >= it.elf_header.phnum) return null;
         defer it.index += 1;
 
-        const offset = it.elf_header.phoff + if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr) * it.index;
+        const size: u64 = if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const offset = it.elf_header.phoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
         return takePhdr(&it.file_reader.interface, it.elf_header);
@@ -600,7 +601,8 @@ pub const ProgramHeaderBufferIterator = struct {
         if (it.index >= it.elf_header.phnum) return null;
         defer it.index += 1;
 
-        const offset = it.elf_header.phoff + if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr) * it.index;
+        const size: u64 = if (it.elf_header.is_64) @sizeOf(Elf64_Phdr) else @sizeOf(Elf32_Phdr);
+        const offset = it.elf_header.phoff + size * it.index;
         var reader = std.Io.Reader.fixed(it.buf[offset..]);
 
         return takePhdr(&reader, it.elf_header);
@@ -635,7 +637,8 @@ pub const SectionHeaderIterator = struct {
         if (it.index >= it.elf_header.shnum) return null;
         defer it.index += 1;
 
-        const offset = it.elf_header.shoff + if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr) * it.index;
+        const size: u64 = if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr);
+        const offset = it.elf_header.shoff + size * it.index;
         try it.file_reader.seekTo(offset);
 
         return takeShdr(&it.file_reader.interface, it.elf_header);
@@ -651,7 +654,8 @@ pub const SectionHeaderBufferIterator = struct {
         if (it.index >= it.elf_header.shnum) return null;
         defer it.index += 1;
 
-        const offset = it.elf_header.shoff + if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr) * it.index;
+        const size: u64 = if (it.elf_header.is_64) @sizeOf(Elf64_Shdr) else @sizeOf(Elf32_Shdr);
+        const offset = it.elf_header.shoff + size * it.index;
         var reader = std.Io.Reader.fixed(it.buf[offset..]);
 
         return takeShdr(&reader, it.elf_header);
