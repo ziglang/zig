@@ -14859,7 +14859,7 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
         try sema.addDivByZeroSafety(block, src, resolved_type, maybe_rhs_val, casted_rhs, is_int);
     }
 
-    const air_tag = if (is_int) blk: {
+    const air_tag: Air.Inst.Tag = if (is_int) blk: {
         if (lhs_ty.isSignedInt(zcu) or rhs_ty.isSignedInt(zcu)) {
             return sema.fail(
                 block,
@@ -14868,10 +14868,10 @@ fn zirDiv(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Ins
                 .{ lhs_ty.fmt(pt), rhs_ty.fmt(pt) },
             );
         }
-        break :blk Air.Inst.Tag.div_trunc;
+        break :blk .div_trunc;
     } else switch (block.float_mode) {
-        .optimized => Air.Inst.Tag.div_float_optimized,
-        .strict => Air.Inst.Tag.div_float,
+        .optimized => .div_float_optimized,
+        .strict => .div_float,
     };
     return block.addBinOp(air_tag, casted_lhs, casted_rhs);
 }
