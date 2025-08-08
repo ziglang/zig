@@ -1113,6 +1113,7 @@ pub inline fn hasUniqueRepresentation(comptime T: type) bool {
         .@"enum",
         .error_set,
         .@"fn",
+        .void,
         => true,
 
         .bool => false,
