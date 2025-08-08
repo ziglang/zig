@@ -4459,13 +4459,10 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
 
     const lf = comp.bin_file orelse return error.NoLinkFile;
 
-    // TODO: self-hosted codegen should always have a type of MIR; codegen should produce that MIR,
-    // and the linker should consume it. However, our SPIR-V backend is currently tightly coupled
-    // with our SPIR-V linker, so needs to work more like the LLVM backend. This should be fixed to
-    // unblock threaded codegen for SPIR-V.
+    // Just like LLVM, the SPIR-V backend can't multi-threaded due to SPIR-V design limitations.
     if (lf.cast(.spirv)) |spirv_file| {
         assert(pt.tid == .main); // SPIR-V has a lot of shared state
-        spirv_file.object.updateFunc(pt, func_index, air, &liveness) catch |err| {
+        spirv_file.updateFunc(pt, func_index, air, &liveness) catch |err| {
             switch (err) {
                 error.OutOfMemory => comp.link_diags.setAllocFailure(),
             }

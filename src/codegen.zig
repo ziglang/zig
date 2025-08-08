@@ -57,7 +57,7 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_powerpc => unreachable,
         .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
         .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
-        .stage2_spirv => @import("codegen/spirv.zig"),
+        .stage2_spirv => @import("codegen/spirv/CodeGen.zig"),
         .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
         .stage2_x86, .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
         _ => unreachable,
