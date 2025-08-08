@@ -3152,10 +3152,11 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.gnu_hash) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, self.gnu_hash.size());
-        defer buffer.deinit();
-        try self.gnu_hash.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
+        try aw.ensureUnusedCapacity(self.gnu_hash.size());
+        defer aw.deinit();
+        try self.gnu_hash.write(self, &aw.writer);
+        try self.pwriteAll(aw.getWritten(), shdr.sh_offset);
     }
 
     if (self.section_indexes.versym) |shndx| {

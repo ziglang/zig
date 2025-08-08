@@ -665,18 +665,15 @@ const ResourceTree = struct {
     pub fn writeCoff(
         self: *const ResourceTree,
         allocator: Allocator,
-        writer: anytype,
+        w: anytype,
         resources_in_data_order: []const Resource,
         lengths: Lengths,
         coff_string_table: *StringTable,
     ) ![]const std.coff.Symbol {
         if (self.type_to_name_map.count() == 0) {
-            try writer.writeByteNTimes(0, 16);
+            try w.writeByteNTimes(0, 16);
             return &.{};
         }
-
-        var counting_writer = std.io.countingWriter(writer);
-        const w = counting_writer.writer();
 
         var level2_list: std.ArrayListUnmanaged(*const NameToLanguageMap) = .empty;
         defer level2_list.deinit(allocator);
@@ -735,7 +732,6 @@ const ResourceTree = struct {
                 try level2_list.append(allocator, name_to_lang_map);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == level2_start);
 
         const level3_start = level2_start + lengths.level2;
         var level3_address = level3_start;
@@ -771,7 +767,6 @@ const ResourceTree = struct {
                 try level3_list.append(allocator, lang_to_resources_map);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == level3_start);
 
         var reloc_addresses = try allocator.alloc(u32, resources_in_data_order.len);
         defer allocator.free(reloc_addresses);
@@ -813,7 +808,6 @@ const ResourceTree = struct {
                 try resources_list.append(allocator, reloc_resource);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == data_entries_start);
 
         for (resources_list.items, 0..) |reloc_resource, i| {
             // TODO: This logic works but is convoluted, would be good to clean this up
@@ -827,7 +821,6 @@ const ResourceTree = struct {
             };
             try w.writeStructEndian(data_entry, .little);
         }
-        std.debug.assert(counting_writer.bytes_written == strings_start);
 
         for (self.rsrc_string_table.keys()) |v| {
             const str = v.name;

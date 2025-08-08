@@ -1237,17 +1237,14 @@ pub const GnuHashSection = struct {
         return header_size + hash.num_bloom * 8 + hash.num_buckets * 4 + hash.num_exports * 4;
     }
 
-    pub fn write(hash: GnuHashSection, elf_file: *Elf, writer: anytype) !void {
+    pub fn write(hash: GnuHashSection, elf_file: *Elf, writer: *std.Io.Writer) !void {
         const exports = getExports(elf_file);
         const export_off = elf_file.dynsym.count() - hash.num_exports;
 
-        var counting = std.io.countingWriter(writer);
-        const cwriter = counting.writer();
-
-        try cwriter.writeInt(u32, hash.num_buckets, .little);
-        try cwriter.writeInt(u32, export_off, .little);
-        try cwriter.writeInt(u32, hash.num_bloom, .little);
-        try cwriter.writeInt(u32, bloom_shift, .little);
+        try writer.writeInt(u32, hash.num_buckets, .little);
+        try writer.writeInt(u32, export_off, .little);
+        try writer.writeInt(u32, hash.num_bloom, .little);
+        try writer.writeInt(u32, bloom_shift, .little);
 
         const comp = elf_file.base.comp;
         const gpa = comp.gpa;
@@ -1271,7 +1268,7 @@ pub const GnuHashSection = struct {
             bloom[idx] |= @as(u64, 1) << @as(u6, @intCast((h >> bloom_shift) % 64));
         }
 
-        try cwriter.writeAll(mem.sliceAsBytes(bloom));
+        try writer.writeAll(mem.sliceAsBytes(bloom));
 
         // Fill in the hash bucket indices
         const buckets = try gpa.alloc(u32, hash.num_buckets);
@@ -1284,7 +1281,7 @@ pub const GnuHashSection = struct {
             }
         }
 
-        try cwriter.writeAll(mem.sliceAsBytes(buckets));
+        try writer.writeAll(mem.sliceAsBytes(buckets));
 
         // Finally, write the hash table
         const table = try gpa.alloc(u32, hash.num_exports);
@@ -1300,9 +1297,7 @@ pub const GnuHashSection = struct {
             }
         }
 
-        try cwriter.writeAll(mem.sliceAsBytes(table));
-
-        assert(counting.bytes_written == hash.size());
+        try writer.writeAll(mem.sliceAsBytes(table));
     }
 
     pub fn hasher(name: [:0]const u8) u32 {

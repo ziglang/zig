@@ -1204,11 +1204,10 @@ const TestEncode = struct {
         mnemonic: Instruction.Mnemonic,
         ops: []const Instruction.Operand,
     ) !void {
-        var stream = std.io.fixedBufferStream(&enc.buffer);
-        var count_writer = std.io.countingWriter(stream.writer());
+        var writer: std.Io.Writer = .fixed(&enc.buffer);
         const inst: Instruction = try .new(.none, mnemonic, ops);
-        try inst.encode(count_writer.writer(), .{});
-        enc.index = count_writer.bytes_written;
+        try inst.encode(&writer, .{});
+        enc.index = writer.bufferedLen();
     }
 
     fn code(enc: TestEncode) []const u8 {

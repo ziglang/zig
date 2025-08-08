@@ -432,10 +432,6 @@ pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferS
 /// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
 /// Deprecated with no replacement; inefficient pattern
-pub const CountingWriter = @import("Io/counting_writer.zig").CountingWriter;
-/// Deprecated with no replacement; inefficient pattern
-pub const countingWriter = @import("Io/counting_writer.zig").countingWriter;
-/// Deprecated with no replacement; inefficient pattern
 pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
 /// Deprecated with no replacement; inefficient pattern
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
@@ -917,7 +913,6 @@ test {
     _ = Reader;
     _ = Writer;
     _ = BufferedWriter;
-    _ = CountingWriter;
     _ = CountingReader;
     _ = FixedBufferStream;
     _ = tty;
