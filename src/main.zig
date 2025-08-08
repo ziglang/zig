@@ -5425,6 +5425,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             child.stdout_behavior = .Inherit;
             child.stderr_behavior = .Inherit;
 
+            // If a parent process is requesting participation in an already-existing
+            // progress node, then send the progress data from the build runner to
+            // the parent progress directly instead of the CLI.
+            if (std.process.hasNonEmptyEnvVarConstant("ZIG_PROGRESS")) {
+                root_prog_node.setName("");
+                child.progress_node = root_prog_node;
+            }
+
             const term = t: {
                 std.debug.lockStdErr();
                 defer std.debug.unlockStdErr();
