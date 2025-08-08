@@ -5,6 +5,7 @@ const fmt = std.fmt;
 const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
+const Writer = std.Io.Writer;
 
 const fields_delimiter = "$";
 const fields_delimiter_scalar = '$';
@@ -188,19 +189,20 @@ pub fn deserialize(comptime HashResult: type, str: []const u8) Error!HashResult 
 ///
 /// `params` can also include any additional parameters.
 pub fn serialize(params: anytype, str: []u8) Error![]const u8 {
-    var buf = io.fixedBufferStream(str);
-    try serializeTo(params, buf.writer());
-    return buf.getWritten();
+    var w: Writer = .fixed(str);
+    serializeTo(params, &w) catch return error.NoSpaceLeft;
+    return w.buffered();
 }
 
 /// Compute the number of bytes required to serialize `params`
 pub fn calcSize(params: anytype) usize {
-    var buf = io.countingWriter(io.null_writer);
-    serializeTo(params, buf.writer()) catch unreachable;
-    return @as(usize, @intCast(buf.bytes_written));
+    var trash: [128]u8 = undefined;
+    var d: Writer.Discarding = .init(&trash);
+    serializeTo(params, &d.writer) catch unreachable;
+    return @intCast(d.fullCount());
 }
 
-fn serializeTo(params: anytype, out: anytype) !void {
+fn serializeTo(params: anytype, out: *std.Io.Writer) !void {
     const HashResult = @TypeOf(params);
 
     if (@hasField(HashResult, version_param_name)) {
