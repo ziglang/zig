@@ -803,7 +803,7 @@ pub const BodyWriter = struct {
     }
 
     /// When using content-length, asserts that the amount of data sent matches
-    /// the value sent in the header, then flushes.
+    /// the value sent in the header, then flushes `http_protocol_output`.
     ///
     /// When using transfer-encoding: chunked, writes the end-of-stream message
     /// with empty trailers, then flushes the stream to the system. Asserts any
@@ -827,10 +827,13 @@ pub const BodyWriter = struct {
     ///
     /// Respects the value of `isEliding` to omit all data after the headers.
     ///
+    /// Does not flush `http_protocol_output`, but does flush `writer`.
+    ///
     /// See also:
     /// * `end`
     /// * `endChunked`
     pub fn endUnflushed(w: *BodyWriter) Error!void {
+        try w.writer.flush();
         switch (w.state) {
             .end => unreachable,
             .content_length => |len| {
