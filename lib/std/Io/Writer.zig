@@ -2605,6 +2605,7 @@ pub const Allocating = struct {
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
+        const prev_capacity = list.capacity;
         // Even if we append no data, this function needs to ensure there is more
         // capacity in the buffer to avoid infinite loop, hence the +1 in this loop.
         assert(data.len != 0);
@@ -2618,6 +2619,10 @@ pub const Allocating = struct {
             0 => {},
             1 => list.appendNTimesAssumeCapacity(pattern[0], splat - 1),
             else => for (0..splat - 1) |_| list.appendSliceAssumeCapacity(pattern),
+        }
+        // Ensure growth on each drain
+        if (prev_capacity == list.capacity) {
+            list.ensureTotalCapacity(gpa, list.capacity + 1) catch return error.WriteFailed;
         }
         return list.items.len - start_len;
     }
