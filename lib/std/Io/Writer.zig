@@ -2497,6 +2497,10 @@ pub fn Hashing(comptime Hasher: type) type {
 pub const Allocating = struct {
     allocator: Allocator,
     writer: Writer,
+    /// Every call to `drain` ensures at least this amount of unused capacity
+    /// before it returns. This prevents an infinite loop in interface logic
+    /// that calls `drain`.
+    minimum_unused_capacity: usize = 1,
 
     pub fn init(allocator: Allocator) Allocating {
         return .{
@@ -2607,14 +2611,13 @@ pub const Allocating = struct {
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
+        const bump = a.minimum_unused_capacity;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
-        // Even if we append no data, this function needs to ensure there is more
-        // capacity in the buffer to avoid infinite loop, hence the +1 in this loop.
         assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
+            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + bump) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
         if (splat == 0) {

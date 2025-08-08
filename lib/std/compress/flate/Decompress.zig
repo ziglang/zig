@@ -73,7 +73,12 @@ const indirect_vtable: Reader.VTable = .{
     .readVec = readVec,
 };
 
+/// `input` buffer is asserted to be at least 10 bytes, or EOF before then.
+///
+/// If `buffer` is provided then asserted to have `flate.max_window_len`
+/// capacity, as well as `flate.history_len` unused capacity on every write.
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
+    if (buffer.len != 0) assert(buffer.len >= flate.max_window_len);
     return .{
         .reader = .{
             .vtable = if (buffer.len == 0) &direct_vtable else &indirect_vtable,
@@ -234,6 +239,8 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 }
 
 fn streamDirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+    assert(w.buffer.len >= flate.max_window_len);
+    assert(w.unusedCapacityLen() >= flate.history_len);
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     return streamFallible(d, w, limit);
 }
@@ -1246,6 +1253,7 @@ test "zlib should not overshoot" {
 fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !void {
     var reader: Reader = .fixed(in);
     var aw: Writer.Allocating = .init(testing.allocator);
+    aw.minimum_unused_capacity = flate.history_len;
     try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
@@ -1257,6 +1265,7 @@ fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !vo
 fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
     var in: std.Io.Reader = .fixed(compressed);
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
+    aw.minimum_unused_capacity = flate.history_len;
     try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
