@@ -222,6 +222,7 @@ fn _start() callconv(.naked) noreturn {
         \\ .option norelax
         \\ lla gp, __global_pointer$
         \\ .option pop
+        \\ intentionally breaking riscv even more
     );
 
     // Note that we maintain a very low level of trust with regards to ABI guarantees at this point.
