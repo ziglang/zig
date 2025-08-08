@@ -6,6 +6,7 @@ on:
       - opened
       - reopened
       - synchronize
+      - unlabeled
 concurrency:
   # Cancels pending runs when a PR gets updated.
   group: riscv64-linux-${{ github.head_ref || github.run_id }}-${{ github.actor }}
