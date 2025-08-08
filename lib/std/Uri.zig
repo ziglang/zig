@@ -4,6 +4,8 @@
 const std = @import("std.zig");
 const testing = std.testing;
 const Uri = @This();
+const Allocator = std.mem.Allocator;
+const Writer = std.Io.Writer;
 
 scheme: []const u8,
 user: ?Component = null,
@@ -13,6 +15,32 @@ port: ?u16 = null,
 path: Component = Component.empty,
 query: ?Component = null,
 fragment: ?Component = null,
+
+pub const host_name_max = 255;
+
+/// Returned value may point into `buffer` or be the original string.
+///
+/// Suggested buffer length: `host_name_max`.
+///
+/// See also:
+/// * `getHostAlloc`
+pub fn getHost(uri: Uri, buffer: []u8) error{ UriMissingHost, UriHostTooLong }![]const u8 {
+    const component = uri.host orelse return error.UriMissingHost;
+    return component.toRaw(buffer) catch |err| switch (err) {
+        error.NoSpaceLeft => return error.UriHostTooLong,
+    };
+}
+
+/// Returned value may point into `buffer` or be the original string.
+///
+/// See also:
+/// * `getHost`
+pub fn getHostAlloc(uri: Uri, arena: Allocator) error{ UriMissingHost, UriHostTooLong, OutOfMemory }![]const u8 {
+    const component = uri.host orelse return error.UriMissingHost;
+    const result = try component.toRawMaybeAlloc(arena);
+    if (result.len > host_name_max) return error.UriHostTooLong;
+    return result;
+}
 
 pub const Component = union(enum) {
     /// Invalid characters in this component must be percent encoded
@@ -30,11 +58,19 @@ pub const Component = union(enum) {
         };
     }
 
+    /// Returned value may point into `buffer` or be the original string.
+    pub fn toRaw(component: Component, buffer: []u8) error{NoSpaceLeft}![]const u8 {
+        return switch (component) {
+            .raw => |raw| raw,
+            .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
+                try std.fmt.bufPrint(buffer, "{f}", .{std.fmt.alt(component, .formatRaw)})
+            else
+                percent_encoded,
+        };
+    }
+
     /// Allocates the result with `arena` only if needed, so the result should not be freed.
-    pub fn toRawMaybeAlloc(
-        component: Component,
-        arena: std.mem.Allocator,
-    ) std.mem.Allocator.Error![]const u8 {
+    pub fn toRawMaybeAlloc(component: Component, arena: Allocator) Allocator.Error![]const u8 {
         return switch (component) {
             .raw => |raw| raw,
             .percent_encoded => |percent_encoded| if (std.mem.indexOfScalar(u8, percent_encoded, '%')) |_|
@@ -44,7 +80,7 @@ pub const Component = union(enum) {
         };
     }
 
-    pub fn formatRaw(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatRaw(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try w.writeAll(raw),
             .percent_encoded => |percent_encoded| {
@@ -67,56 +103,56 @@ pub const Component = union(enum) {
         }
     }
 
-    pub fn formatEscaped(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatEscaped(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isUnreserved),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatUser(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatUser(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isUserChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatPassword(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatPassword(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isPasswordChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatHost(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatHost(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isHostChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatPath(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatPath(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isPathChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatQuery(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatQuery(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isQueryChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn formatFragment(component: Component, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn formatFragment(component: Component, w: *Writer) Writer.Error!void {
         switch (component) {
             .raw => |raw| try percentEncode(w, raw, isFragmentChar),
             .percent_encoded => |percent_encoded| try w.writeAll(percent_encoded),
         }
     }
 
-    pub fn percentEncode(w: *std.io.Writer, raw: []const u8, comptime isValidChar: fn (u8) bool) std.io.Writer.Error!void {
+    pub fn percentEncode(w: *Writer, raw: []const u8, comptime isValidChar: fn (u8) bool) Writer.Error!void {
         var start: usize = 0;
         for (raw, 0..) |char, index| {
             if (isValidChar(char)) continue;
@@ -165,17 +201,15 @@ pub const ParseError = error{ UnexpectedCharacter, InvalidFormat, InvalidPort };
 /// The return value will contain strings pointing into the original `text`.
 /// Each component that is provided, will be non-`null`.
 pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
-    var reader = SliceReader{ .slice = text };
-
     var uri: Uri = .{ .scheme = scheme, .path = undefined };
+    var i: usize = 0;
 
-    if (reader.peekPrefix("//")) a: { // authority part
-        std.debug.assert(reader.get().? == '/');
-        std.debug.assert(reader.get().? == '/');
-
-        const authority = reader.readUntil(isAuthoritySeparator);
+    if (std.mem.startsWith(u8, text, "//")) a: {
+        i = std.mem.indexOfAnyPos(u8, text, 2, &authority_sep) orelse text.len;
+        const authority = text[2..i];
         if (authority.len == 0) {
-            if (reader.peekPrefix("/")) break :a else return error.InvalidFormat;
+            if (!std.mem.startsWith(u8, text[2..], "/")) return error.InvalidFormat;
+            break :a;
         }
 
         var start_of_host: usize = 0;
@@ -225,26 +259,28 @@ pub fn parseAfterScheme(scheme: []const u8, text: []const u8) ParseError!Uri {
         uri.host = .{ .percent_encoded = authority[start_of_host..end_of_host] };
     }
 
-    uri.path = .{ .percent_encoded = reader.readUntil(isPathSeparator) };
+    const path_start = i;
+    i = std.mem.indexOfAnyPos(u8, text, path_start, &path_sep) orelse text.len;
+    uri.path = .{ .percent_encoded = text[path_start..i] };
 
-    if ((reader.peek() orelse 0) == '?') { // query part
-        std.debug.assert(reader.get().? == '?');
-        uri.query = .{ .percent_encoded = reader.readUntil(isQuerySeparator) };
+    if (std.mem.startsWith(u8, text[i..], "?")) {
+        const query_start = i + 1;
+        i = std.mem.indexOfScalarPos(u8, text, query_start, '#') orelse text.len;
+        uri.query = .{ .percent_encoded = text[query_start..i] };
     }
 
-    if ((reader.peek() orelse 0) == '#') { // fragment part
-        std.debug.assert(reader.get().? == '#');
-        uri.fragment = .{ .percent_encoded = reader.readUntilEof() };
+    if (std.mem.startsWith(u8, text[i..], "#")) {
+        uri.fragment = .{ .percent_encoded = text[i + 1 ..] };
     }
 
     return uri;
 }
 
-pub fn format(uri: *const Uri, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(uri: *const Uri, writer: *Writer) Writer.Error!void {
     return writeToStream(uri, writer, .all);
 }
 
-pub fn writeToStream(uri: *const Uri, writer: *std.io.Writer, flags: Format.Flags) std.io.Writer.Error!void {
+pub fn writeToStream(uri: *const Uri, writer: *Writer, flags: Format.Flags) Writer.Error!void {
     if (flags.scheme) {
         try writer.print("{s}:", .{uri.scheme});
         if (flags.authority and uri.host != null) {
@@ -318,7 +354,7 @@ pub const Format = struct {
         };
     };
 
-    pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn default(f: Format, writer: *Writer) Writer.Error!void {
         return writeToStream(f.uri, writer, f.flags);
     }
 };
@@ -327,41 +363,34 @@ pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Formatter(Format, Forma
     return .{ .data = .{ .uri = uri, .flags = flags } };
 }
 
-/// Parses the URI or returns an error.
-/// The return value will contain strings pointing into the
-/// original `text`. Each component that is provided, will be non-`null`.
+/// The return value will contain strings pointing into the original `text`.
+/// Each component that is provided will be non-`null`.
 pub fn parse(text: []const u8) ParseError!Uri {
-    var reader: SliceReader = .{ .slice = text };
-    const scheme = reader.readWhile(isSchemeChar);
-
-    // after the scheme, a ':' must appear
-    if (reader.get()) |c| {
-        if (c != ':')
-            return error.UnexpectedCharacter;
-    } else {
-        return error.InvalidFormat;
-    }
-
-    return parseAfterScheme(scheme, reader.readUntilEof());
+    const end = for (text, 0..) |byte, i| {
+        if (!isSchemeChar(byte)) break i;
+    } else text.len;
+    // After the scheme, a ':' must appear.
+    if (end >= text.len) return error.InvalidFormat;
+    if (text[end] != ':') return error.UnexpectedCharacter;
+    return parseAfterScheme(text[0..end], text[end + 1 ..]);
 }
 
 pub const ResolveInPlaceError = ParseError || error{NoSpaceLeft};
 
-/// Resolves a URI against a base URI, conforming to RFC 3986, Section 5.
-/// Copies `new` to the beginning of `aux_buf.*`, allowing the slices to overlap,
-/// then parses `new` as a URI, and then resolves the path in place.
+/// Resolves a URI against a base URI, conforming to
+/// [RFC 3986, Section 5](https://www.rfc-editor.org/rfc/rfc3986#section-5)
+///
+/// Assumes new location is already copied to the beginning of `aux_buf.*`.
+/// Parses that new location as a URI, and then resolves the path in place.
+///
 /// If a merge needs to take place, the newly constructed path will be stored
-/// in `aux_buf.*` just after the copied `new`, and `aux_buf.*` will be modified
-/// to only contain the remaining unused space.
-pub fn resolve_inplace(base: Uri, new: []const u8, aux_buf: *[]u8) ResolveInPlaceError!Uri {
-    std.mem.copyForwards(u8, aux_buf.*, new);
-    // At this point, new is an invalid pointer.
-    const new_mut = aux_buf.*[0..new.len];
-    aux_buf.* = aux_buf.*[new.len..];
-
-    const new_parsed = parse(new_mut) catch |err|
-        (parseAfterScheme("", new_mut) catch return err);
-    // As you can see above, `new_mut` is not a const pointer.
+/// in `aux_buf.*` just after the copied location, and `aux_buf.*` will be
+/// modified to only contain the remaining unused space.
+pub fn resolveInPlace(base: Uri, new_len: usize, aux_buf: *[]u8) ResolveInPlaceError!Uri {
+    const new = aux_buf.*[0..new_len];
+    const new_parsed = parse(new) catch |err| (parseAfterScheme("", new) catch return err);
+    aux_buf.* = aux_buf.*[new_len..];
+    // As you can see above, `new` is not a const pointer.
     const new_path: []u8 = @constCast(new_parsed.path.percent_encoded);
 
     if (new_parsed.scheme.len > 0) return .{
@@ -461,7 +490,7 @@ test remove_dot_segments {
 
 /// 5.2.3. Merge Paths
 fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Component {
-    var aux: std.io.Writer = .fixed(aux_buf.*);
+    var aux: Writer = .fixed(aux_buf.*);
     if (!base.isEmpty()) {
         base.formatPath(&aux) catch return error.NoSpaceLeft;
         aux.end = std.mem.lastIndexOfScalar(u8, aux.buffered(), '/') orelse return remove_dot_segments(new);
@@ -472,76 +501,10 @@ fn merge_paths(base: Component, new: []u8, aux_buf: *[]u8) error{NoSpaceLeft}!Co
     return merged_path;
 }
 
-const SliceReader = struct {
-    const Self = @This();
-
-    slice: []const u8,
-    offset: usize = 0,
-
-    fn get(self: *Self) ?u8 {
-        if (self.offset >= self.slice.len)
-            return null;
-        const c = self.slice[self.offset];
-        self.offset += 1;
-        return c;
-    }
-
-    fn peek(self: Self) ?u8 {
-        if (self.offset >= self.slice.len)
-            return null;
-        return self.slice[self.offset];
-    }
-
-    fn readWhile(self: *Self, comptime predicate: fn (u8) bool) []const u8 {
-        const start = self.offset;
-        var end = start;
-        while (end < self.slice.len and predicate(self.slice[end])) {
-            end += 1;
-        }
-        self.offset = end;
-        return self.slice[start..end];
-    }
-
-    fn readUntil(self: *Self, comptime predicate: fn (u8) bool) []const u8 {
-        const start = self.offset;
-        var end = start;
-        while (end < self.slice.len and !predicate(self.slice[end])) {
-            end += 1;
-        }
-        self.offset = end;
-        return self.slice[start..end];
-    }
-
-    fn readUntilEof(self: *Self) []const u8 {
-        const start = self.offset;
-        self.offset = self.slice.len;
-        return self.slice[start..];
-    }
-
-    fn peekPrefix(self: Self, prefix: []const u8) bool {
-        if (self.offset + prefix.len > self.slice.len)
-            return false;
-        return std.mem.eql(u8, self.slice[self.offset..][0..prefix.len], prefix);
-    }
-};
-
 /// scheme      = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
 fn isSchemeChar(c: u8) bool {
     return switch (c) {
         'A'...'Z', 'a'...'z', '0'...'9', '+', '-', '.' => true,
-        else => false,
-    };
-}
-
-/// reserved    = gen-delims / sub-delims
-fn isReserved(c: u8) bool {
-    return isGenLimit(c) or isSubLimit(c);
-}
-
-/// gen-delims  = ":" / "/" / "?" / "#" / "[" / "]" / "@"
-fn isGenLimit(c: u8) bool {
-    return switch (c) {
-        ':', ',', '?', '#', '[', ']', '@' => true,
         else => false,
     };
 }
@@ -585,26 +548,8 @@ fn isQueryChar(c: u8) bool {
 
 const isFragmentChar = isQueryChar;
 
-fn isAuthoritySeparator(c: u8) bool {
-    return switch (c) {
-        '/', '?', '#' => true,
-        else => false,
-    };
-}
-
-fn isPathSeparator(c: u8) bool {
-    return switch (c) {
-        '?', '#' => true,
-        else => false,
-    };
-}
-
-fn isQuerySeparator(c: u8) bool {
-    return switch (c) {
-        '#' => true,
-        else => false,
-    };
-}
+const authority_sep: [3]u8 = .{ '/', '?', '#' };
+const path_sep: [2]u8 = .{ '?', '#' };
 
 test "basic" {
     const parsed = try parse("https://ziglang.org/download");

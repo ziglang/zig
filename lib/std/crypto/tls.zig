@@ -49,8 +49,8 @@ pub const hello_retry_request_sequence = [32]u8{
 };
 
 pub const close_notify_alert = [_]u8{
-    @intFromEnum(AlertLevel.warning),
-    @intFromEnum(AlertDescription.close_notify),
+    @intFromEnum(Alert.Level.warning),
+    @intFromEnum(Alert.Description.close_notify),
 };
 
 pub const ProtocolVersion = enum(u16) {
@@ -138,103 +138,108 @@ pub const ExtensionType = enum(u16) {
     _,
 };
 
-pub const AlertLevel = enum(u8) {
-    warning = 1,
-    fatal = 2,
-    _,
-};
+pub const Alert = struct {
+    level: Level,
+    description: Description,
 
-pub const AlertDescription = enum(u8) {
-    pub const Error = error{
-        TlsAlertUnexpectedMessage,
-        TlsAlertBadRecordMac,
-        TlsAlertRecordOverflow,
-        TlsAlertHandshakeFailure,
-        TlsAlertBadCertificate,
-        TlsAlertUnsupportedCertificate,
-        TlsAlertCertificateRevoked,
-        TlsAlertCertificateExpired,
-        TlsAlertCertificateUnknown,
-        TlsAlertIllegalParameter,
-        TlsAlertUnknownCa,
-        TlsAlertAccessDenied,
-        TlsAlertDecodeError,
-        TlsAlertDecryptError,
-        TlsAlertProtocolVersion,
-        TlsAlertInsufficientSecurity,
-        TlsAlertInternalError,
-        TlsAlertInappropriateFallback,
-        TlsAlertMissingExtension,
-        TlsAlertUnsupportedExtension,
-        TlsAlertUnrecognizedName,
-        TlsAlertBadCertificateStatusResponse,
-        TlsAlertUnknownPskIdentity,
-        TlsAlertCertificateRequired,
-        TlsAlertNoApplicationProtocol,
-        TlsAlertUnknown,
+    pub const Level = enum(u8) {
+        warning = 1,
+        fatal = 2,
+        _,
     };
 
-    close_notify = 0,
-    unexpected_message = 10,
-    bad_record_mac = 20,
-    record_overflow = 22,
-    handshake_failure = 40,
-    bad_certificate = 42,
-    unsupported_certificate = 43,
-    certificate_revoked = 44,
-    certificate_expired = 45,
-    certificate_unknown = 46,
-    illegal_parameter = 47,
-    unknown_ca = 48,
-    access_denied = 49,
-    decode_error = 50,
-    decrypt_error = 51,
-    protocol_version = 70,
-    insufficient_security = 71,
-    internal_error = 80,
-    inappropriate_fallback = 86,
-    user_canceled = 90,
-    missing_extension = 109,
-    unsupported_extension = 110,
-    unrecognized_name = 112,
-    bad_certificate_status_response = 113,
-    unknown_psk_identity = 115,
-    certificate_required = 116,
-    no_application_protocol = 120,
-    _,
+    pub const Description = enum(u8) {
+        pub const Error = error{
+            TlsAlertUnexpectedMessage,
+            TlsAlertBadRecordMac,
+            TlsAlertRecordOverflow,
+            TlsAlertHandshakeFailure,
+            TlsAlertBadCertificate,
+            TlsAlertUnsupportedCertificate,
+            TlsAlertCertificateRevoked,
+            TlsAlertCertificateExpired,
+            TlsAlertCertificateUnknown,
+            TlsAlertIllegalParameter,
+            TlsAlertUnknownCa,
+            TlsAlertAccessDenied,
+            TlsAlertDecodeError,
+            TlsAlertDecryptError,
+            TlsAlertProtocolVersion,
+            TlsAlertInsufficientSecurity,
+            TlsAlertInternalError,
+            TlsAlertInappropriateFallback,
+            TlsAlertMissingExtension,
+            TlsAlertUnsupportedExtension,
+            TlsAlertUnrecognizedName,
+            TlsAlertBadCertificateStatusResponse,
+            TlsAlertUnknownPskIdentity,
+            TlsAlertCertificateRequired,
+            TlsAlertNoApplicationProtocol,
+            TlsAlertUnknown,
+        };
 
-    pub fn toError(alert: AlertDescription) Error!void {
-        switch (alert) {
-            .close_notify => {}, // not an error
-            .unexpected_message => return error.TlsAlertUnexpectedMessage,
-            .bad_record_mac => return error.TlsAlertBadRecordMac,
-            .record_overflow => return error.TlsAlertRecordOverflow,
-            .handshake_failure => return error.TlsAlertHandshakeFailure,
-            .bad_certificate => return error.TlsAlertBadCertificate,
-            .unsupported_certificate => return error.TlsAlertUnsupportedCertificate,
-            .certificate_revoked => return error.TlsAlertCertificateRevoked,
-            .certificate_expired => return error.TlsAlertCertificateExpired,
-            .certificate_unknown => return error.TlsAlertCertificateUnknown,
-            .illegal_parameter => return error.TlsAlertIllegalParameter,
-            .unknown_ca => return error.TlsAlertUnknownCa,
-            .access_denied => return error.TlsAlertAccessDenied,
-            .decode_error => return error.TlsAlertDecodeError,
-            .decrypt_error => return error.TlsAlertDecryptError,
-            .protocol_version => return error.TlsAlertProtocolVersion,
-            .insufficient_security => return error.TlsAlertInsufficientSecurity,
-            .internal_error => return error.TlsAlertInternalError,
-            .inappropriate_fallback => return error.TlsAlertInappropriateFallback,
-            .user_canceled => {}, // not an error
-            .missing_extension => return error.TlsAlertMissingExtension,
-            .unsupported_extension => return error.TlsAlertUnsupportedExtension,
-            .unrecognized_name => return error.TlsAlertUnrecognizedName,
-            .bad_certificate_status_response => return error.TlsAlertBadCertificateStatusResponse,
-            .unknown_psk_identity => return error.TlsAlertUnknownPskIdentity,
-            .certificate_required => return error.TlsAlertCertificateRequired,
-            .no_application_protocol => return error.TlsAlertNoApplicationProtocol,
-            _ => return error.TlsAlertUnknown,
+        close_notify = 0,
+        unexpected_message = 10,
+        bad_record_mac = 20,
+        record_overflow = 22,
+        handshake_failure = 40,
+        bad_certificate = 42,
+        unsupported_certificate = 43,
+        certificate_revoked = 44,
+        certificate_expired = 45,
+        certificate_unknown = 46,
+        illegal_parameter = 47,
+        unknown_ca = 48,
+        access_denied = 49,
+        decode_error = 50,
+        decrypt_error = 51,
+        protocol_version = 70,
+        insufficient_security = 71,
+        internal_error = 80,
+        inappropriate_fallback = 86,
+        user_canceled = 90,
+        missing_extension = 109,
+        unsupported_extension = 110,
+        unrecognized_name = 112,
+        bad_certificate_status_response = 113,
+        unknown_psk_identity = 115,
+        certificate_required = 116,
+        no_application_protocol = 120,
+        _,
+
+        pub fn toError(description: Description) Error!void {
+            switch (description) {
+                .close_notify => {}, // not an error
+                .unexpected_message => return error.TlsAlertUnexpectedMessage,
+                .bad_record_mac => return error.TlsAlertBadRecordMac,
+                .record_overflow => return error.TlsAlertRecordOverflow,
+                .handshake_failure => return error.TlsAlertHandshakeFailure,
+                .bad_certificate => return error.TlsAlertBadCertificate,
+                .unsupported_certificate => return error.TlsAlertUnsupportedCertificate,
+                .certificate_revoked => return error.TlsAlertCertificateRevoked,
+                .certificate_expired => return error.TlsAlertCertificateExpired,
+                .certificate_unknown => return error.TlsAlertCertificateUnknown,
+                .illegal_parameter => return error.TlsAlertIllegalParameter,
+                .unknown_ca => return error.TlsAlertUnknownCa,
+                .access_denied => return error.TlsAlertAccessDenied,
+                .decode_error => return error.TlsAlertDecodeError,
+                .decrypt_error => return error.TlsAlertDecryptError,
+                .protocol_version => return error.TlsAlertProtocolVersion,
+                .insufficient_security => return error.TlsAlertInsufficientSecurity,
+                .internal_error => return error.TlsAlertInternalError,
+                .inappropriate_fallback => return error.TlsAlertInappropriateFallback,
+                .user_canceled => {}, // not an error
+                .missing_extension => return error.TlsAlertMissingExtension,
+                .unsupported_extension => return error.TlsAlertUnsupportedExtension,
+                .unrecognized_name => return error.TlsAlertUnrecognizedName,
+                .bad_certificate_status_response => return error.TlsAlertBadCertificateStatusResponse,
+                .unknown_psk_identity => return error.TlsAlertUnknownPskIdentity,
+                .certificate_required => return error.TlsAlertCertificateRequired,
+                .no_application_protocol => return error.TlsAlertNoApplicationProtocol,
+                _ => return error.TlsAlertUnknown,
+            }
         }
-    }
+    };
 };
 
 pub const SignatureScheme = enum(u16) {
@@ -650,7 +655,7 @@ pub const Decoder = struct {
     }
 
     /// Use this function to increase `their_end`.
-    pub fn readAtLeast(d: *Decoder, stream: anytype, their_amt: usize) !void {
+    pub fn readAtLeast(d: *Decoder, stream: *std.io.Reader, their_amt: usize) !void {
         assert(!d.disable_reads);
         const existing_amt = d.cap - d.idx;
         d.their_end = d.idx + their_amt;
@@ -658,14 +663,16 @@ pub const Decoder = struct {
         const request_amt = their_amt - existing_amt;
         const dest = d.buf[d.cap..];
         if (request_amt > dest.len) return error.TlsRecordOverflow;
-        const actual_amt = try stream.readAtLeast(dest, request_amt);
-        if (actual_amt < request_amt) return error.TlsConnectionTruncated;
-        d.cap += actual_amt;
+        stream.readSlice(dest[0..request_amt]) catch |err| switch (err) {
+            error.EndOfStream => return error.TlsConnectionTruncated,
+            error.ReadFailed => return error.ReadFailed,
+        };
+        d.cap += request_amt;
     }
 
     /// Same as `readAtLeast` but also increases `our_end` by exactly `our_amt`.
     /// Use when `our_amt` is calculated by us, not by them.
-    pub fn readAtLeastOurAmt(d: *Decoder, stream: anytype, our_amt: usize) !void {
+    pub fn readAtLeastOurAmt(d: *Decoder, stream: *std.io.Reader, our_amt: usize) !void {
         assert(!d.disable_reads);
         try readAtLeast(d, stream, our_amt);
         d.our_end = d.idx + our_amt;

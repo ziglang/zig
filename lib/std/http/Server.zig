@@ -1,139 +1,69 @@
-//! Blocking HTTP server implementation.
-//! Handles a single connection's lifecycle.
+//! Handles a single connection lifecycle.
 
-connection: net.Server.Connection,
-/// Keeps track of whether the Server is ready to accept a new request on the
-/// same connection, and makes invalid API usage cause assertion failures
-/// rather than HTTP protocol violations.
-state: State,
-/// User-provided buffer that must outlive this Server.
-/// Used to store the client's entire HTTP header.
-read_buffer: []u8,
-/// Amount of available data inside read_buffer.
-read_buffer_len: usize,
-/// Index into `read_buffer` of the first byte of the next HTTP request.
-next_request_start: usize,
+const std = @import("../std.zig");
+const http = std.http;
+const mem = std.mem;
+const Uri = std.Uri;
+const assert = std.debug.assert;
+const testing = std.testing;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
-pub const State = enum {
-    /// The connection is available to be used for the first time, or reused.
-    ready,
-    /// An error occurred in `receiveHead`.
-    receiving_head,
-    /// A Request object has been obtained and from there a Response can be
-    /// opened.
-    received_head,
-    /// The client is uploading something to this Server.
-    receiving_body,
-    /// The connection is eligible for another HTTP request, however the client
-    /// and server did not negotiate a persistent connection.
-    closing,
-};
+const Server = @This();
+
+/// Data from the HTTP server to the HTTP client.
+out: *Writer,
+reader: http.Reader,
 
 /// Initialize an HTTP server that can respond to multiple requests on the same
 /// connection.
+///
+/// The buffer of `in` must be large enough to store the client's entire HTTP
+/// header, otherwise `receiveHead` returns `error.HttpHeadersOversize`.
+///
 /// The returned `Server` is ready for `receiveHead` to be called.
-pub fn init(connection: net.Server.Connection, read_buffer: []u8) Server {
+pub fn init(in: *Reader, out: *Writer) Server {
     return .{
-        .connection = connection,
-        .state = .ready,
-        .read_buffer = read_buffer,
-        .read_buffer_len = 0,
-        .next_request_start = 0,
+        .reader = .{
+            .in = in,
+            .state = .ready,
+            // Populated when `http.Reader.bodyReader` is called.
+            .interface = undefined,
+        },
+        .out = out,
     };
 }
 
-pub const ReceiveHeadError = error{
-    /// Client sent too many bytes of HTTP headers.
-    /// The HTTP specification suggests to respond with a 431 status code
-    /// before closing the connection.
-    HttpHeadersOversize,
+pub const ReceiveHeadError = http.Reader.HeadError || error{
     /// Client sent headers that did not conform to the HTTP protocol.
+    ///
+    /// To find out more detailed diagnostics, `Request.head_buffer` can be
+    /// passed directly to `Request.Head.parse`.
     HttpHeadersInvalid,
-    /// A low level I/O error occurred trying to read the headers.
-    HttpHeadersUnreadable,
-    /// Partial HTTP request was received but the connection was closed before
-    /// fully receiving the headers.
-    HttpRequestTruncated,
-    /// The client sent 0 bytes of headers before closing the stream.
-    /// In other words, a keep-alive connection was finally closed.
-    HttpConnectionClosing,
 };
 
-/// The header bytes reference the read buffer that Server was initialized with
-/// and remain alive until the next call to receiveHead.
 pub fn receiveHead(s: *Server) ReceiveHeadError!Request {
-    assert(s.state == .ready);
-    s.state = .received_head;
-    errdefer s.state = .receiving_head;
-
-    // In case of a reused connection, move the next request's bytes to the
-    // beginning of the buffer.
-    if (s.next_request_start > 0) {
-        if (s.read_buffer_len > s.next_request_start) {
-            rebase(s, 0);
-        } else {
-            s.read_buffer_len = 0;
-        }
-    }
-
-    var hp: http.HeadParser = .{};
-
-    if (s.read_buffer_len > 0) {
-        const bytes = s.read_buffer[0..s.read_buffer_len];
-        const end = hp.feed(bytes);
-        if (hp.state == .finished)
-            return finishReceivingHead(s, end);
-    }
-
-    while (true) {
-        const buf = s.read_buffer[s.read_buffer_len..];
-        if (buf.len == 0)
-            return error.HttpHeadersOversize;
-        const read_n = s.connection.stream.read(buf) catch
-            return error.HttpHeadersUnreadable;
-        if (read_n == 0) {
-            if (s.read_buffer_len > 0) {
-                return error.HttpRequestTruncated;
-            } else {
-                return error.HttpConnectionClosing;
-            }
-        }
-        s.read_buffer_len += read_n;
-        const bytes = buf[0..read_n];
-        const end = hp.feed(bytes);
-        if (hp.state == .finished)
-            return finishReceivingHead(s, s.read_buffer_len - bytes.len + end);
-    }
-}
-
-fn finishReceivingHead(s: *Server, head_end: usize) ReceiveHeadError!Request {
+    const head_buffer = try s.reader.receiveHead();
     return .{
         .server = s,
-        .head_end = head_end,
-        .head = Request.Head.parse(s.read_buffer[0..head_end]) catch
-            return error.HttpHeadersInvalid,
-        .reader_state = undefined,
+        .head_buffer = head_buffer,
+        // No need to track the returned error here since users can repeat the
+        // parse with the header buffer to get detailed diagnostics.
+        .head = Request.Head.parse(head_buffer) catch return error.HttpHeadersInvalid,
     };
 }
 
 pub const Request = struct {
     server: *Server,
-    /// Index into Server's read_buffer.
-    head_end: usize,
+    /// Pointers in this struct are invalidated when the request body stream is
+    /// initialized.
     head: Head,
-    reader_state: union {
-        remaining_content_length: u64,
-        chunk_parser: http.ChunkParser,
-    },
+    head_buffer: []const u8,
+    respond_err: ?RespondError = null,
 
-    pub const Compression = union(enum) {
-        pub const DeflateDecompressor = std.compress.zlib.Decompressor(std.io.AnyReader);
-        pub const GzipDecompressor = std.compress.gzip.Decompressor(std.io.AnyReader);
-
-        deflate: std.compress.flate.Decompress,
-        gzip: std.compress.flate.Decompress,
-        zstd: std.compress.zstd.Decompress,
-        none: void,
+    pub const RespondError = error{
+        /// The request contained an `expect` header with an unrecognized value.
+        HttpExpectationFailed,
     };
 
     pub const Head = struct {
@@ -146,7 +76,6 @@ pub const Request = struct {
         transfer_encoding: http.TransferEncoding,
         transfer_compression: http.ContentEncoding,
         keep_alive: bool,
-        compression: Compression,
 
         pub const ParseError = error{
             UnknownHttpMethod,
@@ -168,10 +97,9 @@ pub const Request = struct {
 
             const method_end = mem.indexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;
-            if (method_end > 24) return error.HttpHeadersInvalid;
 
-            const method_str = first_line[0..method_end];
-            const method: http.Method = @enumFromInt(http.Method.parse(method_str));
+            const method = std.meta.stringToEnum(http.Method, first_line[0..method_end]) orelse
+                return error.UnknownHttpMethod;
 
             const version_start = mem.lastIndexOfScalar(u8, first_line, ' ') orelse
                 return error.HttpHeadersInvalid;
@@ -200,7 +128,6 @@ pub const Request = struct {
                     .@"HTTP/1.0" => false,
                     .@"HTTP/1.1" => true,
                 },
-                .compression = .none,
             };
 
             while (it.next()) |line| {
@@ -230,7 +157,7 @@ pub const Request = struct {
 
                     const trimmed = mem.trim(u8, header_value, " ");
 
-                    if (std.meta.stringToEnum(http.ContentEncoding, trimmed)) |ce| {
+                    if (http.ContentEncoding.fromString(trimmed)) |ce| {
                         head.transfer_compression = ce;
                     } else {
                         return error.HttpTransferEncodingUnsupported;
@@ -255,7 +182,7 @@ pub const Request = struct {
                     if (next) |second| {
                         const trimmed_second = mem.trim(u8, second, " ");
 
-                        if (std.meta.stringToEnum(http.ContentEncoding, trimmed_second)) |transfer| {
+                        if (http.ContentEncoding.fromString(trimmed_second)) |transfer| {
                             if (head.transfer_compression != .identity)
                                 return error.HttpHeadersInvalid; // double compression is not supported
                             head.transfer_compression = transfer;
@@ -296,10 +223,19 @@ pub const Request = struct {
         inline fn int64(array: *const [8]u8) u64 {
             return @bitCast(array.*);
         }
+
+        /// Help the programmer avoid bugs by calling this when the string
+        /// memory of `Head` becomes invalidated.
+        fn invalidateStrings(h: *Head) void {
+            h.target = undefined;
+            if (h.expect) |*s| s.* = undefined;
+            if (h.content_type) |*s| s.* = undefined;
+        }
     };
 
-    pub fn iterateHeaders(r: *Request) http.HeaderIterator {
-        return http.HeaderIterator.init(r.server.read_buffer[0..r.head_end]);
+    pub fn iterateHeaders(r: *const Request) http.HeaderIterator {
+        assert(r.server.reader.state == .received_head);
+        return http.HeaderIterator.init(r.head_buffer);
     }
 
     test iterateHeaders {
@@ -310,22 +246,19 @@ pub const Request = struct {
             "TRansfer-encoding:\tdeflate, chunked \r\n" ++
             "connectioN:\t keep-alive \r\n\r\n";
 
-        var read_buffer: [500]u8 = undefined;
-        @memcpy(read_buffer[0..request_bytes.len], request_bytes);
-
         var server: Server = .{
-            .connection = undefined,
-            .state = .ready,
-            .read_buffer = &read_buffer,
-            .read_buffer_len = request_bytes.len,
-            .next_request_start = 0,
+            .reader = .{
+                .in = undefined,
+                .state = .received_head,
+                .interface = undefined,
+            },
+            .out = undefined,
         };
 
         var request: Request = .{
             .server = &server,
-            .head_end = request_bytes.len,
             .head = undefined,
-            .reader_state = undefined,
+            .head_buffer = @constCast(request_bytes),
         };
 
         var it = request.iterateHeaders();
@@ -384,16 +317,22 @@ pub const Request = struct {
     /// no error is surfaced.
     ///
     /// Asserts status is not `continue`.
-    /// Asserts there are at most 25 extra_headers.
     /// Asserts that "\r\n" does not occur in any header name or value.
     pub fn respond(
         request: *Request,
         content: []const u8,
         options: RespondOptions,
-    ) Response.WriteError!void {
-        const max_extra_headers = 25;
+    ) ExpectContinueError!void {
+        try respondUnflushed(request, content, options);
+        try request.server.out.flush();
+    }
+
+    pub fn respondUnflushed(
+        request: *Request,
+        content: []const u8,
+        options: RespondOptions,
+    ) ExpectContinueError!void {
         assert(options.status != .@"continue");
-        assert(options.extra_headers.len <= max_extra_headers);
         if (std.debug.runtime_safety) {
             for (options.extra_headers) |header| {
                 assert(header.name.len != 0);
@@ -402,6 +341,7 @@ pub const Request = struct {
                 assert(std.mem.indexOfPosLinear(u8, header.value, 0, "\r\n") == null);
             }
         }
+        try writeExpectContinue(request);
 
         const transfer_encoding_none = (options.transfer_encoding orelse .chunked) == .none;
         const server_keep_alive = !transfer_encoding_none and options.keep_alive;
@@ -409,130 +349,42 @@ pub const Request = struct {
 
         const phrase = options.reason orelse options.status.phrase() orelse "";
 
-        var first_buffer: [500]u8 = undefined;
-        var h = std.ArrayListUnmanaged(u8).initBuffer(&first_buffer);
-        if (request.head.expect != null) {
-            // reader() and hence discardBody() above sets expect to null if it
-            // is handled. So the fact that it is not null here means unhandled.
-            h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
-            if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
-            h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            try request.server.connection.stream.writeAll(h.items);
-            return;
-        }
-        h.fixedWriter().print("{s} {d} {s}\r\n", .{
+        const out = request.server.out;
+        try out.print("{s} {d} {s}\r\n", .{
             @tagName(options.version), @intFromEnum(options.status), phrase,
-        }) catch unreachable;
+        });
 
         switch (options.version) {
-            .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
-            .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
+            .@"HTTP/1.0" => if (keep_alive) try out.writeAll("connection: keep-alive\r\n"),
+            .@"HTTP/1.1" => if (!keep_alive) try out.writeAll("connection: close\r\n"),
         }
 
         if (options.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
             .none => {},
-            .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
+            .chunked => try out.writeAll("transfer-encoding: chunked\r\n"),
         } else {
-            h.fixedWriter().print("content-length: {d}\r\n", .{content.len}) catch unreachable;
+            try out.print("content-length: {d}\r\n", .{content.len});
         }
-
-        var chunk_header_buffer: [18]u8 = undefined;
-        var iovecs: [max_extra_headers * 4 + 3]std.posix.iovec_const = undefined;
-        var iovecs_len: usize = 0;
-
-        iovecs[iovecs_len] = .{
-            .base = h.items.ptr,
-            .len = h.items.len,
-        };
-        iovecs_len += 1;
 
         for (options.extra_headers) |header| {
-            iovecs[iovecs_len] = .{
-                .base = header.name.ptr,
-                .len = header.name.len,
-            };
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = .{
-                .base = ": ",
-                .len = 2,
-            };
-            iovecs_len += 1;
-
-            if (header.value.len != 0) {
-                iovecs[iovecs_len] = .{
-                    .base = header.value.ptr,
-                    .len = header.value.len,
-                };
-                iovecs_len += 1;
-            }
-
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
-            iovecs_len += 1;
+            var vecs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&vecs);
         }
 
-        iovecs[iovecs_len] = .{
-            .base = "\r\n",
-            .len = 2,
-        };
-        iovecs_len += 1;
+        try out.writeAll("\r\n");
 
         if (request.head.method != .HEAD) {
             const is_chunked = (options.transfer_encoding orelse .none) == .chunked;
             if (is_chunked) {
-                if (content.len > 0) {
-                    const chunk_header = std.fmt.bufPrint(
-                        &chunk_header_buffer,
-                        "{x}\r\n",
-                        .{content.len},
-                    ) catch unreachable;
-
-                    iovecs[iovecs_len] = .{
-                        .base = chunk_header.ptr,
-                        .len = chunk_header.len,
-                    };
-                    iovecs_len += 1;
-
-                    iovecs[iovecs_len] = .{
-                        .base = content.ptr,
-                        .len = content.len,
-                    };
-                    iovecs_len += 1;
-
-                    iovecs[iovecs_len] = .{
-                        .base = "\r\n",
-                        .len = 2,
-                    };
-                    iovecs_len += 1;
-                }
-
-                iovecs[iovecs_len] = .{
-                    .base = "0\r\n\r\n",
-                    .len = 5,
-                };
-                iovecs_len += 1;
+                if (content.len > 0) try out.print("{x}\r\n{s}\r\n", .{ content.len, content });
+                try out.writeAll("0\r\n\r\n");
             } else if (content.len > 0) {
-                iovecs[iovecs_len] = .{
-                    .base = content.ptr,
-                    .len = content.len,
-                };
-                iovecs_len += 1;
+                try out.writeAll(content);
             }
         }
-
-        try request.server.connection.stream.writevAll(iovecs[0..iovecs_len]);
     }
 
     pub const RespondStreamingOptions = struct {
-        /// An externally managed slice of memory used to batch bytes before
-        /// sending. `respondStreaming` asserts this is large enough to store
-        /// the full HTTP response head.
-        ///
-        /// Must outlive the returned Response.
-        send_buffer: []u8,
         /// If provided, the response will use the content-length header;
         /// otherwise it will use transfer-encoding: chunked.
         content_length: ?u64 = null,
@@ -540,210 +392,177 @@ pub const Request = struct {
         respond_options: RespondOptions = .{},
     };
 
-    /// The header is buffered but not sent until Response.flush is called.
+    /// The header is not guaranteed to be sent until `BodyWriter.flush` or
+    /// `BodyWriter.end` is called.
     ///
     /// If the request contains a body and the connection is to be reused,
     /// discards the request body, leaving the Server in the `ready` state. If
     /// this discarding fails, the connection is marked as not to be reused and
     /// no error is surfaced.
     ///
-    /// HEAD requests are handled transparently by setting a flag on the
-    /// returned Response to omit the body. However it may be worth noticing
+    /// HEAD requests are handled transparently by setting the
+    /// `BodyWriter.elide` flag on the returned `BodyWriter`, causing
+    /// the response stream to omit the body. However, it may be worth noticing
     /// that flag and skipping any expensive work that would otherwise need to
     /// be done to satisfy the request.
     ///
-    /// Asserts `send_buffer` is large enough to store the entire response header.
     /// Asserts status is not `continue`.
-    pub fn respondStreaming(request: *Request, options: RespondStreamingOptions) Response {
+    pub fn respondStreaming(
+        request: *Request,
+        buffer: []u8,
+        options: RespondStreamingOptions,
+    ) ExpectContinueError!http.BodyWriter {
+        try writeExpectContinue(request);
         const o = options.respond_options;
         assert(o.status != .@"continue");
         const transfer_encoding_none = (o.transfer_encoding orelse .chunked) == .none;
         const server_keep_alive = !transfer_encoding_none and o.keep_alive;
         const keep_alive = request.discardBody(server_keep_alive);
         const phrase = o.reason orelse o.status.phrase() orelse "";
+        const out = request.server.out;
 
-        var h = std.ArrayListUnmanaged(u8).initBuffer(options.send_buffer);
+        try out.print("{s} {d} {s}\r\n", .{
+            @tagName(o.version), @intFromEnum(o.status), phrase,
+        });
 
-        const elide_body = if (request.head.expect != null) eb: {
-            // reader() and hence discardBody() above sets expect to null if it
-            // is handled. So the fact that it is not null here means unhandled.
-            h.appendSliceAssumeCapacity("HTTP/1.1 417 Expectation Failed\r\n");
-            if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n");
-            h.appendSliceAssumeCapacity("content-length: 0\r\n\r\n");
-            break :eb true;
-        } else eb: {
-            h.fixedWriter().print("{s} {d} {s}\r\n", .{
-                @tagName(o.version), @intFromEnum(o.status), phrase,
-            }) catch unreachable;
+        switch (o.version) {
+            .@"HTTP/1.0" => if (keep_alive) try out.writeAll("connection: keep-alive\r\n"),
+            .@"HTTP/1.1" => if (!keep_alive) try out.writeAll("connection: close\r\n"),
+        }
 
-            switch (o.version) {
-                .@"HTTP/1.0" => if (keep_alive) h.appendSliceAssumeCapacity("connection: keep-alive\r\n"),
-                .@"HTTP/1.1" => if (!keep_alive) h.appendSliceAssumeCapacity("connection: close\r\n"),
-            }
+        if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
+            .chunked => try out.writeAll("transfer-encoding: chunked\r\n"),
+            .none => {},
+        } else if (options.content_length) |len| {
+            try out.print("content-length: {d}\r\n", .{len});
+        } else {
+            try out.writeAll("transfer-encoding: chunked\r\n");
+        }
 
-            if (o.transfer_encoding) |transfer_encoding| switch (transfer_encoding) {
-                .chunked => h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n"),
-                .none => {},
-            } else if (options.content_length) |len| {
-                h.fixedWriter().print("content-length: {d}\r\n", .{len}) catch unreachable;
-            } else {
-                h.appendSliceAssumeCapacity("transfer-encoding: chunked\r\n");
-            }
+        for (o.extra_headers) |header| {
+            assert(header.name.len != 0);
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
+        }
 
-            for (o.extra_headers) |header| {
-                assert(header.name.len != 0);
-                h.appendSliceAssumeCapacity(header.name);
-                h.appendSliceAssumeCapacity(": ");
-                h.appendSliceAssumeCapacity(header.value);
-                h.appendSliceAssumeCapacity("\r\n");
-            }
+        try out.writeAll("\r\n");
+        const elide_body = request.head.method == .HEAD;
+        const state: http.BodyWriter.State = if (o.transfer_encoding) |te| switch (te) {
+            .chunked => .{ .chunked = .init },
+            .none => .none,
+        } else if (options.content_length) |len| .{
+            .content_length = len,
+        } else .{ .chunked = .init };
 
-            h.appendSliceAssumeCapacity("\r\n");
-            break :eb request.head.method == .HEAD;
+        return if (elide_body) .{
+            .http_protocol_output = request.server.out,
+            .state = state,
+            .writer = .{
+                .buffer = buffer,
+                .vtable = &.{
+                    .drain = http.BodyWriter.elidingDrain,
+                    .sendFile = http.BodyWriter.elidingSendFile,
+                },
+            },
+        } else .{
+            .http_protocol_output = request.server.out,
+            .state = state,
+            .writer = .{
+                .buffer = buffer,
+                .vtable = switch (state) {
+                    .none => &.{
+                        .drain = http.BodyWriter.noneDrain,
+                        .sendFile = http.BodyWriter.noneSendFile,
+                    },
+                    .content_length => &.{
+                        .drain = http.BodyWriter.contentLengthDrain,
+                        .sendFile = http.BodyWriter.contentLengthSendFile,
+                    },
+                    .chunked => &.{
+                        .drain = http.BodyWriter.chunkedDrain,
+                        .sendFile = http.BodyWriter.chunkedSendFile,
+                    },
+                    .end => unreachable,
+                },
+            },
         };
+    }
+
+    pub const UpgradeRequest = union(enum) {
+        websocket: ?[]const u8,
+        other: []const u8,
+        none,
+    };
+
+    /// Does not invalidate `request.head`.
+    pub fn upgradeRequested(request: *const Request) UpgradeRequest {
+        switch (request.head.version) {
+            .@"HTTP/1.0" => return .none,
+            .@"HTTP/1.1" => if (request.head.method != .GET) return .none,
+        }
+
+        var sec_websocket_key: ?[]const u8 = null;
+        var upgrade_name: ?[]const u8 = null;
+        var it = request.iterateHeaders();
+        while (it.next()) |header| {
+            if (std.ascii.eqlIgnoreCase(header.name, "sec-websocket-key")) {
+                sec_websocket_key = header.value;
+            } else if (std.ascii.eqlIgnoreCase(header.name, "upgrade")) {
+                upgrade_name = header.value;
+            }
+        }
+
+        const name = upgrade_name orelse return .none;
+        if (std.ascii.eqlIgnoreCase(name, "websocket")) return .{ .websocket = sec_websocket_key };
+        return .{ .other = name };
+    }
+
+    pub const WebSocketOptions = struct {
+        /// The value from `UpgradeRequest.websocket` (sec-websocket-key header value).
+        key: []const u8,
+        reason: ?[]const u8 = null,
+        extra_headers: []const http.Header = &.{},
+    };
+
+    /// The header is not guaranteed to be sent until `WebSocket.flush` is
+    /// called on the returned struct.
+    pub fn respondWebSocket(request: *Request, options: WebSocketOptions) ExpectContinueError!WebSocket {
+        if (request.head.expect != null) return error.HttpExpectationFailed;
+
+        const out = request.server.out;
+        const version: http.Version = .@"HTTP/1.1";
+        const status: http.Status = .switching_protocols;
+        const phrase = options.reason orelse status.phrase() orelse "";
+
+        assert(request.head.version == version);
+        assert(request.head.method == .GET);
+
+        var sha1 = std.crypto.hash.Sha1.init(.{});
+        sha1.update(options.key);
+        sha1.update("258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+        var digest: [std.crypto.hash.Sha1.digest_length]u8 = undefined;
+        sha1.final(&digest);
+        try out.print("{s} {d} {s}\r\n", .{ @tagName(version), @intFromEnum(status), phrase });
+        try out.writeAll("connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: ");
+        const base64_digest = try out.writableArray(28);
+        assert(std.base64.standard.Encoder.encode(base64_digest, &digest).len == base64_digest.len);
+        out.advance(base64_digest.len);
+        try out.writeAll("\r\n");
+
+        for (options.extra_headers) |header| {
+            assert(header.name.len != 0);
+            var bufs: [4][]const u8 = .{ header.name, ": ", header.value, "\r\n" };
+            try out.writeVecAll(&bufs);
+        }
+
+        try out.writeAll("\r\n");
 
         return .{
-            .stream = request.server.connection.stream,
-            .send_buffer = options.send_buffer,
-            .send_buffer_start = 0,
-            .send_buffer_end = h.items.len,
-            .transfer_encoding = if (o.transfer_encoding) |te| switch (te) {
-                .chunked => .chunked,
-                .none => .none,
-            } else if (options.content_length) |len| .{
-                .content_length = len,
-            } else .chunked,
-            .elide_body = elide_body,
-            .chunk_len = 0,
+            .input = request.server.reader.in,
+            .output = request.server.out,
+            .key = options.key,
         };
     }
-
-    pub const ReadError = net.Stream.ReadError || error{
-        HttpChunkInvalid,
-        HttpHeadersOversize,
-    };
-
-    fn read_cl(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @ptrCast(@alignCast(@constCast(context)));
-        const s = request.server;
-
-        const remaining_content_length = &request.reader_state.remaining_content_length;
-        if (remaining_content_length.* == 0) {
-            s.state = .ready;
-            return 0;
-        }
-        assert(s.state == .receiving_body);
-        const available = try fill(s, request.head_end);
-        const len = @min(remaining_content_length.*, available.len, buffer.len);
-        @memcpy(buffer[0..len], available[0..len]);
-        remaining_content_length.* -= len;
-        s.next_request_start += len;
-        if (remaining_content_length.* == 0)
-            s.state = .ready;
-        return len;
-    }
-
-    fn fill(s: *Server, head_end: usize) ReadError![]u8 {
-        const available = s.read_buffer[s.next_request_start..s.read_buffer_len];
-        if (available.len > 0) return available;
-        s.next_request_start = head_end;
-        s.read_buffer_len = head_end + try s.connection.stream.read(s.read_buffer[head_end..]);
-        return s.read_buffer[head_end..s.read_buffer_len];
-    }
-
-    fn read_chunked(context: *const anyopaque, buffer: []u8) ReadError!usize {
-        const request: *Request = @ptrCast(@alignCast(@constCast(context)));
-        const s = request.server;
-
-        const cp = &request.reader_state.chunk_parser;
-        const head_end = request.head_end;
-
-        // Protect against returning 0 before the end of stream.
-        var out_end: usize = 0;
-        while (out_end == 0) {
-            switch (cp.state) {
-                .invalid => return 0,
-                .data => {
-                    assert(s.state == .receiving_body);
-                    const available = try fill(s, head_end);
-                    const len = @min(cp.chunk_len, available.len, buffer.len);
-                    @memcpy(buffer[0..len], available[0..len]);
-                    cp.chunk_len -= len;
-                    if (cp.chunk_len == 0)
-                        cp.state = .data_suffix;
-                    out_end += len;
-                    s.next_request_start += len;
-                    continue;
-                },
-                else => {
-                    assert(s.state == .receiving_body);
-                    const available = try fill(s, head_end);
-                    const n = cp.feed(available);
-                    switch (cp.state) {
-                        .invalid => return error.HttpChunkInvalid,
-                        .data => {
-                            if (cp.chunk_len == 0) {
-                                // The next bytes in the stream are trailers,
-                                // or \r\n to indicate end of chunked body.
-                                //
-                                // This function must append the trailers at
-                                // head_end so that headers and trailers are
-                                // together.
-                                //
-                                // Since returning 0 would indicate end of
-                                // stream, this function must read all the
-                                // trailers before returning.
-                                if (s.next_request_start > head_end) rebase(s, head_end);
-                                var hp: http.HeadParser = .{};
-                                {
-                                    const bytes = s.read_buffer[head_end..s.read_buffer_len];
-                                    const end = hp.feed(bytes);
-                                    if (hp.state == .finished) {
-                                        cp.state = .invalid;
-                                        s.state = .ready;
-                                        s.next_request_start = s.read_buffer_len - bytes.len + end;
-                                        return out_end;
-                                    }
-                                }
-                                while (true) {
-                                    const buf = s.read_buffer[s.read_buffer_len..];
-                                    if (buf.len == 0)
-                                        return error.HttpHeadersOversize;
-                                    const read_n = try s.connection.stream.read(buf);
-                                    s.read_buffer_len += read_n;
-                                    const bytes = buf[0..read_n];
-                                    const end = hp.feed(bytes);
-                                    if (hp.state == .finished) {
-                                        cp.state = .invalid;
-                                        s.state = .ready;
-                                        s.next_request_start = s.read_buffer_len - bytes.len + end;
-                                        return out_end;
-                                    }
-                                }
-                            }
-                            const data = available[n..];
-                            const len = @min(cp.chunk_len, data.len, buffer.len);
-                            @memcpy(buffer[0..len], data[0..len]);
-                            cp.chunk_len -= len;
-                            if (cp.chunk_len == 0)
-                                cp.state = .data_suffix;
-                            out_end += len;
-                            s.next_request_start += n + len;
-                            continue;
-                        },
-                        else => continue,
-                    }
-                },
-            }
-        }
-        return out_end;
-    }
-
-    pub const ReaderError = Response.WriteError || error{
-        /// The client sent an expect HTTP header value other than
-        /// "100-continue".
-        HttpExpectationFailed,
-    };
 
     /// In the case that the request contains "expect: 100-continue", this
     /// function writes the continuation header, which means it can fail with a
@@ -751,43 +570,49 @@ pub const Request = struct {
     /// request's expect field to `null`.
     ///
     /// Asserts that this function is only called once.
-    pub fn reader(request: *Request) ReaderError!std.io.AnyReader {
-        const s = request.server;
-        assert(s.state == .received_head);
-        s.state = .receiving_body;
-        s.next_request_start = request.head_end;
+    ///
+    /// See `readerExpectNone` for an infallible alternative that cannot write
+    /// to the server output stream.
+    pub fn readerExpectContinue(request: *Request, buffer: []u8) ExpectContinueError!*Reader {
+        const flush = request.head.expect != null;
+        try writeExpectContinue(request);
+        if (flush) try request.server.out.flush();
+        return readerExpectNone(request, buffer);
+    }
 
-        if (request.head.expect) |expect| {
-            if (mem.eql(u8, expect, "100-continue")) {
-                try request.server.connection.stream.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
-                request.head.expect = null;
-            } else {
-                return error.HttpExpectationFailed;
-            }
-        }
+    /// Asserts the expect header is `null`. The caller must handle the
+    /// expectation manually and then set the value to `null` prior to calling
+    /// this function.
+    ///
+    /// Asserts that this function is only called once.
+    ///
+    /// Invalidates the string memory inside `Head`.
+    pub fn readerExpectNone(request: *Request, buffer: []u8) *Reader {
+        assert(request.server.reader.state == .received_head);
+        assert(request.head.expect == null);
+        request.head.invalidateStrings();
+        if (!request.head.method.requestHasBody()) return .ending;
+        return request.server.reader.bodyReader(buffer, request.head.transfer_encoding, request.head.content_length);
+    }
 
-        switch (request.head.transfer_encoding) {
-            .chunked => {
-                request.reader_state = .{ .chunk_parser = http.ChunkParser.init };
-                return .{
-                    .readFn = read_chunked,
-                    .context = request,
-                };
-            },
-            .none => {
-                request.reader_state = .{
-                    .remaining_content_length = request.head.content_length orelse 0,
-                };
-                return .{
-                    .readFn = read_cl,
-                    .context = request,
-                };
-            },
-        }
+    pub const ExpectContinueError = error{
+        /// Failed to write "HTTP/1.1 100 Continue\r\n\r\n" to the stream.
+        WriteFailed,
+        /// The client sent an expect HTTP header value other than
+        /// "100-continue".
+        HttpExpectationFailed,
+    };
+
+    pub fn writeExpectContinue(request: *Request) ExpectContinueError!void {
+        const expect = request.head.expect orelse return;
+        if (!mem.eql(u8, expect, "100-continue")) return error.HttpExpectationFailed;
+        try request.server.out.writeAll("HTTP/1.1 100 Continue\r\n\r\n");
+        request.head.expect = null;
     }
 
     /// Returns whether the connection should remain persistent.
-    /// If it would fail, it instead sets the Server state to `receiving_body`
+    ///
+    /// If it would fail, it instead sets the Server state to receiving body
     /// and returns false.
     fn discardBody(request: *Request, keep_alive: bool) bool {
         // Prepare to receive another request on the same connection.
@@ -798,350 +623,180 @@ pub const Request = struct {
         //   or the request body.
         // If the connection won't be kept alive, then none of this matters
         // because the connection will be severed after the response is sent.
-        const s = request.server;
-        if (keep_alive and request.head.keep_alive) switch (s.state) {
+        const r = &request.server.reader;
+        if (keep_alive and request.head.keep_alive) switch (r.state) {
             .received_head => {
-                const r = request.reader() catch return false;
-                _ = r.discard() catch return false;
-                assert(s.state == .ready);
+                if (request.head.method.requestHasBody()) {
+                    assert(request.head.transfer_encoding != .none or request.head.content_length != null);
+                    const reader_interface = request.readerExpectContinue(&.{}) catch return false;
+                    _ = reader_interface.discardRemaining() catch return false;
+                    assert(r.state == .ready);
+                } else {
+                    r.state = .ready;
+                }
                 return true;
             },
-            .receiving_body, .ready => return true,
+            .body_remaining_content_length, .body_remaining_chunk_len, .body_none, .ready => return true,
             else => unreachable,
         };
 
         // Avoid clobbering the state in case a reading stream already exists.
-        switch (s.state) {
-            .received_head => s.state = .closing,
+        switch (r.state) {
+            .received_head => r.state = .closing,
             else => {},
         }
         return false;
     }
 };
 
-pub const Response = struct {
-    stream: net.Stream,
-    send_buffer: []u8,
-    /// Index of the first byte in `send_buffer`.
-    /// This is 0 unless a short write happens in `write`.
-    send_buffer_start: usize,
-    /// Index of the last byte + 1 in `send_buffer`.
-    send_buffer_end: usize,
-    /// `null` means transfer-encoding: chunked.
-    /// As a debugging utility, counts down to zero as bytes are written.
-    transfer_encoding: TransferEncoding,
-    elide_body: bool,
-    /// Indicates how much of the end of the `send_buffer` corresponds to a
-    /// chunk. This amount of data will be wrapped by an HTTP chunk header.
-    chunk_len: usize,
+/// See https://tools.ietf.org/html/rfc6455
+pub const WebSocket = struct {
+    key: []const u8,
+    input: *Reader,
+    output: *Writer,
 
-    pub const TransferEncoding = union(enum) {
-        /// End of connection signals the end of the stream.
-        none,
-        /// As a debugging utility, counts down to zero as bytes are written.
-        content_length: u64,
-        /// Each chunk is wrapped in a header and trailer.
-        chunked,
+    pub const Header0 = packed struct(u8) {
+        opcode: Opcode,
+        rsv3: u1 = 0,
+        rsv2: u1 = 0,
+        rsv1: u1 = 0,
+        fin: bool,
     };
 
-    pub const WriteError = net.Stream.WriteError;
-
-    /// When using content-length, asserts that the amount of data sent matches
-    /// the value sent in the header, then calls `flush`.
-    /// Otherwise, transfer-encoding: chunked is being used, and it writes the
-    /// end-of-stream message, then flushes the stream to the system.
-    /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn end(r: *Response) WriteError!void {
-        switch (r.transfer_encoding) {
-            .content_length => |len| {
-                assert(len == 0); // Trips when end() called before all bytes written.
-                try flush_cl(r);
-            },
-            .none => {
-                try flush_cl(r);
-            },
-            .chunked => {
-                try flush_chunked(r, &.{});
-            },
-        }
-        r.* = undefined;
-    }
-
-    pub const EndChunkedOptions = struct {
-        trailers: []const http.Header = &.{},
+    pub const Header1 = packed struct(u8) {
+        payload_len: enum(u7) {
+            len16 = 126,
+            len64 = 127,
+            _,
+        },
+        mask: bool,
     };
 
-    /// Asserts that the Response is using transfer-encoding: chunked.
-    /// Writes the end-of-stream message and any optional trailers, then
-    /// flushes the stream to the system.
-    /// Respects the value of `elide_body` to omit all data after the headers.
-    /// Asserts there are at most 25 trailers.
-    pub fn endChunked(r: *Response, options: EndChunkedOptions) WriteError!void {
-        assert(r.transfer_encoding == .chunked);
-        try flush_chunked(r, options.trailers);
-        r.* = undefined;
-    }
+    pub const Opcode = enum(u4) {
+        continuation = 0,
+        text = 1,
+        binary = 2,
+        connection_close = 8,
+        ping = 9,
+        /// "A Pong frame MAY be sent unsolicited. This serves as a unidirectional
+        /// heartbeat. A response to an unsolicited Pong frame is not expected."
+        pong = 10,
+        _,
+    };
 
-    /// If using content-length, asserts that writing these bytes to the client
-    /// would not exceed the content-length value sent in the HTTP header.
-    /// May return 0, which does not indicate end of stream. The caller decides
-    /// when the end of stream occurs by calling `end`.
-    pub fn write(r: *Response, bytes: []const u8) WriteError!usize {
-        switch (r.transfer_encoding) {
-            .content_length, .none => return write_cl(r, bytes),
-            .chunked => return write_chunked(r, bytes),
-        }
-    }
+    pub const ReadSmallTextMessageError = error{
+        ConnectionClose,
+        UnexpectedOpCode,
+        MessageTooBig,
+        MissingMaskBit,
+        ReadFailed,
+        EndOfStream,
+    };
 
-    fn write_cl(context: *const anyopaque, bytes: []const u8) WriteError!usize {
-        const r: *Response = @ptrCast(@alignCast(@constCast(context)));
+    pub const SmallMessage = struct {
+        /// Can be text, binary, or ping.
+        opcode: Opcode,
+        data: []u8,
+    };
 
-        var trash: u64 = std.math.maxInt(u64);
-        const len = switch (r.transfer_encoding) {
-            .content_length => |*len| len,
-            else => &trash,
-        };
+    /// Reads the next message from the WebSocket stream, failing if the
+    /// message does not fit into the input buffer. The returned memory points
+    /// into the input buffer and is invalidated on the next read.
+    pub fn readSmallMessage(ws: *WebSocket) ReadSmallTextMessageError!SmallMessage {
+        const in = ws.input;
+        while (true) {
+            const header = try in.takeArray(2);
+            const h0: Header0 = @bitCast(header[0]);
+            const h1: Header1 = @bitCast(header[1]);
 
-        if (r.elide_body) {
-            len.* -= bytes.len;
-            return bytes.len;
-        }
-
-        if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
-            const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            var iovecs: [2]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
-            };
-            const n = try r.stream.writev(&iovecs);
-
-            if (n >= send_buffer_len) {
-                // It was enough to reset the buffer.
-                r.send_buffer_start = 0;
-                r.send_buffer_end = 0;
-                const bytes_n = n - send_buffer_len;
-                len.* -= bytes_n;
-                return bytes_n;
+            switch (h0.opcode) {
+                .text, .binary, .pong, .ping => {},
+                .connection_close => return error.ConnectionClose,
+                .continuation => return error.UnexpectedOpCode,
+                _ => return error.UnexpectedOpCode,
             }
 
-            // It didn't even make it through the existing buffer, let
-            // alone the new bytes provided.
-            r.send_buffer_start += n;
-            return 0;
-        }
+            if (!h0.fin) return error.MessageTooBig;
+            if (!h1.mask) return error.MissingMaskBit;
 
-        // All bytes can be stored in the remaining space of the buffer.
-        @memcpy(r.send_buffer[r.send_buffer_end..][0..bytes.len], bytes);
-        r.send_buffer_end += bytes.len;
-        len.* -= bytes.len;
-        return bytes.len;
-    }
-
-    fn write_chunked(context: *const anyopaque, bytes: []const u8) WriteError!usize {
-        const r: *Response = @ptrCast(@alignCast(@constCast(context)));
-        assert(r.transfer_encoding == .chunked);
-
-        if (r.elide_body)
-            return bytes.len;
-
-        if (bytes.len + r.send_buffer_end > r.send_buffer.len) {
-            const send_buffer_len = r.send_buffer_end - r.send_buffer_start;
-            const chunk_len = r.chunk_len + bytes.len;
-            var header_buf: [18]u8 = undefined;
-            const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{chunk_len}) catch unreachable;
-
-            var iovecs: [5]std.posix.iovec_const = .{
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_start,
-                    .len = send_buffer_len - r.chunk_len,
-                },
-                .{
-                    .base = chunk_header.ptr,
-                    .len = chunk_header.len,
-                },
-                .{
-                    .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                    .len = r.chunk_len,
-                },
-                .{
-                    .base = bytes.ptr,
-                    .len = bytes.len,
-                },
-                .{
-                    .base = "\r\n",
-                    .len = 2,
-                },
+            const len: usize = switch (h1.payload_len) {
+                .len16 => try in.takeInt(u16, .big),
+                .len64 => std.math.cast(usize, try in.takeInt(u64, .big)) orelse return error.MessageTooBig,
+                else => @intFromEnum(h1.payload_len),
             };
-            // TODO make this writev instead of writevAll, which involves
-            // complicating the logic of this function.
-            try r.stream.writevAll(&iovecs);
-            r.send_buffer_start = 0;
-            r.send_buffer_end = 0;
-            r.chunk_len = 0;
-            return bytes.len;
-        }
+            if (len > in.buffer.len) return error.MessageTooBig;
+            const mask: u32 = @bitCast((try in.takeArray(4)).*);
+            const payload = try in.take(len);
 
-        // All bytes can be stored in the remaining space of the buffer.
-        @memcpy(r.send_buffer[r.send_buffer_end..][0..bytes.len], bytes);
-        r.send_buffer_end += bytes.len;
-        r.chunk_len += bytes.len;
-        return bytes.len;
-    }
+            // Skip pongs.
+            if (h0.opcode == .pong) continue;
 
-    /// If using content-length, asserts that writing these bytes to the client
-    /// would not exceed the content-length value sent in the HTTP header.
-    pub fn writeAll(r: *Response, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try write(r, bytes[index..]);
+            // The last item may contain a partial word of unused data.
+            const floored_len = (payload.len / 4) * 4;
+            const u32_payload: []align(1) u32 = @ptrCast(payload[0..floored_len]);
+            for (u32_payload) |*elem| elem.* ^= mask;
+            const mask_bytes: []const u8 = @ptrCast(&mask);
+            for (payload[floored_len..], mask_bytes[0 .. payload.len - floored_len]) |*leftover, m|
+                leftover.* ^= m;
+
+            return .{
+                .opcode = h0.opcode,
+                .data = payload,
+            };
         }
     }
 
-    /// Sends all buffered data to the client.
-    /// This is redundant after calling `end`.
-    /// Respects the value of `elide_body` to omit all data after the headers.
-    pub fn flush(r: *Response) WriteError!void {
-        switch (r.transfer_encoding) {
-            .none, .content_length => return flush_cl(r),
-            .chunked => return flush_chunked(r, null),
-        }
+    pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
+        try ws.output.flush();
     }
 
-    fn flush_cl(r: *Response) WriteError!void {
-        try r.stream.writeAll(r.send_buffer[r.send_buffer_start..r.send_buffer_end]);
-        r.send_buffer_start = 0;
-        r.send_buffer_end = 0;
+    pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
+        var bufs: [1][]const u8 = .{data};
+        try writeMessageVecUnflushed(ws, &bufs, op);
     }
 
-    fn flush_chunked(r: *Response, end_trailers: ?[]const http.Header) WriteError!void {
-        const max_trailers = 25;
-        if (end_trailers) |trailers| assert(trailers.len <= max_trailers);
-        assert(r.transfer_encoding == .chunked);
+    pub fn writeMessageVec(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
+        try writeMessageVecUnflushed(ws, data, op);
+        try ws.output.flush();
+    }
 
-        const http_headers = r.send_buffer[r.send_buffer_start .. r.send_buffer_end - r.chunk_len];
-
-        if (r.elide_body) {
-            try r.stream.writeAll(http_headers);
-            r.send_buffer_start = 0;
-            r.send_buffer_end = 0;
-            r.chunk_len = 0;
-            return;
-        }
-
-        var header_buf: [18]u8 = undefined;
-        const chunk_header = std.fmt.bufPrint(&header_buf, "{x}\r\n", .{r.chunk_len}) catch unreachable;
-
-        var iovecs: [max_trailers * 4 + 5]std.posix.iovec_const = undefined;
-        var iovecs_len: usize = 0;
-
-        iovecs[iovecs_len] = .{
-            .base = http_headers.ptr,
-            .len = http_headers.len,
+    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
+        const total_len = l: {
+            var total_len: u64 = 0;
+            for (data) |iovec| total_len += iovec.len;
+            break :l total_len;
         };
-        iovecs_len += 1;
-
-        if (r.chunk_len > 0) {
-            iovecs[iovecs_len] = .{
-                .base = chunk_header.ptr,
-                .len = chunk_header.len,
-            };
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = .{
-                .base = r.send_buffer.ptr + r.send_buffer_end - r.chunk_len,
-                .len = r.chunk_len,
-            };
-            iovecs_len += 1;
-
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
-            iovecs_len += 1;
-        }
-
-        if (end_trailers) |trailers| {
-            iovecs[iovecs_len] = .{
-                .base = "0\r\n",
-                .len = 3,
-            };
-            iovecs_len += 1;
-
-            for (trailers) |trailer| {
-                iovecs[iovecs_len] = .{
-                    .base = trailer.name.ptr,
-                    .len = trailer.name.len,
-                };
-                iovecs_len += 1;
-
-                iovecs[iovecs_len] = .{
-                    .base = ": ",
-                    .len = 2,
-                };
-                iovecs_len += 1;
-
-                if (trailer.value.len != 0) {
-                    iovecs[iovecs_len] = .{
-                        .base = trailer.value.ptr,
-                        .len = trailer.value.len,
-                    };
-                    iovecs_len += 1;
-                }
-
-                iovecs[iovecs_len] = .{
-                    .base = "\r\n",
-                    .len = 2,
-                };
-                iovecs_len += 1;
-            }
-
-            iovecs[iovecs_len] = .{
-                .base = "\r\n",
-                .len = 2,
-            };
-            iovecs_len += 1;
-        }
-
-        try r.stream.writevAll(iovecs[0..iovecs_len]);
-        r.send_buffer_start = 0;
-        r.send_buffer_end = 0;
-        r.chunk_len = 0;
-    }
-
-    pub fn writer(r: *Response) std.io.AnyWriter {
-        return .{
-            .writeFn = switch (r.transfer_encoding) {
-                .none, .content_length => write_cl,
-                .chunked => write_chunked,
+        const out = ws.output;
+        try out.writeByte(@bitCast(@as(Header0, .{
+            .opcode = op,
+            .fin = true,
+        })));
+        switch (total_len) {
+            0...125 => try out.writeByte(@bitCast(@as(Header1, .{
+                .payload_len = @enumFromInt(total_len),
+                .mask = false,
+            }))),
+            126...0xffff => {
+                try out.writeByte(@bitCast(@as(Header1, .{
+                    .payload_len = .len16,
+                    .mask = false,
+                })));
+                try out.writeInt(u16, @intCast(total_len), .big);
             },
-            .context = r,
-        };
+            else => {
+                try out.writeByte(@bitCast(@as(Header1, .{
+                    .payload_len = .len64,
+                    .mask = false,
+                })));
+                try out.writeInt(u64, total_len, .big);
+            },
+        }
+        try out.writeVecAll(data);
+    }
+
+    pub fn flush(ws: *WebSocket) Writer.Error!void {
+        try ws.output.flush();
     }
 };
-
-fn rebase(s: *Server, index: usize) void {
-    const leftover = s.read_buffer[s.next_request_start..s.read_buffer_len];
-    const dest = s.read_buffer[index..][0..leftover.len];
-    if (leftover.len <= s.next_request_start - index) {
-        @memcpy(dest, leftover);
-    } else {
-        mem.copyBackwards(u8, dest, leftover);
-    }
-    s.read_buffer_len = index + leftover.len;
-}
-
-const std = @import("../std.zig");
-const http = std.http;
-const mem = std.mem;
-const net = std.net;
-const Uri = std.Uri;
-const assert = std.debug.assert;
-const testing = std.testing;
-
-const Server = @This();

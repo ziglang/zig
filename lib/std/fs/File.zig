@@ -1351,8 +1351,7 @@ pub const Reader = struct {
                 }
                 r.pos += n;
                 if (n > data_size) {
-                    io_reader.seek = 0;
-                    io_reader.end = n - data_size;
+                    io_reader.end += n - data_size;
                     return data_size;
                 }
                 return n;
@@ -1386,8 +1385,7 @@ pub const Reader = struct {
                 }
                 r.pos += n;
                 if (n > data_size) {
-                    io_reader.seek = 0;
-                    io_reader.end = n - data_size;
+                    io_reader.end += n - data_size;
                     return data_size;
                 }
                 return n;

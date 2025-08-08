@@ -367,8 +367,11 @@ pub fn appendRemainingUnlimited(
     const buffer_contents = r.buffer[r.seek..r.end];
     try list.ensureUnusedCapacity(gpa, buffer_contents.len + bump);
     list.appendSliceAssumeCapacity(buffer_contents);
-    r.seek = 0;
-    r.end = 0;
+    // If statement protects `ending`.
+    if (r.end != 0) {
+        r.seek = 0;
+        r.end = 0;
+    }
     // From here, we leave `buffer` empty, appending directly to `list`.
     var writer: Writer = .{
         .buffer = undefined,
@@ -1304,31 +1307,6 @@ pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
     @memmove(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
-}
-
-/// Advances the stream and decreases the size of the storage buffer by `n`,
-/// returning the range of bytes no longer accessible by `r`.
-///
-/// This action can be undone by `restitute`.
-///
-/// Asserts there are at least `n` buffered bytes already.
-///
-/// Asserts that `r.seek` is zero, i.e. the buffer is in a rebased state.
-pub fn steal(r: *Reader, n: usize) []u8 {
-    assert(r.seek == 0);
-    assert(n <= r.end);
-    const stolen = r.buffer[0..n];
-    r.buffer = r.buffer[n..];
-    r.end -= n;
-    return stolen;
-}
-
-/// Expands the storage buffer, undoing the effects of `steal`
-/// Assumes that `n` does not exceed the total number of stolen bytes.
-pub fn restitute(r: *Reader, n: usize) void {
-    r.buffer = (r.buffer.ptr - n)[0 .. r.buffer.len + n];
-    r.end += n;
-    r.seek += n;
 }
 
 test fixed {
