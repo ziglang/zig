@@ -317,13 +317,14 @@ test "fixed buffer flush" {
 /// Calls `VTable.drain` but hides the last `preserve_len` bytes from the
 /// implementation, keeping them buffered.
 pub fn drainPreserve(w: *Writer, preserve_len: usize) Error!void {
-    const temp_end = w.end -| preserve_len;
-    const preserved = w.buffer[temp_end..w.end];
-    w.end = temp_end;
-    defer w.end += preserved.len;
+    const preserved_head = w.end -| preserve_len;
+    const preserved_tail = w.end;
+    const preserved_len = preserved_tail - preserved_head;
+    w.end = preserved_head;
+    defer w.end += preserved_len;
     assert(0 == try w.vtable.drain(w, &.{""}, 1));
-    assert(w.end <= temp_end + preserved.len);
-    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
+    assert(w.end <= preserved_head + preserved_len);
+    @memmove(w.buffer[w.end..][0..preserved_len], w.buffer[preserved_head..preserved_tail]);
 }
 
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
