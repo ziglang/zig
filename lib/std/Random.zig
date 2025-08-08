@@ -398,7 +398,7 @@ pub fn shuffleWithIndex(r: Random, comptime T: type, buf: []T, comptime Index: t
         // Pop an index from the queue and perform a swap
         fn pop(q: *@This(), slice: []T) void {
             const idx = q.ringbuf[q.swap_idx % q.ringbuf.len];
-            std.mem.swap(T, &slice[q.swap_idx], &slice[idx]);
+            mem.swap(T, &slice[q.swap_idx], &slice[idx]);
             q.swap_idx += 1;
         }
     };
