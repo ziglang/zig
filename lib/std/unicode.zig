@@ -477,7 +477,7 @@ pub const Utf16LeIterator = struct {
     bytes: []const u8,
     i: usize,
 
-    pub fn init(s: []const u16) Utf16LeIterator {
+    pub fn init(s: []align(1) const u16) Utf16LeIterator {
         return Utf16LeIterator{
             .bytes = mem.sliceAsBytes(s),
             .i = 0,
@@ -917,7 +917,8 @@ test fmtUtf8 {
 
 fn utf16LeToUtf8ArrayListImpl(
     result: *std.ArrayList(u8),
-    utf16le: []const u16,
+    comptime alignment: std.mem.Alignment,
+    utf16le: []align(alignment.toByteUnits()) const u16,
     comptime surrogates: Surrogates,
 ) (switch (surrogates) {
     .cannot_encode_surrogate_half => Utf16LeToUtf8AllocError,
@@ -969,7 +970,7 @@ pub const Utf16LeToUtf8AllocError = mem.Allocator.Error || Utf16LeToUtf8Error;
 
 pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
     try result.ensureUnusedCapacity(utf16le.len);
-    return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
+    return utf16LeToUtf8ArrayListImpl(result, .of(u16), utf16le, .cannot_encode_surrogate_half);
 }
 
 /// Caller must free returned memory.
@@ -978,17 +979,26 @@ pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16L
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
 
-    try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
+    try utf16LeToUtf8ArrayListImpl(&result, .of(u16), utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
 
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![:0]u8 {
+    return alignedUtf16LeToUtf8AllocZ(allocator, .of(u16), utf16le);
+}
+
+/// Caller must free returned memory.
+pub fn alignedUtf16LeToUtf8AllocZ(
+    allocator: mem.Allocator,
+    comptime alignment: mem.Alignment,
+    utf16le: []align(alignment.toByteUnits()) const u16,
+) Utf16LeToUtf8AllocError![:0]u8 {
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
     var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
 
-    try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
+    try utf16LeToUtf8ArrayListImpl(&result, alignment, utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSliceSentinel(0);
 }
 
@@ -1752,7 +1762,7 @@ pub const Wtf8Iterator = struct {
 
 pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) mem.Allocator.Error!void {
     try result.ensureUnusedCapacity(utf16le.len);
-    return utf16LeToUtf8ArrayListImpl(result, utf16le, .can_encode_surrogate_half);
+    return utf16LeToUtf8ArrayListImpl(result, .of(u16), utf16le, .can_encode_surrogate_half);
 }
 
 /// Caller must free returned memory.
@@ -1761,7 +1771,7 @@ pub fn wtf16LeToWtf8Alloc(allocator: mem.Allocator, wtf16le: []const u16) mem.Al
     var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len);
     errdefer result.deinit();
 
-    try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
+    try utf16LeToUtf8ArrayListImpl(&result, .of(u16), wtf16le, .can_encode_surrogate_half);
     return result.toOwnedSlice();
 }
 
@@ -1771,7 +1781,7 @@ pub fn wtf16LeToWtf8AllocZ(allocator: mem.Allocator, wtf16le: []const u16) mem.A
     var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len + 1);
     errdefer result.deinit();
 
-    try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
+    try utf16LeToUtf8ArrayListImpl(&result, .of(u16), wtf16le, .can_encode_surrogate_half);
     return result.toOwnedSliceSentinel(0);
 }
 
@@ -1979,7 +1989,7 @@ pub const Wtf16LeIterator = struct {
     bytes: []const u8,
     i: usize,
 
-    pub fn init(s: []const u16) Wtf16LeIterator {
+    pub fn init(s: []align(1) const u16) Wtf16LeIterator {
         return Wtf16LeIterator{
             .bytes = mem.sliceAsBytes(s),
             .i = 0,
