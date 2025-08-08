@@ -144,19 +144,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readAllAlloc(allocator, max_size));
         }
 
-        pub inline fn readUntilDelimiterArrayList(
-            self: Self,
-            array_list: *std.array_list.Managed(u8),
-            delimiter: u8,
-            max_size: usize,
-        ) (NoEofError || Allocator.Error || error{StreamTooLong})!void {
-            return @errorCast(self.any().readUntilDelimiterArrayList(
-                array_list,
-                delimiter,
-                max_size,
-            ));
-        }
-
         pub inline fn readUntilDelimiterAlloc(
             self: Self,
             allocator: Allocator,
@@ -326,103 +313,8 @@ pub fn GenericReader(
     };
 }
 
-/// Deprecated in favor of `Writer`.
-pub fn GenericWriter(
-    comptime Context: type,
-    comptime WriteError: type,
-    comptime writeFn: fn (context: Context, bytes: []const u8) WriteError!usize,
-) type {
-    return struct {
-        context: Context,
-
-        const Self = @This();
-        pub const Error = WriteError;
-
-        pub inline fn write(self: Self, bytes: []const u8) Error!usize {
-            return writeFn(self.context, bytes);
-        }
-
-        pub inline fn writeAll(self: Self, bytes: []const u8) Error!void {
-            return @errorCast(self.any().writeAll(bytes));
-        }
-
-        pub inline fn print(self: Self, comptime format: []const u8, args: anytype) Error!void {
-            return @errorCast(self.any().print(format, args));
-        }
-
-        pub inline fn writeByte(self: Self, byte: u8) Error!void {
-            return @errorCast(self.any().writeByte(byte));
-        }
-
-        pub inline fn writeByteNTimes(self: Self, byte: u8, n: usize) Error!void {
-            return @errorCast(self.any().writeByteNTimes(byte, n));
-        }
-
-        pub inline fn writeBytesNTimes(self: Self, bytes: []const u8, n: usize) Error!void {
-            return @errorCast(self.any().writeBytesNTimes(bytes, n));
-        }
-
-        pub inline fn writeInt(self: Self, comptime T: type, value: T, endian: std.builtin.Endian) Error!void {
-            return @errorCast(self.any().writeInt(T, value, endian));
-        }
-
-        pub inline fn writeStruct(self: Self, value: anytype) Error!void {
-            return @errorCast(self.any().writeStruct(value));
-        }
-
-        pub inline fn writeStructEndian(self: Self, value: anytype, endian: std.builtin.Endian) Error!void {
-            return @errorCast(self.any().writeStructEndian(value, endian));
-        }
-
-        pub inline fn any(self: *const Self) AnyWriter {
-            return .{
-                .context = @ptrCast(&self.context),
-                .writeFn = typeErasedWriteFn,
-            };
-        }
-
-        fn typeErasedWriteFn(context: *const anyopaque, bytes: []const u8) anyerror!usize {
-            const ptr: *const Context = @ptrCast(@alignCast(context));
-            return writeFn(ptr.*, bytes);
-        }
-
-        /// Helper for bridging to the new `Writer` API while upgrading.
-        pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
-            return .{
-                .derp_writer = self.*,
-                .new_interface = .{
-                    .buffer = buffer,
-                    .vtable = &.{ .drain = Adapter.drain },
-                },
-            };
-        }
-
-        pub const Adapter = struct {
-            derp_writer: Self,
-            new_interface: Writer,
-            err: ?Error = null,
-
-            fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
-                _ = splat;
-                const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
-                const buffered = w.buffered();
-                if (buffered.len != 0) return w.consume(a.derp_writer.write(buffered) catch |err| {
-                    a.err = err;
-                    return error.WriteFailed;
-                });
-                return a.derp_writer.write(data[0]) catch |err| {
-                    a.err = err;
-                    return error.WriteFailed;
-                };
-            }
-        };
-    };
-}
-
 /// Deprecated in favor of `Reader`.
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
-/// Deprecated in favor of `Writer`.
-pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
 /// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
@@ -433,19 +325,6 @@ pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
 pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 
 pub const tty = @import("Io/tty.zig");
-
-/// Deprecated in favor of `Writer.Discarding`.
-pub const null_writer: NullWriter = .{ .context = {} };
-/// Deprecated in favor of `Writer.Discarding`.
-pub const NullWriter = GenericWriter(void, error{}, dummyWrite);
-fn dummyWrite(context: void, data: []const u8) error{}!usize {
-    _ = context;
-    return data.len;
-}
-
-test null_writer {
-    null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
-}
 
 pub fn poll(
     gpa: Allocator,

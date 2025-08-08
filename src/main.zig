@@ -4230,7 +4230,7 @@ fn serveUpdateResults(s: *Server, comp: *Compilation) !void {
             const decl_name = zir.nullTerminatedString(zir.getDeclaration(resolved.inst).name);
 
             const gop = try files.getOrPut(gpa, resolved.file);
-            if (!gop.found_existing) try file_name_bytes.writer(gpa).print("{f}\x00", .{file.path.fmt(comp)});
+            if (!gop.found_existing) try file_name_bytes.print(gpa, "{f}\x00", .{file.path.fmt(comp)});
 
             const codegen_ns = tr.decl_codegen_ns.get(tracked_inst) orelse 0;
             const link_ns = tr.decl_link_ns.get(tracked_inst) orelse 0;
@@ -7451,7 +7451,7 @@ const Templates = struct {
                     i += "_NAME".len;
                     continue;
                 } else if (std.mem.startsWith(u8, contents[i + 1 ..], "FINGERPRINT")) {
-                    try templates.buffer.writer().print("0x{x}", .{fingerprint.int()});
+                    try templates.buffer.print("0x{x}", .{fingerprint.int()});
                     i += "_FINGERPRINT".len;
                     continue;
                 } else if (std.mem.startsWith(u8, contents[i + 1 ..], "ZIGVER")) {
