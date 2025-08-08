@@ -1095,7 +1095,7 @@ pub const Session = struct {
                         .flush => return error.EndOfStream,
                         .data => |data| if (data.len > 1) switch (@as(StreamCode, @enumFromInt(data[0]))) {
                             .pack_data => {
-                                input.toss(1);
+                                try input.discardAll(1);
                                 fs.remaining_len = data.len;
                                 break;
                             },
