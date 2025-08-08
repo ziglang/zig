@@ -377,28 +377,32 @@ pub const list = list: {
             },
         },
         .{
-            "@cVaArg", .{
+            "@cVaArg",
+            .{
                 .tag = .c_va_arg,
                 .param_count = 2,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaCopy", .{
+            "@cVaCopy",
+            .{
                 .tag = .c_va_copy,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaEnd", .{
+            "@cVaEnd",
+            .{
                 .tag = .c_va_end,
                 .param_count = 1,
                 .illegal_outside_function = true,
             },
         },
         .{
-            "@cVaStart", .{
+            "@cVaStart",
+            .{
                 .tag = .c_va_start,
                 .param_count = 0,
                 .illegal_outside_function = true,
@@ -986,7 +990,8 @@ pub const list = list: {
             },
         },
         .{
-            "@workItemId", .{
+            "@workItemId",
+            .{
                 .tag = .work_item_id,
                 .param_count = 1,
                 .illegal_outside_function = true,
