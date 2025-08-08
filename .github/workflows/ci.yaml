@@ -1,6 +1,11 @@
 name: ci
 on:
   pull_request:
+    types:
+      - labeled
+      - opened
+      - reopened
+      - synchronize
   push:
     branches:
       - master
@@ -51,7 +56,7 @@ jobs:
       - name: Build and Test
         run: sh ci/aarch64-linux-release.sh
   riscv64-linux-debug:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci-riscv64-linux')
     timeout-minutes: 420
     runs-on: [self-hosted, Linux, riscv64]
     steps:
@@ -60,7 +65,7 @@ jobs:
       - name: Build and Test
         run: sh ci/riscv64-linux-debug.sh
   riscv64-linux-release:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'ci-riscv64-linux')
     timeout-minutes: 420
     runs-on: [self-hosted, Linux, riscv64]
     steps:
