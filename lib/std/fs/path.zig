@@ -393,14 +393,6 @@ pub fn hasDirectoryTraversal(path: []const u8) bool {
         // Check for drive letters
         if (path.len >= 2 and path[1] == ':') return true;
 
-        // Check for UNC paths
-        if (path.len >= 2 and
-            ((path[0] == '\\' and path[1] == '\\') or
-                (path[0] == '/' and path[1] == '/')))
-        {
-            return true;
-        }
-
         // Check for Windows reserved device names
         // These names are reserved in all directories, with or without extensions
         var it = mem.tokenizeAny(u8, path, "/\\");
