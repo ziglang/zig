@@ -883,7 +883,9 @@ const Resource = union(enum) {
     const HttpRequest = struct {
         request: std.http.Client.Request,
         response: std.http.Client.Response,
-        buffer: []u8,
+        transfer_buffer: []u8,
+        decompress: std.http.Decompress,
+        decompress_buffer: []u8,
     };
 
     fn deinit(resource: *Resource) void {
@@ -892,7 +894,6 @@ const Resource = union(enum) {
             .http_request => |*http_request| http_request.request.deinit(),
             .git => |*git_resource| {
                 git_resource.fetch_stream.deinit();
-                git_resource.session.deinit();
             },
             .dir => |*dir| dir.close(),
         }
@@ -902,7 +903,11 @@ const Resource = union(enum) {
     fn reader(resource: *Resource) *std.Io.Reader {
         return switch (resource.*) {
             .file => |*file_reader| return &file_reader.interface,
-            .http_request => |*http_request| return http_request.response.reader(http_request.buffer),
+            .http_request => |*http_request| return http_request.response.readerDecompressing(
+                http_request.transfer_buffer,
+                &http_request.decompress,
+                http_request.decompress_buffer,
+            ),
             .git => |*g| return &g.fetch_stream.reader,
             .dir => unreachable,
         };
@@ -971,7 +976,6 @@ const FileType = enum {
 const init_resource_buffer_size = git.Packet.max_data_length;
 
 fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u8) RunError!void {
-    const gpa = f.arena.child_allocator;
     const arena = f.arena.allocator();
     const eb = &f.error_bundle;
 
@@ -995,7 +999,9 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             .request = http_client.request(.GET, uri, .{}) catch |err|
                 return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
             .response = undefined,
-            .buffer = reader_buffer,
+            .transfer_buffer = reader_buffer,
+            .decompress_buffer = &.{},
+            .decompress = undefined,
         } };
         const request = &resource.http_request.request;
         errdefer request.deinit();
@@ -1019,6 +1025,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             .{ response.head.status, response.head.status.phrase() orelse "" },
         ));
 
+        resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
         return;
     }
 
@@ -1027,13 +1034,12 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
     {
         var transport_uri = uri;
         transport_uri.scheme = uri.scheme["git+".len..];
-        var session = git.Session.init(gpa, http_client, transport_uri, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString(
-                "unable to discover remote git server capabilities: {s}",
-                .{@errorName(err)},
-            ));
+        var session = git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
+            return f.fail(
+                f.location_tok,
+                try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
+            );
         };
-        errdefer session.deinit();
 
         const want_oid = want_oid: {
             const want_ref =
@@ -1086,17 +1092,17 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
 
         var want_oid_buf: [git.Oid.max_formatted_length]u8 = undefined;
         _ = std.fmt.bufPrint(&want_oid_buf, "{f}", .{want_oid}) catch unreachable;
-        var fetch_stream: git.Session.FetchStream = undefined;
-        session.fetch(&fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-        };
-        errdefer fetch_stream.deinit();
-
         resource.* = .{ .git = .{
             .session = session,
-            .fetch_stream = fetch_stream,
+            .fetch_stream = undefined,
             .want_oid = want_oid,
         } };
+        const fetch_stream = &resource.git.fetch_stream;
+        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
+            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
+        };
+        errdefer fetch_stream.deinit(fetch_stream);
+
         return;
     }
 

@@ -644,7 +644,7 @@ pub const Session = struct {
     supports_agent: bool,
     supports_shallow: bool,
     object_format: Oid.Format,
-    allocator: Allocator,
+    arena: Allocator,
 
     const agent = "zig/" ++ @import("builtin").zig_version_string;
     const agent_capability = std.fmt.comptimePrint("agent={s}\n", .{agent});
@@ -652,7 +652,7 @@ pub const Session = struct {
     /// Initializes a client session and discovers the capabilities of the
     /// server for optimal transport.
     pub fn init(
-        allocator: Allocator,
+        arena: Allocator,
         transport: *std.http.Client,
         uri: std.Uri,
         /// Asserted to be at least `Packet.max_data_length`
@@ -661,13 +661,12 @@ pub const Session = struct {
         assert(response_buffer.len >= Packet.max_data_length);
         var session: Session = .{
             .transport = transport,
-            .location = try .init(allocator, uri),
+            .location = try .init(arena, uri),
             .supports_agent = false,
             .supports_shallow = false,
             .object_format = .sha1,
-            .allocator = allocator,
+            .arena = arena,
         };
-        errdefer session.deinit();
         var capability_iterator: CapabilityIterator = undefined;
         try session.getCapabilities(&capability_iterator, response_buffer);
         defer capability_iterator.deinit();
@@ -690,34 +689,24 @@ pub const Session = struct {
         return session;
     }
 
-    pub fn deinit(session: *Session) void {
-        session.location.deinit(session.allocator);
-        session.* = undefined;
-    }
-
     /// An owned `std.Uri` representing the location of the server (base URI).
     const Location = struct {
         uri: std.Uri,
 
-        fn init(allocator: Allocator, uri: std.Uri) !Location {
-            const scheme = try allocator.dupe(u8, uri.scheme);
-            errdefer allocator.free(scheme);
-            const user = if (uri.user) |user| try std.fmt.allocPrint(allocator, "{f}", .{
+        fn init(arena: Allocator, uri: std.Uri) !Location {
+            const scheme = try arena.dupe(u8, uri.scheme);
+            const user = if (uri.user) |user| try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(user, .formatUser),
             }) else null;
-            errdefer if (user) |s| allocator.free(s);
-            const password = if (uri.password) |password| try std.fmt.allocPrint(allocator, "{f}", .{
+            const password = if (uri.password) |password| try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(password, .formatPassword),
             }) else null;
-            errdefer if (password) |s| allocator.free(s);
-            const host = if (uri.host) |host| try std.fmt.allocPrint(allocator, "{f}", .{
+            const host = if (uri.host) |host| try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(host, .formatHost),
             }) else null;
-            errdefer if (host) |s| allocator.free(s);
-            const path = try std.fmt.allocPrint(allocator, "{f}", .{
+            const path = try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(uri.path, .formatPath),
             });
-            errdefer allocator.free(path);
             // The query and fragment are not used as part of the base server URI.
             return .{
                 .uri = .{
@@ -730,14 +719,6 @@ pub const Session = struct {
                 },
             };
         }
-
-        fn deinit(loc: *Location, allocator: Allocator) void {
-            allocator.free(loc.uri.scheme);
-            if (loc.uri.user) |user| allocator.free(user.percent_encoded);
-            if (loc.uri.password) |password| allocator.free(password.percent_encoded);
-            if (loc.uri.host) |host| allocator.free(host.percent_encoded);
-            allocator.free(loc.uri.path.percent_encoded);
-        }
     };
 
     /// Returns an iterator over capabilities supported by the server.
@@ -745,16 +726,17 @@ pub const Session = struct {
     /// The `session.location` is updated if the server returns a redirect, so
     /// that subsequent session functions do not need to handle redirects.
     fn getCapabilities(session: *Session, it: *CapabilityIterator, response_buffer: []u8) !void {
+        const arena = session.arena;
         assert(response_buffer.len >= Packet.max_data_length);
         var info_refs_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+            const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(session.location.uri.path, .formatPath),
             });
-            defer session.allocator.free(session_uri_path);
-            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "info/refs" }) };
+            info_refs_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(arena, &.{
+                "/", session_uri_path, "info/refs",
+            }) };
         }
-        defer session.allocator.free(info_refs_uri.path.percent_encoded);
         info_refs_uri.query = .{ .percent_encoded = "service=git-upload-pack" };
         info_refs_uri.fragment = null;
 
@@ -767,6 +749,7 @@ pub const Session = struct {
                 },
             }),
             .reader = undefined,
+            .decompress = undefined,
         };
         errdefer it.deinit();
         const request = &it.request;
@@ -777,19 +760,17 @@ pub const Session = struct {
         if (response.head.status != .ok) return error.ProtocolError;
         const any_redirects_occurred = request.redirect_behavior.remaining() < max_redirects;
         if (any_redirects_occurred) {
-            const request_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+            const request_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(request.uri.path, .formatPath),
             });
-            defer session.allocator.free(request_uri_path);
             if (!mem.endsWith(u8, request_uri_path, "/info/refs")) return error.UnparseableRedirect;
             var new_uri = request.uri;
             new_uri.path = .{ .percent_encoded = request_uri_path[0 .. request_uri_path.len - "/info/refs".len] };
-            const new_location: Location = try .init(session.allocator, new_uri);
-            session.location.deinit(session.allocator);
-            session.location = new_location;
+            session.location = try .init(arena, new_uri);
         }
 
-        it.reader = response.reader(response_buffer);
+        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+        it.reader = response.readerDecompressing(response_buffer, &it.decompress, decompress_buffer);
         var state: enum { response_start, response_content } = .response_start;
         while (true) {
             // Some Git servers (at least GitHub) include an additional
@@ -821,6 +802,7 @@ pub const Session = struct {
     const CapabilityIterator = struct {
         request: std.http.Client.Request,
         reader: *std.Io.Reader,
+        decompress: std.http.Decompress,
 
         const Capability = struct {
             key: []const u8,
@@ -864,16 +846,15 @@ pub const Session = struct {
 
     /// Returns an iterator over refs known to the server.
     pub fn listRefs(session: Session, it: *RefIterator, options: ListRefsOptions) !void {
+        const arena = session.arena;
         assert(options.buffer.len >= Packet.max_data_length);
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+            const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(session.location.uri.path, .formatPath),
             });
-            defer session.allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(arena, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
@@ -883,16 +864,14 @@ pub const Session = struct {
             try Packet.write(.{ .data = agent_capability }, &body);
         }
         {
-            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={t}\n", .{
+            const object_format_packet = try std.fmt.allocPrint(arena, "object-format={t}\n", .{
                 session.object_format,
             });
-            defer session.allocator.free(object_format_packet);
             try Packet.write(.{ .data = object_format_packet }, &body);
         }
         try Packet.write(.delimiter, &body);
         for (options.ref_prefixes) |ref_prefix| {
-            const ref_prefix_packet = try std.fmt.allocPrint(session.allocator, "ref-prefix {s}\n", .{ref_prefix});
-            defer session.allocator.free(ref_prefix_packet);
+            const ref_prefix_packet = try std.fmt.allocPrint(arena, "ref-prefix {s}\n", .{ref_prefix});
             try Packet.write(.{ .data = ref_prefix_packet }, &body);
         }
         if (options.include_symrefs) {
@@ -913,6 +892,7 @@ pub const Session = struct {
             }),
             .reader = undefined,
             .format = session.object_format,
+            .decompress = undefined,
         };
         const request = &it.request;
         errdefer request.deinit();
@@ -920,13 +900,15 @@ pub const Session = struct {
 
         var response = try request.receiveHead(options.buffer);
         if (response.head.status != .ok) return error.ProtocolError;
-        it.reader = response.reader(options.buffer);
+        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+        it.reader = response.readerDecompressing(options.buffer, &it.decompress, decompress_buffer);
     }
 
     pub const RefIterator = struct {
         format: Oid.Format,
         request: std.http.Client.Request,
         reader: *std.Io.Reader,
+        decompress: std.http.Decompress,
 
         pub const Ref = struct {
             oid: Oid,
@@ -981,16 +963,15 @@ pub const Session = struct {
         /// Asserted to be at least `Packet.max_data_length`.
         response_buffer: []u8,
     ) !void {
+        const arena = session.arena;
         assert(response_buffer.len >= Packet.max_data_length);
         var upload_pack_uri = session.location.uri;
         {
-            const session_uri_path = try std.fmt.allocPrint(session.allocator, "{f}", .{
+            const session_uri_path = try std.fmt.allocPrint(arena, "{f}", .{
                 std.fmt.alt(session.location.uri.path, .formatPath),
             });
-            defer session.allocator.free(session_uri_path);
-            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(session.allocator, &.{ "/", session_uri_path, "git-upload-pack" }) };
+            upload_pack_uri.path = .{ .percent_encoded = try std.fs.path.resolvePosix(arena, &.{ "/", session_uri_path, "git-upload-pack" }) };
         }
-        defer session.allocator.free(upload_pack_uri.path.percent_encoded);
         upload_pack_uri.query = null;
         upload_pack_uri.fragment = null;
 
@@ -1000,8 +981,7 @@ pub const Session = struct {
             try Packet.write(.{ .data = agent_capability }, &body);
         }
         {
-            const object_format_packet = try std.fmt.allocPrint(session.allocator, "object-format={s}\n", .{@tagName(session.object_format)});
-            defer session.allocator.free(object_format_packet);
+            const object_format_packet = try std.fmt.allocPrint(arena, "object-format={s}\n", .{@tagName(session.object_format)});
             try Packet.write(.{ .data = object_format_packet }, &body);
         }
         try Packet.write(.delimiter, &body);
@@ -1031,6 +1011,7 @@ pub const Session = struct {
             .input = undefined,
             .reader = undefined,
             .remaining_len = undefined,
+            .decompress = undefined,
         };
         const request = &fs.request;
         errdefer request.deinit();
@@ -1040,7 +1021,8 @@ pub const Session = struct {
         var response = try request.receiveHead(&.{});
         if (response.head.status != .ok) return error.ProtocolError;
 
-        const reader = response.reader(response_buffer);
+        const decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+        const reader = response.readerDecompressing(response_buffer, &fs.decompress, decompress_buffer);
         // We are not interested in any of the sections of the returned fetch
         // data other than the packfile section, since we aren't doing anything
         // complex like ref negotiation (this is a fresh clone).
@@ -1079,6 +1061,7 @@ pub const Session = struct {
         reader: std.Io.Reader,
         err: ?Error = null,
         remaining_len: usize,
+        decompress: std.http.Decompress,
 
         pub fn deinit(fs: *FetchStream) void {
             fs.request.deinit();
@@ -1131,8 +1114,8 @@ pub const Session = struct {
             }
             const buf = limit.slice(try w.writableSliceGreedy(1));
             const n = @min(buf.len, fs.remaining_len);
-            @memcpy(buf[0..n], input.buffered()[0..n]);
-            input.toss(n);
+            try input.readSliceAll(buf[0..n]);
+            w.advance(n);
             fs.remaining_len -= n;
             return n;
         }

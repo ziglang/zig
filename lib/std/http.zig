@@ -292,6 +292,14 @@ pub const ContentEncoding = enum {
         });
         return map.get(s);
     }
+
+    pub fn minBufferCapacity(ce: ContentEncoding) usize {
+        return switch (ce) {
+            .zstd => std.compress.zstd.default_window_len,
+            .gzip, .deflate => std.compress.flate.max_window_len,
+            .compress, .identity => 0,
+        };
+    }
 };
 
 pub const Connection = enum {
@@ -412,7 +420,7 @@ pub const Reader = struct {
     /// * `interfaceDecompressing`
     pub fn bodyReader(
         reader: *Reader,
-        buffer: []u8,
+        transfer_buffer: []u8,
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
     ) *std.Io.Reader {
@@ -421,7 +429,7 @@ pub const Reader = struct {
             .chunked => {
                 reader.state = .{ .body_remaining_chunk_len = .head };
                 reader.interface = .{
-                    .buffer = buffer,
+                    .buffer = transfer_buffer,
                     .seek = 0,
                     .end = 0,
                     .vtable = &.{
@@ -435,7 +443,7 @@ pub const Reader = struct {
                 if (content_length) |len| {
                     reader.state = .{ .body_remaining_content_length = len };
                     reader.interface = .{
-                        .buffer = buffer,
+                        .buffer = transfer_buffer,
                         .seek = 0,
                         .end = 0,
                         .vtable = &.{
@@ -460,11 +468,12 @@ pub const Reader = struct {
     /// * `interface`
     pub fn bodyReaderDecompressing(
         reader: *Reader,
+        transfer_buffer: []u8,
         transfer_encoding: TransferEncoding,
         content_length: ?u64,
         content_encoding: ContentEncoding,
-        decompressor: *Decompressor,
-        decompression_buffer: []u8,
+        decompress: *Decompress,
+        decompress_buffer: []u8,
     ) *std.Io.Reader {
         if (transfer_encoding == .none and content_length == null) {
             assert(reader.state == .received_head);
@@ -474,22 +483,22 @@ pub const Reader = struct {
                     return reader.in;
                 },
                 .deflate => {
-                    decompressor.* = .{ .flate = .init(reader.in, .zlib, decompression_buffer) };
-                    return &decompressor.flate.reader;
+                    decompress.* = .{ .flate = .init(reader.in, .zlib, decompress_buffer) };
+                    return &decompress.flate.reader;
                 },
                 .gzip => {
-                    decompressor.* = .{ .flate = .init(reader.in, .gzip, decompression_buffer) };
-                    return &decompressor.flate.reader;
+                    decompress.* = .{ .flate = .init(reader.in, .gzip, decompress_buffer) };
+                    return &decompress.flate.reader;
                 },
                 .zstd => {
-                    decompressor.* = .{ .zstd = .init(reader.in, decompression_buffer, .{ .verify_checksum = false }) };
-                    return &decompressor.zstd.reader;
+                    decompress.* = .{ .zstd = .init(reader.in, decompress_buffer, .{ .verify_checksum = false }) };
+                    return &decompress.zstd.reader;
                 },
                 .compress => unreachable,
             }
         }
-        const transfer_reader = bodyReader(reader, &.{}, transfer_encoding, content_length);
-        return decompressor.init(transfer_reader, decompression_buffer, content_encoding);
+        const transfer_reader = bodyReader(reader, transfer_buffer, transfer_encoding, content_length);
+        return decompress.init(transfer_reader, decompress_buffer, content_encoding);
     }
 
     fn contentLengthStream(
@@ -691,33 +700,33 @@ pub const Reader = struct {
     }
 };
 
-pub const Decompressor = union(enum) {
+pub const Decompress = union(enum) {
     flate: std.compress.flate.Decompress,
     zstd: std.compress.zstd.Decompress,
     none: *std.Io.Reader,
 
     pub fn init(
-        decompressor: *Decompressor,
+        decompress: *Decompress,
         transfer_reader: *std.Io.Reader,
         buffer: []u8,
         content_encoding: ContentEncoding,
     ) *std.Io.Reader {
         switch (content_encoding) {
             .identity => {
-                decompressor.* = .{ .none = transfer_reader };
+                decompress.* = .{ .none = transfer_reader };
                 return transfer_reader;
             },
             .deflate => {
-                decompressor.* = .{ .flate = .init(transfer_reader, .zlib, buffer) };
-                return &decompressor.flate.reader;
+                decompress.* = .{ .flate = .init(transfer_reader, .zlib, buffer) };
+                return &decompress.flate.reader;
             },
             .gzip => {
-                decompressor.* = .{ .flate = .init(transfer_reader, .gzip, buffer) };
-                return &decompressor.flate.reader;
+                decompress.* = .{ .flate = .init(transfer_reader, .gzip, buffer) };
+                return &decompress.flate.reader;
             },
             .zstd => {
-                decompressor.* = .{ .zstd = .init(transfer_reader, buffer, .{ .verify_checksum = false }) };
-                return &decompressor.zstd.reader;
+                decompress.* = .{ .zstd = .init(transfer_reader, buffer, .{ .verify_checksum = false }) };
+                return &decompress.zstd.reader;
             },
             .compress => unreachable,
         }
@@ -794,7 +803,7 @@ pub const BodyWriter = struct {
     }
 
     /// When using content-length, asserts that the amount of data sent matches
-    /// the value sent in the header, then flushes.
+    /// the value sent in the header, then flushes `http_protocol_output`.
     ///
     /// When using transfer-encoding: chunked, writes the end-of-stream message
     /// with empty trailers, then flushes the stream to the system. Asserts any
@@ -818,10 +827,13 @@ pub const BodyWriter = struct {
     ///
     /// Respects the value of `isEliding` to omit all data after the headers.
     ///
+    /// Does not flush `http_protocol_output`, but does flush `writer`.
+    ///
     /// See also:
     /// * `end`
     /// * `endChunked`
     pub fn endUnflushed(w: *BodyWriter) Error!void {
+        try w.writer.flush();
         switch (w.state) {
             .end => unreachable,
             .content_length => |len| {

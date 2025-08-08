@@ -25,9 +25,7 @@ pub const VTable = struct {
     ///
     /// Returns the number of bytes written, which will be at minimum `0` and
     /// at most `limit`. The number returned, including zero, does not indicate
-    /// end of stream. `limit` is guaranteed to be at least as large as the
-    /// buffer capacity of `w`, a value whose minimum size is determined by the
-    /// stream implementation.
+    /// end of stream.
     ///
     /// The reader's internal logical seek position moves forward in accordance
     /// with the number of bytes returned from this function.

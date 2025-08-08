@@ -1006,8 +1006,9 @@ fn echoTests(client: *http.Client, port: u16) !void {
         const location = try std.fmt.allocPrint(gpa, "http://127.0.0.1:{d}/echo-content#fetch", .{port});
         defer gpa.free(location);
 
-        var body: std.ArrayListUnmanaged(u8) = .empty;
-        defer body.deinit(gpa);
+        var body: std.Io.Writer.Allocating = .init(gpa);
+        defer body.deinit();
+        try body.ensureUnusedCapacity(64);
 
         const res = try client.fetch(.{
             .location = .{ .url = location },
@@ -1016,10 +1017,10 @@ fn echoTests(client: *http.Client, port: u16) !void {
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "text/plain" },
             },
-            .response_storage = .{ .allocator = gpa, .list = &body },
+            .response_writer = &body.writer,
         });
         try expectEqual(.ok, res.status);
-        try expectEqualStrings("Hello, World!\n", body.items);
+        try expectEqualStrings("Hello, World!\n", body.getWritten());
     }
 
     { // expect: 100-continue
