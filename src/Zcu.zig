@@ -1038,7 +1038,9 @@ pub const File = struct {
         stat: Cache.File.Stat,
     };
 
-    pub fn getSource(file: *File, zcu: *const Zcu) !Source {
+    pub const GetSourceError = error{ OutOfMemory, FileTooBig } || std.fs.File.OpenError || std.fs.File.ReadError;
+
+    pub fn getSource(file: *File, zcu: *const Zcu) GetSourceError!Source {
         const gpa = zcu.gpa;
 
         if (file.source) |source| return .{
@@ -1062,7 +1064,7 @@ pub const File = struct {
 
         var file_reader = f.reader(&.{});
         file_reader.size = stat.size;
-        try file_reader.interface.readSliceAll(source);
+        file_reader.interface.readSliceAll(source) catch return file_reader.err.?;
 
         // Here we do not modify stat fields because this function is the one
         // used for error reporting. We need to keep the stat fields stale so that
@@ -1081,7 +1083,7 @@ pub const File = struct {
         };
     }
 
-    pub fn getTree(file: *File, zcu: *const Zcu) !*const Ast {
+    pub fn getTree(file: *File, zcu: *const Zcu) GetSourceError!*const Ast {
         if (file.tree) |*tree| return tree;
 
         const source = try file.getSource(zcu);
@@ -1127,7 +1129,7 @@ pub const File = struct {
         file: *File,
         zcu: *const Zcu,
         eb: *std.zig.ErrorBundle.Wip,
-    ) !std.zig.ErrorBundle.SourceLocationIndex {
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = 0,
@@ -1138,17 +1140,17 @@ pub const File = struct {
             .source_line = 0,
         });
     }
+    /// Asserts that the tree has already been loaded with `getTree`.
     pub fn errorBundleTokenSrc(
         file: *File,
         tok: Ast.TokenIndex,
         zcu: *const Zcu,
         eb: *std.zig.ErrorBundle.Wip,
-    ) !std.zig.ErrorBundle.SourceLocationIndex {
-        const source = try file.getSource(zcu);
-        const tree = try file.getTree(zcu);
+    ) Allocator.Error!std.zig.ErrorBundle.SourceLocationIndex {
+        const tree = &file.tree.?;
         const start = tree.tokenStart(tok);
         const end = start + tree.tokenSlice(tok).len;
-        const loc = std.zig.findLineColumn(source.bytes, start);
+        const loc = std.zig.findLineColumn(file.source.?, start);
         return eb.addSourceLocation(.{
             .src_path = try eb.printString("{f}", .{file.path.fmt(zcu.comp)}),
             .span_start = start,
@@ -2665,8 +2667,9 @@ pub const LazySrcLoc = struct {
     }
 
     /// Used to sort error messages, so that they're printed in a consistent order.
-    /// If an error is returned, that error makes sorting impossible.
-    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu) !bool {
+    /// If an error is returned, a file could not be read in order to resolve a source location.
+    /// In that case, `bad_file_out` is populated, and sorting is impossible.
+    pub fn lessThan(lhs_lazy: LazySrcLoc, rhs_lazy: LazySrcLoc, zcu: *Zcu, bad_file_out: **Zcu.File) File.GetSourceError!bool {
         const lhs_src = lhs_lazy.upgradeOrLost(zcu) orelse {
             // LHS source location lost, so should never be referenced. Just sort it to the end.
             return false;
@@ -2684,8 +2687,14 @@ pub const LazySrcLoc = struct {
             return std.mem.order(u8, lhs_path.sub_path, rhs_path.sub_path).compare(.lt);
         }
 
-        const lhs_span = try lhs_src.span(zcu);
-        const rhs_span = try rhs_src.span(zcu);
+        const lhs_span = lhs_src.span(zcu) catch |err| {
+            bad_file_out.* = lhs_src.file_scope;
+            return err;
+        };
+        const rhs_span = rhs_src.span(zcu) catch |err| {
+            bad_file_out.* = rhs_src.file_scope;
+            return err;
+        };
         return lhs_span.main < rhs_span.main;
     }
 };
@@ -4584,7 +4593,7 @@ pub fn codegenFailTypeMsg(zcu: *Zcu, ty_index: InternPool.Index, msg: *ErrorMsg)
 pub fn addFileInMultipleModulesError(
     zcu: *Zcu,
     eb: *std.zig.ErrorBundle.Wip,
-) !void {
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     const info = zcu.multi_module_err.?;
@@ -4631,7 +4640,7 @@ fn explainWhyFileIsInModule(
     file: File.Index,
     in_module: *Package.Module,
     ref: File.Reference,
-) !void {
+) Allocator.Error!void {
     const gpa = zcu.gpa;
 
     // error: file is the root of module 'foo'
@@ -4666,7 +4675,13 @@ fn explainWhyFileIsInModule(
         const thing: []const u8 = if (is_first) "file" else "which";
         is_first = false;
 
-        const import_src = try zcu.fileByIndex(import.importer).errorBundleTokenSrc(import.tok, zcu, eb);
+        const importer_file = zcu.fileByIndex(import.importer);
+        // `errorBundleTokenSrc` expects the tree to be loaded
+        _ = importer_file.getTree(zcu) catch |err| {
+            try Compilation.unableToLoadZcuFile(zcu, eb, importer_file, err);
+            return; // stop the explanation early
+        };
+        const import_src = try importer_file.errorBundleTokenSrc(import.tok, zcu, eb);
 
         const importer_ref = zcu.alive_files.get(import.importer).?;
         const importer_root: ?*Package.Module = switch (importer_ref) {

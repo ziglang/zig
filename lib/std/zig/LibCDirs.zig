@@ -19,7 +19,7 @@ pub fn detect(
     is_native_abi: bool,
     link_libc: bool,
     libc_installation: ?*const LibCInstallation,
-) !LibCDirs {
+) LibCInstallation.FindError!LibCDirs {
     if (!link_libc) {
         return .{
             .libc_include_dir_list = &[0][]u8{},
@@ -114,7 +114,7 @@ fn detectFromInstallation(arena: Allocator, target: *const std.Target, lci: *con
         }
     }
     if (target.os.tag == .haiku) {
-        const include_dir_path = lci.include_dir orelse return error.LibCInstallationNotAvailable;
+        const include_dir_path = lci.include_dir.?;
         const os_dir = try std.fs.path.join(arena, &[_][]const u8{ include_dir_path, "os" });
         list.appendAssumeCapacity(os_dir);
         // Errors.h

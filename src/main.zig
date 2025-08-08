@@ -3395,7 +3395,8 @@ fn buildOutputType(
     var file_system_inputs: std.ArrayListUnmanaged(u8) = .empty;
     defer file_system_inputs.deinit(gpa);
 
-    const comp = Compilation.create(gpa, arena, .{
+    var create_diag: Compilation.CreateDiagnostic = undefined;
+    const comp = Compilation.create(gpa, arena, &create_diag, .{
         .dirs = dirs,
         .thread_pool = &thread_pool,
         .self_exe_path = switch (native_os) {
@@ -3521,47 +3522,45 @@ fn buildOutputType(
         .file_system_inputs = &file_system_inputs,
         .debug_compiler_runtime_libs = debug_compiler_runtime_libs,
     }) catch |err| switch (err) {
-        error.LibCUnavailable => {
-            const triple_name = try target.zigTriple(arena);
-            std.log.err("unable to find or provide libc for target '{s}'", .{triple_name});
+        error.CreateFail => switch (create_diag) {
+            .cross_libc_unavailable => {
+                // We can emit a more informative error for this.
+                const triple_name = try target.zigTriple(arena);
+                std.log.err("unable to provide libc for target '{s}'", .{triple_name});
 
-            for (std.zig.target.available_libcs) |t| {
-                if (t.arch == target.cpu.arch and t.os == target.os.tag) {
-                    // If there's a `glibc_min`, there's also an `os_ver`.
-                    if (t.glibc_min) |glibc_min| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            t.os_ver.?,
-                            @tagName(t.abi),
-                            glibc_min.major,
-                            glibc_min.minor,
-                        });
-                    } else if (t.os_ver) |os_ver| {
-                        std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            os_ver,
-                            @tagName(t.abi),
-                        });
-                    } else {
-                        std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
-                            @tagName(t.arch),
-                            @tagName(t.os),
-                            @tagName(t.abi),
-                        });
+                for (std.zig.target.available_libcs) |t| {
+                    if (t.arch == target.cpu.arch and t.os == target.os.tag) {
+                        // If there's a `glibc_min`, there's also an `os_ver`.
+                        if (t.glibc_min) |glibc_min| {
+                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}.{d}.{d}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                t.os_ver.?,
+                                @tagName(t.abi),
+                                glibc_min.major,
+                                glibc_min.minor,
+                            });
+                        } else if (t.os_ver) |os_ver| {
+                            std.log.info("zig can provide libc for related target {s}-{s}.{f}-{s}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                os_ver,
+                                @tagName(t.abi),
+                            });
+                        } else {
+                            std.log.info("zig can provide libc for related target {s}-{s}-{s}", .{
+                                @tagName(t.arch),
+                                @tagName(t.os),
+                                @tagName(t.abi),
+                            });
+                        }
                     }
                 }
-            }
-            process.exit(1);
+                process.exit(1);
+            },
+            else => fatal("{f}", .{create_diag}),
         },
-        error.ExportTableAndImportTableConflict => {
-            fatal("--import-table and --export-table may not be used together", .{});
-        },
-        error.IllegalZigImport => {
-            fatal("this compiler implementation does not support importing the root source file of a provided module", .{});
-        },
-        else => fatal("unable to create compilation: {s}", .{@errorName(err)}),
+        else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
     };
     var comp_destroyed = false;
     defer if (!comp_destroyed) comp.destroy();
@@ -3627,7 +3626,7 @@ fn buildOutputType(
         }
 
         updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-            error.SemanticAnalyzeFail => {
+            error.CompileErrorsReported => {
                 assert(listen == .none);
                 saveState(comp, incremental);
                 process.exit(1);
@@ -4521,7 +4520,12 @@ fn runOrTestHotSwap(
     }
 }
 
-fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) !void {
+const UpdateModuleError = Compilation.UpdateError || error{
+    /// The update caused compile errors. The error bundle has already been
+    /// reported to the user by being rendered to stderr.
+    CompileErrorsReported,
+};
+fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) UpdateModuleError!void {
     try comp.update(prog_node);
 
     var errors = try comp.getAllErrorsAlloc();
@@ -4529,7 +4533,7 @@ fn updateModule(comp: *Compilation, color: Color, prog_node: std.Progress.Node) 
 
     if (errors.errorMessageCount() > 0) {
         errors.renderToStdErr(color.renderOptions());
-        return error.SemanticAnalyzeFail;
+        return error.CompileErrorsReported;
     }
 }
 
@@ -5373,7 +5377,8 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
             try root_mod.deps.put(arena, "@build", build_mod);
 
-            const comp = Compilation.create(gpa, arena, .{
+            var create_diag: Compilation.CreateDiagnostic = undefined;
+            const comp = Compilation.create(gpa, arena, &create_diag, .{
                 .libc_installation = libc_installation,
                 .dirs = dirs,
                 .root_name = "build",
@@ -5395,13 +5400,14 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                 .cache_mode = .whole,
                 .reference_trace = reference_trace,
                 .debug_compile_errors = debug_compile_errors,
-            }) catch |err| {
-                fatal("unable to create compilation: {s}", .{@errorName(err)});
+            }) catch |err| switch (err) {
+                error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
+                else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
             };
             defer comp.destroy();
 
             updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-                error.SemanticAnalyzeFail => process.exit(2),
+                error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
 
@@ -5614,7 +5620,8 @@ fn jitCmd(
             try root_mod.deps.put(arena, "aro", aro_mod);
         }
 
-        const comp = Compilation.create(gpa, arena, .{
+        var create_diag: Compilation.CreateDiagnostic = undefined;
+        const comp = Compilation.create(gpa, arena, &create_diag, .{
             .dirs = dirs,
             .root_name = options.cmd_name,
             .config = config,
@@ -5624,8 +5631,9 @@ fn jitCmd(
             .self_exe_path = self_exe_path,
             .thread_pool = &thread_pool,
             .cache_mode = .whole,
-        }) catch |err| {
-            fatal("unable to create compilation: {s}", .{@errorName(err)});
+        }) catch |err| switch (err) {
+            error.CreateFail => fatal("failed to create compilation: {f}", .{create_diag}),
+            else => fatal("failed to create compilation: {s}", .{@errorName(err)}),
         };
         defer comp.destroy();
 
@@ -5646,7 +5654,7 @@ fn jitCmd(
             }
         } else {
             updateModule(comp, color, root_prog_node) catch |err| switch (err) {
-                error.SemanticAnalyzeFail => process.exit(2),
+                error.CompileErrorsReported => process.exit(2),
                 else => |e| return e,
             };
         }

@@ -162,7 +162,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -656,7 +656,7 @@ fn wordDirective(target: *const std.Target) []const u8 {
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -1223,7 +1223,10 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"glibc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -1248,10 +1251,16 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {

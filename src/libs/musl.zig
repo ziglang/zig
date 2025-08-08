@@ -17,7 +17,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -243,7 +243,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .parent = null,
             });
 
-            const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+            const misc_task: Compilation.MiscTask = .@"musl libc.so";
+
+            var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+            const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
                 .dirs = comp.dirs.withoutLocalCache(),
                 .self_exe_path = comp.self_exe_path,
                 .cache_mode = .whole,
@@ -268,10 +271,16 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 },
                 .skip_linker_dependencies = true,
                 .soname = "libc.so",
-            });
+            }) catch |err| switch (err) {
+                error.CreateFail => {
+                    comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+                    return error.AlreadyReported;
+                },
+                else => |e| return e,
+            };
             defer sub_compilation.destroy();
 
-            try comp.updateSubCompilation(sub_compilation, .@"musl libc.so", prog_node);
+            try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 
             const basename = try comp.gpa.dupe(u8, "libc.so");
             errdefer comp.gpa.free(basename);
