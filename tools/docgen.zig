@@ -70,19 +70,19 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
     const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
 
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
-
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
 
-    try genHtml(arena, &tokenizer, &toc, code_dir, buffered_writer.writer());
-    try buffered_writer.flush();
+    try genHtml(arena, &tokenizer, &toc, code_dir, &out_file_writer.interface);
+    try out_file_writer.end();
 }
 
 const Token = struct {

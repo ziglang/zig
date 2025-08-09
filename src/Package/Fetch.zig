@@ -1631,19 +1631,13 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout: std.fs.File = .stdout();
-    var bw = std.io.bufferedWriter(stdout.deprecatedWriter());
-    const w = bw.writer();
-
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer: fs.File.Writer = .initMode(.stdout(), &stdout_buffer, .streaming);
+    const w = &stdout_writer.interface;
     for (all_files) |hashed_file| {
-        try w.print("{s}: {x}: {s}\n", .{
-            @tagName(hashed_file.kind),
-            &hashed_file.hash,
-            hashed_file.normalized_path,
-        });
+        try w.print("{t}: {x}: {s}\n", .{ hashed_file.kind, &hashed_file.hash, hashed_file.normalized_path });
     }
-
-    try bw.flush();
+    try w.flush();
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {

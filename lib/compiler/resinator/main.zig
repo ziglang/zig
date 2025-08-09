@@ -248,10 +248,11 @@ pub fn main() !void {
                 var diagnostics = Diagnostics.init(allocator);
                 defer diagnostics.deinit();
 
-                const res_stream_writer = res_stream.source.writer(allocator);
-                var output_buffered_stream = std.io.bufferedWriter(res_stream_writer);
+                var output_buffer: [4096]u8 = undefined;
+                var res_stream_writer = res_stream.source.writer(allocator).adaptToNewApi(&output_buffer);
+                const output_buffered_stream = &res_stream_writer.new_interface;
 
-                compile(allocator, final_input, output_buffered_stream.writer(), .{
+                compile(allocator, final_input, output_buffered_stream, .{
                     .cwd = std.fs.cwd(),
                     .diagnostics = &diagnostics,
                     .source_mappings = &mapping_results.mappings,
@@ -340,10 +341,11 @@ pub fn main() !void {
     };
     defer coff_stream.deinit(allocator);
 
-    var coff_output_buffered_stream = std.io.bufferedWriter(coff_stream.source.writer(allocator));
+    var coff_output_buffer: [4096]u8 = undefined;
+    var coff_output_buffered_stream = coff_stream.source.writer(allocator).adaptToNewApi(&coff_output_buffer);
 
     var cvtres_diagnostics: cvtres.Diagnostics = .{ .none = {} };
-    cvtres.writeCoff(allocator, coff_output_buffered_stream.writer(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
+    cvtres.writeCoff(allocator, &coff_output_buffered_stream.new_interface, resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
@@ -380,7 +382,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    try coff_output_buffered_stream.flush();
+    try coff_output_buffered_stream.new_interface.flush();
 }
 
 const IoStream = struct {

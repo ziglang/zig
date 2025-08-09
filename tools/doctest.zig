@@ -84,9 +84,10 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
-    var bw = std.io.bufferedWriter(out_file.deprecatedWriter());
-    const out = bw.writer();
+    const out = &out_file_writer.interface;
 
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));
     try printOutput(
@@ -102,7 +103,7 @@ pub fn main() !void {
             null,
     );
 
-    try bw.flush();
+    try out_file_writer.end();
 }
 
 fn printOutput(

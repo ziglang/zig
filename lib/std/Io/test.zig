@@ -24,12 +24,12 @@ test "write a file, read it, then delete it" {
         var file = try tmp.dir.createFile(tmp_file_name, .{});
         defer file.close();
 
-        var buf_stream = io.bufferedWriter(file.deprecatedWriter());
-        const st = buf_stream.writer();
+        var file_writer = file.writer(&.{});
+        const st = &file_writer.interface;
         try st.print("begin", .{});
-        try st.writeAll(data[0..]);
+        try st.writeAll(&data);
         try st.print("end", .{});
-        try buf_stream.flush();
+        try st.flush();
     }
 
     {
