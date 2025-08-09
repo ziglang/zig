@@ -1,11 +1,11 @@
-const builtin = @import("builtin");
 const std = @import("std");
-const endian = builtin.cpu.arch.endian();
 const expect = std.testing.expect;
 const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const Tag = std.meta.Tag;
+const builtin = @import("builtin");
 
+const endian = builtin.cpu.arch.endian();
 const FooWithFloats = union {
     float: f64,
     int: i32,
@@ -1053,7 +1053,7 @@ test "@unionInit on union with tag but no fields" {
             _ = &data;
             var o = Data.decode(&[_]u8{});
             _ = &o;
-            try expectEqual(Type.no_op, o);
+            try expect(Type.no_op == o);
         }
     };
 
@@ -1496,9 +1496,9 @@ test "defined-layout union field pointer has correct alignment" {
             comptime assert(@TypeOf(bp) == *align(1) u32);
             comptime assert(@TypeOf(cp) == *align(64) u32);
 
-            try expectEqual(@as(u32, 123), ap.*);
-            try expectEqual(@as(u32, 456), bp.*);
-            try expectEqual(@as(u32, 789), cp.*);
+            try expect(@as(u32, 123) == ap.*);
+            try expect(@as(u32, 456) == bp.*);
+            try expect(@as(u32, 789) == cp.*);
         }
     };
 
@@ -1530,9 +1530,9 @@ test "undefined-layout union field pointer has correct alignment" {
             comptime assert(@TypeOf(bp) == *align(1) u32);
             comptime assert(@TypeOf(cp) == *u32); // undefined layout so does not inherit larger aligns
 
-            try expectEqual(@as(u32, 123), ap.*);
-            try expectEqual(@as(u32, 456), bp.*);
-            try expectEqual(@as(u32, 789), cp.*);
+            try expect(@as(u32, 123) == ap.*);
+            try expect(@as(u32, 456) == bp.*);
+            try expect(@as(u32, 789) == cp.*);
         }
     };
 
@@ -1574,9 +1574,9 @@ test "packed union field pointer has correct alignment" {
     b.u = .{ .x = 456 };
     c.u = .{ .x = 789 };
 
-    try expectEqual(@as(u20, 123), ap.*);
-    try expectEqual(@as(u20, 456), bp.*);
-    try expectEqual(@as(u20, 789), cp.*);
+    try expect(@as(u20, 123) == ap.*);
+    try expect(@as(u20, 456) == bp.*);
+    try expect(@as(u20, 789) == cp.*);
 }
 
 test "union with 128 bit integer" {
@@ -1615,8 +1615,8 @@ test "memset extern union" {
         fn doTheTest() !void {
             var u: U = undefined;
             @memset(std.mem.asBytes(&u), 0);
-            try expectEqual(@as(u8, 0), u.foo);
-            try expectEqual(@as(u32, 0), u.bar);
+            try expect(@as(u8, 0) == u.foo);
+            try expect(@as(u32, 0) == u.bar);
         }
     };
 
@@ -1637,8 +1637,8 @@ test "memset packed union" {
         fn doTheTest() !void {
             var u: U = undefined;
             @memset(std.mem.asBytes(&u), 42);
-            try expectEqual(@as(u32, 0x2a2a2a2a), u.a);
-            try expectEqual(@as(u8, 0x2a), u.b);
+            try expect(@as(u32, 0x2a2a2a2a) == u.a);
+            try expect(@as(u8, 0x2a) == u.b);
         }
     };
 
@@ -1676,9 +1676,9 @@ test "reinterpret extern union" {
                     break :blk u;
                 };
 
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(littleToNativeEndian(u32, 0xbbbbbb2a), u.bar);
-                try expectEqual(littleToNativeEndian(u32, 0xbbbbbb2a), u.baz);
+                try expect(@as(u8, 0x2a) == u.foo);
+                try expect(littleToNativeEndian(u32, 0xbbbbbb2a) == u.bar);
+                try expect(littleToNativeEndian(u32, 0xbbbbbb2a) == u.baz);
             }
 
             {
@@ -1693,28 +1693,28 @@ test "reinterpret extern union" {
                         .big => .{ 0x2a000000, 0xff000000 },
                     };
 
-                    try expectEqual(@as(u8, 0x2a), u.foo);
-                    try expectEqual(@as(u32, expected), u.bar & mask);
-                    try expectEqual(@as(u32, expected), u.baz & mask);
+                    try expect(@as(u8, 0x2a) == u.foo);
+                    try expect(@as(u32, expected) == u.bar & mask);
+                    try expect(@as(u32, expected) == u.baz & mask);
                 }
 
                 // Writing to a larger field
                 u.baz = 0xbbbbbbbb;
-                try expectEqual(@as(u8, 0xbb), u.foo);
-                try expectEqual(@as(u32, 0xbbbbbbbb), u.bar);
-                try expectEqual(@as(u32, 0xbbbbbbbb), u.baz);
+                try expect(@as(u8, 0xbb) == u.foo);
+                try expect(@as(u32, 0xbbbbbbbb) == u.bar);
+                try expect(@as(u32, 0xbbbbbbbb) == u.baz);
 
                 // Writing to the same field
                 u.baz = 0xcccccccc;
-                try expectEqual(@as(u8, 0xcc), u.foo);
-                try expectEqual(@as(u32, 0xcccccccc), u.bar);
-                try expectEqual(@as(u32, 0xcccccccc), u.baz);
+                try expect(@as(u8, 0xcc) == u.foo);
+                try expect(@as(u32, 0xcccccccc) == u.bar);
+                try expect(@as(u32, 0xcccccccc) == u.baz);
 
                 // Writing to a smaller field
                 u.foo = 0xdd;
-                try expectEqual(@as(u8, 0xdd), u.foo);
-                try expectEqual(littleToNativeEndian(u32, 0xccccccdd), u.bar);
-                try expectEqual(littleToNativeEndian(u32, 0xccccccdd), u.baz);
+                try expect(@as(u8, 0xdd) == u.foo);
+                try expect(littleToNativeEndian(u32, 0xccccccdd) == u.bar);
+                try expect(littleToNativeEndian(u32, 0xccccccdd) == u.baz);
             }
         }
     };
@@ -1747,13 +1747,13 @@ test "reinterpret packed union" {
                     break :blk u;
                 };
 
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
+                try expect(@as(u8, 0x2a) == u.foo);
+                try expect(@as(u12, 0xe2a) == u.qux);
 
                 // https://github.com/ziglang/zig/issues/17360
                 if (@inComptime()) {
-                    try expectEqual(@as(u29, 0x1bbbbe2a), u.bar);
-                    try expectEqual(@as(u64, 0xbbbbbe2a), u.baz);
+                    try expect(@as(u29, 0x1bbbbe2a) == u.bar);
+                    try expect(@as(u64, 0xbbbbbe2a) == u.baz);
                 }
             }
 
@@ -1761,31 +1761,31 @@ test "reinterpret packed union" {
                 // Union initialization
                 var u: U = .{ .baz = 0 }; // ensure all bits are defined
                 u.qux = 0xe2a;
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
-                try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
-                try expectEqual(@as(u64, 0xe2a), u.baz & 0xfff);
+                try expect(@as(u8, 0x2a) == u.foo);
+                try expect(@as(u12, 0xe2a) == u.qux);
+                try expect(@as(u29, 0xe2a) == u.bar & 0xfff);
+                try expect(@as(u64, 0xe2a) == u.baz & 0xfff);
 
                 // Writing to a larger field
                 u.baz = 0xbbbbbbbb;
-                try expectEqual(@as(u8, 0xbb), u.foo);
-                try expectEqual(@as(u12, 0xbbb), u.qux);
-                try expectEqual(@as(u29, 0x1bbbbbbb), u.bar);
-                try expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
+                try expect(@as(u8, 0xbb) == u.foo);
+                try expect(@as(u12, 0xbbb) == u.qux);
+                try expect(@as(u29, 0x1bbbbbbb) == u.bar);
+                try expect(@as(u64, 0xbbbbbbbb) == u.baz);
 
                 // Writing to the same field
                 u.baz = 0xcccccccc;
-                try expectEqual(@as(u8, 0xcc), u.foo);
-                try expectEqual(@as(u12, 0xccc), u.qux);
-                try expectEqual(@as(u29, 0x0ccccccc), u.bar);
-                try expectEqual(@as(u64, 0xcccccccc), u.baz);
+                try expect(@as(u8, 0xcc) == u.foo);
+                try expect(@as(u12, 0xccc) == u.qux);
+                try expect(@as(u29, 0x0ccccccc) == u.bar);
+                try expect(@as(u64, 0xcccccccc) == u.baz);
 
                 // Writing to a smaller field
                 u.foo = 0xdd;
-                try expectEqual(@as(u8, 0xdd), u.foo);
-                try expectEqual(@as(u12, 0xcdd), u.qux);
-                try expectEqual(@as(u29, 0x0cccccdd), u.bar);
-                try expectEqual(@as(u64, 0xccccccdd), u.baz);
+                try expect(@as(u8, 0xdd) == u.foo);
+                try expect(@as(u12, 0xcdd) == u.qux);
+                try expect(@as(u29, 0x0cccccdd) == u.bar);
+                try expect(@as(u64, 0xccccccdd) == u.baz);
             }
         }
     };
@@ -1817,17 +1817,17 @@ test "reinterpret packed union inside packed struct" {
         fn doTheTest() !void {
             var v: V = undefined;
             @memset(std.mem.asBytes(&v), 0x55);
-            try expectEqual(@as(u7, 0x55), v.lo.a);
-            try expectEqual(@as(u1, 1), v.lo.b);
-            try expectEqual(@as(u7, 0x2a), v.hi.a);
-            try expectEqual(@as(u1, 0), v.hi.b);
+            try expect(@as(u7, 0x55) == v.lo.a);
+            try expect(@as(u1, 1) == v.lo.b);
+            try expect(@as(u7, 0x2a) == v.hi.a);
+            try expect(@as(u1, 0) == v.hi.b);
 
             v.lo.b = 0;
-            try expectEqual(@as(u7, 0x54), v.lo.a);
-            try expectEqual(@as(u1, 0), v.lo.b);
+            try expect(@as(u7, 0x54) == v.lo.a);
+            try expect(@as(u1, 0) == v.lo.b);
             v.hi.b = 1;
-            try expectEqual(@as(u7, 0x2b), v.hi.a);
-            try expectEqual(@as(u1, 1), v.hi.b);
+            try expect(@as(u7, 0x2b) == v.hi.a);
+            try expect(@as(u1, 1) == v.hi.b);
         }
     };
 
@@ -1851,13 +1851,13 @@ test "inner struct initializer uses union layout" {
 
     {
         const u: namespace.U = .{ .a = .{} };
-        try expectEqual(4, @alignOf(namespace.U));
-        try expectEqual(@as(usize, 5), u.a.x);
+        try expect(4 == @alignOf(namespace.U));
+        try expect(@as(usize, 5) == u.a.x);
     }
 
     {
         const u: namespace.U = .{ .b = .{} };
-        try expectEqual(@as(usize, @sizeOf(namespace.U) + 2), u.b.y);
+        try expect(@as(usize, @sizeOf(namespace.U) + 2) == u.b.y);
     }
 }
 
@@ -1875,13 +1875,13 @@ test "inner struct initializer uses packed union layout" {
 
     {
         const u: namespace.U = .{ .a = .{} };
-        try expectEqual(4, @alignOf(namespace.U));
-        try expectEqual(@as(usize, 5), u.a.x);
+        try expect(4 == @alignOf(namespace.U));
+        try expect(@as(usize, 5) == u.a.x);
     }
 
     {
         const u: namespace.U = .{ .b = .{} };
-        try expectEqual(@as(usize, @sizeOf(namespace.U) + 2), u.b.y);
+        try expect(@as(usize, @sizeOf(namespace.U) + 2) == u.b.y);
     }
 }
 
@@ -1988,15 +1988,15 @@ test "pass register-sized field as non-register-sized union" {
 
     const S = struct {
         fn taggedUnion(u: union(enum) { x: usize, y: [2]usize }) !void {
-            try expectEqual(@as(usize, 42), u.x);
+            try expect(@as(usize, 42) == u.x);
         }
 
         fn untaggedUnion(u: union { x: usize, y: [2]usize }) !void {
-            try expectEqual(@as(usize, 42), u.x);
+            try expect(@as(usize, 42) == u.x);
         }
 
         fn externUnion(u: extern union { x: usize, y: [2]usize }) !void {
-            try expectEqual(@as(usize, 42), u.x);
+            try expect(@as(usize, 42) == u.x);
         }
     };
 
@@ -2048,7 +2048,7 @@ test "pass nested union with rls" {
 
     var c: u7 = 32;
     _ = &c;
-    try expectEqual(@as(u7, 32), Union.getC(.{ .b = .{ .c = c } }));
+    try expect(@as(u7, 32) == Union.getC(.{ .b = .{ .c = c } }));
 }
 
 test "runtime union init, most-aligned field != largest" {
