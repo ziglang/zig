@@ -28901,8 +28901,6 @@ fn coerceExtra(
         if (maybe_inst_val) |val| if (val.toIntern() == .undef) return pt.undefRef(dest_ty);
     }
 
-    if (!opts.report_err) return error.NotCoercible;
-
     if (opts.is_ret and dest_ty.zigTypeTag(zcu) == .noreturn) {
         const msg = msg: {
             const msg = try sema.errMsg(inst_src, "function declared 'noreturn' returns", .{});
@@ -28917,6 +28915,8 @@ fn coerceExtra(
         };
         return sema.failWithOwnedErrorMsg(block, msg);
     }
+
+    if (!opts.report_err) return error.NotCoercible;
 
     const msg = msg: {
         const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{ dest_ty.fmt(pt), inst_ty.fmt(pt) });
@@ -35658,6 +35658,11 @@ fn unionFields(
                 };
                 return sema.failWithOwnedErrorMsg(&block_scope, msg);
             }
+        } else if (!small.auto_enum_tag and tag_type_ref != .none) {
+            const tag_ty = union_type.tagTypeUnordered(ip);
+            return sema.fail(&block_scope, name_src, "no field named '{}' in enum '{}'", .{
+                field_name.fmt(ip), Type.fromInterned(tag_ty).fmt(pt),
+            });
         }
 
         if (field_ty.zigTypeTag(zcu) == .@"opaque") {
