@@ -1,46 +1,10 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const spirv_spec = @import("spirv_spec");
 const fs = std.fs;
 const mem = std.mem;
 const json = std.json;
 const assert = std.debug.assert;
-
-const spirv_spec = @import("spirv_spec");
-
-fn spirvFeatures() []const Feature {
-    const cap_fields = @typeInfo(spirv_spec.Capability).@"enum".fields;
-    const ext_fields = @typeInfo(spirv_spec.Extension).@"enum".fields;
-
-    var out_feature: [cap_fields.len + ext_fields.len]Feature = undefined;
-
-    @setEvalBranchQuota(2000);
-    for (cap_fields, out_feature[0..cap_fields.len]) |field, *feature| {
-        feature.* = .{
-            .zig_name = field.name,
-            .desc = "Enable " ++ field.name ++ " Capability.",
-            .deps = comptime res: {
-                const extensions = spirv_spec.Capability.dependencies(@enumFromInt(field.value));
-                var out_extensions: [extensions.len][]const u8 = undefined;
-                for (extensions, 0..) |ext, i| {
-                    out_extensions[i] = @tagName(ext);
-                }
-                const final_extensions = out_extensions;
-                break :res &final_extensions;
-            },
-        };
-    }
-
-    for (ext_fields, out_feature[cap_fields.len..]) |field, *feature| {
-        feature.* = .{
-            .zig_name = field.name,
-            .desc = "Enable " ++ field.name ++ " Extension.",
-            .deps = &.{},
-        };
-    }
-
-    const final = out_feature;
-    return &final;
-}
 
 // All references to other features are based on "zig name" as the key.
 
@@ -2109,6 +2073,41 @@ fn usageAndExit(arg0: []const u8, code: u8) noreturn {
         \\
     , .{arg0}) catch std.process.exit(1);
     std.process.exit(code);
+}
+
+fn spirvFeatures() []const Feature {
+    const cap_fields = @typeInfo(spirv_spec.Capability).@"enum".fields;
+    const ext_fields = @typeInfo(spirv_spec.Extension).@"enum".fields;
+
+    var out_feature: [cap_fields.len + ext_fields.len]Feature = undefined;
+
+    @setEvalBranchQuota(2000);
+    for (cap_fields, out_feature[0..cap_fields.len]) |field, *feature| {
+        feature.* = .{
+            .zig_name = field.name,
+            .desc = "Enable " ++ field.name ++ " Capability.",
+            .deps = comptime res: {
+                const extensions = spirv_spec.Capability.dependencies(@enumFromInt(field.value));
+                var out_extensions: [extensions.len][]const u8 = undefined;
+                for (extensions, 0..) |ext, i| {
+                    out_extensions[i] = @tagName(ext);
+                }
+                const final_extensions = out_extensions;
+                break :res &final_extensions;
+            },
+        };
+    }
+
+    for (ext_fields, out_feature[cap_fields.len..]) |field, *feature| {
+        feature.* = .{
+            .zig_name = field.name,
+            .desc = "Enable " ++ field.name ++ " Extension.",
+            .deps = &.{},
+        };
+    }
+
+    const final = out_feature;
+    return &final;
 }
 
 fn featureLessThan(_: void, a: Feature, b: Feature) bool {

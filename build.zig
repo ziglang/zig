@@ -66,6 +66,23 @@ pub fn build(b: *std.Build) !void {
         b.getInstallStep().dependOn(&install_std_docs.step);
     }
 
+    const update_cpu_features = b.addExecutable(.{
+        .name = "update-cpu-features",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/update_cpu_features.zig"),
+            .target = b.graph.host,
+            .imports = &.{.{
+                .name = "spirv_spec",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("src/codegen/spirv/spec.zig"),
+                    .target = b.graph.host,
+                }),
+            }},
+        }),
+    });
+    const run_update_cpu_features = b.addRunArtifact(update_cpu_features);
+    if (b.args) |args| run_update_cpu_features.addArgs(args);
+
     if (flat) {
         b.installFile("LICENSE", "LICENSE");
         b.installFile("README.md", "README.md");
@@ -80,6 +97,9 @@ pub fn build(b: *std.Build) !void {
     const docs_step = b.step("docs", "Build and install documentation");
     docs_step.dependOn(langref_step);
     docs_step.dependOn(std_docs_step);
+
+    const update_cpu_features_step = b.step("update-cpu-features", "Update CPU Features");
+    update_cpu_features_step.dependOn(&run_update_cpu_features.step);
 
     const no_matrix = b.option(bool, "no-matrix", "Limit test matrix to exactly one target configuration") orelse false;
     const skip_debug = b.option(bool, "skip-debug", "Main test suite skips debug builds") orelse false;
