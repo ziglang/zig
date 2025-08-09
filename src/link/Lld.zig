@@ -1662,8 +1662,9 @@ fn spawnLld(
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
-                    const rsp_writer = rsp_buf.writer();
+                    var rsp_file_buffer: [1024]u8 = undefined;
+                    var rsp_file_writer = rsp_file.writer(&rsp_file_buffer);
+                    const rsp_writer = &rsp_file_writer.interface;
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');
                         for (arg) |c| {
@@ -1676,7 +1677,7 @@ fn spawnLld(
                         try rsp_writer.writeByte('"');
                         try rsp_writer.writeByte('\n');
                     }
-                    try rsp_buf.flush();
+                    try rsp_writer.flush();
                 }
 
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(

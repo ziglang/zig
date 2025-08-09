@@ -387,11 +387,11 @@ pub fn GenericWriter(
         }
 
         /// Helper for bridging to the new `Writer` API while upgrading.
-        pub fn adaptToNewApi(self: *const Self) Adapter {
+        pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
             return .{
                 .derp_writer = self.*,
                 .new_interface = .{
-                    .buffer = &.{},
+                    .buffer = buffer,
                     .vtable = &.{ .drain = Adapter.drain },
                 },
             };
@@ -423,10 +423,6 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-/// Deprecated in favor of `Writer`.
-pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
-/// Deprecated in favor of `Writer`.
-pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
 /// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
@@ -912,7 +908,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = BufferedWriter;
     _ = CountingReader;
     _ = FixedBufferStream;
     _ = tty;

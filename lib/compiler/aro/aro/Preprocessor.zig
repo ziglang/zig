@@ -811,10 +811,9 @@ fn verboseLog(pp: *Preprocessor, raw: RawToken, comptime fmt: []const u8, args: 
     const source = pp.comp.getSource(raw.source);
     const line_col = source.lineCol(.{ .id = raw.source, .line = raw.line, .byte_offset = raw.start });
 
-    const stderr = std.fs.File.stderr().deprecatedWriter();
-    var buf_writer = std.io.bufferedWriter(stderr);
-    const writer = buf_writer.writer();
-    defer buf_writer.flush() catch {};
+    var stderr_buffer: [64]u8 = undefined;
+    var writer = std.debug.lockStderrWriter(&stderr_buffer);
+    defer std.debug.unlockStderrWriter();
     writer.print("{s}:{d}:{d}: ", .{ source.path, line_col.line_no, line_col.col }) catch return;
     writer.print(fmt, args) catch return;
     writer.writeByte('\n') catch return;

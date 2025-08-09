@@ -109,7 +109,7 @@ pub fn parse(
     return self;
 }
 
-pub fn render(self: LibCInstallation, out: anytype) !void {
+pub fn render(self: LibCInstallation, out: *std.Io.Writer) !void {
     @setEvalBranchQuota(4000);
     const include_dir = self.include_dir orelse "";
     const sys_include_dir = self.sys_include_dir orelse "";
