@@ -1284,7 +1284,6 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
             while (i + 2 * block_len < slice.len) : (i += block_len * 2) {
                 const mask: Block = @splat(value);
                 var matches: [2]@TypeOf(mask == mask) = undefined;
-                const Bits = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(matches)));
 
                 inline for (0..2) |j| {
                     const start = i + j * block_len;
@@ -1292,7 +1291,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
                     matches[j] = block == mask;
                 }
 
-                if (@as(Bits, @bitCast(matches)) != 0) {
+                if (@reduce(.Or, matches[0] | matches[1])) {
                     @branchHint(.unlikely);
                     return i + (std.simd.firstTrue(matches[0]) orelse @as(usize, std.simd.firstTrue(matches[1]).?) + block_len);
                 }
