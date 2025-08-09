@@ -62,12 +62,11 @@ pub fn build(b: *std.Build) void {
             .root_module = b.createModule(.{
                 .root_source_file = b.path(tool_src_path),
                 .target = tools_target,
-                .imports = &.{.{
-                    .name = "spirv_spec",
-                    .module = spirv_spec,
-                }},
             }),
         });
+        if (std.mem.endsWith(u8, tool_src_path, "update_cpu_features.zig")) {
+            tool.root_module.addImport("spirv_spec", spirv_spec);
+        }
         tools_tests_step.dependOn(&tool.step);
     }
     for ([_][]const u8{

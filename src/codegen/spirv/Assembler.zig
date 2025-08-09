@@ -167,6 +167,12 @@ fn processInstruction(ass: *Assembler) !void {
         .OpExecutionMode, .OpExecutionModeId => {
             return ass.fail(ass.currentToken().start, "cannot set execution mode in assembly", .{});
         },
+        .OpCapability => {
+            return ass.fail(ass.currentToken().start, "cannot set capability in assembly", .{});
+        },
+        .OpExtension => {
+            return ass.fail(ass.currentToken().start, "cannot set extension in assembly", .{});
+        },
         .OpExtInstImport => blk: {
             const set_name_offset = ass.inst.operands.items[1].string;
             const set_name = std.mem.sliceTo(ass.inst.string_bytes.items[set_name_offset..], 0);

@@ -189,37 +189,15 @@ pub fn updateExports(
         },
     };
     const nav_ty = ip.getNav(nav_index).typeOf(ip);
-    const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
         const spv_decl_index = try linker.module.resolveNav(ip, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
-        const exec_model: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan, .opengl => switch (cc) {
-                .spirv_vertex => .vertex,
-                .spirv_fragment => .fragment,
-                .spirv_kernel => .gl_compute,
-                .spirv_task => .task_ext,
-                .spirv_mesh => .mesh_ext,
-                // TODO: We should integrate with the Linkage capability and export this function
-                .spirv_device => return,
-                else => unreachable,
-            },
-            .opencl => switch (cc) {
-                .spirv_kernel => .kernel,
-                // TODO: We should integrate with the Linkage capability and export this function
-                .spirv_device => return,
-                else => unreachable,
-            },
-            else => unreachable,
-        };
-
         for (export_indices) |export_idx| {
             const exp = export_idx.ptr(zcu);
             try linker.module.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
-                exec_model,
-                null,
+                cc,
             );
         }
     }
