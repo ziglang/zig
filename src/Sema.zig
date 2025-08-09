@@ -15620,7 +15620,6 @@ fn zirOverflowArithmetic(
                 // If either of the arguments is undefined, IB is possible and we return an error.
                 // If lhs is zero, the result is zero and no overflow occurred.
                 // If rhs is zero, the result is lhs and no overflow occurred.
-                // Oterhwise if either of the arguments is undefined, both results are undefined.
                 const scalar_ty = lhs_ty.scalarType(zcu);
                 if (maybe_rhs_val) |rhs_val| {
                     if (maybe_lhs_val) |lhs_val| {
@@ -15661,7 +15660,7 @@ fn zirOverflowArithmetic(
                                     .lt => return sema.failWithNegativeShiftAmount(block, rhs_src, rhs_elem, elem_idx),
                                 }
                             }
-                            if (!any_positive) break :result .{ .overflow_bit = .zero_u1, .inst = lhs };
+                            if (!any_positive) break :result .{ .overflow_bit = try pt.aggregateSplatValue(overflow_ty, .zero_u1), .inst = lhs };
                         },
                         else => unreachable,
                     }

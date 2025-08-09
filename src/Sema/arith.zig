@@ -1895,10 +1895,10 @@ fn intShlWithOverflow(
     const info = lhs_ty.intInfo(zcu);
 
     var lhs_space: Value.BigIntSpace = undefined;
-    const lhs_bigint = lhs.toBigInt(&lhs_space, zcu);
+    const lhs_bigint = try lhs.toBigIntSema(&lhs_space, pt);
 
     const shift_amt: usize = @intCast(try rhs.toUnsignedIntSema(pt));
-    if (shift_amt >= lhs_ty.intInfo(zcu).bits) {
+    if (shift_amt >= info.bits) {
         return sema.failWithTooLargeShiftAmount(block, lhs_ty, rhs, rhs_src, vec_idx);
     }
     var result_bigint = try intShlInner(sema, lhs_bigint, shift_amt);
