@@ -32,13 +32,13 @@ pub fn build(b: *std.Build) void {
     });
 
     var run_create_symlink = b.addRunArtifact(create_symlink_exe);
-    run_create_symlink.addArtifactArg(main);
-    const symlink_path = run_create_symlink.addOutputFileArg("main-symlink");
+    run_create_symlink.addArtifactArg(.{ .artifact = main });
+    const symlink_path = run_create_symlink.addOutputFileArg(.{ .basename = "main-symlink" });
     run_create_symlink.expectExitCode(0);
     run_create_symlink.skip_foreign_checks = true;
 
     var run_from_symlink = std.Build.Step.Run.create(b, "run symlink");
-    run_from_symlink.addFileArg(symlink_path);
+    run_from_symlink.addFileArg(.{ .lazy_path = symlink_path });
     run_from_symlink.expectExitCode(0);
     run_from_symlink.skip_foreign_checks = true;
     run_from_symlink.step.dependOn(&run_create_symlink.step);
