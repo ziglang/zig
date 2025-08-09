@@ -10,10 +10,11 @@ const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
 const Air = @import("../Air.zig");
 const Type = @import("../Type.zig");
-const BinaryModule = @import("SpirV/BinaryModule.zig");
 const CodeGen = @import("../codegen/spirv/CodeGen.zig");
 const Module = @import("../codegen/spirv/Module.zig");
 const trace = @import("../tracy.zig").trace;
+const BinaryModule = @import("SpirV/BinaryModule.zig");
+const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
 
 const spec = @import("../codegen/spirv/spec.zig");
 const Id = spec.Id;
@@ -279,7 +280,7 @@ pub fn flush(
     const module = try linker.module.finalize(arena);
     errdefer arena.free(module);
 
-    const linked_module = linker.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
+    const linked_module = linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
@@ -288,18 +289,10 @@ pub fn flush(
         return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
-fn linkModule(linker: *Linker, arena: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
-    _ = linker;
-
-    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
-    const prune_unused = @import("SpirV/prune_unused.zig");
-
+fn linkModule(arena: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
     var parser = try BinaryModule.Parser.init(arena);
     defer parser.deinit();
     var binary = try parser.parse(module);
-
     try lower_invocation_globals.run(&parser, &binary, progress);
-    try prune_unused.run(&parser, &binary, progress);
-
     return binary.finalize(arena);
 }
