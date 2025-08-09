@@ -35,8 +35,8 @@ pub fn build(b: *std.Build) !void {
     });
 
     const diff_cmd = b.addRunArtifact(check_differ_exe);
-    diff_cmd.addFileArg(exe_foo.getEmittedBin());
-    diff_cmd.addFileArg(exe_bar.getEmittedBin());
+    diff_cmd.addFileArg(.{ .lazy_path = exe_foo.getEmittedBin() });
+    diff_cmd.addFileArg(.{ .lazy_path = exe_bar.getEmittedBin() });
     diff_cmd.expectExitCode(0);
 
     const test_step = b.step("test", "Test it");
