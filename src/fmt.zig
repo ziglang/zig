@@ -195,10 +195,10 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     for (input_files.items) |file_path| {
         try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
     }
+    try fmt.stdout_writer.interface.flush();
     if (fmt.any_error) {
         process.exit(1);
     }
-    try fmt.stdout_writer.interface.flush();
 }
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {
