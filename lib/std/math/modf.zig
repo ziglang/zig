@@ -84,18 +84,7 @@ fn ModfTests(comptime T: type) type {
             try expectApproxEqAbs(expected_c, r.fpart, epsilon);
         }
         test "vector" {
-            // Currently, a compiler bug is breaking the usage
-            // of @trunc on @Vector types
-
-            // TODO: Repopulate the below array and
-            // remove the skip statement once this
-            // bug is fixed
-
-            // const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
-            const widths = [_]comptime_int{};
-
-            if (widths.len == 0)
-                return error.SkipZigTest;
+            const widths = [_]comptime_int{ 1, 2, 3, 4, 8, 16 };
 
             inline for (widths) |len| {
                 const V: type = @Vector(len, T);
