@@ -461,8 +461,10 @@ pub fn main() !void {
         .listen_address = listen_address,
     }) else null;
 
-    if (run.web_server) |*ws| {
-        ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
+    if (!builtin.single_threaded) {
+        if (run.web_server) |*ws| {
+            ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
+        }
     }
 
     rebuild: while (true) {
@@ -481,8 +483,10 @@ pub fn main() !void {
             else => return err,
         };
 
-        if (run.web_server) |*web_server| {
-            web_server.finishBuild(.{ .fuzz = fuzz });
+        if (!builtin.single_threaded) {
+            if (run.web_server) |*web_server| {
+                web_server.finishBuild(.{ .fuzz = fuzz });
+            }
         }
 
         if (!watch and run.web_server == null) {
