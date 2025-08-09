@@ -249,3 +249,80 @@ test "switch loop on larger than pointer integer" {
     }
     try expect(entry == 3);
 }
+
+test "switch loop on type with opv" {
+    const S = struct {
+        const E = enum { opv };
+        const U = union(E) { opv: u32 };
+
+        fn doTheTest() !void {
+            var x: usize = 0;
+            label: switch (E.opv) {
+                .opv => {
+                    x += 1;
+                    if (x == 15) continue :label .opv;
+                    if (x == 10) break :label;
+                    continue :label .opv;
+                },
+            }
+            try expect(x == 10);
+
+            label: switch (E.opv) {
+                else => {
+                    x += 1;
+                    if (x == 25) continue :label .opv;
+                    if (x == 20) break :label;
+                    continue :label .opv;
+                },
+            }
+            try expect(x == 20);
+
+            label: switch (E.opv) {
+                .opv => if (false) continue :label true,
+            }
+
+            const ok = label: switch (U{ .opv = 123 }) {
+                .opv => |u| {
+                    if (u == 456) break :label true;
+                    continue :label .{ .opv = 456 };
+                },
+            };
+            try expect(ok);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "switch loop special prong only" {
+    const S = struct {
+        const E = enum { a, b, c };
+        const U = union(E) { a: u8, b: u16, c: u32 };
+
+        fn doTheTest() !void {
+            var x: usize = 0;
+            label: switch (E.a) {
+                else => {
+                    x += 1;
+                    if (x == 15) continue :label .b;
+                    if (x == 10) break :label;
+                    continue :label .c;
+                },
+            }
+            try expect(x == 10);
+
+            const ok = label: switch (U{ .a = 123 }) {
+                else => |u| {
+                    try expect(u != .c);
+                    if (u == .b) {
+                        if (u.b == 456) break :label true;
+                    }
+                    continue :label .{ .b = 456 };
+                },
+            };
+            try expect(ok);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
