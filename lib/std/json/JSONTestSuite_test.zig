@@ -4,6 +4,10 @@ const ok = @import("./test.zig").ok;
 const err = @import("./test.zig").err;
 const any = @import("./test.zig").any;
 
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    const result: [times][str.len]u8 = @splat(str[0..str.len].*);
+    return @bitCast(result);
+}
 test "i_number_double_huge_neg_exp.json" {
     try any("[123.456e-789]");
 }
@@ -104,7 +108,7 @@ test "i_string_utf16LE_no_BOM.json" {
     try any("[\x00\"\x00\xe9\x00\"\x00]\x00");
 }
 test "i_structure_500_nested_arrays.json" {
-    try any("[" ** 500 ++ "]" ** 500);
+    try any(&strMul("[", 500) ++ &strMul("]", 500));
 }
 test "i_structure_UTF-8_BOM_empty_object.json" {
     try any("\xef\xbb\xbf{}");
@@ -527,7 +531,7 @@ test "n_string_with_trailing_garbage.json" {
     try err("\"\"x");
 }
 test "n_structure_100000_opening_arrays.json" {
-    try err("[" ** 100000);
+    try err(&strMul("[", 100000));
 }
 test "n_structure_U+2060_word_joined.json" {
     try err("[\xe2\x81\xa0]");
@@ -605,7 +609,7 @@ test "n_structure_open_array_comma.json" {
     try err("[,");
 }
 test "n_structure_open_array_object.json" {
-    try err("[{\"\":" ** 50000 ++ "\n");
+    try err(&strMul("[{\"\":", 50000));
 }
 test "n_structure_open_array_open_object.json" {
     try err("[{");

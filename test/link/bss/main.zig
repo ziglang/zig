@@ -1,7 +1,7 @@
 const std = @import("std");
 
 // Stress test zerofill layout
-var buffer: [0x1000000]u64 = [1]u64{0} ** 0x1000000;
+var buffer: [0x1000000]u64 = @splat(0);
 
 pub fn main() anyerror!void {
     var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});

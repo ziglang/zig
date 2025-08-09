@@ -94,7 +94,7 @@ const SpinlockTable = struct {
         }
     };
 
-    list: [max_spinlocks]Spinlock = [_]Spinlock{.{}} ** max_spinlocks,
+    list: [max_spinlocks]Spinlock = @splat(.{}),
 
     // The spinlock table behaves as a really simple hash table, mapping
     // addresses to spinlocks. The mapping is not unique but that's only a

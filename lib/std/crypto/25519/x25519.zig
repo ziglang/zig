@@ -181,7 +181,7 @@ test "rfc7748 1,000,000 iterations" {
 }
 
 test "edwards25519 -> curve25519 map" {
-    const ed_kp = try crypto.sign.Ed25519.KeyPair.generateDeterministic([_]u8{0x42} ** 32);
+    const ed_kp = try crypto.sign.Ed25519.KeyPair.generateDeterministic(@splat(0x42));
     const mont_kp = try X25519.KeyPair.fromEd25519(ed_kp);
     try htest.assertEqual("90e7595fc89e52fdfddce9c6a43d74dbf6047025ee0462d2d172e8b6a2841d6e", &mont_kp.secret_key);
     try htest.assertEqual("cc4f2cdb695dd766f34118eb67b98652fed1d8bc49c330b119bbfa8a64989378", &mont_kp.public_key);

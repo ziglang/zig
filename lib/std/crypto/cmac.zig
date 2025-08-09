@@ -20,7 +20,7 @@ pub fn Cmac(comptime BlockCipher: type) type {
         cipher_ctx: BlockCipherCtx,
         k1: Block,
         k2: Block,
-        buf: Block = [_]u8{0} ** block_length,
+        buf: Block = @splat(0),
         pos: usize = 0,
 
         pub fn create(out: *[mac_length]u8, msg: []const u8, key: *const [key_length]u8) void {
@@ -31,7 +31,7 @@ pub fn Cmac(comptime BlockCipher: type) type {
 
         pub fn init(key: *const [key_length]u8) Self {
             const cipher_ctx = BlockCipher.initEnc(key.*);
-            const zeros = [_]u8{0} ** block_length;
+            const zeros: [block_length]u8 = @splat(0);
             var k1: Block = undefined;
             cipher_ctx.encrypt(&k1, &zeros);
             k1 = double(k1);

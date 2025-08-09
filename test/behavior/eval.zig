@@ -1216,7 +1216,7 @@ test "storing an array of type in a field" {
 
             fn foo() @This() {
                 comptime var foobar: Foobar = undefined;
-                foobar.str = [_]u8{'a'} ** 1024;
+                foobar.str = @splat('a');
                 return foobar;
             }
         };

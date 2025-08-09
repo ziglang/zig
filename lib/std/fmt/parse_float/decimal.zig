@@ -80,7 +80,7 @@ pub fn Decimal(comptime T: type) type {
                 .num_digits = 0,
                 .decimal_point = 0,
                 .truncated = false,
-                .digits = [_]u8{0} ** max_digits,
+                .digits = @splat(0),
             };
         }
 

@@ -253,7 +253,7 @@ test "iterative api" {
 }
 
 test "iterative maintains last sixteen" {
-    const input = "Z" ** 48 ++ "01234567890abcdefg";
+    const input = @as([48]u8, @splat('Z')) ++ "01234567890abcdefg";
     const seed = 0;
 
     for (0..17) |i| {

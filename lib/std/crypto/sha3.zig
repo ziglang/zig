@@ -534,7 +534,7 @@ test "sha3-256 streaming" {
 }
 
 test "sha3-256 aligned final" {
-    var block = [_]u8{0} ** Sha3_256.block_length;
+    var block: [Sha3_256.block_length]u8 = @splat(0);
     var out: [Sha3_256.digest_length]u8 = undefined;
 
     var h = Sha3_256.init(.{});
@@ -607,7 +607,7 @@ test "sha3-512 streaming" {
 }
 
 test "sha3-512 aligned final" {
-    var block = [_]u8{0} ** Sha3_512.block_length;
+    var block: [Sha3_512.block_length]u8 = @splat(0);
     var out: [Sha3_512.digest_length]u8 = undefined;
 
     var h = Sha3_512.init(.{});

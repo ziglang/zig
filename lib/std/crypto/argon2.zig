@@ -287,9 +287,9 @@ fn processSegment(
     slice: u32,
     lane: u24,
 ) void {
-    var addresses align(16) = [_]u64{0} ** block_length;
-    var in align(16) = [_]u64{0} ** block_length;
-    const zero align(16) = [_]u64{0} ** block_length;
+    var addresses: [block_length]u64 align(16) = @splat(0);
+    var in: [block_length]u64 align(16) = @splat(0);
+    const zero: [block_length]u64 align(16) = @splat(0);
     if (mode == .argon2i or (mode == .argon2id and n == 0 and slice < sync_points / 2)) {
         in[0] = n;
         in[1] = lane;
@@ -627,10 +627,10 @@ pub fn strVerify(
 }
 
 test "argon2d" {
-    const password = [_]u8{0x01} ** 32;
-    const salt = [_]u8{0x02} ** 16;
-    const secret = [_]u8{0x03} ** 8;
-    const ad = [_]u8{0x04} ** 12;
+    const password: [32]u8 = @splat(0x01);
+    const salt: [16]u8 = @splat(0x02);
+    const secret: [8]u8 = @splat(0x03);
+    const ad: [12]u8 = @splat(0x04);
 
     var dk: [32]u8 = undefined;
     try kdf(
@@ -652,10 +652,10 @@ test "argon2d" {
 }
 
 test "argon2i" {
-    const password = [_]u8{0x01} ** 32;
-    const salt = [_]u8{0x02} ** 16;
-    const secret = [_]u8{0x03} ** 8;
-    const ad = [_]u8{0x04} ** 12;
+    const password: [32]u8 = @splat(0x01);
+    const salt: [16]u8 = @splat(0x02);
+    const secret: [8]u8 = @splat(0x03);
+    const ad: [12]u8 = @splat(0x04);
 
     var dk: [32]u8 = undefined;
     try kdf(
@@ -677,10 +677,10 @@ test "argon2i" {
 }
 
 test "argon2id" {
-    const password = [_]u8{0x01} ** 32;
-    const salt = [_]u8{0x02} ** 16;
-    const secret = [_]u8{0x03} ** 8;
-    const ad = [_]u8{0x04} ** 12;
+    const password: [32]u8 = @splat(0x01);
+    const salt: [16]u8 = @splat(0x02);
+    const secret: [8]u8 = @splat(0x03);
+    const ad: [12]u8 = @splat(0x04);
 
     var dk: [32]u8 = undefined;
     try kdf(

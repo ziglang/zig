@@ -246,7 +246,7 @@ const Version = struct {
     patch: u8,
 
     fn parse(raw: []const u8) ?Version {
-        var parsed: [3]u16 = [_]u16{0} ** 3;
+        var parsed: [3]u16 = @splat(0);
         var count: usize = 0;
         var it = std.mem.splitAny(u8, raw, ".");
         while (it.next()) |comp| {

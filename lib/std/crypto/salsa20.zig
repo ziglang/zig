@@ -384,7 +384,7 @@ pub const XSalsa20Poly1305 = struct {
     pub fn encrypt(c: []u8, tag: *[tag_length]u8, m: []const u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) void {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
-        var block0 = [_]u8{0} ** 64;
+        var block0: [64]u8 = @splat(0);
         const mlen0 = @min(32, m.len);
         @memcpy(block0[32..][0..mlen0], m[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
@@ -408,7 +408,7 @@ pub const XSalsa20Poly1305 = struct {
     pub fn decrypt(m: []u8, c: []const u8, tag: [tag_length]u8, ad: []const u8, npub: [nonce_length]u8, k: [key_length]u8) AuthenticationError!void {
         debug.assert(c.len == m.len);
         const extended = extend(rounds, k, npub);
-        var block0 = [_]u8{0} ** 64;
+        var block0: [64]u8 = @splat(0);
         const mlen0 = @min(32, c.len);
         @memcpy(block0[32..][0..mlen0], c[0..mlen0]);
         Salsa20.xor(block0[0..], block0[0..], 0, extended.key, extended.nonce);
@@ -489,7 +489,7 @@ pub const Box = struct {
     /// Compute a secret suitable for `secretbox` given a recipient's public key and a sender's secret key.
     pub fn createSharedSecret(public_key: [public_length]u8, secret_key: [secret_length]u8) (IdentityElementError || WeakPublicKeyError)![shared_length]u8 {
         const p = try X25519.scalarmult(secret_key, public_key);
-        const zero = [_]u8{0} ** 16;
+        const zero: [16]u8 = @splat(0);
         return SalsaImpl(20).hsalsa(zero, p);
     }
 
@@ -559,15 +559,15 @@ const htest = @import("test.zig");
 test "(x)salsa20" {
     if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/24299
 
-    const key = [_]u8{0x69} ** 32;
-    const nonce = [_]u8{0x42} ** 8;
-    const msg = [_]u8{0} ** 20;
+    const key: [32]u8 = @splat(0x69);
+    const nonce: [8]u8 = @splat(0x42);
+    const msg: [20]u8 = @splat(0);
     var c: [msg.len]u8 = undefined;
 
     Salsa20.xor(&c, msg[0..], 0, key, nonce);
     try htest.assertEqual("30ff9933aa6534ff5207142593cd1fca4b23bdd8", c[0..]);
 
-    const extended_nonce = [_]u8{0x42} ** 24;
+    const extended_nonce: [24]u8 = @splat(0x42);
     XSalsa20.xor(&c, msg[0..], 0, key, extended_nonce);
     try htest.assertEqual("b4ab7d82e750ec07644fa3281bce6cd91d4243f9", c[0..]);
 }
@@ -633,7 +633,7 @@ test "xsalsa20poly1305 sealedbox" {
 test "secretbox twoblocks" {
     const key = [_]u8{ 0xc9, 0xc9, 0x4d, 0xcf, 0x68, 0xbe, 0x00, 0xe4, 0x7f, 0xe6, 0x13, 0x26, 0xfc, 0xc4, 0x2f, 0xd0, 0xdb, 0x93, 0x91, 0x1c, 0x09, 0x94, 0x89, 0xe1, 0x1b, 0x88, 0x63, 0x18, 0x86, 0x64, 0x8b, 0x7b };
     const nonce = [_]u8{ 0xa4, 0x33, 0xe9, 0x0a, 0x07, 0x68, 0x6e, 0x9a, 0x2b, 0x6d, 0xd4, 0x59, 0x04, 0x72, 0x3e, 0xd3, 0x8a, 0x67, 0x55, 0xc7, 0x9e, 0x3e, 0x77, 0xdc };
-    const msg = [_]u8{'a'} ** 97;
+    const msg: [97]u8 = @splat('a');
     var ciphertext: [msg.len + SecretBox.tag_length]u8 = undefined;
     SecretBox.seal(&ciphertext, &msg, nonce, key);
     try htest.assertEqual("b05760e217288ba079caa2fd57fd3701784974ffcfda20fe523b89211ad8af065a6eb37cdb29d51aca5bd75dafdd21d18b044c54bb7c526cf576c94ee8900f911ceab0147e82b667a28c52d58ceb29554ff45471224d37b03256b01c119b89ff6d36855de8138d103386dbc9d971f52261", &ciphertext);

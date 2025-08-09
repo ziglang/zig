@@ -632,7 +632,7 @@ pub const Object = struct {
 
                 try builder.metadataNamed(try builder.metadataString("llvm.dbg.cu"), &.{debug_compile_unit});
                 break :debug_info .{ debug_compile_unit, debug_enums_fwd_ref, debug_globals_fwd_ref };
-            } else .{.none} ** 3;
+            } else .{ .none, .none, .none };
 
         const obj = try arena.create(Object);
         obj.* = .{
@@ -1481,7 +1481,7 @@ pub const Object = struct {
             );
             function_index.setSubprogram(subprogram, &o.builder);
             break :debug_info .{ file, subprogram };
-        } else .{.none} ** 2;
+        } else .{ .none, .none };
 
         const fuzz: ?FuncGen.Fuzz = f: {
             if (!owner_mod.fuzz) break :f null;
@@ -8935,7 +8935,7 @@ pub const FuncGen = struct {
         const scalar_llvm_ty = llvm_ty.scalarType(&o.builder);
         const libc_fn = try self.getLibcFunction(
             fn_name,
-            ([1]Builder.Type{scalar_llvm_ty} ** 3)[0..params.len],
+            @as([3]Builder.Type, @splat(scalar_llvm_ty))[0..params.len],
             scalar_llvm_ty,
         );
         if (ty.zigTypeTag(zcu) == .vector) {

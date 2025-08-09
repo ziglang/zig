@@ -623,7 +623,7 @@ test "copied optional doesn't alias source" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
-    var opt_x: ?[3]f32 = [_]f32{0.0} ** 3;
+    var opt_x: ?[3]f32 = @splat(0);
 
     const x = opt_x.?;
     opt_x.?[0] = 15.0;

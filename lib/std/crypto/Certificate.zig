@@ -1060,7 +1060,7 @@ pub const rsa = struct {
             }
             var m_p_buf: [8 + Hash.digest_length + Hash.digest_length]u8 = undefined;
             var m_p = m_p_buf[0 .. 8 + Hash.digest_length + sLen];
-            std.mem.copyForwards(u8, m_p, &([_]u8{0} ** 8));
+            std.mem.copyForwards(u8, m_p, &@as([8]u8, @splat(0)));
             std.mem.copyForwards(u8, m_p[8..], &mHash);
             std.mem.copyForwards(u8, m_p[(8 + Hash.digest_length)..], salt);
 

@@ -38,7 +38,7 @@ symtab_cmd: macho.symtab_command = .{},
 dysymtab_cmd: macho.dysymtab_command = .{},
 function_starts_cmd: macho.linkedit_data_command = .{ .cmd = .FUNCTION_STARTS },
 data_in_code_cmd: macho.linkedit_data_command = .{ .cmd = .DATA_IN_CODE },
-uuid_cmd: macho.uuid_command = .{ .uuid = [_]u8{0} ** 16 },
+uuid_cmd: macho.uuid_command = .{ .uuid = @splat(0) },
 codesig_cmd: macho.linkedit_data_command = .{ .cmd = .CODE_SIGNATURE },
 
 pagezero_seg_index: ?u8 = null,
@@ -3701,7 +3701,7 @@ pub fn addSection(
 }
 
 pub fn makeStaticString(bytes: []const u8) [16]u8 {
-    var buf = [_]u8{0} ** 16;
+    var buf: [16]u8 = @splat(0);
     @memcpy(buf[0..bytes.len], bytes);
     return buf;
 }

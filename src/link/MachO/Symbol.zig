@@ -325,7 +325,7 @@ const Format = struct {
             if (symbol.getAtom(f.macho_file)) |atom| {
                 try w.print(" : atom({d})", .{atom.atom_index});
             }
-            var buf: [3]u8 = .{'_'} ** 3;
+            var buf: [3]u8 = @splat('_');
             if (symbol.flags.@"export") buf[0] = 'E';
             if (symbol.flags.import) buf[1] = 'I';
             switch (symbol.visibility) {

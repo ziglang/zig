@@ -1469,7 +1469,7 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
             });
             try w.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
-                const padding = " " ** 33;
+                const padding: [33]u8 = @splat(' ');
                 try w.writeAll(padding ++ "Supported Values:\n");
                 for (enum_options) |enum_option| {
                     try w.print(padding ++ "  {s}\n", .{enum_option});

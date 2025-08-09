@@ -43,7 +43,7 @@ fn __chk_fail() callconv(.c) noreturn {
 
 // TODO: Initialize the canary with random data
 var __stack_chk_guard: usize = blk: {
-    var buf = [1]u8{0} ** @sizeOf(usize);
+    var buf: [@sizeOf(usize)]u8 = @splat(0);
     buf[@sizeOf(usize) - 1] = 255;
     buf[@sizeOf(usize) - 2] = '\n';
     break :blk @as(usize, @bitCast(buf));

@@ -103,7 +103,7 @@ test "secp256k1 public key is the neutral element (public verification)" {
 }
 
 test "secp256k1 field element non-canonical encoding" {
-    const s = [_]u8{0xff} ** 32;
+    const s: [32]u8 = @splat(0xff);
     try testing.expectError(error.NonCanonical, Secp256k1.Fe.fromBytes(s, .little));
 }
 
@@ -116,8 +116,8 @@ test "secp256k1 neutral element decoding" {
 test "secp256k1 double base multiplication" {
     const p1 = Secp256k1.basePoint;
     const p2 = Secp256k1.basePoint.dbl();
-    const s1 = [_]u8{0x01} ** 32;
-    const s2 = [_]u8{0x02} ** 32;
+    const s1: [32]u8 = @splat(0x01);
+    const s2: [32]u8 = @splat(0x02);
     const pr1 = try Secp256k1.mulDoubleBasePublic(p1, s1, p2, s2, .little);
     const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));

@@ -2978,7 +2978,7 @@ fn finishWipNavFuncWriterError(
             wip_nav.unit,
             wip_nav.entry,
             dwarf,
-            ([1]u8{DW.RLE.start_end} ++ [1]u8{0} ** (8 + 8))[0 .. 1 + @intFromEnum(dwarf.address_size) + @intFromEnum(dwarf.address_size)],
+            ([1]u8{DW.RLE.start_end} ++ @as([8 + 8]u8, @splat(0)))[0 .. 1 + @intFromEnum(dwarf.address_size) + @intFromEnum(dwarf.address_size)],
         );
     }
 

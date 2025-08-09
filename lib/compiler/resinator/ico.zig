@@ -183,7 +183,7 @@ pub const Entry = struct {
 };
 
 test "icon" {
-    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
+    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ @as([16]u8, @splat(0));
     var fbs: std.Io.Reader = .fixed(data);
     const icon = try read(std.testing.allocator, &fbs, data.len);
     defer icon.deinit();
@@ -196,19 +196,19 @@ test "icon too many images" {
     // Note that with verifying that all data sizes are within the file bounds and >= 16,
     // it's not possible to hit EOF when looking for more RESDIR structures, since they are
     // themselves 16 bytes long, so we'll always hit ImpossibleDataSize instead.
-    const data = "\x00\x00\x01\x00\x02\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
+    const data = "\x00\x00\x01\x00\x02\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x16\x00\x00\x00" ++ @as([16]u8, @splat(0));
     var fbs: std.Io.Reader = .fixed(data);
     try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 test "icon data size past EOF" {
-    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x01\x00\x00\x16\x00\x00\x00" ++ [_]u8{0} ** 16;
+    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x01\x00\x00\x16\x00\x00\x00" ++ @as([16]u8, @splat(0));
     var fbs: std.Io.Reader = .fixed(data);
     try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }
 
 test "icon data offset past EOF" {
-    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x17\x00\x00\x00" ++ [_]u8{0} ** 16;
+    const data = "\x00\x00\x01\x00\x01\x00\x10\x10\x00\x00\x01\x00\x10\x00\x10\x00\x00\x00\x17\x00\x00\x00" ++ @as([16]u8, @splat(0));
     var fbs: std.Io.Reader = .fixed(data);
     try std.testing.expectError(error.ImpossibleDataSize, read(std.testing.allocator, &fbs, data.len));
 }

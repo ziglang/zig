@@ -67,7 +67,7 @@ comptime {
 }
 
 // initialize an array to zero
-const all_zero = [_]u16{0} ** 10;
+const all_zero: [10]u16 = @splat(0);
 
 comptime {
     assert(all_zero.len == 10);
@@ -96,7 +96,7 @@ test "compile-time array initialization" {
 }
 
 // call a function to initialize an array
-var more_points = [_]Point{makePoint(3)} ** 10;
+var more_points: [10]Point = @splat(makePoint(3));
 fn makePoint(x: i32) Point {
     return Point{
         .x = x,

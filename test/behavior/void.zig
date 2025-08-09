@@ -44,7 +44,7 @@ test "void optional" {
 }
 
 test "void array as a local variable initializer" {
-    var x = [_]void{{}} ** 1004;
+    var x: [1004]void = @splat({});
     _ = &x[0];
     _ = x[0];
 }

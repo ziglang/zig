@@ -13,8 +13,8 @@ const Case = struct {
     };
 
     data: []const u8, // testdata file content
-    files: []const File = &[_]@This().File{}, // expected files to found in archive
-    chksums: []const []const u8 = &[_][]const u8{}, // chksums of each file content
+    files: []const File = &.{}, // expected files to found in archive
+    chksums: []const []const u8 = &.{}, // chksums of each file content
     err: ?anyerror = null, // parsing should fail with this error
 };
 
@@ -51,9 +51,9 @@ const gnu_multi_headers_case: Case = .{
 
 const trailing_slash_case: Case = .{
     .data = @embedFile("testdata/trailing-slash.tar"),
-    .files = &[_]Case.File{
+    .files = &.{
         .{
-            .name = "123456789/" ** 30,
+            .name = @ptrCast(&@as([30][10]u8, @splat("123456789/".*))),
             .kind = .directory,
         },
     },
@@ -62,9 +62,9 @@ const trailing_slash_case: Case = .{
 const writer_big_long_case: Case = .{
     // Size in gnu extended format, and name in pax attribute.
     .data = @embedFile("testdata/writer-big-long.tar"),
-    .files = &[_]Case.File{
+    .files = &.{
         .{
-            .name = "longname/" ** 15 ++ "16gig.txt",
+            .name = @as([15 * 9]u8, @bitCast(@as([15][9]u8, @splat("longname/".*)))) ++ "16gig.txt",
             .size = 16 * 1024 * 1024 * 1024,
             .mode = 0o644,
             .truncated = true,

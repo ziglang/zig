@@ -1340,7 +1340,7 @@ const FileEntry = struct {
     dir_index: u32 = 0,
     mtime: u64 = 0,
     size: u64 = 0,
-    md5: [16]u8 = [1]u8{0} ** 16,
+    md5: [16]u8 = @splat(0),
 };
 
 const LineNumberProgram = struct {

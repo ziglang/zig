@@ -206,7 +206,7 @@ test "RFC 6070 16,777,216 iterations" {
     const c = 16777216;
     const dk_len = 20;
 
-    var dk = [_]u8{0} ** dk_len;
+    var dk: [dk_len]u8 = @splat(0);
 
     try pbkdf2(&dk, p, s, c, HmacSha1);
 

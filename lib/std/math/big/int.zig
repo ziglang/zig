@@ -2333,7 +2333,7 @@ pub const Const = struct {
         var limbs: [calcToStringLimbsBufferLen(available_len, 10)]Limb = undefined;
 
         const biggest: Const = .{
-            .limbs = &([1]Limb{comptime math.maxInt(Limb)} ** available_len),
+            .limbs = &@as([available_len]Limb, @splat(math.maxInt(Limb))),
             .positive = false,
         };
         var buf: [biggest.sizeInBaseUpperBound(2)]u8 = undefined;

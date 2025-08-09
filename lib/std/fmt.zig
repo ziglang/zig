@@ -1195,7 +1195,8 @@ test bytesToHex {
 
 test hexToBytes {
     var buf: [32]u8 = undefined;
-    try expectFmt("90" ** 32, "{X}", .{try hexToBytes(&buf, "90" ** 32)});
+    const @"90": [64]u8 = @bitCast(@as([32][2]u8, @splat("90".*)));
+    try expectFmt(&@"90", "{X}", .{try hexToBytes(&buf, &@"90")});
     try expectFmt("ABCD", "{X}", .{try hexToBytes(&buf, "ABCD")});
     try expectFmt("", "{X}", .{try hexToBytes(&buf, "")});
     try std.testing.expectError(error.InvalidCharacter, hexToBytes(&buf, "012Z"));

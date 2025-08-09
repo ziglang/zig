@@ -264,7 +264,7 @@ const Output = struct {
 const ChunkState = struct {
     chaining_value: [8]u32 align(16),
     chunk_counter: u64,
-    block: [BLOCK_LEN]u8 align(16) = [_]u8{0} ** BLOCK_LEN,
+    block: [BLOCK_LEN]u8 align(16) = @splat(0),
     block_len: u8 = 0,
     blocks_compressed: u8 = 0,
     flags: u8,
@@ -308,7 +308,7 @@ const ChunkState = struct {
                     self.flags | self.startFlag(),
                 ));
                 self.blocks_compressed += 1;
-                self.block = [_]u8{0} ** BLOCK_LEN;
+                self.block = @splat(0);
                 self.block_len = 0;
             }
 

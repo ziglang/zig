@@ -705,12 +705,12 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
             }
         } else {
             gop.value_ptr.* = .{
-                .present = [1]bool{false} ** arches.len,
+                .present = @splat(false),
                 .section = section_index_map[this_section],
                 .ty = ty,
-                .binding = [1]u4{0} ** arches.len,
+                .binding = @splat(0),
                 .visib = visib,
-                .size = [1]u64{0} ** arches.len,
+                .size = @splat(0),
             };
         }
         gop.value_ptr.present[archIndex(parse.arch)] = true;

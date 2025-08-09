@@ -278,10 +278,10 @@ pub fn createEmpty(
         .ptr_width = ptr_width,
         .page_size = page_size,
 
-        .data_directories = [1]coff_util.ImageDataDirectory{.{
+        .data_directories = @splat(.{
             .virtual_address = 0,
             .size = 0,
-        }} ** coff_util.IMAGE_NUMBEROF_DIRECTORY_ENTRIES,
+        }),
 
         .image_base = options.image_base orelse switch (output_mode) {
             .Exe => switch (target.cpu.arch) {
@@ -323,7 +323,7 @@ pub fn createEmpty(
 
     // Index 0 is always a null symbol.
     try coff.locals.append(gpa, .{
-        .name = [_]u8{0} ** 8,
+        .name = @splat(0),
         .value = 0,
         .section_number = .UNDEFINED,
         .type = .{ .base_type = .NULL, .complex_type = .NULL },
@@ -708,7 +708,7 @@ pub fn allocateSymbol(coff: *Coff) !u32 {
     };
 
     coff.locals.items[index] = .{
-        .name = [_]u8{0} ** 8,
+        .name = @splat(0),
         .value = 0,
         .section_number = .UNDEFINED,
         .type = .{ .base_type = .NULL, .complex_type = .NULL },
@@ -1576,7 +1576,7 @@ pub fn deleteExport(
     log.debug("deleting export '{f}'", .{name.fmt(&zcu.intern_pool)});
     assert(sym.storage_class == .EXTERNAL and sym.section_number != .UNDEFINED);
     sym.* = .{
-        .name = [_]u8{0} ** 8,
+        .name = @splat(0),
         .value = 0,
         .section_number = .UNDEFINED,
         .type = .{ .base_type = .NULL, .complex_type = .NULL },
@@ -3133,15 +3133,15 @@ const msdos_stub: [120]u8 = .{
     0x00, 0x00, // Overlay number. Zero means this is the main executable.
 }
     // Reserved words.
-    ++ .{ 0x00, 0x00 } ** 4
-        // OEM-related fields.
+    ++ @as([2 * 4]u8, @splat(0x00))
+    // OEM-related fields.
     ++ .{
         0x00, 0x00, // OEM identifier.
         0x00, 0x00, // OEM information.
     }
     // Reserved words.
-    ++ .{ 0x00, 0x00 } ** 10
-        // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
+    ++ @as([2 * 10]u8, @splat(0x00))
+    // Address of the PE header (a long). This matches the size of this entire MS-DOS stub, so that's the address of what's after this MS-DOS stub.
     ++ .{ 0x78, 0x00, 0x00, 0x00 }
     // What follows is a 16-bit x86 MS-DOS program of 7 instructions that prints the bytes after these instructions and then exits.
     ++ .{
