@@ -18,6 +18,8 @@ pub const byte_size_in_bits = 8;
 
 pub const Allocator = @import("mem/Allocator.zig");
 
+pub const sentinel_terminated = @import("mem/sentinel_terminated.zig");
+
 /// Stored as a power-of-two.
 pub const Alignment = enum(math.Log2Int(usize)) {
     @"1" = 0,
@@ -640,9 +642,7 @@ pub fn order(comptime T: type, lhs: []const T, rhs: []const T) math.Order {
 
 /// Compares two many-item pointers with NUL-termination lexicographically.
 pub fn orderZ(comptime T: type, lhs: [*:0]const T, rhs: [*:0]const T) math.Order {
-    var i: usize = 0;
-    while (lhs[i] == rhs[i] and lhs[i] != 0) : (i += 1) {}
-    return math.order(lhs[i], rhs[i]);
+    return sentinel_terminated.order(T, 0, lhs, rhs);
 }
 
 test order {
@@ -651,6 +651,7 @@ test order {
     try testing.expect(order(u8, "abc", "abc0") == .lt);
     try testing.expect(order(u8, "", "") == .eq);
     try testing.expect(order(u8, "", "a") == .lt);
+    try testing.expect(order(i8, &.{ -1, -2 }, &.{ -1, -2, -3 }) == .lt);
 }
 
 test orderZ {
@@ -659,6 +660,7 @@ test orderZ {
     try testing.expect(orderZ(u8, "abc", "abc0") == .lt);
     try testing.expect(orderZ(u8, "", "") == .eq);
     try testing.expect(orderZ(u8, "", "a") == .lt);
+    try testing.expect(order(i8, &.{ -1, -2 }, &.{ -1, -2, -3 }) == .lt);
 }
 
 /// Returns true if lhs < rhs, false otherwise
@@ -4841,4 +4843,8 @@ test "read/write(Var)PackedInt" {
             }
         }
     }
+}
+
+test {
+    _ = sentinel_terminated;
 }
