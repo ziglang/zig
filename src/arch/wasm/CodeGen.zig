@@ -3131,7 +3131,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const zcu = pt.zcu;
     assert(!isByRef(ty, zcu, cg.target));
     const ip = &zcu.intern_pool;
-    if (val.isUndefDeep(zcu)) return cg.emitUndefined(ty);
+    if (val.isUndef(zcu)) return cg.emitUndefined(ty);
 
     switch (ip.indexToKey(val.ip_index)) {
         .int_type,

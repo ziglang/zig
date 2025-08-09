@@ -2036,6 +2036,8 @@ pub const Key = union(enum) {
     /// Each element/field stored as an `Index`.
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
     /// so the slice length will be one more than the type's array length.
+    /// There must be at least one element which is not `undefined`. If all elements are
+    /// undefined, instead create an undefined value of the aggregate type.
     aggregate: Aggregate,
     /// An instance of a union.
     un: Union,
@@ -8401,24 +8403,33 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     assert(sentinel == .none or elem == sentinel);
                 },
             }
-            switch (ty_key) {
+            if (aggregate.storage.values().len > 0) switch (ty_key) {
                 .array_type, .vector_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values()) |elem| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == child);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 .struct_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values(), ip.loadStructType(aggregate.ty).field_types.get(ip)) |elem, field_ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == field_ty);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 .tuple_type => |tuple_type| {
+                    var any_defined = false;
                     for (aggregate.storage.values(), tuple_type.types.get(ip)) |elem, ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == ty);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 else => unreachable,
-            }
+            };
 
             if (len == 0) {
                 items.appendAssumeCapacity(.{
