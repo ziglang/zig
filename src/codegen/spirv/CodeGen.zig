@@ -274,6 +274,13 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                 .storage_class = storage_class,
             });
 
+            if (nav.getAlignment() != ty.abiAlignment(zcu)) {
+                if (target.os.tag != .opencl) return cg.fail("cannot apply alignment to variables", .{});
+                try cg.module.decorate(result_id, .{
+                    .alignment = .{ .alignment = @intCast(nav.getAlignment().toByteUnits().?) },
+                });
+            }
+
             switch (target.os.tag) {
                 .vulkan, .opengl => {
                     if (ty.zigTypeTag(zcu) == .@"struct") {
@@ -348,7 +355,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                     .id_result_type = ptr_ty_id,
                     .id_result = result_id,
                     .set = try cg.module.importInstructionSet(.zig),
-                    .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+                    .instruction = .{ .inst = @intFromEnum(spec.Zig.InvocationGlobal) },
                     .id_ref_4 = &.{initializer_id},
                 });
             } else {
@@ -356,7 +363,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                     .id_result_type = ptr_ty_id,
                     .id_result = result_id,
                     .set = try cg.module.importInstructionSet(.zig),
-                    .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+                    .instruction = .{ .inst = @intFromEnum(spec.Zig.InvocationGlobal) },
                     .id_ref_4 = &.{},
                 });
             }
@@ -498,7 +505,7 @@ fn resolveUav(cg: *CodeGen, val: InternPool.Index) !Id {
             .id_result_type = fn_decl_ptr_ty_id,
             .id_result = result_id,
             .set = try cg.module.importInstructionSet(.zig),
-            .instruction = .{ .inst = 0 }, // TODO: Put this definition somewhere...
+            .instruction = .{ .inst = @intFromEnum(spec.Zig.InvocationGlobal) },
             .id_ref_4 = &.{initializer_id},
         });
     }
@@ -1037,9 +1044,18 @@ fn derivePtr(cg: *CodeGen, derivation: Value.PointerDeriveStep) !Id {
     const gpa = cg.module.gpa;
     const pt = cg.pt;
     const zcu = cg.module.zcu;
+    const target = zcu.getTarget();
     switch (derivation) {
         .comptime_alloc_ptr, .comptime_field_ptr => unreachable,
         .int => |int| {
+            if (target.os.tag != .opencl) {
+                if (int.ptr_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) {
+                    return cg.fail(
+                        "cannot cast integer to pointer with address space '{s}'",
+                        .{@tagName(int.ptr_ty.ptrAddressSpace(zcu))},
+                    );
+                }
+            }
             const result_ty_id = try cg.resolveType(int.ptr_ty, .direct);
             // TODO: This can probably be an OpSpecConstantOp Bitcast, but
             // that is not implemented by Mesa yet. Therefore, just generate it
@@ -1137,7 +1153,7 @@ fn constantUavRef(
     // Uav refs are always generic.
     assert(ty.ptrAddressSpace(zcu) == .generic);
     const uav_ty_id = try cg.resolveType(uav_ty, .indirect);
-    const decl_ptr_ty_id = try cg.module.ptrType(uav_ty_id, .generic);
+    const decl_ptr_ty_id = try cg.module.ptrType(uav_ty_id, .function);
     const ptr_id = try cg.resolveUav(uav.val);
 
     if (decl_ptr_ty_id != ty_id) {
@@ -1327,7 +1343,10 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
         },
         .void => switch (repr) {
             .direct => return try cg.module.voidType(),
-            .indirect => return try cg.module.opaqueType("void"),
+            .indirect => {
+                if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
+                return try cg.module.opaqueType("void");
+            },
         },
         .bool => switch (repr) {
             .direct => return try cg.module.boolType(),
@@ -1337,6 +1356,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             const int_info = ty.intInfo(zcu);
             if (int_info.bits == 0) {
                 assert(repr == .indirect);
+                if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
                 return try cg.module.opaqueType("u0");
             }
             return try cg.module.intType(int_info.signedness, int_info.bits);
@@ -1369,6 +1389,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
 
             if (!elem_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
                 assert(repr == .indirect);
+                if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
                 return try cg.module.opaqueType("zero-sized-array");
             } else if (total_len == 0) {
                 // The size of the array would be 0, but that is not allowed in SPIR-V.
@@ -1590,6 +1611,7 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
             return try cg.module.structType(&member_types, &member_names, null, .none);
         },
         .@"opaque" => {
+            if (target.os.tag != .opencl) return cg.fail("cannot generate opaque type", .{});
             const type_name = try cg.resolveTypeName(ty);
             defer gpa.free(type_name);
             return try cg.module.opaqueType(type_name);
@@ -2510,11 +2532,7 @@ fn generateTestEntryPoint(
     try cg.module.declareEntryPoint(spv_decl_index, test_name, execution_mode, null);
 }
 
-fn intFromBool(cg: *CodeGen, value: Temporary) !Temporary {
-    return try cg.intFromBool2(value, Type.u1);
-}
-
-fn intFromBool2(cg: *CodeGen, value: Temporary, result_ty: Type) !Temporary {
+fn intFromBool(cg: *CodeGen, value: Temporary, result_ty: Type) !Temporary {
     const zero_id = try cg.constInt(result_ty, 0);
     const one_id = try cg.constInt(result_ty, 1);
 
@@ -2558,7 +2576,7 @@ fn convertToIndirect(cg: *CodeGen, ty: Type, operand_id: Id) !Id {
     const zcu = cg.module.zcu;
     switch (ty.scalarType(zcu).zigTypeTag(zcu)) {
         .bool => {
-            const result = try cg.intFromBool(Temporary.init(ty, operand_id));
+            const result = try cg.intFromBool(.init(ty, operand_id), .u1);
             return try result.materialize(cg);
         },
         else => return operand_id,
@@ -2958,7 +2976,7 @@ fn normalize(cg: *CodeGen, value: Temporary, info: ArithmeticTypeInfo) !Temporar
         .composite_integer, .integer, .bool, .float => return value,
         .strange_integer => switch (info.signedness) {
             .unsigned => {
-                const mask_value = if (info.bits == 64) 0xFFFF_FFFF_FFFF_FFFF else (@as(u64, 1) << @as(u6, @intCast(info.bits))) - 1;
+                const mask_value = @as(u64, std.math.maxInt(u64)) >> @as(u6, @intCast(64 - info.bits));
                 const mask_id = try cg.constInt(ty.scalarType(zcu), mask_value);
                 return try cg.buildBinary(.OpBitwiseAnd, value, Temporary.init(ty.scalarType(zcu), mask_id));
             },
@@ -2997,28 +3015,12 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
             const div = try cg.buildBinary(.OpSDiv, lhs, rhs);
             const rem = try cg.buildBinary(.OpSRem, lhs, rhs);
-
             const zero: Temporary = .init(lhs.ty, try cg.constInt(lhs.ty, 0));
-
-            const rem_is_not_zero = try cg.buildCmp(.OpINotEqual, rem, zero);
-
-            const result_negative = try cg.buildCmp(
-                .OpLogicalNotEqual,
-                try cg.buildCmp(.OpSLessThan, lhs, zero),
-                try cg.buildCmp(.OpSLessThan, rhs, zero),
-            );
-            const rem_is_not_zero_and_result_is_negative = try cg.buildBinary(
-                .OpLogicalAnd,
-                rem_is_not_zero,
-                result_negative,
-            );
-
-            const result = try cg.buildBinary(
-                .OpISub,
-                div,
-                try cg.intFromBool2(rem_is_not_zero_and_result_is_negative, div.ty),
-            );
-
+            const rem_non_zero = try cg.buildCmp(.OpINotEqual, rem, zero);
+            const lhs_rhs_xor = try cg.buildBinary(.OpBitwiseXor, lhs, rhs);
+            const signs_differ = try cg.buildCmp(.OpSLessThan, lhs_rhs_xor, zero);
+            const adjust = try cg.buildBinary(.OpLogicalAnd, rem_non_zero, signs_differ);
+            const result = try cg.buildBinary(.OpISub, div, try cg.intFromBool(adjust, div.ty));
             return try result.materialize(cg);
         },
         .float => {
@@ -3032,10 +3034,8 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
 fn airDivTrunc(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
     const lhs = try cg.temporary(bin_op.lhs);
     const rhs = try cg.temporary(bin_op.rhs);
-
     const info = cg.arithmeticTypeInfo(lhs.ty);
     switch (info.class) {
         .composite_integer => unreachable, // TODO
@@ -3073,12 +3073,9 @@ fn airArithOp(
     comptime uop: Opcode,
 ) !?Id {
     const bin_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
-
     const lhs = try cg.temporary(bin_op.lhs);
     const rhs = try cg.temporary(bin_op.rhs);
-
     const info = cg.arithmeticTypeInfo(lhs.ty);
-
     const result = switch (info.class) {
         .composite_integer => unreachable, // TODO
         .integer, .strange_integer => switch (info.signedness) {
@@ -3088,7 +3085,6 @@ fn airArithOp(
         .float => try cg.buildBinary(fop, lhs, rhs),
         .bool => unreachable,
     };
-
     return try result.materialize(cg);
 }
 
@@ -3105,12 +3101,10 @@ fn abs(cg: *CodeGen, result_ty: Type, value: Temporary) !Temporary {
     const zcu = cg.module.zcu;
     const target = cg.module.zcu.getTarget();
     const operand_info = cg.arithmeticTypeInfo(value.ty);
-
     switch (operand_info.class) {
         .float => return try cg.buildUnary(.f_abs, value),
         .integer, .strange_integer => {
             const abs_value = try cg.buildUnary(.i_abs, value);
-
             switch (target.os.tag) {
                 .vulkan, .opengl => {
                     if (value.ty.intInfo(zcu).signedness == .signed) {
@@ -3119,7 +3113,6 @@ fn abs(cg: *CodeGen, result_ty: Type, value: Temporary) !Temporary {
                 },
                 else => {},
             }
-
             return try cg.normalize(abs_value, cg.arithmeticTypeInfo(result_ty));
         },
         .composite_integer => unreachable, // TODO
@@ -3134,19 +3127,18 @@ fn airAddSubOverflow(
     u_opcode: Opcode,
     s_opcode: Opcode,
 ) !?Id {
-    _ = s_opcode;
     // Note: OpIAddCarry and OpISubBorrow are not really useful here: For unsigned numbers,
     // there is in both cases only one extra operation required. For signed operations,
     // the overflow bit is set then going from 0x80.. to 0x00.., but this doesn't actually
     // normally set a carry bit. So the SPIR-V overflow operations are not particularly
     // useful here.
 
+    _ = s_opcode;
+
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
     const lhs = try cg.temporary(extra.lhs);
     const rhs = try cg.temporary(extra.rhs);
-
     const result_ty = cg.typeOfIndex(inst);
 
     const info = cg.arithmeticTypeInfo(lhs.ty);
@@ -3158,7 +3150,6 @@ fn airAddSubOverflow(
 
     const sum = try cg.buildBinary(add, lhs, rhs);
     const result = try cg.normalize(sum, info);
-
     const overflowed = switch (info.signedness) {
         // Overflow happened if the result is smaller than either of the operands. It doesn't matter which.
         // For subtraction the conditions need to be swapped.
@@ -3173,38 +3164,31 @@ fn airAddSubOverflow(
             // and the result's sign is different from the minuend's (a's) sign.
             //   (sign(a) != sign(b)) && (sign(a) != sign(result))
             const zero: Temporary = .init(rhs.ty, try cg.constInt(rhs.ty, 0));
-
             const lhs_is_neg = try cg.buildCmp(.OpSLessThan, lhs, zero);
             const rhs_is_neg = try cg.buildCmp(.OpSLessThan, rhs, zero);
             const result_is_neg = try cg.buildCmp(.OpSLessThan, result, zero);
-
             const signs_match = try cg.buildCmp(.OpLogicalEqual, lhs_is_neg, rhs_is_neg);
             const result_sign_differs = try cg.buildCmp(.OpLogicalNotEqual, lhs_is_neg, result_is_neg);
-
-            const overflow_condition = if (add == .OpIAdd)
-                signs_match
-            else // .OpISub
-                try cg.buildUnary(.l_not, signs_match);
-
+            const overflow_condition = switch (add) {
+                .OpIAdd => signs_match,
+                .OpISub => try cg.buildUnary(.l_not, signs_match),
+                else => unreachable,
+            };
             break :blk try cg.buildCmp(.OpLogicalAnd, overflow_condition, result_sign_differs);
         },
     };
 
-    const ov = try cg.intFromBool(overflowed);
-
+    const ov = try cg.intFromBool(overflowed, .u1);
     const result_ty_id = try cg.resolveType(result_ty, .direct);
     return try cg.constructComposite(result_ty_id, &.{ try result.materialize(cg), try ov.materialize(cg) });
 }
 
 fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const pt = cg.pt;
-
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Bin, ty_pl.payload).data;
-
     const lhs = try cg.temporary(extra.lhs);
     const rhs = try cg.temporary(extra.rhs);
-
     const result_ty = cg.typeOfIndex(inst);
 
     const info = cg.arithmeticTypeInfo(lhs.ty);
@@ -3237,20 +3221,15 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const op_ty = try pt.intType(.unsigned, op_ty_bits);
                 const casted_lhs = try cg.buildConvert(op_ty, lhs);
                 const casted_rhs = try cg.buildConvert(op_ty, rhs);
-
                 const full_result = try cg.buildBinary(.OpIMul, casted_lhs, casted_rhs);
-
                 const low_bits = try cg.buildConvert(lhs.ty, full_result);
                 const result = try cg.normalize(low_bits, info);
-
                 // Shift the result bits away to get the overflow bits.
                 const shift: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, info.bits));
                 const overflow = try cg.buildBinary(.OpShiftRightLogical, full_result, shift);
-
                 // Directly check if its zero in the op_ty without converting first.
                 const zero: Temporary = .init(full_result.ty, try cg.constInt(full_result.ty, 0));
                 const overflowed = try cg.buildCmp(.OpINotEqual, zero, overflow);
-
                 break :blk .{ result, overflowed };
             }
 
@@ -3362,7 +3341,7 @@ fn airMulOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         },
     };
 
-    const ov = try cg.intFromBool(overflowed);
+    const ov = try cg.intFromBool(overflowed, .u1);
 
     const result_ty_id = try cg.resolveType(result_ty, .direct);
     return try cg.constructComposite(result_ty_id, &.{ try result.materialize(cg), try ov.materialize(cg) });
@@ -3403,7 +3382,7 @@ fn airShlOverflow(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     };
 
     const overflowed = try cg.buildCmp(.OpINotEqual, base, right);
-    const ov = try cg.intFromBool(overflowed);
+    const ov = try cg.intFromBool(overflowed, .u1);
 
     const result_ty_id = try cg.resolveType(result_ty, .direct);
     return try cg.constructComposite(result_ty_id, &.{ try result.materialize(cg), try ov.materialize(cg) });
@@ -3931,6 +3910,7 @@ fn bitCast(
 ) !Id {
     const gpa = cg.module.gpa;
     const zcu = cg.module.zcu;
+    const target = zcu.getTarget();
     const src_ty_id = try cg.resolveType(src_ty, .direct);
     const dst_ty_id = try cg.resolveType(dst_ty, .direct);
 
@@ -3941,6 +3921,15 @@ fn bitCast(
         //   See fn bitCast in llvm.zig
 
         if (src_ty.zigTypeTag(zcu) == .int and dst_ty.isPtrAtRuntime(zcu)) {
+            if (target.os.tag != .opencl) {
+                if (dst_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) {
+                    return cg.fail(
+                        "cannot cast integer to pointer with address space '{s}'",
+                        .{@tagName(dst_ty.ptrAddressSpace(zcu))},
+                    );
+                }
+            }
+
             const result_id = cg.module.allocId();
             try cg.body.emit(gpa, .OpConvertUToPtr, .{
                 .id_result_type = dst_ty_id,
@@ -3967,7 +3956,8 @@ fn bitCast(
 
         const dst_ptr_ty_id = try cg.module.ptrType(dst_ty_id, .function);
 
-        const tmp_id = try cg.alloc(src_ty, .{ .storage_class = .function });
+        const src_ty_indirect_id = try cg.resolveType(src_ty, .indirect);
+        const tmp_id = try cg.alloc(src_ty_indirect_id, null);
         try cg.store(src_ty, tmp_id, src_id, .{});
         const casted_ptr_id = cg.module.allocId();
         try cg.body.emit(gpa, .OpBitcast, .{
@@ -3997,7 +3987,7 @@ fn airBitCast(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const result_ty = cg.typeOfIndex(inst);
     if (operand_ty.toIntern() == .bool_type) {
         const operand = try cg.temporary(ty_op.operand);
-        const result = try cg.intFromBool(operand);
+        const result = try cg.intFromBool(operand, .u1);
         return try result.materialize(cg);
     }
     const operand_id = try cg.resolve(ty_op.operand);
@@ -4420,7 +4410,6 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     // TODO: This backend probably also should use isByRef from llvm...
 
     const is_vector = array_ty.isVector(zcu);
-
     const elem_repr: Repr = if (is_vector) .direct else .indirect;
     const array_ty_id = try cg.resolveType(array_ty, .direct);
     const elem_ty_id = try cg.resolveType(elem_ty, elem_repr);
@@ -4588,7 +4577,8 @@ fn unionInit(
         return try cg.constInt(tag_ty, tag_int);
     }
 
-    const tmp_id = try cg.alloc(ty, .{ .storage_class = .function });
+    const ty_id = try cg.resolveType(ty, .indirect);
+    const tmp_id = try cg.alloc(ty_id, null);
 
     if (layout.tag_size != 0) {
         const tag_ty_id = try cg.resolveType(tag_ty, .indirect);
@@ -4709,7 +4699,8 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
                 const layout = cg.unionLayout(object_ty);
                 assert(layout.has_payload);
 
-                const tmp_id = try cg.alloc(object_ty, .{ .storage_class = .function });
+                const object_ty_id = try cg.resolveType(object_ty, .indirect);
+                const tmp_id = try cg.alloc(object_ty_id, null);
                 try cg.store(object_ty, tmp_id, object_id, .{});
 
                 const layout_payload_ty_id = try cg.resolveType(layout.payload_ty, .indirect);
@@ -4733,13 +4724,16 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
 
 fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const zcu = cg.module.zcu;
+    const target = zcu.getTarget();
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.FieldParentPtr, ty_pl.payload).data;
 
-    const parent_ty = ty_pl.ty.toType().childType(zcu);
-    const result_ty_id = try cg.resolveType(ty_pl.ty.toType(), .indirect);
+    const parent_ptr_ty = ty_pl.ty.toType();
+    const parent_ty = parent_ptr_ty.childType(zcu);
+    const result_ty_id = try cg.resolveType(parent_ptr_ty, .indirect);
 
     const field_ptr = try cg.resolve(extra.field_ptr);
+    const field_ptr_ty = cg.typeOf(extra.field_ptr);
     const field_ptr_int = try cg.intFromPtr(field_ptr);
     const field_offset = parent_ty.structFieldOffset(extra.field_index, zcu);
 
@@ -4752,6 +4746,15 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
         const result = try cg.buildBinary(.OpISub, field_ptr_tmp, field_offset_tmp);
         break :base_ptr_int try result.materialize(cg);
     };
+
+    if (target.os.tag != .opencl) {
+        if (field_ptr_ty.ptrAddressSpace(zcu) != .physical_storage_buffer) {
+            return cg.fail(
+                "cannot cast integer to pointer with address space '{s}'",
+                .{@tagName(field_ptr_ty.ptrAddressSpace(zcu))},
+            );
+        }
+    }
 
     const base_ptr = cg.module.allocId();
     try cg.body.emit(cg.module.gpa, .OpConvertUToPtr, .{
@@ -4821,46 +4824,33 @@ fn airStructFieldPtrIndex(cg: *CodeGen, inst: Air.Inst.Index, field_index: u32) 
     return try cg.structFieldPtr(result_ptr_ty, struct_ptr_ty, struct_ptr, field_index);
 }
 
-const AllocOptions = struct {
-    initializer: ?Id = null,
-    /// The final storage class of the pointer. This may be either `.Generic` or `.Function`.
-    /// In either case, the local is allocated in the `.Function` storage class, and optionally
-    /// cast back to `.Generic`.
-    storage_class: StorageClass,
-};
-
-// Allocate a function-local variable, with possible initializer.
-// This function returns a pointer to a variable of type `ty`,
-// which is in the Generic address space. The variable is actually
-// placed in the Function address space.
-fn alloc(
-    cg: *CodeGen,
-    ty: Type,
-    options: AllocOptions,
-) !Id {
-    const ty_id = try cg.resolveType(ty, .indirect);
-    const ptr_fn_ty_id = try cg.module.ptrType(ty_id, .function);
-
-    // SPIR-V requires that OpVariable declarations for locals go into the first block, so we are just going to
-    // directly generate them into func.prologue instead of the body.
-    const var_id = cg.module.allocId();
+fn alloc(cg: *CodeGen, ty_id: Id, initializer: ?Id) !Id {
+    const ptr_ty_id = try cg.module.ptrType(ty_id, .function);
+    const result_id = cg.module.allocId();
     try cg.prologue.emit(cg.module.gpa, .OpVariable, .{
-        .id_result_type = ptr_fn_ty_id,
-        .id_result = var_id,
+        .id_result_type = ptr_ty_id,
+        .id_result = result_id,
         .storage_class = .function,
-        .initializer = options.initializer,
+        .initializer = initializer,
     });
-
-    return var_id;
+    return result_id;
 }
 
 fn airAlloc(cg: *CodeGen, inst: Air.Inst.Index) !?Id {
     const zcu = cg.module.zcu;
+    const target = zcu.getTarget();
     const ptr_ty = cg.typeOfIndex(inst);
     const child_ty = ptr_ty.childType(zcu);
-    return try cg.alloc(child_ty, .{
-        .storage_class = cg.module.storageClass(ptr_ty.ptrAddressSpace(zcu)),
-    });
+    const child_ty_id = try cg.resolveType(child_ty, .indirect);
+    const ptr_align = ptr_ty.ptrAlignment(zcu);
+    const result_id = try cg.alloc(child_ty_id, null);
+    if (ptr_align != child_ty.abiAlignment(zcu)) {
+        if (target.os.tag != .opencl) return cg.fail("cannot apply alignment to variables", .{});
+        try cg.module.decorate(result_id, .{
+            .alignment = .{ .alignment = @intCast(ptr_align.toByteUnits().?) },
+        });
+    }
+    return result_id;
 }
 
 fn airArg(cg: *CodeGen) Id {
@@ -5087,7 +5077,8 @@ fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, body: []const Air.Inst.Index) 
     };
 
     const maybe_block_result_var_id = if (have_block_result) blk: {
-        const block_result_var_id = try cg.alloc(ty, .{ .storage_class = .function });
+        const ty_id = try cg.resolveType(ty, .indirect);
+        const block_result_var_id = try cg.alloc(ty_id, null);
         try cf.block_results.putNoClobber(gpa, inst, block_result_var_id);
         break :blk block_result_var_id;
     } else null;
