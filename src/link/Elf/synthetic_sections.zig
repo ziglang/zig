@@ -384,7 +384,7 @@ pub const GotSection = struct {
                     try writeInt(value, elf_file, writer);
                 },
                 .tlsld => {
-                    try writeInt(if (is_dyn_lib) @as(u64, 0) else 1, elf_file, writer);
+                    try writeInt(if (is_dyn_lib) @as(i64, 0) else 1, elf_file, writer);
                     try writeInt(0, elf_file, writer);
                 },
                 .tlsgd => {
@@ -392,7 +392,7 @@ pub const GotSection = struct {
                         try writeInt(0, elf_file, writer);
                         try writeInt(0, elf_file, writer);
                     } else {
-                        try writeInt(if (is_dyn_lib) @as(u64, 0) else 1, elf_file, writer);
+                        try writeInt(if (is_dyn_lib) @as(i64, 0) else 1, elf_file, writer);
                         const offset = symbol.?.address(.{}, elf_file) - elf_file.dtpAddress();
                         try writeInt(offset, elf_file, writer);
                     }
@@ -412,17 +412,12 @@ pub const GotSection = struct {
                     }
                 },
                 .tlsdesc => {
-                    if (symbol.?.flags.import) {
-                        try writeInt(0, elf_file, writer);
-                        try writeInt(0, elf_file, writer);
-                    } else {
-                        try writeInt(0, elf_file, writer);
-                        const offset = if (apply_relocs)
-                            symbol.?.address(.{}, elf_file) - elf_file.tlsAddress()
-                        else
-                            0;
-                        try writeInt(offset, elf_file, writer);
-                    }
+                    try writeInt(0, elf_file, writer);
+                    const offset: i64 = if (apply_relocs and !symbol.?.flags.import)
+                        symbol.?.address(.{}, elf_file) - elf_file.tlsAddress()
+                    else
+                        0;
+                    try writeInt(offset, elf_file, writer);
                 },
             }
         }
@@ -1505,9 +1500,9 @@ fn writeInt(value: anytype, elf_file: *Elf, writer: anytype) !void {
     const target = elf_file.getTarget();
     const endian = target.cpu.arch.endian();
     switch (entry_size) {
-        2 => try writer.writeInt(u16, @intCast(value), endian),
-        4 => try writer.writeInt(u32, @intCast(value), endian),
-        8 => try writer.writeInt(u64, @intCast(value), endian),
+        2 => try writer.writeInt(i16, @intCast(value), endian),
+        4 => try writer.writeInt(i32, @intCast(value), endian),
+        8 => try writer.writeInt(i64, value, endian),
         else => unreachable,
     }
 }
