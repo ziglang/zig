@@ -34,6 +34,13 @@ pub const Aegis128X2 = Aegis128XGeneric(2, 128);
 /// AEGIS-128L with a 128 bit tag
 pub const Aegis128L = Aegis128XGeneric(1, 128);
 
+/// AEGIS-128X4 stream cipher
+pub const Aegis128X4Stream = AegisStream(4, 128);
+/// AEGIS-128X2 stream cipher
+pub const Aegis128X2Stream = AegisStream(2, 128);
+/// AEGIS-128L stream cipher
+pub const Aegis128LStream = AegisStream(1, 128);
+
 /// AEGIS-256X4 with a 128 bit tag
 pub const Aegis256X4 = Aegis256XGeneric(4, 128);
 /// AEGIS-256X2 with a 128 bit tag
@@ -54,6 +61,13 @@ pub const Aegis256X4_256 = Aegis256XGeneric(4, 256);
 pub const Aegis256X2_256 = Aegis256XGeneric(2, 256);
 /// AEGIS-256 with a 256 bit tag
 pub const Aegis256_256 = Aegis256XGeneric(1, 256);
+
+/// AEGIS-256X4 stream cipher
+pub const Aegis256X4Stream = AegisStream(4, 256);
+/// AEGIS-256X2 stream cipher
+pub const Aegis256X2Stream = AegisStream(2, 256);
+/// AEGIS-256 stream cipher
+pub const Aegis256Stream = AegisStream(1, 256);
 
 fn State128X(comptime degree: u7) type {
     return struct {
@@ -114,6 +128,23 @@ fn State128X(comptime degree: u7) type {
             blocks[0] = tmp.encrypt(blocks[0]);
             blocks[0] = blocks[0].xorBlocks(d1);
             blocks[4] = blocks[4].xorBlocks(d2);
+        }
+
+        fn stream(state: *State, dst: *[rate]u8) void {
+            const blocks = &state.blocks;
+            var tmp0 = blocks[6].xorBlocks(blocks[1]);
+            var tmp1 = blocks[2].xorBlocks(blocks[5]);
+            tmp0 = tmp0.xorBlocks(blocks[2].andBlocks(blocks[3]));
+            tmp1 = tmp1.xorBlocks(blocks[6].andBlocks(blocks[7]));
+            dst[0..aes_block_length].* = tmp0.toBytes();
+            dst[aes_block_length..rate].* = tmp1.toBytes();
+
+            const tmp = blocks[7];
+            comptime var i: usize = 7;
+            inline while (i > 0) : (i -= 1) {
+                blocks[i] = blocks[i - 1].encrypt(blocks[i]);
+            }
+            blocks[0] = tmp.encrypt(blocks[0]);
         }
 
         fn absorb(state: *State, src: *const [rate]u8) void {
@@ -347,6 +378,24 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
                 return error.AuthenticationFailed;
             }
         }
+
+        /// `out`: the key stream
+        /// `npub`: Public nonce
+        /// `key`: Private key
+        pub fn stream(out: []u8, npub: [nonce_length]u8, key: [key_length]u8) void {
+            var state = State.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                state.stream(out[i..][0..block_length]);
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                var tmp: [block_length]u8 = undefined;
+                state.stream(&tmp);
+                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
+            }
+        }
     };
 }
 
@@ -421,6 +470,20 @@ fn State256X(comptime degree: u7) type {
                 blocks[i] = blocks[i - 1].encrypt(blocks[i]);
             }
             blocks[0] = tmp.xorBlocks(d);
+        }
+
+        fn stream(state: *State, dst: *[rate]u8) void {
+            const blocks = &state.blocks;
+            var tmp = blocks[5].xorBlocks(blocks[4]).xorBlocks(blocks[1]);
+            tmp = tmp.xorBlocks(blocks[2].andBlocks(blocks[3]));
+            dst.* = tmp.toBytes();
+
+            tmp = blocks[5].encrypt(blocks[0]);
+            comptime var i: usize = 5;
+            inline while (i > 0) : (i -= 1) {
+                blocks[i] = blocks[i - 1].encrypt(blocks[i]);
+            }
+            blocks[0] = tmp;
         }
 
         fn absorb(state: *State, src: *const [rate]u8) void {
@@ -641,6 +704,56 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
             }
+        }
+
+        /// `out`: the key stream
+        /// `npub`: Public nonce
+        /// `key`: Private key
+        pub fn stream(out: []u8, npub: [nonce_length]u8, key: [key_length]u8) void {
+            var state = State.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                state.stream(out[i..][0..block_length]);
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                var tmp: [block_length]u8 = undefined;
+                state.stream(&tmp);
+                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
+            }
+        }
+    };
+}
+
+/// AEGIS as a stream cipher.
+///
+/// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
+fn AegisStream(comptime degree: u7, comptime bits: u9) type {
+    return struct {
+        const Stream = @This();
+        const State = switch (bits) {
+            128 => State128X(degree),
+            256 => State256X(degree),
+            else => @compileError("Aegis key/nonce sizes must be either 128 or 256."),
+        };
+
+        pub const nonce_length = bits / 8;
+        pub const key_length = bits / 8;
+        pub const block_length = State.rate;
+
+        state: State = undefined,
+
+        /// Initialize the AEGIS state with the given key and nonce.
+        pub fn init(key: [key_length]u8, nonce: [nonce_length]u8) Stream {
+            return .{
+                .state = State.init(key, nonce),
+            };
+        }
+
+        /// Write the next block of the AEGIS stream into out.
+        pub fn next(self: *Stream, out: *[block_length]u8) void {
+            self.state.stream(out);
         }
     };
 }
@@ -963,6 +1076,52 @@ test "Aegis256X4 test vector 1" {
     try testing.expectError(error.AuthenticationFailed, Aegis256X4.decrypt(&empty, &empty, tag, &empty, nonce, key));
     tag256[0] +%= 1;
     try testing.expectError(error.AuthenticationFailed, Aegis256X4_256.decrypt(&empty, &empty, tag256, &empty, nonce, key));
+}
+
+test "Aegis stream cipher equals encryption of zeros" {
+    var c: [1337]u8 = undefined;
+    var tag: [16]u8 = undefined;
+    const zeros: [c.len]u8 = @splat(0);
+    const ad = [_]u8{};
+    var stream: [c.len]u8 = undefined;
+
+    const key16 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (16 - 2);
+    const nonce16 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (16 - 3);
+    {
+        Aegis128L.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
+        Aegis128L.stream(&stream, nonce16, key16);
+        try testing.expectEqualStrings(&c, &stream);
+    }
+    {
+        Aegis128X2.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
+        Aegis128X2.stream(&stream, nonce16, key16);
+        try testing.expectEqualStrings(&c, &stream);
+    }
+    {
+        Aegis128X4.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
+        Aegis128X4.stream(&stream, nonce16, key16);
+        try testing.expectEqualStrings(&c, &stream);
+    }
+
+    const key32 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (32 - 2);
+    const nonce32 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (32 - 3);
+    {
+        Aegis256.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
+        Aegis256.stream(&stream, nonce32, key32);
+        try testing.expectEqualStrings(&c, &stream);
+    }
+
+    {
+        Aegis256X2.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
+        Aegis256X2.stream(&stream, nonce32, key32);
+        try testing.expectEqualStrings(&c, &stream);
+    }
+
+    {
+        Aegis256X4.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
+        Aegis256X4.stream(&stream, nonce32, key32);
+        try testing.expectEqualStrings(&c, &stream);
+    }
 }
 
 test "Aegis MAC" {
