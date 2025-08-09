@@ -1316,12 +1316,12 @@ pub const DeclGen = struct {
                         try w.writeByte('{');
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             const elem_val = try val.elemValue(pt, index);
                             try dg.renderValue(w, elem_val, initializer_type);
                         }
                         if (ai.sentinel) |s| {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             try dg.renderValue(w, s, initializer_type);
                         }
                         try w.writeByte('}');
@@ -1854,12 +1854,14 @@ pub const DeclGen = struct {
                 .array_type, .vector_type => {
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
-                        var literal: StringLiteral = .init(w, @intCast(c_len));
+                        var literal: StringLiteral = .init(w, @intCast(ty.arrayLenIncludingSentinel(zcu)));
                         try literal.start();
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1)
-                            try literal.writeChar(0xaa);
+                        while (index < ai.len) : (index += 1) try literal.writeChar(0xaa);
+                        if (ai.sentinel) |s| {
+                            const s_u8: u8 = @intCast(s.toUnsignedInt(zcu));
+                            if (s_u8 != 0) try literal.writeChar(s_u8);
+                        }
                         return literal.end();
                     } else {
                         if (!location.isInitializer()) {
@@ -1869,11 +1871,14 @@ pub const DeclGen = struct {
                         }
 
                         try w.writeByte('{');
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1) {
+                        while (index < ai.len) : (index += 1) {
                             if (index > 0) try w.writeAll(", ");
                             try dg.renderUndefValue(w, ty.childType(zcu), initializer_type);
+                        }
+                        if (ai.sentinel) |s| {
+                            if (index > 0) try w.writeAll(", ");
+                            try dg.renderValue(w, s, location);
                         }
                         return w.writeByte('}');
                     }
@@ -2217,6 +2222,7 @@ pub const DeclGen = struct {
         });
         try dg.writeName(w, name);
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, zcu, w, ctype, .suffix, .{});
+        if (ctype.isNonString(&dg.ctype_pool)) try w.writeAll(" zig_nonstring");
     }
 
     fn writeName(dg: *DeclGen, w: *Writer, c_value: CValue) !void {
@@ -2713,6 +2719,7 @@ fn renderFields(
         );
         try w.print("{f}{f}", .{ trailing, fmtCTypePoolString(field_info.name, ctype_pool, true) });
         try renderTypeSuffix(.flush, ctype_pool, zcu, w, field_info.ctype, .suffix, .{});
+        if (field_info.ctype.isNonString(ctype_pool)) try w.writeAll(" zig_nonstring");
         try w.writeAll(";\n");
     }
     try w.splatByteAll(' ', indent);
