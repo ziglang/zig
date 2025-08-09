@@ -174,7 +174,7 @@ pub fn DebugAllocator(comptime config: Config) type {
     return struct {
         backing_allocator: Allocator = std.heap.page_allocator,
         /// Tracks the active bucket, which is the one that has free slots in it.
-        buckets: [small_bucket_count]?*BucketHeader = [1]?*BucketHeader{null} ** small_bucket_count,
+        buckets: [small_bucket_count]?*BucketHeader = @splat(null),
         large_allocations: LargeAllocTable = .empty,
         total_requested_bytes: @TypeOf(total_requested_bytes_init) = total_requested_bytes_init,
         requested_memory_limit: @TypeOf(requested_memory_limit_init) = requested_memory_limit_init,
@@ -562,7 +562,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                var addresses: [stack_n]usize = @splat(0);
                 var free_stack_trace: StackTrace = .{
                     .instruction_addresses = &addresses,
                     .index = 0,
@@ -672,7 +672,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             }
 
             if (config.safety and old_mem.len != entry.value_ptr.bytes.len) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                var addresses: [stack_n]usize = @splat(0);
                 var free_stack_trace = StackTrace{
                     .instruction_addresses = &addresses,
                     .index = 0,
@@ -900,7 +900,7 @@ pub fn DebugAllocator(comptime config: Config) type {
                 if (requested_size == 0) @panic("Invalid free");
                 const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
                 if (old_memory.len != requested_size or alignment != slot_alignment) {
-                    var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                    var addresses: [stack_n]usize = @splat(0);
                     var free_stack_trace: StackTrace = .{
                         .instruction_addresses = &addresses,
                         .index = 0,
@@ -999,7 +999,7 @@ pub fn DebugAllocator(comptime config: Config) type {
             if (requested_size == 0) @panic("Invalid free");
             const slot_alignment = bucket.log2PtrAligns(slot_count)[slot_index];
             if (memory.len != requested_size or alignment != slot_alignment) {
-                var addresses: [stack_n]usize = [1]usize{0} ** stack_n;
+                var addresses: [stack_n]usize = @splat(0);
                 var free_stack_trace: StackTrace = .{
                     .instruction_addresses = &addresses,
                     .index = 0,

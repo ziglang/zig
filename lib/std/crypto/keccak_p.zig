@@ -40,7 +40,7 @@ pub fn KeccakF(comptime f: u11) type {
             break :rc rc;
         };
 
-        st: Block = [_]T{0} ** 25,
+        st: Block = @splat(0),
 
         /// Initialize the state from a slice of bytes.
         pub fn init(bytes: [block_bytes]u8) Self {
@@ -70,7 +70,7 @@ pub fn KeccakF(comptime f: u11) type {
                 self.st[i / @sizeOf(T)] = mem.readInt(T, bytes[i..][0..@sizeOf(T)], .little);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** @sizeOf(T);
+                var padded: [@sizeOf(T)]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / @sizeOf(T)] = mem.readInt(T, padded[0..], .little);
             }
@@ -89,7 +89,7 @@ pub fn KeccakF(comptime f: u11) type {
                 self.st[i / @sizeOf(T)] ^= mem.readInt(T, bytes[i..][0..@sizeOf(T)], .little);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** @sizeOf(T);
+                var padded: [@sizeOf(T)]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / @sizeOf(T)] ^= mem.readInt(T, padded[0..], .little);
             }
@@ -102,7 +102,7 @@ pub fn KeccakF(comptime f: u11) type {
                 mem.writeInt(T, out[i..][0..@sizeOf(T)], self.st[i / @sizeOf(T)], .little);
             }
             if (i < out.len) {
-                var padded = [_]u8{0} ** @sizeOf(T);
+                var padded: [@sizeOf(T)]u8 = @splat(0);
                 mem.writeInt(T, padded[0..], self.st[i / @sizeOf(T)], .little);
                 @memcpy(out[i..], padded[0 .. out.len - i]);
             }
@@ -118,7 +118,7 @@ pub fn KeccakF(comptime f: u11) type {
                 mem.writeInt(T, out[i..][0..@sizeOf(T)], x, native_endian);
             }
             if (i < in.len) {
-                var padded = [_]u8{0} ** @sizeOf(T);
+                var padded: [@sizeOf(T)]u8 = @splat(0);
                 @memcpy(padded[0 .. in.len - i], in[i..]);
                 const x = mem.readInt(T, &padded, native_endian) ^ mem.nativeToLittle(T, self.st[i / @sizeOf(T)]);
                 mem.writeInt(T, &padded, x, native_endian);
@@ -140,7 +140,7 @@ pub fn KeccakF(comptime f: u11) type {
             const st = &self.st;
 
             // theta
-            var t = [_]T{0} ** 5;
+            var t: [5]T = @splat(0);
             inline for (0..5) |i| {
                 inline for (0..5) |j| {
                     t[i] ^= st[j * 5 + i];
@@ -382,7 +382,7 @@ test "Keccak-f800" {
 }
 
 test "squeeze" {
-    var st = State(800, 256, 22).init([_]u8{0x80} ** 100, 0x01);
+    var st = State(800, 256, 22).init(@splat(0x80), 0x01);
 
     var out0: [15]u8 = undefined;
     var out1: [out0.len]u8 = undefined;

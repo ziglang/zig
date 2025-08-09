@@ -18,9 +18,9 @@ pub const len = 1 << bits;
 pub const shift = 32 - bits;
 
 // Maps hash => first position
-head: [len]u16 = [_]u16{0} ** len,
+head: [len]u16 = @splat(0),
 // Maps position => previous positions for the same hash value
-chain: [chain_len]u16 = [_]u16{0} ** (chain_len),
+chain: [chain_len]u16 = @splat(0),
 
 // Calculates hash of the 4 bytes from data.
 // Inserts `pos` position of that hash in the lookup tables.

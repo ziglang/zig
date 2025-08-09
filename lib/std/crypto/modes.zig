@@ -37,7 +37,7 @@ pub fn ctr(comptime BlockCipher: anytype, block_cipher: BlockCipher, dst: []u8, 
     }
     if (i < src.len) {
         mem.writeInt(u128, &counter, counterInt, endian);
-        var pad = [_]u8{0} ** block_length;
+        var pad: [block_length]u8 = @splat(0);
         const src_slice = src[i..];
         @memcpy(pad[0..src_slice.len], src_slice);
         block_cipher.xor(&pad, &pad, counter);

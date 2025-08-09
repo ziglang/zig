@@ -25,7 +25,7 @@ test "multidimensional arrays" {
     }
 
     // Initialize a multidimensional array to zeros.
-    const all_zero: [4][5]f32 = .{.{0} ** 5} ** 4;
+    const all_zero: [4][5]f32 = @splat(@splat(0));
     try expect(all_zero[0][0] == 0);
 }
 

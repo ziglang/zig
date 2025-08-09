@@ -362,7 +362,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         const auth_tag = record_decoder.array(P.AEAD.tag_length).*;
                         const nonce = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
-                            const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                            const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(read_seq)));
                             break :nonce @as(V, pv.server_handshake_iv) ^ operand;
                         };
@@ -400,7 +400,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                             comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
                         const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                             const V = @Vector(P.AEAD.nonce_length, u8);
-                            const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                            const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                             const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));
                             break :nonce @as(V, pv.app_cipher.server_write_IV ++ record_iv) ^ operand;
                         };
@@ -524,7 +524,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                         const p = &@field(handshake_cipher, @tagName(tag.with()));
                                         const P = @TypeOf(p.*).A;
                                         const hello_hash = p.transcript_hash.peek();
-                                        const zeroes = [1]u8{0} ** P.Hash.digest_length;
+                                        const zeroes: [P.Hash.digest_length]u8 = @splat(0);
                                         const early_secret = P.Hkdf.extract(&[1]u8{0}, &zeroes);
                                         const empty_hash = tls.emptyHash(P.Hash);
                                         p.version = .{ .tls_1_3 = undefined };
@@ -740,7 +740,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                 const pv = &p.version.tls_1_2;
                                 const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                                     const V = @Vector(P.AEAD.nonce_length, u8);
-                                    const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                                    const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                                     const operand: V = pad ++ @as([8]u8, @bitCast(big(write_seq)));
                                     break :nonce @as(V, pv.app_cipher.client_write_IV ++ pv.app_cipher.client_salt) ^ operand;
                                 };
@@ -781,7 +781,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         switch (handshake_cipher) {
                             inline else => |*p| {
                                 try main_cert_pub_key.verifySignature(&hsd, &.{
-                                    " " ** 64 ++ "TLS 1.3, server CertificateVerify\x00",
+                                    @as([64]u8, @splat(' ')) ++ "TLS 1.3, server CertificateVerify\x00",
                                     &p.transcript_hash.peek(),
                                 });
                                 p.transcript_hash.update(wrapped_handshake);
@@ -1016,7 +1016,7 @@ fn prepareCiphertextRecord(
                     ciphertext_end += auth_tag.len;
                     const nonce = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
-                        const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                        const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                         const operand: V = pad ++ mem.toBytes(big(c.write_seq));
                         break :nonce @as(V, pv.client_iv) ^ operand;
                     };
@@ -1053,7 +1053,7 @@ fn prepareCiphertextRecord(
                     ciphertext_end += P.record_iv_length;
                     const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                         const V = @Vector(P.AEAD.nonce_length, u8);
-                        const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                        const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                         const operand: V = pad ++ @as([8]u8, @bitCast(big(c.write_seq)));
                         break :nonce @as(V, pv.client_write_IV ++ pv.client_salt) ^ operand;
                     };
@@ -1134,7 +1134,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                 const auth_tag = (input.takeArray(P.AEAD.tag_length) catch unreachable).*; // already peeked
                 const nonce = nonce: {
                     const V = @Vector(P.AEAD.nonce_length, u8);
-                    const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                    const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                     const operand: V = pad ++ mem.toBytes(big(c.read_seq));
                     break :nonce @as(V, pv.server_iv) ^ operand;
                 };
@@ -1159,7 +1159,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                     comptime std.math.shl(u64, std.math.maxInt(u64), 8 * P.record_iv_length);
                 const nonce: [P.AEAD.nonce_length]u8 = nonce: {
                     const V = @Vector(P.AEAD.nonce_length, u8);
-                    const pad = [1]u8{0} ** (P.AEAD.nonce_length - 8);
+                    const pad: [P.AEAD.nonce_length - 8]u8 = @splat(0);
                     const operand: V = pad ++ @as([8]u8, @bitCast(big(masked_read_seq)));
                     break :nonce @as(V, pv.server_write_IV ++ record_iv) ^ operand;
                 };

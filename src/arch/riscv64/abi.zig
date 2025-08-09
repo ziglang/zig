@@ -98,7 +98,7 @@ pub const SystemClass = enum { integer, float, memory, none };
 /// There are a maximum of 8 possible return slots. Returned values are in
 /// the beginning of the array; unused slots are filled with .none.
 pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
-    var result = [1]SystemClass{.none} ** 8;
+    var result: [8]SystemClass = @splat(.none);
     const memory_class = [_]SystemClass{
         .memory, .none, .none, .none,
         .none,   .none, .none, .none,
