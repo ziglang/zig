@@ -12,6 +12,7 @@
 //! * `noreturn`
 //! * Error sets/error unions
 //! * Untagged unions
+//! * Non-exhaustive enums
 //! * Many-pointers or C-pointers
 //! * Opaque types, including `anyopaque`
 //! * Async frame types, including `anyframe` and `anyframe->T`
