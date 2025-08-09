@@ -287,20 +287,14 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
         copy.* = @atomicLoad(u8, shared, .monotonic);
     }
 
-    // Calling WSARecvFrom on one thread while another calls WSASend deadlocks.
-    // This functionality is disabled until std.net uses overlapped sockets on Windows.
-    const supports_recv = builtin.os.tag != .windows;
-    const recv_thread = if (supports_recv)
-        try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock })
-    else {};
-    defer if (supports_recv) recv_thread.join();
+    const recv_thread = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
+    defer recv_thread.join();
 
     {
         const hello_header: abi.Hello = .{
             .status = prev_build_status,
             .flags = .{
                 .time_report = ws.graph.time_report,
-                .supports_recv = supports_recv,
             },
             .timestamp = ws.now(),
             .steps_len = @intCast(ws.all_steps.len),

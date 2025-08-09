@@ -30,7 +30,6 @@ const js = struct {
         steps_len: u32,
         status: abi.BuildStatus,
         time_report: bool,
-        supports_recv: bool,
     ) void;
     extern "core" fn updateBuildStatus(status: abi.BuildStatus) void;
     extern "core" fn updateStepStatus(step_idx: u32) void;
@@ -161,7 +160,7 @@ fn helloMessage(msg_bytes: []align(4) u8) Allocator.Error!void {
     step_list = steps;
     step_list_data = duped_step_name_data;
 
-    js.hello(step_list.len, hdr.status, hdr.flags.time_report, hdr.flags.supports_recv);
+    js.hello(step_list.len, hdr.status, hdr.flags.time_report);
 }
 fn statusUpdateMessage(msg_bytes: []u8) Allocator.Error!void {
     if (msg_bytes.len < @sizeOf(abi.StatusUpdate)) @panic("malformed StatusUpdate message");
