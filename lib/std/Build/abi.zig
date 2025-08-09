@@ -103,7 +103,9 @@ pub const Hello = extern struct {
     pub const Flags = packed struct(u16) {
         /// Whether time reporting is enabled.
         time_report: bool,
-        _: u15 = 0,
+        /// If this platform supports receiving messages from the client
+        supports_recv: bool,
+        _: u14 = 0,
     };
 };
 /// WebSocket server->client.
