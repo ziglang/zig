@@ -29,7 +29,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const run = b.addRunArtifact(main);
-    run.addArtifactArg(hello);
+    run.addArtifactArg(.{ .artifact = hello });
     run.expectExitCode(0);
     run.skip_foreign_checks = true;
 
