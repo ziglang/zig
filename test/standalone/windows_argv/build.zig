@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) !void {
 
     const run_gnu = b.addRunArtifact(fuzz);
     run_gnu.setName("fuzz-gnu");
-    run_gnu.addArtifactArg(verify_gnu);
+    run_gnu.addArtifactArg(.{ .artifact = verify_gnu });
     run_gnu.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
     run_gnu.expectExitCode(0);
 
@@ -105,7 +105,7 @@ pub fn build(b: *std.Build) !void {
 
         const run_msvc = b.addRunArtifact(fuzz);
         run_msvc.setName("fuzz-msvc");
-        run_msvc.addArtifactArg(verify_msvc);
+        run_msvc.addArtifactArg(.{ .artifact = verify_msvc });
         run_msvc.addArgs(&.{ fuzz_iterations_arg, fuzz_seed_arg });
         run_msvc.expectExitCode(0);
 
