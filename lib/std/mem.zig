@@ -1281,18 +1281,20 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
             // Unrolling here is ~10% improvement. We can then do one bounds check every 2 blocks
             // instead of one which adds up.
             const Block = @Vector(block_len, T);
-            if (i + 2 * block_len < slice.len) {
+            while (i + 2 * block_len < slice.len) : (i += block_len * 2) {
                 const mask: Block = @splat(value);
-                while (true) {
-                    inline for (0..2) |_| {
-                        const block: Block = slice[i..][0..block_len].*;
-                        const matches = block == mask;
-                        if (@reduce(.Or, matches)) {
-                            return i + std.simd.firstTrue(matches).?;
-                        }
-                        i += block_len;
-                    }
-                    if (i + 2 * block_len >= slice.len) break;
+                var matches: [2]@TypeOf(mask == mask) = undefined;
+                const Bits = std.meta.Int(.unsigned, @bitSizeOf(@TypeOf(matches)));
+
+                inline for (0..2) |j| {
+                    const start = i + j * block_len;
+                    const block: Block = slice[start..][0..block_len].*;
+                    matches[j] = block == mask;
+                }
+
+                if (@as(Bits, @bitCast(matches)) != 0) {
+                    @branchHint(.unlikely);
+                    return i + (std.simd.firstTrue(matches[0]) orelse @as(usize, std.simd.firstTrue(matches[1]).?) + block_len);
                 }
             }
 
