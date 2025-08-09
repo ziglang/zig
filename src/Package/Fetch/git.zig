@@ -595,6 +595,17 @@ pub const Packet = union(enum) {
 
     /// Reads a packet in pkt-line format.
     fn read(reader: *std.Io.Reader) !Packet {
+        const packet: Packet = try .peek(reader);
+        switch (packet) {
+            .data => |data| reader.toss(data.len),
+            else => {},
+        }
+        return packet;
+    }
+
+    /// Consumes the header of a pkt-line packet and reads any associated data
+    /// into the reader's buffer, but does not consume the data.
+    fn peek(reader: *std.Io.Reader) !Packet {
         const length = std.fmt.parseUnsigned(u16, try reader.take(4), 16) catch return error.InvalidPacket;
         switch (length) {
             0 => return .flush,
@@ -603,7 +614,7 @@ pub const Packet = union(enum) {
             3 => return error.InvalidPacket,
             else => if (length - 4 > max_data_length) return error.InvalidPacket,
         }
-        return .{ .data = try reader.take(length - 4) };
+        return .{ .data = try reader.peek(length - 4) };
     }
 
     /// Writes a packet in pkt-line format.
@@ -1088,15 +1099,15 @@ pub const Session = struct {
             const input = fs.input;
             if (fs.remaining_len == 0) {
                 while (true) {
-                    switch (Packet.read(input) catch |err| {
+                    switch (Packet.peek(input) catch |err| {
                         fs.err = err;
                         return error.ReadFailed;
                     }) {
                         .flush => return error.EndOfStream,
                         .data => |data| if (data.len > 1) switch (@as(StreamCode, @enumFromInt(data[0]))) {
                             .pack_data => {
-                                try input.discardAll(1);
-                                fs.remaining_len = data.len;
+                                input.toss(1);
+                                fs.remaining_len = data.len - 1;
                                 break;
                             },
                             .fatal_error => {
