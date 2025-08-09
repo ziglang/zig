@@ -95,7 +95,7 @@ test "p384 public key is the neutral element (public verification)" {
 }
 
 test "p384 field element non-canonical encoding" {
-    const s = [_]u8{0xff} ** 48;
+    const s: [48]u8 = @splat(0xff);
     try testing.expectError(error.NonCanonical, P384.Fe.fromBytes(s, .little));
 }
 
@@ -108,8 +108,8 @@ test "p384 neutral element decoding" {
 test "p384 double base multiplication" {
     const p1 = P384.basePoint;
     const p2 = P384.basePoint.dbl();
-    const s1 = [_]u8{0x01} ** 48;
-    const s2 = [_]u8{0x02} ** 48;
+    const s1: [48]u8 = @splat(0x01);
+    const s2: [48]u8 = @splat(0x02);
     const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .little);
     const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));
@@ -118,8 +118,8 @@ test "p384 double base multiplication" {
 test "p384 double base multiplication with large scalars" {
     const p1 = P384.basePoint;
     const p2 = P384.basePoint.dbl();
-    const s1 = [_]u8{0xee} ** 48;
-    const s2 = [_]u8{0xdd} ** 48;
+    const s1: [48]u8 = @splat(0xee);
+    const s2: [48]u8 = @splat(0xdd);
     const pr1 = try P384.mulDoubleBasePublic(p1, s1, p2, s2, .little);
     const pr2 = (try p1.mul(s1, .little)).add(try p2.mul(s2, .little));
     try testing.expect(pr1.equivalent(pr2));

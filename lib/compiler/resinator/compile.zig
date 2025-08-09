@@ -2947,7 +2947,7 @@ pub fn HeaderSlurpingReader(comptime size: usize, comptime ReaderType: anytype) 
     return struct {
         child_reader: ReaderType,
         bytes_read: usize = 0,
-        slurped_header: [size]u8 = [_]u8{0x00} ** size,
+        slurped_header: [size]u8 = @splat(0x00),
 
         pub const Error = ReaderType.Error;
         pub const Reader = std.io.GenericReader(*@This(), Error, read);

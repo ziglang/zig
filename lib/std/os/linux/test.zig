@@ -68,7 +68,7 @@ test "timer" {
     try expect(err == .SUCCESS);
 
     const events_one: linux.epoll_event = undefined;
-    var events = [_]linux.epoll_event{events_one} ** 8;
+    var events: [8]linux.epoll_event = @splat(events_one);
 
     err = linux.E.init(linux.epoll_wait(@as(i32, @intCast(epoll_fd)), &events, 8, -1));
     try expect(err == .SUCCESS);

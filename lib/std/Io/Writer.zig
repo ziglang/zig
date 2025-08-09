@@ -732,7 +732,7 @@ test splatByteAll {
     defer aw.deinit();
 
     try aw.writer.splatByteAll('7', 45);
-    try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
+    try testing.expectEqualStrings(&@as([45]u8, @splat('7')), aw.writer.buffered());
 }
 
 pub fn splatBytePreserve(w: *Writer, preserve_len: usize, byte: u8, n: usize) Error!void {

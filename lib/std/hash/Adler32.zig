@@ -88,15 +88,15 @@ test "sanity" {
 }
 
 test "long" {
-    const long1 = [_]u8{1} ** 1024;
+    const long1: [1024]u8 = @splat(1);
     try testing.expectEqual(@as(u32, 0x06780401), hash(long1[0..]));
 
-    const long2 = [_]u8{1} ** 1025;
+    const long2: [1025]u8 = @splat(1);
     try testing.expectEqual(@as(u32, 0x0a7a0402), hash(long2[0..]));
 }
 
 test "very long" {
-    const long = [_]u8{1} ** 5553;
+    const long: [5553]u8 = @splat(1);
     try testing.expectEqual(@as(u32, 0x707f15b2), hash(long[0..]));
 }
 

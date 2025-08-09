@@ -772,7 +772,7 @@ fn HuffmanDecoder(
             if (alphabet_size == 286)
                 if (lens[256] == 0) return error.MissingEndOfBlockCode;
 
-            var count = [_]u16{0} ** (@as(usize, max_code_bits) + 1);
+            var count: [@as(usize, max_code_bits) + 1]u16 = @splat(0);
             var max: usize = 0;
             for (lens) |n| {
                 if (n == 0) continue;
@@ -908,7 +908,7 @@ test "encode/decode literals" {
             .lfs = undefined,
         };
         // create frequencies
-        var freq = [_]u16{0} ** 286;
+        var freq: [286]u16 = @splat(0);
         freq[256] = 1; // ensure we have end of block code
         for (&freq, 1..) |*f, i| {
             if (i % j == 0)
@@ -919,7 +919,7 @@ test "encode/decode literals" {
         enc.generate(&freq, 15);
 
         // get code_lens from encoder
-        var code_lens = [_]u4{0} ** 286;
+        var code_lens: [286]u4 = @splat(0);
         for (code_lens, 0..) |_, i| {
             code_lens[i] = @intCast(enc.codes[i].len);
         }

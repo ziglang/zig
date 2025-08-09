@@ -14,7 +14,7 @@ const State = [8 * Cipher.block_length]u8;
 state: State,
 offset: usize,
 
-const nonce = [_]u8{0} ** Cipher.nonce_length;
+const nonce: [Cipher.nonce_length]u8 = @splat(0);
 
 pub const secret_seed_length = Cipher.key_length;
 
@@ -38,7 +38,7 @@ pub fn addEntropy(self: *Self, bytes: []const u8) void {
         );
     }
     if (i < bytes.len) {
-        var k = [_]u8{0} ** Cipher.key_length;
+        var k: [Cipher.key_length]u8 = @splat(0);
         const src = bytes[i..];
         @memcpy(k[0..src.len], src);
         Cipher.xor(

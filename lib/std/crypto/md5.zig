@@ -272,7 +272,7 @@ test "streaming" {
 }
 
 test "aligned final" {
-    var block = [_]u8{0} ** Md5.block_length;
+    var block: [Md5.block_length]u8 = @splat(0);
     var out: [Md5.digest_length]u8 = undefined;
 
     var h = Md5.init(.{});
