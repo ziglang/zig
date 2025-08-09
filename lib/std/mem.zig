@@ -6,6 +6,7 @@ const math = std.math;
 const mem = @This();
 const testing = std.testing;
 const Endian = std.builtin.Endian;
+const native_os = builtin.target.os.tag;
 const native_endian = builtin.cpu.arch.endian();
 
 /// The standard library currently thoroughly depends on byte size
@@ -1099,19 +1100,20 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
     if (backend_supports_vectors and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
-        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
+        (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)) and
+        (native_os != .freestanding and native_os != .other and native_os != .uefi))
     {
         switch (@import("builtin").cpu.arch) {
             // The below branch assumes that reading past the end of the buffer is valid, as long
             // as we don't read into a new page. This should be the case for most architectures
             // which use paged memory, however should be confirmed before adding a new arch below.
             .aarch64, .x86, .x86_64 => if (std.simd.suggestVectorLength(T)) |block_len| {
-                const page_size = std.heap.page_size_min;
+                const page_size = std.heap.pageSize();
                 const block_size = @sizeOf(T) * block_len;
                 const Block = @Vector(block_len, T);
                 const mask: Block = @splat(sentinel);
 
-                comptime assert(std.heap.page_size_min % @sizeOf(Block) == 0);
+                comptime assert(std.heap.page_size_max % @sizeOf(Block) == 0);
                 assert(page_size % @sizeOf(Block) == 0);
 
                 // First block may be unaligned
@@ -1161,7 +1163,7 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
 test "indexOfSentinel vector paths" {
     const Types = [_]type{ u8, u16, u32, u64 };
     const allocator = std.testing.allocator;
-    const page_size = std.heap.page_size_min;
+    const page_size = std.heap.pageSize();
 
     inline for (Types) |T| {
         const block_len = std.simd.suggestVectorLength(T) orelse continue;
