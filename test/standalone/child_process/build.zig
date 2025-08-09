@@ -28,16 +28,16 @@ pub fn build(b: *std.Build) void {
         }),
     });
     const run = b.addRunArtifact(main);
-    run.addArtifactArg(child);
+    run.addArtifactArg(.{ .artifact = child });
     run.expectExitCode(0);
 
     // Use a temporary directory within the cache as the CWD to test
     // spawning the child using a path that contains a leading `..` component.
     const run_relative = b.addRunArtifact(main);
-    run_relative.addArtifactArg(child);
+    run_relative.addArtifactArg(.{ .artifact = child });
     const write_tmp_dir = b.addWriteFiles();
     const tmp_cwd = write_tmp_dir.getDirectory();
-    run_relative.addDirectoryArg(tmp_cwd);
+    run_relative.addDirectoryArg(.{ .lazy_path = tmp_cwd });
     run_relative.setCwd(tmp_cwd);
     run_relative.expectExitCode(0);
 

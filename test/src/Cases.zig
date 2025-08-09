@@ -611,7 +611,7 @@ pub fn lowerToBuildSteps(
                         "-target",
                         triple_txt,
                     });
-                    run_c.addArtifactArg(artifact);
+                    run_c.addArtifactArg(.{ .artifact = artifact });
                     break :run_step run_c;
                 } else b.addRunArtifact(artifact);
                 run.skip_foreign_checks = true;

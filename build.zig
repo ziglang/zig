@@ -599,8 +599,8 @@ pub fn build(b: *std.Build) !void {
             }),
         });
         const update_mingw_run = b.addRunArtifact(update_mingw_exe);
-        update_mingw_run.addDirectoryArg(b.path("lib"));
-        update_mingw_run.addDirectoryArg(.{ .cwd_relative = mingw_src_path });
+        update_mingw_run.addDirectoryArg(.{ .lazy_path = b.path("lib") });
+        update_mingw_run.addDirectoryArg(.{ .lazy_path = .{ .cwd_relative = mingw_src_path } });
 
         update_mingw_step.dependOn(&update_mingw_run.step);
     } else {
@@ -676,9 +676,9 @@ fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
         "--enable-nontrapping-float-to-int",
         "--enable-sign-ext",
     });
-    run_opt.addArtifactArg(exe);
+    run_opt.addArtifactArg(.{ .artifact = exe });
     run_opt.addArg("-o");
-    const optimized_wasm = run_opt.addOutputFileArg("zig1.wasm");
+    const optimized_wasm = run_opt.addOutputFileArg(.{ .basename = "zig1.wasm" });
 
     const update_zig1 = b.addUpdateSourceFiles();
     update_zig1.addCopyFileToSource(optimized_wasm, "stage1/zig1.wasm");
@@ -1436,10 +1436,10 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
         });
         cmd.addArgs(&.{ "--zig-lib-dir", b.fmt("{f}", .{b.graph.zig_lib_directory}) });
         cmd.addArgs(&.{"-i"});
-        cmd.addFileArg(b.path(b.fmt("doc/langref/{s}", .{entry.name})));
+        cmd.addFileArg(.{ .lazy_path = b.path(b.fmt("doc/langref/{s}", .{entry.name})) });
 
         cmd.addArgs(&.{"-o"});
-        _ = wf.addCopyFile(cmd.addOutputFileArg(out_basename), out_basename);
+        _ = wf.addCopyFile(cmd.addOutputFileArg(.{ .basename = out_basename }), out_basename);
     }
 
     const docgen_exe = b.addExecutable(.{
@@ -1453,17 +1453,17 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
 
     const docgen_cmd = b.addRunArtifact(docgen_exe);
     docgen_cmd.addArgs(&.{"--code-dir"});
-    docgen_cmd.addDirectoryArg(wf.getDirectory());
+    docgen_cmd.addDirectoryArg(.{ .lazy_path = wf.getDirectory() });
 
-    docgen_cmd.addFileArg(b.path("doc/langref.html.in"));
-    return docgen_cmd.addOutputFileArg("langref.html");
+    docgen_cmd.addFileArg(.{ .lazy_path = b.path("doc/langref.html.in") });
+    return docgen_cmd.addOutputFileArg(.{ .basename = "langref.html" });
 }
 
 fn superHtmlCheck(b: *std.Build, html_file: std.Build.LazyPath) *std.Build.Step {
     const run_superhtml = b.addSystemCommand(&.{
         "superhtml", "check",
     });
-    run_superhtml.addFileArg(html_file);
+    run_superhtml.addFileArg(.{ .lazy_path = html_file });
     run_superhtml.expectExitCode(0);
     return &run_superhtml.step;
 }
