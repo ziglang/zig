@@ -177,6 +177,35 @@ pub fn toSignedness(ctype: CType, s: std.builtin.Signedness) CType {
     };
 }
 
+pub fn isAnyChar(ctype: CType) bool {
+    return switch (ctype.index) {
+        else => false,
+        .char, .@"signed char", .@"unsigned char", .uint8_t, .int8_t => true,
+    };
+}
+
+pub fn isString(ctype: CType, pool: *const Pool) bool {
+    return info: switch (ctype.info(pool)) {
+        .basic, .fwd_decl, .aggregate, .function => false,
+        .pointer => |pointer_info| pointer_info.elem_ctype.isAnyChar(),
+        .aligned => |aligned_info| continue :info aligned_info.ctype.info(pool),
+        .array, .vector => |sequence_info| sequence_info.elem_type.isAnyChar(),
+    };
+}
+
+pub fn isNonString(ctype: CType, pool: *const Pool) bool {
+    var allow_pointer = true;
+    return info: switch (ctype.info(pool)) {
+        .basic, .fwd_decl, .aggregate, .function => false,
+        .pointer => |pointer_info| allow_pointer and pointer_info.nonstring,
+        .aligned => |aligned_info| continue :info aligned_info.ctype.info(pool),
+        .array, .vector => |sequence_info| sequence_info.nonstring or {
+            allow_pointer = false;
+            continue :info sequence_info.elem_ctype.info(pool);
+        },
+    };
+}
+
 pub fn getStandardDefineAbbrev(ctype: CType) ?[]const u8 {
     return switch (ctype.index) {
         .char => "CHAR",
@@ -427,6 +456,15 @@ pub fn info(ctype: CType, pool: *const Pool) Info {
                 .len = extra.len,
             } };
         },
+        .nonstring => {
+            var child_info = info(.{ .index = @enumFromInt(item.data) }, pool);
+            switch (child_info) {
+                else => unreachable,
+                .pointer => |*pointer_info| pointer_info.nonstring = true,
+                .array, .vector => |*sequence_info| sequence_info.nonstring = true,
+            }
+            return child_info;
+        },
         .fwd_decl_struct_anon => {
             const extra_trail = pool.getExtraTrail(Pool.FwdDeclAnon, item.data);
             return .{ .fwd_decl = .{
@@ -601,10 +639,12 @@ fn toForward(ctype: CType, pool: *Pool, allocator: std.mem.Allocator) !CType {
         .array => |array_info| pool.getArray(allocator, .{
             .elem_ctype = try array_info.elem_ctype.toForward(pool, allocator),
             .len = array_info.len,
+            .nonstring = array_info.nonstring,
         }),
         .vector => |vector_info| pool.getVector(allocator, .{
             .elem_ctype = try vector_info.elem_ctype.toForward(pool, allocator),
             .len = vector_info.len,
+            .nonstring = vector_info.nonstring,
         }),
         .aggregate => |aggregate_info| switch (aggregate_info.name) {
             .anon => ctype,
@@ -754,6 +794,7 @@ pub const Info = union(enum) {
         elem_ctype: CType,
         @"const": bool = false,
         @"volatile": bool = false,
+        nonstring: bool = false,
 
         fn tag(pointer_info: Pointer) Pool.Tag {
             return @enumFromInt(@intFromEnum(Pool.Tag.pointer) +
@@ -775,6 +816,7 @@ pub const Info = union(enum) {
     pub const Sequence = struct {
         elem_ctype: CType,
         len: u64,
+        nonstring: bool = false,
     };
 
     pub const AggregateTag = enum { @"enum", @"struct", @"union" };
@@ -878,12 +920,15 @@ pub const Info = union(enum) {
             .basic => |lhs_basic_info| lhs_basic_info == rhs_info.basic,
             .pointer => |lhs_pointer_info| lhs_pointer_info.@"const" == rhs_info.pointer.@"const" and
                 lhs_pointer_info.@"volatile" == rhs_info.pointer.@"volatile" and
+                lhs_pointer_info.nonstring == rhs_info.pointer.nonstring and
                 pool_adapter.eql(lhs_pointer_info.elem_ctype, rhs_info.pointer.elem_ctype),
             .aligned => |lhs_aligned_info| std.meta.eql(lhs_aligned_info.alignas, rhs_info.aligned.alignas) and
                 pool_adapter.eql(lhs_aligned_info.ctype, rhs_info.aligned.ctype),
             .array => |lhs_array_info| lhs_array_info.len == rhs_info.array.len and
+                lhs_array_info.nonstring == rhs_info.array.nonstring and
                 pool_adapter.eql(lhs_array_info.elem_ctype, rhs_info.array.elem_ctype),
             .vector => |lhs_vector_info| lhs_vector_info.len == rhs_info.vector.len and
+                lhs_vector_info.nonstring == rhs_info.vector.nonstring and
                 pool_adapter.eql(lhs_vector_info.elem_ctype, rhs_info.vector.elem_ctype),
             .fwd_decl => |lhs_fwd_decl_info| lhs_fwd_decl_info.tag == rhs_info.fwd_decl.tag and
                 switch (lhs_fwd_decl_info.name) {
@@ -1063,12 +1108,12 @@ pub const Pool = struct {
     pub fn getPointer(pool: *Pool, allocator: std.mem.Allocator, pointer_info: Info.Pointer) !CType {
         var hasher = Hasher.init;
         hasher.update(pointer_info.elem_ctype.hash(pool));
-        return pool.tagData(
+        return pool.getNonString(allocator, try pool.tagData(
             allocator,
             hasher,
             pointer_info.tag(),
             @intFromEnum(pointer_info.elem_ctype.index),
-        );
+        ), pointer_info.nonstring);
     }
 
     pub fn getAligned(pool: *Pool, allocator: std.mem.Allocator, aligned_info: Info.Aligned) !CType {
@@ -1079,24 +1124,36 @@ pub const Pool = struct {
     }
 
     pub fn getArray(pool: *Pool, allocator: std.mem.Allocator, array_info: Info.Sequence) !CType {
-        return if (std.math.cast(u32, array_info.len)) |small_len|
-            pool.tagExtra(allocator, .array_small, SequenceSmall, .{
+        return pool.getNonString(allocator, if (std.math.cast(u32, array_info.len)) |small_len|
+            try pool.tagExtra(allocator, .array_small, SequenceSmall, .{
                 .elem_ctype = array_info.elem_ctype.index,
                 .len = small_len,
             })
         else
-            pool.tagExtra(allocator, .array_large, SequenceLarge, .{
+            try pool.tagExtra(allocator, .array_large, SequenceLarge, .{
                 .elem_ctype = array_info.elem_ctype.index,
                 .len_lo = @truncate(array_info.len >> 0),
                 .len_hi = @truncate(array_info.len >> 32),
-            });
+            }), array_info.nonstring);
     }
 
     pub fn getVector(pool: *Pool, allocator: std.mem.Allocator, vector_info: Info.Sequence) !CType {
-        return pool.tagExtra(allocator, .vector, SequenceSmall, .{
+        return pool.getNonString(allocator, try pool.tagExtra(allocator, .vector, SequenceSmall, .{
             .elem_ctype = vector_info.elem_ctype.index,
             .len = @intCast(vector_info.len),
-        });
+        }), vector_info.nonstring);
+    }
+
+    pub fn getNonString(
+        pool: *Pool,
+        allocator: std.mem.Allocator,
+        child_ctype: CType,
+        nonstring: bool,
+    ) !CType {
+        if (!nonstring) return child_ctype;
+        var hasher = Hasher.init;
+        hasher.update(child_ctype.hash(pool));
+        return pool.tagData(allocator, hasher, .nonstring, @intFromEnum(child_ctype.index));
     }
 
     pub fn getFwdDecl(
@@ -1314,12 +1371,14 @@ pub const Pool = struct {
             else => {
                 const target = &mod.resolved_target.result;
                 const abi_align_bytes = std.zig.target.intAlignment(target, int_info.bits);
+                const limb_ctype = try pool.fromIntInfo(allocator, .{
+                    .signedness = .unsigned,
+                    .bits = @intCast(abi_align_bytes * 8),
+                }, mod, kind.noParameter());
                 const array_ctype = try pool.getArray(allocator, .{
                     .len = @divExact(std.zig.target.intByteSize(target, int_info.bits), abi_align_bytes),
-                    .elem_ctype = try pool.fromIntInfo(allocator, .{
-                        .signedness = .unsigned,
-                        .bits = @intCast(abi_align_bytes * 8),
-                    }, mod, kind.noParameter()),
+                    .elem_ctype = limb_ctype,
+                    .nonstring = limb_ctype.isAnyChar(),
                 });
                 if (!kind.isParameter()) return array_ctype;
                 var fields = [_]Info.Field{
@@ -1402,28 +1461,49 @@ pub const Pool = struct {
                 .bits = pt.zcu.errorSetBits(),
             }, mod, kind),
 
-            .ptr_usize_type,
-            => return pool.getPointer(allocator, .{
+            .ptr_usize_type => return pool.getPointer(allocator, .{
                 .elem_ctype = .usize,
             }),
-            .ptr_const_comptime_int_type,
-            => return pool.getPointer(allocator, .{
+            .ptr_const_comptime_int_type => return pool.getPointer(allocator, .{
                 .elem_ctype = .void,
                 .@"const" = true,
             }),
-            .manyptr_u8_type,
-            => return pool.getPointer(allocator, .{
+            .manyptr_u8_type => return pool.getPointer(allocator, .{
                 .elem_ctype = .u8,
+                .nonstring = true,
             }),
-            .manyptr_const_u8_type,
-            .manyptr_const_u8_sentinel_0_type,
-            => return pool.getPointer(allocator, .{
+            .manyptr_const_u8_type => return pool.getPointer(allocator, .{
+                .elem_ctype = .u8,
+                .@"const" = true,
+                .nonstring = true,
+            }),
+            .manyptr_const_u8_sentinel_0_type => return pool.getPointer(allocator, .{
                 .elem_ctype = .u8,
                 .@"const" = true,
             }),
-            .slice_const_u8_type,
-            .slice_const_u8_sentinel_0_type,
-            => {
+            .slice_const_u8_type => {
+                const target = &mod.resolved_target.result;
+                var fields = [_]Info.Field{
+                    .{
+                        .name = .{ .index = .ptr },
+                        .ctype = try pool.getPointer(allocator, .{
+                            .elem_ctype = .u8,
+                            .@"const" = true,
+                            .nonstring = true,
+                        }),
+                        .alignas = AlignAs.fromAbiAlignment(Type.ptrAbiAlignment(target)),
+                    },
+                    .{
+                        .name = .{ .index = .len },
+                        .ctype = .usize,
+                        .alignas = AlignAs.fromAbiAlignment(
+                            .fromByteUnits(std.zig.target.intAlignment(target, target.ptrBitWidth())),
+                        ),
+                    },
+                };
+                return pool.fromFields(allocator, .@"struct", &fields, kind);
+            },
+            .slice_const_u8_sentinel_0_type => {
                 const target = &mod.resolved_target.result;
                 var fields = [_]Info.Field{
                     .{
@@ -1449,6 +1529,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i8,
                     .len = 8,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1464,6 +1545,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i8,
                     .len = 16,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1479,6 +1561,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i8,
                     .len = 32,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1494,6 +1577,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .i8,
                     .len = 64,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1509,6 +1593,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 1,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1524,6 +1609,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 2,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1539,6 +1625,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 4,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1554,6 +1641,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 8,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1569,6 +1657,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 16,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1584,6 +1673,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 32,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -1599,6 +1689,7 @@ pub const Pool = struct {
                 const vector_ctype = try pool.getVector(allocator, .{
                     .elem_ctype = .u8,
                     .len = 64,
+                    .nonstring = true,
                 });
                 if (!kind.isParameter()) return vector_ctype;
                 var fields = [_]Info.Field{
@@ -2225,6 +2316,11 @@ pub const Pool = struct {
                                 .function => false,
                             },
                             .@"volatile" = ptr_info.flags.is_volatile,
+                            .nonstring = elem_ctype.isAnyChar() and switch (ptr_info.sentinel) {
+                                .none => true,
+                                .zero_u8 => false,
+                                else => |sentinel| Value.fromInterned(sentinel).orderAgainstZero(zcu).compare(.neq),
+                            },
                         });
                     },
                     .slice => {
@@ -2269,6 +2365,11 @@ pub const Pool = struct {
                     const array_ctype = try pool.getArray(allocator, .{
                         .elem_ctype = elem_ctype,
                         .len = len,
+                        .nonstring = elem_ctype.isAnyChar() and switch (array_info.sentinel) {
+                            .none => true,
+                            .zero_u8 => false,
+                            else => |sentinel| Value.fromInterned(sentinel).orderAgainstZero(zcu).compare(.neq),
+                        },
                     });
                     if (!kind.isParameter()) return array_ctype;
                     var fields = [_]Info.Field{
@@ -2295,6 +2396,7 @@ pub const Pool = struct {
                     const vector_ctype = try pool.getVector(allocator, .{
                         .elem_ctype = elem_ctype,
                         .len = vector_info.len,
+                        .nonstring = elem_ctype.isAnyChar(),
                     });
                     if (!kind.isParameter()) return vector_ctype;
                     var fields = [_]Info.Field{
@@ -2773,9 +2875,17 @@ pub const Pool = struct {
         const ctype: CType = .fromPoolIndex(gop.index);
         if (!gop.found_existing) switch (source_info) {
             .basic => unreachable,
-            .pointer => |pointer_info| pool.items.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = @intFromEnum(pool_adapter.copy(pointer_info.elem_ctype).index),
+            .pointer => |pointer_info| pool.items.appendAssumeCapacity(switch (pointer_info.nonstring) {
+                false => .{
+                    .tag = tag,
+                    .data = @intFromEnum(pool_adapter.copy(pointer_info.elem_ctype).index),
+                },
+                true => .{
+                    .tag = .nonstring,
+                    .data = @intFromEnum(pool_adapter.copy(.{ .index = @enumFromInt(
+                        source_pool.items.items(.data)[source_ctype.toPoolIndex().?],
+                    ) }).index),
+                },
             }),
             .aligned => |aligned_info| pool.items.appendAssumeCapacity(.{
                 .tag = tag,
@@ -2784,19 +2894,27 @@ pub const Pool = struct {
                     .flags = .{ .alignas = aligned_info.alignas },
                 }, 0),
             }),
-            .array, .vector => |sequence_info| pool.items.appendAssumeCapacity(.{
-                .tag = tag,
-                .data = switch (tag) {
-                    .array_small, .vector => try pool.addExtra(allocator, SequenceSmall, .{
-                        .elem_ctype = pool_adapter.copy(sequence_info.elem_ctype).index,
-                        .len = @intCast(sequence_info.len),
-                    }, 0),
-                    .array_large => try pool.addExtra(allocator, SequenceLarge, .{
-                        .elem_ctype = pool_adapter.copy(sequence_info.elem_ctype).index,
-                        .len_lo = @truncate(sequence_info.len >> 0),
-                        .len_hi = @truncate(sequence_info.len >> 32),
-                    }, 0),
-                    else => unreachable,
+            .array, .vector => |sequence_info| pool.items.appendAssumeCapacity(switch (sequence_info.nonstring) {
+                false => .{
+                    .tag = tag,
+                    .data = switch (tag) {
+                        .array_small, .vector => try pool.addExtra(allocator, SequenceSmall, .{
+                            .elem_ctype = pool_adapter.copy(sequence_info.elem_ctype).index,
+                            .len = @intCast(sequence_info.len),
+                        }, 0),
+                        .array_large => try pool.addExtra(allocator, SequenceLarge, .{
+                            .elem_ctype = pool_adapter.copy(sequence_info.elem_ctype).index,
+                            .len_lo = @truncate(sequence_info.len >> 0),
+                            .len_hi = @truncate(sequence_info.len >> 32),
+                        }, 0),
+                        else => unreachable,
+                    },
+                },
+                true => .{
+                    .tag = .nonstring,
+                    .data = @intFromEnum(pool_adapter.copy(.{ .index = @enumFromInt(
+                        source_pool.items.items(.data)[source_ctype.toPoolIndex().?],
+                    ) }).index),
                 },
             }),
             .fwd_decl => |fwd_decl_info| switch (fwd_decl_info.name) {
@@ -3068,6 +3186,7 @@ pub const Pool = struct {
         array_small,
         array_large,
         vector,
+        nonstring,
         fwd_decl_struct_anon,
         fwd_decl_union_anon,
         fwd_decl_struct,
@@ -3283,4 +3402,5 @@ const CType = @This();
 const InternPool = @import("../../InternPool.zig");
 const Module = @import("../../Package/Module.zig");
 const Type = @import("../../Type.zig");
+const Value = @import("../../Value.zig");
 const Zcu = @import("../../Zcu.zig");
