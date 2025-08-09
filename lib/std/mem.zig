@@ -674,7 +674,7 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const eqlBytes_allowed = switch (builtin.zig_backend) {
+const use_vectors = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
     .stage2_aarch64,
     .stage2_powerpc,
@@ -682,16 +682,17 @@ const eqlBytes_allowed = switch (builtin.zig_backend) {
     => false,
     // The SPIR-V backend does not support the optimized path yet.
     .stage2_spirv => false,
-    // The naive memory comparison implementation is more useful for fuzzers to
-    // find interesting inputs.
-    else => !builtin.fuzz,
+    else => true,
 };
+
+// The naive memory comparison implementation is more useful for fuzzers to find interesting inputs.
+const use_vectors_for_comparison = use_vectors and !builtin.fuzz;
 
 /// Returns true if and only if the slices have the same length and all elements
 /// compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
-        eqlBytes_allowed)
+        use_vectors_for_comparison)
     {
         return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
     }
@@ -726,7 +727,7 @@ test eql {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
-    comptime assert(eqlBytes_allowed);
+    comptime assert(use_vectors_for_comparison);
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -1088,15 +1089,10 @@ test len {
     try testing.expect(len(c_ptr) == 2);
 }
 
-const backend_supports_vectors = switch (builtin.zig_backend) {
-    .stage2_llvm, .stage2_c => true,
-    else => false,
-};
-
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
 
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -1263,7 +1259,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     if (start_index >= slice.len) return null;
 
     var i: usize = start_index;
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -3609,7 +3605,7 @@ inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
 pub fn reverse(comptime T: type, items: []T) void {
     var i: usize = 0;
     const end = items.len / 2;
-    if (backend_supports_vectors and
+    if (use_vectors and
         !@inComptime() and
         @bitSizeOf(T) > 0 and
         std.math.isPowerOfTwo(@bitSizeOf(T)))
