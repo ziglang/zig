@@ -1257,7 +1257,12 @@ fn transConvertVectorExpr(
     const src_vector_ty = @as(*const clang.VectorType, @ptrCast(src_type));
     const src_element_qt = src_vector_ty.getElementType();
 
-    const src_expr_node = try transExpr(c, &block_scope.base, src_expr, .used);
+    const src_expr_var_name = try block_scope.makeMangledName(c, "tmp");
+    try block_scope.statements.append(try Tag.var_simple.create(c.arena, .{
+        .name = src_expr_var_name,
+        .init = try transExpr(c, &block_scope.base, src_expr, .used),
+    }));
+    const src_expr_var_node = try Tag.identifier.create(c.arena, src_expr_var_name);
 
     const dst_qt = expr.getTypeSourceInfo_getType();
     const dst_type_node = try transQualType(c, &block_scope.base, dst_qt, base_stmt.getBeginLoc());
@@ -1273,7 +1278,7 @@ fn transConvertVectorExpr(
     while (i < num_elements) : (i += 1) {
         const mangled_name = try block_scope.makeMangledName(c, "tmp");
         const value = try Tag.array_access.create(c.arena, .{
-            .lhs = src_expr_node,
+            .lhs = src_expr_var_node,
             .rhs = try transCreateNodeNumber(c, i, .int),
         });
         const tmp_decl_node = try Tag.var_simple.create(c.arena, .{
@@ -1284,7 +1289,7 @@ fn transConvertVectorExpr(
     }
 
     const init_list = try c.arena.alloc(Node, num_elements);
-    for (init_list, 0..) |*init, init_index| {
+    for (init_list, block_scope.statements.items.len - num_elements..) |*init, init_index| {
         const tmp_decl = block_scope.statements.items[init_index];
         const name = tmp_decl.castTag(.var_simple).?.data.name;
         init.* = try Tag.identifier.create(c.arena, name);
