@@ -382,6 +382,15 @@ const ModuleBuilder = struct {
         var it = binary.iterateInstructions();
         while (it.next()) |inst| {
             switch (inst.opcode) {
+                .OpName => {
+                    const id: ResultId = @enumFromInt(inst.operands[0]);
+                    if (info.invocation_globals.contains(id)) continue;
+                },
+                .OpExtInstImport => {
+                    const set_id: ResultId = @enumFromInt(inst.operands[0]);
+                    const set = binary.ext_inst_map.get(set_id).?;
+                    if (set == .zig) continue;
+                },
                 .OpExtInst => {
                     const set_id: ResultId = @enumFromInt(inst.operands[2]);
                     const set_inst = inst.operands[3];
@@ -482,7 +491,7 @@ const ModuleBuilder = struct {
         return entry.value_ptr.*;
     }
 
-    /// Rewrite the modules' functions and emit them with the new parameter types.
+    /// Rewrite the modules functions and emit them with the new parameter types.
     fn rewriteFunctions(
         self: *ModuleBuilder,
         parser: *BinaryModule.Parser,

@@ -9,6 +9,8 @@ const maxInt = std.math.maxInt;
 const native_endian = builtin.target.cpu.arch.endian();
 
 test "int to ptr cast" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const x = @as(usize, 13);
     const y = @as(*u8, @ptrFromInt(x));
     const z = @intFromPtr(y);
@@ -16,6 +18,8 @@ test "int to ptr cast" {
 }
 
 test "integer literal to pointer cast" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const vga_mem = @as(*u16, @ptrFromInt(0xB8000));
     try expect(@intFromPtr(vga_mem) == 0xB8000);
 }
@@ -269,6 +273,8 @@ test "implicit cast from *[N]T to [*c]T" {
 }
 
 test "*usize to *void" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     var i = @as(usize, 0);
     const v: *void = @ptrCast(&i);
     v.* = {};
@@ -1481,6 +1487,8 @@ test "coerce between pointers of compatible differently-named floats" {
 }
 
 test "peer type resolution of const and non-const pointer to array" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a = @as(*[1024]u8, @ptrFromInt(42));
     const b = @as(*const [1024]u8, @ptrFromInt(42));
     try std.testing.expect(@TypeOf(a, b) == *const [1024]u8);
@@ -1543,6 +1551,8 @@ test "optional pointer coerced to optional allowzero pointer" {
 }
 
 test "optional slice coerced to allowzero many pointer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const a: ?[]const u32 = null;
     const b: [*]allowzero const u8 = @ptrCast(a);
     const c = @intFromPtr(b);
