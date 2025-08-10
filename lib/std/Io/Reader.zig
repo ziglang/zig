@@ -228,6 +228,7 @@ pub fn streamExact64(r: *Reader, w: *Writer, n: u64) StreamError!void {
 ///
 /// Asserts `Writer.buffer` capacity exceeds `preserve_len`.
 pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize) StreamError!void {
+    assert(w.buffer.len >= preserve_len);
     if (w.end + n <= w.buffer.len) {
         @branchHint(.likely);
         return streamExact(r, w, n);
@@ -239,11 +240,8 @@ pub fn streamExactPreserve(r: *Reader, w: *Writer, preserve_len: usize, n: usize
         remaining -= try r.stream(w, .limited(remaining - preserve_len));
         if (w.end + remaining <= w.buffer.len) return streamExact(r, w, remaining);
     }
-    // All the next bytes received must be preserved.
-    if (preserve_len < w.end) {
-        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
-        w.end = preserve_len;
-    }
+    assert(remaining == preserve_len);
+    try w.flush();
     return streamExact(r, w, remaining);
 }
 
@@ -1893,4 +1891,30 @@ pub fn writableVector(r: *Reader, buffer: [][]u8, data: []const []u8) Error!stru
 
 test {
     _ = Limited;
+}
+
+test streamExactPreserve {
+    const reader_buffer = "0123456789abcdef";
+
+    for (1..reader_buffer.len) |preserve| {
+        for (preserve..reader_buffer.len) |writer_buffer_len| {
+            const writter_buffer = try testing.allocator.alloc(u8, writer_buffer_len);
+            defer testing.allocator.free(writter_buffer);
+            var dw: Writer.Discarding = .init(writter_buffer);
+            var r: Reader = .fixed(reader_buffer);
+            var w = &dw.writer;
+
+            const n = r.buffer.len;
+            try r.streamExactPreserve(w, preserve, n);
+
+            // written bytes
+            try testing.expectEqual(n, dw.count + w.buffered().len);
+            // preserved bytes in writer buffer
+            try testing.expectEqualSlices(
+                u8,
+                r.buffer[n - preserve ..],
+                w.buffered()[w.buffered().len - preserve ..],
+            );
+        }
+    }
 }
