@@ -1268,12 +1268,8 @@ pub const Compiler = struct {
         try header.write(writer, self.errContext(id_token));
     }
 
-    pub fn writeResourceDataNoPadding(writer: anytype, data_reader: *std.Io.Reader, data_size: u32) !void {
-        var adapted = writer.adaptToNewApi();
-        var buffer: [128]u8 = undefined;
-        adapted.new_interface.buffer = &buffer;
-        try data_reader.streamExact(&adapted.new_interface, data_size);
-        try adapted.new_interface.flush();
+    pub fn writeResourceDataNoPadding(writer: *std.Io.Writer, data_reader: *std.Io.Reader, data_size: u32) !void {
+        try data_reader.streamExact(writer, data_size);
     }
 
     pub fn writeResourceData(writer: anytype, data_reader: *std.Io.Reader, data_size: u32) !void {
@@ -1281,8 +1277,8 @@ pub const Compiler = struct {
         try writeDataPadding(writer, data_size);
     }
 
-    pub fn writeDataPadding(writer: anytype, data_size: u32) !void {
-        try writer.writeByteNTimes(0, numPaddingBytesNeeded(data_size));
+    pub fn writeDataPadding(writer: *std.Io.Writer, data_size: u32) !void {
+        try writer.splatByteAll(0, numPaddingBytesNeeded(data_size));
     }
 
     pub fn numPaddingBytesNeeded(data_size: u32) u2 {
@@ -2100,8 +2096,10 @@ pub const Compiler = struct {
         const resource = ResourceType.fromString(type_bytes);
         std.debug.assert(resource == .menu or resource == .menuex);
 
-        self.writeMenuData(node, data_writer, resource) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+        var adapted = data_writer.adaptToNewApi(&.{});
+
+        self.writeMenuData(node, &adapted.new_interface, resource) catch |err| switch (err) {
+            error.WriteFailed => {
                 return self.addErrorDetailsAndFail(.{
                     .err = .resource_data_size_exceeds_max,
                     .token = node.id,
@@ -2129,7 +2127,7 @@ pub const Compiler = struct {
 
     /// Expects `data_writer` to be a LimitedWriter limited to u32, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft
-    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: anytype, resource: ResourceType) !void {
+    pub fn writeMenuData(self: *Compiler, node: *Node.Menu, data_writer: *std.Io.Writer, resource: ResourceType) !void {
         // menu header
         const version: u16 = if (resource == .menu) 0 else 1;
         try data_writer.writeInt(u16, version, .little);
@@ -2156,7 +2154,7 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeMenuItem(self: *Compiler, node: *Node, writer: anytype, is_last_of_parent: bool) !void {
+    pub fn writeMenuItem(self: *Compiler, node: *Node, writer: *std.Io.Writer, is_last_of_parent: bool) !void {
         switch (node.id) {
             .menu_item_separator => {
                 // This is the 'alternate compability form' of the separator, see
@@ -2356,8 +2354,9 @@ pub const Compiler = struct {
         try fixed_file_info.write(data_writer);
 
         for (node.block_statements) |statement| {
-            self.writeVersionNode(statement, data_writer, &data_buffer) catch |err| switch (err) {
-                error.NoSpaceLeft => {
+            var adapted = data_writer.adaptToNewApi(&.{});
+            self.writeVersionNode(statement, &adapted.new_interface, &data_buffer) catch |err| switch (err) {
+                error.WriteFailed => {
                     try self.addErrorDetails(.{
                         .err = .version_node_size_exceeds_max,
                         .token = node.id,
@@ -2395,7 +2394,7 @@ pub const Compiler = struct {
     /// Expects writer to be a LimitedWriter limited to u16, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft, and that buf.items.len
     /// will never be able to exceed maxInt(u16).
-    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: anytype, buf: *std.ArrayList(u8)) !void {
+    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer, buf: *std.ArrayList(u8)) !void {
         // We can assume that buf.items.len will never be able to exceed the limits of a u16
         try writeDataPadding(writer, @as(u16, @intCast(buf.items.len)));
 
@@ -2700,12 +2699,12 @@ pub const Compiler = struct {
             return self.writeSizeInfo(writer, size_info);
         }
 
-        pub fn writeSizeInfo(self: ResourceHeader, writer: anytype, size_info: SizeInfo) !void {
+        pub fn writeSizeInfo(self: ResourceHeader, writer: *std.Io.Writer, size_info: SizeInfo) !void {
             try writer.writeInt(DWORD, self.data_size, .little); // DataSize
             try writer.writeInt(DWORD, size_info.bytes, .little); // HeaderSize
             try self.type_value.write(writer); // TYPE
             try self.name_value.write(writer); // NAME
-            try writer.writeByteNTimes(0, size_info.padding_after_name);
+            try writer.splatByteAll(0, size_info.padding_after_name);
 
             try writer.writeInt(DWORD, self.data_version, .little); // DataVersion
             try writer.writeInt(WORD, self.memory_flags.value, .little); // MemoryFlags
@@ -3120,7 +3119,7 @@ pub const FontDir = struct {
             // First, the ID is written, though
             try writer.writeInt(u16, font.id, .little);
             try writer.writeAll(&font.header_bytes);
-            try writer.writeByteNTimes(0, 2);
+            try writer.splatByteAll(0, 2);
         }
         try Compiler.writeDataPadding(writer, data_size);
     }

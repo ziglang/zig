@@ -585,6 +585,8 @@ pub fn errorDescription(e: anyerror) []const u8 {
     };
 }
 
+var stdout_buffer: [4096]u8 = undefined;
+
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool) !void {
@@ -688,13 +690,13 @@ fn processSource(
         else
             std.fs.File.stdout();
         defer if (d.output_name != null) file.close();
+        var file_buffer: [1024]u8 = undefined;
+        var file_writer = file.writer(&file_buffer);
 
-        var buf_w = std.io.bufferedWriter(file.deprecatedWriter());
-
-        pp.prettyPrintTokens(buf_w.writer(), dump_mode) catch |er|
+        pp.prettyPrintTokens(&file_writer.interface, dump_mode) catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
 
-        buf_w.flush() catch |er|
+        file_writer.interface.flush() catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
         if (fast_exit) std.process.exit(0); // Not linking, no need for cleanup.
         return;
@@ -704,10 +706,9 @@ fn processSource(
     defer tree.deinit();
 
     if (d.verbose_ast) {
-        const stdout = std.fs.File.stdout();
-        var buf_writer = std.io.bufferedWriter(stdout.deprecatedWriter());
-        tree.dump(d.detectConfig(stdout), buf_writer.writer()) catch {};
-        buf_writer.flush() catch {};
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        tree.dump(d.detectConfig(.stdout()), &stdout_writer.interface) catch {};
+        stdout_writer.interface.flush() catch {};
     }
 
     const prev_errors = d.comp.diagnostics.errors;
@@ -734,10 +735,9 @@ fn processSource(
     defer ir.deinit(d.comp.gpa);
 
     if (d.verbose_ir) {
-        const stdout = std.fs.File.stdout();
-        var buf_writer = std.io.bufferedWriter(stdout.deprecatedWriter());
-        ir.dump(d.comp.gpa, d.detectConfig(stdout), buf_writer.writer()) catch {};
-        buf_writer.flush() catch {};
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        ir.dump(d.comp.gpa, d.detectConfig(.stdout()), &stdout_writer.interface) catch {};
+        stdout_writer.interface.flush() catch {};
     }
 
     var render_errors: Ir.Renderer.ErrorList = .{};

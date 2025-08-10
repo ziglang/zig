@@ -23,19 +23,19 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_file, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
     const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(u32));
 
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
-
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);
 
-    try walk(arena, &tokenizer, out_dir, buffered_writer.writer());
+    try walk(arena, &tokenizer, out_dir, &out_file_writer.interface);
 
-    try buffered_writer.flush();
+    try out_file_writer.end();
 }
 
 const Token = struct {

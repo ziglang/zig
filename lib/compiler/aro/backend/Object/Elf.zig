@@ -171,8 +171,9 @@ pub fn addRelocation(elf: *Elf, name: []const u8, section_kind: Object.Section, 
 /// strtab
 /// section headers
 pub fn finish(elf: *Elf, file: std.fs.File) !void {
-    var buf_writer = std.io.bufferedWriter(file.deprecatedWriter());
-    const w = buf_writer.writer();
+    var file_buffer: [1024]u8 = undefined;
+    var file_writer = file.writer(&file_buffer);
+    const w = &file_writer.interface;
 
     var num_sections: std.elf.Elf64_Half = additional_sections;
     var relocations_len: std.elf.Elf64_Off = 0;
@@ -374,5 +375,5 @@ pub fn finish(elf: *Elf, file: std.fs.File) !void {
             name_offset += @as(u32, @intCast(entry.key_ptr.len + ".\x00".len)) + rela_name_offset;
         }
     }
-    try buf_writer.flush();
+    try w.flush();
 }

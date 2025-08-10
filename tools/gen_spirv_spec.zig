@@ -84,7 +84,7 @@ pub fn main() !void {
 
     const output_buf = try allocator.alloc(u8, 1024 * 1024);
     var fbs = std.io.fixedBufferStream(output_buf);
-    var adapter = fbs.writer().adaptToNewApi();
+    var adapter = fbs.writer().adaptToNewApi(&.{});
     const w = &adapter.new_interface;
     try render(w, core_spec, exts.items);
     var output: [:0]u8 = @ptrCast(fbs.getWritten());

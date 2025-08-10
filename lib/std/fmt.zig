@@ -80,7 +80,7 @@ pub const Number = struct {
 
 /// Deprecated in favor of `Writer.print`.
 pub fn format(writer: anytype, comptime fmt: []const u8, args: anytype) !void {
-    var adapter = writer.adaptToNewApi();
+    var adapter = writer.adaptToNewApi(&.{});
     return adapter.new_interface.print(fmt, args) catch |err| switch (err) {
         error.WriteFailed => return adapter.err.?,
     };
