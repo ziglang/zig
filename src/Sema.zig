@@ -10473,6 +10473,14 @@ const SwitchProngAnalysis = struct {
         const operand_val, const operand_ptr = switch (spa.operand) {
             .simple => |s| .{ s.by_val, s.by_ref },
             .loop => |l| op: {
+                if (l.operand_alloc == .none) { // inline capture of non-union
+                    const item_val = sema.resolveConstDefinedValue(block, .unneeded, inline_case_capture, undefined) catch unreachable;
+                    if (capture_byref) {
+                        return sema.uavRef(item_val.toIntern());
+                    } else {
+                        return inline_case_capture;
+                    }
+                }
                 const loaded = try sema.analyzeLoad(block, operand_src, l.operand_alloc, operand_src);
                 if (l.operand_is_ref) {
                     const by_val = try sema.analyzeLoad(block, operand_src, loaded, operand_src);
@@ -10487,7 +10495,7 @@ const SwitchProngAnalysis = struct {
         const operand_ptr_ty = if (capture_byref) sema.typeOf(operand_ptr) else undefined;
 
         if (inline_case_capture != .none) {
-            const item_val = sema.resolveConstDefinedValue(block, LazySrcLoc.unneeded, inline_case_capture, undefined) catch unreachable;
+            const item_val = sema.resolveConstDefinedValue(block, .unneeded, inline_case_capture, undefined) catch unreachable;
             if (operand_ty.zigTypeTag(zcu) == .@"union") {
                 const field_index: u32 = @intCast(operand_ty.unionTagFieldIndex(item_val, zcu).?);
                 const union_obj = zcu.typeToUnion(operand_ty).?;
@@ -11272,12 +11280,14 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
                 });
             }
             try sema.validateRuntimeValue(block, operand_src, maybe_ptr);
-            const operand_alloc = if (extra.data.bits.any_non_inline_capture) a: {
+            const operand_alloc: Air.Inst.Ref = if (extra.data.bits.any_non_inline_capture or
+                operand_ty.zigTypeTag(zcu) == .@"union")
+            a: {
                 const operand_ptr_ty = try pt.singleMutPtrType(sema.typeOf(maybe_ptr));
                 const operand_alloc = try block.addTy(.alloc, operand_ptr_ty);
                 _ = try block.addBinOp(.store, operand_alloc, maybe_ptr);
                 break :a operand_alloc;
-            } else undefined;
+            } else .none;
             break :op .{
                 .{ .loop = .{
                     .operand_alloc = operand_alloc,

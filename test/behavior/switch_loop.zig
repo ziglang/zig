@@ -249,3 +249,45 @@ test "switch loop on larger than pointer integer" {
     }
     try expect(entry == 3);
 }
+
+test "switch loop with inline capture" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const E = enum { a, b, c };
+        const U = union(enum) {
+            a: u32,
+            b: u32,
+            c: u32,
+        };
+
+        fn doTheTest() !void {
+            var e: E = undefined;
+            e = .a;
+            const ok = label: switch (e) {
+                inline else => |tag| {
+                    if (tag == .a) continue :label .b;
+                    if (tag == .b) continue :label .c;
+                    if (tag == .c) break :label true;
+                },
+            };
+            try expect(ok);
+
+            var u: U = undefined;
+            u = .{ .a = 100 };
+            const res = label: switch (u) {
+                inline else => |val, tag| {
+                    if (tag == .a) continue :label .{ .b = val * 2 };
+                    if (tag == .b) continue :label .{ .c = val * 2 };
+                    if (tag == .c) break :label val;
+                },
+            };
+            try expect(res == 400);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
