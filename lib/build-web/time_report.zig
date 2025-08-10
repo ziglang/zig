@@ -175,6 +175,7 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
             \\  <td>{D}</td>
             \\  <td>{D}</td>
             \\  <td>{D}</td>
+            \\  <td>{D}</td>
             \\</tr>
             \\
         , .{
@@ -182,6 +183,7 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
             file.ns_sema,
             file.ns_codegen,
             file.ns_link,
+            file.ns_sema + file.ns_codegen + file.ns_link,
         });
     }
     if (slowest_files.len > max_table_rows) {
@@ -203,6 +205,7 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
             \\  <td>{D}</td>
             \\  <td>{D}</td>
             \\  <td>{D}</td>
+            \\  <td>{D}</td>
             \\</tr>
             \\
         , .{
@@ -212,6 +215,7 @@ pub fn compileResultMessage(msg_bytes: []u8) error{OutOfMemory}!void {
             decl.ns_sema,
             decl.ns_codegen,
             decl.ns_link,
+            decl.ns_sema + decl.ns_codegen + decl.ns_link,
         });
     }
     if (slowest_decls.len > max_table_rows) {

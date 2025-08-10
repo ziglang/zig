@@ -65,16 +65,6 @@ pub fn init(opts: Options) WebServer {
         std.process.fatal("--webui not yet implemented for single-threaded builds", .{});
     }
 
-    if (builtin.os.tag == .windows) {
-        // At the time of writing, there are two bugs in the standard library which break this feature on Windows:
-        // * Reading from a socket on one thread while writing to it on another seems to deadlock.
-        // * Vectored writes to sockets currently trigger an infinite loop when a buffer has length 0.
-        //
-        // Both of these bugs are expected to be solved by changes which are currently in the unmerged
-        // 'wrangle-writer-buffering' branch. Until that makes it in, this must remain disabled.
-        std.process.fatal("--webui is currently disabled on Windows due to bugs", .{});
-    }
-
     const all_steps = opts.all_steps;
 
     const step_names_trailing = opts.gpa.alloc(u8, len: {
@@ -297,7 +287,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
         copy.* = @atomicLoad(u8, shared, .monotonic);
     }
 
-    _ = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
+    const recv_thread = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
+    defer recv_thread.join();
 
     {
         const hello_header: abi.Hello = .{
