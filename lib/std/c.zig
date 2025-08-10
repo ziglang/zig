@@ -11263,7 +11263,6 @@ pub const serenity_readlink = serenity.serenity_readlink;
 pub const serenity_open = serenity.serenity_open;
 pub const getkeymap = serenity.getkeymap;
 pub const setkeymap = serenity.setkeymap;
-pub const internet_checksum = serenity.internet_checksum;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {
