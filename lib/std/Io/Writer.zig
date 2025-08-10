@@ -498,42 +498,11 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     return w.vtable.drain(w, &.{bytes}, 1);
 }
 
-/// Asserts `buffer` capacity exceeds `preserve_len`.
-pub fn writePreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!usize {
-    assert(preserve_len <= w.buffer.len);
-    if (w.end + bytes.len <= w.buffer.len) {
-        @branchHint(.likely);
-        @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
-        w.end += bytes.len;
-        return bytes.len;
-    }
-    const temp_end = w.end -| preserve_len;
-    const preserved = w.buffer[temp_end..w.end];
-    w.end = temp_end;
-    defer w.end += preserved.len;
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    assert(w.end <= temp_end + preserved.len);
-    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
-    return n;
-}
-
 /// Calls `drain` as many times as necessary such that all of `bytes` are
 /// transferred.
 pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try w.write(bytes[index..]);
-}
-
-/// Calls `drain` as many times as necessary such that all of `bytes` are
-/// transferred.
-///
-/// When draining the buffer, ensures that at least `preserve_len` bytes
-/// remain buffered.
-///
-/// Asserts `buffer` capacity exceeds `preserve_len`.
-pub fn writeAllPreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!void {
-    var index: usize = 0;
-    while (index < bytes.len) index += try w.writePreserve(preserve_len, bytes[index..]);
 }
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
