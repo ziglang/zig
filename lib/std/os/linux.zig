@@ -3586,10 +3586,13 @@ pub const W = struct {
         return TERMSIG(s) == 0;
     }
     pub fn IFSTOPPED(s: u32) bool {
-        return @as(u16, @truncate(((s & 0xffff) *% 0x10001) >> 8)) > 0x7f00;
+        return ((s & 0xff) == 0x7f);
     }
     pub fn IFSIGNALED(s: u32) bool {
-        return (s & 0xffff) -% 1 < 0xff;
+        return (@as(i8, @bitCast(@as(u8, @intCast((s & 0x7f) + 1)))) >> 1) > 0;
+    }
+    pub fn IFCONTINUED(s: u32) bool {
+        return s == 0xffff;
     }
 };
 
