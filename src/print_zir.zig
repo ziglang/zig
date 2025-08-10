@@ -192,7 +192,7 @@ const Writer = struct {
             .alloc_comptime_mut,
             .elem_type,
             .indexable_ptr_elem_type,
-            .vec_arr_elem_type,
+            .splat_op_result_ty,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,

@@ -1112,3 +1112,16 @@ test "sentinel of runtime-known array initialization is populated" {
     try expect(elems[0] == 42);
     try expect(elems[1] == 123);
 }
+
+test "splat with an error union or optional result type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTest(T: type) !?T {
+            return @splat(1);
+        }
+    };
+
+    _ = try S.doTest(@Vector(4, u32));
+    _ = try S.doTest([4]u32);
+}
