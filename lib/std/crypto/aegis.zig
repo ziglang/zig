@@ -705,28 +705,12 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
                 return error.AuthenticationFailed;
             }
         }
-
-        /// `out`: the key stream
-        /// `npub`: Public nonce
-        /// `key`: Private key
-        pub fn stream(out: []u8, npub: [nonce_length]u8, key: [key_length]u8) void {
-            var state = State.init(key, npub);
-
-            var i: usize = 0;
-            while (i + block_length <= out.len) : (i += block_length) {
-                state.stream(out[i..][0..block_length]);
-            }
-            const trailing = out.len % block_length;
-            if (trailing != 0) {
-                var tmp: [block_length]u8 = undefined;
-                state.stream(&tmp);
-                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
-            }
-        }
     };
 }
 
-/// AEGIS as a stream cipher.
+/// AEGIS as a stream cipher. This is a thin wrapper around the AEGIS state, which can be used to
+/// either generate continuous blocks of the key stream using `init()` and `next()`, or process
+/// arbitrary length byte arrays using `stream()` or `xor()`.
 ///
 /// https://datatracker.ietf.org/doc/draft-irtf-cfrg-aegis-aead/
 fn AegisStream(comptime degree: u7, comptime bits: u9) type {
@@ -754,6 +738,43 @@ fn AegisStream(comptime degree: u7, comptime bits: u9) type {
         /// Write the next block of the AEGIS stream into out.
         pub fn next(self: *Stream, out: *[block_length]u8) void {
             self.state.stream(out);
+        }
+
+        /// Add the output of the AEGIS stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption.
+        /// Using the AEAD or one of the `box` versions is usually preferred.
+        pub fn xor(out: []u8, in: []const u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var tmp: [block_length]u8 = undefined;
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(tmp[0..]);
+                for (0..block_length) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                self.next(&tmp);
+                for (0..trailing) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+        }
+
+        /// `out`: the key stream
+        /// `key`: Private key
+        /// `npub`: Public nonce
+        pub fn stream(out: []u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(out[i..][0..block_length]);
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                var tmp: [block_length]u8 = undefined;
+                self.next(&tmp);
+                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
+            }
         }
     };
 }
@@ -1077,50 +1098,36 @@ test "Aegis256X4 test vector 1" {
     tag256[0] +%= 1;
     try testing.expectError(error.AuthenticationFailed, Aegis256X4_256.decrypt(&empty, &empty, tag256, &empty, nonce, key));
 }
+test "Aegis stream cipher" {
+    const Cipher = struct {
+        aead: type,
+        stream: type,
+    };
+    const Ciphers = [_]Cipher{
+        Cipher{ .aead = Aegis128L, .stream = Aegis128LStream },
+        Cipher{ .aead = Aegis128X2, .stream = Aegis128X2Stream },
+        Cipher{ .aead = Aegis128X4, .stream = Aegis128X4Stream },
+        Cipher{ .aead = Aegis256, .stream = Aegis256Stream },
+        Cipher{ .aead = Aegis256X2, .stream = Aegis256X2Stream },
+        Cipher{ .aead = Aegis256X4, .stream = Aegis256X4Stream },
+    };
+    inline for (Ciphers) |cipher| {
+        var c: [1337]u8 = undefined;
+        var tag: [16]u8 = undefined;
+        const zeros: [c.len]u8 = @splat(0);
 
-test "Aegis stream cipher equals encryption of zeros" {
-    var c: [1337]u8 = undefined;
-    var tag: [16]u8 = undefined;
-    const zeros: [c.len]u8 = @splat(0);
-    const ad = [_]u8{};
-    var stream: [c.len]u8 = undefined;
+        const key = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (cipher.stream.key_length - 2);
+        const nonce = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (cipher.stream.nonce_length - 3);
 
-    const key16 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (16 - 2);
-    const nonce16 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (16 - 3);
-    {
-        Aegis128L.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
-        Aegis128L.stream(&stream, nonce16, key16);
+        // Key stream should equal encryption of zeros
+        var stream: [c.len]u8 = undefined;
+        cipher.aead.encrypt(&c, &tag, &zeros, &[_]u8{}, nonce, key);
+        cipher.stream.stream(&stream, key, nonce);
         try testing.expectEqualStrings(&c, &stream);
-    }
-    {
-        Aegis128X2.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
-        Aegis128X2.stream(&stream, nonce16, key16);
-        try testing.expectEqualStrings(&c, &stream);
-    }
-    {
-        Aegis128X4.encrypt(&c, &tag, &zeros, &ad, nonce16, key16);
-        Aegis128X4.stream(&stream, nonce16, key16);
-        try testing.expectEqualStrings(&c, &stream);
-    }
 
-    const key32 = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (32 - 2);
-    const nonce32 = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (32 - 3);
-    {
-        Aegis256.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
-        Aegis256.stream(&stream, nonce32, key32);
-        try testing.expectEqualStrings(&c, &stream);
-    }
-
-    {
-        Aegis256X2.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
-        Aegis256X2.stream(&stream, nonce32, key32);
-        try testing.expectEqualStrings(&c, &stream);
-    }
-
-    {
-        Aegis256X4.encrypt(&c, &tag, &zeros, &ad, nonce32, key32);
-        Aegis256X4.stream(&stream, nonce32, key32);
-        try testing.expectEqualStrings(&c, &stream);
+        // xor between key stream and cipher should equal zero
+        cipher.stream.xor(&stream, &c, key, nonce);
+        try testing.expectEqualStrings(&zeros, &stream);
     }
 }
 

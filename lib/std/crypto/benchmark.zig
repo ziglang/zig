@@ -328,6 +328,78 @@ pub fn benchmarkAead(comptime Aead: anytype, comptime bytes: comptime_int) !u64 
     return throughput;
 }
 
+const counter_based_streams = [_]Crypto{
+    Crypto{ .ty = crypto.stream.chacha.ChaCha20With64BitNonce, .name = "chacha20-xor" },
+    Crypto{ .ty = crypto.stream.chacha.ChaCha20IETF, .name = "chacha20ietf-xor" },
+    Crypto{ .ty = crypto.stream.chacha.XChaCha20IETF, .name = "xchacha20ietf-xor" },
+    Crypto{ .ty = crypto.stream.chacha.ChaCha12With64BitNonce, .name = "chacha12-xor" },
+    Crypto{ .ty = crypto.stream.chacha.ChaCha12IETF, .name = "chacha12ietf-xor" },
+    Crypto{ .ty = crypto.stream.chacha.XChaCha12IETF, .name = "xchacha12ietf-xor" },
+    Crypto{ .ty = crypto.stream.chacha.ChaCha8With64BitNonce, .name = "chacha8-xor" },
+    Crypto{ .ty = crypto.stream.chacha.ChaCha8IETF, .name = "chacha8ietf-xor" },
+    Crypto{ .ty = crypto.stream.chacha.XChaCha8IETF, .name = "xchacha8ietf-xor" },
+    Crypto{ .ty = crypto.stream.salsa.Salsa20, .name = "salsa20-xor" },
+};
+
+pub fn benchmarkCounterBasedStream(comptime Stream: anytype, comptime bytes: comptime_int) !u64 {
+    var in: [512 * KiB]u8 = undefined;
+    random.bytes(in[0..]);
+
+    var key: [Stream.key_length]u8 = undefined;
+    random.bytes(key[0..]);
+
+    var nonce: [Stream.nonce_length]u8 = undefined;
+    random.bytes(nonce[0..]);
+
+    var offset: usize = 0;
+    var timer = try Timer.start();
+    const start = timer.lap();
+    while (offset < bytes) : (offset += in.len) {
+        Stream.xor(in[0..], in[0..], 0, key, nonce);
+    }
+    mem.doNotOptimizeAway(&in);
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(2 * bytes / elapsed_s));
+
+    return throughput;
+}
+
+const streams = [_]Crypto{
+    Crypto{ .ty = crypto.stream.aegis.Aegis128X4Stream, .name = "aegis-128X4-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis128X2Stream, .name = "aegis-128X2-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis128LStream, .name = "aegis-128L-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256X4Stream, .name = "aegis-256X4-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256X2Stream, .name = "aegis-256X2-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256Stream, .name = "aegis-256-xor" },
+};
+
+pub fn benchmarkStream(comptime Stream: anytype, comptime bytes: comptime_int) !u64 {
+    var in: [512 * KiB]u8 = undefined;
+    random.bytes(in[0..]);
+
+    var key: [Stream.key_length]u8 = undefined;
+    random.bytes(key[0..]);
+
+    var nonce: [Stream.nonce_length]u8 = undefined;
+    random.bytes(nonce[0..]);
+
+    var offset: usize = 0;
+    var timer = try Timer.start();
+    const start = timer.lap();
+    while (offset < bytes) : (offset += in.len) {
+        Stream.xor(in[0..], in[0..], key, nonce);
+    }
+    mem.doNotOptimizeAway(&in);
+    const end = timer.read();
+
+    const elapsed_s = @as(f64, @floatFromInt(end - start)) / time.ns_per_s;
+    const throughput = @as(u64, @intFromFloat(2 * bytes / elapsed_s));
+
+    return throughput;
+}
+
 const aes = [_]Crypto{
     Crypto{ .ty = crypto.core.aes.Aes128, .name = "aes128-single" },
     Crypto{ .ty = crypto.core.aes.Aes256, .name = "aes256-single" },
@@ -543,6 +615,20 @@ pub fn main() !void {
     inline for (aeads) |E| {
         if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
             const throughput = try benchmarkAead(E.ty, mode(128 * MiB));
+            try stdout.print("{s:>17}: {:10} MiB/s\n", .{ E.name, throughput / (1 * MiB) });
+        }
+    }
+
+    inline for (counter_based_streams) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkCounterBasedStream(E.ty, mode(128 * MiB));
+            try stdout.print("{s:>17}: {:10} MiB/s\n", .{ E.name, throughput / (1 * MiB) });
+        }
+    }
+
+    inline for (streams) |E| {
+        if (filter == null or std.mem.indexOf(u8, E.name, filter.?) != null) {
+            const throughput = try benchmarkStream(E.ty, mode(128 * MiB));
             try stdout.print("{s:>17}: {:10} MiB/s\n", .{ E.name, throughput / (1 * MiB) });
         }
     }

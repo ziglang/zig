@@ -154,6 +154,26 @@ fn SalsaVecImpl(comptime rounds: comptime_int) type {
             }
         }
 
+        fn salsaStream(out: []u8, key: [8]u32, d: [4]u32) void {
+            var ctx = initContext(key, d);
+            var x: BlockVec = undefined;
+            var i: usize = 0;
+            while (i + 64 <= out.len) : (i += 64) {
+                salsaCore(x[0..], ctx, true);
+                hashToBytes(out[i..][0..64], x);
+                ctx[3][2] +%= 1;
+                if (ctx[3][2] == 0) {
+                    ctx[3][3] += 1;
+                }
+            }
+            if (i < out.len) {
+                var buf: [64]u8 = undefined;
+                salsaCore(x[0..], ctx, true);
+                hashToBytes(buf[0..], x);
+                @memcpy(out[i..], buf[0 .. out.len - i]);
+            }
+        }
+
         fn hsalsa(input: [16]u8, key: [32]u8) [32]u8 {
             var c: [4]u32 = undefined;
             for (c, 0..) |_, i| {
@@ -342,6 +362,16 @@ pub fn Salsa(comptime rounds: comptime_int) type {
             d[2] = @as(u32, @truncate(counter));
             d[3] = @as(u32, @truncate(counter >> 32));
             SalsaImpl(rounds).salsaXor(out, in, keyToWords(key), d);
+        }
+
+        /// Write the output of the Salsa20 stream cipher into `out`.
+        pub fn stream(out: []u8, counter: u64, key: [key_length]u8, nonce: [nonce_length]u8) void {
+            var d: [4]u32 = undefined;
+            d[0] = mem.readInt(u32, nonce[0..4], .little);
+            d[1] = mem.readInt(u32, nonce[4..8], .little);
+            d[2] = @as(u32, @truncate(counter));
+            d[3] = @as(u32, @truncate(counter >> 32));
+            SalsaImpl(rounds).salsaStream(out, keyToWords(key), d);
         }
     };
 }
@@ -565,6 +595,9 @@ test "(x)salsa20" {
     var c: [msg.len]u8 = undefined;
 
     Salsa20.xor(&c, msg[0..], 0, key, nonce);
+    try htest.assertEqual("30ff9933aa6534ff5207142593cd1fca4b23bdd8", c[0..]);
+
+    Salsa20.stream(&c, 0, key, nonce);
     try htest.assertEqual("30ff9933aa6534ff5207142593cd1fca4b23bdd8", c[0..]);
 
     const extended_nonce = [_]u8{0x42} ** 24;
