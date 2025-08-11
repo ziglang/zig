@@ -28,6 +28,7 @@ const fs = std.fs;
 const leb = std.leb;
 const log = std.log.scoped(.link);
 const mem = std.mem;
+const Writer = std.Io.Writer;
 
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
@@ -2087,11 +2088,9 @@ pub const Expr = enum(u32) {
     pub const end = @intFromEnum(std.wasm.Opcode.end);
 
     pub fn slice(index: Expr, wasm: *const Wasm) [:end]const u8 {
-        const start_slice = wasm.string_bytes.items[@intFromEnum(index)..];
-        const end_pos = Object.exprEndPos(start_slice, 0) catch |err| switch (err) {
-            error.InvalidInitOpcode => unreachable,
-        };
-        return start_slice[0..end_pos :end];
+        var r: std.Io.Reader = .fixed(wasm.string_bytes.items[@intFromEnum(index)..]);
+        Object.skipInit(&r) catch unreachable;
+        return r.buffered()[0 .. r.seek - 1 :end];
     }
 };
 
@@ -2126,7 +2125,7 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(self: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: Formatter, writer: *Writer) Writer.Error!void {
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
@@ -2905,7 +2904,7 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(feature: Feature, writer: *Writer) Writer.Error!void {
         try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 
@@ -3037,16 +3036,16 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
     const stat = try obj.file.stat();
     const size = std.math.cast(usize, stat.size) orelse return error.FileTooBig;
 
-    const file_contents = try gpa.alloc(u8, size);
-    defer gpa.free(file_contents);
+    var br: std.Io.Reader = .fixed(try gpa.alloc(u8, size));
+    defer gpa.free(br.buffered());
 
-    const n = try obj.file.preadAll(file_contents, 0);
-    if (n != file_contents.len) return error.UnexpectedEndOfFile;
+    const n = try obj.file.preadAll(br.buffered(), 0);
+    if (n != br.bufferedLen()) return error.UnexpectedEndOfFile;
 
     var ss: Object.ScratchSpace = .{};
     defer ss.deinit(gpa);
 
-    const object = try Object.parse(wasm, file_contents, obj.path, null, wasm.object_host_name, &ss, obj.must_link, gc_sections);
+    const object = try Object.parse(wasm, &br, obj.path, null, wasm.object_host_name, &ss, obj.must_link, gc_sections);
     wasm.objects.appendAssumeCapacity(object);
 }
 

@@ -669,16 +669,14 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.* = undefined;
 }
 
-pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) std.mem.Allocator.Error!void {
-    const gpa = wasm.base.comp.gpa;
-
+pub fn lower(mir: *const Mir, wasm: *Wasm, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     // Write the locals in the prologue of the function body.
-    try code.ensureUnusedCapacity(gpa, 5 + mir.locals.len * 6 + 38);
+    _ = try writer.writableSliceGreedy(5 + mir.locals.len * 6 + 38);
 
-    std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(mir.locals.len))) catch unreachable;
+    writer.writeLeb128(@as(u32, @intCast(mir.locals.len))) catch unreachable;
     for (mir.locals) |local| {
-        std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-        code.appendAssumeCapacity(@intFromEnum(local));
+        writer.writeLeb128(@as(u32, 1)) catch unreachable;
+        writer.writeByte(@intFromEnum(local)) catch unreachable;
     }
 
     // Stack management section of function prologue.
@@ -686,37 +684,37 @@ pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) st
     if (stack_alignment.toByteUnits()) |align_bytes| {
         const sp_global: Wasm.GlobalIndex = .stack_pointer;
         // load stack pointer
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-        std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.global_get)) catch unreachable;
+        writer.writeLeb128(@intFromEnum(sp_global)) catch unreachable;
         // store stack pointer so we can restore it when we return from the function
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-        leb.writeUleb128(code.fixedWriter(), mir.prologue.sp_local) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        writer.writeLeb128(mir.prologue.sp_local) catch unreachable;
         // get the total stack size
         const aligned_stack: i32 = @intCast(stack_alignment.forward(mir.prologue.stack_size));
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-        leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        writer.writeLeb128(aligned_stack) catch unreachable;
         // subtract it from the current stack pointer
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_sub)) catch unreachable;
         // Get negative stack alignment
         const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-        leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        writer.writeLeb128(neg_stack_align) catch unreachable;
         // Bitwise-and the value to get the new stack pointer to ensure the
         // pointers are aligned with the abi alignment.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_and)) catch unreachable;
         // The bottom will be used to calculate all stack pointer offsets.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-        leb.writeUleb128(code.fixedWriter(), mir.prologue.bottom_stack_local) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        writer.writeLeb128(mir.prologue.bottom_stack_local) catch unreachable;
         // Store the current stack pointer value into the global stack pointer so other function calls will
         // start from this value instead and not overwrite the current stack.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-        std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+        writer.writeByte(@intFromEnum(std.wasm.Opcode.global_set)) catch unreachable;
+        writer.writeLeb128(@intFromEnum(sp_global)) catch unreachable;
     }
 
     var emit: Emit = .{
         .mir = mir.*,
         .wasm = wasm,
-        .code = code,
+        .writer = writer,
     };
     try emit.lowerToCode();
 }

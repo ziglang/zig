@@ -4,6 +4,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const leb = std.leb;
+const Writer = std.Io.Writer;
 
 const Wasm = link.File.Wasm;
 const Mir = @import("Mir.zig");
@@ -14,16 +15,16 @@ const codegen = @import("../../codegen.zig");
 
 mir: Mir,
 wasm: *Wasm,
-/// The binary representation that will be emitted by this module.
-code: *std.ArrayListUnmanaged(u8),
+/// The binary representation of this module is written here.
+writer: *Writer,
 
 pub const Error = error{
-    OutOfMemory,
+    WriteFailed,
 };
 
 pub fn lowerToCode(emit: *Emit) Error!void {
     const mir = &emit.mir;
-    const code = emit.code;
+    const writer = emit.writer;
     const wasm = emit.wasm;
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
@@ -41,18 +42,19 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
         .block, .loop => {
             const block_type = datas[inst].block_type;
-            try code.ensureUnusedCapacity(gpa, 2);
-            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            code.appendAssumeCapacity(@intFromEnum(block_type));
+            try writer.writeAll(&.{
+                @intFromEnum(tags[inst]),
+                @intFromEnum(block_type),
+            });
 
             inst += 1;
             continue :loop tags[inst];
         },
         .uav_ref => {
             if (is_obj) {
-                try uavRefObj(wasm, code, datas[inst].ip_index, 0, is_wasm32);
+                try uavRefObj(wasm, writer, datas[inst].ip_index, 0, is_wasm32);
             } else {
-                try uavRefExe(wasm, code, datas[inst].ip_index, 0, is_wasm32);
+                try uavRefExe(wasm, writer, datas[inst].ip_index, 0, is_wasm32);
             }
             inst += 1;
             continue :loop tags[inst];
@@ -60,20 +62,20 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .uav_ref_off => {
             const extra = mir.extraData(Mir.UavRefOff, datas[inst].payload).data;
             if (is_obj) {
-                try uavRefObj(wasm, code, extra.value, extra.offset, is_wasm32);
+                try uavRefObj(wasm, writer, extra.value, extra.offset, is_wasm32);
             } else {
-                try uavRefExe(wasm, code, extra.value, extra.offset, is_wasm32);
+                try uavRefExe(wasm, writer, extra.value, extra.offset, is_wasm32);
             }
             inst += 1;
             continue :loop tags[inst];
         },
         .nav_ref => {
-            try navRefOff(wasm, code, .{ .nav_index = datas[inst].nav_index, .offset = 0 }, is_wasm32);
+            try navRefOff(wasm, writer, .{ .nav_index = datas[inst].nav_index, .offset = 0 }, is_wasm32);
             inst += 1;
             continue :loop tags[inst];
         },
         .nav_ref_off => {
-            try navRefOff(wasm, code, mir.extraData(Mir.NavRefOff, datas[inst].payload).data, is_wasm32);
+            try navRefOff(wasm, writer, mir.extraData(Mir.NavRefOff, datas[inst].payload).data, is_wasm32);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -81,11 +83,11 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const indirect_func_idx: Wasm.ZcuIndirectFunctionSetIndex = @enumFromInt(
                 wasm.zcu_indirect_function_set.getIndex(datas[inst].nav_index).?,
             );
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_const));
             if (is_obj) {
                 @panic("TODO");
             } else {
-                leb.writeUleb128(code.fixedWriter(), 1 + @intFromEnum(indirect_func_idx)) catch unreachable;
+                try writer.writeLeb128(1 + @intFromEnum(indirect_func_idx));
             }
             inst += 1;
             continue :loop tags[inst];
@@ -95,52 +97,48 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             continue :loop tags[inst];
         },
         .errors_len => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_const));
             // MIR is lowered during flush, so there is indeed only one thread at this time.
-            const errors_len = 1 + comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len;
-            leb.writeIleb128(code.fixedWriter(), errors_len) catch unreachable;
+            const errors_len: u32 = @intCast(1 + comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len);
+            try writer.writeLeb128(@as(i32, @bitCast(errors_len)));
 
             inst += 1;
             continue :loop tags[inst];
         },
         .error_name_table_ref => {
             wasm.error_name_table_ref_count += 1;
-            try code.ensureUnusedCapacity(gpa, 11);
             const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
-            code.appendAssumeCapacity(@intFromEnum(opcode));
+            try writer.writeByte(@intFromEnum(opcode));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .symbol_index = try wasm.errorNameTableSymbolIndex() },
                     .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+                try writer.splatByteAll(0, if (is_wasm32) 5 else 10);
 
                 inst += 1;
                 continue :loop tags[inst];
             } else {
                 const addr: u32 = wasm.errorNameTableAddr();
-                leb.writeIleb128(code.fixedWriter(), addr) catch unreachable;
+                try writer.writeLeb128(@as(i32, @bitCast(addr)));
 
                 inst += 1;
                 continue :loop tags[inst];
             }
         },
         .br_if, .br, .memory_grow, .memory_size => {
-            try code.ensureUnusedCapacity(gpa, 11);
-            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            leb.writeUleb128(code.fixedWriter(), datas[inst].label) catch unreachable;
+            try writer.writeByte(@intFromEnum(tags[inst]));
+            try writer.writeLeb128(datas[inst].label);
 
             inst += 1;
             continue :loop tags[inst];
         },
 
         .local_get, .local_set, .local_tee => {
-            try code.ensureUnusedCapacity(gpa, 11);
-            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            leb.writeUleb128(code.fixedWriter(), datas[inst].local) catch unreachable;
+            try writer.writeByte(@intFromEnum(tags[inst]));
+            try writer.writeLeb128(datas[inst].local);
 
             inst += 1;
             continue :loop tags[inst];
@@ -150,29 +148,27 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const extra_index = datas[inst].payload;
             const extra = mir.extraData(Mir.JumpTable, extra_index);
             const labels = mir.extra[extra.end..][0..extra.data.length];
-            try code.ensureUnusedCapacity(gpa, 11 + 10 * labels.len);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_table));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.br_table));
             // -1 because default label is not part of length/depth.
-            leb.writeUleb128(code.fixedWriter(), extra.data.length - 1) catch unreachable;
-            for (labels) |label| leb.writeUleb128(code.fixedWriter(), label) catch unreachable;
+            try writer.writeLeb128(extra.data.length - 1);
+            for (labels) |label| try writer.writeLeb128(label);
 
             inst += 1;
             continue :loop tags[inst];
         },
 
         .call_nav => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.call));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .symbol_index = try wasm.navSymbolIndex(datas[inst].nav_index) },
                     .tag = .function_index_leb,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, 5);
+                try writer.splatByteAll(0, 5);
             } else {
-                appendOutputFunctionIndex(code, .fromIpNav(wasm, datas[inst].nav_index));
+                try appendOutputFunctionIndex(writer, .fromIpNav(wasm, datas[inst].nav_index));
             }
 
             inst += 1;
@@ -180,7 +176,6 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
 
         .call_indirect => {
-            try code.ensureUnusedCapacity(gpa, 11);
             const fn_info = comp.zcu.?.typeToFunc(.fromInterned(datas[inst].ip_index)).?;
             const func_ty_index = wasm.getExistingFunctionType(
                 fn_info.cc,
@@ -188,38 +183,37 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 .fromInterned(fn_info.return_type),
                 target,
             ).?;
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call_indirect));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.call_indirect));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .type_index = func_ty_index },
                     .tag = .type_index_leb,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, 5);
+                try writer.splatByteAll(0, 5);
             } else {
                 const index: Wasm.Flush.FuncTypeIndex = .fromTypeIndex(func_ty_index, &wasm.flush_buffer);
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(index)) catch unreachable;
+                try writer.writeLeb128(@intFromEnum(index));
             }
-            leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // table index
+            try writer.writeUleb128(0); // table index
 
             inst += 1;
             continue :loop tags[inst];
         },
 
         .call_tag_name => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.call));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .symbol_index = try wasm.tagNameSymbolIndex(datas[inst].ip_index) },
                     .tag = .function_index_leb,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, 5);
+                try writer.splatByteAll(0, 5);
             } else {
-                appendOutputFunctionIndex(code, .fromTagNameType(wasm, datas[inst].ip_index));
+                try appendOutputFunctionIndex(writer, .fromTagNameType(wasm, datas[inst].ip_index));
             }
 
             inst += 1;
@@ -232,18 +226,17 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             // table initialized based on the `Mir.Intrinsic` enum.
             const symbol_name = try wasm.internString(@tagName(datas[inst].intrinsic));
 
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.call));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.call));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .symbol_index = try wasm.symbolNameIndex(symbol_name) },
                     .tag = .function_index_leb,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, 5);
+                try writer.splatByteAll(0, 5);
             } else {
-                appendOutputFunctionIndex(code, .fromSymbolName(wasm, symbol_name));
+                try appendOutputFunctionIndex(writer, .fromSymbolName(wasm, symbol_name));
             }
 
             inst += 1;
@@ -251,19 +244,17 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
 
         .global_set_sp => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.global_set));
             if (is_obj) {
                 try wasm.out_relocs.append(gpa, .{
-                    .offset = @intCast(code.items.len),
+                    .offset = @intCast(writer.count),
                     .pointee = .{ .symbol_index = try wasm.stackPointerSymbolIndex() },
                     .tag = .global_index_leb,
                     .addend = 0,
                 });
-                code.appendNTimesAssumeCapacity(0, 5);
+                try writer.splatByteAll(0, 5);
             } else {
-                const sp_global: Wasm.GlobalIndex = .stack_pointer;
-                std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+                try writer.writeLeb128(@intFromEnum(Wasm.GlobalIndex.stack_pointer));
             }
 
             inst += 1;
@@ -271,36 +262,32 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         },
 
         .f32_const => {
-            try code.ensureUnusedCapacity(gpa, 5);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.f32_const));
-            std.mem.writeInt(u32, code.addManyAsArrayAssumeCapacity(4), @bitCast(datas[inst].float32), .little);
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.f32_const));
+            try writer.writeInt(u32, @bitCast(datas[inst].float32), .little);
 
             inst += 1;
             continue :loop tags[inst];
         },
 
         .f64_const => {
-            try code.ensureUnusedCapacity(gpa, 9);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.f64_const));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.f64_const));
             const float64 = mir.extraData(Mir.Float64, datas[inst].payload).data;
-            std.mem.writeInt(u64, code.addManyAsArrayAssumeCapacity(8), float64.toInt(), .little);
+            try writer.writeInt(u64, float64.toInt(), .little);
 
             inst += 1;
             continue :loop tags[inst];
         },
         .i32_const => {
-            try code.ensureUnusedCapacity(gpa, 6);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), datas[inst].imm32) catch unreachable;
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.i32_const));
+            try writer.writeLeb128(datas[inst].imm32);
 
             inst += 1;
             continue :loop tags[inst];
         },
         .i64_const => {
-            try code.ensureUnusedCapacity(gpa, 11);
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.i64_const));
             const int64: i64 = @bitCast(mir.extraData(Mir.Imm64, datas[inst].payload).data.toInt());
-            leb.writeIleb128(code.fixedWriter(), int64) catch unreachable;
+            try writer.writeLeb128(int64);
 
             inst += 1;
             continue :loop tags[inst];
@@ -330,9 +317,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .i64_store16,
         .i64_store32,
         => {
-            try code.ensureUnusedCapacity(gpa, 1 + 20);
-            code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            encodeMemArg(code, mir.extraData(Mir.MemArg, datas[inst].payload).data);
+            try writer.writeByte(@intFromEnum(tags[inst]));
+            try encodeMemArg(writer, mir.extraData(Mir.MemArg, datas[inst].payload).data);
             inst += 1;
             continue :loop tags[inst];
         },
@@ -466,43 +452,42 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .i64_clz,
         .i64_ctz,
         => {
-            try code.append(gpa, @intFromEnum(tags[inst]));
+            try writer.writeByte(@intFromEnum(tags[inst]));
             inst += 1;
             continue :loop tags[inst];
         },
 
         .misc_prefix => {
-            try code.ensureUnusedCapacity(gpa, 6 + 6);
             const extra_index = datas[inst].payload;
-            const opcode = mir.extra[extra_index];
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
-            switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
+            const opcode: std.wasm.MiscOpcode = @enumFromInt(mir.extra[extra_index]);
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.misc_prefix));
+            try writer.writeLeb128(@intFromEnum(opcode));
+            switch (opcode) {
                 // bulk-memory opcodes
                 .data_drop => {
                     const segment = mir.extra[extra_index + 1];
-                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
+                    try writer.writeLeb128(segment);
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_init => {
                     const segment = mir.extra[extra_index + 1];
-                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+                    try writer.writeLeb128(segment);
+                    try writer.writeByte(0); // memory index
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_fill => {
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+                    try writer.writeByte(0); // memory index
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_copy => {
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // dst memory index
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // src memory index
+                    try writer.writeByte(0); // dst memory index
+                    try writer.writeByte(0); // src memory index
 
                     inst += 1;
                     continue :loop tags[inst];
@@ -534,12 +519,11 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             comptime unreachable;
         },
         .simd_prefix => {
-            try code.ensureUnusedCapacity(gpa, 6 + 20);
             const extra_index = datas[inst].payload;
-            const opcode = mir.extra[extra_index];
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.simd_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
-            switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
+            const opcode: std.wasm.SimdOpcode = @enumFromInt(mir.extra[extra_index]);
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.simd_prefix));
+            try writer.writeLeb128(@intFromEnum(opcode));
+            switch (opcode) {
                 .v128_store,
                 .v128_load,
                 .v128_load8_splat,
@@ -547,12 +531,12 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 .v128_load32_splat,
                 .v128_load64_splat,
                 => {
-                    encodeMemArg(code, mir.extraData(Mir.MemArg, extra_index + 1).data);
+                    try encodeMemArg(writer, mir.extraData(Mir.MemArg, extra_index + 1).data);
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .v128_const, .i8x16_shuffle => {
-                    code.appendSliceAssumeCapacity(std.mem.asBytes(mir.extra[extra_index + 1 ..][0..4]));
+                    try writer.writeAll(std.mem.asBytes(mir.extra[extra_index + 1 ..][0..4]));
                     inst += 1;
                     continue :loop tags[inst];
                 },
@@ -571,7 +555,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 .f64x2_extract_lane,
                 .f64x2_replace_lane,
                 => {
-                    code.appendAssumeCapacity(@intCast(mir.extra[extra_index + 1]));
+                    try writer.writeByte(@intCast(mir.extra[extra_index + 1]));
                     inst += 1;
                     continue :loop tags[inst];
                 },
@@ -819,13 +803,11 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             comptime unreachable;
         },
         .atomics_prefix => {
-            try code.ensureUnusedCapacity(gpa, 6 + 20);
-
             const extra_index = datas[inst].payload;
-            const opcode = mir.extra[extra_index];
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
-            switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
+            const opcode: std.wasm.AtomicsOpcode = @enumFromInt(mir.extra[extra_index]);
+            try writer.writeByte(@intFromEnum(std.wasm.Opcode.atomics_prefix));
+            try writer.writeLeb128(@intFromEnum(opcode));
+            switch (opcode) {
                 .i32_atomic_load,
                 .i64_atomic_load,
                 .i32_atomic_load8_u,
@@ -892,15 +874,12 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 .i64_atomic_rmw32_cmpxchg_u,
                 => {
                     const mem_arg = mir.extraData(Mir.MemArg, extra_index + 1).data;
-                    encodeMemArg(code, mem_arg);
+                    try encodeMemArg(writer, mem_arg);
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .atomic_fence => {
-                    // Hard-codes memory index 0 since multi-memory proposal is
-                    // not yet accepted nor implemented.
-                    const memory_index: u32 = 0;
-                    leb.writeUleb128(code.fixedWriter(), memory_index) catch unreachable;
+                    try writer.writeByte(0); // memory index
                     inst += 1;
                     continue :loop tags[inst];
                 },
@@ -915,44 +894,36 @@ pub fn lowerToCode(emit: *Emit) Error!void {
 }
 
 /// Asserts 20 unused capacity.
-fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
-    assert(code.unusedCapacitySlice().len >= 20);
-    // Wasm encodes alignment as power of 2, rather than natural alignment.
-    const encoded_alignment = @ctz(mem_arg.alignment);
-    leb.writeUleb128(code.fixedWriter(), encoded_alignment) catch unreachable;
-    leb.writeUleb128(code.fixedWriter(), mem_arg.offset) catch unreachable;
+fn encodeMemArg(writer: *Writer, mem_arg: Mir.MemArg) Writer.Error!void {
+    try writer.writeLeb128(Wasm.Alignment.fromNonzeroByteUnits(mem_arg.alignment).toLog2Units());
+    try writer.writeLeb128(mem_arg.offset);
 }
 
-fn uavRefObj(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
+fn uavRefObj(wasm: *Wasm, writer: *Writer, value: InternPool.Index, offset: i32, is_wasm32: bool) Writer.Error!void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
 
-    try code.ensureUnusedCapacity(gpa, 11);
-    code.appendAssumeCapacity(@intFromEnum(opcode));
+    try writer.writeByte(@intFromEnum(opcode));
 
     try wasm.out_relocs.append(gpa, .{
-        .offset = @intCast(code.items.len),
+        .offset = @intCast(writer.count),
         .pointee = .{ .symbol_index = try wasm.uavSymbolIndex(value) },
         .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
         .addend = offset,
     });
-    code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+    try writer.splatByteAll(0, if (is_wasm32) 5 else 10);
 }
 
-fn uavRefExe(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
-    const comp = wasm.base.comp;
-    const gpa = comp.gpa;
+fn uavRefExe(wasm: *Wasm, writer: *Writer, value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
-
-    try code.ensureUnusedCapacity(gpa, 11);
-    code.appendAssumeCapacity(@intFromEnum(opcode));
+    try writer.writeByte(@intFromEnum(opcode));
 
     const addr = wasm.uavAddr(value);
-    leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + offset))) catch unreachable;
+    try writer.writeLeb128(@as(u32, @intCast(@as(i64, addr) + offset)));
 }
 
-fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
+fn navRefOff(wasm: *Wasm, writer: *Writer, data: Mir.NavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -961,24 +932,22 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
     const nav_ty = ip.getNav(data.nav_index).typeOf(ip);
     assert(!ip.isFunctionType(nav_ty));
 
-    try code.ensureUnusedCapacity(gpa, 11);
-
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
-    code.appendAssumeCapacity(@intFromEnum(opcode));
+    try writer.writeByte(@intFromEnum(opcode));
     if (is_obj) {
         try wasm.out_relocs.append(gpa, .{
-            .offset = @intCast(code.items.len),
+            .offset = @intCast(writer.count),
             .pointee = .{ .symbol_index = try wasm.navSymbolIndex(data.nav_index) },
             .tag = if (is_wasm32) .memory_addr_leb else .memory_addr_leb64,
             .addend = data.offset,
         });
-        code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
+        try writer.splatByteAll(0, if (is_wasm32) 5 else 10);
     } else {
         const addr = wasm.navAddr(data.nav_index);
-        leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
+        try writer.writeLeb128(@as(i32, @bitCast(@as(u32, @intCast(@as(i64, addr) + data.offset)))));
     }
 }
 
-fn appendOutputFunctionIndex(code: *std.ArrayListUnmanaged(u8), i: Wasm.OutputFunctionIndex) void {
-    leb.writeUleb128(code.fixedWriter(), @intFromEnum(i)) catch unreachable;
+fn appendOutputFunctionIndex(writer: *Writer, i: Wasm.OutputFunctionIndex) Writer.Error!void {
+    return writer.writeLeb128(@intFromEnum(i));
 }
