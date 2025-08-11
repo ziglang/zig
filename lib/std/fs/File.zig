@@ -1202,12 +1202,26 @@ pub const Reader = struct {
         };
     }
 
-    pub fn getSize(r: *Reader) GetEndPosError!u64 {
+    pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
-            if (r.file.getEndPos()) |size| {
-                r.size = size;
-                return size;
+            if (is_windows) {
+                if (windows.GetFileSizeEx(r.file.handle)) |size| {
+                    r.size = size;
+                    return size;
+                } else |err| {
+                    r.size_err = err;
+                    return err;
+                }
+            }
+            if (stat(r.file)) |st| {
+                if (st.kind == .file) {
+                    r.size = st.size;
+                    return st.size;
+                } else {
+                    r.size_err = error.Streaming;
+                    return error.Streaming;
+                }
             } else |err| {
                 r.size_err = err;
                 return err;
