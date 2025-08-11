@@ -185,13 +185,19 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var random_buffer: [176]u8 = undefined;
     crypto.random.bytes(&random_buffer);
     const now_sec = std.time.timestamp();
-    return init_inner(input, output, options, random_buffer, now_sec);
+    return initInner(input, output, options, random_buffer, now_sec);
 }
 
 /// This does the same thing as init, but you can provide your own entropy
 /// and timestamp with random_buffer and now_sec instead of using the
 /// default std.time.timestamp() and crypto.random.bytes(&random_buffer).
-pub fn init_inner(input: *Reader, output: *Writer, options: Options, random_buffer: [176]u8, now_sec: i64) InitError!Client {
+pub fn initInner(
+    input: *Reader,
+    output: *Writer,
+    options: Options,
+    random_buffer: [176]u8,
+    now_sec: i64
+) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
     assert(output.buffer.len >= min_buffer_len);
     const host = switch (options.host) {
@@ -199,7 +205,7 @@ pub fn init_inner(input: *Reader, output: *Writer, options: Options, random_buff
         .explicit => |host| host,
     };
     const host_len: u16 = @intCast(host.len);
-    
+
     const client_hello_rand = random_buffer[0..32].*;
     var key_seq: u64 = 0;
     var server_hello_rand: [32]u8 = undefined;
