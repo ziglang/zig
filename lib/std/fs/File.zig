@@ -1122,9 +1122,14 @@ pub const Reader = struct {
     /// position, use `logicalPos`.
     pos: u64 = 0,
     size: ?u64 = null,
-    size_err: ?GetEndPosError = null,
+    size_err: ?SizeError = null,
     seek_err: ?Reader.SeekError = null,
     interface: std.Io.Reader,
+
+    pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
+        /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
+        Streaming,
+    };
 
     pub const SeekError = File.SeekError || error{
         /// Seeking fell back to reading, and reached the end before the requested seek position.
@@ -1197,12 +1202,27 @@ pub const Reader = struct {
         };
     }
 
-    pub fn getSize(r: *Reader) GetEndPosError!u64 {
+    pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
-            if (r.file.getEndPos()) |size| {
-                r.size = size;
-                return size;
+            if (is_windows) {
+                if (windows.GetFileSizeEx(r.file.handle)) |size| {
+                    r.size = size;
+                    return size;
+                } else |err| {
+                    r.size_err = err;
+                    return err;
+                }
+            }
+            if (stat(r.file)) |st| {
+                if (st.kind == .file) {
+                    r.size = st.size;
+                    return st.size;
+                } else {
+                    r.mode = r.mode.toStreaming();
+                    r.size_err = error.Streaming;
+                    return error.Streaming;
+                }
             } else |err| {
                 r.size_err = err;
                 return err;
@@ -1400,13 +1420,8 @@ pub const Reader = struct {
         const pos = r.pos;
         switch (r.mode) {
             .positional, .positional_reading => {
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                        r.mode = r.mode.toStreaming();
-                    }
+                const size = r.getSize() catch {
+                    r.mode = r.mode.toStreaming();
                     return 0;
                 };
                 const delta = @min(@intFromEnum(limit), size - pos);
@@ -1453,14 +1468,7 @@ pub const Reader = struct {
                     r.pos = pos + n;
                     return n;
                 }
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                    }
-                    return 0;
-                };
+                const size = r.getSize() catch return 0;
                 const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
                 file.seekBy(n) catch |err| {
                     r.seek_err = err;
@@ -1893,15 +1901,7 @@ pub const Writer = struct {
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
                 .positional => o: {
-                    const size = file_reader.size orelse {
-                        if (file_reader.file.getEndPos()) |size| {
-                            file_reader.size = size;
-                        } else |err| {
-                            file_reader.size_err = err;
-                            file_reader.mode = .streaming;
-                        }
-                        return 0;
-                    };
+                    const size = file_reader.getSize() catch return 0;
                     off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                     break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },
