@@ -32,7 +32,7 @@ const Type = TypeStore.Type;
 const QualType = TypeStore.QualType;
 const Value = @import("Value.zig");
 
-const NodeList = std.ArrayList(Node.Index);
+const NodeList = std.array_list.Managed(Node.Index);
 const Switch = struct {
     default: ?TokenIndex = null,
     ranges: std.array_list.Managed(Range),
