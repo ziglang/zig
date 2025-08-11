@@ -148,7 +148,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(!mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 

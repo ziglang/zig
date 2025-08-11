@@ -115,7 +115,7 @@ pub const EndRecord = extern struct {
         return record;
     }
 
-    pub const FindFileError = File.GetEndPosError || File.SeekError || File.ReadError || error{
+    pub const FindFileError = File.Reader.SizeError || File.SeekError || File.ReadError || error{
         ZipNoEndRecord,
         EndOfStream,
         ReadFailed,
