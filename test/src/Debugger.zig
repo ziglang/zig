@@ -491,16 +491,16 @@ pub fn addTestsForTarget(db: *Debugger, target: *const Target) void {
             \\    (error{One,Two}) Two = error.Two
             \\  }
             \\  (type) Three = error {
-            \\    (error{One,Two,Three}) One = error.One
-            \\    (error{One,Two,Three}) Two = error.Two
-            \\    (error{One,Two,Three}) Three = error.Three
+            \\    (error{One,Three,Two}) One = error.One
+            \\    (error{One,Three,Two}) Two = error.Two
+            \\    (error{One,Three,Two}) Three = error.Three
             \\  }
             \\}
             \\(lldb) frame variable --show-types -- errors
             \\(root.errors.Errors) errors = {
             \\  (error{One}) .one = error.One
             \\  (error{One,Two}) .two = error.Two
-            \\  (error{One,Two,Three}) .three = error.Three
+            \\  (error{One,Three,Two}) .three = error.Three
             \\  (anyerror) .any = error.Any
             \\  (anyerror!void) .any_void = {
             \\    (anyerror) .error = error.NotVoid

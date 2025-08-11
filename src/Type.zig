@@ -254,9 +254,23 @@ pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.
             });
         },
         .error_set_type => |error_set_type| {
-            const names = error_set_type.names;
+            const NullTerminatedString = InternPool.NullTerminatedString;
+            const sorted_names = zcu.gpa.dupe(NullTerminatedString, error_set_type.names.get(ip)) catch {
+                zcu.comp.setAllocFailure();
+                return writer.writeAll("error{...}");
+            };
+            defer zcu.gpa.free(sorted_names);
+
+            std.mem.sortUnstable(NullTerminatedString, sorted_names, ip, struct {
+                fn lessThan(ip_: *InternPool, lhs: NullTerminatedString, rhs: NullTerminatedString) bool {
+                    const lhs_slice = lhs.toSlice(ip_);
+                    const rhs_slice = rhs.toSlice(ip_);
+                    return std.mem.lessThan(u8, lhs_slice, rhs_slice);
+                }
+            }.lessThan);
+
             try writer.writeAll("error{");
-            for (names.get(ip), 0..) |name, i| {
+            for (sorted_names, 0..) |name, i| {
                 if (i != 0) try writer.writeByte(',');
                 try writer.print("{f}", .{name.fmt(ip)});
             }
