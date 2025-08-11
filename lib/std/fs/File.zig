@@ -1612,63 +1612,48 @@ pub const Writer = struct {
         const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
         const handle = w.file.handle;
         const buffered = io_w.buffered();
-        if (is_windows) switch (w.mode) {
-            .positional, .positional_reading => {
-                if (buffered.len != 0) {
-                    const n = windows.WriteFile(handle, buffered, w.pos) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
-                    w.pos += n;
-                    return io_w.consume(n);
+        const has_pwritev = !is_windows and
+            !((native_os.isDarwin() or native_os == .haiku) and
+                (w.mode == .positional or w.mode == .positional_reading));
+        if (!has_pwritev) {
+            const pos: ?u64 = switch (w.mode) {
+                .positional, .positional_reading => w.pos,
+                .streaming, .streaming_reading => null,
+                .failure => return error.WriteFailed,
+            };
+            if (buffered.len != 0) {
+                return w.pwrite(buffered, pos);
+            }
+            for (data[0 .. data.len - 1]) |buf| {
+                if (buf.len == 0) continue;
+                return w.pwrite(buf, pos);
+            }
+            const pattern = data[data.len - 1];
+            if (pattern.len == 0 or splat == 0) return 0;
+            const splat_buffer: []const u8 = if (splat > 1) buf: {
+                const splat_buffer_candidate = io_w.buffer[io_w.end..];
+                var backup_buffer: [64]u8 = undefined;
+                const splat_buffer = if (splat_buffer_candidate.len >= backup_buffer.len)
+                    splat_buffer_candidate
+                else
+                    &backup_buffer;
+                if (pattern.len > splat_buffer.len / 2) {
+                    break :buf pattern;
                 }
-                for (data[0 .. data.len - 1]) |buf| {
-                    if (buf.len == 0) continue;
-                    const n = windows.WriteFile(handle, buf, w.pos) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
-                    w.pos += n;
-                    return io_w.consume(n);
+                if (pattern.len == 1) {
+                    const memset_len = @min(splat_buffer.len, splat);
+                    const buf = splat_buffer[0..memset_len];
+                    @memset(buf, pattern[0]);
+                    break :buf buf;
                 }
-                const pattern = data[data.len - 1];
-                if (pattern.len == 0 or splat == 0) return 0;
-                const n = windows.WriteFile(handle, pattern, w.pos) catch |err| {
-                    w.err = err;
-                    return error.WriteFailed;
-                };
-                w.pos += n;
-                return io_w.consume(n);
-            },
-            .streaming, .streaming_reading => {
-                if (buffered.len != 0) {
-                    const n = windows.WriteFile(handle, buffered, null) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
-                    w.pos += n;
-                    return io_w.consume(n);
+                const repeat_count = @min(splat_buffer.len / pattern.len, splat);
+                for (0..repeat_count) |i| {
+                    @memcpy(splat_buffer[i * pattern.len ..][0..pattern.len], pattern);
                 }
-                for (data[0 .. data.len - 1]) |buf| {
-                    if (buf.len == 0) continue;
-                    const n = windows.WriteFile(handle, buf, null) catch |err| {
-                        w.err = err;
-                        return error.WriteFailed;
-                    };
-                    w.pos += n;
-                    return io_w.consume(n);
-                }
-                const pattern = data[data.len - 1];
-                if (pattern.len == 0 or splat == 0) return 0;
-                const n = windows.WriteFile(handle, pattern, null) catch |err| {
-                    w.err = err;
-                    return error.WriteFailed;
-                };
-                w.pos += n;
-                return io_w.consume(n);
-            },
-            .failure => return error.WriteFailed,
-        };
+                break :buf splat_buffer[0 .. pattern.len * repeat_count];
+            } else pattern;
+            return w.pwrite(splat_buffer, pos);
+        }
         var iovecs: [max_buffers_len]std.posix.iovec_const = undefined;
         var len: usize = 0;
         if (buffered.len > 0) {
@@ -1755,6 +1740,36 @@ pub const Writer = struct {
             },
             .failure => return error.WriteFailed,
         }
+    }
+
+    fn pwrite(w: *Writer, data: []const u8, offset: ?u64) std.Io.Writer.Error!usize {
+        const result = if (is_windows)
+            windows.WriteFile(w.file.handle, data, offset)
+        else if (offset) |p|
+            posix.pwrite(w.file.handle, data, p) catch |err| switch (err) {
+                error.Unseekable => {
+                    w.mode = w.mode.toStreaming();
+                    const pos = w.pos;
+                    if (pos != 0) {
+                        w.pos = 0;
+                        w.seekTo(@intCast(pos)) catch {
+                            w.mode = .failure;
+                            return error.WriteFailed;
+                        };
+                    }
+                    return 0;
+                },
+                else => |e| e,
+            }
+        else
+            posix.write(w.file.handle, data);
+
+        const n = result catch |err| {
+            w.err = err;
+            return error.WriteFailed;
+        };
+        w.pos += n;
+        return w.interface.consume(n);
     }
 
     pub fn sendFile(
