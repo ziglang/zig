@@ -3439,8 +3439,8 @@ fn transStringLiteralInitializer(
         const init_list = try t.arena.alloc(ZigNode, @intCast(num_inits));
         for (init_list, 0..) |*item, i| {
             const codepoint = switch (size) {
-                2 => @as(*const u16, @alignCast(@ptrCast(bytes.ptr + i * 2))).*,
-                4 => @as(*const u32, @alignCast(@ptrCast(bytes.ptr + i * 4))).*,
+                2 => @as(*const u16, @ptrCast(@alignCast(bytes.ptr + i * 2))).*,
+                4 => @as(*const u32, @ptrCast(@alignCast(bytes.ptr + i * 4))).*,
                 else => unreachable,
             };
             item.* = try t.createCharLiteralNode(false, codepoint);
@@ -3873,7 +3873,7 @@ fn createNumberNode(t: *Translator, num: anytype, num_kind: enum { int, float })
 
 fn createCharLiteralNode(t: *Translator, narrow: bool, val: u32) TransError!ZigNode {
     return ZigTag.char_literal.create(t.arena, if (narrow)
-        try std.fmt.allocPrint(t.arena, "'{f}'", .{std.zig.fmtChar(&.{@as(u8, @intCast(val))})})
+        try std.fmt.allocPrint(t.arena, "'{f}'", .{std.zig.fmtChar(@intCast(val))})
     else
         try std.fmt.allocPrint(t.arena, "'\\u{{{x}}}'", .{val}));
 }

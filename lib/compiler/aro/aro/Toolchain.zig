@@ -171,8 +171,7 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
 /// TODO: this isn't exactly right since our target names don't necessarily match up
 /// with GCC's.
 /// For example the Zig target `arm-freestanding-eabi` would need the `arm-none-eabi` tools
-fn possibleProgramNames(raw_triple: ?[]const u8, name: []const u8, buf: *[64]u8) std.BoundedArray([]const u8, 2) {
-    var possible_names: std.BoundedArray([]const u8, 2) = .{};
+fn possibleProgramNames(raw_triple: ?[]const u8, name: []const u8, buf: *[64]u8, possible_names: *std.ArrayListUnmanaged([]const u8)) void {
     if (raw_triple) |triple| {
         if (std.fmt.bufPrint(buf, "{s}-{s}", .{ triple, name })) |res| {
             possible_names.appendAssumeCapacity(res);
@@ -209,9 +208,11 @@ fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
 
     var tool_specific_buf: [64]u8 = undefined;
-    const possible_names = possibleProgramNames(tc.driver.raw_target_triple, name, &tool_specific_buf);
+    var possible_names_buffer: [2][]const u8 = undefined;
+    var possible_names = std.ArrayListUnmanaged.initBuffer(&possible_names_buffer);
+    possibleProgramNames(tc.driver.raw_target_triple, name, &tool_specific_buf, &possible_names);
 
-    for (possible_names.constSlice()) |tool_name| {
+    for (possible_names.items) |tool_name| {
         for (tc.program_paths.items) |program_path| {
             defer fib.reset();
 
