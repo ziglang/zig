@@ -124,6 +124,12 @@ pub const Options = struct {
     read_buffer: []u8,
     /// Populated when `error.TlsAlert` is returned from `init`.
     alert: ?*tls.Alert = null,
+    /// Provide entropy yourself.
+    /// Default used is crypto.random.bytes(&random_buffer).
+    random_buffer: ?*const [176]u8 = null,
+    /// Use different timestamp instead of the current timestamp.
+    /// Default used is std.time.timestamp().
+    timestamp: ?i64 = null
 };
 
 const InitError = error{
@@ -191,7 +197,12 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     const host_len: u16 = @intCast(host.len);
 
     var random_buffer: [176]u8 = undefined;
-    crypto.random.bytes(&random_buffer);
+    if (options.random_buffer) |buf| {
+        random_buffer = buf.*;
+    } else {
+        crypto.random.bytes(&random_buffer);
+    }
+    
     const client_hello_rand = random_buffer[0..32].*;
     var key_seq: u64 = 0;
     var server_hello_rand: [32]u8 = undefined;
@@ -321,7 +332,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_state: HandshakeState = .hello;
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
-    const now_sec = std.time.timestamp();
+    const now_sec = options.timestamp orelse std.time.timestamp();
 
     var cleartext_fragment_start: usize = 0;
     var cleartext_fragment_end: usize = 0;
