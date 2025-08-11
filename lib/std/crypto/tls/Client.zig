@@ -124,12 +124,6 @@ pub const Options = struct {
     read_buffer: []u8,
     /// Populated when `error.TlsAlert` is returned from `init`.
     alert: ?*tls.Alert = null,
-    /// Provide entropy yourself.
-    /// Default used is crypto.random.bytes(&random_buffer).
-    random_buffer: ?*const [176]u8 = null,
-    /// Use different timestamp instead of the current timestamp.
-    /// Default used is std.time.timestamp().
-    timestamp: ?i64 = null
 };
 
 const InitError = error{
@@ -188,6 +182,16 @@ const InitError = error{
 ///
 /// `input` is asserted to have buffer capacity at least `min_buffer_len`.
 pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client {
+    var random_buffer: [176]u8 = undefined;
+    crypto.random.bytes(&random_buffer);
+    const now_sec = std.time.timestamp();
+    return init_inner(input, output, options, random_buffer, now_sec);
+}
+
+/// This does the same thing as init, but you can provide your own entropy
+/// and timestamp with random_buffer and now_sec instead of using the
+/// default std.time.timestamp() and crypto.random.bytes(&random_buffer).
+pub fn init_inner(input: *Reader, output: *Writer, options: Options, random_buffer: [176]u8, now_sec: i64) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
     assert(output.buffer.len >= min_buffer_len);
     const host = switch (options.host) {
@@ -195,13 +199,6 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
         .explicit => |host| host,
     };
     const host_len: u16 = @intCast(host.len);
-
-    var random_buffer: [176]u8 = undefined;
-    if (options.random_buffer) |buf| {
-        random_buffer = buf.*;
-    } else {
-        crypto.random.bytes(&random_buffer);
-    }
     
     const client_hello_rand = random_buffer[0..32].*;
     var key_seq: u64 = 0;
@@ -332,7 +329,6 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_state: HandshakeState = .hello;
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
-    const now_sec = options.timestamp orelse std.time.timestamp();
 
     var cleartext_fragment_start: usize = 0;
     var cleartext_fragment_end: usize = 0;
