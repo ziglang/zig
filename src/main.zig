@@ -4554,7 +4554,7 @@ fn cmdTranslateC(
         break :blk out_dep_path;
     };
 
-    var argv = std.ArrayList([]const u8).init(arena);
+    var argv = std.array_list.Managed([]const u8).init(arena);
     try comp.addTranslateCCArgs(arena, &argv, ext, out_dep_path, comp.root_mod);
     try argv.append(c_source_file.src_path);
     if (comp.verbose_cc) Compilation.dump_argv(argv.items);

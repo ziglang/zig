@@ -814,7 +814,7 @@ fn fatalNotFound(pp: *Preprocessor, tok: TokenWithExpansionLocs, filename: []con
     defer pp.diagnostics.state.fatal_errors = old;
 
     var sf = std.heap.stackFallback(1024, pp.gpa);
-    var buf = std.ArrayList(u8).init(sf.get());
+    var buf = std.array_list.Managed(u8).init(sf.get());
     defer buf.deinit();
 
     try buf.print("'{s}' not found", .{filename});
