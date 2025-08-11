@@ -2193,9 +2193,9 @@ test "std.zon string literal" {
         defer diag.deinit(gpa);
         try std.testing.expectError(
             error.ParseZon,
-            fromSlice([]const i8, gpa, "\"\\a\"", &diag, .{}),
+            fromSlice([]const i8, gpa, "\"\\e\"", &diag, .{}),
         );
-        try std.testing.expectFmt("1:3: error: invalid escape character: 'a'\n", "{f}", .{diag});
+        try std.testing.expectFmt("1:3: error: invalid escape character: 'e'\n", "{f}", .{diag});
     }
 
     // Slice wrong child type
