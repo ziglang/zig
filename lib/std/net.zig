@@ -2064,6 +2064,7 @@ pub const Stream = struct {
                         .file = .{ .handle = net_stream.handle },
                         .mode = .streaming,
                         .seek_err = error.Unseekable,
+                        .size_err = error.Streaming,
                     },
                 };
             }

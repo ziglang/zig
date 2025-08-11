@@ -1122,9 +1122,14 @@ pub const Reader = struct {
     /// position, use `logicalPos`.
     pos: u64 = 0,
     size: ?u64 = null,
-    size_err: ?GetEndPosError = null,
+    size_err: ?SizeError = null,
     seek_err: ?Reader.SeekError = null,
     interface: std.Io.Reader,
+
+    pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
+        /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
+        Streaming,
+    };
 
     pub const SeekError = File.SeekError || error{
         /// Seeking fell back to reading, and reached the end before the requested seek position.
