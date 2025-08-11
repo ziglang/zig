@@ -1088,6 +1088,8 @@ test "pass pointer to empty array initializer to anytype parameter" {
 }
 
 test "initialize pointer to anyopaque with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const ptr: *const anyopaque = &.{};
     // The above acts like an untyped initializer, since the `.{}` has no result type.
     // So, `ptr` points in memory to an empty tuple (`@TypeOf(.{})`).

@@ -546,7 +546,6 @@ pub const Request = struct {
         try out.writeAll("connection: upgrade\r\nupgrade: websocket\r\nsec-websocket-accept: ");
         const base64_digest = try out.writableArray(28);
         assert(std.base64.standard.Encoder.encode(base64_digest, &digest).len == base64_digest.len);
-        out.advance(base64_digest.len);
         try out.writeAll("\r\n");
 
         for (options.extra_headers) |header| {

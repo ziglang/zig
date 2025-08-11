@@ -36,7 +36,7 @@ pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
     try w.writeHeader(.directory, sub_path, "", 0, options);
 }
 
-pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.GetEndPosError;
+pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.Reader.SizeError;
 
 pub fn writeFile(
     w: *Writer,

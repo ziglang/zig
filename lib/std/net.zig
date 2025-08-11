@@ -259,6 +259,7 @@ pub const Address = extern union {
         /// Sets SO_REUSEADDR and SO_REUSEPORT on POSIX.
         /// Sets SO_REUSEADDR on Windows, which is roughly equivalent.
         reuse_address: bool = false,
+        /// Sets O_NONBLOCK.
         force_nonblocking: bool = false,
     };
 
@@ -1998,11 +1999,8 @@ pub const Stream = struct {
                 return n;
             }
 
-            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
-                var n: u32 = undefined;
-                var flags: u32 = 0;
-                const rc = windows.ws2_32.WSARecvFrom(r.net_stream.handle, bufs.ptr, @intCast(bufs.len), &n, &flags, null, null, null, null);
-                if (rc != 0) switch (windows.ws2_32.WSAGetLastError()) {
+            fn handleRecvError(winsock_error: windows.ws2_32.WinsockError) Error!void {
+                switch (winsock_error) {
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
                     .WSAEINPROGRESS, .WSAEINTR => unreachable, // deprecated and removed in WSA 2.2
@@ -2013,10 +2011,39 @@ pub const Stream = struct {
                     .WSAENOTCONN => return error.SocketNotConnected,
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
-                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_IO_PENDING => unreachable,
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+
+            fn streamBufs(r: *Reader, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var flags: u32 = 0;
+                var overlapped: windows.OVERLAPPED = std.mem.zeroes(windows.OVERLAPPED);
+
+                var n: u32 = undefined;
+                if (windows.ws2_32.WSARecv(
+                    r.net_stream.handle,
+                    bufs.ptr,
+                    @intCast(bufs.len),
+                    &n,
+                    &flags,
+                    &overlapped,
+                    null,
+                ) == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSA_IO_PENDING => {
+                        var result_flags: u32 = undefined;
+                        if (windows.ws2_32.WSAGetOverlappedResult(
+                            r.net_stream.handle,
+                            &overlapped,
+                            &n,
+                            windows.TRUE,
+                            &result_flags,
+                        ) == windows.FALSE) try handleRecvError(windows.ws2_32.WSAGetLastError());
+                    },
+                    else => |winsock_error| try handleRecvError(winsock_error),
                 };
+
                 return n;
             }
         },
@@ -2037,6 +2064,7 @@ pub const Stream = struct {
                         .file = .{ .handle = net_stream.handle },
                         .mode = .streaming,
                         .seek_err = error.Unseekable,
+                        .size_err = error.Streaming,
                     },
                 };
             }
@@ -2136,10 +2164,8 @@ pub const Stream = struct {
                 return io_w.consume(n);
             }
 
-            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
-                var n: u32 = undefined;
-                const rc = windows.ws2_32.WSASend(handle, bufs.ptr, @intCast(bufs.len), &n, 0, null, null);
-                if (rc == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+            fn handleSendError(winsock_error: windows.ws2_32.WinsockError) Error!void {
+                switch (winsock_error) {
                     .WSAECONNABORTED => return error.ConnectionResetByPeer,
                     .WSAECONNRESET => return error.ConnectionResetByPeer,
                     .WSAEFAULT => unreachable, // a pointer is not completely contained in user address space.
@@ -2155,10 +2181,37 @@ pub const Stream = struct {
                     .WSAESHUTDOWN => unreachable, // cannot send on a socket after write shutdown
                     .WSAEWOULDBLOCK => return error.WouldBlock,
                     .WSANOTINITIALISED => unreachable, // WSAStartup must be called before this function
-                    .WSA_IO_PENDING => unreachable, // not using overlapped I/O
+                    .WSA_IO_PENDING => unreachable,
                     .WSA_OPERATION_ABORTED => unreachable, // not using overlapped I/O
                     else => |err| return windows.unexpectedWSAError(err),
+                }
+            }
+
+            fn sendBufs(handle: Stream.Handle, bufs: []windows.ws2_32.WSABUF) Error!u32 {
+                var n: u32 = undefined;
+                var overlapped: windows.OVERLAPPED = std.mem.zeroes(windows.OVERLAPPED);
+                if (windows.ws2_32.WSASend(
+                    handle,
+                    bufs.ptr,
+                    @intCast(bufs.len),
+                    &n,
+                    0,
+                    &overlapped,
+                    null,
+                ) == windows.ws2_32.SOCKET_ERROR) switch (windows.ws2_32.WSAGetLastError()) {
+                    .WSA_IO_PENDING => {
+                        var result_flags: u32 = undefined;
+                        if (windows.ws2_32.WSAGetOverlappedResult(
+                            handle,
+                            &overlapped,
+                            &n,
+                            windows.TRUE,
+                            &result_flags,
+                        ) == windows.FALSE) try handleSendError(windows.ws2_32.WSAGetLastError());
+                    },
+                    else => |winsock_error| try handleSendError(winsock_error),
                 };
+
                 return n;
             }
         },

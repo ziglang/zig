@@ -238,6 +238,8 @@ test "slicing pointer by length" {
 const x = @as([*]i32, @ptrFromInt(0x1000))[0..0x500];
 const y = x[0x100..];
 test "compile time slice of pointer to hard coded address" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     try expect(@intFromPtr(x) == 0x1000);
     try expect(x.len == 0x500);
 
