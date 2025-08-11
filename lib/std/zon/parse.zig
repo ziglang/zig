@@ -1306,7 +1306,7 @@ test "std.zon comments" {
             \\// comment
         , &diag, .{}));
         try std.testing.expectFmt(
-            "1:1: error: expected expression, found 'a document comment'\n",
+            "1:1: error: expected expression, found 'a top-level document comment'\n",
             "{f}",
             .{diag},
         );

@@ -318,7 +318,8 @@ pub const Token = struct {
                 .eof => "EOF",
                 .builtin => "a builtin function",
                 .number_literal => "a number literal",
-                .doc_comment, .container_doc_comment => "a document comment",
+                .doc_comment => "a document comment",
+                .container_doc_comment => "a top-level document comment",
                 else => unreachable,
             };
         }
