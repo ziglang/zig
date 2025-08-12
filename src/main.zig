@@ -4559,12 +4559,7 @@ fn cmdTranslateC(
     try argv.append(c_source_file.src_path);
     if (comp.verbose_cc) Compilation.dump_argv(argv.items);
 
-    try jitCmd(comp.gpa, arena, argv.items, .{
-        .cmd_name = "translate-c",
-        .root_src_path = "translate-c/main.zig",
-        .depend_on_aro = true,
-        .progress_node = prog_node,
-    });
+    try translateC(comp.gpa, arena, argv.items, prog_node, null);
 
     if (out_dep_path) |dep_file_path| {
         const dep_basename = fs.path.basename(dep_file_path);
@@ -4583,6 +4578,22 @@ fn cmdTranslateC(
     }
 
     return cleanExit();
+}
+
+pub fn translateC(
+    gpa: Allocator,
+    arena: Allocator,
+    argv: []const []const u8,
+    prog_node: std.Progress.Node,
+    capture: ?*[]u8,
+) !void {
+    try jitCmd(gpa, arena, argv, .{
+        .cmd_name = "translate-c",
+        .root_src_path = "translate-c/main.zig",
+        .depend_on_aro = true,
+        .progress_node = prog_node,
+        .capture = capture,
+    });
 }
 
 const usage_init =

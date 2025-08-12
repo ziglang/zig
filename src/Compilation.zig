@@ -5655,12 +5655,89 @@ pub const CImportResult = struct {
 };
 
 /// Caller owns returned memory.
-pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module) !CImportResult {
+pub fn cImport(
+    comp: *Compilation,
+    c_src: []const u8,
+    owner_mod: *Package.Module,
+    prog_node: std.Progress.Node,
+) !CImportResult {
     dev.check(.translate_c_command);
-    _ = comp;
-    _ = c_src;
-    _ = owner_mod;
-    @panic("TODO execute 'zig translate-c' as a sub process and use the results");
+
+    const cimport_basename = "cimport.h";
+    const translated_basename = "cimport.zig";
+
+    var man = comp.obtainCObjectCacheManifest(owner_mod);
+    defer man.deinit();
+
+    man.hash.add(@as(u16, 0x7dd9)); // Random number to distinguish translate-c from compiling C objects
+    man.hash.addBytes(c_src);
+
+    const digest, const is_hit = if (try man.hit()) .{ man.finalBin(), true } else digest: {
+        var arena_allocator = std.heap.ArenaAllocator.init(comp.gpa);
+        defer arena_allocator.deinit();
+        const arena = arena_allocator.allocator();
+
+        const tmp_basename = std.fmt.hex(std.crypto.random.int(u64));
+        const tmp_sub_path = "tmp" ++ fs.path.sep_str ++ tmp_basename;
+        const cache_dir = comp.dirs.local_cache.handle;
+        const out_h_sub_path = tmp_sub_path ++ fs.path.sep_str ++ cimport_basename;
+
+        try cache_dir.makePath(tmp_sub_path);
+
+        const out_h_path = try comp.dirs.local_cache.join(arena, &.{out_h_sub_path});
+        const translated_path = try comp.dirs.local_cache.join(arena, &.{ tmp_sub_path, translated_basename });
+        const out_dep_path = try std.fmt.allocPrint(arena, "{s}.d", .{out_h_path});
+
+        if (comp.verbose_cimport) log.info("writing C import source to {s}", .{out_h_path});
+        try cache_dir.writeFile(.{ .sub_path = out_h_sub_path, .data = c_src });
+
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
+        defer argv.deinit();
+        try comp.addTranslateCCArgs(arena, &argv, .c, out_dep_path, owner_mod);
+        try argv.appendSlice(&.{ out_h_path, "-o", translated_path });
+
+        if (comp.verbose_cc) dump_argv(argv.items);
+        var stdout: []u8 = undefined;
+        try @import("main.zig").translateC(comp.gpa, arena, argv.items, prog_node, &stdout);
+        if (comp.verbose_cimport and stdout.len != 0) log.info("unexpected stdout: {s}", .{stdout});
+
+        const dep_sub_path = out_h_sub_path ++ ".d";
+        if (comp.verbose_cimport) log.info("processing dep file at {s}", .{dep_sub_path});
+        try man.addDepFilePost(cache_dir, dep_sub_path);
+        switch (comp.cache_use) {
+            .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
+                whole.cache_manifest_mutex.lock();
+                defer whole.cache_manifest_mutex.unlock();
+                try whole_cache_manifest.addDepFilePost(cache_dir, dep_sub_path);
+            },
+            .incremental, .none => {},
+        }
+
+        const bin_digest = man.finalBin();
+        const hex_digest = Cache.binToHex(bin_digest);
+        const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
+
+        if (comp.verbose_cimport) log.info("renaming {s} to {s}", .{ tmp_sub_path, o_sub_path });
+        try fs.rename(cache_dir, tmp_sub_path, cache_dir, o_sub_path);
+
+        break :digest .{ bin_digest, false };
+    };
+
+    if (man.have_exclusive_lock) {
+        // Write the updated manifest. This is a no-op if the manifest is not dirty. Note that it is
+        // possible we had a hit and the manifest is dirty, for example if the file mtime changed but
+        // the contents were the same, we hit the cache but the manifest is dirty and we need to update
+        // it to prevent doing a full file content comparison the next time around.
+        man.writeManifest() catch |err| {
+            log.warn("failed to write cache manifest for C import: {s}", .{@errorName(err)});
+        };
+    }
+
+    return .{
+        .digest = digest,
+        .cache_hit = is_hit,
+        .errors = std.zig.ErrorBundle.empty,
+    };
 }
 
 fn workerUpdateCObject(
@@ -6964,7 +7041,7 @@ fn addCommonCCArgs(
 pub fn addCCArgs(
     comp: *const Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
