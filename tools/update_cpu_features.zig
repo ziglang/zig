@@ -1559,8 +1559,8 @@ fn processOneTarget(job: Job) void {
     defer progress_node.end();
 
     var features_table = std.StringHashMap(Feature).init(arena);
-    var all_features = std.ArrayList(Feature).init(arena);
-    var all_cpus = std.ArrayList(Cpu).init(arena);
+    var all_features = std.array_list.Managed(Feature).init(arena);
+    var all_cpus = std.array_list.Managed(Cpu).init(arena);
 
     if (target.llvm) |llvm| {
         const tblgen_progress = progress_node.start("running llvm-tblgen", 0);
@@ -1651,7 +1651,7 @@ fn processOneTarget(job: Job) void {
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
                     var desc = kv.value_ptr.object.get("Desc").?.string;
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit = false;
                     var flatten = false;
                     var omit_deps: []const []const u8 = &.{};
@@ -1735,7 +1735,7 @@ fn processOneTarget(job: Job) void {
                     if (omitted) continue;
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit_deps: []const []const u8 = &.{};
                     var extra_deps: []const []const u8 = &.{};
                     for (target.feature_overrides) |feature_override| {
@@ -1904,7 +1904,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, dep);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var dependencies = std.ArrayList([]const u8).init(arena);
+        var dependencies = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {
@@ -1949,7 +1949,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, feature_zig_name);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var cpu_features = std.ArrayList([]const u8).init(arena);
+        var cpu_features = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {

@@ -1241,10 +1241,10 @@ pub fn argsAlloc(allocator: Allocator) ![][:0]u8 {
     var it = try argsWithAllocator(allocator);
     defer it.deinit();
 
-    var contents = std.ArrayList(u8).init(allocator);
+    var contents = std.array_list.Managed(u8).init(allocator);
     defer contents.deinit();
 
-    var slice_list = std.ArrayList(usize).init(allocator);
+    var slice_list = std.array_list.Managed(usize).init(allocator);
     defer slice_list.deinit();
 
     while (it.next()) |arg| {

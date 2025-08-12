@@ -19,7 +19,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
     return struct {
         const BcWriter = @This();
 
-        buffer: std.ArrayList(u32),
+        buffer: std.array_list.Managed(u32),
         bit_buffer: u32 = 0,
         bit_count: u5 = 0,
 
@@ -31,7 +31,7 @@ pub fn BitcodeWriter(comptime types: []const type) type {
 
         pub fn init(allocator: std.mem.Allocator, widths: [types.len]u16) BcWriter {
             return .{
-                .buffer = std.ArrayList(u32).init(allocator),
+                .buffer = std.array_list.Managed(u32).init(allocator),
                 .widths = widths,
             };
         }

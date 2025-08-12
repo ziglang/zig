@@ -182,7 +182,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         return step.fail("unable to make path {s}: {s}", .{ cache_path, @errorName(err) });
     };
 
-    var argv = std.ArrayList([]const u8).init(b.allocator);
+    var argv = std.array_list.Managed([]const u8).init(b.allocator);
     try argv.appendSlice(&.{ b.graph.zig_exe, "objcopy" });
 
     if (objcopy.only_section) |only_section| {

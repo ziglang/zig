@@ -38,7 +38,7 @@ pub const CompileOptions = struct {
     /// Items within the list will be allocated using the allocator of the ArrayList and must be
     /// freed by the caller.
     /// TODO: Maybe a dedicated struct for this purpose so that it's a bit nicer to work with.
-    dependencies_list: ?*std.ArrayList([]const u8) = null,
+    dependencies_list: ?*std.array_list.Managed([]const u8) = null,
     default_code_page: SupportedCodePage = .windows1252,
     /// If true, the first #pragma code_page directive only sets the input code page, but not the output code page.
     /// This check must be done before comments are removed from the file.
@@ -74,7 +74,7 @@ pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, option
     var tree = try parser.parse(allocator, options.diagnostics);
     defer tree.deinit();
 
-    var search_dirs = std.ArrayList(SearchDir).init(allocator);
+    var search_dirs = std.array_list.Managed(SearchDir).init(allocator);
     defer {
         for (search_dirs.items) |*search_dir| {
             search_dir.deinit(allocator);
@@ -178,7 +178,7 @@ pub const Compiler = struct {
     cwd: std.fs.Dir,
     state: State = .{},
     diagnostics: *Diagnostics,
-    dependencies_list: ?*std.ArrayList([]const u8),
+    dependencies_list: ?*std.array_list.Managed([]const u8),
     input_code_pages: *const CodePageLookup,
     output_code_pages: *const CodePageLookup,
     search_dirs: []SearchDir,
@@ -279,7 +279,7 @@ pub const Compiler = struct {
                     .literal, .number => {
                         const slice = literal_node.token.slice(self.source);
                         const code_page = self.input_code_pages.getForToken(literal_node.token);
-                        var buf = try std.ArrayList(u8).initCapacity(self.allocator, slice.len);
+                        var buf = try std.array_list.Managed(u8).initCapacity(self.allocator, slice.len);
                         errdefer buf.deinit();
 
                         var index: usize = 0;
@@ -303,7 +303,7 @@ pub const Compiler = struct {
                         const column = literal_node.token.calculateColumn(self.source, 8, null);
                         const bytes = SourceBytes{ .slice = slice, .code_page = self.input_code_pages.getForToken(literal_node.token) };
 
-                        var buf = std.ArrayList(u8).init(self.allocator);
+                        var buf = std.array_list.Managed(u8).init(self.allocator);
                         errdefer buf.deinit();
 
                         // Filenames are sort-of parsed as if they were wide strings, but the max escape width of
@@ -421,7 +421,7 @@ pub const Compiler = struct {
         const bytes = self.sourceBytesForToken(token);
         const output_code_page = self.output_code_pages.getForToken(token);
 
-        var buf = try std.ArrayList(u8).initCapacity(self.allocator, bytes.slice.len);
+        var buf = try std.array_list.Managed(u8).initCapacity(self.allocator, bytes.slice.len);
         errdefer buf.deinit();
 
         var iterative_parser = literals.IterativeStringParser.init(bytes, .{
@@ -1226,7 +1226,7 @@ pub const Compiler = struct {
     }
 
     pub fn writeResourceRawData(self: *Compiler, node: *Node.ResourceRawData, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
@@ -1306,7 +1306,7 @@ pub const Compiler = struct {
     }
 
     pub fn writeAccelerators(self: *Compiler, node: *Node.Accelerators, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
 
         // The header's data length field is a u32 so limit the resource's data size so that
@@ -1405,7 +1405,7 @@ pub const Compiler = struct {
     };
 
     pub fn writeDialog(self: *Compiler, node: *Node.Dialog, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
@@ -1973,7 +1973,7 @@ pub const Compiler = struct {
             try NameOrOrdinal.writeEmpty(data_writer);
         }
 
-        var extra_data_buf = std.ArrayList(u8).init(self.allocator);
+        var extra_data_buf = std.array_list.Managed(u8).init(self.allocator);
         defer extra_data_buf.deinit();
         // The extra data byte length must be able to fit within a u16.
         var limited_extra_data_writer = limitedWriter(extra_data_buf.writer(), std.math.maxInt(u16));
@@ -2004,7 +2004,7 @@ pub const Compiler = struct {
     }
 
     pub fn writeToolbar(self: *Compiler, node: *Node.Toolbar, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
         const data_writer = data_buffer.writer();
 
@@ -2082,7 +2082,7 @@ pub const Compiler = struct {
     }
 
     pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
@@ -2265,7 +2265,7 @@ pub const Compiler = struct {
     }
 
     pub fn writeVersionInfo(self: *Compiler, node: *Node.VersionInfo, writer: anytype) !void {
-        var data_buffer = std.ArrayList(u8).init(self.allocator);
+        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
         defer data_buffer.deinit();
         // The node's length field (which is inclusive of the length of all of its children) is a u16
         // so limit the node's data size so that we know we can always specify the real size.
@@ -2394,7 +2394,7 @@ pub const Compiler = struct {
     /// Expects writer to be a LimitedWriter limited to u16, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft, and that buf.items.len
     /// will never be able to exceed maxInt(u16).
-    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer, buf: *std.ArrayList(u8)) !void {
+    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer, buf: *std.array_list.Managed(u8)) !void {
         // We can assume that buf.items.len will never be able to exceed the limits of a u16
         try writeDataPadding(writer, @as(u16, @intCast(buf.items.len)));
 
@@ -3246,7 +3246,7 @@ pub const StringTable = struct {
         }
 
         pub fn writeResData(self: *Block, compiler: *Compiler, language: res.Language, block_id: u16, writer: anytype) !void {
-            var data_buffer = std.ArrayList(u8).init(compiler.allocator);
+            var data_buffer = std.array_list.Managed(u8).init(compiler.allocator);
             defer data_buffer.deinit();
             const data_writer = data_buffer.writer();
 

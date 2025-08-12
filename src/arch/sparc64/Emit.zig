@@ -179,7 +179,6 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
             try dbg_out.setPrologueEnd();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
-        .plan9 => {},
         .none => {},
     }
 }
@@ -190,7 +189,6 @@ fn mirDebugEpilogueBegin(emit: *Emit) !void {
             try dbg_out.setEpilogueBegin();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
-        .plan9 => {},
         .none => {},
     }
 }

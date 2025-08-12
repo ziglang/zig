@@ -41,7 +41,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .crt1_reactor_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
@@ -56,7 +56,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files, .{});
         },
         .crt1_command_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
@@ -71,11 +71,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files, .{});
         },
         .libc_a => {
-            var libc_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+            var libc_sources = std.array_list.Managed(Compilation.CSourceFile).init(arena);
 
             {
                 // Compile emmalloc.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true, .no_strict_aliasing = true });
                 for (emmalloc_src_files) |file_path| {
                     try libc_sources.append(.{
@@ -90,7 +90,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libc-bottom-half.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
@@ -107,7 +107,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libc-top-half.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcTopHalfIncludes(comp, arena, &args);
 
@@ -124,7 +124,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libdl.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
@@ -141,7 +141,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libwasi-emulated-process-clocks.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try args.appendSlice(&.{
                     "-I",
@@ -167,7 +167,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libwasi-emulated-getpid.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
@@ -184,7 +184,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libwasi-emulated-mman.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
@@ -201,7 +201,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libwasi-emulated-signal.
-                var bottom_args = std.ArrayList([]const u8).init(arena);
+                var bottom_args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &bottom_args, .{ .want_O3 = true });
 
                 for (emulated_signal_bottom_half_src_files) |file_path| {
@@ -214,7 +214,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     });
                 }
 
-                var top_args = std.ArrayList([]const u8).init(arena);
+                var top_args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &top_args, .{ .want_O3 = true });
                 try addLibcTopHalfIncludes(comp, arena, &top_args);
                 try top_args.append("-D_WASI_EMULATED_SIGNAL");
@@ -259,7 +259,7 @@ const CCOptions = struct {
 fn addCCArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     options: CCOptions,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
@@ -298,7 +298,7 @@ fn addCCArgs(
 fn addLibcBottomHalfIncludes(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",
@@ -370,7 +370,7 @@ fn addLibcBottomHalfIncludes(
 fn addLibcTopHalfIncludes(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",

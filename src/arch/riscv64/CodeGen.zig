@@ -101,7 +101,7 @@ reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 /// within different branches. Special consideration is needed when a branch
 /// joins with its parent, to make sure all instructions have the same MCValue
 /// across each runtime branch upon joining.
-branch_stack: *std.ArrayList(Branch),
+branch_stack: *std.array_list.Managed(Branch),
 
 // Currently set vector properties, null means they haven't been set yet in the function.
 avl: ?u64,
@@ -674,7 +674,7 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
         if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
 
-    var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
+    var reg_locks = if (opts.update_tracking) {} else try std.array_list.Managed(RegisterLock).initCapacity(
         stack.get(),
         @typeInfo(ExpectedContents).array.len,
     );
@@ -753,7 +753,7 @@ pub fn generate(
     const fn_type = Type.fromInterned(func.ty);
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
 
-    var branch_stack = std.ArrayList(Branch).init(gpa);
+    var branch_stack = std.array_list.Managed(Branch).init(gpa);
     defer {
         assert(branch_stack.items.len == 1);
         branch_stack.items[0].deinit(gpa);
@@ -4883,7 +4883,7 @@ fn genCall(
         stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
-    var reg_locks = std.ArrayList(?RegisterLock).init(allocator);
+    var reg_locks = std.array_list.Managed(?RegisterLock).init(allocator);
     defer reg_locks.deinit();
     try reg_locks.ensureTotalCapacity(8);
     defer for (reg_locks.items) |reg_lock| if (reg_lock) |lock| func.register_manager.unlockReg(lock);
@@ -6056,7 +6056,7 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     extra_i += inputs.len;
 
     var result: MCValue = .none;
-    var args = std.ArrayList(MCValue).init(func.gpa);
+    var args = std.array_list.Managed(MCValue).init(func.gpa);
     try args.ensureTotalCapacity(outputs.len + inputs.len);
     defer {
         for (args.items) |arg| if (arg.getReg()) |reg| func.register_manager.unlockReg(.{

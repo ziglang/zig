@@ -82,7 +82,7 @@ pub const Parser = struct {
     }
 
     fn parseRoot(self: *Self) Error!*Node {
-        var statements = std.ArrayList(*Node).init(self.state.allocator);
+        var statements = std.array_list.Managed(*Node).init(self.state.allocator);
         defer statements.deinit();
 
         try self.parseStatements(&statements);
@@ -95,7 +95,7 @@ pub const Parser = struct {
         return &node.base;
     }
 
-    fn parseStatements(self: *Self, statements: *std.ArrayList(*Node)) Error!void {
+    fn parseStatements(self: *Self, statements: *std.array_list.Managed(*Node)) Error!void {
         while (true) {
             try self.nextToken(.whitespace_delimiter_only);
             if (self.state.token.id == .eof) break;
@@ -355,7 +355,7 @@ pub const Parser = struct {
                 const begin_token = self.state.token;
                 try self.check(.begin);
 
-                var strings = std.ArrayList(*Node).init(self.state.allocator);
+                var strings = std.array_list.Managed(*Node).init(self.state.allocator);
                 defer strings.deinit();
                 while (true) {
                     const maybe_end_token = try self.lookaheadToken(.normal);
@@ -852,7 +852,7 @@ pub const Parser = struct {
     /// Expects the current token to be a begin token.
     /// After return, the current token will be the end token.
     fn parseRawDataBlock(self: *Self) Error![]*Node {
-        var raw_data = std.ArrayList(*Node).init(self.state.allocator);
+        var raw_data = std.array_list.Managed(*Node).init(self.state.allocator);
         defer raw_data.deinit();
         while (true) {
             const maybe_end_token = try self.lookaheadToken(.normal);

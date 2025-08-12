@@ -826,7 +826,7 @@ pub fn readToEndAllocOptions(
     // size. If the reported size is zero, as it happens on Linux for files
     // in /proc, a small buffer is allocated instead.
     const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
+    var array_list = try std.array_list.AlignedManaged(u8, alignment).initCapacity(allocator, initial_cap);
     defer array_list.deinit();
 
     self.deprecatedReader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
@@ -1219,6 +1219,7 @@ pub const Reader = struct {
                     r.size = st.size;
                     return st.size;
                 } else {
+                    r.mode = r.mode.toStreaming();
                     r.size_err = error.Streaming;
                     return error.Streaming;
                 }
@@ -1419,13 +1420,8 @@ pub const Reader = struct {
         const pos = r.pos;
         switch (r.mode) {
             .positional, .positional_reading => {
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                        r.mode = r.mode.toStreaming();
-                    }
+                const size = r.getSize() catch {
+                    r.mode = r.mode.toStreaming();
                     return 0;
                 };
                 const delta = @min(@intFromEnum(limit), size - pos);
@@ -1472,14 +1468,7 @@ pub const Reader = struct {
                     r.pos = pos + n;
                     return n;
                 }
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                    }
-                    return 0;
-                };
+                const size = r.getSize() catch return 0;
                 const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
                 file.seekBy(n) catch |err| {
                     r.seek_err = err;
@@ -1912,15 +1901,7 @@ pub const Writer = struct {
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
                 .positional => o: {
-                    const size = file_reader.size orelse {
-                        if (file_reader.file.getEndPos()) |size| {
-                            file_reader.size = size;
-                        } else |err| {
-                            file_reader.size_err = err;
-                            file_reader.mode = .streaming;
-                        }
-                        return 0;
-                    };
+                    const size = file_reader.getSize() catch return 0;
                     off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                     break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },

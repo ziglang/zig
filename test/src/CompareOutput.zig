@@ -15,7 +15,7 @@ const Special = enum {
 
 const TestCase = struct {
     name: []const u8,
-    sources: ArrayList(SourceFile),
+    sources: std.array_list.Managed(SourceFile),
     expected_output: []const u8,
     link_libc: bool,
     special: Special,
@@ -41,7 +41,7 @@ const TestCase = struct {
 pub fn createExtra(self: *CompareOutput, name: []const u8, source: []const u8, expected_output: []const u8, special: Special) TestCase {
     var tc = TestCase{
         .name = name,
-        .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
+        .sources = std.array_list.Managed(TestCase.SourceFile).init(self.b.allocator),
         .expected_output = expected_output,
         .link_libc = false,
         .special = special,
@@ -170,7 +170,6 @@ pub fn addCase(self: *CompareOutput, case: TestCase) void {
 
 const CompareOutput = @This();
 const std = @import("std");
-const ArrayList = std.ArrayList;
 const mem = std.mem;
 const fs = std.fs;
 const OptimizeMode = std.builtin.OptimizeMode;

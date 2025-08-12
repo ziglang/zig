@@ -44,7 +44,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         try zig_object.readFileContents(elf_file);
     }
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(elf_file.objects.items.len + 1);
     if (elf_file.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
@@ -100,7 +100,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         state_log.debug("ar_strtab\n{f}\n", .{ar_strtab});
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(total_size);
 
@@ -347,7 +347,7 @@ fn allocateAllocSections(elf_file: *Elf) !void {
 fn writeAtoms(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     const slice = elf_file.sections.slice();
@@ -377,7 +377,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
-        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
         for (atom_list.items) |ref| {
@@ -407,7 +407,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
         try eh_frame.writeEhFrameRelocatable(elf_file, buffer.writer());
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
@@ -421,7 +421,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         const shdr = slice.items(.shdr)[shndx];
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
-        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
         try eh_frame.writeEhFrameRelocs(elf_file, &relocs);
         assert(relocs.items.len == num_relocs);
@@ -446,7 +446,7 @@ fn writeGroups(elf_file: *Elf) !void {
     for (elf_file.group_sections.items) |cgs| {
         const shdr = elf_file.sections.items(.shdr)[cgs.shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try cgs.write(elf_file, buffer.writer());
         assert(buffer.items.len == sh_size);

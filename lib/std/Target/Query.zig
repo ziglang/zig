@@ -3,6 +3,15 @@
 //! provide meaningful and unsurprising defaults. This struct does reference
 //! any resources and it is copyable.
 
+const Query = @This();
+const std = @import("../std.zig");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const Target = std.Target;
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
@@ -394,7 +403,7 @@ pub fn canDetectLibC(self: Query) bool {
 
 /// Formats a version with the patch component omitted if it is zero,
 /// unlike SemanticVersion.format which formats all its version components regardless.
-fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *std.ArrayListUnmanaged(u8)) !void {
+fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *ArrayList(u8)) !void {
     if (version.patch == 0) {
         try list.print(gpa, "{d}.{d}", .{ version.major, version.minor });
     } else {
@@ -408,7 +417,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
-    var result: std.ArrayListUnmanaged(u8) = .empty;
+    var result: ArrayList(u8) = .empty;
     defer result.deinit(gpa);
 
     try result.print(gpa, "{s}-{s}", .{ arch_name, os_name });
@@ -469,7 +478,7 @@ pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
 /// Renders the query into a textual representation that can be parsed via the
 /// `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
+pub fn serializeCpu(q: Query, buffer: *std.array_list.Managed(u8)) Allocator.Error!void {
     try buffer.ensureUnusedCapacity(8);
     switch (q.cpu_model) {
         .native => {
@@ -512,7 +521,7 @@ pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
 }
 
 pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(q, &buffer);
     return buffer.toOwnedSlice();
 }
@@ -595,14 +604,6 @@ fn versionEqualOpt(a: ?SemanticVersion, b: ?SemanticVersion) bool {
     if (a == null or b == null) return false;
     return SemanticVersion.order(a.?, b.?) == .eq;
 }
-
-const Query = @This();
-const std = @import("../std.zig");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const Target = std.Target;
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
 
 test parse {
     if (builtin.target.isGnuLibC()) {

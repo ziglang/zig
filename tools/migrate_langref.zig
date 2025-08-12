@@ -319,13 +319,13 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                     }
 
                     var mode: std.builtin.OptimizeMode = .Debug;
-                    var link_objects = std.ArrayList([]const u8).init(arena);
+                    var link_objects = std.array_list.Managed([]const u8).init(arena);
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
                     var verbose_cimport = false;
-                    var additional_options = std.ArrayList([]const u8).init(arena);
+                    var additional_options = std.array_list.Managed([]const u8).init(arena);
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, .content);
@@ -437,7 +437,7 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
 }
 
 fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();

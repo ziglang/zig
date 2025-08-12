@@ -4,7 +4,6 @@ const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
-const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
@@ -60,7 +59,7 @@ filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(HeaderInstallation),
+installed_headers: std.array_list.Managed(HeaderInstallation),
 
 /// This step is used to create an include tree that dependent modules can add to their include
 /// search paths. Installed headers are copied to this step.
@@ -421,7 +420,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
+        .installed_headers = std.array_list.Managed(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -766,9 +765,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         else => return err,
     };
 
-    var zig_cflags = ArrayList([]const u8).init(b.allocator);
+    var zig_cflags = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_cflags.deinit();
-    var zig_libs = ArrayList([]const u8).init(b.allocator);
+    var zig_libs = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_libs.deinit();
 
     var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
@@ -1076,7 +1075,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const b = step.owner;
     const arena = b.allocator;
 
-    var zig_args = ArrayList([]const u8).init(arena);
+    var zig_args = std.array_list.Managed([]const u8).init(arena);
     defer zig_args.deinit();
 
     try zig_args.append(b.graph.zig_exe);
@@ -1798,7 +1797,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try b.cache_root.handle.makePath("args");
 
         const args_to_escape = zig_args.items[2..];
-        var escaped_args = try ArrayList([]const u8).initCapacity(arena, args_to_escape.len);
+        var escaped_args = try std.array_list.Managed([]const u8).initCapacity(arena, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
@@ -1948,7 +1947,7 @@ pub fn doAtomicSymLinks(
 fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
     const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
-    var list = ArrayList(PkgConfigPkg).init(b.allocator);
+    var list = std.array_list.Managed(PkgConfigPkg).init(b.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -1985,7 +1984,7 @@ fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
     }
 }
 
-fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
+fn addFlag(args: *std.array_list.Managed([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
     try args.ensureUnusedCapacity(1);
     if (cond) {

@@ -17,7 +17,7 @@ const features = @import("features.zig");
 const Hideset = @import("Hideset.zig");
 
 const DefineMap = std.StringHashMapUnmanaged(Macro);
-const RawTokenList = std.ArrayList(RawToken);
+const RawTokenList = std.array_list.Managed(RawToken);
 const max_include_depth = 200;
 
 /// Errors that can be returned when expanding a macro.
@@ -84,7 +84,7 @@ tokens: Token.List = .{},
 /// Do not directly mutate this; must be kept in sync with `tokens`
 expansion_entries: std.MultiArrayList(ExpansionEntry) = .{},
 token_buf: RawTokenList,
-char_buf: std.ArrayList(u8),
+char_buf: std.array_list.Managed(u8),
 /// Counter that is incremented each time preprocess() is called
 /// Can be used to distinguish multiple preprocessings of the same file
 preprocess_count: u32 = 0,
@@ -131,7 +131,7 @@ pub fn init(comp: *Compilation) Preprocessor {
         .gpa = comp.gpa,
         .arena = std.heap.ArenaAllocator.init(comp.gpa),
         .token_buf = RawTokenList.init(comp.gpa),
-        .char_buf = std.ArrayList(u8).init(comp.gpa),
+        .char_buf = std.array_list.Managed(u8).init(comp.gpa),
         .poisoned_identifiers = std.StringHashMap(void).init(comp.gpa),
         .top_expansion_buf = ExpandBuf.init(comp.gpa),
         .hideset = .{ .comp = comp },
@@ -982,7 +982,7 @@ fn expr(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!bool {
         .tok_i = @intCast(token_state.tokens_len),
         .arena = pp.arena.allocator(),
         .in_macro = true,
-        .strings = std.ArrayListAligned(u8, .@"4").init(pp.comp.gpa),
+        .strings = std.array_list.AlignedManaged(u8, .@"4").init(pp.comp.gpa),
 
         .data = undefined,
         .value_map = undefined,
@@ -1140,7 +1140,7 @@ fn skipToNl(tokenizer: *Tokenizer) void {
     }
 }
 
-const ExpandBuf = std.ArrayList(TokenWithExpansionLocs);
+const ExpandBuf = std.array_list.Managed(TokenWithExpansionLocs);
 fn removePlacemarkers(buf: *ExpandBuf) void {
     var i: usize = buf.items.len -% 1;
     while (i < buf.items.len) : (i -%= 1) {
@@ -1151,7 +1151,7 @@ fn removePlacemarkers(buf: *ExpandBuf) void {
     }
 }
 
-const MacroArguments = std.ArrayList([]const TokenWithExpansionLocs);
+const MacroArguments = std.array_list.Managed([]const TokenWithExpansionLocs);
 fn deinitMacroArguments(allocator: Allocator, args: *const MacroArguments) void {
     for (args.items) |item| {
         for (item) |tok| TokenWithExpansionLocs.free(tok.expansion_locs, allocator);
@@ -2075,7 +2075,7 @@ fn collectMacroFuncArguments(
     var parens: u32 = 0;
     var args = MacroArguments.init(pp.gpa);
     errdefer deinitMacroArguments(pp.gpa, &args);
-    var curArgument = std.ArrayList(TokenWithExpansionLocs).init(pp.gpa);
+    var curArgument = std.array_list.Managed(TokenWithExpansionLocs).init(pp.gpa);
     defer curArgument.deinit();
     while (true) {
         var tok = try nextBufToken(pp, tokenizer, buf, start_idx, end_idx, extend_buf);
@@ -2645,7 +2645,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken) Error!
 /// Handle a function like #define directive.
 fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macro_name: RawToken, l_paren: RawToken) Error!void {
     assert(macro_name.id.isMacroIdentifier());
-    var params = std.ArrayList([]const u8).init(pp.gpa);
+    var params = std.array_list.Managed([]const u8).init(pp.gpa);
     defer params.deinit();
 
     // Parse the parameter list.
@@ -3471,7 +3471,7 @@ test "Preserve pragma tokens sometimes" {
     const allocator = std.testing.allocator;
     const Test = struct {
         fn runPreprocessor(source_text: []const u8) ![]const u8 {
-            var buf = std.ArrayList(u8).init(allocator);
+            var buf = std.array_list.Managed(u8).init(allocator);
             defer buf.deinit();
 
             var comp = Compilation.init(allocator, std.fs.cwd());
@@ -3602,7 +3602,7 @@ test "Include guards" {
 
             _ = try comp.addSourceFromBuffer(path, "int bar = 5;\n");
 
-            var buf = std.ArrayList(u8).init(allocator);
+            var buf = std.array_list.Managed(u8).init(allocator);
             defer buf.deinit();
 
             var writer = buf.writer();

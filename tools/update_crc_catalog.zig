@@ -139,7 +139,7 @@ pub fn main() anyerror!void {
         _ = mem.replace(u8, snakecase, "-", "_", snakecase);
         _ = mem.replace(u8, snakecase, "/", "_", snakecase);
 
-        var buf = try std.ArrayList(u8).initCapacity(arena, snakecase.len);
+        var buf = try std.array_list.Managed(u8).initCapacity(arena, snakecase.len);
         defer buf.deinit();
 
         var prev: u8 = 0;

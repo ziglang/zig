@@ -283,7 +283,7 @@ pub const NameOrOrdinal = union(enum) {
 
     pub fn nameFromString(allocator: Allocator, bytes: SourceBytes) !NameOrOrdinal {
         // Names have a limit of 256 UTF-16 code units + null terminator
-        var buf = try std.ArrayList(u16).initCapacity(allocator, @min(257, bytes.slice.len));
+        var buf = try std.array_list.Managed(u16).initCapacity(allocator, @min(257, bytes.slice.len));
         errdefer buf.deinit();
 
         var i: usize = 0;

@@ -344,12 +344,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
-    var toc_buf = std.ArrayList(u8).init(allocator);
+    var toc_buf = std.array_list.Managed(u8).init(allocator);
     defer toc_buf.deinit();
 
     var toc = toc_buf.writer();
 
-    var nodes = std.ArrayList(Node).init(allocator);
+    var nodes = std.array_list.Managed(Node).init(allocator);
     defer nodes.deinit();
 
     try toc.writeByte('\n');
@@ -449,7 +449,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
-                    var list = std.ArrayList(SeeAlsoItem).init(allocator);
+                    var list = std.array_list.Managed(SeeAlsoItem).init(allocator);
                     errdefer list.deinit();
 
                     while (true) {
@@ -599,7 +599,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 }
 
 fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();
@@ -618,7 +618,7 @@ fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
 }
 
 fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();

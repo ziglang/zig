@@ -1119,7 +1119,7 @@ fn testRender(input: []const u8, expected: []const u8) !void {
     var doc = try parser.endInput();
     defer doc.deinit(testing.allocator);
 
-    var actual = std.ArrayList(u8).init(testing.allocator);
+    var actual = std.array_list.Managed(u8).init(testing.allocator);
     defer actual.deinit();
     try doc.render(actual.writer());
 

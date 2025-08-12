@@ -74,9 +74,9 @@ const ModuleInfo = struct {
             param_types: []const ResultId,
         }).init(arena);
         var calls = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var callee_store = std.ArrayList(ResultId).init(arena);
+        var callee_store = std.array_list.Managed(ResultId).init(arena);
         var function_invocation_globals = std.AutoArrayHashMap(ResultId, void).init(arena);
-        var result_id_offsets = std.ArrayList(u16).init(arena);
+        var result_id_offsets = std.array_list.Managed(u16).init(arena);
         var invocation_globals = std.AutoArrayHashMap(ResultId, InvocationGlobal).init(arena);
 
         var maybe_current_function: ?ResultId = null;
@@ -498,8 +498,8 @@ const ModuleBuilder = struct {
         binary: BinaryModule,
         info: ModuleInfo,
     ) !void {
-        var result_id_offsets = std.ArrayList(u16).init(self.arena);
-        var operands = std.ArrayList(u32).init(self.arena);
+        var result_id_offsets = std.array_list.Managed(u16).init(self.arena);
+        var operands = std.array_list.Managed(u32).init(self.arena);
 
         var maybe_current_function: ?ResultId = null;
         var it = binary.iterateInstructionsFrom(binary.sections.functions);

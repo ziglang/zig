@@ -76,7 +76,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt1_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-O2",
                 "-fno-common",
@@ -89,7 +89,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try cflags.append("-mlongcall");
             }
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 "-DLOCORE",
                 // See `Compilation.addCCArgs`.
@@ -510,7 +510,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             try map_contents.writer().print("FBSD_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
         }
@@ -518,7 +518,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         map_contents.deinit();
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -529,7 +529,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_writer.writeAll(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
         var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);

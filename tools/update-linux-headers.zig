@@ -143,7 +143,7 @@ pub fn main() !void {
     var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = arena_state.allocator();
     const args = try std.process.argsAlloc(arena);
-    var search_paths = std.ArrayList([]const u8).init(arena);
+    var search_paths = std.array_list.Managed([]const u8).init(arena);
     var opt_out_dir: ?[]const u8 = null;
 
     var arg_i: usize = 1;
@@ -186,7 +186,7 @@ pub fn main() !void {
             const target_include_dir = try std.fs.path.join(arena, &.{
                 search_path, linux_target.name, "include",
             });
-            var dir_stack = std.ArrayList([]const u8).init(arena);
+            var dir_stack = std.array_list.Managed([]const u8).init(arena);
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.pop()) |full_dir_name| {
@@ -261,7 +261,7 @@ pub fn main() !void {
     // gets their header in a separate arch directory.
     var path_it = path_table.iterator();
     while (path_it.next()) |path_kv| {
-        var contents_list = std.ArrayList(*Contents).init(arena);
+        var contents_list = std.array_list.Managed(*Contents).init(arena);
         {
             var hash_it = path_kv.value_ptr.*.iterator();
             while (hash_it.next()) |hash_kv| {

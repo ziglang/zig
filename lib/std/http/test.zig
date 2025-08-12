@@ -298,7 +298,7 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
-    var expected_response = std.ArrayList(u8).init(gpa);
+    var expected_response = std.array_list.Managed(u8).init(gpa);
     defer expected_response.deinit();
 
     try expected_response.appendSlice("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n");
@@ -369,7 +369,7 @@ test "receiving arbitrary http headers from the client" {
     const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
-    var expected_response = std.ArrayList(u8).init(gpa);
+    var expected_response = std.array_list.Managed(u8).init(gpa);
     defer expected_response.deinit();
 
     try expected_response.appendSlice("HTTP/1.1 200 OK\r\n");

@@ -46,9 +46,9 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var check_flag = false;
     var check_ast_flag = false;
     var force_zon = false;
-    var input_files = std.ArrayList([]const u8).init(gpa);
+    var input_files = std.array_list.Managed([]const u8).init(gpa);
     defer input_files.deinit();
-    var excluded_files = std.ArrayList([]const u8).init(gpa);
+    var excluded_files = std.array_list.Managed([]const u8).init(gpa);
     defer excluded_files.deinit();
 
     {

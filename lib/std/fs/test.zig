@@ -464,7 +464,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -497,7 +497,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -531,7 +531,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -567,7 +567,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -617,7 +617,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }

@@ -276,7 +276,7 @@ pub fn writeAdhocSignature(
         .count = 0,
     };
 
-    var blobs = std.ArrayList(Blob).init(allocator);
+    var blobs = std.array_list.Managed(Blob).init(allocator);
     defer blobs.deinit();
 
     self.code_directory.inner.execSegBase = opts.exec_seg_base;
@@ -304,7 +304,7 @@ pub fn writeAdhocSignature(
     var hash: [hash_size]u8 = undefined;
 
     if (self.requirements) |*req| {
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.array_list.Managed(u8).init(allocator);
         defer buf.deinit();
         try req.write(buf.writer());
         Sha256.hash(buf.items, &hash, .{});
@@ -316,7 +316,7 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.array_list.Managed(u8).init(allocator);
         defer buf.deinit();
         try ents.write(buf.writer());
         Sha256.hash(buf.items, &hash, .{});

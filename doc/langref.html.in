@@ -6241,9 +6241,8 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       C has a default allocator - <code>malloc</code>, <code>realloc</code>, and <code>free</code>.
       When linking against libc, Zig exposes this allocator with {#syntax#}std.heap.c_allocator{#endsyntax#}.
       However, by convention, there is no default allocator in Zig. Instead, functions which need to
-      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, data structures such as
-      {#syntax#}std.ArrayList{#endsyntax#} accept an {#syntax#}Allocator{#endsyntax#} parameter in
-      their initialization functions:
+      allocate accept an {#syntax#}Allocator{#endsyntax#} parameter. Likewise, some data structures
+      accept an {#syntax#}Allocator{#endsyntax#} parameter in their initialization functions:
       </p>
       {#code|test_allocator.zig#}
 

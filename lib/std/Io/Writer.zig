@@ -359,9 +359,12 @@ pub fn writableSlice(w: *Writer, len: usize) Error![]u8 {
 ///
 /// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
 pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= minimum_length);
     while (w.buffer.len - w.end < minimum_length) {
         assert(0 == try w.vtable.drain(w, &.{""}, 1));
+        // If the loop condition was false this assertion would have passed
+        // anyway. Otherwise, give the implementation a chance to grow the
+        // buffer before asserting on the buffer length.
+        assert(w.buffer.len >= minimum_length);
     } else {
         @branchHint(.likely);
         return w.buffer[w.end..];
@@ -1847,39 +1850,30 @@ pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
     try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
         .signedness = value_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, value_info.bits, 7),
+        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
     } }), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    comptime assert(value_info.bits % 7 == 0);
+    const Byte = packed struct(u8) { bits: u7, more: bool };
+    var bytes: [@divExact(value_info.bits, 7)]Byte = undefined;
     var remaining = value;
-    while (true) {
-        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try w.writableSliceGreedy(1));
-        for (buffer, 1..) |*byte, len| {
-            const more = switch (value_info.signedness) {
-                .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
-                .unsigned => remaining > std.math.maxInt(u7),
-            };
-            byte.* = if (@inComptime()) @typeInfo(@TypeOf(buffer)).pointer.child{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            } else .{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            };
-            if (value_info.bits > 7) remaining >>= 7;
-            if (!more) return w.advance(len);
-        }
-        w.advance(buffer.len);
-    }
+    for (&bytes, 1..) |*byte, len| {
+        const more = switch (value_info.signedness) {
+            .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
+            .unsigned => remaining > std.math.maxInt(u7),
+        };
+        byte.* = .{
+            .bits = @bitCast(@as(@Type(.{ .int = .{
+                .signedness = value_info.signedness,
+                .bits = 7,
+            } }), @truncate(remaining))),
+            .more = more,
+        };
+        if (value_info.bits > 7) remaining >>= 7;
+        if (!more) return w.writeAll(@ptrCast(bytes[0..len]));
+    } else unreachable;
 }
 
 test "printValue max_depth" {

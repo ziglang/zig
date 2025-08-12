@@ -1051,7 +1051,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             },
         }
 
-        var debug_bytes = std.ArrayList(u8).init(gpa);
+        var debug_bytes = std.array_list.Managed(u8).init(gpa);
         defer debug_bytes.deinit();
 
         try emitProducerSection(gpa, binary_bytes);
@@ -1396,7 +1396,7 @@ pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), ex
     try binary_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]); // +1 to include end opcode
 }
 
-fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
+fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.array_list.Managed(u8)) !void {
     const gpa = wasm.base.comp.gpa;
     const writer = binary_bytes.writer(gpa);
     try leb.writeUleb128(writer, @intFromEnum(Wasm.SubsectionType.segment_info));

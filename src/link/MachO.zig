@@ -359,7 +359,7 @@ pub fn flush(
     if (self.base.isStaticLib()) return relocatable.flushStaticLib(self, comp, zcu_obj_path);
     if (self.base.isObject()) return relocatable.flushObject(self, comp, zcu_obj_path);
 
-    var positionals = std.ArrayList(link.Input).init(gpa);
+    var positionals = std.array_list.Managed(link.Input).init(gpa);
     defer positionals.deinit();
 
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
@@ -404,7 +404,7 @@ pub fn flush(
             diags.addParseError(link_input.path().?, "failed to read input file: {s}", .{@errorName(err)});
     }
 
-    var system_libs = std.ArrayList(SystemLib).init(gpa);
+    var system_libs = std.array_list.Managed(SystemLib).init(gpa);
     defer system_libs.deinit();
 
     // frameworks
@@ -632,7 +632,7 @@ fn dumpArgv(self: *MachO, comp: *Compilation) !void {
         break :p try p.toString(arena);
     } else null;
 
-    var argv = std.ArrayList([]const u8).init(arena);
+    var argv = std.array_list.Managed([]const u8).init(arena);
 
     try argv.append("zig");
 
@@ -827,8 +827,8 @@ pub fn resolveLibSystem(
 ) !void {
     const diags = &self.base.comp.link_diags;
 
-    var test_path = std.ArrayList(u8).init(arena);
-    var checked_paths = std.ArrayList([]const u8).init(arena);
+    var test_path = std.array_list.Managed(u8).init(arena);
+    var checked_paths = std.array_list.Managed([]const u8).init(arena);
 
     success: {
         if (self.sdk_layout) |sdk_layout| switch (sdk_layout) {
@@ -1065,8 +1065,8 @@ fn isHoisted(self: *MachO, install_name: []const u8) bool {
 /// TODO delete this, libraries must be instead resolved when instantiating the compilation pipeline
 fn accessLibPath(
     arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed([]const u8),
     search_dir: []const u8,
     name: []const u8,
 ) !bool {
@@ -1088,8 +1088,8 @@ fn accessLibPath(
 
 fn accessFrameworkPath(
     arena: Allocator,
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList([]const u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed([]const u8),
     search_dir: []const u8,
     name: []const u8,
 ) !bool {
@@ -1138,7 +1138,7 @@ fn parseDependentDylibs(self: *MachO) !void {
     while (index < self.dylibs.items.len) : (index += 1) {
         const dylib_index = self.dylibs.items[index];
 
-        var dependents = std.ArrayList(File.Index).init(gpa);
+        var dependents = std.array_list.Managed(File.Index).init(gpa);
         defer dependents.deinit();
         try dependents.ensureTotalCapacityPrecise(self.getFile(dylib_index).?.dylib.dependents.items.len);
 
@@ -1151,8 +1151,8 @@ fn parseDependentDylibs(self: *MachO) !void {
             // 3. If name is a relative path, substitute @rpath, @loader_path, @executable_path with
             //    dependees list of rpaths, and search there.
             // 4. Finally, just search the provided relative path directly in CWD.
-            var test_path = std.ArrayList(u8).init(arena);
-            var checked_paths = std.ArrayList([]const u8).init(arena);
+            var test_path = std.array_list.Managed(u8).init(arena);
+            var checked_paths = std.array_list.Managed([]const u8).init(arena);
 
             const full_path = full_path: {
                 {
@@ -1550,7 +1550,7 @@ fn reportUndefs(self: *MachO) !void {
     const max_notes = 4;
 
     // We will sort by name, and then by file to ensure deterministic output.
-    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.undefs.keys().len);
+    var keys = try std.array_list.Managed(SymbolResolver.Index).initCapacity(gpa, self.undefs.keys().len);
     defer keys.deinit();
     keys.appendSliceAssumeCapacity(self.undefs.keys());
     self.sortGlobalSymbolsByName(keys.items);
@@ -1813,7 +1813,7 @@ pub fn sortSections(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
-    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.sections.slice().len);
+    var entries = try std.array_list.Managed(Entry).initCapacity(gpa, self.sections.slice().len);
     defer entries.deinit();
     for (0..self.sections.slice().len) |index| {
         entries.appendAssumeCapacity(.{ .index = @intCast(index) });
@@ -2123,7 +2123,7 @@ fn initSegments(self: *MachO) !void {
         }
     };
 
-    var entries = try std.ArrayList(Entry).initCapacity(gpa, self.segments.items.len);
+    var entries = try std.array_list.Managed(Entry).initCapacity(gpa, self.segments.items.len);
     defer entries.deinit();
     for (0..self.segments.items.len) |index| {
         entries.appendAssumeCapacity(.{ .index = @intCast(index) });
@@ -2689,7 +2689,7 @@ pub fn writeDataInCode(self: *MachO) !void {
     defer tracy.end();
     const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, self.data_in_code.size());
+    var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.data_in_code.size());
     defer buffer.deinit();
     try self.data_in_code.write(self, buffer.writer());
     try self.pwriteAll(buffer.items, cmd.dataoff);
@@ -2701,7 +2701,7 @@ fn writeIndsymtab(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const cmd = self.dysymtab_cmd;
     const needed_size = cmd.nindirectsyms * @sizeOf(u32);
-    var buffer = try std.ArrayList(u8).initCapacity(gpa, needed_size);
+    var buffer = try std.array_list.Managed(u8).initCapacity(gpa, needed_size);
     defer buffer.deinit();
     try self.indsymtab.write(self, buffer.writer());
     try self.pwriteAll(buffer.items, cmd.indirectsymoff);
@@ -2746,7 +2746,7 @@ fn calcSymtabSize(self: *MachO) !void {
 
     const gpa = self.base.comp.gpa;
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(self.objects.items.len + self.dylibs.items.len + 2);
     if (self.zig_object) |index| files.appendAssumeCapacity(index);
@@ -3015,7 +3015,7 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getTextSegment();
     const offset = self.codesig_cmd.dataoff;
 
-    var buffer = std.ArrayList(u8).init(self.base.comp.gpa);
+    var buffer = std.array_list.Managed(u8).init(self.base.comp.gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(code_sig.size());
     try code_sig.writeAdhocSignature(self, .{
@@ -3837,7 +3837,7 @@ fn reportDuplicates(self: *MachO) error{ HasDuplicates, OutOfMemory }!void {
     const max_notes = 3;
 
     // We will sort by name, and then by file to ensure deterministic output.
-    var keys = try std.ArrayList(SymbolResolver.Index).initCapacity(gpa, self.dupes.keys().len);
+    var keys = try std.array_list.Managed(SymbolResolver.Index).initCapacity(gpa, self.dupes.keys().len);
     defer keys.deinit();
     keys.appendSliceAssumeCapacity(self.dupes.keys());
     self.sortGlobalSymbolsByName(keys.items);
@@ -4269,7 +4269,7 @@ pub const Platform = struct {
 
     /// Caller owns the memory.
     pub fn allocPrintTarget(plat: Platform, gpa: Allocator, cpu_arch: std.Target.Cpu.Arch) error{OutOfMemory}![]u8 {
-        var buffer = std.ArrayList(u8).init(gpa);
+        var buffer = std.array_list.Managed(u8).init(gpa);
         defer buffer.deinit();
         try buffer.writer().print("{f}", .{plat.fmtTarget(cpu_arch)});
         return buffer.toOwnedSlice();

@@ -4,14 +4,14 @@ const BitStack = @This();
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.array_list.Managed;
 
-bytes: std.ArrayList(u8),
+bytes: std.array_list.Managed(u8),
 bit_len: usize = 0,
 
 pub fn init(allocator: Allocator) @This() {
     return .{
-        .bytes = std.ArrayList(u8).init(allocator),
+        .bytes = std.array_list.Managed(u8).init(allocator),
     };
 }
 

@@ -997,8 +997,6 @@ pub fn genNavRef(
             },
             .link_once => unreachable,
         }
-    } else if (lf.cast(.plan9)) |p9| {
-        return .{ .sym_index = try p9.seeNav(pt, nav_index) };
     } else {
         const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };

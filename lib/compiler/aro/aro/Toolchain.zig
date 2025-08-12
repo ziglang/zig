@@ -157,7 +157,7 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
             return use_linker;
         }
     } else {
-        var linker_name = try std.ArrayList(u8).initCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
+        var linker_name = try std.array_list.Managed(u8).initCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
         defer linker_name.deinit();
         if (tc.getTarget().os.tag.isDarwin()) {
             linker_name.appendSliceAssumeCapacity("ld64.");
@@ -198,7 +198,7 @@ fn possibleProgramNames(raw_triple: ?[]const u8, name: []const u8, buf: *[64]u8)
 }
 
 /// Add toolchain `file_paths` to argv as `-L` arguments
-pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     try argv.ensureUnusedCapacity(tc.file_paths.items.len);
 
     var bytes_needed: usize = 0;
@@ -332,7 +332,7 @@ pub fn addPathFromComponents(tc: *Toolchain, components: []const []const u8, des
 
 /// Add linker args to `argv`. Does not add path to linker executable as first item; that must be handled separately
 /// Items added to `argv` will be string literals or owned by `tc.arena` so they must not be individually freed
-pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     return switch (tc.inner) {
         .uninitialized => unreachable,
         .linux => |*linux| linux.buildLinkerArgs(tc, argv),
@@ -412,7 +412,7 @@ fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
     }
 }
 
-fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+fn addUnwindLibrary(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const unw = try tc.getUnwindLibKind();
     const target = tc.getTarget();
     if ((target.abi.isAndroid() and unw == .libgcc) or
@@ -450,7 +450,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     }
 }
 
-fn addLibGCC(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+fn addLibGCC(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const libgcc_kind = tc.getLibGCCKind();
     if (libgcc_kind == .static or libgcc_kind == .unspecified) {
         try argv.append("-lgcc");
@@ -461,7 +461,7 @@ fn addLibGCC(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
     }
 }
 
-pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const target = tc.getTarget();
     const rlt = tc.getRuntimeLibKind();
     switch (rlt) {

@@ -1,7 +1,15 @@
+const Cases = @This();
+const builtin = @import("builtin");
+const std = @import("std");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const getExternalExecutor = std.zig.system.getExternalExecutor;
+const ArrayList = std.ArrayList;
+
 gpa: Allocator,
 arena: Allocator,
-cases: std.ArrayList(Case),
-translate: std.ArrayList(Translate),
+cases: std.array_list.Managed(Case),
+translate: std.array_list.Managed(Translate),
 
 pub const IncrementalCase = struct {
     base_path: []const u8,
@@ -40,7 +48,7 @@ pub const Case = struct {
     output_mode: std.builtin.OutputMode,
     optimize_mode: std.builtin.OptimizeMode = .Debug,
 
-    files: std.ArrayList(File),
+    files: std.array_list.Managed(File),
     case: ?union(enum) {
         /// Check that it compiles with no errors.
         Compile: void,
@@ -77,7 +85,7 @@ pub const Case = struct {
     /// `lower_to_build_steps`. If null, file imports will assert.
     import_path: ?[]const u8 = null,
 
-    deps: std.ArrayList(DepModule),
+    deps: std.array_list.Managed(DepModule),
 
     pub fn addSourceFile(case: *Case, name: []const u8, src: [:0]const u8) void {
         case.files.append(.{ .path = name, .src = src }) catch @panic("OOM");
@@ -148,7 +156,7 @@ pub fn addExe(
         .files = .init(ctx.arena),
         .case = null,
         .output_mode = .Exe,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -167,7 +175,7 @@ pub fn exeFromCompiledC(ctx: *Cases, name: []const u8, target_query: std.Target.
         .files = .init(ctx.arena),
         .case = null,
         .output_mode = .Exe,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
         .link_libc = true,
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
@@ -197,7 +205,7 @@ pub fn addObjLlvm(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarge
         .files = .init(ctx.arena),
         .case = null,
         .output_mode = .Obj,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
         .backend = .llvm,
         .emit_bin = can_emit_bin,
         .emit_asm = can_emit_asm,
@@ -216,7 +224,7 @@ pub fn addObj(
         .files = .init(ctx.arena),
         .case = null,
         .output_mode = .Obj,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -233,7 +241,7 @@ pub fn addTest(
         .case = null,
         .output_mode = .Exe,
         .is_test = true,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -258,7 +266,7 @@ pub fn addC(ctx: *Cases, name: []const u8, target: std.Build.ResolvedTarget) *Ca
         .files = .init(ctx.arena),
         .case = null,
         .output_mode = .Obj,
-        .deps = std.ArrayList(DepModule).init(ctx.arena),
+        .deps = std.array_list.Managed(DepModule).init(ctx.arena),
     }) catch @panic("out of memory");
     return &ctx.cases.items[ctx.cases.items.len - 1];
 }
@@ -364,7 +372,7 @@ fn addFromDirInner(
     b: *std.Build,
 ) !void {
     var it = try iterable_dir.walk(ctx.arena);
-    var filenames: std.ArrayListUnmanaged([]const u8) = .empty;
+    var filenames: ArrayList([]const u8) = .empty;
 
     while (try it.next()) |entry| {
         if (entry.kind != .file) continue;
@@ -428,7 +436,7 @@ fn addFromDirInner(
             continue;
         }
 
-        var cases = std.ArrayList(usize).init(ctx.arena);
+        var cases = std.array_list.Managed(usize).init(ctx.arena);
 
         // Cross-product to get all possible test combinations
         for (targets) |target_query| {
@@ -462,7 +470,7 @@ fn addFromDirInner(
                     .link_libc = link_libc,
                     .pic = pic,
                     .pie = pie,
-                    .deps = std.ArrayList(DepModule).init(ctx.cases.allocator),
+                    .deps = std.array_list.Managed(DepModule).init(ctx.cases.allocator),
                     .imports = imports,
                     .target = resolved_target,
                 });
@@ -495,8 +503,8 @@ fn addFromDirInner(
 pub fn init(gpa: Allocator, arena: Allocator) Cases {
     return .{
         .gpa = gpa,
-        .cases = std.ArrayList(Case).init(gpa),
-        .translate = std.ArrayList(Translate).init(gpa),
+        .cases = std.array_list.Managed(Case).init(gpa),
+        .translate = std.array_list.Managed(Translate).init(gpa),
         .arena = arena,
     };
 }
@@ -995,7 +1003,7 @@ const TestManifest = struct {
         key: []const u8,
         comptime T: type,
     ) ![]const T {
-        var out = std.ArrayList(T).init(allocator);
+        var out = std.array_list.Managed(T).init(allocator);
         defer out.deinit();
         var it = self.getConfigForKey(key, T);
         while (try it.next()) |item| {
@@ -1018,7 +1026,7 @@ const TestManifest = struct {
     }
 
     fn trailingSplit(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const u8 {
-        var out = std.ArrayList(u8).init(allocator);
+        var out = std.array_list.Managed(u8).init(allocator);
         defer out.deinit();
         var trailing_it = self.trailing();
         while (trailing_it.next()) |line| {
@@ -1032,7 +1040,7 @@ const TestManifest = struct {
     }
 
     fn trailingLines(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
-        var out = std.ArrayList([]const u8).init(allocator);
+        var out = std.array_list.Managed([]const u8).init(allocator);
         defer out.deinit();
         var it = self.trailing();
         while (it.next()) |line| {
@@ -1043,9 +1051,9 @@ const TestManifest = struct {
 
     fn trailingLinesSplit(self: TestManifest, allocator: Allocator) error{OutOfMemory}![]const []const u8 {
         // Collect output lines split by empty lines
-        var out = std.ArrayList([]const u8).init(allocator);
+        var out = std.array_list.Managed([]const u8).init(allocator);
         defer out.deinit();
-        var buf = std.ArrayList(u8).init(allocator);
+        var buf = std.array_list.Managed(u8).init(allocator);
         defer buf.deinit();
         var it = self.trailing();
         while (it.next()) |line| {
@@ -1118,13 +1126,6 @@ const TestManifest = struct {
         }
     }
 };
-
-const Cases = @This();
-const builtin = @import("builtin");
-const std = @import("std");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-const getExternalExecutor = std.zig.system.getExternalExecutor;
 
 fn resolveTargetQuery(query: std.Target.Query) std.Build.ResolvedTarget {
     return .{

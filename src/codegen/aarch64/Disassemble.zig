@@ -3,9 +3,18 @@ mnemonic_operands_separator: []const u8 = " ",
 operands_separator: []const u8 = ", ",
 enable_aliases: bool = true,
 
-pub const Case = enum { lower, upper };
+pub const Case = enum {
+    lower,
+    upper,
+    pub fn convert(case: Case, c: u8) u8 {
+        return switch (case) {
+            .lower => std.ascii.toLower(c),
+            .upper => std.ascii.toUpper(c),
+        };
+    }
+};
 
-pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     unallocated: switch (inst.decode()) {
         .unallocated => break :unallocated,
         .reserved => |reserved| switch (reserved.decode()) {
@@ -23,13 +32,13 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             .pc_relative_addressing => |pc_relative_addressing| {
                 const group = pc_relative_addressing.group;
                 const imm = (@as(i33, group.immhi) << 2 | @as(i33, group.immlo) << 0) + @as(i33, switch (group.op) {
-                    .adr => Instruction.size,
+                    .adr => aarch64.encoding.Instruction.size,
                     .adrp => 0,
                 });
                 return writer.print("{f}{s}{f}{s}.{c}0x{x}", .{
                     fmtCase(group.op, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(.doubleword, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).x().fmtCase(dis.case),
                     dis.operands_separator,
                     @as(u8, if (imm < 0) '-' else '+'),
                     switch (group.op) {
@@ -45,8 +54,8 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const sf = group.sf;
                 const sh = group.sh;
                 const imm12 = group.imm12;
-                const Rn = group.Rn.decodeInteger(sf, .{ .sp = true });
-                const Rd = group.Rd.decodeInteger(sf, .{ .sp = !S });
+                const Rn = group.Rn.decode(.{ .sp = true }).general(sf);
+                const Rd = group.Rd.decode(.{ .sp = !S }).general(sf);
                 const elide_shift = sh == .@"0";
                 if (dis.enable_aliases and op == .add and S == false and elide_shift and imm12 == 0 and
                     (Rn.alias == .sp or Rd.alias == .sp)) try writer.print("{f}{s}{f}{s}{f}", .{
@@ -82,8 +91,8 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     .word => @as(i32, @bitCast(@as(u32, @intCast(decoded_imm)))),
                     .doubleword => @as(i64, @bitCast(decoded_imm)),
                 };
-                const Rn = group.Rn.decodeInteger(sf, .{});
-                const Rd = group.Rd.decodeInteger(sf, .{ .sp = decoded != .ands });
+                const Rn = group.Rn.decode(.{}).general(sf);
+                const Rd = group.Rd.decode(.{ .sp = decoded != .ands }).general(sf);
                 return if (dis.enable_aliases and decoded == .orr and Rn.alias == .zr and !group.imm.moveWidePreferred(sf)) writer.print("{f}{s}{f}{s}#{s}0x{x}", .{
                     fmtCase(.mov, dis.case),
                     dis.mnemonic_operands_separator,
@@ -115,7 +124,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const sf = group.sf;
                 const hw = group.hw;
                 const imm16 = group.imm16;
-                const Rd = group.Rd.decodeInteger(sf, .{});
+                const Rd = group.Rd.decode(.{}).general(sf);
                 const elide_shift = hw == .@"0";
                 if (dis.enable_aliases and switch (decoded) {
                     .unallocated => unreachable,
@@ -166,9 +175,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 return writer.print("{f}{s}{f}{s}{f}{s}#{d}{s}#{d}", .{
                     fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
                     group.imm.immr,
                     dis.operands_separator,
@@ -183,11 +192,11 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 return writer.print("{f}{s}{f}{s}{f}{s}{f}{s}#{d}", .{
                     fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rm.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rm.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
                     group.imms,
                 });
@@ -248,7 +257,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const decoded = unconditional_branch_register.decode();
                 if (decoded == .unallocated) break :unallocated;
                 const group = unconditional_branch_register.group;
-                const Rn = group.Rn.decodeInteger(.doubleword, .{});
+                const Rn = group.Rn.decode(.{}).x();
                 try writer.print("{f}", .{fmtCase(decoded, dis.case)});
                 return if (decoded != .ret or Rn.alias != .r30) try writer.print("{s}{f}", .{
                     dis.mnemonic_operands_separator,
@@ -271,7 +280,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 return writer.print("{f}{s}{f}{s}.{c}0x{x}", .{
                     fmtCase(group.op, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rt.decodeInteger(group.sf, .{}).fmtCase(dis.case),
+                    group.Rt.decode(.{}).general(group.sf).fmtCase(dis.case),
                     dis.operands_separator,
                     @as(u8, if (imm < 0) '-' else '+'),
                     @abs(imm) << 2,
@@ -283,7 +292,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 return writer.print("{f}{s}{f}{s}#0x{d}{s}.{c}0x{x}", .{
                     fmtCase(group.op, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rt.decodeInteger(@enumFromInt(group.b5), .{}).fmtCase(dis.case),
+                    group.Rt.decode(.{}).general(@enumFromInt(group.b5)).fmtCase(dis.case),
                     dis.operands_separator,
                     @as(u6, group.b5) << 5 |
                         @as(u6, group.b40) << 0,
@@ -303,15 +312,15 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     const decoded = integer.decode();
                     if (decoded == .unallocated) break :unallocated;
                     const group = integer.group;
-                    const sf: aarch64.encoding.Register.IntegerSize = @enumFromInt(group.opc >> 1);
+                    const sf: aarch64.encoding.Register.GeneralSize = @enumFromInt(group.opc >> 1);
                     return writer.print("{f}{s}{f}{s}{f}{s}[{f}]{s}#{s}0x{x}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt2.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm7 < 0) "-" else "",
                         @as(u10, @abs(group.imm7)) << (@as(u2, 2) + @intFromEnum(sf)),
@@ -325,11 +334,11 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     return writer.print("{f}{s}{f}{s}{f}{s}[{f}]{s}#{s}0x{x}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt2.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm7 < 0) "-" else "",
                         @as(u11, @abs(group.imm7)) << (@as(u3, 2) + @intFromEnum(vs)),
@@ -341,15 +350,15 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     const decoded = integer.decode();
                     if (decoded == .unallocated) break :unallocated;
                     const group = integer.group;
-                    const sf: aarch64.encoding.Register.IntegerSize = @enumFromInt(group.opc >> 1);
+                    const sf: aarch64.encoding.Register.GeneralSize = @enumFromInt(group.opc >> 1);
                     try writer.print("{f}{s}{f}{s}{f}{s}[{f}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt2.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                     });
                     if (group.imm7 != 0) try writer.print("{s}#{s}0x{x}", .{
                         dis.operands_separator,
@@ -366,11 +375,11 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     try writer.print("{f}{s}{f}{s}{f}{s}[{f}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt2.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                     });
                     if (group.imm7 != 0) try writer.print("{s}#{s}0x{x}", .{
                         dis.operands_separator,
@@ -385,15 +394,15 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     const decoded = integer.decode();
                     if (decoded == .unallocated) break :unallocated;
                     const group = integer.group;
-                    const sf: aarch64.encoding.Register.IntegerSize = @enumFromInt(group.opc >> 1);
+                    const sf: aarch64.encoding.Register.GeneralSize = @enumFromInt(group.opc >> 1);
                     return writer.print("{f}{s}{f}{s}{f}{s}[{f}{s}#{s}0x{x}]!", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt2.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm7 < 0) "-" else "",
                         @as(u10, @abs(group.imm7)) << (@as(u2, 2) + @intFromEnum(sf)),
@@ -407,11 +416,11 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     return writer.print("{f}{s}{f}{s}{f}{s}[{f}{s}#{s}0x{x}]!", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rt2.decodeVector(vs).fmtCase(dis.case),
+                        group.Rt2.decode(.{ .V = true }).scalar(vs).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm7 < 0) "-" else "",
                         @as(u11, @abs(group.imm7)) << (@as(u3, 2) + @intFromEnum(vs)),
@@ -422,7 +431,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             .register_immediate_post_indexed => |register_immediate_post_indexed| switch (register_immediate_post_indexed.decode()) {
                 .integer => |integer| {
                     const decoded = integer.decode();
-                    const sf: aarch64.encoding.Register.IntegerSize = switch (decoded) {
+                    const sf: aarch64.encoding.Register.GeneralSize = switch (decoded) {
                         .unallocated => break :unallocated,
                         .strb, .ldrb, .strh, .ldrh => .word,
                         inline .ldrsb, .ldrsh => |encoded| switch (encoded.opc0) {
@@ -436,9 +445,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     return writer.print("{f}{s}{f}{s}[{f}]{s}#{s}0x{x}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm9 < 0) "-" else "",
                         @abs(group.imm9),
@@ -450,7 +459,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             .register_immediate_pre_indexed => |register_immediate_pre_indexed| switch (register_immediate_pre_indexed.decode()) {
                 .integer => |integer| {
                     const decoded = integer.decode();
-                    const sf: aarch64.encoding.Register.IntegerSize = switch (decoded) {
+                    const sf: aarch64.encoding.Register.GeneralSize = switch (decoded) {
                         .unallocated => break :unallocated,
                         inline .ldrsb, .ldrsh => |encoded| switch (encoded.opc0) {
                             0b0 => .doubleword,
@@ -464,9 +473,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     return writer.print("{f}{s}{f}{s}[{f}{s}#{s}0x{x}]!", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm9 < 0) "-" else "",
                         @abs(group.imm9),
@@ -479,9 +488,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     return writer.print("{f}{s}{f}{s}[{f}{s}#{s}0x{x}]!", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeVector(group.opc1.decode(group.size)).fmtCase(dis.case),
+                        group.Rt.decode(.{ .V = true }).scalar(group.opc1.decode(group.size)).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
                         if (group.imm9 < 0) "-" else "",
                         @abs(group.imm9),
@@ -491,7 +500,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             .register_register_offset => |register_register_offset| switch (register_register_offset.decode()) {
                 .integer => |integer| {
                     const decoded = integer.decode();
-                    const sf: aarch64.encoding.Register.IntegerSize = switch (decoded) {
+                    const sf: aarch64.encoding.Register.GeneralSize = switch (decoded) {
                         .unallocated, .prfm => break :unallocated,
                         .strb, .ldrb, .strh, .ldrh => .word,
                         inline .ldrsb, .ldrsh => |encoded| switch (encoded.opc0) {
@@ -505,11 +514,11 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     try writer.print("{f}{s}{f}{s}[{f}{s}{f}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rm.decodeInteger(group.option.sf(), .{}).fmtCase(dis.case),
+                        group.Rm.decode(.{}).general(group.option.sf()).fmtCase(dis.case),
                     });
                     if (group.option != .lsl or group.S) {
                         try writer.print("{s}{f}", .{
@@ -527,7 +536,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             .register_unsigned_immediate => |register_unsigned_immediate| switch (register_unsigned_immediate.decode()) {
                 .integer => |integer| {
                     const decoded = integer.decode();
-                    const sf: aarch64.encoding.Register.IntegerSize = switch (decoded) {
+                    const sf: aarch64.encoding.Register.GeneralSize = switch (decoded) {
                         .unallocated, .prfm => break :unallocated,
                         .strb, .ldrb, .strh, .ldrh => .word,
                         inline .ldrsb, .ldrsh => |encoded| switch (encoded.opc0) {
@@ -541,9 +550,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     try writer.print("{f}{s}{f}{s}[{f}", .{
                         fmtCase(decoded, dis.case),
                         dis.mnemonic_operands_separator,
-                        group.Rt.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        group.Rt.decode(.{}).general(sf).fmtCase(dis.case),
                         dis.operands_separator,
-                        group.Rn.decodeInteger(.doubleword, .{ .sp = true }).fmtCase(dis.case),
+                        group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
                     });
                     if (group.imm12 > 0) try writer.print("{s}#0x{x}", .{
                         dis.operands_separator,
@@ -562,13 +571,21 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const group = data_processing_two_source.group;
                 const sf = group.sf;
                 return writer.print("{f}{s}{f}{s}{f}{s}{f}", .{
-                    fmtCase(decoded, dis.case),
+                    if (dis.enable_aliases) fmtCase(@as(enum { udiv, sdiv, lsl, lsr, asr, ror }, switch (decoded) {
+                        .unallocated => unreachable,
+                        .udiv => .udiv,
+                        .sdiv => .sdiv,
+                        .lslv => .lsl,
+                        .lsrv => .lsr,
+                        .asrv => .asr,
+                        .rorv => .ror,
+                    }), dis.case) else fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rm.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rm.decode(.{}).general(sf).fmtCase(dis.case),
                 });
             },
             .data_processing_one_source => |data_processing_one_source| {
@@ -579,9 +596,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 return writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
                 });
             },
             .logical_shifted_register => |logical_shifted_register| {
@@ -590,10 +607,10 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const group = logical_shifted_register.group;
                 const sf = group.sf;
                 const shift = group.shift;
-                const Rm = group.Rm.decodeInteger(sf, .{});
+                const Rm = group.Rm.decode(.{}).general(sf);
                 const amount = group.imm6;
-                const Rn = group.Rn.decodeInteger(sf, .{});
-                const Rd = group.Rd.decodeInteger(sf, .{});
+                const Rn = group.Rn.decode(.{}).general(sf);
+                const Rd = group.Rd.decode(.{}).general(sf);
                 const elide_shift = shift == .lsl and amount == 0;
                 if (dis.enable_aliases and switch (decoded) {
                     else => false,
@@ -636,10 +653,10 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const group = add_subtract_shifted_register.group;
                 const sf = group.sf;
                 const shift = group.shift;
-                const Rm = group.Rm.decodeInteger(sf, .{});
+                const Rm = group.Rm.decode(.{}).general(sf);
                 const imm6 = group.imm6;
-                const Rn = group.Rn.decodeInteger(sf, .{});
-                const Rd = group.Rd.decodeInteger(sf, .{});
+                const Rn = group.Rn.decode(.{}).general(sf);
+                const Rd = group.Rd.decode(.{}).general(sf);
                 if (dis.enable_aliases and group.S and Rd.alias == .zr) try writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(@as(enum { cmn, cmp }, switch (group.op) {
                         .add => .cmn,
@@ -678,9 +695,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 if (decoded == .unallocated) break :unallocated;
                 const group = add_subtract_extended_register.group;
                 const sf = group.sf;
-                const Rm = group.Rm.decodeInteger(group.option.sf(), .{});
-                const Rn = group.Rn.decodeInteger(sf, .{ .sp = true });
-                const Rd = group.Rd.decodeInteger(sf, .{ .sp = true });
+                const Rm = group.Rm.decode(.{}).general(group.option.sf());
+                const Rn = group.Rn.decode(.{ .sp = true }).general(sf);
+                const Rd = group.Rd.decode(.{ .sp = true }).general(sf);
                 if (dis.enable_aliases and group.S and Rd.alias == .zr) try writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(@as(enum { cmn, cmp }, switch (group.op) {
                         .add => .cmn,
@@ -699,7 +716,7 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                     dis.operands_separator,
                     Rm.fmtCase(dis.case),
                 });
-                return if (group.option != @as(Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option, switch (sf) {
+                return if (group.option != @as(aarch64.encoding.Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option, switch (sf) {
                     .word => .uxtw,
                     .doubleword => .uxtx,
                 }) or group.imm3 != 0) writer.print("{s}{f} #{d}", .{
@@ -712,9 +729,9 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 const decoded = add_subtract_with_carry.decode();
                 const group = add_subtract_with_carry.group;
                 const sf = group.sf;
-                const Rm = group.Rm.decodeInteger(sf, .{});
-                const Rn = group.Rn.decodeInteger(sf, .{});
-                const Rd = group.Rd.decodeInteger(sf, .{});
+                const Rm = group.Rm.decode(.{}).general(sf);
+                const Rn = group.Rn.decode(.{}).general(sf);
+                const Rd = group.Rd.decode(.{}).general(sf);
                 return if (dis.enable_aliases and group.op == .sbc and Rn.alias == .zr) try writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(@as(enum { ngc, ngcs }, switch (group.S) {
                         false => .ngc,
@@ -743,10 +760,10 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
                 if (decoded == .unallocated) break :unallocated;
                 const group = conditional_select.group;
                 const sf = group.sf;
-                const Rm = group.Rm.decodeInteger(sf, .{});
+                const Rm = group.Rm.decode(.{}).general(sf);
                 const cond = group.cond;
-                const Rn = group.Rn.decodeInteger(sf, .{});
-                const Rd = group.Rd.decodeInteger(sf, .{});
+                const Rn = group.Rn.decode(.{}).general(sf);
+                const Rd = group.Rd.decode(.{}).general(sf);
                 return if (dis.enable_aliases and group.op != group.op2 and Rm.alias == .zr and cond != .al and cond != .nv and Rn.alias == Rm.alias) writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(@as(enum { cset, csetm }, switch (decoded) {
                         else => unreachable,
@@ -784,34 +801,447 @@ pub fn printInstruction(dis: Disassemble, inst: Instruction, writer: *std.Io.Wri
             },
             .data_processing_three_source => |data_processing_three_source| {
                 const decoded = data_processing_three_source.decode();
-                if (decoded == .unallocated) break :unallocated;
                 const group = data_processing_three_source.group;
                 const sf = group.sf;
+                const operand_sf = switch (decoded) {
+                    .unallocated => break :unallocated,
+                    .madd, .msub, .smulh, .umulh => sf,
+                    .smaddl, .smsubl, .umaddl, .umsubl => .word,
+                };
+                const Ra = group.Ra.decode(.{}).general(sf);
+                const elide_addend = dis.enable_aliases and Ra.alias == .zr;
                 try writer.print("{f}{s}{f}{s}{f}{s}{f}", .{
-                    fmtCase(decoded, dis.case),
+                    if (elide_addend) fmtCase(@as(enum {
+                        mul,
+                        mneg,
+                        smull,
+                        smnegl,
+                        smulh,
+                        umull,
+                        umnegl,
+                        umulh,
+                    }, switch (decoded) {
+                        .unallocated => unreachable,
+                        .madd => .mul,
+                        .msub => .mneg,
+                        .smaddl => .smull,
+                        .smsubl => .smnegl,
+                        .smulh => .smulh,
+                        .umaddl => .umull,
+                        .umsubl => .umnegl,
+                        .umulh => .umulh,
+                    }), dis.case) else fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rn.decode(.{}).general(operand_sf).fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rm.decodeInteger(sf, .{}).fmtCase(dis.case),
+                    group.Rm.decode(.{}).general(operand_sf).fmtCase(dis.case),
                 });
-                return switch (decoded) {
+                return if (!elide_addend) switch (decoded) {
                     .unallocated => unreachable,
                     .madd, .msub, .smaddl, .smsubl, .umaddl, .umsubl => writer.print("{s}{f}", .{
                         dis.operands_separator,
-                        group.Ra.decodeInteger(sf, .{}).fmtCase(dis.case),
+                        Ra.fmtCase(dis.case),
                     }),
                     .smulh, .umulh => {},
                 };
             },
         },
-        .data_processing_vector => {},
+        .data_processing_vector => |data_processing_vector| switch (data_processing_vector.decode()) {
+            .unallocated => break :unallocated,
+            .simd_scalar_copy => |simd_scalar_copy| {
+                const decoded = simd_scalar_copy.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_scalar_copy.group;
+                const elem_size = @ctz(group.imm5);
+                return writer.print("{f}{s}{f}{s}{f}", .{
+                    if (dis.enable_aliases and decoded == .dup)
+                        fmtCase(.mov, dis.case)
+                    else
+                        fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).scalar(@enumFromInt(elem_size)).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).element(
+                        @enumFromInt(elem_size),
+                        @intCast(group.imm5 >> (elem_size + 1)),
+                    ).fmtCase(dis.case),
+                });
+            },
+            .simd_scalar_two_register_miscellaneous_fp16 => |simd_scalar_two_register_miscellaneous_fp16| {
+                const decoded = simd_scalar_two_register_miscellaneous_fp16.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_scalar_two_register_miscellaneous_fp16.group;
+                try writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).h().fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).h().fmtCase(dis.case),
+                });
+                return switch (decoded) {
+                    .unallocated => unreachable,
+                    else => {},
+                    .fcmgt,
+                    .fcmeq,
+                    .fcmlt,
+                    .fcmge,
+                    .fcmle,
+                    => writer.print("{s}#0.0", .{dis.operands_separator}),
+                };
+            },
+            .simd_scalar_two_register_miscellaneous => |simd_scalar_two_register_miscellaneous| {
+                const decoded = simd_scalar_two_register_miscellaneous.decode();
+                const group = simd_scalar_two_register_miscellaneous.group;
+                const elem_size = switch (decoded) {
+                    .unallocated => break :unallocated,
+                    inline .fcvtns,
+                    .fcvtms,
+                    .fcvtas,
+                    .scvtf,
+                    .fcvtps,
+                    .fcvtzs,
+                    .fcvtxn,
+                    .fcvtnu,
+                    .fcvtmu,
+                    .fcvtau,
+                    .ucvtf,
+                    .fcvtpu,
+                    .fcvtzu,
+                    => |f| f.sz.toScalarSize(),
+                    else => group.size.toScalarSize(),
+                };
+                try writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).scalar(elem_size).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).scalar(switch (decoded) {
+                        .unallocated => unreachable,
+                        else => elem_size,
+                        .sqxtn => elem_size.w(),
+                    }).fmtCase(dis.case),
+                });
+                return switch (decoded) {
+                    .unallocated => unreachable,
+                    else => {},
+                    .cmgt,
+                    .cmeq,
+                    .cmlt,
+                    .cmge,
+                    .cmle,
+                    => writer.print("{s}#0", .{dis.operands_separator}),
+                    .fcmgt,
+                    .fcmeq,
+                    .fcmlt,
+                    .fcmge,
+                    .fcmle,
+                    => writer.print("{s}#0.0", .{dis.operands_separator}),
+                };
+            },
+            .simd_scalar_pairwise => {},
+            .simd_copy => |simd_copy| {
+                const decoded = simd_copy.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_copy.group;
+                const elem_size = @ctz(group.imm5);
+                return writer.print("{f}{s}{f}{s}{f}", .{
+                    if (dis.enable_aliases and switch (decoded) {
+                        .unallocated => unreachable,
+                        .dup, .smov => false,
+                        .umov => elem_size >= 2,
+                        .ins => true,
+                    }) fmtCase(.mov, dis.case) else fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    switch (decoded) {
+                        .unallocated => unreachable,
+                        .dup => |dup| group.Rd.decode(.{ .V = true }).vector(.wrap(.{
+                            .size = dup.Q,
+                            .elem_size = @enumFromInt(elem_size),
+                        })),
+                        inline .smov, .umov => |mov| group.Rd.decode(.{}).general(mov.Q),
+                        .ins => group.Rd.decode(.{ .V = true }).element(
+                            @enumFromInt(elem_size),
+                            @intCast(group.imm5 >> (elem_size + 1)),
+                        ),
+                    }.fmtCase(dis.case),
+                    dis.operands_separator,
+                    switch (decoded) {
+                        .unallocated => unreachable,
+                        .dup => |dup| switch (dup.imm4) {
+                            .element => group.Rn.decode(.{ .V = true }).element(
+                                @enumFromInt(elem_size),
+                                @intCast(group.imm5 >> (elem_size + 1)),
+                            ),
+                            .general => group.Rn.decode(.{}).general(switch (elem_size) {
+                                0...2 => .word,
+                                3 => .doubleword,
+                                else => unreachable,
+                            }),
+                            _ => unreachable,
+                        },
+                        .smov, .umov => group.Rn.decode(.{ .V = true }).element(
+                            @enumFromInt(elem_size),
+                            @intCast(group.imm5 >> (elem_size + 1)),
+                        ),
+                        .ins => |ins| switch (ins.op) {
+                            .element => group.Rn.decode(.{ .V = true }).element(
+                                @enumFromInt(elem_size),
+                                @intCast(group.imm4 >> @intCast(elem_size)),
+                            ),
+                            .general => group.Rn.decode(.{}).general(switch (elem_size) {
+                                0...2 => .word,
+                                3 => .doubleword,
+                                else => unreachable,
+                            }),
+                        },
+                    }.fmtCase(dis.case),
+                });
+            },
+            .simd_two_register_miscellaneous_fp16 => |simd_two_register_miscellaneous_fp16| {
+                const decoded = simd_two_register_miscellaneous_fp16.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_two_register_miscellaneous_fp16.group;
+                const arrangement: aarch64.encoding.Register.Arrangement = .wrap(.{
+                    .size = group.Q,
+                    .elem_size = .half,
+                });
+                try writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).vector(arrangement).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).vector(arrangement).fmtCase(dis.case),
+                });
+                return switch (decoded) {
+                    .unallocated => unreachable,
+                    else => {},
+                    .fcmgt,
+                    .fcmeq,
+                    .fcmlt,
+                    .fcmge,
+                    .fcmle,
+                    => writer.print("{s}#0.0", .{dis.operands_separator}),
+                };
+            },
+            .simd_two_register_miscellaneous => |simd_two_register_miscellaneous| {
+                const decoded = simd_two_register_miscellaneous.decode();
+                const group = simd_two_register_miscellaneous.group;
+                const elem_size = switch (decoded) {
+                    .unallocated => break :unallocated,
+                    inline .frintn,
+                    .frintm,
+                    .fcvtns,
+                    .fcvtms,
+                    .fcvtas,
+                    .scvtf,
+                    .frintp,
+                    .frintz,
+                    .fcvtps,
+                    .fcvtzs,
+                    .fcvtxn,
+                    .frinta,
+                    .frintx,
+                    .fcvtnu,
+                    .fcvtmu,
+                    .fcvtau,
+                    .ucvtf,
+                    .frinti,
+                    .fcvtpu,
+                    .fcvtzu,
+                    => |f| f.sz.toSize(),
+                    else => group.size,
+                };
+                const arrangement: aarch64.encoding.Register.Arrangement = .wrap(.{
+                    .size = group.Q,
+                    .elem_size = elem_size,
+                });
+                try writer.print("{f}{s}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    switch (decoded) {
+                        .unallocated => unreachable,
+                        else => "",
+                        .sqxtn => switch (group.Q) {
+                            .double => "",
+                            .quad => "2",
+                        },
+                    },
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).vector(arrangement).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).vector(switch (decoded) {
+                        .unallocated => unreachable,
+                        else => arrangement,
+                        .sqxtn => .wrap(.{
+                            .size = .quad,
+                            .elem_size = elem_size.w(),
+                        }),
+                    }).fmtCase(dis.case),
+                });
+                return switch (decoded) {
+                    .unallocated => unreachable,
+                    else => {},
+                    .cmgt,
+                    .cmeq,
+                    .cmlt,
+                    .cmge,
+                    .cmle,
+                    => writer.print("{s}#0", .{dis.operands_separator}),
+                    .fcmgt,
+                    .fcmeq,
+                    .fcmlt,
+                    .fcmge,
+                    .fcmle,
+                    => writer.print("{s}#0.0", .{dis.operands_separator}),
+                };
+            },
+            .simd_across_lanes => |simd_across_lanes| {
+                const decoded = simd_across_lanes.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_across_lanes.group;
+                const arrangement: aarch64.encoding.Register.Arrangement = .wrap(.{
+                    .size = group.Q,
+                    .elem_size = group.size,
+                });
+                return writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).scalar(group.size.toScalarSize()).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).vector(arrangement).fmtCase(dis.case),
+                });
+            },
+            .simd_three_same => |simd_three_same| {
+                const decoded = simd_three_same.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_three_same.group;
+                const arrangement: aarch64.encoding.Register.Arrangement = .wrap(.{
+                    .size = group.Q,
+                    .elem_size = switch (decoded) {
+                        .unallocated => break :unallocated,
+                        .addp => group.size,
+                        .@"and", .bic, .orr, .orn, .eor, .bsl, .bit, .bif => .byte,
+                    },
+                });
+                const Rd = group.Rd.decode(.{ .V = true }).vector(arrangement);
+                const Rn = group.Rn.decode(.{ .V = true }).vector(arrangement);
+                const Rm = group.Rm.decode(.{ .V = true }).vector(arrangement);
+                return if (dis.enable_aliases and decoded == .orr and Rm.alias == Rn.alias) try writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(.mov, dis.case),
+                    dis.mnemonic_operands_separator,
+                    Rd.fmtCase(dis.case),
+                    dis.operands_separator,
+                    Rn.fmtCase(dis.case),
+                }) else try writer.print("{f}{s}{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    Rd.fmtCase(dis.case),
+                    dis.operands_separator,
+                    Rn.fmtCase(dis.case),
+                    dis.operands_separator,
+                    Rm.fmtCase(dis.case),
+                });
+            },
+            .simd_modified_immediate => |simd_modified_immediate| {
+                const decoded = simd_modified_immediate.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = simd_modified_immediate.group;
+                const DataProcessingVector = aarch64.encoding.Instruction.DataProcessingVector;
+                try writer.print("{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).vector(.wrap(.{
+                        .size = group.Q,
+                        .elem_size = switch (group.o2) {
+                            0b1 => .half,
+                            0b0 => DataProcessingVector.Sz.toSize(@enumFromInt(group.op)),
+                        },
+                    })).fmtCase(dis.case),
+                });
+                return switch (decoded) {
+                    .unallocated => unreachable,
+                    .fmov => {
+                        const imm = DataProcessingVector.FloatImmediate.Fmov.Imm8.fromModified(.{
+                            .imm5 = group.imm5,
+                            .imm3 = group.imm3,
+                        }).decode();
+                        try writer.print("{s}#{d}{s}", .{
+                            dis.operands_separator,
+                            @as(f32, imm),
+                            if (imm == @trunc(imm)) ".0" else "",
+                        });
+                    },
+                };
+            },
+            .convert_float_fixed => {},
+            .convert_float_integer => |convert_float_integer| {
+                const decoded = convert_float_integer.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = convert_float_integer.group;
+                const direction: enum { float_to_integer, integer_to_float } = switch (group.opcode) {
+                    0b000, 0b001, 0b100, 0b101, 0b110 => .float_to_integer,
+                    0b010, 0b011, 0b111 => .integer_to_float,
+                };
+                return writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    @as(aarch64.encoding.Register, switch (direction) {
+                        .float_to_integer => group.Rd.decode(.{}).general(group.sf),
+                        .integer_to_float => switch (group.ptype) {
+                            .single, .double, .half => group.Rd.decode(.{ .V = true }).scalar(group.ptype.toScalarSize()),
+                            .quad => group.Rd.decode(.{ .V = true }).@"d[]"(@intCast(group.rmode)),
+                        },
+                    }).fmtCase(dis.case),
+                    dis.operands_separator,
+                    @as(aarch64.encoding.Register, switch (direction) {
+                        .float_to_integer => switch (group.ptype) {
+                            .single, .double, .half => group.Rn.decode(.{ .V = true }).scalar(group.ptype.toScalarSize()),
+                            .quad => group.Rn.decode(.{ .V = true }).@"d[]"(@intCast(group.rmode)),
+                        },
+                        .integer_to_float => group.Rn.decode(.{}).general(group.sf),
+                    }).fmtCase(dis.case),
+                });
+            },
+            .float_data_processing_one_source => |float_data_processing_one_source| {
+                const decoded = float_data_processing_one_source.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = float_data_processing_one_source.group;
+                return writer.print("{f}{s}{f}{s}{f}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).scalar(group.ptype.toScalarSize()).fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .V = true }).scalar(group.ptype.toScalarSize()).fmtCase(dis.case),
+                });
+            },
+            .float_compare => {},
+            .float_immediate => |float_immediate| {
+                const decoded = float_immediate.decode();
+                const group = float_immediate.group;
+                const imm = switch (decoded) {
+                    .unallocated => break :unallocated,
+                    .fmov => |fmov| fmov.imm8.decode(),
+                };
+                return writer.print("{f}{s}{f}{s}#{d}{s}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .V = true }).scalar(group.ptype.toScalarSize()).fmtCase(dis.case),
+                    dis.operands_separator,
+                    @as(f32, imm),
+                    if (imm == @trunc(imm)) ".0" else "",
+                });
+            },
+            .float_conditional_compare => {},
+            .float_data_processing_two_source => {},
+            .float_conditional_select => {},
+            .float_data_processing_three_source => {},
+        },
     }
     return writer.print(".{f}{s}0x{x:0>8}", .{
         fmtCase(.word, dis.case),
         dis.mnemonic_operands_separator,
-        @as(Instruction.Backing, @bitCast(inst)),
+        @as(aarch64.encoding.Instruction.Backing, @bitCast(inst)),
     });
 }
 
@@ -819,10 +1249,7 @@ fn fmtCase(tag: anytype, case: Case) struct {
     tag: []const u8,
     case: Case,
     pub fn format(data: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
-        for (data.tag) |c| try writer.writeByte(switch (data.case) {
-            .lower => std.ascii.toLower(c),
-            .upper => std.ascii.toUpper(c),
-        });
+        for (data.tag) |c| try writer.writeByte(data.case.convert(c));
     }
 } {
     return .{ .tag = @tagName(tag), .case = case };
@@ -834,7 +1261,8 @@ pub const RegisterFormatter = struct {
     pub fn format(data: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (data.reg.format) {
             .alias => try writer.print("{f}", .{fmtCase(data.reg.alias, data.case)}),
-            .integer => |size| switch (data.reg.alias) {
+            .general => |size| switch (data.reg.alias) {
+                else => unreachable,
                 .r0,
                 .r1,
                 .r2,
@@ -867,23 +1295,23 @@ pub const RegisterFormatter = struct {
                 .r29,
                 .r30,
                 => |alias| try writer.print("{c}{d}", .{
-                    size.prefix(),
+                    data.case.convert(size.prefix()),
                     @intFromEnum(alias.encode(.{})),
                 }),
                 .zr => try writer.print("{c}{f}", .{
-                    size.prefix(),
+                    data.case.convert(size.prefix()),
                     fmtCase(data.reg.alias, data.case),
                 }),
-                else => try writer.print("{s}{f}", .{
+                .sp => try writer.print("{s}{f}", .{
                     switch (size) {
-                        .word => "w",
+                        .word => &.{data.case.convert('w')},
                         .doubleword => "",
                     },
                     fmtCase(data.reg.alias, data.case),
                 }),
             },
             .scalar => |size| try writer.print("{c}{d}", .{
-                size.prefix(),
+                data.case.convert(size.prefix()),
                 @intFromEnum(data.reg.alias.encode(.{ .V = true })),
             }),
             .vector => |arrangement| try writer.print("{f}.{f}", .{
@@ -892,8 +1320,12 @@ pub const RegisterFormatter = struct {
             }),
             .element => |element| try writer.print("{f}.{c}[{d}]", .{
                 fmtCase(data.reg.alias, data.case),
-                element.size.prefix(),
+                data.case.convert(element.size.prefix()),
                 element.index,
+            }),
+            .scalable => try writer.print("{c}{d}", .{
+                data.case.convert('z'),
+                @intFromEnum(data.reg.alias.encode(.{ .V = true })),
             }),
         }
     }
@@ -901,5 +1333,4 @@ pub const RegisterFormatter = struct {
 
 const aarch64 = @import("../aarch64.zig");
 const Disassemble = @This();
-const Instruction = aarch64.encoding.Instruction;
 const std = @import("std");

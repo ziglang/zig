@@ -280,7 +280,7 @@ pub const Parser = struct {
         self: *Parser,
         binary: BinaryModule,
         inst: Instruction,
-        offsets: *std.ArrayList(u16),
+        offsets: *std.array_list.Managed(u16),
     ) !void {
         const index = self.opcode_table.get(mapSetAndOpcode(.core, @intFromEnum(inst.opcode))).?;
         const operands = InstructionSet.core.instructions()[index].operands;
@@ -333,7 +333,7 @@ pub const Parser = struct {
         inst: Instruction,
         operands: []const spec.Operand,
         start_offset: usize,
-        offsets: *std.ArrayList(u16),
+        offsets: *std.array_list.Managed(u16),
     ) !usize {
         var offset = start_offset;
         for (operands) |operand| {
@@ -348,7 +348,7 @@ pub const Parser = struct {
         inst: Instruction,
         operand: spec.Operand,
         start_offset: usize,
-        offsets: *std.ArrayList(u16),
+        offsets: *std.array_list.Managed(u16),
     ) !usize {
         var offset = start_offset;
         switch (operand.quantifier) {
@@ -371,7 +371,7 @@ pub const Parser = struct {
         inst: Instruction,
         kind: spec.OperandKind,
         start_offset: usize,
-        offsets: *std.ArrayList(u16),
+        offsets: *std.array_list.Managed(u16),
     ) !usize {
         var offset = start_offset;
         if (offset >= inst.operands.len) return error.InvalidPhysicalFormat;

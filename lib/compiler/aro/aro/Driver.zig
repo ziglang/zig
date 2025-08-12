@@ -590,7 +590,7 @@ var stdout_buffer: [4096]u8 = undefined;
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool) !void {
-    var macro_buf = std.ArrayList(u8).init(d.comp.gpa);
+    var macro_buf = std.array_list.Managed(u8).init(d.comp.gpa);
     defer macro_buf.deinit();
 
     const std_out = std.fs.File.stdout().deprecatedWriter();
@@ -817,7 +817,7 @@ fn dumpLinkerArgs(items: []const []const u8) !void {
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void {
-    var argv = std.ArrayList([]const u8).init(d.comp.gpa);
+    var argv = std.array_list.Managed([]const u8).init(d.comp.gpa);
     defer argv.deinit();
 
     var linker_path_buf: [std.fs.max_path_bytes]u8 = undefined;

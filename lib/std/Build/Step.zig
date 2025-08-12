@@ -1,12 +1,22 @@
+const Step = @This();
+const std = @import("../std.zig");
+const Build = std.Build;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const builtin = @import("builtin");
+const Cache = Build.Cache;
+const Path = Cache.Path;
+const ArrayList = std.ArrayList;
+
 id: Id,
 name: []const u8,
 owner: *Build,
 makeFn: MakeFn,
 
-dependencies: std.ArrayList(*Step),
+dependencies: std.array_list.Managed(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
-dependants: std.ArrayListUnmanaged(*Step),
+dependants: ArrayList(*Step),
 /// Collects the set of files that retrigger this step to run.
 ///
 /// This is used by the build system's implementation of `--watch` but it can
@@ -39,7 +49,7 @@ state: State,
 /// total system memory available.
 max_rss: usize,
 
-result_error_msgs: std.ArrayListUnmanaged([]const u8),
+result_error_msgs: ArrayList([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
 result_stderr: []const u8,
 result_cached: bool,
@@ -175,7 +185,7 @@ pub const Inputs = struct {
 
     pub const Table = std.ArrayHashMapUnmanaged(Build.Cache.Path, Files, Build.Cache.Path.TableAdapter, false);
     /// The special file name "." means any changes inside the directory.
-    pub const Files = std.ArrayListUnmanaged([]const u8);
+    pub const Files = ArrayList([]const u8);
 
     pub fn populated(inputs: *Inputs) bool {
         return inputs.table.count() != 0;
@@ -204,8 +214,8 @@ pub fn init(options: StepOptions) Step {
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
         .owner = options.owner,
         .makeFn = options.makeFn,
-        .dependencies = std.ArrayList(*Step).init(arena),
-        .dependants = .{},
+        .dependencies = std.array_list.Managed(*Step).init(arena),
+        .dependants = .empty,
         .inputs = Inputs.init,
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
@@ -325,15 +335,6 @@ pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void 
         tty_config.setColor(w, .reset) catch {};
     }
 }
-
-const Step = @This();
-const std = @import("../std.zig");
-const Build = std.Build;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const builtin = @import("builtin");
-const Cache = Build.Cache;
-const Path = Cache.Path;
 
 pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
     const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
@@ -980,7 +981,7 @@ fn addDirectoryWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []c
 fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const u8) !void {
     const gpa = step.owner.allocator;
     const gop = try step.inputs.table.getOrPut(gpa, path);
-    if (!gop.found_existing) gop.value_ptr.* = .{};
+    if (!gop.found_existing) gop.value_ptr.* = .empty;
     try gop.value_ptr.append(gpa, basename);
 }
 

@@ -336,8 +336,8 @@ pub fn create(arena: Allocator, options: CreateOptions) !*Package.Module {
         if (resolved_target.llvm_cpu_features) |x| break :b x;
         if (!options.global.use_llvm) break :b null;
 
-        var buf = std.ArrayList(u8).init(arena);
-        var disabled_features = std.ArrayList(u8).init(arena);
+        var buf = std.array_list.Managed(u8).init(arena);
+        var disabled_features = std.array_list.Managed(u8).init(arena);
         defer disabled_features.deinit();
 
         // Append disabled features after enabled ones, so that their effects aren't overwritten.

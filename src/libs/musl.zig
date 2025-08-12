@@ -29,7 +29,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
 
     switch (in_crt_file) {
         .crt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
@@ -49,7 +49,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             });
         },
         .rcrt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
@@ -70,7 +70,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             });
         },
         .scrt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
@@ -112,10 +112,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 }
             }
 
-            var c_source_files = std.ArrayList(Compilation.CSourceFile).init(comp.gpa);
+            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(comp.gpa);
             defer c_source_files.deinit();
 
-            var override_path = std.ArrayList(u8).init(comp.gpa);
+            var override_path = std.array_list.Managed(u8).init(comp.gpa);
             defer override_path.deinit();
 
             const s = path.sep_str;
@@ -161,7 +161,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                         continue;
                 }
 
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCcArgs(comp, arena, &args, ext == .o3);
                 const c_source_file = try c_source_files.addOne();
                 c_source_file.* = .{
@@ -390,7 +390,7 @@ fn addSrcFile(arena: Allocator, source_table: *std.StringArrayHashMap(Ext), file
 fn addCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();

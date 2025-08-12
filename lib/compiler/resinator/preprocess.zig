@@ -11,14 +11,14 @@ pub fn preprocess(
     writer: anytype,
     /// Expects argv[0] to be the command name
     argv: []const []const u8,
-    maybe_dependencies_list: ?*std.ArrayList([]const u8),
+    maybe_dependencies_list: ?*std.array_list.Managed([]const u8),
 ) PreprocessError!void {
     try comp.addDefaultPragmaHandlers();
 
     var driver: aro.Driver = .{ .comp = comp, .aro_name = "arocc" };
     defer driver.deinit();
 
-    var macro_buf = std.ArrayList(u8).init(comp.gpa);
+    var macro_buf = std.array_list.Managed(u8).init(comp.gpa);
     defer macro_buf.deinit();
 
     _ = driver.parseArgs(std.io.null_writer, macro_buf.writer(), argv) catch |err| switch (err) {
@@ -87,7 +87,7 @@ fn hasAnyErrors(comp: *aro.Compilation) bool {
 
 /// `arena` is used for temporary -D argument strings and the INCLUDE environment variable.
 /// The arena should be kept alive at least as long as `argv`.
-pub fn appendAroArgs(arena: Allocator, argv: *std.ArrayList([]const u8), options: cli.Options, system_include_paths: []const []const u8) !void {
+pub fn appendAroArgs(arena: Allocator, argv: *std.array_list.Managed([]const u8), options: cli.Options, system_include_paths: []const []const u8) !void {
     try argv.appendSlice(&.{
         "-E",
         "--comments",

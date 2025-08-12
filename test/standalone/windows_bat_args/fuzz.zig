@@ -42,7 +42,7 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 128);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 128);
     defer buf.deinit();
     try buf.appendSlice("@echo off\n");
     try buf.append('"');
@@ -80,7 +80,7 @@ fn testExec(allocator: std.mem.Allocator, args: []const []const u8, env: ?*std.p
 }
 
 fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    var argv = try std.ArrayList([]const u8).initCapacity(allocator, 1 + args.len);
+    var argv = try std.array_list.Managed([]const u8).initCapacity(allocator, 1 + args.len);
     defer argv.deinit();
     argv.appendAssumeCapacity(bat);
     argv.appendSliceAssumeCapacity(args);
@@ -121,7 +121,7 @@ fn randomArg(allocator: Allocator, rand: std.Random) ![]const u8 {
     };
 
     const choices = rand.uintAtMostBiased(u16, 256);
-    var buf = try std.ArrayList(u8).initCapacity(allocator, choices);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, choices);
     errdefer buf.deinit();
 
     var last_codepoint: u21 = 0;

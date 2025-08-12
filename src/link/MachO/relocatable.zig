@@ -3,7 +3,7 @@ pub fn flushObject(macho_file: *MachO, comp: *Compilation, module_obj_path: ?Pat
     const diags = &macho_file.base.comp.link_diags;
 
     // TODO: "positional arguments" is a CLI concept, not a linker concept. Delete this unnecessary array list.
-    var positionals = std.ArrayList(link.Input).init(gpa);
+    var positionals = std.array_list.Managed(link.Input).init(gpa);
     defer positionals.deinit();
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
     positionals.appendSliceAssumeCapacity(comp.link_inputs);
@@ -81,7 +81,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
     const gpa = comp.gpa;
     const diags = &macho_file.base.comp.link_diags;
 
-    var positionals = std.ArrayList(link.Input).init(gpa);
+    var positionals = std.array_list.Managed(link.Input).init(gpa);
     defer positionals.deinit();
 
     try positionals.ensureUnusedCapacity(comp.link_inputs.len);
@@ -143,7 +143,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         try zo.readFileContents(macho_file);
     }
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(macho_file.objects.items.len + 1);
     if (macho_file.getZigObject()) |zo| files.appendAssumeCapacity(zo.index);
@@ -205,7 +205,7 @@ pub fn flushStaticLib(macho_file: *MachO, comp: *Compilation, module_obj_path: ?
         state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(macho_file)});
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(total_size);
     const writer = buffer.writer();
@@ -417,7 +417,7 @@ fn calcSymtabSize(macho_file: *MachO) error{OutOfMemory}!void {
     var nimports: u32 = 0;
     var strsize: u32 = 1;
 
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
     defer objects.deinit();
     if (macho_file.getZigObject()) |zo| objects.appendAssumeCapacity(zo.index);
     objects.appendSliceAssumeCapacity(macho_file.objects.items);

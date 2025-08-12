@@ -5,7 +5,7 @@ const assert = std.debug.assert;
 const BuiltinFn = std.zig.BuiltinFn;
 
 ast: *const Ast,
-transformations: *std.ArrayList(Transformation),
+transformations: *std.array_list.Managed(Transformation),
 unreferenced_globals: std.StringArrayHashMapUnmanaged(Ast.Node.Index),
 in_scope_names: std.StringArrayHashMapUnmanaged(u32),
 replace_names: std.StringArrayHashMapUnmanaged(u32),
@@ -54,7 +54,7 @@ pub const Error = error{OutOfMemory};
 pub fn findTransformations(
     arena: std.mem.Allocator,
     ast: *const Ast,
-    transformations: *std.ArrayList(Transformation),
+    transformations: *std.array_list.Managed(Transformation),
 ) !void {
     transformations.clearRetainingCapacity();
 

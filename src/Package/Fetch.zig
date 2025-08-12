@@ -173,7 +173,7 @@ pub const JobQueue = struct {
 
     /// Creates the dependencies.zig source code for the build runner to obtain
     /// via `@import("@dependencies")`.
-    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.array_list.Managed(u8)) Allocator.Error!void {
         const keys = jq.table.keys();
 
         assert(keys.len != 0); // caller should have added the first one
@@ -285,7 +285,7 @@ pub const JobQueue = struct {
         try buf.appendSlice("};\n");
     }
 
-    pub fn createEmptyDependenciesSource(buf: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn createEmptyDependenciesSource(buf: *std.array_list.Managed(u8)) Allocator.Error!void {
         try buf.appendSlice(
             \\pub const packages = struct {};
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
@@ -1474,10 +1474,10 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
     const root_dir = pkg_path.root_dir.handle;
 
     // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    var all_files = std.array_list.Managed(*HashedFile).init(gpa);
     defer all_files.deinit();
 
-    var deleted_files = std.ArrayList(*DeletedFile).init(gpa);
+    var deleted_files = std.array_list.Managed(*DeletedFile).init(gpa);
     defer deleted_files.deinit();
 
     // Track directories which had any files deleted from them so that empty directories

@@ -2004,7 +2004,6 @@ pub fn emit(
                 const atom = try cf.getOrCreateAtomForNav(nav);
                 break :sym cf.getAtom(atom).getSymbolIndex().?;
             }
-            if (lf.cast(.plan9)) |p9f| break :sym try p9f.seeNav(pt, nav);
             unreachable;
         },
         .debug_output = debug_output,
@@ -2015,7 +2014,6 @@ pub fn emit(
             .column = func.lbrace_column,
             .is_stmt = switch (debug_output) {
                 .dwarf => |dwarf| dwarf.dwarf.debug_line.header.default_is_stmt,
-                .plan9 => undefined,
                 .none => undefined,
             },
         },
@@ -2067,8 +2065,6 @@ pub fn emitLazy(
                     return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
                 break :sym cf.getAtom(atom).getSymbolIndex().?;
             }
-            if (lf.cast(.plan9)) |p9f| break :sym p9f.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
-                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
             unreachable;
         },
         .debug_output = debug_output,

@@ -1,14 +1,14 @@
 pub fn gcAtoms(elf_file: *Elf) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    var roots = std.ArrayList(*Atom).init(gpa);
+    var roots = std.array_list.Managed(*Atom).init(gpa);
     defer roots.deinit();
     try collectRoots(&roots, elf_file);
     mark(roots, elf_file);
     prune(elf_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
+fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
     if (elf_file.linkerDefinedPtr()) |obj| {
         if (obj.entrySymbol(elf_file)) |sym| {
             try markSymbol(sym, roots, elf_file);
@@ -82,7 +82,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
     }
 }
 
-fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
+fn markSymbol(sym: *Symbol, roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
     if (sym.mergeSubsection(elf_file)) |msub| {
         msub.alive = true;
         return;
@@ -133,7 +133,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
     }
 }
 
-fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
+fn mark(roots: std.array_list.Managed(*Atom), elf_file: *Elf) void {
     for (roots.items) |root| {
         gc_track_live_log.debug("root atom({d})", .{root.atom_index});
         markLive(root, elf_file);

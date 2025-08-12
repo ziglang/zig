@@ -116,7 +116,7 @@ pub fn translate(
     var driver: aro.Driver = .{ .comp = comp };
     defer driver.deinit();
 
-    var macro_buf = std.ArrayList(u8).init(gpa);
+    var macro_buf = std.array_list.Managed(u8).init(gpa);
     defer macro_buf.deinit();
 
     assert(!try driver.parseArgs(std.io.null_writer, macro_buf.writer(), args));
@@ -413,11 +413,11 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_ty: Type) Error!void {
             break :blk ZigTag.opaque_literal.init();
         }
 
-        var fields = try std.ArrayList(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
+        var fields = try std.array_list.Managed(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
         defer fields.deinit();
 
         // TODO: Add support for flexible array field functions
-        var functions = std.ArrayList(ZigNode).init(c.gpa);
+        var functions = std.array_list.Managed(ZigNode).init(c.gpa);
         defer functions.deinit();
 
         var unnamed_field_count: u32 = 0;
@@ -1234,7 +1234,7 @@ pub const PatternList = struct {
             const source = template[0];
             const impl = template[1];
 
-            var tok_list = std.ArrayList(CToken).init(allocator);
+            var tok_list = std.array_list.Managed(CToken).init(allocator);
             defer tok_list.deinit();
             try tokenizeMacro(source, &tok_list);
             const tokens = try allocator.dupe(CToken, tok_list.items);
@@ -1349,7 +1349,7 @@ pub const TypeError = Error || error{UnsupportedType};
 pub const TransError = TypeError || error{UnsupportedTranslation};
 
 pub const SymbolTable = std.StringArrayHashMap(ast.Node);
-pub const AliasList = std.ArrayList(struct {
+pub const AliasList = std.array_list.Managed(struct {
     alias: []const u8,
     name: []const u8,
 });
@@ -1397,7 +1397,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
         /// into the main arena.
         pub const Block = struct {
             base: ScopeExtraScope,
-            statements: std.ArrayList(ast.Node),
+            statements: std.array_list.Managed(ast.Node),
             variables: AliasList,
             mangle_count: u32 = 0,
             label: ?[]const u8 = null,
@@ -1429,7 +1429,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                         .id = .block,
                         .parent = parent,
                     },
-                    .statements = std.ArrayList(ast.Node).init(c.gpa),
+                    .statements = std.array_list.Managed(ast.Node).init(c.gpa),
                     .variables = AliasList.init(c.gpa),
                     .variable_discards = std.StringArrayHashMap(*ast.Payload.Discard).init(c.gpa),
                 };
@@ -1557,7 +1557,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             sym_table: SymbolTable,
             blank_macros: std.StringArrayHashMap(void),
             context: *ScopeExtraContext,
-            nodes: std.ArrayList(ast.Node),
+            nodes: std.array_list.Managed(ast.Node),
 
             pub fn init(c: *ScopeExtraContext) Root {
                 return .{
@@ -1568,7 +1568,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                     .sym_table = SymbolTable.init(c.gpa),
                     .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
-                    .nodes = std.ArrayList(ast.Node).init(c.gpa),
+                    .nodes = std.array_list.Managed(ast.Node).init(c.gpa),
                 };
             }
 
@@ -1705,7 +1705,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
     };
 }
 
-pub fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
+pub fn tokenizeMacro(source: []const u8, tok_list: *std.array_list.Managed(CToken)) Error!void {
     var tokenizer: aro.Tokenizer = .{
         .buf = source,
         .source = .unused,
@@ -1732,7 +1732,7 @@ test "Macro matching" {
     const helper = struct {
         const MacroFunctions = std.zig.c_translation.Macros;
         fn checkMacro(allocator: mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
-            var tok_list = std.ArrayList(CToken).init(allocator);
+            var tok_list = std.array_list.Managed(CToken).init(allocator);
             defer tok_list.deinit();
             try tokenizeMacro(source, &tok_list);
             const macro_slicer: MacroSlicer = .{ .source = source, .tokens = tok_list.items };

@@ -89,7 +89,7 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     list.dirty = false;
 }
 
-pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_file: *Elf) !void {
+pub fn write(list: AtomList, buffer: *std.array_list.Managed(u8), undefs: anytype, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);
@@ -126,7 +126,7 @@ pub fn write(list: AtomList, buffer: *std.ArrayList(u8), undefs: anytype, elf_fi
     buffer.clearRetainingCapacity();
 }
 
-pub fn writeRelocatable(list: AtomList, buffer: *std.ArrayList(u8), elf_file: *Elf) !void {
+pub fn writeRelocatable(list: AtomList, buffer: *std.array_list.Managed(u8), elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);

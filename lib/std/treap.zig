@@ -641,7 +641,7 @@ test "node.{prev(),next()} with random data" {
 
     var treap = TestTreap{};
     // A slow, stupid but correct reference. Ordered.
-    var golden = std.ArrayList(u64).init(std.testing.allocator);
+    var golden = std.array_list.Managed(u64).init(std.testing.allocator);
     defer golden.deinit();
 
     // Insert.

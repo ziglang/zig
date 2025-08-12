@@ -46,7 +46,6 @@ const Scanner = @This();
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayList;
 const assert = std.debug.assert;
 const BitStack = std.BitStack;
 
@@ -136,7 +135,7 @@ pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_v
     };
     switch (token_type) {
         .number, .string => {
-            var value_list = ArrayList(u8).init(allocator);
+            var value_list = std.array_list.Managed(u8).init(allocator);
             errdefer {
                 value_list.deinit();
             }
@@ -173,7 +172,7 @@ pub fn nextAllocMax(self: *@This(), allocator: Allocator, when: AllocWhen, max_v
 }
 
 /// Equivalent to `allocNextIntoArrayListMax(value_list, when, default_max_value_len);`
-pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) AllocIntoArrayListError!?[]const u8 {
+pub fn allocNextIntoArrayList(self: *@This(), value_list: *std.array_list.Managed(u8), when: AllocWhen) AllocIntoArrayListError!?[]const u8 {
     return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
 }
 /// The next token type must be either `.number` or `.string`. See `peekNextTokenType()`.
@@ -186,7 +185,7 @@ pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: 
 /// can be resumed by passing the same array list in again.
 /// This method does not indicate whether the token content being returned is for a `.number` or `.string` token type;
 /// the caller of this method is expected to know which type of token is being processed.
-pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) AllocIntoArrayListError!?[]const u8 {
+pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *std.array_list.Managed(u8), when: AllocWhen, max_value_len: usize) AllocIntoArrayListError!?[]const u8 {
     while (true) {
         const token = try self.next();
         switch (token) {
@@ -1608,7 +1607,7 @@ pub const Reader = struct {
         const token_type = try self.peekNextTokenType();
         switch (token_type) {
             .number, .string => {
-                var value_list = ArrayList(u8).init(allocator);
+                var value_list = std.array_list.Managed(u8).init(allocator);
                 errdefer {
                     value_list.deinit();
                 }
@@ -1639,11 +1638,11 @@ pub const Reader = struct {
     }
 
     /// Equivalent to `allocNextIntoArrayListMax(value_list, when, default_max_value_len);`
-    pub fn allocNextIntoArrayList(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen) Reader.AllocError!?[]const u8 {
+    pub fn allocNextIntoArrayList(self: *@This(), value_list: *std.array_list.Managed(u8), when: AllocWhen) Reader.AllocError!?[]const u8 {
         return self.allocNextIntoArrayListMax(value_list, when, default_max_value_len);
     }
     /// Calls `std.json.Scanner.allocNextIntoArrayListMax` and handles `error.BufferUnderrun`.
-    pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *ArrayList(u8), when: AllocWhen, max_value_len: usize) Reader.AllocError!?[]const u8 {
+    pub fn allocNextIntoArrayListMax(self: *@This(), value_list: *std.array_list.Managed(u8), when: AllocWhen, max_value_len: usize) Reader.AllocError!?[]const u8 {
         while (true) {
             return self.scanner.allocNextIntoArrayListMax(value_list, when, max_value_len) catch |err| switch (err) {
                 error.BufferUnderrun => {
@@ -1746,7 +1745,7 @@ pub const Reader = struct {
 const OBJECT_MODE = 0;
 const ARRAY_MODE = 1;
 
-fn appendSlice(list: *std.ArrayList(u8), buf: []const u8, max_value_len: usize) !void {
+fn appendSlice(list: *std.array_list.Managed(u8), buf: []const u8, max_value_len: usize) !void {
     const new_len = std.math.add(usize, list.items.len, buf.len) catch return error.ValueTooLong;
     if (new_len > max_value_len) return error.ValueTooLong;
     try list.appendSlice(buf);

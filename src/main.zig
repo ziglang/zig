@@ -6,7 +6,6 @@ const fs = std.fs;
 const mem = std.mem;
 const process = std.process;
 const Allocator = mem.Allocator;
-const ArrayList = std.ArrayList;
 const Ast = std.zig.Ast;
 const Color = std.zig.Color;
 const warn = std.log.warn;
@@ -1876,8 +1875,8 @@ fn buildOutputType(
             var c_out_mode: ?COutMode = null;
             var out_path: ?[]const u8 = null;
             var is_shared_lib = false;
-            var preprocessor_args = std.ArrayList([]const u8).init(arena);
-            var linker_args = std.ArrayList([]const u8).init(arena);
+            var preprocessor_args = std.array_list.Managed([]const u8).init(arena);
+            var linker_args = std.array_list.Managed([]const u8).init(arena);
             var it = ClangArgIterator.init(arena, all_args);
             var emit_llvm = false;
             var needed = false;
@@ -3136,16 +3135,16 @@ fn buildOutputType(
         }
     }
 
-    var resolved_frameworks = std.ArrayList(Compilation.Framework).init(arena);
+    var resolved_frameworks = std.array_list.Managed(Compilation.Framework).init(arena);
 
     if (create_module.frameworks.keys().len > 0) {
-        var test_path = std.ArrayList(u8).init(gpa);
+        var test_path = std.array_list.Managed(u8).init(gpa);
         defer test_path.deinit();
 
-        var checked_paths = std.ArrayList(u8).init(gpa);
+        var checked_paths = std.array_list.Managed(u8).init(gpa);
         defer checked_paths.deinit();
 
-        var failed_frameworks = std.ArrayList(struct {
+        var failed_frameworks = std.array_list.Managed(struct {
             name: []const u8,
             checked_paths: []const u8,
         }).init(arena);
@@ -3774,7 +3773,7 @@ fn createModule(
                     try llvm_to_zig_name.put(llvm_name, feature.name);
                 }
 
-                var mcpu_buffer = std.ArrayList(u8).init(gpa);
+                var mcpu_buffer = std.array_list.Managed(u8).init(gpa);
                 defer mcpu_buffer.deinit();
 
                 try mcpu_buffer.appendSlice(cli_mod.target_mcpu orelse "baseline");
@@ -4332,7 +4331,7 @@ fn runOrTest(
         }),
     };
 
-    var argv = std.ArrayList([]const u8).init(gpa);
+    var argv = std.array_list.Managed([]const u8).init(gpa);
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
@@ -4453,7 +4452,7 @@ fn runOrTestHotSwap(
     };
     defer gpa.free(exe_path);
 
-    var argv = std.ArrayList([]const u8).init(gpa);
+    var argv = std.array_list.Managed([]const u8).init(gpa);
     defer argv.deinit();
 
     if (test_exec_args.len == 0) {
@@ -4570,7 +4569,7 @@ fn cmdTranslateC(
         break :digest .{ bin_digest, hex_digest };
     } else digest: {
         if (fancy_output) |p| p.cache_hit = false;
-        var argv = std.ArrayList([]const u8).init(arena);
+        var argv = std.array_list.Managed([]const u8).init(arena);
         switch (comp.config.c_frontend) {
             .aro => {},
             .clang => {
@@ -4877,7 +4876,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var override_global_cache_dir: ?[]const u8 = try EnvVar.ZIG_GLOBAL_CACHE_DIR.get(arena);
     var override_local_cache_dir: ?[]const u8 = try EnvVar.ZIG_LOCAL_CACHE_DIR.get(arena);
     var override_build_runner: ?[]const u8 = try EnvVar.ZIG_BUILD_RUNNER.get(arena);
-    var child_argv = std.ArrayList([]const u8).init(arena);
+    var child_argv = std.array_list.Managed([]const u8).init(arena);
     var reference_trace: ?u32 = null;
     var debug_compile_errors = false;
     var verbose_link = (native_os != .wasi or builtin.link_libc) and
@@ -5304,7 +5303,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
 
                 if (fetch_only) return cleanExit();
 
-                var source_buf = std.ArrayList(u8).init(gpa);
+                var source_buf = std.array_list.Managed(u8).init(gpa);
                 defer source_buf.deinit();
                 try job_queue.createDependenciesSource(&source_buf);
                 const deps_mod = try createDependenciesModule(
@@ -5986,7 +5985,7 @@ pub const ClangArgIterator = struct {
             // NOTE: The ArgIteratorResponseFile returns tokens from next() that are slices of an
             // internal buffer. This internal buffer is arena allocated, so it is not cleaned up here.
 
-            var resp_arg_list = std.ArrayList([]const u8).init(arena);
+            var resp_arg_list = std.array_list.Managed([]const u8).init(arena);
             defer resp_arg_list.deinit();
             {
                 while (self.arg_iterator_response_file.next()) |token| {
@@ -6868,8 +6867,8 @@ const ClangSearchSanitizer = struct {
 };
 
 fn accessFrameworkPath(
-    test_path: *std.ArrayList(u8),
-    checked_paths: *std.ArrayList(u8),
+    test_path: *std.array_list.Managed(u8),
+    checked_paths: *std.array_list.Managed(u8),
     framework_dir_path: []const u8,
     framework_name: []const u8,
 ) !bool {
@@ -7214,7 +7213,7 @@ fn createEmptyDependenciesModule(
     dirs: Compilation.Directories,
     global_options: Compilation.Config,
 ) !void {
-    var source = std.ArrayList(u8).init(arena);
+    var source = std.array_list.Managed(u8).init(arena);
     try Package.Fetch.JobQueue.createEmptyDependenciesSource(&source);
     _ = try createDependenciesModule(
         arena,
@@ -7418,7 +7417,7 @@ fn loadManifest(
 const Templates = struct {
     zig_lib_directory: Cache.Directory,
     dir: fs.Dir,
-    buffer: std.ArrayList(u8),
+    buffer: std.array_list.Managed(u8),
 
     fn deinit(templates: *Templates) void {
         templates.zig_lib_directory.handle.close();
@@ -7510,7 +7509,7 @@ fn findTemplates(gpa: Allocator, arena: Allocator) Templates {
     return .{
         .zig_lib_directory = zig_lib_directory,
         .dir = template_dir,
-        .buffer = std.ArrayList(u8).init(gpa),
+        .buffer = std.array_list.Managed(u8).init(gpa),
     };
 }
 

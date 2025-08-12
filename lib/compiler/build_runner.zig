@@ -5,7 +5,6 @@ const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
-const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
@@ -98,8 +97,8 @@ pub fn main() !void {
         dependencies.root_deps,
     );
 
-    var targets = ArrayList([]const u8).init(arena);
-    var debug_log_scopes = ArrayList([]const u8).init(arena);
+    var targets = std.array_list.Managed([]const u8).init(arena);
+    var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
     var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
 
     var install_prefix: ?[]const u8 = null;

@@ -200,14 +200,14 @@ test "variadic functions" {
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
 
     const S = struct {
-        fn printf(list_ptr: *std.ArrayList(u8), format: [*:0]const u8, ...) callconv(.c) void {
+        fn printf(list_ptr: *std.array_list.Managed(u8), format: [*:0]const u8, ...) callconv(.c) void {
             var ap = @cVaStart();
             defer @cVaEnd(&ap);
             vprintf(list_ptr, format, &ap);
         }
 
         fn vprintf(
-            list: *std.ArrayList(u8),
+            list: *std.array_list.Managed(u8),
             format: [*:0]const u8,
             ap: *std.builtin.VaList,
         ) callconv(.c) void {
@@ -225,7 +225,7 @@ test "variadic functions" {
         }
     };
 
-    var list = std.ArrayList(u8).init(std.testing.allocator);
+    var list = std.array_list.Managed(u8).init(std.testing.allocator);
     defer list.deinit();
     S.printf(&list, "dsd", @as(c_int, 1), @as([*:0]const u8, "hello"), @as(c_int, 5));
     try std.testing.expectEqualStrings("1hello5", list.items);

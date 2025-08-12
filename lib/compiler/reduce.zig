@@ -114,10 +114,10 @@ pub fn main() !void {
     interestingness_argv.appendAssumeCapacity(checker_path);
     interestingness_argv.appendSliceAssumeCapacity(argv);
 
-    var rendered = std.ArrayList(u8).init(gpa);
+    var rendered = std.array_list.Managed(u8).init(gpa);
     defer rendered.deinit();
 
-    var astgen_input = std.ArrayList(u8).init(gpa);
+    var astgen_input = std.array_list.Managed(u8).init(gpa);
     defer astgen_input.deinit();
 
     var tree = try parse(gpa, root_source_file_path);
@@ -161,7 +161,7 @@ pub fn main() !void {
     // result, restart the whole process, reparsing the AST and re-generating the list
     // of all possible transformations and shuffling it again.
 
-    var transformations = std.ArrayList(Walk.Transformation).init(gpa);
+    var transformations = std.array_list.Managed(Walk.Transformation).init(gpa);
     defer transformations.deinit();
     try Walk.findTransformations(arena, &tree, &transformations);
     sortTransformations(transformations.items, rng.random());
@@ -382,7 +382,7 @@ fn transformationsToFixups(
                 }
             }
 
-            var other_source = std.ArrayList(u8).init(gpa);
+            var other_source = std.array_list.Managed(u8).init(gpa);
             defer other_source.deinit();
             try other_source.appendSlice("struct {\n");
             try other_file_ast.renderToArrayList(&other_source, inlined_fixups);

@@ -577,7 +577,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     }
 
     // Allocate result and fill in the disk designator.
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     const disk_designator_len: usize = l: {
@@ -698,7 +698,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
     assert(paths.len > 0);
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     var negative_count: usize = 0;

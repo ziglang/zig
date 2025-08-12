@@ -3805,7 +3805,7 @@ fn resolveStructInner(
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.array_list.Managed(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     const zir = zcu.namespacePtr(struct_obj.namespace).fileScope(zcu).zir.?;
@@ -3864,7 +3864,7 @@ fn resolveUnionInner(
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.array_list.Managed(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     const zir = zcu.namespacePtr(union_obj.namespace).fileScope(zcu).zir.?;

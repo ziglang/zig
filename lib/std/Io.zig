@@ -117,7 +117,7 @@ pub fn GenericReader(
 
         pub inline fn readAllArrayList(
             self: Self,
-            array_list: *std.ArrayList(u8),
+            array_list: *std.array_list.Managed(u8),
             max_append_size: usize,
         ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayList(array_list, max_append_size));
@@ -126,7 +126,7 @@ pub fn GenericReader(
         pub inline fn readAllArrayListAligned(
             self: Self,
             comptime alignment: ?Alignment,
-            array_list: *std.ArrayListAligned(u8, alignment),
+            array_list: *std.array_list.AlignedManaged(u8, alignment),
             max_append_size: usize,
         ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayListAligned(
@@ -146,7 +146,7 @@ pub fn GenericReader(
 
         pub inline fn readUntilDelimiterArrayList(
             self: Self,
-            array_list: *std.ArrayList(u8),
+            array_list: *std.array_list.Managed(u8),
             delimiter: u8,
             max_size: usize,
         ) (NoEofError || Allocator.Error || error{StreamTooLong})!void {

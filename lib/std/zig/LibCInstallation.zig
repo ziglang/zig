@@ -250,7 +250,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
 
     const dev_null = if (is_windows) "nul" else "/dev/null";
 
-    var argv = std.ArrayList([]const u8).init(allocator);
+    var argv = std.array_list.Managed([]const u8).init(allocator);
     defer argv.deinit();
 
     try appendCcExe(&argv, skip_cc_env_var);
@@ -294,7 +294,7 @@ fn findNativeIncludeDirPosix(self: *LibCInstallation, args: FindNativeOptions) F
     }
 
     var it = std.mem.tokenizeAny(u8, run_res.stderr, "\n\r");
-    var search_paths = std.ArrayList([]const u8).init(allocator);
+    var search_paths = std.array_list.Managed([]const u8).init(allocator);
     defer search_paths.deinit();
     while (it.next()) |line| {
         if (line.len != 0 and line[0] == ' ') {
@@ -365,7 +365,7 @@ fn findNativeIncludeDirWindows(
     var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
     const installs = fillInstallations(&install_buf, sdk);
 
-    var result_buf = std.ArrayList(u8).init(allocator);
+    var result_buf = std.array_list.Managed(u8).init(allocator);
     defer result_buf.deinit();
 
     for (installs) |install| {
@@ -404,7 +404,7 @@ fn findNativeCrtDirWindows(
     var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
     const installs = fillInstallations(&install_buf, sdk);
 
-    var result_buf = std.ArrayList(u8).init(allocator);
+    var result_buf = std.array_list.Managed(u8).init(allocator);
     defer result_buf.deinit();
 
     const arch_sub_dir = switch (args.target.cpu.arch) {
@@ -471,7 +471,7 @@ fn findNativeKernel32LibDir(
     var install_buf: [2]std.zig.WindowsSdk.Installation = undefined;
     const installs = fillInstallations(&install_buf, sdk);
 
-    var result_buf = std.ArrayList(u8).init(allocator);
+    var result_buf = std.array_list.Managed(u8).init(allocator);
     defer result_buf.deinit();
 
     const arch_sub_dir = switch (args.target.cpu.arch) {
@@ -578,7 +578,7 @@ fn ccPrintFileName(args: CCPrintFileNameOptions) ![:0]u8 {
         break :blk false;
     };
 
-    var argv = std.ArrayList([]const u8).init(allocator);
+    var argv = std.array_list.Managed([]const u8).init(allocator);
     defer argv.deinit();
 
     const arg1 = try std.fmt.allocPrint(allocator, "-print-file-name={s}", .{args.search_basename});
@@ -671,7 +671,7 @@ fn fillInstallations(
 
 const inf_loop_env_key = "ZIG_IS_DETECTING_LIBC_PATHS";
 
-fn appendCcExe(args: *std.ArrayList([]const u8), skip_cc_env_var: bool) !void {
+fn appendCcExe(args: *std.array_list.Managed([]const u8), skip_cc_env_var: bool) !void {
     const default_cc_exe = if (is_windows) "cc.exe" else "cc";
     try args.ensureUnusedCapacity(1);
     if (skip_cc_env_var) {

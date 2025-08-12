@@ -1291,7 +1291,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 }
 
 pub fn filepathWithExtension(allocator: Allocator, path: []const u8, ext: []const u8) ![]const u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     errdefer buf.deinit();
     if (std.fs.path.dirname(path)) |dirname| {
         var end_pos = dirname.len;

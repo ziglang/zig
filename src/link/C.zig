@@ -766,7 +766,7 @@ pub fn flushEmitH(zcu: *Zcu) !void {
 
     // We collect a list of buffers to write, and write them all at once with pwritev 😎
     const num_buffers = emit_h.decl_table.count() + 1;
-    var all_buffers = try std.ArrayList(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
+    var all_buffers = try std.array_list.Managed(std.posix.iovec_const).initCapacity(zcu.gpa, num_buffers);
     defer all_buffers.deinit();
 
     var file_size: u64 = zig_h.len;

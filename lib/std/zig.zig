@@ -349,7 +349,7 @@ pub const LtoMode = enum { none, full, thin };
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.Error!void {
+pub fn serializeCpu(buffer: *std.array_list.Managed(u8), cpu: std.Target.Cpu) Allocator.Error!void {
     const all_features = cpu.arch.allFeaturesList();
     var populated_cpu_features = cpu.model.features;
     populated_cpu_features.populateDependencies(all_features);
@@ -377,7 +377,7 @@ pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.E
 }
 
 pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(&buffer, cpu);
     return buffer.toOwnedSlice();
 }
@@ -633,7 +633,7 @@ pub fn parseTargetQueryOrReportFatalError(
     return std.Target.Query.parse(opts_with_diags) catch |err| switch (err) {
         error.UnknownCpuModel => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.print(" {s}\n", .{cpu.name}) catch break :help;
@@ -646,7 +646,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownCpuFeature => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
@@ -659,7 +659,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownObjectFormat => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
                     help_text.print(" {s}\n", .{field.name}) catch break :help;
@@ -670,7 +670,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownArchitecture => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
                     help_text.print(" {s}\n", .{field.name}) catch break :help;
