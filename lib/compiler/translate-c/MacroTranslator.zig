@@ -175,7 +175,7 @@ pub fn transMacro(mt: *MacroTranslator) ParseError!void {
 }
 
 fn createMacroFn(mt: *MacroTranslator, name: []const u8, ref: ZigNode, proto_alias: *ast.Payload.Func) !ZigNode {
-    var fn_params = std.ArrayList(ast.Payload.Param).init(mt.t.gpa);
+    var fn_params = std.array_list.Managed(ast.Payload.Param).init(mt.t.gpa);
     defer fn_params.deinit();
 
     var block_scope = try Scope.Block.init(mt.t, &mt.t.global_scope.base, false);
@@ -1149,7 +1149,7 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                 if (mt.eat(.r_paren)) {
                     node = try ZigTag.call.create(mt.t.arena, .{ .lhs = node, .args = &.{} });
                 } else {
-                    var args = std.ArrayList(ZigNode).init(mt.t.gpa);
+                    var args = std.array_list.Managed(ZigNode).init(mt.t.gpa);
                     defer args.deinit();
 
                     while (true) {
@@ -1179,7 +1179,7 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
 
                 // Check for designated field initializers
                 if (mt.peek() == .period) {
-                    var init_vals = std.ArrayList(ast.Payload.ContainerInitDot.Initializer).init(mt.t.gpa);
+                    var init_vals = std.array_list.Managed(ast.Payload.ContainerInitDot.Initializer).init(mt.t.gpa);
                     defer init_vals.deinit();
 
                     while (true) {
@@ -1211,7 +1211,7 @@ fn parseCPostfixExprInner(mt: *MacroTranslator, scope: *Scope, type_name: ?ZigNo
                     continue;
                 }
 
-                var init_vals = std.ArrayList(ZigNode).init(mt.t.gpa);
+                var init_vals = std.array_list.Managed(ZigNode).init(mt.t.gpa);
                 defer init_vals.deinit();
 
                 while (true) {

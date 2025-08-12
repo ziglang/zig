@@ -489,10 +489,10 @@ fn transRecordDecl(t: *Translator, scope: *Scope, record_qt: QualType) Error!voi
             break :init ZigTag.opaque_literal.init();
         }
 
-        var fields = try std.ArrayList(ast.Payload.Container.Field).initCapacity(t.gpa, record_ty.fields.len);
+        var fields = try std.array_list.Managed(ast.Payload.Container.Field).initCapacity(t.gpa, record_ty.fields.len);
         defer fields.deinit();
 
-        var functions = std.ArrayList(ZigNode).init(t.gpa);
+        var functions = std.array_list.Managed(ZigNode).init(t.gpa);
         defer functions.deinit();
 
         var unnamed_field_count: u32 = 0;
@@ -1789,7 +1789,7 @@ fn transSwitch(t: *Translator, scope: *Scope, switch_stmt: Node.SwitchStmt) Tran
     defer cond_scope.deinit();
     const switch_expr = try t.transExpr(&cond_scope.base, switch_stmt.cond, .used);
 
-    var cases = std.ArrayList(ZigNode).init(t.gpa);
+    var cases = std.array_list.Managed(ZigNode).init(t.gpa);
     defer cases.deinit();
     var has_default = false;
 
@@ -1803,7 +1803,7 @@ fn transSwitch(t: *Translator, scope: *Scope, switch_stmt: Node.SwitchStmt) Tran
     for (body, 0..) |stmt, i| {
         switch (stmt.get(t.tree)) {
             .case_stmt => {
-                var items = std.ArrayList(ZigNode).init(t.gpa);
+                var items = std.array_list.Managed(ZigNode).init(t.gpa);
                 defer items.deinit();
                 const sub = try t.transCaseStmt(base_scope, stmt, &items);
                 const res = try t.transSwitchProngStmt(base_scope, sub, body[i..]);
@@ -1861,7 +1861,7 @@ fn transCaseStmt(
     t: *Translator,
     scope: *Scope,
     stmt: Node.Index,
-    items: *std.ArrayList(ZigNode),
+    items: *std.array_list.Managed(ZigNode),
 ) TransError!Node.Index {
     var sub = stmt;
     var seen_default = false;
@@ -3986,7 +3986,7 @@ fn createFlexibleMemberFn(
 // =================
 
 fn transMacros(t: *Translator) !void {
-    var tok_list = std.ArrayList(CToken).init(t.gpa);
+    var tok_list = std.array_list.Managed(CToken).init(t.gpa);
     defer tok_list.deinit();
 
     var pattern_list = try PatternList.init(t.gpa);
