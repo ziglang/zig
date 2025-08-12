@@ -621,7 +621,7 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var result: std.ArrayList(u8) = .init(allocator);
+    var result: std.array_list.Managed(u8) = .init(allocator);
     errdefer result.deinit();
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
@@ -633,7 +633,7 @@ fn expand_variables_cmake(
         source: usize,
         target: usize,
     };
-    var var_stack: std.ArrayList(Position) = .init(allocator);
+    var var_stack: std.array_list.Managed(Position) = .init(allocator);
     defer var_stack.deinit();
     loop: while (curr < contents.len) : (curr += 1) {
         switch (contents[curr]) {

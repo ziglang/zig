@@ -9107,7 +9107,7 @@ pub fn getIntrinsic(
 
     var attributes: struct {
         builder: *Builder,
-        list: std.ArrayList(Attribute.Index),
+        list: std.array_list.Managed(Attribute.Index),
 
         fn deinit(state: *@This()) void {
             state.list.deinit();
@@ -9120,7 +9120,7 @@ pub fn getIntrinsic(
                 item.* = try state.builder.attr(attribute);
             return state.builder.attrs(state.list.items);
         }
-    } = .{ .builder = self, .list = std.ArrayList(Attribute.Index).init(allocator) };
+    } = .{ .builder = self, .list = std.array_list.Managed(Attribute.Index).init(allocator) };
     defer attributes.deinit();
 
     var overload_index: usize = 0;

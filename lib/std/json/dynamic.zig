@@ -1,7 +1,6 @@
 const std = @import("std");
 const debug = std.debug;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
 const StringArrayHashMap = std.StringArrayHashMap;
 const Allocator = std.mem.Allocator;
 const json = std.json;
@@ -12,7 +11,7 @@ const ParseError = @import("./static.zig").ParseError;
 const isNumberFormattedLikeAnInteger = @import("Scanner.zig").isNumberFormattedLikeAnInteger;
 
 pub const ObjectMap = StringArrayHashMap(Value);
-pub const Array = ArrayList(Value);
+pub const Array = std.array_list.Managed(Value);
 
 /// Represents any JSON value, potentially containing other JSON values.
 /// A .float value may be an approximation of the original value.

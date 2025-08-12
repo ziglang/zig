@@ -970,10 +970,10 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
                         return try cg.constInt(backing_ty, @as(u64, @bitCast(limbs)));
                     }
 
-                    var types = std.ArrayList(Type).init(gpa);
+                    var types = std.array_list.Managed(Type).init(gpa);
                     defer types.deinit();
 
-                    var constituents = std.ArrayList(Id).init(gpa);
+                    var constituents = std.array_list.Managed(Id).init(gpa);
                     defer constituents.deinit();
 
                     var it = struct_type.iterateRuntimeOrder(ip);
@@ -1519,13 +1519,13 @@ fn resolveType(cg: *CodeGen, ty: Type, repr: Repr) Error!Id {
                 return try cg.resolveType(.fromInterned(struct_type.backingIntTypeUnordered(ip)), .direct);
             }
 
-            var member_types = std.ArrayList(Id).init(gpa);
+            var member_types = std.array_list.Managed(Id).init(gpa);
             defer member_types.deinit();
 
-            var member_names = std.ArrayList([]const u8).init(gpa);
+            var member_names = std.array_list.Managed([]const u8).init(gpa);
             defer member_names.deinit();
 
-            var member_offsets = std.ArrayList(u32).init(gpa);
+            var member_offsets = std.array_list.Managed(u32).init(gpa);
             defer member_offsets.deinit();
 
             var it = struct_type.iterateRuntimeOrder(ip);

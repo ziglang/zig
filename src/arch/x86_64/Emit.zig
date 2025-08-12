@@ -82,7 +82,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                         }),
                         else => unreachable,
                     },
-                    .plan9 => {},
                     .none => {},
                 }
                 continue;
@@ -172,9 +171,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             if (coff_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym)) |atom|
                                 coff_file.getAtom(atom).getSymbolIndex().?
                             else |err|
-                                return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
-                        else if (emit.bin_file.cast(.plan9)) |p9_file|
-                            p9_file.getOrCreateAtomForLazySymbol(emit.pt, lazy_sym) catch |err|
                                 return emit.fail("{s} creating lazy symbol", .{@errorName(err)})
                         else
                             return emit.fail("lazy symbols unimplemented for {s}", .{@tagName(emit.bin_file.tag)}),
@@ -418,7 +414,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                     else => unreachable,
                     .pseudo_dbg_prologue_end_none => switch (emit.debug_output) {
                         .dwarf => |dwarf| try dwarf.setPrologueEnd(),
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_line_stmt_line_column => try emit.dbgAdvancePCAndLine(.{
@@ -439,7 +434,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try emit.dbgAdvancePCAndLine(emit.prev_di_loc);
                         },
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_enter_block_none => switch (emit.debug_output) {
@@ -449,7 +443,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try dwarf.enterBlock(emit.code.items.len);
                         },
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_leave_block_none => switch (emit.debug_output) {
@@ -459,7 +452,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try dwarf.leaveBlock(emit.code.items.len);
                         },
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_enter_inline_func => switch (emit.debug_output) {
@@ -469,7 +461,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try dwarf.enterInlineFunc(mir_inst.data.ip_index, emit.code.items.len, emit.prev_di_loc.line, emit.prev_di_loc.column);
                         },
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_leave_inline_func => switch (emit.debug_output) {
@@ -479,7 +470,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try dwarf.leaveInlineFunc(mir_inst.data.ip_index, emit.code.items.len);
                         },
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dbg_arg_none,
@@ -613,7 +603,7 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 loc,
                             );
                         },
-                        .plan9, .none => local_index += 1,
+                        .none => local_index += 1,
                     },
                     .pseudo_dbg_arg_val, .pseudo_dbg_var_val => switch (emit.debug_output) {
                         .dwarf => |dwarf| {
@@ -630,11 +620,10 @@ pub fn emitMir(emit: *Emit) Error!void {
                                 .fromInterned(mir_inst.data.ip_index),
                             );
                         },
-                        .plan9, .none => local_index += 1,
+                        .none => local_index += 1,
                     },
                     .pseudo_dbg_var_args_none => switch (emit.debug_output) {
                         .dwarf => |dwarf| try dwarf.genVarArgsDebugInfo(),
-                        .plan9 => {},
                         .none => {},
                     },
                     .pseudo_dead_none => {},
@@ -926,38 +915,6 @@ fn dbgAdvancePCAndLine(emit: *Emit, loc: Loc) Error!void {
             if (loc.is_stmt != emit.prev_di_loc.is_stmt) try dwarf.negateStmt();
             if (loc.column != emit.prev_di_loc.column) try dwarf.setColumn(loc.column);
             try dwarf.advancePCAndLine(delta_line, delta_pc);
-            emit.prev_di_loc = loc;
-            emit.prev_di_pc = emit.code.items.len;
-        },
-        .plan9 => |dbg_out| {
-            if (delta_pc <= 0) return; // only do this when the pc changes
-
-            // increasing the line number
-            try link.File.Plan9.changeLine(&dbg_out.dbg_line, @intCast(delta_line));
-            // increasing the pc
-            const d_pc_p9 = @as(i64, @intCast(delta_pc)) - dbg_out.pc_quanta;
-            if (d_pc_p9 > 0) {
-                // minus one because if its the last one, we want to leave space to change the line which is one pc quanta
-                var diff = @divExact(d_pc_p9, dbg_out.pc_quanta) - dbg_out.pc_quanta;
-                while (diff > 0) {
-                    if (diff < 64) {
-                        try dbg_out.dbg_line.append(@intCast(diff + 128));
-                        diff = 0;
-                    } else {
-                        try dbg_out.dbg_line.append(@intCast(64 + 128));
-                        diff -= 64;
-                    }
-                }
-                if (dbg_out.pcop_change_index) |pci|
-                    dbg_out.dbg_line.items[pci] += 1;
-                dbg_out.pcop_change_index = @intCast(dbg_out.dbg_line.items.len - 1);
-            } else if (d_pc_p9 == 0) {
-                // we don't need to do anything, because adding the pc quanta does it for us
-            } else unreachable;
-            if (dbg_out.start_line == null)
-                dbg_out.start_line = emit.prev_di_loc.line;
-            dbg_out.end_line = loc.line;
-            // only do this if the pc changed
             emit.prev_di_loc = loc;
             emit.prev_di_pc = emit.code.items.len;
         },

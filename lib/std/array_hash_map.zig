@@ -1273,6 +1273,33 @@ pub fn ArrayHashMapUnmanaged(
             self.removeByIndex(index, if (store_hash) {} else ctx, .ordered);
         }
 
+        /// Remove the entries indexed by `sorted_indexes`. The indexes to be
+        /// removed correspond to state before deletion.
+        ///
+        /// This operation is O(N).
+        ///
+        /// Asserts that each index to be removed is in bounds.
+        ///
+        /// Invalidates key and element pointers beyond the first deleted index.
+        pub fn orderedRemoveAtMany(self: *Self, gpa: Allocator, sorted_indexes: []const usize) Oom!void {
+            if (@sizeOf(ByIndexContext) != 0)
+                @compileError("Cannot infer context " ++ @typeName(Context) ++ ", call orderedRemoveAtContext instead.");
+            return self.orderedRemoveAtManyContext(gpa, sorted_indexes, undefined);
+        }
+
+        pub fn orderedRemoveAtManyContext(
+            self: *Self,
+            gpa: Allocator,
+            sorted_indexes: []const usize,
+            ctx: Context,
+        ) Oom!void {
+            self.pointer_stability.lock();
+            defer self.pointer_stability.unlock();
+
+            self.entries.orderedRemoveMany(sorted_indexes);
+            try self.reIndexContext(gpa, ctx);
+        }
+
         /// Create a copy of the hash map which can be modified separately.
         /// The copy uses the same context as this instance, but is allocated
         /// with the provided allocator.
@@ -2650,4 +2677,30 @@ pub fn getAutoHashStratFn(comptime K: type, comptime Context: type, comptime str
             return @as(u32, @truncate(hasher.final()));
         }
     }.hash;
+}
+
+test "orderedRemoveAtMany" {
+    const gpa = testing.allocator;
+
+    var map: AutoArrayHashMapUnmanaged(usize, void) = .empty;
+    defer map.deinit(gpa);
+
+    for (0..10) |n| {
+        try map.put(gpa, n, {});
+    }
+
+    try map.orderedRemoveAtMany(gpa, &.{ 1, 5, 5, 7, 9 });
+    try testing.expectEqualSlices(usize, &.{ 0, 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{0});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{});
+    try testing.expectEqualSlices(usize, &.{ 2, 3, 4, 6, 8 }, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{ 1, 2, 3, 4 });
+    try testing.expectEqualSlices(usize, &.{2}, map.keys());
+
+    try map.orderedRemoveAtMany(gpa, &.{0});
+    try testing.expectEqualSlices(usize, &.{}, map.keys());
 }

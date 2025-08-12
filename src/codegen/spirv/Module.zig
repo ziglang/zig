@@ -281,7 +281,7 @@ pub fn addEntryPointDeps(
     module: *Module,
     decl_index: Decl.Index,
     seen: *std.DynamicBitSetUnmanaged,
-    interface: *std.ArrayList(Id),
+    interface: *std.array_list.Managed(Id),
 ) !void {
     const decl = module.declPtr(decl_index);
     const deps = module.decl_deps.items[decl.begin_dep..decl.end_dep];
@@ -307,7 +307,7 @@ fn entryPoints(module: *Module) !Section {
     var entry_points = Section{};
     errdefer entry_points.deinit(module.gpa);
 
-    var interface = std.ArrayList(Id).init(module.gpa);
+    var interface = std.array_list.Managed(Id).init(module.gpa);
     defer interface.deinit();
 
     var seen = try std.DynamicBitSetUnmanaged.initEmpty(module.gpa, module.decls.items.len);

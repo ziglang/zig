@@ -125,7 +125,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
                         },
-                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -142,7 +141,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
                         },
-                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -200,7 +198,6 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
             emit.prev_di_column = column;
             emit.prev_di_pc = emit.code.items.len;
         },
-        .plan9 => {},
         .none => {},
     }
 }

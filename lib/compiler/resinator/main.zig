@@ -97,14 +97,14 @@ pub fn main() !void {
         try stdout_writer.writeByte('\n');
     }
 
-    var dependencies_list = std.ArrayList([]const u8).init(allocator);
+    var dependencies_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (dependencies_list.items) |item| {
             allocator.free(item);
         }
         dependencies_list.deinit();
     }
-    const maybe_dependencies_list: ?*std.ArrayList([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
+    const maybe_dependencies_list: ?*std.array_list.Managed([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
 
     var include_paths = LazyIncludePaths{
         .arena = arena,
@@ -115,7 +115,7 @@ pub fn main() !void {
 
     const full_input = full_input: {
         if (options.input_format == .rc and options.preprocess != .no) {
-            var preprocessed_buf = std.ArrayList(u8).init(allocator);
+            var preprocessed_buf = std.array_list.Managed(u8).init(allocator);
             errdefer preprocessed_buf.deinit();
 
             // We're going to throw away everything except the final preprocessed output anyway,
@@ -127,7 +127,7 @@ pub fn main() !void {
             var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
             defer argv.deinit();
 
             try argv.append("arocc"); // dummy command name
@@ -946,7 +946,7 @@ fn aroDiagnosticsToErrorBundle(
 // - Only prints the message itself (no location, source line, error: prefix, etc)
 // - Keeps track of source path/line/col instead
 const MsgWriter = struct {
-    buf: std.ArrayList(u8),
+    buf: std.array_list.Managed(u8),
     path: ?[]const u8 = null,
     // 1-indexed
     line: u32 = undefined,
@@ -956,7 +956,7 @@ const MsgWriter = struct {
 
     fn init(allocator: std.mem.Allocator) MsgWriter {
         return .{
-            .buf = std.ArrayList(u8).init(allocator),
+            .buf = std.array_list.Managed(u8).init(allocator),
         };
     }
 

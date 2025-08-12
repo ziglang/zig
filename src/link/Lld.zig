@@ -409,7 +409,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -863,7 +863,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -1412,7 +1412,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -

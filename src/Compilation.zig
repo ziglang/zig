@@ -3644,10 +3644,10 @@ pub fn saveState(comp: *Compilation) !void {
 
     const gpa = comp.gpa;
 
-    var bufs = std.ArrayList([]const u8).init(gpa);
+    var bufs = std.array_list.Managed([]const u8).init(gpa);
     defer bufs.deinit();
 
-    var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
+    var pt_headers = std.array_list.Managed(Header.PerThread).init(gpa);
     defer pt_headers.deinit();
 
     if (comp.zcu) |zcu| {
@@ -3865,7 +3865,7 @@ pub fn saveState(comp: *Compilation) !void {
     try af.finish();
 }
 
-fn addBuf(list: *std.ArrayList([]const u8), buf: []const u8) void {
+fn addBuf(list: *std.array_list.Managed([]const u8), buf: []const u8) void {
     if (buf.len == 0) return;
     list.appendAssumeCapacity(buf);
 }
@@ -5657,7 +5657,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             log.info("C import source: {s}", .{out_h_path});
         }
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
@@ -6113,7 +6113,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     const target = comp.getTarget();
     const o_ext = target.ofmt.fileExt(target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
 
         // In case we are doing passthrough mode, we need to detect -S and -emit-llvm.
@@ -6458,7 +6458,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
             defer argv.deinit();
 
             try argv.appendSlice(&.{
@@ -6515,7 +6515,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // so we need a temporary filename.
         const out_res_path = try comp.tmpFilePath(arena, res_filename);
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         const depfile_filename = try std.fmt.allocPrint(arena, "{s}.d.json", .{rc_basename_noext});
@@ -6698,7 +6698,7 @@ pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error
 pub fn addTranslateCCArgs(
     comp: *Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     owner_mod: *Package.Module,
@@ -6713,7 +6713,7 @@ pub fn addTranslateCCArgs(
 pub fn addCCArgs(
     comp: *const Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,

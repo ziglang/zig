@@ -950,7 +950,6 @@ pub fn getNavVAddr(
                 .target_sym = this_sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }
@@ -983,7 +982,6 @@ pub fn getUavVAddr(
                 .target_sym = sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }

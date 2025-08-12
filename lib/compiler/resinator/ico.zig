@@ -56,7 +56,7 @@ pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64
     // entries than it actually does, we use an ArrayList with a conservatively
     // limited initial capacity instead of allocating the entire slice at once.
     const initial_capacity = @min(num_images, 8);
-    var entries = try std.ArrayList(Entry).initCapacity(allocator, initial_capacity);
+    var entries = try std.array_list.Managed(Entry).initCapacity(allocator, initial_capacity);
     errdefer entries.deinit();
 
     var i: usize = 0;

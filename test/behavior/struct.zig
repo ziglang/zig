@@ -1826,7 +1826,7 @@ test "assign to slice.len of global variable" {
 
     const S = struct {
         const allocator = std.testing.allocator;
-        var list = std.ArrayList(u32).init(allocator);
+        var list = std.array_list.Managed(u32).init(allocator);
     };
 
     S.list.items.len = 0;
