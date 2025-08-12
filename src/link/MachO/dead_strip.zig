@@ -1,12 +1,12 @@
 pub fn gcAtoms(macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
     defer objects.deinit();
     for (macho_file.objects.items) |index| objects.appendAssumeCapacity(index);
     if (macho_file.internal_object) |index| objects.appendAssumeCapacity(index);
 
-    var roots = std.ArrayList(*Atom).init(gpa);
+    var roots = std.array_list.Managed(*Atom).init(gpa);
     defer roots.deinit();
 
     try collectRoots(&roots, objects.items, macho_file);
@@ -14,7 +14,7 @@ pub fn gcAtoms(macho_file: *MachO) !void {
     prune(objects.items, macho_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
+fn collectRoots(roots: *std.array_list.Managed(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
     for (objects) |index| {
         const object = macho_file.getFile(index).?;
         for (object.getSymbols(), 0..) |*sym, i| {
@@ -76,7 +76,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
     }
 }
 
-fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), macho_file: *MachO) !void {
+fn markSymbol(sym: *Symbol, roots: *std.array_list.Managed(*Atom), macho_file: *MachO) !void {
     const atom = sym.getAtom(macho_file) orelse return;
     if (markAtom(atom)) try roots.append(atom);
 }

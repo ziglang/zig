@@ -3456,8 +3456,8 @@ const AutoIndentingStream = struct {
 
     indent_count: usize = 0,
     indent_delta: usize,
-    indent_stack: std.ArrayList(StackElem),
-    space_stack: std.ArrayList(SpaceElem),
+    indent_stack: std.array_list.Managed(StackElem),
+    space_stack: std.array_list.Managed(SpaceElem),
     space_mode: ?usize = null,
     disable_indent_committing: usize = 0,
     current_line_empty: bool = true,

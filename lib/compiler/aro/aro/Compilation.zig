@@ -533,7 +533,7 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
 pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode) !Source {
     try comp.generateBuiltinTypes();
 
-    var buf = std.ArrayList(u8).init(comp.gpa);
+    var buf = std.array_list.Managed(u8).init(comp.gpa);
     defer buf.deinit();
 
     if (system_defines_mode == .include_system_defines) {
@@ -1143,7 +1143,7 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, buf: []u8, path: []const u8,
     const duped_path = try comp.gpa.dupe(u8, path);
     errdefer comp.gpa.free(duped_path);
 
-    var splice_list = std.ArrayList(u32).init(comp.gpa);
+    var splice_list = std.array_list.Managed(u32).init(comp.gpa);
     defer splice_list.deinit();
 
     const source_id: Source.Id = @enumFromInt(comp.sources.count() + 2);
@@ -1428,7 +1428,7 @@ fn getFileContents(comp: *Compilation, path: []const u8, limit: ?u32) ![]const u
     const file = try comp.cwd.openFile(path, .{});
     defer file.close();
 
-    var buf = std.ArrayList(u8).init(comp.gpa);
+    var buf = std.array_list.Managed(u8).init(comp.gpa);
     defer buf.deinit();
 
     const max = limit orelse std.math.maxInt(u32);

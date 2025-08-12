@@ -1800,7 +1800,7 @@ test "put and remove loop in random order" {
     var map = AutoHashMap(u32, u32).init(std.testing.allocator);
     defer map.deinit();
 
-    var keys = std.ArrayList(u32).init(std.testing.allocator);
+    var keys = std.array_list.Managed(u32).init(std.testing.allocator);
     defer keys.deinit();
 
     const size = 32;
@@ -1834,7 +1834,7 @@ test "remove one million elements in random order" {
     var map = Map.init(std.heap.page_allocator);
     defer map.deinit();
 
-    var keys = std.ArrayList(u32).init(std.heap.page_allocator);
+    var keys = std.array_list.Managed(u32).init(std.heap.page_allocator);
     defer keys.deinit();
 
     var i: u32 = 0;

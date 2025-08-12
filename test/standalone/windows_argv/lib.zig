@@ -17,7 +17,7 @@ fn testArgv(expected_args: []const [*:0]const u16) !void {
     const allocator = arena_state.allocator();
 
     const args = try std.process.argsAlloc(allocator);
-    var wtf8_buf = std.ArrayList(u8).init(allocator);
+    var wtf8_buf = std.array_list.Managed(u8).init(allocator);
 
     var eql = true;
     if (args.len != expected_args.len) eql = false;

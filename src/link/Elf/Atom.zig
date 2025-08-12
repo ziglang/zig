@@ -221,7 +221,7 @@ pub fn relocs(self: Atom, elf_file: *Elf) []const elf.Elf64_Rela {
     }
 }
 
-pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
+pub fn writeRelocs(self: Atom, elf_file: *Elf, out_relocs: *std.array_list.Managed(elf.Elf64_Rela)) !void {
     relocs_log.debug("0x{x}: {s}", .{ self.address(elf_file), self.name(elf_file) });
 
     const cpu_arch = elf_file.getTarget().cpu.arch;
@@ -607,7 +607,7 @@ fn reportUndefined(
         };
         const gop = try undefs.getOrPut(idx);
         if (!gop.found_existing) {
-            gop.value_ptr.* = std.ArrayList(Elf.Ref).init(gpa);
+            gop.value_ptr.* = std.array_list.Managed(Elf.Ref).init(gpa);
         }
         try gop.value_ptr.append(.{ .index = self.atom_index, .file = self.file_index });
         return true;

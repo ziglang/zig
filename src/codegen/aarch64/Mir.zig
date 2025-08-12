@@ -307,7 +307,6 @@ fn emitReloc(
                     .single => .LDST32_ABS_LO12_NC,
                     .double => .LDST64_ABS_LO12_NC,
                     .quad => .LDST128_ABS_LO12_NC,
-                    .scalable, .predicate => unreachable,
                 },
             };
             try atom.addReloc(gpa, .{

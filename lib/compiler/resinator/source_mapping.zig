@@ -574,7 +574,7 @@ fn parseFilename(allocator: Allocator, str: []const u8) error{ OutOfMemory, Inva
         escape_u,
     };
 
-    var filename = try std.ArrayList(u8).initCapacity(allocator, str.len);
+    var filename = try std.array_list.Managed(u8).initCapacity(allocator, str.len);
     errdefer filename.deinit();
     var state: State = .string;
     var index: usize = 0;
