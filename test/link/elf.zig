@@ -475,7 +475,7 @@ fn testComdatElimination(b: *Build, opts: Options) *Step {
 fn testCommentString(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string", opts);
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "main", .zig_source_bytes =
         \\pub fn main() void {}
     });
 
@@ -490,7 +490,7 @@ fn testCommentString(b: *Build, opts: Options) *Step {
 fn testCommentStringStaticLib(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "comment-string-static-lib", opts);
 
-    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes = 
+    const lib = addStaticLibrary(b, opts, .{ .name = "lib", .zig_source_bytes =
         \\export fn foo() void {}
     });
 
@@ -861,7 +861,7 @@ fn testDsoUndef(b: *Build, opts: Options) *Step {
 fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "emit-relocatable", opts);
 
-    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    const a_o = addObject(b, opts, .{ .name = "a", .zig_source_bytes =
         \\const std = @import("std");
         \\extern var bar: i32;
         \\export fn foo() i32 {
@@ -873,7 +873,7 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     });
     a_o.root_module.link_libc = true;
 
-    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes = 
+    const b_o = addObject(b, opts, .{ .name = "b", .c_source_bytes =
         \\#include <stdio.h>
         \\int bar = 42;
         \\void printBar() {
@@ -886,7 +886,7 @@ fn testEmitRelocatable(b: *Build, opts: Options) *Step {
     c_o.root_module.addObject(a_o);
     c_o.root_module.addObject(b_o);
 
-    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "test", .zig_source_bytes =
         \\const std = @import("std");
         \\extern fn printFoo() void;
         \\extern fn printBar() void;
@@ -1920,7 +1920,7 @@ fn testInitArrayOrder(b: *Build, opts: Options) *Step {
     });
     g_o.root_module.link_libc = true;
 
-    const h_o = addObject(b, opts, .{ .name = "h", .c_source_bytes = 
+    const h_o = addObject(b, opts, .{ .name = "h", .c_source_bytes =
         \\#include <stdio.h>
         \\__attribute__((destructor)) void fini2() { printf("8"); }
     });
@@ -2498,7 +2498,7 @@ fn testMergeStrings(b: *Build, opts: Options) *Step {
 fn testMergeStrings2(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "merge-strings2", opts);
 
-    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes = 
+    const obj1 = addObject(b, opts, .{ .name = "a", .zig_source_bytes =
         \\const std = @import("std");
         \\export fn foo() void {
         \\    var arr: [5:0]u16 = [_:0]u16{ 1, 2, 3, 4, 5 };
@@ -2507,7 +2507,7 @@ fn testMergeStrings2(b: *Build, opts: Options) *Step {
         \\}
     });
 
-    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes = 
+    const obj2 = addObject(b, opts, .{ .name = "b", .zig_source_bytes =
         \\const std = @import("std");
         \\extern fn foo() void;
         \\pub fn main() void {
@@ -2755,7 +2755,7 @@ fn testRelocatableEhFrame(b: *Build, opts: Options) *Step {
         ,
     });
     obj2.root_module.link_libcpp = true;
-    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes = 
+    const obj3 = addObject(b, opts, .{ .name = "obj3", .cpp_source_bytes =
         \\#include <iostream>
         \\#include <stdexcept>
         \\extern int try_again();
@@ -2867,7 +2867,7 @@ fn testRelocatableEhFrameComdatHeavy(b: *Build, opts: Options) *Step {
 fn testRelocatableMergeStrings(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "relocatable-merge-strings", opts);
 
-    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes = 
+    const obj1 = addObject(b, opts, .{ .name = "a", .asm_source_bytes =
         \\.section .rodata.str1.1,"aMS",@progbits,1
         \\val1:
         \\.ascii "Hello \0"
@@ -3033,7 +3033,7 @@ fn testStrip(b: *Build, opts: Options) *Step {
 fn testThunks(b: *Build, opts: Options) *Step {
     const test_step = addTestStep(b, "thunks", opts);
 
-    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes = 
+    const exe = addExecutable(b, opts, .{ .name = "main", .c_source_bytes =
         \\void foo();
         \\__attribute__((section(".bar"))) void bar() {
         \\  return foo();

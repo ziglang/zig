@@ -453,7 +453,7 @@ test Linux {
         .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtbegin.o" },
         .{ .path = "/usr/lib/gcc/x86_64-linux-gnu/9/crtend.o" },
         .{ .path = "/usr/lib/x86_64-linux-gnu" },
-        .{ .path = "/etc/lsb-release", .contents = 
+        .{ .path = "/etc/lsb-release", .contents =
         \\DISTRIB_ID=Ubuntu
         \\DISTRIB_RELEASE=20.04
         \\DISTRIB_CODENAME=focal
