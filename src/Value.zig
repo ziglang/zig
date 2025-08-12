@@ -3182,7 +3182,7 @@ pub fn uninterpret(val: anytype, ty: Type, pt: Zcu.PerThread) error{ OutOfMemory
                         field_val.* = default_init;
                     }
                 }
-                return pt.aggregateValue(ty, &field_vals);
+                return pt.aggregateValue(ty, field_vals);
             },
         },
     };
