@@ -12777,7 +12777,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => return false,
-            else => return ty.hasRuntimeBits(zcu),
+            else => return ty.hasRuntimeBits(zcu) and !ty.unionHasAllZeroBitFieldTypes(zcu),
         },
         .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);
