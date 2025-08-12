@@ -868,6 +868,8 @@ pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!u
 }
 
 /// Returns how many bytes from `header` and `file_reader` were consumed.
+///
+/// `limit` only applies to `file_reader`.
 pub fn sendFileHeader(
     w: *Writer,
     header: []const u8,
@@ -882,7 +884,7 @@ pub fn sendFileHeader(
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
-    file_reader.interface.toss(n - header.len);
+    file_reader.interface.toss(n -| header.len);
     return n;
 }
 

@@ -1021,8 +1021,11 @@ pub const BodyWriter = struct {
                     continue :l 1;
                 },
                 else => {
-                    const new_limit = limit.min(.limited(chunk_len - 2));
-                    const n = try out.sendFileHeader(w.buffered(), file_reader, new_limit);
+                    const chunk_limit: std.Io.Limit = .limited(chunk_len - 2);
+                    const n = if (chunk_limit.subtract(w.buffered().len)) |sendfile_limit|
+                        try out.sendFileHeader(w.buffered(), file_reader, sendfile_limit.min(limit))
+                    else
+                        try out.write(chunk_limit.slice(w.buffered()));
                     chunked.chunk_len = chunk_len - n;
                     return w.consume(n);
                 },
