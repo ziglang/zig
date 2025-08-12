@@ -231,7 +231,7 @@ pub const Tree = struct {
 
     pub fn parse(self: *Tree, source: []const u8) !void {
         var tokenizer = Tokenizer{ .buffer = source };
-        var tokens = std.ArrayList(Token).init(self.allocator);
+        var tokens = std.array_list.Managed(Token).init(self.allocator);
         defer tokens.deinit();
 
         var line: usize = 0;

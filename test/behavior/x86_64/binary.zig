@@ -1912,7 +1912,7 @@ fn binary(comptime op: anytype, comptime opts: struct { compare: Compare = .rela
                 -0x1,
             });
             try testArgs(@Vector(2, i1), .{
-                0x0, 0x00,
+                0x0, 0x0,
             }, .{
                 -0x1, -0x1,
             });

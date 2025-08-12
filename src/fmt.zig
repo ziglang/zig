@@ -46,9 +46,9 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var check_flag = false;
     var check_ast_flag = false;
     var force_zon = false;
-    var input_files = std.ArrayList([]const u8).init(gpa);
+    var input_files = std.array_list.Managed([]const u8).init(gpa);
     defer input_files.deinit();
-    var excluded_files = std.ArrayList([]const u8).init(gpa);
+    var excluded_files = std.array_list.Managed([]const u8).init(gpa);
     defer excluded_files.deinit();
 
     {
@@ -148,7 +148,7 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(!mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
@@ -195,10 +195,10 @@ pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     for (input_files.items) |file_path| {
         try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
     }
+    try fmt.stdout_writer.interface.flush();
     if (fmt.any_error) {
         process.exit(1);
     }
-    try fmt.stdout_writer.interface.flush();
 }
 
 fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {

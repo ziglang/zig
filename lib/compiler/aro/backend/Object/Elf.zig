@@ -4,7 +4,7 @@ const Target = std.Target;
 const Object = @import("../Object.zig");
 
 const Section = struct {
-    data: std.ArrayList(u8),
+    data: std.array_list.Managed(u8),
     relocations: std.ArrayListUnmanaged(Relocation) = .empty,
     flags: u64,
     type: u32,
@@ -80,12 +80,12 @@ fn sectionString(sec: Object.Section) []const u8 {
     };
 }
 
-pub fn getSection(elf: *Elf, section_kind: Object.Section) !*std.ArrayList(u8) {
+pub fn getSection(elf: *Elf, section_kind: Object.Section) !*std.array_list.Managed(u8) {
     const section_name = sectionString(section_kind);
     const section = elf.sections.get(section_name) orelse blk: {
         const section = try elf.arena.allocator().create(Section);
         section.* = .{
-            .data = std.ArrayList(u8).init(elf.arena.child_allocator),
+            .data = std.array_list.Managed(u8).init(elf.arena.child_allocator),
             .type = std.elf.SHT_PROGBITS,
             .flags = switch (section_kind) {
                 .func, .custom => std.elf.SHF_ALLOC + std.elf.SHF_EXECINSTR,
@@ -171,8 +171,9 @@ pub fn addRelocation(elf: *Elf, name: []const u8, section_kind: Object.Section, 
 /// strtab
 /// section headers
 pub fn finish(elf: *Elf, file: std.fs.File) !void {
-    var buf_writer = std.io.bufferedWriter(file.deprecatedWriter());
-    const w = buf_writer.writer();
+    var file_buffer: [1024]u8 = undefined;
+    var file_writer = file.writer(&file_buffer);
+    const w = &file_writer.interface;
 
     var num_sections: std.elf.Elf64_Half = additional_sections;
     var relocations_len: std.elf.Elf64_Off = 0;
@@ -374,5 +375,5 @@ pub fn finish(elf: *Elf, file: std.fs.File) !void {
             name_offset += @as(u32, @intCast(entry.key_ptr.len + ".\x00".len)) + rela_name_offset;
         }
     }
-    try buf_writer.flush();
+    try w.flush();
 }

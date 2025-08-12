@@ -10,8 +10,8 @@ pub const base_id: Step.Id = .translate_c;
 
 step: Step,
 source: std.Build.LazyPath,
-include_dirs: std.ArrayList(std.Build.Module.IncludeDir),
-c_macros: std.ArrayList([]const u8),
+include_dirs: std.array_list.Managed(std.Build.Module.IncludeDir),
+c_macros: std.array_list.Managed([]const u8),
 out_basename: []const u8,
 target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
@@ -38,8 +38,8 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
             .makeFn = make,
         }),
         .source = source,
-        .include_dirs = std.ArrayList(std.Build.Module.IncludeDir).init(owner.allocator),
-        .c_macros = std.ArrayList([]const u8).init(owner.allocator),
+        .include_dirs = std.array_list.Managed(std.Build.Module.IncludeDir).init(owner.allocator),
+        .c_macros = std.array_list.Managed([]const u8).init(owner.allocator),
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
@@ -153,7 +153,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const translate_c: *TranslateC = @fieldParentPtr("step", step);
 
-    var argv_list = std.ArrayList([]const u8).init(b.allocator);
+    var argv_list = std.array_list.Managed([]const u8).init(b.allocator);
     try argv_list.append(b.graph.zig_exe);
     try argv_list.append("translate-c");
     if (translate_c.link_libc) {

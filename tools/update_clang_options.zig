@@ -699,7 +699,7 @@ pub fn main() anyerror!void {
     defer parsed.deinit();
     const root_map = &parsed.value.object;
 
-    var all_objects = std.ArrayList(*json.ObjectMap).init(allocator);
+    var all_objects = std.array_list.Managed(*json.ObjectMap).init(allocator);
     {
         var it = root_map.iterator();
         it_map: while (it.next()) |kv| {

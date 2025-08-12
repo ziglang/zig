@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
 const mem = std.mem;
-const ArrayList = std.ArrayList;
 const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
@@ -925,7 +924,7 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
 
     const path_padded = run: {
-        var args = std.ArrayList([]const u8).init(b.allocator);
+        var args = std.array_list.Managed([]const u8).init(b.allocator);
         try args.append(ctx.cxx_compiler);
         var it = std.mem.tokenizeAny(u8, ctx.cxx_compiler_arg1, &std.ascii.whitespace);
         while (it.next()) |arg| try args.append(arg);

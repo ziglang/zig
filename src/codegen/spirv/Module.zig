@@ -281,7 +281,7 @@ pub fn addEntryPointDeps(
     module: *Module,
     decl_index: Decl.Index,
     seen: *std.DynamicBitSetUnmanaged,
-    interface: *std.ArrayList(Id),
+    interface: *std.array_list.Managed(Id),
 ) !void {
     const decl = module.declPtr(decl_index);
     const deps = module.decl_deps.items[decl.begin_dep..decl.end_dep];
@@ -307,7 +307,7 @@ fn entryPoints(module: *Module) !Section {
     var entry_points = Section{};
     errdefer entry_points.deinit(module.gpa);
 
-    var interface = std.ArrayList(Id).init(module.gpa);
+    var interface = std.array_list.Managed(Id).init(module.gpa);
     defer interface.deinit();
 
     var seen = try std.DynamicBitSetUnmanaged.initEmpty(module.gpa, module.decls.items.len);
@@ -676,8 +676,9 @@ pub fn structType(
     ip_index: InternPool.Index,
 ) !Id {
     const target = module.zcu.getTarget();
+    const actual_ip_index = if (module.zcu.comp.config.root_strip) .none else ip_index;
 
-    if (module.cache.struct_types.get(.{ .fields = types, .ip_index = ip_index })) |id| return id;
+    if (module.cache.struct_types.get(.{ .fields = types, .ip_index = actual_ip_index })) |id| return id;
     const result_id = module.allocId();
     const types_dup = try module.arena.dupe(Id, types);
     try module.sections.globals.emit(module.gpa, .OpTypeStruct, .{
@@ -710,10 +711,7 @@ pub fn structType(
 
     try module.cache.struct_types.put(
         module.gpa,
-        .{
-            .fields = types_dup,
-            .ip_index = if (module.zcu.comp.config.root_strip) .none else ip_index,
-        },
+        .{ .fields = types_dup, .ip_index = actual_ip_index },
         result_id,
     );
     return result_id;
@@ -874,6 +872,7 @@ pub fn declareEntryPoint(
 }
 
 pub fn debugName(module: *Module, target: Id, name: []const u8) !void {
+    if (module.zcu.comp.config.root_strip) return;
     try module.sections.debug_names.emit(module.gpa, .OpName, .{
         .target = target,
         .name = name,
@@ -881,12 +880,14 @@ pub fn debugName(module: *Module, target: Id, name: []const u8) !void {
 }
 
 pub fn debugNameFmt(module: *Module, target: Id, comptime fmt: []const u8, args: anytype) !void {
+    if (module.zcu.comp.config.root_strip) return;
     const name = try std.fmt.allocPrint(module.gpa, fmt, args);
     defer module.gpa.free(name);
     try module.debugName(target, name);
 }
 
 pub fn memberDebugName(module: *Module, target: Id, member: u32, name: []const u8) !void {
+    if (module.zcu.comp.config.root_strip) return;
     try module.sections.debug_names.emit(module.gpa, .OpMemberName, .{
         .type = target,
         .member = member,

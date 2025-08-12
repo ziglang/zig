@@ -19,7 +19,7 @@ pub fn main() !void {
         \\
     );
 
-    var names = std.ArrayList([]const u8).init(allocator);
+    var names = std.array_list.Managed([]const u8).init(allocator);
     var cwd = try std.fs.cwd().openDir(".", .{ .iterate = true });
     var it = cwd.iterate();
     while (try it.next()) |entry| {

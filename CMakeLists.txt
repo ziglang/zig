@@ -612,8 +612,6 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/Plan9.zig
-    src/link/Plan9/aout.zig
     src/link/Queue.zig
     src/link/StringTable.zig
     src/link/Wasm.zig

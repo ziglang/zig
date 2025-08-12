@@ -34,7 +34,7 @@ test "skipBytes" {
 
 test "readUntilDelimiterArrayList returns ArrayLists with bytes read until the delimiter, then EndOfStream" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("0000\n1234\n");
@@ -49,7 +49,7 @@ test "readUntilDelimiterArrayList returns ArrayLists with bytes read until the d
 
 test "readUntilDelimiterArrayList returns an empty ArrayList" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("\n");
@@ -61,7 +61,7 @@ test "readUntilDelimiterArrayList returns an empty ArrayList" {
 
 test "readUntilDelimiterArrayList returns StreamTooLong, then an ArrayList with bytes read until the delimiter" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("1234567\n");
@@ -75,7 +75,7 @@ test "readUntilDelimiterArrayList returns StreamTooLong, then an ArrayList with 
 
 test "readUntilDelimiterArrayList returns EndOfStream" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("1234");

@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -1545,7 +1545,7 @@ fn argvToCommandLineWindows(
     allocator: mem.Allocator,
     argv: []const []const u8,
 ) ArgvToCommandLineError![:0]u16 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     if (argv.len != 0) {
@@ -1725,7 +1725,7 @@ fn argvToScriptCommandLineWindows(
     /// Arguments, not including the script name itself. Expected to be encoded as WTF-8.
     script_args: []const []const u8,
 ) ArgvToScriptCommandLineError![:0]u16 {
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 64);
     defer buf.deinit();
 
     // `/d` disables execution of AutoRun commands.

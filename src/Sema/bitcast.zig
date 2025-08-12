@@ -102,7 +102,7 @@ fn bitCastInner(
         .arena = sema.arena,
         .skip_bits = skip_bits,
         .remaining_bits = dest_ty.bitSize(zcu),
-        .unpacked = std.ArrayList(InternPool.Index).init(sema.arena),
+        .unpacked = std.array_list.Managed(InternPool.Index).init(sema.arena),
     };
     switch (endian) {
         .little => {
@@ -163,7 +163,7 @@ fn bitCastSpliceInner(
         .arena = sema.arena,
         .skip_bits = 0,
         .remaining_bits = splice_offset,
-        .unpacked = std.ArrayList(InternPool.Index).init(sema.arena),
+        .unpacked = std.array_list.Managed(InternPool.Index).init(sema.arena),
     };
     switch (endian) {
         .little => {
@@ -216,7 +216,7 @@ const UnpackValueBits = struct {
     skip_bits: u64,
     remaining_bits: u64,
     extra_bits: u64 = undefined,
-    unpacked: std.ArrayList(InternPool.Index),
+    unpacked: std.array_list.Managed(InternPool.Index),
 
     fn add(unpack: *UnpackValueBits, val: Value) BitCastError!void {
         const pt = unpack.pt;

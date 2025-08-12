@@ -130,7 +130,7 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
     const args = try std.process.argsAlloc(allocator);
-    var search_paths = std.ArrayList([]const u8).init(allocator);
+    var search_paths = std.array_list.Managed([]const u8).init(allocator);
     var opt_out_dir: ?[]const u8 = null;
     var opt_abi: ?[]const u8 = null;
 
@@ -234,7 +234,7 @@ pub fn main() !void {
                 .musl => &[_][]const u8{ search_path, libc_dir, "usr", "local", "musl", "include" },
             };
             const target_include_dir = try std.fs.path.join(allocator, sub_path);
-            var dir_stack = std.ArrayList([]const u8).init(allocator);
+            var dir_stack = std.array_list.Managed([]const u8).init(allocator);
             try dir_stack.append(target_include_dir);
 
             while (dir_stack.pop()) |full_dir_name| {
@@ -323,7 +323,7 @@ pub fn main() !void {
     // gets their header in a separate arch directory.
     var path_it = path_table.iterator();
     while (path_it.next()) |path_kv| {
-        var contents_list = std.ArrayList(*Contents).init(allocator);
+        var contents_list = std.array_list.Managed(*Contents).init(allocator);
         {
             var hash_it = path_kv.value_ptr.*.iterator();
             while (hash_it.next()) |hash_kv| {

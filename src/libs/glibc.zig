@@ -186,7 +186,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     switch (crt_file) {
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
@@ -210,7 +210,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-I",
                     try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
@@ -306,7 +306,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             for (deps) |dep| {
                 if (!dep.include) continue;
 
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
                     "-fgnu89-inline",
@@ -364,7 +364,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 
     const s = path.sep_str;
 
-    var result = std.ArrayList(u8).init(arena);
+    var result = std.array_list.Managed(u8).init(arena);
     try result.appendSlice(comp.dirs.zig_lib.path orelse ".");
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
@@ -408,7 +408,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     return result.items;
 }
 
-fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.array_list.Managed([]const u8)) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
 
@@ -484,7 +484,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 
 fn add_include_dirs_arch(
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     target: *const std.Target,
     opt_nptl: ?[]const u8,
     dir: []const u8,
@@ -749,7 +749,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             if (ver.patch == 0) {
                 try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
@@ -761,7 +761,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -773,7 +773,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;

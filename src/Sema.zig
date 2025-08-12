@@ -63,7 +63,7 @@ func_index: InternPool.Index,
 func_is_naked: bool,
 /// Used to restore the error return trace when returning a non-error from a function.
 error_return_trace_index_on_fn_entry: Air.Inst.Ref = .none,
-comptime_err_ret_trace: *std.ArrayList(LazySrcLoc),
+comptime_err_ret_trace: *std.array_list.Managed(LazySrcLoc),
 /// When semantic analysis needs to know the return type of the function whose body
 /// is being analyzed, this `Type` should be used instead of going through `func`.
 /// This will correctly handle the case of a comptime/inline function call of a
@@ -376,7 +376,7 @@ pub const Block = struct {
     /// What mode to generate float operations in, set by @setFloatMode
     float_mode: std.builtin.FloatMode = .strict,
 
-    c_import_buf: ?*std.ArrayList(u8) = null,
+    c_import_buf: ?*std.array_list.Managed(u8) = null,
 
     /// If not `null`, this boolean is set when a `dbg_var_ptr`, `dbg_var_val`, or `dbg_arg_inline`.
     /// instruction is emitted. It signals that the innermost lexically
@@ -3931,7 +3931,7 @@ fn resolveComptimeKnownAllocPtr(sema: *Sema, block: *Block, alloc: Air.Inst.Ref,
 
     // Whilst constructing our mapping, we will also initialize optional and error union payloads when
     // we encounter the corresponding pointers. For this reason, the ordering of `to_map` matters.
-    var to_map = try std.ArrayList(Air.Inst.Index).initCapacity(sema.arena, stores.len);
+    var to_map = try std.array_list.Managed(Air.Inst.Index).initCapacity(sema.arena, stores.len);
 
     for (stores) |store_inst_idx| {
         const store_inst = sema.air_instructions.get(@intFromEnum(store_inst_idx));
@@ -5665,7 +5665,7 @@ fn zirCImport(sema: *Sema, parent_block: *Block, inst: Zir.Inst.Index) CompileEr
     if (!build_options.have_llvm)
         return sema.fail(parent_block, src, "C import unavailable; Zig compiler built without LLVM extensions", .{});
 
-    var c_import_buf = std.ArrayList(u8).init(gpa);
+    var c_import_buf = std.array_list.Managed(u8).init(gpa);
     defer c_import_buf.deinit();
 
     var child_block: Block = .{
@@ -10701,7 +10701,7 @@ const SwitchProngAnalysis = struct {
                 const prong_count = field_indices.len - in_mem_coercible.count();
 
                 const estimated_extra = prong_count * 6 + (prong_count / 10); // 2 for Case, 1 item, probably 3 insts; plus hints
-                var cases_extra = try std.ArrayList(u32).initCapacity(sema.gpa, estimated_extra);
+                var cases_extra = try std.array_list.Managed(u32).initCapacity(sema.gpa, estimated_extra);
                 defer cases_extra.deinit();
 
                 {
@@ -17603,7 +17603,7 @@ fn typeInfoDecls(
 
     const declaration_ty = try sema.getBuiltinType(src, .@"Type.Declaration");
 
-    var decl_vals = std.ArrayList(InternPool.Index).init(gpa);
+    var decl_vals = std.array_list.Managed(InternPool.Index).init(gpa);
     defer decl_vals.deinit();
 
     var seen_namespaces = std.AutoHashMap(*Namespace, void).init(gpa);
@@ -17645,7 +17645,7 @@ fn typeInfoNamespaceDecls(
     sema: *Sema,
     opt_namespace_index: InternPool.OptionalNamespaceIndex,
     declaration_ty: Type,
-    decl_vals: *std.ArrayList(InternPool.Index),
+    decl_vals: *std.array_list.Managed(InternPool.Index),
     seen_namespaces: *std.AutoHashMap(*Namespace, void),
 ) !void {
     const pt = sema.pt;
@@ -29670,7 +29670,7 @@ fn coerceInMemoryAllowedErrorSets(
         }
     }
 
-    var missing_error_buf = std.ArrayList(InternPool.NullTerminatedString).init(gpa);
+    var missing_error_buf = std.array_list.Managed(InternPool.NullTerminatedString).init(gpa);
     defer missing_error_buf.deinit();
 
     switch (src_ty.toIntern()) {
@@ -37151,7 +37151,7 @@ pub fn resolveDeclaredEnum(
     var arena: std.heap.ArenaAllocator = .init(gpa);
     defer arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{

@@ -83,11 +83,11 @@ pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
 }
 
 /// Helper for bridging to the new `Writer` API while upgrading.
-pub fn adaptToNewApi(self: *const Self) Adapter {
+pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
     return .{
         .derp_writer = self.*,
         .new_interface = .{
-            .buffer = &.{},
+            .buffer = buffer,
             .vtable = &.{ .drain = Adapter.drain },
         },
     };
