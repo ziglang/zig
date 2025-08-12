@@ -367,12 +367,12 @@ pub fn benchmarkCounterBasedStream(comptime Stream: anytype, comptime bytes: com
 }
 
 const streams = [_]Crypto{
-    Crypto{ .ty = crypto.stream.aegis.Aegis128X4Stream, .name = "aegis-128X4-xor" },
-    Crypto{ .ty = crypto.stream.aegis.Aegis128X2Stream, .name = "aegis-128X2-xor" },
-    Crypto{ .ty = crypto.stream.aegis.Aegis128LStream, .name = "aegis-128L-xor" },
-    Crypto{ .ty = crypto.stream.aegis.Aegis256X4Stream, .name = "aegis-256X4-xor" },
-    Crypto{ .ty = crypto.stream.aegis.Aegis256X2Stream, .name = "aegis-256X2-xor" },
-    Crypto{ .ty = crypto.stream.aegis.Aegis256Stream, .name = "aegis-256-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis128X4, .name = "aegis-128X4-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis128X2, .name = "aegis-128X2-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis128L, .name = "aegis-128L-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256X4, .name = "aegis-256X4-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256X2, .name = "aegis-256X2-xor" },
+    Crypto{ .ty = crypto.stream.aegis.Aegis256, .name = "aegis-256-xor" },
 };
 
 pub fn benchmarkStream(comptime Stream: anytype, comptime bytes: comptime_int) !u64 {

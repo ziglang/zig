@@ -200,12 +200,12 @@ pub const stream = struct {
 
     pub const aegis = struct {
         const variants = @import("crypto/aegis.zig");
-        pub const Aegis128X4Stream = variants.Aegis128X4Stream;
-        pub const Aegis128X2Stream = variants.Aegis128X2Stream;
-        pub const Aegis128LStream = variants.Aegis128LStream;
-        pub const Aegis256X4Stream = variants.Aegis256X4Stream;
-        pub const Aegis256X2Stream = variants.Aegis256X2Stream;
-        pub const Aegis256Stream = variants.Aegis256Stream;
+        pub const Aegis128X4 = variants.Aegis128X4;
+        pub const Aegis128X2 = variants.Aegis128X2;
+        pub const Aegis128L = variants.Aegis128L;
+        pub const Aegis256X4 = variants.Aegis256X4;
+        pub const Aegis256X2 = variants.Aegis256X2;
+        pub const Aegis256 = variants.Aegis256;
     };
 };
 
