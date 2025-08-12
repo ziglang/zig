@@ -877,8 +877,8 @@ pub fn updateNav(
             const lib_name = @"extern".lib_name.toSlice(ip);
             const sym_index = try self.getGlobalSymbol(macho_file, name, lib_name);
             if (@"extern".is_threadlocal and macho_file.base.comp.config.any_non_single_threaded) self.symbols.items[sym_index].flags.tlv = true;
-            if (self.dwarf) |*dwarf| dwarf: {
-                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
+            if (self.dwarf) |*dwarf| {
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
