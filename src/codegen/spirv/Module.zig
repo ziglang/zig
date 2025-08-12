@@ -318,13 +318,13 @@ fn entryPoints(module: *Module) !Section {
                 .spirv_task => .task_ext,
                 .spirv_mesh => .mesh_ext,
                 // TODO: We should integrate with the Linkage capability and export this function
-                .spirv_device => unreachable,
+                .spirv_device => continue,
                 else => unreachable,
             },
             .opencl => switch (entry_point.cc) {
                 .spirv_kernel => .kernel,
                 // TODO: We should integrate with the Linkage capability and export this function
-                .spirv_device => unreachable,
+                .spirv_device => continue,
                 else => unreachable,
             },
             else => unreachable,
