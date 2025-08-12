@@ -81,11 +81,11 @@ pub fn integerOverflow() noreturn {
 }
 
 pub fn shlOverflow() noreturn {
-    call("left shift overflowed bits", null);
+    call("exact left shift overflowed bits", null);
 }
 
 pub fn shrOverflow() noreturn {
-    call("right shift overflowed bits", null);
+    call("exact right shift overflowed bits", null);
 }
 
 pub fn divideByZero() noreturn {

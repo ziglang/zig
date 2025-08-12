@@ -13668,7 +13668,7 @@ fn zirShl(
                 if (shifted.overflow_bit.compareAllWithZero(.eq, zcu)) {
                     break :val shifted.wrapped_result;
                 }
-                return sema.fail(block, src, "operation caused overflow", .{});
+                return sema.fail(block, src, "exact left shift overflowed bits", .{});
             },
             .shl_sat => try lhs_val.shlSat(rhs_val, lhs_ty, sema.arena, pt),
             .shl => try lhs_val.shlTrunc(rhs_val, lhs_ty, sema.arena, pt),
@@ -13837,7 +13837,7 @@ fn zirShr(
                 // Detect if any ones would be shifted out.
                 const truncated = try lhs_val.intTruncBitsAsValue(lhs_ty, sema.arena, .unsigned, rhs_val, pt);
                 if (!(try truncated.compareAllWithZeroSema(.eq, pt))) {
-                    return sema.fail(block, src, "exact shift shifted out 1 bits", .{});
+                    return sema.fail(block, src, "exact right shift overflowed bits", .{});
                 }
             }
             const val = try lhs_val.shr(rhs_val, lhs_ty, sema.arena, pt);
