@@ -5695,7 +5695,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_open|@This#}
       <pre>{#syntax#}@This() type{#endsyntax#}</pre>
       <p>
-      Returns the innermost struct, enum, or union that this function call is inside.
+      Returns the innermost non-tuple struct, enum, or union that this function call is inside.
       This can be useful for an anonymous struct that needs to refer to itself:
       </p>
       {#code|test_this_builtin.zig#}
