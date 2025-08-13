@@ -81,7 +81,6 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 "-O2",
                 "-fno-common",
                 "-std=gnu99",
-                "-DPIC",
                 "-w", // Disable all warnings.
             });
 
@@ -93,11 +92,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             try acflags.appendSlice(&.{
                 "-DLOCORE",
                 // See `Compilation.addCCArgs`.
-                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000}),
+                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000 + 500}),
             });
 
             inline for (.{ &cflags, &acflags }) |flags| {
                 try flags.appendSlice(&.{
+                    "-DPIC",
                     "-DSTRIP_FBSDID",
                     "-I",
                     try includePath(comp, arena, try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
