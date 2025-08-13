@@ -340,9 +340,10 @@ pub fn main() !void {
         }
     }
 
-    if (webui_listen != null and watch) fatal(
-        \\the build system does not yet support combining '--webui' and '--watch'; consider omitting '--watch' in favour of the web UI "Rebuild" button
-    , .{});
+    if (webui_listen != null) {
+        if (watch) fatal("using '--webui' and '--watch' together is not yet supported; consider omitting '--watch' in favour of the web UI \"Rebuild\" button", .{});
+        if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
+    }
 
     const stderr: std.fs.File = .stderr();
     const ttyconf = get_tty_conf(color, stderr);
@@ -449,16 +450,19 @@ pub fn main() !void {
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
 
-    run.web_server = if (webui_listen) |listen_address| .init(.{
-        .gpa = gpa,
-        .thread_pool = &run.thread_pool,
-        .graph = &graph,
-        .all_steps = run.step_stack.keys(),
-        .ttyconf = run.ttyconf,
-        .root_prog_node = main_progress_node,
-        .watch = watch,
-        .listen_address = listen_address,
-    }) else null;
+    run.web_server = if (webui_listen) |listen_address| ws: {
+        if (builtin.single_threaded) unreachable; // `fatal` above
+        break :ws .init(.{
+            .gpa = gpa,
+            .thread_pool = &run.thread_pool,
+            .graph = &graph,
+            .all_steps = run.step_stack.keys(),
+            .ttyconf = run.ttyconf,
+            .root_prog_node = main_progress_node,
+            .watch = watch,
+            .listen_address = listen_address,
+        });
+    } else null;
 
     if (run.web_server) |*ws| {
         ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
@@ -562,7 +566,7 @@ const Run = struct {
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
     watch: bool,
-    web_server: ?WebServer,
+    web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
     /// Allocated into `gpa`.
     memory_blocked_steps: std.ArrayListUnmanaged(*Step),
     /// Allocated into `gpa`.

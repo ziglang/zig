@@ -59,11 +59,9 @@ pub const Options = struct {
     listen_address: std.net.Address,
 };
 pub fn init(opts: Options) WebServer {
-    if (builtin.single_threaded) {
-        // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
-        // instead of threads, so that the web server can function in single-threaded builds.
-        std.process.fatal("--webui not yet implemented for single-threaded builds", .{});
-    }
+    // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
+    // instead of threads, so that the web server can function in single-threaded builds.
+    comptime assert(!builtin.single_threaded);
 
     const all_steps = opts.all_steps;
 
