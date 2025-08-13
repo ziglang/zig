@@ -5408,7 +5408,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       <pre>{#syntax#}@shrExact(value: T, shift_amt: Log2T) T{#endsyntax#}</pre>
       <p>
       Performs the right shift operation ({#syntax#}>>{#endsyntax#}).
-      Shifting out any 1 bits results in {#link|Illegal Behavior#}.
+      Shifting out any 1 bits results in safety-checked {#link|Illegal Behavior#}.
       </p>
       <p>
       The type of {#syntax#}shift_amt{#endsyntax#} is an unsigned integer with {#syntax#}log2(@typeInfo(T).int.bits){#endsyntax#} bits.
