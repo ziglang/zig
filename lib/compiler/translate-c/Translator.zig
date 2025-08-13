@@ -1005,7 +1005,7 @@ fn transStaticAssert(t: *Translator, scope: *Scope, static_assert: Node.StaticAs
         allocating.writer.end -= 1; // printString adds a terminating " so we need to remove it
         allocating.writer.writeAll("\\\"\"") catch return error.OutOfMemory;
 
-        break :str try ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.getWritten()));
+        break :str try ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.written()));
     } else try ZigTag.string_literal.create(t.arena, "\"static assertion failed\"");
 
     const assert_node = try ZigTag.static_assert.create(t.arena, .{ .lhs = condition, .rhs = diagnostic });
@@ -1020,7 +1020,7 @@ fn transGlobalAsm(t: *Translator, scope: *Scope, global_asm: Node.SimpleAsm) Err
     defer allocating.deinit();
     aro.Value.printString(bytes, global_asm.asm_str.qt(t.tree), t.comp, &allocating.writer) catch return error.OutOfMemory;
 
-    const str_node = try ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.getWritten()));
+    const str_node = try ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.written()));
 
     const asm_node = try ZigTag.asm_simple.create(t.arena, str_node);
     const block = try ZigTag.block_single.create(t.arena, asm_node);
@@ -1037,7 +1037,7 @@ fn getTypeStr(t: *Translator, qt: QualType) ![]const u8 {
     var allocating: std.Io.Writer.Allocating = .init(t.gpa);
     defer allocating.deinit();
     qt.print(t.comp, &allocating.writer) catch return error.OutOfMemory;
-    return t.arena.dupe(u8, allocating.getWritten());
+    return t.arena.dupe(u8, allocating.written());
 }
 
 fn transType(t: *Translator, scope: *Scope, qt: QualType, source_loc: TokenIndex) TypeError!ZigNode {
@@ -3345,7 +3345,7 @@ fn transFloatLiteral(
     defer allocating.deinit();
     _ = val.print(float_literal.qt, t.comp, &allocating.writer) catch return error.OutOfMemory;
 
-    const float_lit_node = try ZigTag.float_literal.create(t.arena, try t.arena.dupe(u8, allocating.getWritten()));
+    const float_lit_node = try ZigTag.float_literal.create(t.arena, try t.arena.dupe(u8, allocating.written()));
     if (suppress_as == .no_as) {
         return t.maybeSuppressResult(used, float_lit_node);
     }
@@ -3390,7 +3390,7 @@ fn transNarrowStringLiteral(
 
     aro.Value.printString(bytes, literal.qt, t.comp, &allocating.writer) catch return error.OutOfMemory;
 
-    return ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.getWritten()));
+    return ZigTag.string_literal.create(t.arena, try t.arena.dupe(u8, allocating.written()));
 }
 
 /// Translate a string literal that is initializing an array. In general narrow string

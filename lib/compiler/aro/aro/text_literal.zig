@@ -328,7 +328,7 @@ pub const Parser = struct {
         offset_location.byte_offset += p.offset;
         try p.comp.diagnostics.addWithLocation(p.comp, .{
             .kind = diagnostic.kind,
-            .text = allocating.getWritten(),
+            .text = allocating.written(),
             .opt = diagnostic.opt,
             .extension = diagnostic.extension,
             .location = offset_location.expand(p.comp),

@@ -232,7 +232,7 @@ fn checkIdentifierCodepointWarnings(p: *Parser, codepoint: u21, loc: Source.Loca
 
         try p.diagnostics.add(.{
             .kind = diagnostic.kind,
-            .text = allocating.getWritten(),
+            .text = allocating.written(),
             .extension = diagnostic.extension,
             .opt = diagnostic.opt,
             .location = loc.expand(p.comp),
@@ -244,7 +244,7 @@ fn checkIdentifierCodepointWarnings(p: *Parser, codepoint: u21, loc: Source.Loca
 
         try p.diagnostics.add(.{
             .kind = diagnostic.kind,
-            .text = allocating.getWritten(),
+            .text = allocating.written(),
             .extension = diagnostic.extension,
             .opt = diagnostic.opt,
             .location = loc.expand(p.comp),
@@ -441,7 +441,7 @@ pub fn err(p: *Parser, tok_i: TokenIndex, diagnostic: Diagnostic, args: anytype)
     }
     try p.diagnostics.addWithLocation(p.comp, .{
         .kind = diagnostic.kind,
-        .text = allocating.getWritten(),
+        .text = allocating.written(),
         .opt = diagnostic.opt,
         .extension = diagnostic.extension,
         .location = loc.expand(p.comp),
@@ -1487,13 +1487,13 @@ fn staticAssertMessage(p: *Parser, cond_node: Node.Index, maybe_message: ?Result
 
     if (maybe_message) |message| {
         assert(message.node.get(&p.tree) == .string_literal_expr);
-        if (allocating.getWritten().len > 0) {
+        if (allocating.written().len > 0) {
             try w.writeByte(' ');
         }
         const bytes = p.comp.interner.get(message.val.ref()).bytes;
         try Value.printString(bytes, message.qt, p.comp, w);
     }
-    return allocating.getWritten();
+    return allocating.written();
 }
 
 /// staticAssert
@@ -9248,7 +9248,7 @@ fn primaryExpr(p: *Parser) Error!?Result {
                 func_qt.printNamed(p.tokSlice(p.func.name), p.comp, &allocating.writer) catch return error.OutOfMemory;
                 allocating.writer.writeByte(0) catch return error.OutOfMemory;
 
-                const predef = try p.makePredefinedIdentifier(allocating.getWritten());
+                const predef = try p.makePredefinedIdentifier(allocating.written());
                 qt = predef.qt;
                 p.func.pretty_ident = predef;
             } else {

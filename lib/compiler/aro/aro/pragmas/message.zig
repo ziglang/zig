@@ -51,7 +51,7 @@ fn preprocessorHandler(_: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) Pra
     Diagnostics.formatArgs(&allocating.writer, diagnostic.fmt, .{str}) catch return error.OutOfMemory;
 
     try pp.diagnostics.add(.{
-        .text = allocating.getWritten(),
+        .text = allocating.written(),
         .kind = diagnostic.kind,
         .opt = diagnostic.opt,
         .location = loc.expand(pp.comp),
