@@ -3071,7 +3071,7 @@ pub fn createTypeName(
 
             w.writeByte(')') catch return error.OutOfMemory;
             return .{
-                .name = try ip.getOrPutString(gpa, pt.tid, aw.getWritten(), .no_embedded_nulls),
+                .name = try ip.getOrPutString(gpa, pt.tid, aw.written(), .no_embedded_nulls),
                 .nav = .none,
             };
         },
@@ -5484,7 +5484,7 @@ fn zirCompileLog(
         }
     }
 
-    const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, aw.getWritten(), .no_embedded_nulls);
+    const line_data = try zcu.intern_pool.getOrPutString(gpa, pt.tid, aw.written(), .no_embedded_nulls);
 
     const line_idx: Zcu.CompileLogLine.Index = if (zcu.free_compile_log_lines.pop()) |idx| idx: {
         zcu.compile_log_lines.items[@intFromEnum(idx)] = .{
@@ -36892,11 +36892,11 @@ fn notePathToComptimeAllocPtr(
     switch (deriv_start) {
         .int, .nav_ptr => unreachable,
         .uav_ptr => |uav| {
-            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.getWritten() });
+            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.written() });
             return .{ .new_val = .fromInterned(uav.val) };
         },
         .comptime_alloc_ptr => |cta_info| {
-            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.getWritten() });
+            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.written() });
             const cta = sema.getComptimeAlloc(cta_info.idx);
             if (cta.is_const) {
                 return .{ .new_val = cta_info.val };
@@ -36906,7 +36906,7 @@ fn notePathToComptimeAllocPtr(
             }
         },
         .comptime_field_ptr => {
-            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.getWritten() });
+            try sema.errNote(src, msg, "'{s}' points to '{s}', where", .{ first_path.items, second_path_aw.written() });
             try sema.errNote(src, msg, "'{s}' is a comptime field", .{inter_name});
             return .done;
         },
