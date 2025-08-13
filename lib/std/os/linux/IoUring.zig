@@ -1704,7 +1704,9 @@ pub const BufferGroup = struct {
     pub fn get(self: *BufferGroup, cqe: linux.io_uring_cqe) ![]u8 {
         const buffer_id = try cqe.buffer_id();
         const used_len = @as(usize, @intCast(cqe.res));
-        return self.get_by_id(buffer_id)[0..used_len];
+        const buf = self.get_by_id(buffer_id)[0..used_len];
+        std.valgrind.memcheck.makeMemDefinedIfAddressable(buf);
+        return buf;
     }
 
     // Release buffer from CQE to the kernel.
