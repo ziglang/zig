@@ -149,7 +149,7 @@ pub const Ed25519 = struct {
         h: Sha512,
         s: CompressedScalar,
         a: Curve,
-        expected_r: Curve,
+        expected_r: [Curve.encoded_length]u8,
 
         pub const InitError = NonCanonicalError || EncodingError || IdentityElementError;
 
@@ -167,7 +167,7 @@ pub const Ed25519 = struct {
             h.update(&r);
             h.update(&public_key.bytes);
 
-            return Verifier{ .h = h, .s = s, .a = a, .expected_r = expected_r };
+            return Verifier{ .h = h, .s = s, .a = a, .expected_r = r };
         }
 
         /// Add new content to the message to be verified.
@@ -185,9 +185,7 @@ pub const Ed25519 = struct {
             const hram = Curve.scalar.reduce64(hram64);
 
             const sb_ah = try Curve.basePoint.mulDoubleBasePublic(self.s, self.a.neg(), hram);
-            if (self.expected_r.sub(sb_ah).rejectLowOrder()) {
-                return error.SignatureVerificationFailed;
-            } else |_| {}
+            if (!std.mem.eql(u8, &self.expected_r, &sb_ah.toBytes())) return error.SignatureVerificationFailed;
         }
     };
 
