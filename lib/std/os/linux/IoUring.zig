@@ -4420,9 +4420,7 @@ fn expect_buf_grp_cqe(
     try testing.expectEqual(posix.E.SUCCESS, cqe.err());
 
     // get buffer from pool
-    const buffer_id = try cqe.buffer_id();
-    const len = @as(usize, @intCast(cqe.res));
-    const buf = buf_grp.get_by_id(buffer_id)[0..len];
+    const buf = try buf_grp.get(cqe);
     try testing.expectEqualSlices(u8, expected, buf);
 
     return cqe;
