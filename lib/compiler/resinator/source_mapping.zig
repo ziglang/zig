@@ -723,7 +723,7 @@ pub const SourceMappings = struct {
     /// The default assumes that the first filename added is the root file.
     /// The value should be set to the correct offset if that assumption does not hold.
     root_filename_offset: u32 = 0,
-    source_node_pool: std.heap.MemoryPool(Sources.Node) = std.heap.MemoryPool(Sources.Node).init(std.heap.page_allocator),
+    source_node_pool: std.heap.MemoryPool(Sources.Node) = .empty,
     end_line: usize = 0,
 
     const sourceCompare = struct {
@@ -742,7 +742,7 @@ pub const SourceMappings = struct {
 
     pub fn deinit(self: *SourceMappings, allocator: Allocator) void {
         self.files.deinit(allocator);
-        self.source_node_pool.deinit();
+        self.source_node_pool.deinit(std.heap.page_allocator);
     }
 
     /// Find the node that 'contains' the `line`, i.e. the node's start_line is
@@ -823,7 +823,7 @@ pub const SourceMappings = struct {
                 .filename_offset = filename_offset,
             };
             var entry = self.sources.getEntryFor(key);
-            var new_node = try self.source_node_pool.create();
+            var new_node = try self.source_node_pool.create(std.heap.page_allocator);
             new_node.key = key;
             entry.set(new_node);
         }
@@ -869,7 +869,7 @@ pub const SourceMappings = struct {
                 .filename_offset = node.key.filename_offset,
             };
             var entry = self.sources.getEntryFor(key);
-            var new_node = try self.source_node_pool.create();
+            var new_node = try self.source_node_pool.create(std.heap.page_allocator);
             new_node.key = key;
             entry.set(new_node);
             node = new_node;
