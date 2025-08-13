@@ -241,7 +241,7 @@ test "futex v1" {
     try expectEqual(0, rc);
 
     // CMP_REQUEUE - val3 mismatch
-    rc = linux.futex(&lock.raw, .{ .cmd = .CMP_REQUEUE, .private = true }, 2, .{ .val2 = 0 }, null, 99);
+    rc = linux.futex(&lock.raw, .{ .cmd = .CMP_REQUEUE, .private = true }, 2, .{ .val2 = 0 }, &lock.raw, 99);
     try expectEqual(.AGAIN, linux.E.init(rc));
 
     // CMP_REQUEUE - requeue (but no waiters, so ... not much)
