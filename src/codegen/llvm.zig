@@ -10475,11 +10475,14 @@ pub const FuncGen = struct {
         const slice_ty = self.typeOfIndex(inst);
         const slice_llvm_ty = try o.lowerType(pt, slice_ty);
 
+        // If operand is small (e.g. `u8`), then signedness becomes a problem -- GEP always treats the index as signed.
+        const extended_operand = try self.wip.conv(.unsigned, operand, try o.lowerType(pt, .usize), "");
+
         const error_name_table_ptr = try self.getErrorNameTable();
         const error_name_table =
             try self.wip.load(.normal, .ptr, error_name_table_ptr.toValue(&o.builder), .default, "");
         const error_name_ptr =
-            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{operand}, "");
+            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{extended_operand}, "");
         return self.wip.load(.normal, slice_llvm_ty, error_name_ptr, .default, "");
     }
 
@@ -12774,7 +12777,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => return false,
-            else => return ty.hasRuntimeBits(zcu),
+            else => return ty.hasRuntimeBits(zcu) and !ty.unionHasAllZeroBitFieldTypes(zcu),
         },
         .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);
