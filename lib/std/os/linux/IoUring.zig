@@ -3194,6 +3194,7 @@ test "provide_buffers: read" {
     const buffer_len = 128;
 
     var buffers: [4][buffer_len]u8 = undefined;
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(&buffers));
 
     // Provide 4 buffers
 
@@ -3326,6 +3327,7 @@ test "remove_buffers" {
     const buffer_len = 128;
 
     var buffers: [4][buffer_len]u8 = undefined;
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(&buffers));
 
     // Provide 4 buffers
 
