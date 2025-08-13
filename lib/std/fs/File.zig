@@ -1247,12 +1247,10 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
+                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
-                    r.pos += n;
-                    remaining -= n;
                 }
                 r.interface.seek = 0;
                 r.interface.end = 0;
@@ -1436,9 +1434,8 @@ pub const Reader = struct {
                 fallback: {
                     if (r.size_err == null and r.seek_err == null) break :fallback;
                     var trash_buffer: [128]u8 = undefined;
-                    const trash = &trash_buffer;
                     if (is_windows) {
-                        const n = windows.ReadFile(file.handle, trash, null) catch |err| {
+                        const n = windows.ReadFile(file.handle, limit.slice(&trash_buffer), null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
@@ -1453,7 +1450,7 @@ pub const Reader = struct {
                     var iovecs_i: usize = 0;
                     var remaining = @intFromEnum(limit);
                     while (remaining > 0 and iovecs_i < iovecs.len) {
-                        iovecs[iovecs_i] = .{ .base = trash, .len = @min(trash.len, remaining) };
+                        iovecs[iovecs_i] = .{ .base = &trash_buffer, .len = @min(trash_buffer.len, remaining) };
                         remaining -= iovecs[iovecs_i].len;
                         iovecs_i += 1;
                     }
