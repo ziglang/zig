@@ -3575,7 +3575,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) return o.builder.undefConst(llvm_int_ty);
+        if (val.isUndef(zcu)) return o.builder.undefConst(llvm_int_ty);
 
         const ty = Type.fromInterned(val_key.typeOf());
         switch (val_key) {
@@ -3666,7 +3666,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             return o.builder.undefConst(try o.lowerType(pt, Type.fromInterned(val_key.typeOf())));
         }
 
@@ -5574,7 +5574,7 @@ pub const FuncGen = struct {
             const ptr_ty = try pt.singleMutPtrType(ret_ty);
 
             const operand = try self.resolveInst(un_op);
-            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
             if (val_is_undef and safety) undef: {
                 const ptr_info = ptr_ty.ptrInfo(zcu);
                 const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
@@ -5629,7 +5629,7 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, pt, fn_info);
         const operand = try self.resolveInst(un_op);
-        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
 
         if (val_is_undef and safety) {
@@ -9234,8 +9234,7 @@ pub const FuncGen = struct {
 
         const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
 
-        safety: {
-            if (!safety) break :safety;
+        bounds_check: {
             const dest_scalar = dest_ty.scalarType(zcu);
             const operand_scalar = operand_ty.scalarType(zcu);
 
@@ -9254,7 +9253,7 @@ pub const FuncGen = struct {
                 };
             };
 
-            if (!have_min_check and !have_max_check) break :safety;
+            if (!have_min_check and !have_max_check) break :bounds_check;
 
             const operand_llvm_ty = try o.lowerType(pt, operand_ty);
             const operand_scalar_llvm_ty = try o.lowerType(pt, operand_scalar);
@@ -9272,12 +9271,16 @@ pub const FuncGen = struct {
                     const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
                     break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
                 } else ok_maybe_vec;
-                const fail_block = try fg.wip.block(1, "IntMinFail");
-                const ok_block = try fg.wip.block(1, "IntMinOk");
-                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
-                fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
-                fg.wip.cursor = .{ .block = ok_block };
+                if (safety) {
+                    const fail_block = try fg.wip.block(1, "IntMinFail");
+                    const ok_block = try fg.wip.block(1, "IntMinOk");
+                    _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                    fg.wip.cursor = .{ .block = fail_block };
+                    try fg.buildSimplePanic(panic_id);
+                    fg.wip.cursor = .{ .block = ok_block };
+                } else {
+                    _ = try fg.wip.callIntrinsic(.normal, .none, .assume, &.{}, &.{ok}, "");
+                }
             }
 
             if (have_max_check) {
@@ -9288,12 +9291,16 @@ pub const FuncGen = struct {
                     const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
                     break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
                 } else ok_maybe_vec;
-                const fail_block = try fg.wip.block(1, "IntMaxFail");
-                const ok_block = try fg.wip.block(1, "IntMaxOk");
-                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
-                fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
-                fg.wip.cursor = .{ .block = ok_block };
+                if (safety) {
+                    const fail_block = try fg.wip.block(1, "IntMaxFail");
+                    const ok_block = try fg.wip.block(1, "IntMaxOk");
+                    _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                    fg.wip.cursor = .{ .block = fail_block };
+                    try fg.buildSimplePanic(panic_id);
+                    fg.wip.cursor = .{ .block = ok_block };
+                } else {
+                    _ = try fg.wip.callIntrinsic(.normal, .none, .assume, &.{}, &.{ok}, "");
+                }
             }
         }
 
@@ -9673,7 +9680,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(zcu);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
         if (val_is_undef) {
             const owner_mod = self.ng.ownerModule();
 
@@ -10014,7 +10021,7 @@ pub const FuncGen = struct {
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
-            if (elem_val.isUndefDeep(zcu)) {
+            if (elem_val.isUndef(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
                 // 0xaa or actual undefined for the fill byte.

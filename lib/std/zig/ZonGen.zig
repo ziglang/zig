@@ -896,12 +896,12 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
             tree.renderError(err, msg_bw) catch return error.OutOfMemory;
-            try notes.append(gpa, try zg.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
+            try notes.append(gpa, try zg.errNoteTok(err.token, "{s}", .{msg.written()}));
         } else {
             // Flush error
             tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
             const extra_offset = tree.errorOffset(cur_err);
-            try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+            try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -917,5 +917,5 @@ fn lowerAstErrors(zg: *ZonGen) Allocator.Error!void {
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
     tree.renderError(cur_err, msg_bw) catch return error.OutOfMemory;
-    try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+    try zg.addErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
 }

@@ -1175,7 +1175,7 @@ fn getNavOutputSection(
         );
     }
     if (is_const) return macho_file.zig_const_sect_index.?;
-    if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
+    if (nav_init != .none and Value.fromInterned(nav_init).isUndef(zcu))
         return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => macho_file.zig_data_sect_index.?,
             .ReleaseFast, .ReleaseSmall => macho_file.zig_bss_sect_index.?,
