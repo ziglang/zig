@@ -817,6 +817,6 @@ pub const Wip = struct {
         defer copy_buf.deinit();
         try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_bw);
 
-        try std.testing.expectEqualStrings(bundle_bw.getWritten(), copy_bw.getWritten());
+        try std.testing.expectEqualStrings(bundle_bw.written(), copy_bw.written());
     }
 };

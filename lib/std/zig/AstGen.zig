@@ -13765,19 +13765,19 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
         };
         msg.clearRetainingCapacity();
         tree.renderError(ast_err, msg_w) catch return error.OutOfMemory;
-        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.getWritten()}, notes.items);
+        return try astgen.appendErrorTokNotesOff(tok, bad_off, "{s}", .{msg.written()}, notes.items);
     }
 
     var cur_err = tree.errors[0];
     for (tree.errors[1..]) |err| {
         if (err.is_note) {
             tree.renderError(err, msg_w) catch return error.OutOfMemory;
-            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.getWritten()}));
+            try notes.append(gpa, try astgen.errNoteTok(err.token, "{s}", .{msg.written()}));
         } else {
             // Flush error
             const extra_offset = tree.errorOffset(cur_err);
             tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
-            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+            try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
             notes.clearRetainingCapacity();
             cur_err = err;
 
@@ -13791,7 +13791,7 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     // Flush error
     const extra_offset = tree.errorOffset(cur_err);
     tree.renderError(cur_err, msg_w) catch return error.OutOfMemory;
-    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.getWritten()}, notes.items);
+    try astgen.appendErrorTokNotesOff(cur_err.token, extra_offset, "{s}", .{msg.written()}, notes.items);
 }
 
 const DeclarationName = union(enum) {

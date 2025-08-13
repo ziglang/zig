@@ -728,7 +728,7 @@ pub const Object = struct {
     }
     fn outdent(o: *Object) !void {
         o.indent_counter -= indent_width;
-        const written = o.code.getWritten();
+        const written = o.code.written();
         switch (written[written.len - 1]) {
             indent_char => o.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try o.code.writer.splatByteAll(indent_char, o.indent_counter),

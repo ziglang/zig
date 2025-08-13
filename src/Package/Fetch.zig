@@ -2029,7 +2029,7 @@ const UnpackResult = struct {
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
             \\    note: file 'dir2/file4' has unsupported type 'x'
             \\
-        , aw.getWritten());
+        , aw.written());
     }
 };
 
@@ -2333,7 +2333,7 @@ const TestFetchBuilder = struct {
         var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
-        try std.testing.expectEqualStrings(msg, aw.getWritten());
+        try std.testing.expectEqualStrings(msg, aw.written());
     }
 };
 

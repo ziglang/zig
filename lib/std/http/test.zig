@@ -1020,7 +1020,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
             .response_writer = &body.writer,
         });
         try expectEqual(.ok, res.status);
-        try expectEqualStrings("Hello, World!\n", body.getWritten());
+        try expectEqualStrings("Hello, World!\n", body.written());
     }
 
     { // expect: 100-continue

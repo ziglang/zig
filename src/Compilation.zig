@@ -1123,7 +1123,7 @@ pub const CObject = struct {
                 var aw: Writer.Allocating = .init(eb.gpa);
                 defer aw.deinit();
                 _ = file_reader.interface.streamDelimiterEnding(&aw.writer, '\n') catch break :source_line 0;
-                break :source_line try eb.addString(aw.getWritten());
+                break :source_line try eb.addString(aw.written());
             };
 
             return .{

@@ -2189,12 +2189,12 @@ fn renderArrayInit(
         var single_line = true;
         var contains_newline = false;
         for (section_exprs, 0..) |expr, i| {
-            const start = sub_expr_buffer.getWritten().len;
+            const start = sub_expr_buffer.written().len;
             sub_expr_buffer_starts[i] = start;
 
             if (i + 1 < section_exprs.len) {
                 try renderExpression(&sub_render, expr, .none);
-                const written = sub_expr_buffer.getWritten();
+                const written = sub_expr_buffer.written();
                 const width = written.len - start;
                 const this_contains_newline = mem.indexOfScalar(u8, written[start..], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
@@ -2218,7 +2218,7 @@ fn renderArrayInit(
                 try renderExpression(&sub_render, expr, .comma);
                 ais.popSpace();
 
-                const written = sub_expr_buffer.getWritten();
+                const written = sub_expr_buffer.written();
                 const width = written.len - start - 2;
                 const this_contains_newline = mem.indexOfScalar(u8, written[start .. written.len - 1], '\n') != null;
                 contains_newline = contains_newline or this_contains_newline;
@@ -2231,14 +2231,14 @@ fn renderArrayInit(
                 }
             }
         }
-        sub_expr_buffer_starts[section_exprs.len] = sub_expr_buffer.getWritten().len;
+        sub_expr_buffer_starts[section_exprs.len] = sub_expr_buffer.written().len;
 
         // Render exprs in current section.
         column_counter = 0;
         for (section_exprs, 0..) |expr, i| {
             const start = sub_expr_buffer_starts[i];
             const end = sub_expr_buffer_starts[i + 1];
-            const expr_text = sub_expr_buffer.getWritten()[start..end];
+            const expr_text = sub_expr_buffer.written()[start..end];
             if (!expr_newlines[i]) {
                 try ais.writeAll(expr_text);
             } else {

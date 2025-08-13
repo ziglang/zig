@@ -1272,5 +1272,5 @@ fn testDecompress(container: Container, compressed: []const u8, expected_plain: 
     var decompress: Decompress = .init(&in, container, &.{});
     const decompressed_len = try decompress.reader.streamRemaining(&aw.writer);
     try testing.expectEqual(expected_plain.len, decompressed_len);
-    try testing.expectEqualSlices(u8, expected_plain, aw.getWritten());
+    try testing.expectEqualSlices(u8, expected_plain, aw.written());
 }

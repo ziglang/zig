@@ -582,7 +582,7 @@ test value {
 
     const T = struct { a: i32, b: []const u8 };
     try value(T{ .a = 123, .b = "xy" }, .{}, writer);
-    try std.testing.expectEqualSlices(u8, "{\"a\":123,\"b\":\"xy\"}", out.getWritten());
+    try std.testing.expectEqualSlices(u8, "{\"a\":123,\"b\":\"xy\"}", out.written());
 
     try testStringify("9999999999999999", 9999999999999999, .{});
     try testStringify("\"9999999999999999\"", 9999999999999999, .{ .emit_nonportable_numbers_as_strings = true });

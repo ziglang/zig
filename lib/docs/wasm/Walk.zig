@@ -443,7 +443,7 @@ fn parse(file_name: []const u8, source: []u8) Oom!Ast {
                 error.WriteFailed => return error.OutOfMemory,
             };
             log.err("{s}:{d}:{d}: {s}", .{
-                file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.getWritten(),
+                file_name, err_loc.line + 1, err_loc.column + 1, rendered_err.written(),
             });
         }
         return Ast.parse(gpa, "", .zig);

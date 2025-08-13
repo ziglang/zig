@@ -585,12 +585,12 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
             var dst: [block_length]u8 align(alignment) = undefined;
             var i: usize = 0;
             while (i + block_length <= ad.len) : (i += block_length) {
-                state.enc(&dst, ad[i..][0..block_length]);
+                state.absorb(ad[i..][0..block_length]);
             }
             if (ad.len % block_length != 0) {
                 @memset(src[0..], 0);
                 @memcpy(src[0 .. ad.len % block_length], ad[i..][0 .. ad.len % block_length]);
-                state.enc(&dst, &src);
+                state.absorb(&src);
             }
             i = 0;
             while (i + block_length <= m.len) : (i += block_length) {

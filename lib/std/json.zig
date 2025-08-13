@@ -57,7 +57,7 @@ test Stringify {
         \\  "foo": 123
         \\}
     ;
-    try testing.expectEqualSlices(u8, expected, out.getWritten());
+    try testing.expectEqualSlices(u8, expected, out.written());
 }
 
 pub const ObjectMap = @import("json/dynamic.zig").ObjectMap;
