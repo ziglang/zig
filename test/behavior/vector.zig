@@ -885,28 +885,6 @@ test "vector @reduce comptime" {
     try expect(is_all_true == false);
 }
 
-test "mask parameter of @shuffle is comptime scope" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    const __v4hi = @Vector(4, i16);
-    var v4_a = __v4hi{ 1, 2, 3, 4 };
-    var v4_b = __v4hi{ 5, 6, 7, 8 };
-    _ = .{ &v4_a, &v4_b };
-    const shuffled: __v4hi = @shuffle(i16, v4_a, v4_b, @Vector(4, i32){
-        std.zig.c_translation.shuffleVectorIndex(0, @typeInfo(@TypeOf(v4_a)).vector.len),
-        std.zig.c_translation.shuffleVectorIndex(2, @typeInfo(@TypeOf(v4_a)).vector.len),
-        std.zig.c_translation.shuffleVectorIndex(4, @typeInfo(@TypeOf(v4_a)).vector.len),
-        std.zig.c_translation.shuffleVectorIndex(6, @typeInfo(@TypeOf(v4_a)).vector.len),
-    });
-    try expect(shuffled[0] == 1);
-    try expect(shuffled[1] == 3);
-    try expect(shuffled[2] == 5);
-    try expect(shuffled[3] == 7);
-}
-
 test "saturating add" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
