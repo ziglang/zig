@@ -239,7 +239,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         },
     }
 
-    const output = aw.getWritten();
+    const output = aw.written();
     man.hash.addBytes(output);
 
     if (try step.cacheHit(&man)) {
@@ -347,10 +347,10 @@ fn render_autoconf_at(
     while (line_it.next()) |line| : (line_index += 1) {
         const last_line = line_it.index == line_it.buffer.len;
 
-        const old_len = aw.getWritten().len;
+        const old_len = aw.written().len;
         expand_variables_autoconf_at(bw, line, values, used) catch |err| switch (err) {
             error.MissingValue => {
-                const name = aw.getWritten()[old_len..];
+                const name = aw.written()[old_len..];
                 defer aw.shrinkRetainingCapacity(old_len);
                 try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                     src_path, line_index + 1, name,
@@ -763,7 +763,7 @@ fn testReplaceVariablesAutoconfAt(
     try expand_variables_autoconf_at(&aw.writer, contents, values, used);
 
     for (used) |u| if (!u) return error.UnusedValue;
-    try std.testing.expectEqualStrings(expected, aw.getWritten());
+    try std.testing.expectEqualStrings(expected, aw.written());
 }
 
 fn testReplaceVariablesCMake(

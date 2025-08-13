@@ -120,10 +120,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
                     .values = values,
                 },
             );
-            return pt.intern(.{ .aggregate = .{
-                .ty = ty,
-                .storage = .{ .elems = values },
-            } });
+            return (try pt.aggregateValue(.fromInterned(ty), values)).toIntern();
         },
         .struct_literal => |init| {
             const elems = try self.sema.arena.alloc(InternPool.Index, init.names.len);
@@ -205,10 +202,7 @@ fn lowerExprAnonResTy(self: *LowerZon, node: Zoir.Node.Index) CompileError!Inter
             try self.sema.declareDependency(.{ .interned = struct_ty });
             try self.sema.addTypeReferenceEntry(self.nodeSrc(node), struct_ty);
 
-            return try pt.intern(.{ .aggregate = .{
-                .ty = struct_ty,
-                .storage = .{ .elems = elems },
-            } });
+            return (try pt.aggregateValue(.fromInterned(struct_ty), elems)).toIntern();
         },
     }
 }
@@ -638,10 +632,7 @@ fn lowerArray(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         elems[elems.len - 1] = sentinel.toIntern();
     }
 
-    return self.sema.pt.intern(.{ .aggregate = .{
-        .ty = res_ty.toIntern(),
-        .storage = .{ .elems = elems },
-    } });
+    return (try self.sema.pt.aggregateValue(res_ty, elems)).toIntern();
 }
 
 fn lowerEnum(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
@@ -752,10 +743,7 @@ fn lowerTuple(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         }
     }
 
-    return self.sema.pt.intern(.{ .aggregate = .{
-        .ty = res_ty.toIntern(),
-        .storage = .{ .elems = elems },
-    } });
+    return (try self.sema.pt.aggregateValue(res_ty, elems)).toIntern();
 }
 
 fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
@@ -815,12 +803,7 @@ fn lowerStruct(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         if (value.* == .none) return self.fail(node, "missing field '{f}'", .{name.fmt(ip)});
     }
 
-    return self.sema.pt.intern(.{ .aggregate = .{
-        .ty = res_ty.toIntern(),
-        .storage = .{
-            .elems = field_values,
-        },
-    } });
+    return (try self.sema.pt.aggregateValue(res_ty, field_values)).toIntern();
 }
 
 fn lowerSlice(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.Index {
@@ -867,16 +850,13 @@ fn lowerSlice(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
         elems[elems.len - 1] = ptr_info.sentinel;
     }
 
-    const array_ty = try self.sema.pt.intern(.{ .array_type = .{
+    const array_ty = try self.sema.pt.arrayType(.{
         .len = elems.len,
         .sentinel = ptr_info.sentinel,
         .child = ptr_info.child,
-    } });
+    });
 
-    const array = try self.sema.pt.intern(.{ .aggregate = .{
-        .ty = array_ty,
-        .storage = .{ .elems = elems },
-    } });
+    const array_val = try self.sema.pt.aggregateValue(array_ty, elems);
 
     const many_item_ptr_type = try self.sema.pt.intern(.{ .ptr_type = .{
         .child = ptr_info.child,
@@ -894,8 +874,8 @@ fn lowerSlice(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool.
             .ty = many_item_ptr_type,
             .base_addr = .{
                 .uav = .{
-                    .orig_ty = (try self.sema.pt.singleConstPtrType(.fromInterned(array_ty))).toIntern(),
-                    .val = array,
+                    .orig_ty = (try self.sema.pt.singleConstPtrType(array_ty)).toIntern(),
+                    .val = array_val.toIntern(),
                 },
             },
             .byte_offset = 0,
@@ -994,8 +974,5 @@ fn lowerVector(self: *LowerZon, node: Zoir.Node.Index, res_ty: Type) !InternPool
         elem.* = try self.lowerExprKnownResTy(elem_nodes.at(@intCast(i)), .fromInterned(vector_info.child));
     }
 
-    return self.sema.pt.intern(.{ .aggregate = .{
-        .ty = res_ty.toIntern(),
-        .storage = .{ .elems = elems },
-    } });
+    return (try self.sema.pt.aggregateValue(res_ty, elems)).toIntern();
 }

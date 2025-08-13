@@ -274,7 +274,7 @@ pub fn flush(
         ) catch return error.OutOfMemory;
     }
     try linker.module.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
-        .extension = error_info.getWritten(),
+        .extension = error_info.written(),
     });
 
     const module = try linker.module.finalize(arena);
