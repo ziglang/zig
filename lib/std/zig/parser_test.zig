@@ -6056,6 +6056,25 @@ test "zig fmt: indentation of comments within catch, else, orelse" {
     );
 }
 
+test "zig fmt: canonicalize cast builtins" {
+    try testTransform(
+        \\const foo = @alignCast(@ptrCast(bar));
+        \\const baz = @constCast(@ptrCast(@addrSpaceCast(@volatileCast(@alignCast(bar)))));
+        \\
+    ,
+        \\const foo = @ptrCast(@alignCast(bar));
+        \\const baz = @ptrCast(@alignCast(@addrSpaceCast(@constCast(@volatileCast(bar)))));
+        \\
+    );
+}
+
+test "zig fmt: do not canonicalize invalid cast builtins" {
+    try testCanonical(
+        \\const foo = @alignCast(@volatileCast(@ptrCast(@alignCast(bar))));
+        \\
+    );
+}
+
 test "recovery: top level" {
     try testError(
         \\test "" {inline}
