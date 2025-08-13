@@ -6692,7 +6692,7 @@ pub fn addTranslateCCArgs(
     const resource_path = try comp.dirs.zig_lib.join(arena, &.{"compiler/aro/include"});
     try argv.appendSlice(&.{ "-isystem", resource_path });
 
-    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, owner_mod);
+    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, owner_mod, .aro);
 
     try argv.appendSlice(&[_][]const u8{ "-target", try target.zigTriple(arena) });
 
@@ -6728,6 +6728,7 @@ fn addCommonCCArgs(
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
+    c_frontend: Config.CFrontend,
 ) !void {
     const target = &mod.resolved_target.result;
 
@@ -6911,6 +6912,8 @@ fn addCommonCCArgs(
         }
     }
 
+    const is_clang = c_frontend == .clang;
+
     // Only C-family files support these flags.
     switch (ext) {
         .c,
@@ -6922,7 +6925,7 @@ fn addCommonCCArgs(
         .mm,
         .hmm,
         => {
-            try argv.append("-fno-spell-checking");
+            if (is_clang) try argv.append("-fno-spell-checking");
 
             if (target.os.tag == .windows and target.abi.isGnu()) {
                 // windows.h has files such as pshpack1.h which do #pragma packing,
@@ -6954,7 +6957,7 @@ fn addCommonCCArgs(
                 try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
             }
 
-            {
+            if (is_clang) {
                 var san_arg: std.ArrayListUnmanaged(u8) = .empty;
                 const prefix = "-fsanitize=";
                 if (mod.sanitize_c != .off) {
@@ -7102,7 +7105,7 @@ pub fn addCCArgs(
         });
     }
 
-    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, mod);
+    try comp.addCommonCCArgs(arena, argv, ext, out_dep_path, mod, comp.config.c_frontend);
 
     // Only assembly files support these flags.
     switch (ext) {
