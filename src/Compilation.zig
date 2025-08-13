@@ -6921,7 +6921,7 @@ pub fn addCCArgs(
                         // We don't currently respect the minor and patch components. This wouldn't be particularly
                         // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
                         // symbols would be inconsistent with header declarations.
-                        min_ver.major * 100_000,
+                        min_ver.major * 100_000 + 500,
                     }));
                 } else if (target.isNetBSDLibC()) {
                     const min_ver = target.os.version_range.semver.min;
