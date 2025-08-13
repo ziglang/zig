@@ -779,7 +779,7 @@ fn constant(cg: *CodeGen, ty: Type, val: Value, repr: Repr) Error!Id {
     const ip = &zcu.intern_pool;
 
     log.debug("lowering constant: ty = {f}, val = {f}, key = {s}", .{ ty.fmt(pt), val.fmtValue(pt), @tagName(ip.indexToKey(val.toIntern())) });
-    if (val.isUndefDeep(zcu)) {
+    if (val.isUndef(zcu)) {
         return cg.module.constUndef(result_ty_id);
     }
 
