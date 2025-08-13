@@ -120,9 +120,6 @@ test "fadvise" {
     var file = try tmp.dir.createFile(tmp_file_name, .{});
     defer file.close();
 
-    var buf: [2048]u8 = undefined;
-    try file.writeAll(&buf);
-
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
     try expectEqual(@as(usize, 0), ret);
 }
