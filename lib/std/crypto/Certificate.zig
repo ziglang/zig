@@ -366,15 +366,6 @@ pub const Parsed = struct {
             // Wildcard matches exactly one label, so compare the rest
             const host_suffix = host_name[dot_pos + 1 ..];
 
-            // RFC 6125: Wildcards should not match IP addresses
-            // Use the standard library's IP parsing to check
-            if (std.net.Address.parseIp(host_name, 0)) |_| {
-                // Successfully parsed as IP address, don't allow wildcard match
-                return false;
-            } else |_| {
-                // Not an IP address, continue with wildcard matching
-            }
-
             // Match suffixes (case-insensitive per RFC 6125)
             return std.ascii.eqlIgnoreCase(wildcard_suffix, host_suffix);
         }
@@ -413,12 +404,6 @@ test "Parsed.checkHostName RFC 6125 compliance" {
     // Single label hostnames should not match wildcards
     try expectEqual(false, Parsed.checkHostName("localhost", "*.local"));
     try expectEqual(false, Parsed.checkHostName("localhost", "*.localhost"));
-
-    // IP addresses should not match wildcards
-    try expectEqual(false, Parsed.checkHostName("192.168.1.1", "*.168.1.1"));
-    try expectEqual(false, Parsed.checkHostName("10.0.0.1", "*.0.0.1"));
-    try expectEqual(false, Parsed.checkHostName("::1", "*.1"));
-    try expectEqual(false, Parsed.checkHostName("2001:db8::1", "*.db8::1"));
 
     // Edge cases
     try expectEqual(false, Parsed.checkHostName("", ""));
