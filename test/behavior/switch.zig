@@ -1073,3 +1073,50 @@ test "switch on 8-bit mod result" {
         else => unreachable,
     }
 }
+
+test "switch on non-exhaustive enum" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
+
+    const E = enum(u4) {
+        a,
+        b,
+        c,
+        _,
+
+        fn doTheTest(e: @This()) !void {
+            switch (e) {
+                .a, .b => {},
+                else => return error.TestFailed,
+            }
+            switch (e) {
+                .a, .b => {},
+                .c => return error.TestFailed,
+                _ => return error.TestFailed,
+            }
+            switch (e) {
+                .a, .b => {},
+                .c, _ => return error.TestFailed,
+            }
+            switch (e) {
+                .a => {},
+                .b, .c, _ => return error.TestFailed,
+            }
+            switch (e) {
+                .b => return error.TestFailed,
+                else => {},
+                _ => return error.TestFailed,
+            }
+            switch (e) {
+                else => {},
+                _ => return error.TestFailed,
+            }
+            switch (e) {
+                inline else => {},
+                _ => return error.TestFailed,
+            }
+        }
+    };
+
+    try E.doTheTest(.a);
+    try comptime E.doTheTest(.a);
+}
