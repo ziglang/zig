@@ -121,6 +121,7 @@ test "fadvise" {
     defer file.close();
 
     var buf: [2048]u8 = undefined;
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(&buf);
     try file.writeAll(&buf);
 
     const ret = linux.fadvise(file.handle, 0, 0, linux.POSIX_FADV.SEQUENTIAL);
