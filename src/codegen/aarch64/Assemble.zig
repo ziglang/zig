@@ -6,11 +6,9 @@ pub const Operand = union(enum) {
 };
 
 pub fn nextInstruction(as: *Assemble) !?Instruction {
-    @setEvalBranchQuota(140_000);
-    comptime var ct_token_buf: [token_buf_len]u8 = undefined;
-    var token_buf: [token_buf_len]u8 = undefined;
     const original_source = while (true) {
         const original_source = as.source;
+        var token_buf: [token_buf_len]u8 = undefined;
         const source_token = try as.nextToken(&token_buf, .{});
         switch (source_token.len) {
             0 => return null,
@@ -27,73 +25,9 @@ pub fn nextInstruction(as: *Assemble) !?Instruction {
         \\=========================
         \\
     , .{std.zig.fmtString(std.mem.span(original_source))});
-    inline for (instructions) |instruction| {
-        next_pattern: {
-            as.source = original_source;
-            const Symbols = @TypeOf(instruction.symbols);
-            var symbols: Symbols: {
-                const symbols = @typeInfo(Symbols).@"struct".fields;
-                var symbol_fields: [symbols.len]std.builtin.Type.StructField = undefined;
-                for (&symbol_fields, symbols) |*symbol_field, symbol| {
-                    const Storage = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
-                    symbol_field.* = .{
-                        .name = symbol.name,
-                        .type = Storage,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = @alignOf(Storage),
-                    };
-                }
-                break :Symbols @Type(.{ .@"struct" = .{
-                    .layout = .auto,
-                    .fields = &symbol_fields,
-                    .decls = &.{},
-                    .is_tuple = false,
-                } });
-            } = undefined;
-            const Symbol = std.meta.FieldEnum(Symbols);
-            comptime var unused_symbols: std.enums.EnumSet(Symbol) = .initFull();
-            comptime var pattern_as: Assemble = .{ .source = instruction.pattern, .operands = undefined };
-            inline while (true) {
-                const pattern_token = comptime pattern_as.nextToken(&ct_token_buf, .{ .placeholders = true }) catch |err|
-                    @compileError(@errorName(err) ++ " while parsing '" ++ instruction.pattern ++ "'");
-                const source_token = try as.nextToken(&token_buf, .{ .operands = true });
-                log.debug("\"{f}\" -> \"{f}\"", .{
-                    std.zig.fmtString(pattern_token),
-                    std.zig.fmtString(source_token),
-                });
-                if (pattern_token.len == 0) {
-                    comptime var unused_symbol_it = unused_symbols.iterator();
-                    inline while (comptime unused_symbol_it.next()) |unused_symbol|
-                        @compileError(@tagName(unused_symbol) ++ " unused while parsing '" ++ instruction.pattern ++ "'");
-                    switch (source_token.len) {
-                        0 => {},
-                        else => switch (source_token[0]) {
-                            else => break :next_pattern,
-                            '\n', ';' => {},
-                        },
-                    }
-                    const encode = @field(Instruction, @tagName(instruction.encode[0]));
-                    const Encode = @TypeOf(encode);
-                    var args: std.meta.ArgsTuple(Encode) = undefined;
-                    inline for (&args, @typeInfo(Encode).@"fn".params, 1..instruction.encode.len) |*arg, param, encode_index|
-                        arg.* = zonCast(param.type.?, instruction.encode[encode_index], symbols);
-                    return @call(.auto, encode, args);
-                } else if (pattern_token[0] == '<') {
-                    const symbol_name = comptime pattern_token[1 .. std.mem.indexOfScalarPos(u8, pattern_token, 1, '|') orelse
-                        pattern_token.len - 1];
-                    const symbol = @field(Symbol, symbol_name);
-                    const symbol_ptr = &@field(symbols, symbol_name);
-                    const symbol_value = zonCast(SymbolSpec, @field(instruction.symbols, symbol_name), .{}).parse(source_token) orelse break :next_pattern;
-                    if (comptime unused_symbols.contains(symbol)) {
-                        log.debug("{s} = {any}", .{ symbol_name, symbol_value });
-                        symbol_ptr.* = symbol_value;
-                        comptime unused_symbols.remove(symbol);
-                    } else if (symbol_ptr.* != symbol_value) break :next_pattern;
-                } else if (!toUpperEqlAssertUpper(source_token, pattern_token)) break :next_pattern;
-            }
-        }
-        log.debug("'{s}' not matched...", .{instruction.pattern});
+    for (matchers) |matcher| {
+        as.source = original_source;
+        if (try matcher(as)) |result| return result;
     }
     as.source = original_source;
     log.debug("Nothing matched!\n", .{});
@@ -106,6 +40,12 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
     switch (@typeInfo(ZonValue)) {
         .void, .bool, .int, .float, .pointer, .comptime_float, .comptime_int, .@"enum" => return zon_value,
         .@"struct" => |zon_struct| switch (@typeInfo(Result)) {
+            .pointer => |result_pointer| {
+                comptime assert(result_pointer.size == .slice and result_pointer.is_const);
+                var elems: [zon_value.len]result_pointer.child = undefined;
+                inline for (&elems, zon_value) |*elem, zon_elem| elem.* = zonCast(result_pointer.child, zon_elem, symbols);
+                return &elems;
+            },
             .@"struct" => |result_struct| {
                 comptime var used_zon_fields = 0;
                 var result: Result = undefined;
@@ -157,6 +97,103 @@ fn zonCast(comptime Result: type, zon_value: anytype, symbols: anytype) Result {
         else => @compileError(std.fmt.comptimePrint("unsupported zon type: {} <- {any}", .{ Result, zon_value })),
     }
 }
+
+const matchers = matchers: {
+    const instructions = @import("instructions.zon");
+    var mut_matchers: [instructions.len]*const fn (as: *Assemble) error{InvalidSyntax}!?Instruction = undefined;
+    for (instructions, &mut_matchers) |instruction, *matcher| matcher.* = struct {
+        fn match(as: *Assemble) !?Instruction {
+            comptime for (@typeInfo(@TypeOf(instruction)).@"struct".fields) |field| {
+                if (std.mem.eql(u8, field.name, "requires")) continue;
+                if (std.mem.eql(u8, field.name, "pattern")) continue;
+                if (std.mem.eql(u8, field.name, "symbols")) continue;
+                if (std.mem.eql(u8, field.name, "encode")) continue;
+                @compileError("unexpected field '" ++ field.name ++ "'");
+            };
+            if (@hasField(@TypeOf(instruction), "requires")) _ = zonCast(
+                []const std.Target.aarch64.Feature,
+                instruction.requires,
+                .{},
+            );
+            var symbols: Symbols: {
+                const symbols = @typeInfo(@TypeOf(instruction.symbols)).@"struct".fields;
+                var symbol_fields: [symbols.len]std.builtin.Type.StructField = undefined;
+                for (&symbol_fields, symbols) |*symbol_field, symbol| {
+                    const Storage = zonCast(SymbolSpec, @field(instruction.symbols, symbol.name), .{}).Storage();
+                    symbol_field.* = .{
+                        .name = symbol.name,
+                        .type = Storage,
+                        .default_value_ptr = null,
+                        .is_comptime = false,
+                        .alignment = @alignOf(Storage),
+                    };
+                }
+                break :Symbols @Type(.{ .@"struct" = .{
+                    .layout = .auto,
+                    .fields = &symbol_fields,
+                    .decls = &.{},
+                    .is_tuple = false,
+                } });
+            } = undefined;
+            const Symbol = std.meta.FieldEnum(@TypeOf(instruction.symbols));
+            comptime var unused_symbols: std.enums.EnumSet(Symbol) = .initFull();
+            comptime var pattern_as: Assemble = .{ .source = instruction.pattern, .operands = undefined };
+            inline while (true) {
+                comptime var ct_token_buf: [token_buf_len]u8 = undefined;
+                var token_buf: [token_buf_len]u8 = undefined;
+                const pattern_token = comptime pattern_as.nextToken(&ct_token_buf, .{ .placeholders = true }) catch |err|
+                    @compileError(@errorName(err) ++ " while parsing '" ++ instruction.pattern ++ "'");
+                const source_token = try as.nextToken(&token_buf, .{ .operands = true });
+                log.debug("\"{f}\" -> \"{f}\"", .{
+                    std.zig.fmtString(pattern_token),
+                    std.zig.fmtString(source_token),
+                });
+                if (pattern_token.len == 0) {
+                    comptime var unused_symbol_it = unused_symbols.iterator();
+                    inline while (comptime unused_symbol_it.next()) |unused_symbol|
+                        @compileError(@tagName(unused_symbol) ++ " unused while parsing '" ++ instruction.pattern ++ "'");
+                    switch (source_token.len) {
+                        0 => {},
+                        else => switch (source_token[0]) {
+                            else => {
+                                log.debug("'{s}' not matched...", .{instruction.pattern});
+                                return null;
+                            },
+                            '\n', ';' => {},
+                        },
+                    }
+                    const encode = @field(Instruction, @tagName(instruction.encode[0]));
+                    const Encode = @TypeOf(encode);
+                    var args: std.meta.ArgsTuple(Encode) = undefined;
+                    inline for (&args, @typeInfo(Encode).@"fn".params, 1..instruction.encode.len) |*arg, param, encode_index|
+                        arg.* = zonCast(param.type.?, instruction.encode[encode_index], symbols);
+                    return @call(.auto, encode, args);
+                } else if (pattern_token[0] == '<') {
+                    const symbol_name = comptime pattern_token[1 .. std.mem.indexOfScalarPos(u8, pattern_token, 1, '|') orelse
+                        pattern_token.len - 1];
+                    const symbol = @field(Symbol, symbol_name);
+                    const symbol_ptr = &@field(symbols, symbol_name);
+                    const symbol_value = zonCast(SymbolSpec, @field(instruction.symbols, symbol_name), .{}).parse(source_token) orelse {
+                        log.debug("'{s}' not matched...", .{instruction.pattern});
+                        return null;
+                    };
+                    if (comptime unused_symbols.contains(symbol)) {
+                        log.debug("{s} = {any}", .{ symbol_name, symbol_value });
+                        symbol_ptr.* = symbol_value;
+                        comptime unused_symbols.remove(symbol);
+                    } else if (symbol_ptr.* != symbol_value) {
+                        log.debug("'{s}' not matched...", .{instruction.pattern});
+                        return null;
+                    }
+                } else if (!toUpperEqlAssertUpper(source_token, pattern_token)) {
+                    log.debug("'{s}' not matched...", .{instruction.pattern});
+                    return null;
+                }
+            }
+        }
+    }.match;
+    break :matchers mut_matchers;
+};
 
 fn toUpperEqlAssertUpper(lhs: []const u8, rhs: []const u8) bool {
     if (lhs.len != rhs.len) return false;
@@ -281,9 +318,10 @@ const SymbolSpec = union(enum) {
         multiple_of: ?comptime_int = null,
         min_valid: ?comptime_int = null,
         max_valid: ?comptime_int = null,
+        adjust: enum { none, neg_wrap, dec } = .none,
     },
     fimm: struct { only_valid: ?f16 = null },
-    extend: struct { size: aarch64.encoding.Register.GeneralSize },
+    extend: struct { size: ?aarch64.encoding.Register.GeneralSize = null },
     shift: struct { allow_ror: bool = true },
     barrier: struct { only_sy: bool = false },
 
@@ -293,7 +331,7 @@ const SymbolSpec = union(enum) {
             .reg => aarch64.encoding.Register,
             .arrangement => aarch64.encoding.Register.Arrangement,
             .systemreg => aarch64.encoding.Register.System,
-            .imm => |imm| @Type(.{ .int = imm.type }),
+            .imm => |imm_spec| @Type(.{ .int = imm_spec.type }),
             .fimm => f16,
             .extend => Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
             .shift => Instruction.DataProcessingRegister.Shift.Op,
@@ -372,7 +410,13 @@ const SymbolSpec = union(enum) {
                 return systemreg;
             },
             .imm => |imm_spec| {
-                const imm = std.fmt.parseInt(Result, token, 0) catch {
+                const imm = std.fmt.parseInt(@Type(.{ .int = .{
+                    .signedness = imm_spec.type.signedness,
+                    .bits = switch (imm_spec.adjust) {
+                        .none, .neg_wrap => imm_spec.type.bits,
+                        .dec => imm_spec.type.bits + 1,
+                    },
+                } }), token, 0) catch {
                     log.debug("invalid immediate: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };
@@ -388,7 +432,14 @@ const SymbolSpec = union(enum) {
                     log.debug("out of range immediate: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };
-                return imm;
+                return switch (imm_spec.adjust) {
+                    .none => imm,
+                    .neg_wrap => -%imm,
+                    .dec => std.math.cast(Result, imm - 1) orelse {
+                        log.debug("out of range immediate: \"{f}\"", .{std.zig.fmtString(token)});
+                        return null;
+                    },
+                };
             },
             .fimm => |fimm_spec| {
                 const full_fimm = std.fmt.parseFloat(f128, token) catch {
@@ -433,10 +484,10 @@ const SymbolSpec = union(enum) {
                     log.debug("invalid extend: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
                 };
-                if (extend.sf() != extend_spec.size) {
+                if (extend_spec.size) |size| if (extend.sf() != size) {
                     log.debug("invalid extend: \"{f}\"", .{std.zig.fmtString(token)});
                     return null;
-                }
+                };
                 return extend;
             },
             .shift => |shift_spec| {
@@ -488,6 +539,16 @@ const SymbolSpec = union(enum) {
 test "add sub" {
     var as: Assemble = .{
         .source =
+        \\ adc w0, w0, w1
+        \\ adc w2, w3, w4
+        \\ adc w5, w5, wzr
+        \\ adc w6, w7, wzr
+        \\
+        \\ adcs w0, w0, w1
+        \\ adcs w2, w3, w4
+        \\ adcs w5, w5, wzr
+        \\ adcs w6, w7, wzr
+        \\
         \\ add w0, w0, w1
         \\ add w2, w3, w4
         \\ add wsp, w5, w6
@@ -513,13 +574,13 @@ test "add sub" {
         \\ add w0, w0, w1
         \\ add w2, w3, w4, uxtb #0
         \\ add wsp, w5, w6, uxth #1
-        \\ add w7, wsp, w8, uxtw #0
-        \\ add wsp, wsp, w9, uxtw #2
-        \\ add w10, w10, wzr, uxtw #3
+        \\ add w7, wsp, w8, uxtw #2
+        \\ add wsp, wsp, w9, uxtx #0
+        \\ add w10, w10, wzr, uxtx #3
         \\ add w11, w12, wzr, sxtb #4
         \\ add wsp, w13, wzr, sxth #0
         \\ add w14, wsp, wzr, sxtw #1
-        \\ add wsp, wsp, wzr, sxtw #2
+        \\ add wsp, wsp, wzr, sxtx #2
         \\
         \\ add x0, x0, x1
         \\ add x2, x3, w4, uxtb #0
@@ -582,6 +643,125 @@ test "add sub" {
         \\ add xzr, xzr, x13, asr #0x1F
         \\ add xzr, xzr, xzr, asr #0x3f
         \\
+        \\ addg x0, sp, #0, #0xf
+        \\ addg sp, x1, #0x3f0, #0
+        \\
+        \\ adds w0, w0, w1
+        \\ adds w2, w3, w4
+        \\ adds w5, w5, w6
+        \\ adds w7, wsp, w8
+        \\ adds w9, wsp, w9
+        \\ adds w10, w10, wzr
+        \\ adds w11, w12, wzr
+        \\ adds wzr, w13, wzr
+        \\ adds w14, wsp, wzr
+        \\ adds wzr, wsp, wzr
+        \\
+        \\ adds x0, x0, x1
+        \\ adds x2, x3, x4
+        \\ adds x5, x5, x6
+        \\ adds x7, sp, x8
+        \\ adds x9, sp, x9
+        \\ adds x10, x10, xzr
+        \\ adds x11, x12, xzr
+        \\ adds xzr, x13, xzr
+        \\ adds x14, sp, xzr
+        \\ adds xzr, sp, xzr
+        \\
+        \\ adds w0, w0, w1
+        \\ adds w2, w3, w4, uxtb #0
+        \\ adds wzr, w5, w6, uxth #1
+        \\ adds w7, wsp, w8, uxtw #2
+        \\ adds w9, wsp, w9, uxtx #0
+        \\ adds w10, w10, wzr, uxtx #3
+        \\ adds w11, w12, wzr, sxtb #4
+        \\ adds wzr, w13, wzr, sxth #0
+        \\ adds w14, wsp, wzr, sxtw #1
+        \\ adds wzr, wsp, wzr, sxtx #2
+        \\
+        \\ adds x0, x0, x1
+        \\ adds x2, x3, w4, uxtb #0
+        \\ adds xzr, x5, w6, uxth #1
+        \\ adds x7, sp, w8, uxtw #2
+        \\ adds xzr, sp, x9, uxtx #0
+        \\ adds x10, x10, xzr, uxtx #3
+        \\ adds x11, x12, wzr, sxtb #4
+        \\ adds xzr, x13, wzr, sxth #0
+        \\ adds x14, sp, wzr, sxtw #1
+        \\ adds xzr, sp, xzr, sxtx #2
+        \\
+        \\ adds w0, w0, #0
+        \\ adds w0, w1, #1, lsl #0
+        \\ adds wzr, w2, #2, lsl #12
+        \\ adds w3, wsp, #3, lsl #0
+        \\ adds wzr, wsp, #4095, lsl #12
+        \\ adds w0, w1, #0
+        \\ adds w2, w3, #0, lsl #0
+        \\ adds w4, wsp, #0
+        \\ adds w5, wsp, #0, lsl #0
+        \\ adds wzr, w6, #0
+        \\ adds wzr, w7, #0, lsl #0
+        \\ adds wzr, wsp, #0
+        \\ adds wzr, wsp, #0, lsl #0
+        \\
+        \\ adds x0, x0, #0
+        \\ adds x0, x1, #1, lsl #0
+        \\ adds xzr, x2, #2, lsl #12
+        \\ adds x3, sp, #3, lsl #0
+        \\ adds xzr, sp, #4095, lsl #12
+        \\ adds x0, x1, #0
+        \\ adds x2, x3, #0, lsl #0
+        \\ adds x4, sp, #0
+        \\ adds x5, sp, #0, lsl #0
+        \\ adds xzr, x6, #0
+        \\ adds xzr, x7, #0, lsl #0
+        \\ adds xzr, sp, #0
+        \\ adds xzr, sp, #0, lsl #0
+        \\
+        \\ adds w0, w0, w0
+        \\ adds w1, w1, w2, lsl #0
+        \\ adds w3, w4, w5, lsl #1
+        \\ adds w6, w6, wzr, lsl #31
+        \\ adds w7, wzr, w8, lsr #0
+        \\ adds w9, wzr, wzr, lsr #30
+        \\ adds wzr, w10, w11, lsr #31
+        \\ adds wzr, w12, wzr, asr #0x0
+        \\ adds wzr, wzr, w13, asr #0x10
+        \\ adds wzr, wzr, wzr, asr #0x1f
+        \\
+        \\ adds x0, x0, x0
+        \\ adds x1, x1, x2, lsl #0
+        \\ adds x3, x4, x5, lsl #1
+        \\ adds x6, x6, xzr, lsl #63
+        \\ adds x7, xzr, x8, lsr #0
+        \\ adds x9, xzr, xzr, lsr #62
+        \\ adds xzr, x10, x11, lsr #63
+        \\ adds xzr, x12, xzr, asr #0x0
+        \\ adds xzr, xzr, x13, asr #0x1F
+        \\ adds xzr, xzr, xzr, asr #0x3f
+        \\
+        \\ neg w0, w0
+        \\ neg w1, w2, lsl #0
+        \\ neg w3, wzr, lsl #7
+        \\ neg wzr, w4, lsr #14
+        \\ neg wzr, wzr, asr #21
+        \\
+        \\ neg x0, x0
+        \\ neg x1, x2, lsl #0
+        \\ neg x3, xzr, lsl #11
+        \\ neg xzr, x4, lsr #22
+        \\ neg xzr, xzr, asr #33
+        \\
+        \\ sbc w0, w0, w1
+        \\ sbc w2, w3, w4
+        \\ sbc w5, w5, wzr
+        \\ sbc w6, w7, wzr
+        \\
+        \\ sbcs w0, w0, w1
+        \\ sbcs w2, w3, w4
+        \\ sbcs w5, w5, wzr
+        \\ sbcs w6, w7, wzr
+        \\
         \\ sub w0, w0, w1
         \\ sub w2, w3, w4
         \\ sub wsp, w5, w6
@@ -607,13 +787,13 @@ test "add sub" {
         \\ sub w0, w0, w1
         \\ sub w2, w3, w4, uxtb #0
         \\ sub wsp, w5, w6, uxth #1
-        \\ sub w7, wsp, w8, uxtw #0
-        \\ sub wsp, wsp, w9, uxtw #2
-        \\ sub w10, w10, wzr, uxtw #3
+        \\ sub w7, wsp, w8, uxtw #2
+        \\ sub wsp, wsp, w9, uxtx #0
+        \\ sub w10, w10, wzr, uxtx #3
         \\ sub w11, w12, wzr, sxtb #4
         \\ sub wsp, w13, wzr, sxth #0
         \\ sub w14, wsp, wzr, sxtw #1
-        \\ sub wsp, wsp, wzr, sxtw #2
+        \\ sub wsp, wsp, wzr, sxtx #2
         \\
         \\ sub x0, x0, x1
         \\ sub x2, x3, w4, uxtb #0
@@ -676,20 +856,115 @@ test "add sub" {
         \\ sub xzr, xzr, x13, asr #0x1F
         \\ sub xzr, xzr, xzr, asr #0x3f
         \\
-        \\ neg w0, w0
-        \\ neg w1, w2, lsl #0
-        \\ neg w3, wzr, lsl #7
-        \\ neg wzr, w4, lsr #14
-        \\ neg wzr, wzr, asr #21
+        \\ subg x0, sp, #0, #0xf
+        \\ subg sp, x1, #0x3f0, #0
         \\
-        \\ neg x0, x0
-        \\ neg x1, x2, lsl #0
-        \\ neg x3, xzr, lsl #11
-        \\ neg xzr, x4, lsr #22
-        \\ neg xzr, xzr, asr #33
+        \\ subs w0, w0, w1
+        \\ subs w2, w3, w4
+        \\ subs w5, w5, w6
+        \\ subs w7, wsp, w8
+        \\ subs w9, wsp, w9
+        \\ subs w10, w10, wzr
+        \\ subs w11, w12, wzr
+        \\ subs wzr, w13, wzr
+        \\ subs w14, wsp, wzr
+        \\ subs wzr, wsp, wzr
+        \\
+        \\ subs x0, x0, x1
+        \\ subs x2, x3, x4
+        \\ subs x5, x5, x6
+        \\ subs x7, sp, x8
+        \\ subs x9, sp, x9
+        \\ subs x10, x10, xzr
+        \\ subs x11, x12, xzr
+        \\ subs xzr, x13, xzr
+        \\ subs x14, sp, xzr
+        \\ subs xzr, sp, xzr
+        \\
+        \\ subs w0, w0, w1
+        \\ subs w2, w3, w4, uxtb #0
+        \\ subs wzr, w5, w6, uxth #1
+        \\ subs w7, wsp, w8, uxtw #2
+        \\ subs w9, wsp, w9, uxtx #0
+        \\ subs w10, w10, wzr, uxtx #3
+        \\ subs w11, w12, wzr, sxtb #4
+        \\ subs wzr, w13, wzr, sxth #0
+        \\ subs w14, wsp, wzr, sxtw #1
+        \\ subs wzr, wsp, wzr, sxtx #2
+        \\
+        \\ subs x0, x0, x1
+        \\ subs x2, x3, w4, uxtb #0
+        \\ subs xzr, x5, w6, uxth #1
+        \\ subs x7, sp, w8, uxtw #2
+        \\ subs xzr, sp, x9, uxtx #0
+        \\ subs x10, x10, xzr, uxtx #3
+        \\ subs x11, x12, wzr, sxtb #4
+        \\ subs xzr, x13, wzr, sxth #0
+        \\ subs x14, sp, wzr, sxtw #1
+        \\ subs xzr, sp, xzr, sxtx #2
+        \\
+        \\ subs w0, w0, #0
+        \\ subs w0, w1, #1, lsl #0
+        \\ subs wzr, w2, #2, lsl #12
+        \\ subs w3, wsp, #3, lsl #0
+        \\ subs wzr, wsp, #4095, lsl #12
+        \\ subs w0, w1, #0
+        \\ subs w2, w3, #0, lsl #0
+        \\ subs w4, wsp, #0
+        \\ subs w5, wsp, #0, lsl #0
+        \\ subs wzr, w6, #0
+        \\ subs wzr, w7, #0, lsl #0
+        \\ subs wzr, wsp, #0
+        \\ subs wzr, wsp, #0, lsl #0
+        \\
+        \\ subs x0, x0, #0
+        \\ subs x0, x1, #1, lsl #0
+        \\ subs xzr, x2, #2, lsl #12
+        \\ subs x3, sp, #3, lsl #0
+        \\ subs xzr, sp, #4095, lsl #12
+        \\ subs x0, x1, #0
+        \\ subs x2, x3, #0, lsl #0
+        \\ subs x4, sp, #0
+        \\ subs x5, sp, #0, lsl #0
+        \\ subs xzr, x6, #0
+        \\ subs xzr, x7, #0, lsl #0
+        \\ subs xzr, sp, #0
+        \\ subs xzr, sp, #0, lsl #0
+        \\
+        \\ subs w0, w0, w0
+        \\ subs w1, w1, w2, lsl #0
+        \\ subs w3, w4, w5, lsl #1
+        \\ subs w6, w6, wzr, lsl #31
+        \\ subs w7, wzr, w8, lsr #0
+        \\ subs w9, wzr, wzr, lsr #30
+        \\ subs wzr, w10, w11, lsr #31
+        \\ subs wzr, w12, wzr, asr #0x0
+        \\ subs wzr, wzr, w13, asr #0x10
+        \\ subs wzr, wzr, wzr, asr #0x1f
+        \\
+        \\ subs x0, x0, x0
+        \\ subs x1, x1, x2, lsl #0
+        \\ subs x3, x4, x5, lsl #1
+        \\ subs x6, x6, xzr, lsl #63
+        \\ subs x7, xzr, x8, lsr #0
+        \\ subs x9, xzr, xzr, lsr #62
+        \\ subs xzr, x10, x11, lsr #63
+        \\ subs xzr, x12, xzr, asr #0x0
+        \\ subs xzr, xzr, x13, asr #0x1F
+        \\ subs xzr, xzr, xzr, asr #0x3f
         ,
         .operands = .empty,
     };
+
+    try std.testing.expectFmt("adc w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adc w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adc w5, w5, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adc w6, w7, wzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adcs w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adcs w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adcs w5, w5, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adcs w6, w7, wzr", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expectFmt("add w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
@@ -714,24 +989,24 @@ test "add sub" {
     try std.testing.expectFmt("add sp, sp, xzr", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expectFmt("add w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add w2, w3, w4, uxtb #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add w2, w3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add wsp, w5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add w7, wsp, w8", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add wsp, wsp, w9, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add w10, w10, wzr, uxtw #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add w7, wsp, w8, lsl #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add wsp, wsp, w9, uxtx", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add w10, w10, wzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add w11, w12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add wsp, w13, wzr, sxth #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add wsp, w13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add w14, wsp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add wsp, wsp, wzr, sxtw #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add wsp, wsp, wzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expectFmt("add x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add x2, x3, w4, uxtb #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add x2, x3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add sp, x5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add x7, sp, w8, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add sp, sp, x9", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add x10, x10, xzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add x11, x12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("add sp, x13, wzr, sxth #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("add sp, x13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add x14, sp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add sp, sp, xzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
 
@@ -785,6 +1060,125 @@ test "add sub" {
     try std.testing.expectFmt("add xzr, xzr, x13, asr #31", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("add xzr, xzr, xzr, asr #63", "{f}", .{(try as.nextInstruction()).?});
 
+    try std.testing.expectFmt("addg x0, sp, #0x0, #0xf", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("addg sp, x1, #0x3f0, #0x0", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w5, w5, w6", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w7, wsp, w8", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w9, wsp, w9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w10, w10, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w11, w12, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn w13, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w14, wsp, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn wsp, wzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x2, x3, x4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x5, x5, x6", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x7, sp, x8", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x9, sp, x9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x10, x10, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x11, x12, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn x13, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x14, sp, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn sp, xzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w2, w3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn w5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w7, wsp, w8, lsl #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w9, wsp, w9, uxtx", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w10, w10, wzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w11, w12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn w13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w14, wsp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn wsp, wzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x2, x3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn x5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x7, sp, w8, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn sp, x9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x10, x10, xzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x11, x12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn x13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x14, sp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn sp, xzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds w0, w0, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w0, w1, #0x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, w2, #0x2, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w3, wsp, #0x3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, wsp, #0xfff, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w0, w1, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w2, w3, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w4, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w5, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, w6, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, w7, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds wzr, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds x0, x0, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x0, x1, #0x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, x2, #0x2, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x3, sp, #0x3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, sp, #0xfff, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x0, x1, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x2, x3, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x4, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x5, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, x6, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, x7, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds xzr, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds w0, w0, w0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w1, w1, w2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w3, w4, w5, lsl #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w6, w6, wzr, lsl #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w7, wzr, w8, lsr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds w9, wzr, wzr, lsr #30", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn w10, w11, lsr #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn w12, wzr, asr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn wzr, w13, asr #16", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn wzr, wzr, asr #31", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("adds x0, x0, x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x1, x1, x2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x3, x4, x5, lsl #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x6, x6, xzr, lsl #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x7, xzr, x8, lsr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("adds x9, xzr, xzr, lsr #62", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn x10, x11, lsr #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn x12, xzr, asr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn xzr, x13, asr #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmn xzr, xzr, asr #63", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("neg w0, w0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg w1, w2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg w3, wzr, lsl #7", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg wzr, w4, lsr #14", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg wzr, wzr, asr #21", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("neg x0, x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg x1, x2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg x3, xzr, lsl #11", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg xzr, x4, lsr #22", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("neg xzr, xzr, asr #33", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("sbc w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbc w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbc w5, w5, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbc w6, w7, wzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("sbcs w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbcs w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbcs w5, w5, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbcs w6, w7, wzr", "{f}", .{(try as.nextInstruction()).?});
+
     try std.testing.expectFmt("sub w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub wsp, w5, w6", "{f}", .{(try as.nextInstruction()).?});
@@ -808,24 +1202,24 @@ test "add sub" {
     try std.testing.expectFmt("sub sp, sp, xzr", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expectFmt("sub w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub w2, w3, w4, uxtb #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub w2, w3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub wsp, w5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub w7, wsp, w8", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub wsp, wsp, w9, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub w10, w10, wzr, uxtw #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub w7, wsp, w8, lsl #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub wsp, wsp, w9, uxtx", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub w10, w10, wzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub w11, w12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub wsp, w13, wzr, sxth #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub wsp, w13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub w14, wsp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub wsp, wsp, wzr, sxtw #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub wsp, wsp, wzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expectFmt("sub x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub x2, x3, w4, uxtb #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub x2, x3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub sp, x5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub x7, sp, w8, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub sp, sp, x9", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub x10, x10, xzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub x11, x12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sub sp, x13, wzr, sxth #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sub sp, x13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub x14, sp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("sub sp, sp, xzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
 
@@ -879,17 +1273,102 @@ test "add sub" {
     try std.testing.expectFmt("neg xzr, x13, asr #31", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("neg xzr, xzr, asr #63", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("neg w0, w0", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg w1, w2", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg w3, wzr, lsl #7", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg wzr, w4, lsr #14", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg wzr, wzr, asr #21", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subg x0, sp, #0x0, #0xf", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subg sp, x1, #0x3f0, #0x0", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("neg x0, x0", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg x1, x2", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg x3, xzr, lsl #11", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg xzr, x4, lsr #22", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("neg xzr, xzr, asr #33", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w2, w3, w4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w5, w5, w6", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w7, wsp, w8", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w9, wsp, w9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w10, w10, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w11, w12, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp w13, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w14, wsp, wzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp wsp, wzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x2, x3, x4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x5, x5, x6", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x7, sp, x8", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x9, sp, x9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x10, x10, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x11, x12, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp x13, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x14, sp, xzr", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp sp, xzr", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs w0, w0, w1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w2, w3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp w5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w7, wsp, w8, lsl #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w9, wsp, w9, uxtx", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w10, w10, wzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w11, w12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp w13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w14, wsp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp wsp, wzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs x0, x0, x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x2, x3, w4, uxtb", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp x5, w6, uxth #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x7, sp, w8, uxtw #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp sp, x9", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x10, x10, xzr, uxtx #3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x11, x12, wzr, sxtb #4", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp x13, wzr, sxth", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x14, sp, wzr, sxtw #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp sp, xzr, sxtx #2", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs w0, w0, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w0, w1, #0x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, w2, #0x2, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w3, wsp, #0x3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, wsp, #0xfff, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w0, w1, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w2, w3, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w4, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w5, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, w6, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, w7, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs wzr, wsp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs x0, x0, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x0, x1, #0x1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, x2, #0x2, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x3, sp, #0x3", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, sp, #0xfff, lsl #12", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x0, x1, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x2, x3, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x4, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x5, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, x6, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, x7, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs xzr, sp, #0x0", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs w0, w0, w0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w1, w1, w2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w3, w4, w5, lsl #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs w6, w6, wzr, lsl #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("negs w7, w8, lsr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("negs w9, wzr, lsr #30", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp w10, w11, lsr #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp w12, wzr, asr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp wzr, w13, asr #16", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp wzr, wzr, asr #31", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expectFmt("subs x0, x0, x0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x1, x1, x2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x3, x4, x5, lsl #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("subs x6, x6, xzr, lsl #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("negs x7, x8, lsr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("negs x9, xzr, lsr #62", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp x10, x11, lsr #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp x12, xzr, asr #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp xzr, x13, asr #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cmp xzr, xzr, asr #63", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expect(null == try as.nextInstruction());
 }
@@ -966,44 +1445,62 @@ test "bit manipulation" {
 test "bitfield" {
     var as: Assemble = .{
         .source =
-        \\sbfm w0, w0, #0, #31
-        \\sbfm w0, w0, #31, #0
+        \\bfc w0, #1, #31
+        \\bfc w1, #31, #1
+        \\bfc x2, #1, #63
+        \\bfc x3, #63, #1
         \\
-        \\sbfm x0, x0, #0, #63
-        \\sbfm x0, x0, #63, #0
+        \\bfi w0, w1, #1, #31
+        \\bfi w2, wzr, #31, #1
+        \\bfi x3, xzr, #1, #63
+        \\bfi x4, x5, #63, #1
         \\
-        \\bfm w0, w0, #0, #31
-        \\bfm w0, w0, #31, #0
+        \\bfm w0, wzr, #25, #5
+        \\bfm w1, w2, #31, #1
+        \\bfm w3, w4, #1, #31
+        \\bfm x5, xzr, #57, #7
+        \\bfm x6, x7, #63, #1
+        \\bfm x8, x9, #1, #63
         \\
-        \\bfm x0, x0, #0, #63
-        \\bfm x0, x0, #63, #0
+        \\sbfm w0, w1, #31, #1
+        \\sbfm w2, w3, #1, #31
+        \\sbfm x4, x5, #63, #1
+        \\sbfm x6, x7, #1, #63
         \\
-        \\ubfm w0, w0, #0, #31
-        \\ubfm w0, w0, #31, #0
-        \\
-        \\ubfm x0, x0, #0, #63
-        \\ubfm x0, x0, #63, #0
+        \\ubfm w0, w1, #31, #1
+        \\ubfm w2, w3, #1, #31
+        \\ubfm x4, x5, #63, #1
+        \\ubfm x6, x7, #1, #63
         ,
         .operands = .empty,
     };
 
-    try std.testing.expectFmt("sbfm w0, w0, #0, #31", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sbfm w0, w0, #31, #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc w0, #1, #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc w1, #31, #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc x2, #1, #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc x3, #63, #1", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("sbfm x0, x0, #0, #63", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("sbfm x0, x0, #63, #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfi w0, w1, #1, #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc w2, #31, #1", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc x3, #1, #63", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfi x4, x5, #63, #1", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("bfm w0, w0, #0, #31", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("bfm w0, w0, #31, #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc w0, #7, #6", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfi w1, w2, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfxil w3, w4, #1, #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfc x5, #7, #8", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfi x6, x7, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("bfxil x8, x9, #1, #63", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("bfm x0, x0, #0, #63", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("bfm x0, x0, #63, #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbfiz w0, w1, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbfx w2, w3, #1, #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbfiz x4, x5, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("sbfx x6, x7, #1, #63", "{f}", .{(try as.nextInstruction()).?});
 
-    try std.testing.expectFmt("ubfm w0, w0, #0, #31", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("ubfm w0, w0, #31, #0", "{f}", .{(try as.nextInstruction()).?});
-
-    try std.testing.expectFmt("ubfm x0, x0, #0, #63", "{f}", .{(try as.nextInstruction()).?});
-    try std.testing.expectFmt("ubfm x0, x0, #63, #0", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("ubfiz w0, w1, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("ubfx w2, w3, #1, #31", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("ubfiz x4, x5, #1, #2", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("ubfx x6, x7, #1, #63", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expect(null == try as.nextInstruction());
 }
@@ -1110,6 +1607,22 @@ test "extract" {
     try std.testing.expectFmt("extr x0, x1, x2, #0", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("extr x3, x3, x4, #1", "{f}", .{(try as.nextInstruction()).?});
     try std.testing.expectFmt("extr x5, x5, x5, #63", "{f}", .{(try as.nextInstruction()).?});
+
+    try std.testing.expect(null == try as.nextInstruction());
+}
+test "flags" {
+    var as: Assemble = .{
+        .source =
+        \\AXFLAG
+        \\CFINV
+        \\XAFLAG
+        ,
+        .operands = .empty,
+    };
+
+    try std.testing.expectFmt("axflag", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("cfinv", "{f}", .{(try as.nextInstruction()).?});
+    try std.testing.expectFmt("xaflag", "{f}", .{(try as.nextInstruction()).?});
 
     try std.testing.expect(null == try as.nextInstruction());
 }
@@ -2935,6 +3448,5 @@ const aarch64 = @import("../aarch64.zig");
 const Assemble = @This();
 const assert = std.debug.assert;
 const Instruction = aarch64.encoding.Instruction;
-const instructions = @import("instructions.zon");
 const std = @import("std");
 const log = std.log.scoped(.@"asm");

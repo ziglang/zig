@@ -80,7 +80,22 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                     @tagName(sh),
                 });
             },
-            .add_subtract_immediate_with_tags => {},
+            .add_subtract_immediate_with_tags => |add_subtract_immediate_with_tags| {
+                const decoded = add_subtract_immediate_with_tags.decode();
+                if (decoded == .unallocated) break :unallocated;
+                const group = add_subtract_immediate_with_tags.group;
+                return writer.print("{f}{s}{f}{s}{f}{s}#0x{x}{s}#0x{x}", .{
+                    fmtCase(decoded, dis.case),
+                    dis.mnemonic_operands_separator,
+                    group.Rd.decode(.{ .sp = true }).x().fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.Rn.decode(.{ .sp = true }).x().fmtCase(dis.case),
+                    dis.operands_separator,
+                    @as(u10, group.uimm6) << 4,
+                    dis.operands_separator,
+                    group.uimm4,
+                });
+            },
             .logical_immediate => |logical_immediate| {
                 const decoded = logical_immediate.decode();
                 if (decoded == .unallocated) break :unallocated;
@@ -172,17 +187,69 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                 if (decoded == .unallocated) break :unallocated;
                 const group = bitfield.group;
                 const sf = group.sf;
-                return writer.print("{f}{s}{f}{s}{f}{s}#{d}{s}#{d}", .{
+                const Rd = group.Rd.decode(.{}).general(sf);
+                const Rn = group.Rn.decode(.{}).general(sf);
+                return if (!dis.enable_aliases) writer.print("{f}{s}{f}{s}{f}{s}#{d}{s}#{d}", .{
                     fmtCase(decoded, dis.case),
                     dis.mnemonic_operands_separator,
-                    group.Rd.decode(.{}).general(sf).fmtCase(dis.case),
+                    Rd.fmtCase(dis.case),
                     dis.operands_separator,
-                    group.Rn.decode(.{}).general(sf).fmtCase(dis.case),
+                    Rn.fmtCase(dis.case),
                     dis.operands_separator,
                     group.imm.immr,
                     dis.operands_separator,
                     group.imm.imms,
-                });
+                }) else if (group.imm.imms >= group.imm.immr) writer.print("{f}{s}{f}{s}{f}{s}#{d}{s}#{d}", .{
+                    fmtCase(@as(enum { sbfx, bfxil, ubfx }, switch (decoded) {
+                        .unallocated => unreachable,
+                        .sbfm => .sbfx,
+                        .bfm => .bfxil,
+                        .ubfm => .ubfx,
+                    }), dis.case),
+                    dis.mnemonic_operands_separator,
+                    Rd.fmtCase(dis.case),
+                    dis.operands_separator,
+                    Rn.fmtCase(dis.case),
+                    dis.operands_separator,
+                    group.imm.immr,
+                    dis.operands_separator,
+                    switch (sf) {
+                        .word => @as(u6, group.imm.imms - group.imm.immr) + 1,
+                        .doubleword => @as(u7, group.imm.imms - group.imm.immr) + 1,
+                    },
+                }) else {
+                    const prefer_bfc = switch (decoded) {
+                        .unallocated => unreachable,
+                        .sbfm, .ubfm => false,
+                        .bfm => Rn.alias == .zr,
+                    };
+                    try writer.print("{f}{s}{f}", .{
+                        fmtCase(@as(enum { sbfiz, bfc, bfi, ubfiz }, switch (decoded) {
+                            .unallocated => unreachable,
+                            .sbfm => .sbfiz,
+                            .bfm => if (prefer_bfc) .bfc else .bfi,
+                            .ubfm => .ubfiz,
+                        }), dis.case),
+                        dis.mnemonic_operands_separator,
+                        Rd.fmtCase(dis.case),
+                    });
+                    if (!prefer_bfc) try writer.print("{s}{f}", .{
+                        dis.operands_separator,
+                        Rn.fmtCase(dis.case),
+                    });
+                    try writer.print("{s}#{d}{s}#{d}", .{
+                        dis.operands_separator,
+                        switch (sf) {
+                            .word => -%@as(u5, @intCast(group.imm.immr)),
+                            .doubleword => -%@as(u6, @intCast(group.imm.immr)),
+                        },
+                        dis.operands_separator,
+                        switch (sf) {
+                            .word => @as(u6, group.imm.imms) + 1,
+                            .doubleword => @as(u7, group.imm.imms) + 1,
+                        },
+                    });
+                };
             },
             .extract => |extract| {
                 const decoded = extract.decode();
@@ -249,7 +316,11 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                 else => |decoded| return writer.print("{f}", .{fmtCase(decoded, dis.case)}),
             },
             .barriers => {},
-            .pstate => {},
+            .pstate => |pstate| {
+                const decoded = pstate.decode();
+                if (decoded == .unallocated) break :unallocated;
+                return writer.print("{f}", .{fmtCase(decoded, dis.case)});
+            },
             .system_result => {},
             .system => {},
             .system_register_move => {},
@@ -695,9 +766,19 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                 if (decoded == .unallocated) break :unallocated;
                 const group = add_subtract_extended_register.group;
                 const sf = group.sf;
-                const Rm = group.Rm.decode(.{}).general(group.option.sf());
+                const Rm = group.Rm.decode(.{}).general(switch (sf) {
+                    .word => .word,
+                    .doubleword => group.option.sf(),
+                });
                 const Rn = group.Rn.decode(.{ .sp = true }).general(sf);
-                const Rd = group.Rd.decode(.{ .sp = true }).general(sf);
+                const Rd = group.Rd.decode(.{ .sp = !group.S }).general(sf);
+                const prefer_lsl = (Rd.alias == .sp or Rn.alias == .sp) and group.option == @as(
+                    aarch64.encoding.Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option,
+                    switch (sf) {
+                        .word => .uxtw,
+                        .doubleword => .uxtx,
+                    },
+                );
                 if (dis.enable_aliases and group.S and Rd.alias == .zr) try writer.print("{f}{s}{f}{s}{f}", .{
                     fmtCase(@as(enum { cmn, cmp }, switch (group.op) {
                         .add => .cmn,
@@ -716,14 +797,13 @@ pub fn printInstruction(dis: Disassemble, inst: aarch64.encoding.Instruction, wr
                     dis.operands_separator,
                     Rm.fmtCase(dis.case),
                 });
-                return if (group.option != @as(aarch64.encoding.Instruction.DataProcessingRegister.AddSubtractExtendedRegister.Option, switch (sf) {
-                    .word => .uxtw,
-                    .doubleword => .uxtx,
-                }) or group.imm3 != 0) writer.print("{s}{f} #{d}", .{
-                    dis.operands_separator,
-                    fmtCase(group.option, dis.case),
-                    group.imm3,
-                });
+                return if (!prefer_lsl or group.imm3 != 0) {
+                    try writer.print("{s}{f}", .{
+                        dis.operands_separator,
+                        if (prefer_lsl) fmtCase(.lsl, dis.case) else fmtCase(group.option, dis.case),
+                    });
+                    if (group.imm3 != 0) try writer.print(" #{d}", .{group.imm3});
+                };
             },
             .add_subtract_with_carry => |add_subtract_with_carry| {
                 const decoded = add_subtract_with_carry.decode();
