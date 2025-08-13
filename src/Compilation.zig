@@ -5718,7 +5718,7 @@ pub fn cImport(
         const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
 
         if (comp.verbose_cimport) log.info("renaming {s} to {s}", .{ tmp_sub_path, o_sub_path });
-        try fs.rename(cache_dir, tmp_sub_path, cache_dir, o_sub_path);
+        try renameTmpIntoCache(comp.dirs.local_cache, tmp_sub_path, o_sub_path);
 
         break :digest .{ bin_digest, false };
     };
