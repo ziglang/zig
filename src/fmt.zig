@@ -341,7 +341,7 @@ fn fmtPathFile(
     tree.render(gpa, &fmt.out_buffer.writer, .{}) catch |err| switch (err) {
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
-    if (mem.eql(u8, fmt.out_buffer.getWritten(), source_code))
+    if (mem.eql(u8, fmt.out_buffer.written(), source_code))
         return;
 
     if (check_mode) {
@@ -351,7 +351,7 @@ fn fmtPathFile(
         var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode, .write_buffer = &.{} });
         defer af.deinit();
 
-        try af.file_writer.interface.writeAll(fmt.out_buffer.getWritten());
+        try af.file_writer.interface.writeAll(fmt.out_buffer.written());
         try af.finish();
         try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }

@@ -748,7 +748,7 @@ const Unit = struct {
         assert(tw.end == unit.trailer_len);
         tw.splatByteAll(fill_byte, len - unit.trailer_len) catch unreachable;
         assert(tw.end == len);
-        try dwarf.getFile().?.pwriteAll(trailer_aw.getWritten(), sec.off(dwarf) + start);
+        try dwarf.getFile().?.pwriteAll(trailer_aw.written(), sec.off(dwarf) + start);
     }
 
     fn resolveRelocs(unit: *Unit, sec: *Section, dwarf: *Dwarf) RelocError!void {
@@ -1719,10 +1719,10 @@ pub const WipNav = struct {
         else
             std.leb.writeUnsignedFixed(
                 block_bytes,
-                wip_nav.debug_info.getWritten()[block.abbrev_code..][0..block_bytes],
+                wip_nav.debug_info.written()[block.abbrev_code..][0..block_bytes],
                 try wip_nav.dwarf.refAbbrevCode(.empty_block),
             );
-        std.mem.writeInt(u32, wip_nav.debug_info.getWritten()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
+        std.mem.writeInt(u32, wip_nav.debug_info.written()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
         wip_nav.any_children = true;
     }
 
@@ -1781,10 +1781,10 @@ pub const WipNav = struct {
         else
             std.leb.writeUnsignedFixed(
                 inlined_func_bytes,
-                wip_nav.debug_info.getWritten()[block.abbrev_code..][0..inlined_func_bytes],
+                wip_nav.debug_info.written()[block.abbrev_code..][0..inlined_func_bytes],
                 try wip_nav.dwarf.refAbbrevCode(.empty_inlined_func),
             );
-        std.mem.writeInt(u32, wip_nav.debug_info.getWritten()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
+        std.mem.writeInt(u32, wip_nav.debug_info.written()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
         try wip_nav.setInlineFunc(func);
         wip_nav.any_children = true;
     }
@@ -2282,7 +2282,7 @@ pub const WipNav = struct {
 
         if (!is_generic_decl) return;
         const generic_decl_entry = wip_nav.entry;
-        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, generic_decl_entry, dwarf, wip_nav.debug_info.getWritten());
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, generic_decl_entry, dwarf, wip_nav.debug_info.written());
         wip_nav.debug_info.clearRetainingCapacity();
         wip_nav.entry = orig_entry;
         try wip_nav.abbrevCode(abbrev_code.decl_instance);
@@ -2851,7 +2851,7 @@ fn finishWipNavFuncWriterError(
                 DW.CFA.nop,
                 @intCast(dwarf.debug_frame.section.alignment.forward(dfw.end) - dfw.end),
             );
-            const contents = wip_nav.debug_frame.getWritten();
+            const contents = wip_nav.debug_frame.written();
             try dwarf.debug_frame.section.resizeEntry(wip_nav.unit, wip_nav.entry, dwarf, @intCast(contents.len));
             const unit = dwarf.debug_frame.section.getUnit(wip_nav.unit);
             const entry = unit.getEntry(wip_nav.entry);
@@ -2878,12 +2878,12 @@ fn finishWipNavFuncWriterError(
         },
     }
     {
-        std.mem.writeInt(u32, wip_nav.debug_info.getWritten()[wip_nav.func_high_pc..][0..4], @intCast(code_size), dwarf.endian);
+        std.mem.writeInt(u32, wip_nav.debug_info.written()[wip_nav.func_high_pc..][0..4], @intCast(code_size), dwarf.endian);
         if (wip_nav.any_children) {
             const diw = &wip_nav.debug_info.writer;
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         } else {
-            const abbrev_code_buf = wip_nav.debug_info.getWritten()[0..AbbrevCode.decl_bytes];
+            const abbrev_code_buf = wip_nav.debug_info.written()[0..AbbrevCode.decl_bytes];
             var abbrev_code_fr: std.Io.Reader = .fixed(abbrev_code_buf);
             const abbrev_code: AbbrevCode = @enumFromInt(
                 abbrev_code_fr.takeLeb128(@typeInfo(AbbrevCode).@"enum".tag_type) catch unreachable,
@@ -2944,15 +2944,15 @@ fn finishWipNavWriterError(
     const nav = ip.getNav(nav_index);
     log.debug("finishWipNav({f})", .{nav.fqn.fmt(ip)});
 
-    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
     const dlw = &wip_nav.debug_line.writer;
     if (dlw.end > 0) {
         try dlw.writeByte(DW.LNS.extended_op);
         try dlw.writeUleb128(1);
         try dlw.writeByte(DW.LNE.end_sequence);
-        try dwarf.debug_line.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_line.getWritten());
+        try dwarf.debug_line.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_line.written());
     }
-    try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.getWritten());
+    try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.written());
 
     try wip_nav.updateLazy(zcu.navSrcLoc(nav_index));
 }
@@ -3407,7 +3407,7 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
             try wip_nav.refNav(owner_nav);
         },
     }
-    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
     try wip_nav.updateLazy(nav_src_loc);
 }
 
@@ -3914,7 +3914,7 @@ fn updateLazyType(
         .memoized_call,
         => unreachable,
     }
-    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
 }
 
 fn updateLazyValue(
@@ -4288,7 +4288,7 @@ fn updateLazyValue(
         },
         .memoized_call => unreachable, // not a value
     }
-    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+    try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
 }
 
 fn optRepr(opt_child_type: Type, zcu: *const Zcu) enum {
@@ -4411,7 +4411,7 @@ fn updateContainerTypeWriterError(
             try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
         }
 
-        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
         try wip_nav.updateLazy(ty_src_loc);
     } else {
         {
@@ -4611,8 +4611,8 @@ fn updateContainerTypeWriterError(
             },
             else => unreachable,
         }
-        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
-        try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.getWritten());
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
+        try dwarf.debug_loclists.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_loclists.written());
         try wip_nav.updateLazy(ty_src_loc);
     }
 }
@@ -4661,7 +4661,7 @@ fn refAbbrevCode(
     try daw.writeByte(if (abbrev.children) DW.CHILDREN.yes else DW.CHILDREN.no);
     for (abbrev.attrs) |*attr| inline for (attr) |info| try daw.writeUleb128(@intFromEnum(info));
     for (0..2) |_| try daw.writeUleb128(0);
-    try dwarf.debug_abbrev.section.replaceEntry(DebugAbbrev.unit, entry, dwarf, debug_abbrev_aw.getWritten());
+    try dwarf.debug_abbrev.section.replaceEntry(DebugAbbrev.unit, entry, dwarf, debug_abbrev_aw.written());
     return @intFromEnum(abbrev_code);
 }
 
@@ -4710,7 +4710,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
             try wip_nav.strp(name.toSlice(ip));
         }
         if (global_error_set_names.len > 0) try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
-        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.getWritten());
+        try dwarf.debug_info.section.replaceEntry(wip_nav.unit, wip_nav.entry, dwarf, wip_nav.debug_info.written());
         try wip_nav.updateLazy(.unneeded);
     }
 
@@ -4751,7 +4751,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
             hw.writeByte(@intFromEnum(dwarf.address_size)) catch unreachable;
             hw.writeByte(0) catch unreachable;
             hw.splatByteAll(0, unit_ptr.header_len - hw.end) catch unreachable;
-            try unit_ptr.replaceHeader(&dwarf.debug_aranges.section, dwarf, header_aw.getWritten());
+            try unit_ptr.replaceHeader(&dwarf.debug_aranges.section, dwarf, header_aw.written());
             try unit_ptr.writeTrailer(&dwarf.debug_aranges.section, dwarf);
         }
         dwarf.debug_aranges.section.dirty = false;
@@ -4790,7 +4790,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
                         hw.writeByte(@as(u8, DW.CFA.offset) + Register.rip.dwarfNum()) catch unreachable;
                         hw.writeUleb128(1) catch unreachable;
                         hw.splatByteAll(DW.CFA.nop, unit.header_len - hw.end) catch unreachable;
-                        try unit.replaceHeader(&dwarf.debug_frame.section, dwarf, header_aw.getWritten());
+                        try unit.replaceHeader(&dwarf.debug_frame.section, dwarf, header_aw.written());
                         try unit.writeTrailer(&dwarf.debug_frame.section, dwarf);
                     }
                 },
@@ -4880,7 +4880,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
             });
             hw.splatByteAll(0, dwarf.sectionOffsetBytes()) catch unreachable;
             hw.writeUleb128(0) catch unreachable;
-            try unit_ptr.replaceHeader(&dwarf.debug_info.section, dwarf, header_aw.getWritten());
+            try unit_ptr.replaceHeader(&dwarf.debug_info.section, dwarf, header_aw.written());
             try unit_ptr.writeTrailer(&dwarf.debug_info.section, dwarf);
         }
         dwarf.debug_info.section.dirty = false;
@@ -4997,7 +4997,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
                 });
                 hw.splatByteAll(0, dwarf.sectionOffsetBytes()) catch unreachable;
             }
-            try unit.replaceHeader(&dwarf.debug_line.section, dwarf, header_aw.getWritten());
+            try unit.replaceHeader(&dwarf.debug_line.section, dwarf, header_aw.written());
             try unit.writeTrailer(&dwarf.debug_line.section, dwarf);
         }
         dwarf.debug_line.section.dirty = false;
@@ -5034,7 +5034,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
                 .@"32" => hw.writeInt(u32, dwarf.sectionOffsetBytes() * 1, dwarf.endian) catch unreachable,
                 .@"64" => hw.writeInt(u64, dwarf.sectionOffsetBytes() * 1, dwarf.endian) catch unreachable,
             }
-            try unit.replaceHeader(&dwarf.debug_rnglists.section, dwarf, header_aw.getWritten());
+            try unit.replaceHeader(&dwarf.debug_rnglists.section, dwarf, header_aw.written());
             try unit.writeTrailer(&dwarf.debug_rnglists.section, dwarf);
         }
         dwarf.debug_rnglists.section.dirty = false;

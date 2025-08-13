@@ -1303,7 +1303,7 @@ fn getNavOutputSection(coff: *Coff, nav_index: InternPool.Nav.Index) u16 {
     const zig_ty = ty.zigTypeTag(zcu);
     const val = Value.fromInterned(nav.status.fully_resolved.val);
     const index: u16 = blk: {
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             // TODO in release-fast and release-small, we should put undef in .bss
             break :blk coff.data_section_index.?;
         }

@@ -318,7 +318,7 @@ test dumpHexFallible {
         @sizeOf(usize) * 2,
     });
     defer std.testing.allocator.free(expected);
-    try std.testing.expectEqualStrings(expected, aw.getWritten());
+    try std.testing.expectEqualStrings(expected, aw.written());
 }
 
 /// Tries to print the current stack trace to stderr, unbuffered, and ignores any error returned.
@@ -1258,7 +1258,7 @@ test printLineFromFileAnyOs {
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", aw.getWritten());
+        try expectEqualStrings("no new lines in this file, but one is printed anyway\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1274,11 +1274,11 @@ test printLineFromFileAnyOs {
         });
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings("1\n", aw.getWritten());
+        try expectEqualStrings("1\n", aw.written());
         aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
-        try expectEqualStrings("3\n", aw.getWritten());
+        try expectEqualStrings("3\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1297,7 +1297,7 @@ test printLineFromFileAnyOs {
         try writer.flush();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
-        try expectEqualStrings(("a" ** overlap) ++ "\n", aw.getWritten());
+        try expectEqualStrings(("a" ** overlap) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1311,7 +1311,7 @@ test printLineFromFileAnyOs {
         try writer.splatByteAll('a', std.heap.page_size_max);
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.getWritten());
+        try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1327,17 +1327,17 @@ test printLineFromFileAnyOs {
         try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.getWritten());
+        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
-        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.getWritten());
+        try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.written());
         aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
-        try expectEqualStrings("a\n", aw.getWritten());
+        try expectEqualStrings("a\n", aw.written());
         aw.clearRetainingCapacity();
     }
     {
@@ -1353,11 +1353,11 @@ test printLineFromFileAnyOs {
         try writer.writeAll("abc\ndef");
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
-        try expectEqualStrings("abc\n", aw.getWritten());
+        try expectEqualStrings("abc\n", aw.written());
         aw.clearRetainingCapacity();
 
         try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
-        try expectEqualStrings("def\n", aw.getWritten());
+        try expectEqualStrings("def\n", aw.written());
         aw.clearRetainingCapacity();
     }
 }
