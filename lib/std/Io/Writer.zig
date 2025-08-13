@@ -2557,7 +2557,7 @@ pub const Allocating = struct {
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
-    pub fn getWritten(a: *Allocating) []u8 {
+    pub fn written(a: *Allocating) []u8 {
         return a.writer.buffered();
     }
 
@@ -2624,7 +2624,7 @@ pub const Allocating = struct {
         const y: i32 = 1234;
         try w.print("x: {}\ny: {}\n", .{ x, y });
 
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.getWritten());
+        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
     }
 };
 

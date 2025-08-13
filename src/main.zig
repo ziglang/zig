@@ -7198,7 +7198,7 @@ fn cmdFetch(
     var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     try ast.render(gpa, &aw.writer, fixups);
-    const rendered = aw.getWritten();
+    const rendered = aw.written();
 
     build_root.directory.handle.writeFile(.{ .sub_path = Package.Manifest.basename, .data = rendered }) catch |err| {
         fatal("unable to write {s} file: {t}", .{ Package.Manifest.basename, err });
