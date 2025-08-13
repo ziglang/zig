@@ -203,7 +203,7 @@ pub fn err(pp: *Preprocessor, tok_i: TokenIndex, diagnostic: Diagnostic, args: a
     try pp.diagnostics.addWithLocation(pp.comp, .{
         .kind = diagnostic.kind,
         .opt = diagnostic.opt,
-        .text = allocating.getWritten(),
+        .text = allocating.written(),
         .location = pp.tokens.items(.loc)[tok_i].expand(pp.comp),
         .extension = diagnostic.extension,
     }, pp.expansionSlice(tok_i), true);

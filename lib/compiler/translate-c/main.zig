@@ -145,7 +145,11 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
     defer pp.deinit();
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
-    var opt_dep_file = try d.initDepFile(source, &name_buf);
+    // Omit the source file from the dep file so that it can be tracked separately.
+    // In the Zig compiler we want to omit it from the cache hash since it will
+    // be written to a tmp file then renamed into place, meaning the path will be
+    // wrong as soon as the work is done.
+    var opt_dep_file = try d.initDepFile(source, &name_buf, true);
     defer if (opt_dep_file) |*dep_file| dep_file.deinit(pp.gpa);
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;

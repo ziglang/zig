@@ -831,7 +831,7 @@ pub fn err(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
-    try d.diagnostics.add(.{ .kind = .@"error", .text = allocating.getWritten(), .location = null });
+    try d.diagnostics.add(.{ .kind = .@"error", .text = allocating.written(), .location = null });
 }
 
 pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
@@ -840,7 +840,7 @@ pub fn warn(d: *Driver, fmt: []const u8, args: anytype) Compilation.Error!void {
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
-    try d.diagnostics.add(.{ .kind = .warning, .text = allocating.getWritten(), .location = null });
+    try d.diagnostics.add(.{ .kind = .warning, .text = allocating.written(), .location = null });
 }
 
 pub fn unsupportedOptionForTarget(d: *Driver, target: std.Target, opt: []const u8) Compilation.Error!void {
@@ -856,7 +856,7 @@ pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalEr
     defer allocating.deinit();
 
     Diagnostics.formatArgs(&allocating.writer, fmt, args) catch return error.OutOfMemory;
-    try d.diagnostics.add(.{ .kind = .@"fatal error", .text = allocating.getWritten(), .location = null });
+    try d.diagnostics.add(.{ .kind = .@"fatal error", .text = allocating.written(), .location = null });
     unreachable;
 }
 
@@ -986,7 +986,12 @@ pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_
 }
 
 /// Initializes a DepFile if requested by driver options.
-pub fn initDepFile(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u8) Compilation.Error!?DepFile {
+pub fn initDepFile(
+    d: *Driver,
+    source: Source,
+    buf: *[std.fs.max_name_bytes]u8,
+    omit_source: bool,
+) Compilation.Error!?DepFile {
     if (!d.dependencies.m and !d.dependencies.md) return null;
     var dep_file: DepFile = .{
         .target = undefined,
@@ -1004,7 +1009,7 @@ pub fn initDepFile(d: *Driver, source: Source, buf: *[std.fs.max_name_bytes]u8) 
             return d.fatal("dependency file name too long for filesystem '{s}{s}'", args);
     }
 
-    try dep_file.addDependency(d.comp.gpa, source.path);
+    if (!omit_source) try dep_file.addDependency(d.comp.gpa, source.path);
     errdefer comptime unreachable;
 
     return dep_file;
@@ -1101,7 +1106,7 @@ fn processSource(
     defer pp.deinit();
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
-    var opt_dep_file = try d.initDepFile(source, &name_buf);
+    var opt_dep_file = try d.initDepFile(source, &name_buf, false);
     defer if (opt_dep_file) |*dep_file| dep_file.deinit(pp.gpa);
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;

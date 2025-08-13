@@ -934,7 +934,7 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
         error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
     };
 
-    if (allocating.getWritten().len > std.math.maxInt(u32)) return error.FileTooBig;
+    if (allocating.written().len > std.math.maxInt(u32)) return error.FileTooBig;
 
     const contents = try allocating.toOwnedSlice();
     errdefer comp.gpa.free(contents);
@@ -1589,6 +1589,7 @@ pub fn hasInclude(
     include_type: IncludeType,
     /// __has_include vs __has_include_next
     which: WhichInclude,
+    opt_dep_file: ?*DepFile,
 ) Compilation.Error!bool {
     if (try FindInclude.run(comp, filename, switch (which) {
         .next => .{ .only_search_after_dir = comp.getSource(includer_token_source).path },
@@ -1596,7 +1597,11 @@ pub fn hasInclude(
             .quotes => .{ .allow_same_dir = comp.getSource(includer_token_source).path },
             .angle_brackets => .only_search,
         },
-    })) |_| {
+    })) |found| {
+        if (opt_dep_file) |dep_file| {
+            const source = comp.getSource(found.source);
+            try dep_file.addDependency(comp.gpa, source.path);
+        }
         return true;
     } else {
         return false;
