@@ -2178,7 +2178,7 @@ test "write_fixed/read_fixed" {
     defer file.close();
     const fd = file.handle;
 
-    var raw_buffers: [2][11]u8 = undefined;
+    var raw_buffers: [2][11]u8 = @splat(@splat(0));
     // First buffer will be written to the file.
     @memset(&raw_buffers[0], 'z');
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
