@@ -85,7 +85,7 @@ pub fn shlOverflow() noreturn {
 }
 
 pub fn shrOverflow() noreturn {
-    call("exact right shift overflowed bits", null);
+    call("exact right shift shifted out 1 bits", null);
 }
 
 pub fn divideByZero() noreturn {

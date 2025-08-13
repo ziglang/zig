@@ -93,7 +93,7 @@ pub fn FullPanic(comptime panicFn: fn ([]const u8, ?usize) noreturn) type {
         }
         pub fn shrOverflow() noreturn {
             @branchHint(.cold);
-            call("exact right shift overflowed bits", @returnAddress());
+            call("exact right shift shifted out 1 bits", @returnAddress());
         }
         pub fn divideByZero() noreturn {
             @branchHint(.cold);
