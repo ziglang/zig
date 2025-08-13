@@ -1,5 +1,16 @@
 //! Represents in-progress parsing, will be converted to an Ast after completion.
 
+const std = @import("../std.zig");
+const assert = std.debug.assert;
+const Allocator = std.mem.Allocator;
+const Ast = std.zig.Ast;
+const Node = Ast.Node;
+const AstError = Ast.Error;
+const TokenIndex = Ast.TokenIndex;
+const OptionalTokenIndex = Ast.OptionalTokenIndex;
+const ExtraIndex = Ast.ExtraIndex;
+const Token = std.zig.Token;
+
 pub const Error = error{ParseError} || Allocator.Error;
 
 gpa: Allocator,
@@ -368,12 +379,41 @@ fn parseContainerMembers(p: *Parse) Allocator.Error!Members {
             .keyword_noinline,
             .keyword_fn,
             => {
+                const tok_start = p.tokenStart(p.tok_i);
+                const tok_end = if (p.tokens.len > p.tok_i + 1) p.tokenStart(p.tok_i + 1) else p.source.len;
+                const prev_tok = p.tok_i;
+                const code_snippet, const code_snippet_buf = get_snippet: {
+                    var snippet_buf = std.heap.page_allocator.alloc(u8, std.heap.pageSize()) catch unreachable;
+                    var cursor: usize = p.tokenStart(p.tok_i);
+                    const EOF = "•";
+                    const desired_len = 60;
+                    var remaining: usize = 60;
+                    while (remaining > 0 and cursor < p.source.len) : (cursor += 1) {
+                        const c = p.source[cursor];
+                        if (c == '\n' or c == '\r' or c == ' ') continue;
+                        snippet_buf[desired_len - remaining] = c;
+                        remaining -= 1;
+                    }
+                    const snip_len = get_len: {
+                        if (remaining > 0) {
+                            // we reached the end of the source before filling the snippet
+                            @memcpy(snippet_buf[desired_len - remaining .. desired_len - remaining + EOF.len], EOF);
+                            break :get_len desired_len - remaining + EOF.len;
+                        }
+                        break :get_len desired_len - remaining;
+                    };
+                    break :get_snippet .{ snippet_buf[0..snip_len], snippet_buf };
+                };
+                defer std.heap.page_allocator.free(code_snippet_buf);
                 const opt_top_level_decl = try p.expectTopLevelDeclRecoverable();
+                std.debug.print("Parsing top level decl at token {d}: {s}:\"{s}\" @ line {d}. after parsing {s}, tok id {d}\n---\n{s}\n---\n", .{ prev_tok, @tagName(p.tokenTag(prev_tok)), p.source[tok_start..tok_end], p.tokenLineNumber(prev_tok), if (opt_top_level_decl == null) "unsuccessfully" else "successfully", p.tok_i, code_snippet });
                 if (opt_top_level_decl) |top_level_decl| {
                     if (field_state == .seen) {
                         field_state = .{ .end = top_level_decl };
                     }
                     try p.scratch.append(p.gpa, top_level_decl);
+                } else {
+                    std.debug.print("Couldn't find top-level decl @ token {d}: {s}:\"{s}\" @ line {d}\n---\n{s}\n---\n", .{ prev_tok, @tagName(p.tokenTag(prev_tok)), p.source[tok_start..tok_end], p.tokenLineNumber(prev_tok), code_snippet });
                 }
                 trailing = p.tokenTag(p.tok_i - 1) == .semicolon;
             },
@@ -587,6 +627,54 @@ fn expectTestDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
     }
 }
 
+// Returns true if the node is an ali fn and if the semicolon should be optional.
+fn aliFnSemicolonOptional(p: *Parse, node: Node.Index) bool {
+    if (p.nodeTag(node) != .fn_decl) {
+        return false;
+    }
+    const node_and_node = p.nodeData(node).node_and_node;
+    const body_idx = node_and_node.@"1";
+    const body_node = p.nodeTag(body_idx);
+    switch (body_node) {
+        .block_two_semicolon, .block_two, .block_semicolon, .block => return true,
+        else => return false,
+    }
+}
+
+fn parseRestOfFunction(p: *Parse, is_extern: bool, extern_export_inline_token: ?u32, fn_proto: Node.Index) !?Node.Index {
+    switch (p.tokenTag(p.tok_i)) {
+        .semicolon => {
+            p.tok_i += 1;
+            return fn_proto;
+        },
+        .l_brace => {
+            if (is_extern) {
+                try p.warnMsg(.{ .tag = .extern_fn_body, .token = extern_export_inline_token.? });
+                return null;
+            }
+            const fn_decl_index = try p.reserveNode(.fn_decl);
+            errdefer p.unreserveNode(fn_decl_index);
+
+            const body_block = try p.parseBlock();
+            return p.setNode(fn_decl_index, .{
+                .tag = .fn_decl,
+                .main_token = p.nodeMainToken(fn_proto),
+                .data = .{ .node_and_node = .{
+                    fn_proto,
+                    body_block.?,
+                } },
+            });
+        },
+        else => {
+            // Since parseBlock only return error.ParseError on
+            // a missing '}' we can assume this function was
+            // supposed to end here.
+            try p.warn(.expected_semi_or_lbrace);
+            return null;
+        },
+    }
+}
+
 /// Decl
 ///     <- (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE? / KEYWORD_inline / KEYWORD_noinline)? FnProto (SEMICOLON / Block)
 ///      / (KEYWORD_export / KEYWORD_extern STRINGLITERALSINGLE?)? KEYWORD_threadlocal? VarDecl
@@ -605,39 +693,13 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
         .keyword_inline, .keyword_noinline => expect_fn = true,
         else => p.tok_i -= 1,
     }
-    const opt_fn_proto = try p.parseFnProto();
+    std.debug.print("trying to parse fn proto?\n", .{});
+    const opt_fn_proto = try p.parseFnProto(false, null);
     if (opt_fn_proto) |fn_proto| {
-        switch (p.tokenTag(p.tok_i)) {
-            .semicolon => {
-                p.tok_i += 1;
-                return fn_proto;
-            },
-            .l_brace => {
-                if (is_extern) {
-                    try p.warnMsg(.{ .tag = .extern_fn_body, .token = extern_export_inline_token });
-                    return null;
-                }
-                const fn_decl_index = try p.reserveNode(.fn_decl);
-                errdefer p.unreserveNode(fn_decl_index);
-
-                const body_block = try p.parseBlock();
-                return p.setNode(fn_decl_index, .{
-                    .tag = .fn_decl,
-                    .main_token = p.nodeMainToken(fn_proto),
-                    .data = .{ .node_and_node = .{
-                        fn_proto,
-                        body_block.?,
-                    } },
-                });
-            },
-            else => {
-                // Since parseBlock only return error.ParseError on
-                // a missing '}' we can assume this function was
-                // supposed to end here.
-                try p.warn(.expected_semi_or_lbrace);
-                return null;
-            },
-        }
+        std.debug.print("success\n", .{});
+        return parseRestOfFunction(p, is_extern, extern_export_inline_token, fn_proto);
+    } else {
+        std.debug.print("not fn!\n", .{});
     }
     if (expect_fn) {
         try p.warn(.expected_fn);
@@ -656,9 +718,11 @@ fn expectTopLevelDecl(p: *Parse) !?Node.Index {
 }
 
 fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
+    std.debug.print("expecting top-level decl {d}", .{p.tok_i});
     return p.expectTopLevelDecl() catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.ParseError => {
+            std.debug.print("failed to parse top-level decl at token {d}, finding next container member\n", .{p.tok_i});
             p.findNextContainerMember();
             return null;
         },
@@ -666,19 +730,41 @@ fn expectTopLevelDeclRecoverable(p: *Parse) error{OutOfMemory}!?Node.Index {
 }
 
 /// FnProto <- KEYWORD_fn IDENTIFIER? LPAREN ParamDeclList RPAREN ByteAlign? AddrSpace? LinkSection? CallConv? EXCLAMATIONMARK? TypeExpr
-fn parseFnProto(p: *Parse) !?Node.Index {
-    const fn_token = p.eatToken(.keyword_fn) orelse return null;
+fn parseFnProto(p: *Parse, ali_fn_syntax: bool, known_function_decl: ?*bool) !?Node.Index {
+    const initial_token_idx = p.tok_i;
+    var fn_token: ?TokenIndex = null;
+    if (ali_fn_syntax) {
+        if (p.tokenTag(p.tok_i) != .l_paren) {
+            return null;
+        }
+    } else {
+        fn_token = p.eatToken(.keyword_fn) orelse return null;
+    }
+    // _ = ali_fn_syntax;
+    // _ = known_function_decl;
+    // const fn_token = p.eatToken(.keyword_fn) orelse return null;
+    // const initial_token_idx = fn_token;
 
     // We want the fn proto node to be before its children in the array.
     const fn_proto_index = try p.reserveNode(.fn_proto);
     errdefer p.unreserveNode(fn_proto_index);
 
-    _ = p.eatToken(.identifier);
+    if (fn_token != null) {
+        _ = p.eatToken(.identifier);
+    }
     const params = try p.parseParamDeclList();
     const align_expr = try p.parseByteAlign();
     const addrspace_expr = try p.parseAddrSpace();
     const section_expr = try p.parseLinkSection();
     const callconv_expr = try p.parseCallconv();
+
+    if (ali_fn_syntax) {
+        _ = try p.expectToken(.arrow);
+        if (known_function_decl) |kfd| {
+            kfd.* = true;
+        }
+    }
+
     _ = p.eatToken(.bang);
 
     const return_type_expr = try p.parseTypeExpr();
@@ -692,7 +778,7 @@ fn parseFnProto(p: *Parse) !?Node.Index {
         switch (params) {
             .zero_or_one => |param| return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto_simple,
-                .main_token = fn_token,
+                .main_token = initial_token_idx,
                 .data = .{ .opt_node_and_opt_node = .{
                     param,
                     .fromOptional(return_type_expr),
@@ -701,7 +787,7 @@ fn parseFnProto(p: *Parse) !?Node.Index {
             .multi => |span| {
                 return p.setNode(fn_proto_index, .{
                     .tag = .fn_proto_multi,
-                    .main_token = fn_token,
+                    .main_token = initial_token_idx,
                     .data = .{ .extra_and_opt_node = .{
                         try p.addExtra(Node.SubRange{
                             .start = span.start,
@@ -716,7 +802,7 @@ fn parseFnProto(p: *Parse) !?Node.Index {
     switch (params) {
         .zero_or_one => |param| return p.setNode(fn_proto_index, .{
             .tag = .fn_proto_one,
-            .main_token = fn_token,
+            .main_token = initial_token_idx,
             .data = .{ .extra_and_opt_node = .{
                 try p.addExtra(Node.FnProtoOne{
                     .param = param,
@@ -731,7 +817,7 @@ fn parseFnProto(p: *Parse) !?Node.Index {
         .multi => |span| {
             return p.setNode(fn_proto_index, .{
                 .tag = .fn_proto,
-                .main_token = fn_token,
+                .main_token = initial_token_idx,
                 .data = .{ .extra_and_opt_node = .{
                     try p.addExtra(Node.FnProto{
                         .params_start = span.start,
@@ -834,6 +920,7 @@ fn parseVarDeclProto(p: *Parse) !?Node.Index {
 fn parseGlobalVarDecl(p: *Parse) !?Node.Index {
     const var_decl = try p.parseVarDeclProto() orelse return null;
 
+    var is_equal = false;
     const init_node: ?Node.Index = switch (p.tokenTag(p.tok_i)) {
         .equal_equal => blk: {
             try p.warn(.wrong_equal_var_decl);
@@ -842,6 +929,7 @@ fn parseGlobalVarDecl(p: *Parse) !?Node.Index {
         },
         .equal => blk: {
             p.tok_i += 1;
+            is_equal = true;
             break :blk try p.expectExpr();
         },
         else => null,
@@ -849,7 +937,14 @@ fn parseGlobalVarDecl(p: *Parse) !?Node.Index {
 
     p.setVarDeclInitExpr(var_decl, .fromOptional(init_node));
 
-    try p.expectSemicolon(.expected_semi_after_decl, false);
+    if (!is_equal or init_node == null or !aliFnSemicolonOptional(p, init_node.?)) {
+        try p.expectSemicolon(.expected_semi_after_decl, true);
+    } else {
+        if (p.tokenTag(p.tok_i) == .semicolon) {
+            p.tok_i += 1;
+        }
+    }
+
     return var_decl;
 }
 
@@ -1066,7 +1161,13 @@ fn expectVarDeclExprStatement(p: *Parse, comptime_token: ?TokenIndex) !Node.Inde
     };
 
     const rhs = try p.expectExpr();
-    try p.expectSemicolon(.expected_semi_after_stmt, true);
+    if (lhs_count == 1 and !aliFnSemicolonOptional(p, rhs)) {
+        try p.expectSemicolon(.expected_semi_after_stmt, true);
+    } else {
+        if (p.tokenTag(p.tok_i) == .semicolon) {
+            p.tok_i += 1;
+        }
+    }
 
     if (lhs_count == 1) {
         const lhs = p.scratch.items[scratch_top];
@@ -2066,6 +2167,12 @@ fn parsePrimaryExpr(p: *Parse) !?Node.Index {
         .keyword_for => return try p.parseFor(expectExpr),
         .keyword_while => return try p.parseWhileExpr(),
         .l_brace => return try p.parseBlock(),
+        .l_paren => {
+            if (try parseOpenParenLookForAliFn(p)) |fn_proto| {
+                return fn_proto;
+            }
+            return try p.parseCurlySuffixExpr();
+        },
         else => return try p.parseCurlySuffixExpr(),
     }
 }
@@ -2474,7 +2581,7 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
         },
 
         .builtin => return try p.parseBuiltinCall(),
-        .keyword_fn => return try p.parseFnProto(),
+        .keyword_fn => return try p.parseFnProto(false, null),
         .keyword_if => return try p.parseIf(expectTypeExpr),
         .keyword_switch => return try p.expectSwitchExpr(false),
 
@@ -2696,15 +2803,62 @@ fn parsePrimaryTypeExpr(p: *Parse) !?Node.Index {
                 });
             },
         },
-        .l_paren => return try p.addNode(.{
-            .tag = .grouped_expression,
-            .main_token = p.nextToken(),
-            .data = .{ .node_and_token = .{
-                try p.expectExpr(),
-                try p.expectToken(.r_paren),
-            } },
-        }),
+        .l_paren => {
+            // Lookahead for "<ident>: " or a closing ")". If so,
+            if (try parseOpenParenLookForAliFn(p)) |fn_proto| {
+                return fn_proto;
+            }
+            return try p.addNode(.{
+                .tag = .grouped_expression,
+                .main_token = p.nextToken(),
+                .data = .{ .node_and_token = .{
+                    try p.expectExpr(),
+                    try p.expectToken(.r_paren),
+                } },
+            });
+        },
         else => return null,
+    }
+}
+
+fn parseOpenParenLookForAliFn(p: *Parse) !?Node.Index {
+    // Lookahead for "<ident>: " or a closing ")". If so,
+    const checkpoint_idx = p.tok_i;
+    if (p.tokens.len > p.tok_i + 3) parse_ali_fn: {
+        const tag_1 = p.tokenTag(p.tok_i + 1);
+        const tag_2 = p.tokenTag(p.tok_i + 2);
+        const tag_3 = p.tokenTag(p.tok_i + 3);
+        if ((tag_1 == .identifier and tag_2 == .colon) or
+            (tag_1 != .l_brace and tag_2 == .identifier and tag_3 == .colon) or
+            (tag_1 == .r_paren))
+        {
+            var known_fn = false;
+            const snippet = p.source[p.tokenStart(p.tok_i)..@min(p.tokenStart(p.tok_i) + 10, p.source.len)];
+            std.debug.print("trying to parse \"{s}\" as fn\n", .{snippet});
+            const fn_proto_opt = p.parseFnProto(true, &known_fn) catch |err| switch (err) {
+                Error.ParseError => {
+                    std.debug.print("failed to parse \"{s}\" as fn\n", .{snippet});
+                    if (known_fn) return err;
+                    std.debug.print("\"{s}\": rolling back cursor\n", .{snippet});
+                    break :parse_ali_fn;
+                },
+                else => return err,
+            };
+            if (fn_proto_opt) |fn_proto| {
+                std.debug.print("successfully parsed \"{s}\" as new-style fn\n", .{snippet});
+                return parseRestOfFunction(p, false, null, fn_proto);
+            }
+        }
+    }
+    p.tok_i = checkpoint_idx;
+    return null;
+}
+
+fn optTokenTag(p: *Parse, idx: TokenIndex) ?Token.Tag {
+    if (idx < p.tokens.len) {
+        return p.tokenTag(idx);
+    } else {
+        return null;
     }
 }
 
@@ -3689,6 +3843,10 @@ fn tokensOnSameLine(p: *Parse, token1: TokenIndex, token2: TokenIndex) bool {
     return std.mem.indexOfScalar(u8, p.source[p.tokenStart(token1)..p.tokenStart(token2)], '\n') == null;
 }
 
+fn tokenLineNumber(p: *Parse, token: TokenIndex) usize {
+    return std.mem.count(u8, p.source[0..p.tokenStart(token)], "\n");
+}
+
 fn eatToken(p: *Parse, tag: Token.Tag) ?TokenIndex {
     return if (p.tokenTag(p.tok_i) == tag) p.nextToken() else null;
 }
@@ -3734,17 +3892,6 @@ fn nextToken(p: *Parse) TokenIndex {
 }
 
 const Parse = @This();
-const std = @import("../std.zig");
-const assert = std.debug.assert;
-const Allocator = std.mem.Allocator;
-const Ast = std.zig.Ast;
-const Node = Ast.Node;
-const AstError = Ast.Error;
-const TokenIndex = Ast.TokenIndex;
-const OptionalTokenIndex = Ast.OptionalTokenIndex;
-const ExtraIndex = Ast.ExtraIndex;
-const Token = std.zig.Token;
-
 test {
     _ = @import("parser_test.zig");
 }

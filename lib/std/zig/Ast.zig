@@ -9,11 +9,12 @@ const assert = std.debug.assert;
 const testing = std.testing;
 const mem = std.mem;
 const Token = std.zig.Token;
-const Ast = @This();
 const Allocator = std.mem.Allocator;
-const Parse = @import("Parse.zig");
 const Writer = std.Io.Writer;
+pub const Render = @import("Ast/Render.zig");
+const Parse = @import("Parse.zig");
 
+const Ast = @This();
 /// Reference to externally-owned data.
 source: [:0]const u8,
 
@@ -211,8 +212,6 @@ pub fn renderAlloc(tree: Ast, gpa: Allocator) error{OutOfMemory}![]u8 {
     };
     return aw.toOwnedSlice();
 }
-
-pub const Render = @import("Ast/Render.zig");
 
 pub fn render(tree: Ast, gpa: Allocator, w: *Writer, fixups: Render.Fixups) Render.Error!void {
     return Render.renderTree(gpa, w, tree, fixups);
@@ -2112,6 +2111,10 @@ fn fullFnProtoComponents(tree: Ast, info: full.FnProto.Components) full.FnProto 
         result.lparen = after_fn_token + 1;
     } else {
         result.lparen = after_fn_token;
+    }
+    if (tree.tokenTag(info.fn_token) == .l_paren) {
+        // Ali fn
+        result.lparen = info.fn_token;
     }
     assert(tree.tokenTag(result.lparen) == .l_paren);
 

@@ -1,6 +1,4 @@
 //! Ingests an AST and produces ZIR code.
-const AstGen = @This();
-
 const std = @import("std");
 const Ast = std.zig.Ast;
 const mem = std.mem;
@@ -9,12 +7,12 @@ const assert = std.debug.assert;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const StringIndexAdapter = std.hash_map.StringIndexAdapter;
 const StringIndexContext = std.hash_map.StringIndexContext;
-
 const isPrimitive = std.zig.primitives.isPrimitive;
-
 const Zir = std.zig.Zir;
 const BuiltinFn = std.zig.BuiltinFn;
 const AstRlAnnotate = std.zig.AstRlAnnotate;
+
+const AstGen = @This();
 
 gpa: Allocator,
 tree: *const Ast,
@@ -627,6 +625,124 @@ fn lvalExpr(gz: *GenZir, scope: *Scope, node: Ast.Node.Index) InnerError!Zir.Ins
     return expr(gz, scope, .{ .rl = .ref }, node);
 }
 
+pub const ALI_LAMBDA_NAME = "λ";
+
+fn aliFnExpr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerError!Zir.Inst.Ref {
+    // TODO: only create an anonymous struct if we're being used as an expr. if we're a top level decl, use the outer scope directly.
+    const astgen = gz.astgen;
+    const tree = astgen.tree;
+    const gpa = astgen.gpa;
+
+    const decl_inst = try gz.reserveInstructionIndex();
+
+    var namespace: Scope.Namespace = .{
+        .parent = scope,
+        .node = node,
+        .inst = decl_inst,
+        .declaring_gz = gz,
+        .maybe_generic = astgen.within_fn,
+    };
+    defer namespace.deinit(gpa);
+
+    var block_scope: GenZir = .{
+        .parent = &namespace.base,
+        .decl_node_index = node,
+        .decl_line = gz.decl_line,
+        .astgen = astgen,
+        .is_comptime = true,
+        .instructions = gz.instructions,
+        .instructions_top = gz.instructions.items.len,
+    };
+    defer block_scope.unstack();
+
+    // keep constants in sync with structDeclInner()
+    const bits_per_field = 4;
+    const max_field_size = 5;
+    var wip_members = try WipMembers.init(gpa, &astgen.scratch, 1, 0, bits_per_field, max_field_size);
+    defer wip_members.deinit();
+
+    var buf: [1]Ast.Node.Index = undefined;
+    const full = tree.fullFnProto(&buf, node).?;
+
+    const body: Ast.Node.OptionalIndex = if (tree.nodeTag(node) == .fn_decl)
+        tree.nodeData(node).node_and_node[1].toOptional()
+    else
+        .none;
+
+    astgen.fnDecl(gz, scope, &wip_members, node, body, full) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.AnalysisFail => {
+            wip_members.decl_index = 0;
+            try addFailedDeclaration(
+                &wip_members,
+                gz,
+                .@"const",
+                try astgen.identAsString(full.name_token.?),
+                full.ast.proto_node,
+                full.visib_token != null,
+            );
+        },
+    };
+
+    const bodies_start = astgen.scratch.items.len;
+
+    const old_hasher = astgen.src_hasher;
+    defer astgen.src_hasher = old_hasher;
+    astgen.src_hasher = std.zig.SrcHasher.init(.{});
+    astgen.src_hasher.update(tree.getNodeSource(node));
+
+    var fields_hash: std.zig.SrcHash = undefined;
+    astgen.src_hasher.final(&fields_hash);
+
+    try gz.setStruct(decl_inst, .{
+        .src_node = node,
+        .layout = .auto,
+        .captures_len = @intCast(namespace.captures.count()),
+        .fields_len = 0,
+        .decls_len = 1,
+        .has_backing_int = false,
+        .known_non_opv = false,
+        .known_comptime_only = false,
+        .any_comptime_fields = false,
+        .any_default_inits = false,
+        .any_aligned_fields = false,
+        .fields_hash = fields_hash,
+        .name_strat = .anon,
+    });
+
+    wip_members.finishBits(bits_per_field);
+    const decls_slice = wip_members.declsSlice();
+    const bodies_slice = astgen.scratch.items[bodies_start..];
+    try astgen.extra.ensureUnusedCapacity(gpa, 2 +
+        decls_slice.len + namespace.captures.count() * 2 + bodies_slice.len);
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.keys()));
+    astgen.extra.appendSliceAssumeCapacity(@ptrCast(namespace.captures.values()));
+
+    astgen.extra.appendSliceAssumeCapacity(decls_slice);
+    astgen.extra.appendSliceAssumeCapacity(bodies_slice);
+
+    block_scope.unstack();
+    const struct_decl = decl_inst.toRef();
+
+    const tag: Zir.Inst.Tag = switch (ri.rl) {
+        .ref, .ref_coerced_ty => .field_ptr,
+        else => .field_val,
+    };
+
+    const access = try gz.addPlNode(tag, node, Zir.Inst.Field{
+        .lhs = struct_decl,
+        .field_name_start = try astgen.hardcodedString(ALI_LAMBDA_NAME),
+    });
+
+    return switch (tag) {
+        .field_val => rvalue(gz, ri, access, node),
+        else => access,
+    };
+
+    // .field_access => return fieldAccess(gz, scope, ri, node),
+
+}
+
 /// Turn Zig AST into untyped ZIR instructions.
 /// When `rl` is discard, ptr, inferred_ptr, or inferred_ptr, the
 /// result instruction can be used to inspect whether it is isNoReturn() but that is it,
@@ -641,7 +757,9 @@ fn expr(gz: *GenZir, scope: *Scope, ri: ResultInfo, node: Ast.Node.Index) InnerE
         .container_field_init => unreachable, // Top-level declaration.
         .container_field_align => unreachable, // Top-level declaration.
         .container_field => unreachable, // Top-level declaration.
-        .fn_decl => unreachable, // Top-level declaration.
+        .fn_decl => {
+            return try aliFnExpr(gz, scope, ri, node);
+        }, // Top-level declaration.
 
         .global_var_decl => unreachable, // Handled in `blockExpr`.
         .local_var_decl => unreachable, // Handled in `blockExpr`.
@@ -4083,7 +4201,7 @@ fn fnDecl(
     astgen.src_hasher.update(std.mem.asBytes(&astgen.source_column));
 
     // missing function name already checked in scanContainer()
-    const fn_name_token = fn_proto.name_token.?;
+    const fn_name_token = fn_proto.name_token;
 
     // We insert this at the beginning so that its instruction index marks the
     // start of the top level declaration.
@@ -4211,7 +4329,7 @@ fn fnDecl(
         .src_column = decl_column,
 
         .kind = .@"const",
-        .name = try astgen.identAsString(fn_name_token),
+        .name = if (fn_name_token) |real_tok| try astgen.identAsString(real_tok) else try astgen.hardcodedString(AstGen.ALI_LAMBDA_NAME),
         .is_pub = is_pub,
         .is_threadlocal = false,
         .linkage = if (is_extern) .@"extern" else if (is_export) .@"export" else .normal,
@@ -11489,6 +11607,27 @@ fn errNoteNode(
         .byte_offset = 0,
         .notes = 0,
     });
+}
+
+fn hardcodedString(astgen: *AstGen, str: []const u8) !Zir.NullTerminatedString {
+    const gpa = astgen.gpa;
+    const string_bytes = &astgen.string_bytes;
+    const str_index: u32 = @intCast(string_bytes.items.len);
+    try string_bytes.appendSlice(gpa, str);
+    const key: []const u8 = string_bytes.items[str_index..];
+    const gop = try astgen.string_table.getOrPutContextAdapted(gpa, key, StringIndexAdapter{
+        .bytes = string_bytes,
+    }, StringIndexContext{
+        .bytes = string_bytes,
+    });
+    if (gop.found_existing) {
+        string_bytes.shrinkRetainingCapacity(str_index);
+        return @enumFromInt(gop.key_ptr.*);
+    } else {
+        gop.key_ptr.* = str_index;
+        try string_bytes.append(gpa, 0);
+        return @enumFromInt(str_index);
+    }
 }
 
 fn identAsString(astgen: *AstGen, ident_token: Ast.TokenIndex) !Zir.NullTerminatedString {
