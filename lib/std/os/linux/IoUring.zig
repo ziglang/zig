@@ -1282,6 +1282,7 @@ pub fn unregister_napi(self: *IoUring, napi: *linux.io_uring_napi) !void {
     try handle_registration_result(res);
 }
 
+/// Registers an array of buffers for use with `read_fixed` and `write_fixed`.
 pub fn register_buffers(self: *IoUring, buffers: []const posix.iovec) !void {
     assert(self.fd >= 0);
     const res = linux.io_uring_register(
