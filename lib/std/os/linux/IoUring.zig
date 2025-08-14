@@ -4056,7 +4056,7 @@ test "waitid" {
         posix.exit(7);
     }
 
-    var siginfo: posix.siginfo_t = undefined;
+    var siginfo = std.mem.zeroes(posix.siginfo_t);
     _ = try ring.waitid(0, .PID, pid, &siginfo, posix.W.EXITED, 0);
 
     try testing.expectEqual(1, try ring.submit());
