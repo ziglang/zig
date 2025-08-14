@@ -17,7 +17,6 @@ const State = union(enum) {
     new_frame,
     in_frame: InFrame,
     skipping_frame: usize,
-    end,
 
     const InFrame = struct {
         frame: Frame,
@@ -203,7 +202,6 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
             if (remaining.* == 0) d.state = .new_frame;
             return 0;
         },
-        .end => return error.EndOfStream,
     }
 }
 
