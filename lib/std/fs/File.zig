@@ -1823,6 +1823,11 @@ pub const Writer = struct {
                 .NOBUFS => w.sendfile_err = error.SystemResources,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
@@ -1878,6 +1883,11 @@ pub const Writer = struct {
                 .IO => w.sendfile_err = error.InputOutput,
                 .PIPE => w.sendfile_err = error.BrokenPipe,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
+            }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
             }
             if (len == 0) {
                 file_reader.size = file_reader.pos;
