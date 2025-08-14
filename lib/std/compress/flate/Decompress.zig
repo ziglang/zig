@@ -76,7 +76,7 @@ const indirect_vtable: Reader.VTable = .{
 /// `input` buffer is asserted to be at least 10 bytes, or EOF before then.
 ///
 /// If `buffer` is provided then asserted to have `flate.max_window_len`
-/// capacity, as well as `flate.history_len` unused capacity on every write.
+/// capacity.
 pub fn init(input: *Reader, container: Container, buffer: []u8) Decompress {
     if (buffer.len != 0) assert(buffer.len >= flate.max_window_len);
     return .{
@@ -239,8 +239,6 @@ fn decodeSymbol(self: *Decompress, decoder: anytype) !Symbol {
 }
 
 fn streamDirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
-    assert(w.buffer.len >= flate.max_window_len);
-    assert(w.unusedCapacityLen() >= flate.history_len);
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     return streamFallible(d, w, limit);
 }
