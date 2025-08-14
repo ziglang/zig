@@ -2706,6 +2706,8 @@ test "statx" {
         .BADF => return error.SkipZigTest,
         else => |errno| std.debug.panic("unhandled errno: {}", .{errno}),
     }
+    // buf is initialized after a successful copy_cqe
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(std.mem.sliceAsBytes(std.mem.asBytes(&buf)));
     try testing.expectEqual(linux.io_uring_cqe{
         .user_data = 0xaaaaaaaa,
         .res = 0,
