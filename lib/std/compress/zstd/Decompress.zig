@@ -17,7 +17,6 @@ const State = union(enum) {
     new_frame,
     in_frame: InFrame,
     skipping_frame: usize,
-    end,
 
     const InFrame = struct {
         frame: Frame,
@@ -158,7 +157,18 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
 
     switch (d.state) {
         .new_frame => {
-            // Allow error.EndOfStream only on the frame magic.
+            // Only return EndOfStream when there are exactly 0 bytes remaining on the
+            // frame magic. Any partial magic bytes should be considered a failure.
+            in.fill(@sizeOf(Frame.Magic)) catch |err| switch (err) {
+                error.EndOfStream => {
+                    if (in.bufferedLen() != 0) {
+                        d.err = error.BadMagic;
+                        return error.ReadFailed;
+                    }
+                    return err;
+                },
+                else => |e| return e,
+            };
             const magic = try in.takeEnumNonexhaustive(Frame.Magic, .little);
             initFrame(d, w.buffer.len, magic) catch |err| {
                 d.err = err;
@@ -192,7 +202,6 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
             if (remaining.* == 0) d.state = .new_frame;
             return 0;
         },
-        .end => return error.EndOfStream,
     }
 }
 

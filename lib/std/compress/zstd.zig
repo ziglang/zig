@@ -121,6 +121,12 @@ test Decompress {
     try testExpectDecompress(uncompressed, compressed19);
 }
 
+test "partial magic number" {
+    const input_raw =
+        "\x28\xb5\x2f"; // 3 bytes of the 4-byte zstandard frame magic number
+    try testExpectDecompressError(error.BadMagic, input_raw);
+}
+
 test "zero sized raw block" {
     const input_raw =
         "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
