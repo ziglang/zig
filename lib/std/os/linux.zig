@@ -6535,7 +6535,7 @@ pub const IORING_REGISTER = enum(u32) {
 
     // register/unregister io_uring fd with the ring
     REGISTER_RING_FDS,
-    NREGISTER_RING_FDS,
+    UNREGISTER_RING_FDS,
 
     // register ring based provide buffer group
     REGISTER_PBUF_RING,
@@ -6548,30 +6548,30 @@ pub const IORING_REGISTER = enum(u32) {
     REGISTER_FILE_ALLOC_RANGE,
 
     // return status information for a buffer group
-    IORING_REGISTER_PBUF_STATUS,
+    REGISTER_PBUF_STATUS,
 
     // set/clear busy poll settings
-    IORING_REGISTER_NAPI,
-    IORING_UNREGISTER_NAPI,
+    REGISTER_NAPI,
+    UNREGISTER_NAPI,
 
-    IORING_REGISTER_CLOCK,
+    REGISTER_CLOCK,
 
     // clone registered buffers from source ring to current ring
-    IORING_REGISTER_CLONE_BUFFERS,
+    REGISTER_CLONE_BUFFERS,
 
     // send MSG_RING without having a ring
-    IORING_REGISTER_SEND_MSG_RING,
+    REGISTER_SEND_MSG_RING,
 
     // register a netdev hw rx queue for zerocopy
-    IORING_REGISTER_ZCRX_IFQ,
+    REGISTER_ZCRX_IFQ,
 
     // resize CQ ring
-    IORING_REGISTER_RESIZE_RINGS,
+    REGISTER_RESIZE_RINGS,
 
-    IORING_REGISTER_MEM_REGION,
+    REGISTER_MEM_REGION,
 
     // flag added to the opcode to use a registered ring fd
-    IORING_REGISTER_USE_REGISTERED_RING = 1 << 31,
+    REGISTER_USE_REGISTERED_RING = 1 << 31,
 
     _,
 };
