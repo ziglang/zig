@@ -4601,6 +4601,8 @@ fn testSendRecv(ring: *IoUring, send_fd: posix.socket_t, recv_fd: posix.socket_t
         try testing.expectEqual(posix.E.SUCCESS, cqe.err());
         recv_len += @intCast(cqe.res);
     }
+    // if this is not the case, the check fails
+    std.valgrind.memcheck.makeMemDefinedIfAddressable(&buffer_recv);
 
     // inspect recv buffer
     try testing.expectEqualSlices(u8, buffer_send, buffer_recv[0..buffer_send.len]);
