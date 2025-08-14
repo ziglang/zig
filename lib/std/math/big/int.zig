@@ -872,7 +872,7 @@ pub const Mutable = struct {
 
         @memset(rma.limbs[0..req_limbs], 0);
 
-        llmulacc(.add, allocator, rma.limbs, a_limbs, b_limbs);
+        llmulacc(.add, allocator, rma.limbs[0..req_limbs], a_limbs, b_limbs);
         rma.normalize(@min(req_limbs, a.limbs.len + b.limbs.len));
         rma.positive = (a.positive == b.positive);
         rma.truncate(rma.toConst(), signedness, bit_count);
