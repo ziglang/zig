@@ -150,3 +150,12 @@ test "declared raw literals size too large" {
     // block can't be valid as it is a raw literals block.
     try testExpectDecompressError(error.MalformedLiteralsSection, input_raw);
 }
+
+test "skippable frame" {
+    const input_raw =
+        "\x50\x2a\x4d\x18" ++ // min magic number for a skippable frame
+        "\x02\x00\x00\x00" ++ // number of bytes to skip
+        "\xFF\xFF"; // the bytes that are skipped
+
+    try testExpectDecompress("", input_raw);
+}

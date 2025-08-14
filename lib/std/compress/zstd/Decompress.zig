@@ -156,7 +156,7 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     const in = d.input;
 
-    switch (d.state) {
+    state: switch (d.state) {
         .new_frame => {
             // Allow error.EndOfStream only on the frame magic.
             const magic = try in.takeEnumNonexhaustive(Frame.Magic, .little);
@@ -164,14 +164,7 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
                 d.err = err;
                 return error.ReadFailed;
             };
-            return readInFrame(d, w, limit, &d.state.in_frame) catch |err| switch (err) {
-                error.ReadFailed => return error.ReadFailed,
-                error.WriteFailed => return error.WriteFailed,
-                else => |e| {
-                    d.err = e;
-                    return error.ReadFailed;
-                },
-            };
+            continue :state d.state;
         },
         .in_frame => |*in_frame| {
             return readInFrame(d, w, limit, in_frame) catch |err| switch (err) {
