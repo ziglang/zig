@@ -6547,6 +6547,29 @@ pub const IORING_REGISTER = enum(u32) {
     // register a range of fixed file slots for automatic slot allocation
     REGISTER_FILE_ALLOC_RANGE,
 
+    // return status information for a buffer group
+    IORING_REGISTER_PBUF_STATUS,
+
+    // set/clear busy poll settings
+    IORING_REGISTER_NAPI,
+    IORING_UNREGISTER_NAPI,
+
+    IORING_REGISTER_CLOCK,
+
+    // clone registered buffers from source ring to current ring
+    IORING_REGISTER_CLONE_BUFFERS,
+
+    // send MSG_RING without having a ring
+    IORING_REGISTER_SEND_MSG_RING,
+
+    // register a netdev hw rx queue for zerocopy
+    IORING_REGISTER_ZCRX_IFQ,
+
+    // resize CQ ring
+    IORING_REGISTER_RESIZE_RINGS,
+
+    IORING_REGISTER_MEM_REGION,
+
     // flag added to the opcode to use a registered ring fd
     IORING_REGISTER_USE_REGISTERED_RING = 1 << 31,
 
@@ -6603,6 +6626,13 @@ pub const io_uring_notification_register = extern struct {
     resv2: u64,
     data: u64,
     resv3: u64,
+};
+
+pub const io_uring_napi = extern struct {
+    busy_poll_to: u32,
+    prefer_busy_poll: u8,
+    pad: [3]u8,
+    resv: u64,
 };
 
 /// Skip updating fd indexes set to this value in the fd table */
