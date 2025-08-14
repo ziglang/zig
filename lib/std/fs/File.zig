@@ -1214,6 +1214,10 @@ pub const Reader = struct {
                     return err;
                 }
             }
+            if (posix.Stat == void) {
+                r.size_err = error.Streaming;
+                return error.Streaming;
+            }
             if (stat(r.file)) |st| {
                 if (st.kind == .file) {
                     r.size = st.size;
@@ -1236,6 +1240,10 @@ pub const Reader = struct {
                 setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
             },
             .streaming, .streaming_reading => {
+                if (posix.SEEK == void) {
+                    r.seek_err = error.Unseekable;
+                    return error.Unseekable;
+                }
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
                         setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
