@@ -121,6 +121,12 @@ test Decompress {
     try testExpectDecompress(uncompressed, compressed19);
 }
 
+test "partial magic number" {
+    const input_raw =
+        "\x28\xb5\x2f"; // 3 bytes of the 4-byte zstandard frame magic number
+    try testExpectDecompressError(error.BadMagic, input_raw);
+}
+
 test "zero sized raw block" {
     const input_raw =
         "\x28\xb5\x2f\xfd" ++ // zstandard frame magic number
@@ -149,4 +155,13 @@ test "declared raw literals size too large" {
     // Note that the regenerated_size in the above input is larger than block maximum size, so the
     // block can't be valid as it is a raw literals block.
     try testExpectDecompressError(error.MalformedLiteralsSection, input_raw);
+}
+
+test "skippable frame" {
+    const input_raw =
+        "\x50\x2a\x4d\x18" ++ // min magic number for a skippable frame
+        "\x02\x00\x00\x00" ++ // number of bytes to skip
+        "\xFF\xFF"; // the bytes that are skipped
+
+    try testExpectDecompress("", input_raw);
 }
