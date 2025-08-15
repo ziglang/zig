@@ -5,12 +5,14 @@ pub const Driver = @import("aro/Driver.zig");
 pub const Parser = @import("aro/Parser.zig");
 pub const Preprocessor = @import("aro/Preprocessor.zig");
 pub const Source = @import("aro/Source.zig");
+pub const StringInterner = @import("aro/StringInterner.zig");
+pub const target_util = @import("aro/target.zig");
 pub const Tokenizer = @import("aro/Tokenizer.zig");
 pub const Toolchain = @import("aro/Toolchain.zig");
 pub const Tree = @import("aro/Tree.zig");
-pub const Type = @import("aro/Type.zig");
-pub const TypeMapper = @import("aro/StringInterner.zig").TypeMapper;
-pub const target_util = @import("aro/target.zig");
+pub const TypeStore = @import("aro/TypeStore.zig");
+pub const QualType = TypeStore.QualType;
+pub const Type = TypeStore.Type;
 pub const Value = @import("aro/Value.zig");
 
 const backend = @import("backend.zig");
@@ -18,6 +20,7 @@ pub const Interner = backend.Interner;
 pub const Ir = backend.Ir;
 pub const Object = backend.Object;
 pub const CallingConvention = backend.CallingConvention;
+pub const Assembly = backend.Assembly;
 
 pub const version_str = backend.version_str;
 pub const version = backend.version;
@@ -34,6 +37,5 @@ test {
     _ = @import("aro/Preprocessor.zig");
     _ = @import("aro/target.zig");
     _ = @import("aro/Tokenizer.zig");
-    _ = @import("aro/toolchains/Linux.zig");
     _ = @import("aro/Value.zig");
 }
