@@ -1625,6 +1625,25 @@ test count {
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
 }
 
+/// Returns the number of needles inside the haystack
+pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
+    var found: usize = 0;
+    for (haystack) |item| {
+        if (item == needle) {
+            found += 1;
+        }
+    }
+    return found;
+}
+
+test countScalar {
+    try testing.expect(countScalar(u8, "", 'h') == 0);
+    try testing.expect(countScalar(u8, "h", 'h') == 1);
+    try testing.expect(countScalar(u8, "hh", 'h') == 2);
+    try testing.expect(countScalar(u8, "hhh", 'h') == 3);
+    try testing.expect(countScalar(u8, "www", 'h') == 0);
+}
+
 /// Returns true if the haystack contains expected_count or more needles
 /// needle.len must be > 0
 /// does not count overlapping needles
