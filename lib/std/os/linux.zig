@@ -144,6 +144,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
+    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -643,7 +644,13 @@ pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
 }
 
 pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
-    return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
+    return syscall4(
+        if (@hasField(SYS, "utimensat")) .utimensat else .utimensat_time64,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        @intFromPtr(times),
+        flags,
+    );
 }
 
 pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
@@ -685,19 +692,38 @@ pub const futex_param4 = extern union {
 /// The futex_op parameter is a sub-command and flags.  The sub-command
 /// defines which of the subsequent paramters are relevant.
 pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
-    return syscall6(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(val2timeout.timeout), @intFromPtr(uaddr2), val3);
+    return syscall6(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(val2timeout.timeout),
+        @intFromPtr(uaddr2),
+        val3,
+    );
 }
 
 /// Three-argument variation of the v1 futex call.  Only suitable for a
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
 pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
-    return syscall3(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val);
+    return syscall3(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+    );
 }
 
 /// Four-argument variation on the v1 futex call.  Only suitable for
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
 pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
-    return syscall4(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(timeout));
+    return syscall4(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(timeout),
+    );
 }
 
 /// Given an array of `futex2_waitone`, wait on each uaddr.
@@ -1053,28 +1079,32 @@ pub fn munlockall() usize {
 }
 
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
-    if (@hasField(SYS, "poll")) {
-        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)));
-    } else {
-        return syscall5(
-            .ppoll,
-            @intFromPtr(fds),
+    return if (@hasField(SYS, "poll"))
+        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)))
+    else
+        ppoll(
+            fds,
             n,
-            @intFromPtr(if (timeout >= 0)
-                &timespec{
+            if (timeout >= 0)
+                @constCast(&timespec{
                     .sec = @divTrunc(timeout, 1000),
                     .nsec = @rem(timeout, 1000) * 1000000,
-                }
+                })
             else
-                null),
-            0,
-            NSIG / 8,
+                null,
+            null,
         );
-    }
 }
 
 pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
-    return syscall5(.ppoll, @intFromPtr(fds), n, @intFromPtr(timeout), @intFromPtr(sigmask), NSIG / 8);
+    return syscall5(
+        if (@hasField(SYS, "ppoll")) .ppoll else .ppoll_time64,
+        @intFromPtr(fds),
+        n,
+        @intFromPtr(timeout),
+        @intFromPtr(sigmask),
+        NSIG / 8,
+    );
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
@@ -1598,7 +1628,11 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
             }
         }
     }
-    return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_gettime")) .clock_gettime else .clock_gettime64,
+        @intFromEnum(clk_id),
+        @intFromPtr(tp),
+    );
 }
 
 fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
@@ -1612,16 +1646,24 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
-    return syscall2(.clock_getres, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_getres")) .clock_getres else .clock_getres_time64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
-    return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_settime")) .clock_settime else .clock_settime64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
     return syscall4(
-        .clock_nanosleep,
+        if (@hasField(SYS, "clock_nanosleep")) .clock_nanosleep else .clock_nanosleep_time64,
         @intFromEnum(clockid),
         @as(u32, @bitCast(flags)),
         @intFromPtr(request),
@@ -2020,7 +2062,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
-        .recvmmsg,
+        if (@hasField(SYS, "recvmmsg")) .recvmmsg else .recvmmsg_time64,
         @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(msgvec),
         vlen,
@@ -2369,11 +2411,21 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(.timerfd_gettime, @bitCast(@as(isize, fd)), @intFromPtr(curr_value));
+    return syscall2(
+        if (@hasField(SYS, "timerfd_gettime")) .timerfd_gettime else .timerfd_gettime64,
+        @bitCast(@as(isize, fd)),
+        @intFromPtr(curr_value),
+    );
 }
 
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timerfd_settime, @bitCast(@as(isize, fd)), @as(u32, @bitCast(flags)), @intFromPtr(new_value), @intFromPtr(old_value));
+    return syscall4(
+        if (@hasField(SYS, "timerfd_settime")) .timerfd_settime else .timerfd_settime64,
+        @bitCast(@as(isize, fd)),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_value),
+        @intFromPtr(old_value),
+    );
 }
 
 // Flags for the 'setitimer' system call

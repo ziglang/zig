@@ -2,12 +2,18 @@
 //!
 //! This tool extracts the Linux syscall numbers from the Linux source tree
 //! directly, and emits an enumerated list per supported Zig arch.
+//!
+//! As of kernel version 6.11, all supported architectures have their syscalls
+//! defined in files with the following tabular format:
+//!
+//!   # Comment
+//!   <number> <abi> <name> ...
+//!
+//! Everything after `name` is ignored for the purposes of this tool.
 
 const std = @import("std");
+const Io = std.Io;
 const mem = std.mem;
-const fmt = std.fmt;
-const zig = std.zig;
-const fs = std.fs;
 
 const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     // Remove underscore prefix.
@@ -22,702 +28,224 @@ const stdlib_renames = std.StaticStringMap([]const u8).initComptime(.{
     // ARM EABI/Thumb.
     .{ "arm_sync_file_range", "sync_file_range" },
     .{ "arm_fadvise64_64", "fadvise64_64" },
-    // ARC and Hexagon.
-    .{ "mmap_pgoff", "mmap2" },
 });
 
-// Only for newer architectures where we use the C preprocessor.
-const stdlib_renames_new = std.StaticStringMap([]const u8).initComptime(.{
-    .{ "newuname", "uname" },
-    .{ "umount", "umount2" },
-});
-
-// We use this to deal with the fact that multiple syscalls can be mapped to sys_ni_syscall.
-// Thankfully it's only 2 well-known syscalls in newer kernel ports at the moment.
-fn getOverridenNameNew(value: []const u8) ?[]const u8 {
-    if (mem.eql(u8, value, "18")) {
-        return "sys_lookup_dcookie";
-    } else if (mem.eql(u8, value, "42")) {
-        return "sys_nfsservctl";
-    } else {
-        return null;
-    }
+/// Filter syscalls that aren't actually syscalls.
+fn isReserved(name: []const u8) bool {
+    return mem.startsWith(u8, name, "available") or
+        mem.startsWith(u8, name, "reserved") or
+        mem.startsWith(u8, name, "unused");
 }
 
-fn isReservedNameOld(name: []const u8) bool {
-    return std.mem.startsWith(u8, name, "available") or
-        std.mem.startsWith(u8, name, "reserved") or
-        std.mem.startsWith(u8, name, "unused");
-}
-
-const default_args: []const []const u8 = &.{
-    "-E",
-    // -dM is cleaner, but -dD preserves iteration order.
-    "-dD",
-    // No need for line-markers.
-    "-P",
-    "-nostdinc",
-    // Using -I=[dir] includes the zig linux headers, which we don't want.
-    "-Itools/include",
-    "-Itools/include/uapi",
-    // Output the syscall in a format we can easily recognize.
-    "-D __SYSCALL(nr, nm)=zigsyscall nm nr",
+/// Values of the `abi` field in use by the syscall tables.
+///
+/// Since c. 2012, all new Linux architectures use the same numbers for their syscalls.
+/// Before kernel 6.11, the source of truth for this list was the arch-specific `uapi` headers.
+/// The 6.11 release converted this into a unified table with the same format as the older archs.
+/// For these targets, syscalls are enabled/disabled based on the `abi` field.
+/// These fields are sourced from the respective `arch/{arch}/kernel/Makefile.syscalls`
+/// files in the kernel source tree.
+/// Architecture-specific syscalls between [244...259] are also enabled by adding the arch name as an abi.
+const Abi = enum {
+    /// Syscalls common to two or more sub-targets.
+    /// Often used for single targets in lieu of a nil value.
+    common,
+    /// Syscalls using 64-bit types on 32-bit targets.
+    @"32",
+    /// 64-bit native syscalls.
+    @"64",
+    /// 32-bit time syscalls.
+    time32,
+    /// Supports the older renameat syscall along with renameat2.
+    renameat,
+    /// Supports the fstatat64 syscall.
+    stat64,
+    /// Supports the {get,set}rlimit syscalls.
+    rlimit,
+    /// Implements `memfd_secret` and friends.
+    memfd_secret,
+    // Architecture-specific syscalls.
+    x32,
+    eabi,
+    nospu,
+    arc,
+    csky,
+    nios2,
+    or1k,
+    riscv,
 };
 
-const ProcessPreprocessedFileFn = *const fn (bytes: []const u8, writer: anytype) anyerror!void;
-const ProcessTableBasedArchFileFn = *const fn (
-    bytes: []const u8,
-    filters: Filters,
-    writer: anytype,
-    optional_writer: anytype,
-) anyerror!void;
+const __X32_SYSCALL_BIT: u32 = 0x40000000;
+const __NR_Linux_O32: u32 = 4000;
+const __NR_Linux_N64: u32 = 5000;
+const __NR_Linux_N32: u32 = 6000;
 
-const FlowControl = enum {
-    @"break",
-    @"continue",
-    none,
+const Arch = struct {
+    /// Name for the generated enum variable.
+    @"var": []const u8,
+    /// Location of the table if this arch doesn't use the generic one.
+    table: union(enum) { generic: void, specific: []const u8 },
+    /// List of abi features to filter on.
+    /// An empty list implies the abi field is a constant value, thus skipping validation.
+    abi: []const Abi = &.{},
+    /// Some architectures need special handling:
+    /// - x32 system calls must have their number OR'ed with
+    /// `__X32_SYSCALL_BIT` to distinguish them against the regular x86_64 calls.
+    /// - Mips systems calls are offset by a set number based on the ABI.
+    ///
+    /// Because the `__X32_SYSCALL_BIT` mask is so large, we can turn the OR into a
+    /// normal addition and apply a base offset for all targets, defaulting to 0.
+    offset: u32 = 0,
+    header: ?[]const u8 = null,
+    footer: ?[]const u8 = null,
+
+    fn get(self: Arch, line: []const u8) ?struct { []const u8, u32 } {
+        var iter = mem.tokenizeAny(u8, line, " \t");
+        const num_str = iter.next() orelse @panic("Bad field");
+        const abi = iter.next() orelse @panic("Bad field");
+        const name = iter.next() orelse @panic("Bad field");
+
+        // Filter out syscalls that aren't actually syscalls.
+        if (isReserved(name)) return null;
+        // Check abi field matches
+        const abi_match: bool = if (self.abi.len == 0) true else blk: {
+            for (self.abi) |a|
+                if (mem.eql(u8, @tagName(a), abi)) break :blk true;
+            break :blk false;
+        };
+        if (!abi_match) return null;
+
+        var num = std.fmt.parseInt(u32, num_str, 10) catch @panic("Bad syscall number");
+        num += self.offset;
+
+        return .{ name, num };
+    }
 };
 
-const AbiCheckParams = struct { abi: []const u8, flow: FlowControl };
-
-const Filters = struct {
-    abiCheckParams: ?AbiCheckParams,
-    fixedName: ?*const fn (name: []const u8) []const u8,
-    isReservedNameOld: ?*const fn (name: []const u8) bool,
+const architectures: []const Arch = &.{
+    .{ .@"var" = "X86", .table = .{ .specific = "arch/x86/entry/syscalls/syscall_32.tbl" } },
+    .{ .@"var" = "X64", .table = .{ .specific = "arch/x86/entry/syscalls/syscall_64.tbl" }, .abi = &.{ .common, .@"64" } },
+    .{ .@"var" = "X32", .table = .{ .specific = "arch/x86/entry/syscalls/syscall_64.tbl" }, .abi = &.{ .common, .x32 }, .offset = __X32_SYSCALL_BIT },
+    .{
+        .@"var" = "Arm",
+        .table = .{ .specific = "arch/arm/tools/syscall.tbl" },
+        .abi = &.{ .common, .eabi },
+        // These values haven't been brought over from `arch/arm/include/uapi/asm/unistd.h`,
+        // so we are forced to add them ourselves.
+        .header = "    const arm_base = 0x0f0000;\n\n",
+        .footer =
+        \\
+        \\    breakpoint = arm_base + 1,
+        \\    cacheflush = arm_base + 2,
+        \\    usr26 = arm_base + 3,
+        \\    usr32 = arm_base + 4,
+        \\    set_tls = arm_base + 5,
+        \\    get_tls = arm_base + 6,
+        \\
+        ,
+    },
+    .{ .@"var" = "Sparc", .table = .{ .specific = "arch/sparc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32" } },
+    .{ .@"var" = "Sparc64", .table = .{ .specific = "arch/sparc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
+    .{ .@"var" = "M68k", .table = .{ .specific = "arch/m68k/kernel/syscalls/syscall.tbl" } },
+    // For Mips, the abi for these tables is always o32/n64/n32.
+    .{ .@"var" = "MipsO32", .table = .{ .specific = "arch/mips/kernel/syscalls/syscall_o32.tbl" }, .offset = __NR_Linux_O32 },
+    .{ .@"var" = "MipsN64", .table = .{ .specific = "arch/mips/kernel/syscalls/syscall_n64.tbl" }, .offset = __NR_Linux_N64 },
+    .{ .@"var" = "MipsN32", .table = .{ .specific = "arch/mips/kernel/syscalls/syscall_n32.tbl" }, .offset = __NR_Linux_N32 },
+    .{ .@"var" = "PowerPC", .table = .{ .specific = "arch/powerpc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32", .nospu } },
+    .{ .@"var" = "PowerPC64", .table = .{ .specific = "arch/powerpc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64", .nospu } },
+    .{ .@"var" = "S390x", .table = .{ .specific = "arch/s390/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
+    .{ .@"var" = "Xtensa", .table = .{ .specific = "arch/xtensa/kernel/syscalls/syscall.tbl" } },
+    .{ .@"var" = "Arm64", .table = .generic, .abi = &.{ .common, .@"64", .renameat, .rlimit, .memfd_secret } },
+    .{ .@"var" = "RiscV32", .table = .generic, .abi = &.{ .common, .@"32", .riscv, .memfd_secret } },
+    .{ .@"var" = "RiscV64", .table = .generic, .abi = &.{ .common, .@"64", .riscv, .rlimit, .memfd_secret } },
+    .{ .@"var" = "LoongArch64", .table = .generic, .abi = &.{ .common, .@"64" } },
+    .{ .@"var" = "Arc", .table = .generic, .abi = &.{ .common, .@"32", .arc, .time32, .renameat, .stat64, .rlimit } },
+    .{ .@"var" = "CSky", .table = .generic, .abi = &.{ .common, .@"32", .csky, .time32, .stat64, .rlimit } },
+    .{ .@"var" = "Hexagon", .table = .generic, .abi = &.{ .common, .@"32", .time32, .stat64, .rlimit, .renameat } },
+    .{ .@"var" = "OpenRisc", .table = .generic, .abi = &.{ .common, .@"32", .or1k, .time32, .stat64, .rlimit, .renameat } },
+    // .{ .@"var" = "Nios2", .table = .generic, .abi = &.{ .common, .@"32", .nios2, .time32, .stat64, .rlimit, .renameat } },
+    // .{ .@"var" = "Parisc", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"32" } },
+    // .{ .@"var" = "Parisc64", .table = .{ .specific = "arch/parisc/kernel/syscalls/syscall.tbl" }, .abi = &.{ .common, .@"64" } },
+    // .{ .@"var" = "Sh", .table = .{ .specific = "arch/sh/kernel/syscalls/syscall.tbl" } },
+    // .{ .@"var" = "Microblaze", .table = .{ .specific = "arch/microblaze/kernel/syscalls/syscall.tbl" } },
 };
-
-fn abiCheck(abi: []const u8, params: *const AbiCheckParams) FlowControl {
-    if (mem.eql(u8, abi, params.abi)) return params.flow;
-    return .none;
-}
-
-fn fixedName(name: []const u8) []const u8 {
-    return if (stdlib_renames.get(name)) |fixed| fixed else name;
-}
-
-const ArchInfo = union(enum) {
-    table: struct {
-        name: []const u8,
-        enum_name: []const u8,
-        file_path: []const u8,
-        header: ?[]const u8,
-        extra_values: ?[]const u8,
-        process_file: ProcessTableBasedArchFileFn,
-        filters: Filters,
-        additional_enum: ?[]const u8,
-    },
-    preprocessor: struct {
-        name: []const u8,
-        enum_name: []const u8,
-        file_path: []const u8,
-        child_options: struct {
-            comptime additional_args: ?[]const []const u8 = null,
-            target: []const u8,
-
-            pub inline fn getArgs(self: *const @This(), zig_exe: []const u8, file_path: []const u8) []const []const u8 {
-                const additional_args: []const []const u8 = self.additional_args orelse &.{};
-                return .{ zig_exe, "cc" } ++ additional_args ++ .{ "-target", self.target } ++ default_args ++ .{file_path};
-            }
-        },
-        header: ?[]const u8,
-        extra_values: ?[]const u8,
-        process_file: ProcessPreprocessedFileFn,
-        additional_enum: ?[]const u8,
-    },
-};
-
-const arch_infos = [_]ArchInfo{
-    .{
-        // These architectures have their syscall definitions generated from a TSV
-        // file, processed via scripts/syscallhdr.sh.
-        .table = .{
-            .name = "x86",
-            .enum_name = "X86",
-            .file_path = "arch/x86/entry/syscalls/syscall_32.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                .abiCheckParams = null,
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "x64",
-            .enum_name = "X64",
-            .file_path = "arch/x86/entry/syscalls/syscall_64.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                // The x32 abi syscalls are always at the end.
-                .abiCheckParams = .{ .abi = "x32", .flow = .@"break" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "x32",
-            .enum_name = "X32",
-            .file_path = "arch/x86/entry/syscalls/syscall_64.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                .abiCheckParams = .{ .abi = "64", .flow = .@"continue" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "arm",
-            .enum_name = "Arm",
-            .file_path = "arch/arm/tools/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                .abiCheckParams = .{ .abi = "oabi", .flow = .@"continue" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = "    const arm_base = 0x0f0000;\n\n",
-            // TODO: maybe extract these from arch/arm/include/uapi/asm/unistd.h
-            .extra_values =
-            \\
-            \\    breakpoint = arm_base + 1,
-            \\    cacheflush = arm_base + 2,
-            \\    usr26 = arm_base + 3,
-            \\    usr32 = arm_base + 4,
-            \\    set_tls = arm_base + 5,
-            \\    get_tls = arm_base + 6,
-            \\
-            ,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "sparc",
-            .enum_name = "Sparc",
-            .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                .abiCheckParams = .{ .abi = "64", .flow = .@"continue" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "sparc64",
-            .enum_name = "Sparc64",
-            .file_path = "arch/sparc/kernel/syscalls/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                .abiCheckParams = .{ .abi = "32", .flow = .@"continue" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "m68k",
-            .enum_name = "M68k",
-            .file_path = "arch/m68k/kernel/syscalls/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                // abi is always common
-                .abiCheckParams = null,
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "mips_o32",
-            .enum_name = "MipsO32",
-            .file_path = "arch/mips/kernel/syscalls/syscall_o32.tbl",
-            .process_file = &processMipsBasedArch,
-            .filters = .{
-                // abi is always o32
-                .abiCheckParams = null,
-                .fixedName = &fixedName,
-                .isReservedNameOld = &isReservedNameOld,
-            },
-            .header = "    const linux_base = 4000;\n\n",
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "mips_n64",
-            .enum_name = "MipsN64",
-            .file_path = "arch/mips/kernel/syscalls/syscall_n64.tbl",
-            .process_file = &processMipsBasedArch,
-            .filters = .{
-                // abi is always n64
-                .abiCheckParams = null,
-                .fixedName = &fixedName,
-                .isReservedNameOld = &isReservedNameOld,
-            },
-            .header = "    const linux_base = 5000;\n\n",
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "mips_n32",
-            .enum_name = "MipsN32",
-            .file_path = "arch/mips/kernel/syscalls/syscall_n32.tbl",
-            .process_file = &processMipsBasedArch,
-            .filters = .{
-                // abi is always n32
-                .abiCheckParams = null,
-                .fixedName = &fixedName,
-                .isReservedNameOld = &isReservedNameOld,
-            },
-            .header = "    const linux_base = 6000;\n\n",
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "powerpc",
-            .enum_name = "PowerPC",
-            .file_path = "arch/powerpc/kernel/syscalls/syscall.tbl",
-            .process_file = &processPowerPcBasedArch,
-            .filters = .{
-                .abiCheckParams = null,
-                .fixedName = null,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = "PowerPC64",
-        },
-    },
-    .{
-        .table = .{
-            .name = "s390x",
-            .enum_name = "S390x",
-            .file_path = "arch/s390/kernel/syscalls/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                // 32-bit s390 support in linux is deprecated
-                .abiCheckParams = .{ .abi = "32", .flow = .@"continue" },
-                .fixedName = &fixedName,
-                .isReservedNameOld = null,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .table = .{
-            .name = "xtensa",
-            .enum_name = "Xtensa",
-            .file_path = "arch/xtensa/kernel/syscalls/syscall.tbl",
-            .process_file = &processTableBasedArch,
-            .filters = .{
-                // abi is always common
-                .abiCheckParams = null,
-                .fixedName = fixedName,
-                .isReservedNameOld = &isReservedNameOld,
-            },
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "arm64",
-            .enum_name = "Arm64",
-            .file_path = "arch/arm64/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "aarch64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "riscv32",
-            .enum_name = "RiscV32",
-            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "riscv32-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "riscv64",
-            .enum_name = "RiscV64",
-            .file_path = "arch/riscv/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "riscv64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "loongarch",
-            .enum_name = "LoongArch64",
-            .file_path = "arch/loongarch/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "loongarch64-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "arc",
-            .enum_name = "Arc",
-            .file_path = "arch/arc/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "arc-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "csky",
-            .enum_name = "CSky",
-            .file_path = "arch/csky/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "csky-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-    .{
-        .preprocessor = .{
-            .name = "hexagon",
-            .enum_name = "Hexagon",
-            .file_path = "arch/hexagon/include/uapi/asm/unistd.h",
-            .child_options = .{
-                .additional_args = null,
-                .target = "hexagon-freestanding-none",
-            },
-            .process_file = &processPreprocessedFile,
-            .header = null,
-            .extra_values = null,
-            .additional_enum = null,
-        },
-    },
-};
-
-fn processPreprocessedFile(
-    bytes: []const u8,
-    writer: anytype,
-) !void {
-    var lines = mem.tokenizeScalar(u8, bytes, '\n');
-    while (lines.next()) |line| {
-        var fields = mem.tokenizeAny(u8, line, " ");
-        const prefix = fields.next() orelse return error.Incomplete;
-
-        if (!mem.eql(u8, prefix, "zigsyscall")) continue;
-
-        const sys_name = fields.next() orelse return error.Incomplete;
-        const value = fields.rest();
-        const name = (getOverridenNameNew(value) orelse sys_name)["sys_".len..];
-        const fixed_name = if (stdlib_renames_new.get(name)) |f| f else if (stdlib_renames.get(name)) |f| f else name;
-
-        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), value });
-    }
-}
-
-fn processTableBasedArch(
-    bytes: []const u8,
-    filters: Filters,
-    writer: anytype,
-    optional_writer: anytype,
-) !void {
-    _ = optional_writer;
-
-    var lines = mem.tokenizeScalar(u8, bytes, '\n');
-    while (lines.next()) |line| {
-        if (line[0] == '#') continue;
-
-        var fields = mem.tokenizeAny(u8, line, " \t");
-        const number = fields.next() orelse return error.Incomplete;
-
-        const abi = fields.next() orelse return error.Incomplete;
-        if (filters.abiCheckParams) |*params| {
-            switch (abiCheck(abi, params)) {
-                .none => {},
-                .@"break" => break,
-                .@"continue" => continue,
-            }
-        }
-        const name = fields.next() orelse return error.Incomplete;
-        if (filters.isReservedNameOld) |isReservedNameOldFn| {
-            if (isReservedNameOldFn(name)) continue;
-        }
-        const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
-
-        try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
-    }
-}
-
-fn processMipsBasedArch(
-    bytes: []const u8,
-    filters: Filters,
-    writer: anytype,
-    optional_writer: anytype,
-) !void {
-    _ = optional_writer;
-
-    var lines = mem.tokenizeScalar(u8, bytes, '\n');
-    while (lines.next()) |line| {
-        if (line[0] == '#') continue;
-
-        var fields = mem.tokenizeAny(u8, line, " \t");
-        const number = fields.next() orelse return error.Incomplete;
-
-        const abi = fields.next() orelse return error.Incomplete;
-        if (filters.abiCheckParams) |*params| {
-            switch (abiCheck(abi, params)) {
-                .none => {},
-                .@"break" => break,
-                .@"continue" => continue,
-            }
-        }
-        const name = fields.next() orelse return error.Incomplete;
-        if (filters.isReservedNameOld) |isReservedNameOldFn| {
-            if (isReservedNameOldFn(name)) continue;
-        }
-        const fixed_name = if (filters.fixedName) |fixedNameFn| fixedNameFn(name) else name;
-
-        try writer.print("    {f} = linux_base + {s},\n", .{ zig.fmtId(fixed_name), number });
-    }
-}
-
-fn processPowerPcBasedArch(
-    bytes: []const u8,
-    filters: Filters,
-    writer: anytype,
-    optional_writer: anytype,
-) !void {
-    _ = filters;
-    var lines = mem.tokenizeScalar(u8, bytes, '\n');
-
-    while (lines.next()) |line| {
-        if (line[0] == '#') continue;
-
-        var fields = mem.tokenizeAny(u8, line, " \t");
-        const number = fields.next() orelse return error.Incomplete;
-        const abi = fields.next() orelse return error.Incomplete;
-        const name = fields.next() orelse return error.Incomplete;
-        const fixed_name = if (stdlib_renames.get(name)) |fixed| fixed else name;
-
-        if (mem.eql(u8, abi, "spu")) {
-            continue;
-        } else if (mem.eql(u8, abi, "32")) {
-            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
-        } else if (mem.eql(u8, abi, "64")) {
-            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
-        } else { // common/nospu
-            try writer.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
-            try optional_writer.?.print("    {f} = {s},\n", .{ zig.fmtId(fixed_name), number });
-        }
-    }
-}
-
-fn generateSyscallsFromTable(
-    allocator: std.mem.Allocator,
-    buf: []u8,
-    linux_dir: std.fs.Dir,
-    writer: anytype,
-    _arch_info: *const ArchInfo,
-) !void {
-    std.debug.assert(_arch_info.* == .table);
-
-    const arch_info = _arch_info.table;
-
-    const table = try linux_dir.readFile(arch_info.file_path, buf);
-
-    var optional_array_list: ?std.array_list.Managed(u8) = if (arch_info.additional_enum) |_| std.array_list.Managed(u8).init(allocator) else null;
-    const optional_writer = if (optional_array_list) |_| optional_array_list.?.writer() else null;
-
-    try writer.print("pub const {s} = enum(usize) {{\n", .{arch_info.enum_name});
-
-    if (arch_info.header) |header| {
-        try writer.writeAll(header);
-    }
-
-    try arch_info.process_file(table, arch_info.filters, writer, optional_writer);
-
-    if (arch_info.extra_values) |extra_values| {
-        try writer.writeAll(extra_values);
-    }
-    try writer.writeAll("};");
-
-    if (arch_info.additional_enum) |additional_enum| {
-        try writer.writeAll("\n\n");
-        try writer.print("pub const {s} = enum(usize) {{\n", .{additional_enum});
-        try writer.writeAll(optional_array_list.?.items);
-        try writer.writeAll("};");
-    }
-}
-
-fn generateSyscallsFromPreprocessor(
-    allocator: std.mem.Allocator,
-    linux_dir: std.fs.Dir,
-    linux_path: []const u8,
-    zig_exe: []const u8,
-    writer: anytype,
-    _arch_info: *const ArchInfo,
-) !void {
-    std.debug.assert(_arch_info.* == .preprocessor);
-
-    const arch_info = _arch_info.preprocessor;
-
-    const child_result = try std.process.Child.run(.{
-        .allocator = allocator,
-        .argv = arch_info.child_options.getArgs(zig_exe, arch_info.file_path),
-        .cwd = linux_path,
-        .cwd_dir = linux_dir,
-    });
-    if (child_result.stderr.len > 0) std.debug.print("{s}\n", .{child_result.stderr});
-
-    const defines = switch (child_result.term) {
-        .Exited => |code| if (code == 0) child_result.stdout else {
-            std.debug.print("zig cc exited with code {d}\n", .{code});
-            std.process.exit(1);
-        },
-        else => {
-            std.debug.print("zig cc crashed\n", .{});
-            std.process.exit(1);
-        },
-    };
-
-    try writer.print("pub const {s} = enum(usize) {{\n", .{arch_info.enum_name});
-    if (arch_info.header) |header| {
-        try writer.writeAll(header);
-    }
-
-    try arch_info.process_file(defines, writer);
-
-    if (arch_info.extra_values) |extra_values| {
-        try writer.writeAll(extra_values);
-    }
-
-    try writer.writeAll("};");
-}
 
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-    const allocator = arena.allocator();
+    const gpa = arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    if (args.len < 3 or mem.eql(u8, args[1], "--help")) {
+    const args = try std.process.argsAlloc(gpa);
+    if (args.len < 2 or mem.eql(u8, args[1], "--help")) {
         usage(std.debug.lockStderrWriter(&.{}), args[0]) catch std.process.exit(2);
         std.process.exit(1);
     }
-    const zig_exe = args[1];
-    const linux_path = args[2];
+    const linux_path = args[1];
 
-    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_buffer: [2048]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
-    const writer = &stdout_writer.interface;
+    const stdout = &stdout_writer.interface;
 
     var linux_dir = try std.fs.cwd().openDir(linux_path, .{});
     defer linux_dir.close();
 
-    try writer.writeAll(
-        \\// This file is automatically generated.
-        \\// See tools/generate_linux_syscalls.zig for more info.
-        \\
-        \\
-    );
-
-    // As of 5.17.1, the largest table is 23467 bytes.
+    // As of 6.11, the largest table is 24195 bytes.
     // 32k should be enough for now.
-    const buf = try allocator.alloc(u8, 1 << 15);
-    defer allocator.free(buf);
+    const buf = try gpa.alloc(u8, 1 << 15);
+    defer gpa.free(buf);
 
-    inline for (arch_infos, 0..) |arch_info, i| {
-        switch (arch_info) {
-            .table => try generateSyscallsFromTable(
-                allocator,
-                buf,
-                linux_dir,
-                writer,
-                &arch_info,
-            ),
-            .preprocessor => try generateSyscallsFromPreprocessor(
-                allocator,
-                linux_dir,
-                linux_path,
-                zig_exe,
-                writer,
-                &arch_info,
-            ),
+    // Fetch the kernel version from the Makefile variables.
+    const version = blk: {
+        const head = try linux_dir.readFile("Makefile", buf[0..128]);
+        var lines = mem.tokenizeScalar(u8, head, '\n');
+        _ = lines.next(); // Skip SPDX identifier
+
+        var ver = mem.zeroes(std.SemanticVersion);
+        inline for (.{ "major", "minor", "patch" }, .{ "VERSION", "PATCHLEVEL", "SUBLEVEL" }) |field, make_var| {
+            const line = lines.next() orelse @panic("Bad line");
+            const offset = (make_var ++ " = ").len;
+            @field(ver, field) = try std.fmt.parseInt(usize, line[offset..], 10);
         }
-        if (i < arch_infos.len - 1) {
-            try writer.writeAll("\n\n");
-        } else {
-            try writer.writeAll("\n");
+
+        break :blk ver;
+    };
+
+    try Io.Writer.print(stdout,
+        \\// This file is automatically generated, DO NOT edit it manually.
+        \\// See tools/generate_linux_syscalls.zig for more info.
+        \\// This list current as of kernel: {f}
+        \\
+        \\
+    , .{version});
+
+    for (architectures, 0..) |arch, i| {
+        const table = try linux_dir.readFile(switch (arch.table) {
+            .generic => "scripts/syscall.tbl",
+            .specific => |f| f,
+        }, buf);
+
+        try Io.Writer.print(stdout, "pub const {s} = enum(usize) {{\n", .{arch.@"var"});
+        if (arch.header) |h|
+            try Io.Writer.writeAll(stdout, h);
+
+        var lines = mem.tokenizeScalar(u8, table, '\n');
+        while (lines.next()) |line| {
+            if (line[0] == '#') continue;
+            if (arch.get(line)) |res| {
+                const name, const num = res;
+                const final_name = stdlib_renames.get(name) orelse name;
+                try Io.Writer.print(stdout, "    {f} = {d},\n", .{ std.zig.fmtId(final_name), num });
+            }
         }
+
+        if (arch.footer) |f|
+            try Io.Writer.writeAll(stdout, f);
+        try Io.Writer.writeAll(stdout, "};\n");
+        if (i != architectures.len - 1)
+            try Io.Writer.writeByte(stdout, '\n');
     }
 
-    try writer.flush();
+    try Io.Writer.flush(stdout);
 }
 
 fn usage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {

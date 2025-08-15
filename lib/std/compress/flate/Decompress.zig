@@ -62,7 +62,7 @@ pub const Error = Container.Error || error{
 const direct_vtable: Reader.VTable = .{
     .stream = streamDirect,
     .rebase = rebaseFallible,
-    .discard = discard,
+    .discard = discardDirect,
     .readVec = readVec,
 };
 
@@ -105,17 +105,16 @@ fn rebaseFallible(r: *Reader, capacity: usize) Reader.RebaseError!void {
 fn rebase(r: *Reader, capacity: usize) void {
     assert(capacity <= r.buffer.len - flate.history_len);
     assert(r.end + capacity > r.buffer.len);
-    const discard_n = r.end - flate.history_len;
+    const discard_n = @min(r.seek, r.end - flate.history_len);
     const keep = r.buffer[discard_n..r.end];
     @memmove(r.buffer[0..keep.len], keep);
-    assert(keep.len != 0);
     r.end = keep.len;
     r.seek -= discard_n;
 }
 
 /// This could be improved so that when an amount is discarded that includes an
 /// entire frame, skip decoding that frame.
-fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
+fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     if (r.end + flate.history_len > r.buffer.len) rebase(r, flate.history_len);
     var writer: Writer = .{
         .vtable = &.{
@@ -167,11 +166,14 @@ fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
 
 fn streamIndirectInner(d: *Decompress) Reader.Error!usize {
     const r = &d.reader;
-    if (r.end + flate.history_len > r.buffer.len) rebase(r, flate.history_len);
+    if (r.buffer.len - r.end < flate.history_len) rebase(r, flate.history_len);
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,
-        .vtable = &.{ .drain = Writer.unreachableDrain },
+        .vtable = &.{
+            .drain = Writer.unreachableDrain,
+            .rebase = Writer.unreachableRebase,
+        },
     };
     defer r.end = writer.end;
     _ = streamFallible(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
@@ -1251,8 +1253,6 @@ test "zlib should not overshoot" {
 fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !void {
     var reader: Reader = .fixed(in);
     var aw: Writer.Allocating = .init(testing.allocator);
-    aw.minimum_unused_capacity = flate.history_len;
-    try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&reader, container, &.{});
@@ -1263,8 +1263,6 @@ fn testFailure(container: Container, in: []const u8, expected_err: anyerror) !vo
 fn testDecompress(container: Container, compressed: []const u8, expected_plain: []const u8) !void {
     var in: std.Io.Reader = .fixed(compressed);
     var aw: std.Io.Writer.Allocating = .init(testing.allocator);
-    aw.minimum_unused_capacity = flate.history_len;
-    try aw.ensureUnusedCapacity(flate.max_window_len);
     defer aw.deinit();
 
     var decompress: Decompress = .init(&in, container, &.{});
