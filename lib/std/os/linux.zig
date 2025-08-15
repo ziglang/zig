@@ -6631,7 +6631,7 @@ pub const io_uring_notification_register = extern struct {
 pub const io_uring_napi = extern struct {
     busy_poll_to: u32,
     prefer_busy_poll: u8,
-    pad: [3]u8,
+    _pad: [3]u8,
     resv: u64,
 };
 
