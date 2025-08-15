@@ -279,6 +279,7 @@ const Fuzzer = struct {
             const len = rng.uintLessThanBiased(usize, 200);
             const slice = try gpa.alloc(u8, len);
             rng.bytes(slice);
+            f.input.ensureTotalCapacity(len) catch @panic("mmap file resize failed"); // TODO: Not clear yet what causes the capacity assumption to be false.
             f.input.appendSliceAssumeCapacity(slice);
             try f.corpus.append(gpa, .{
                 .bytes = slice,
@@ -600,6 +601,7 @@ pub const MemoryMappedList = struct {
     /// Append the slice of items to the list.
     /// Asserts that the list can hold the additional items.
     pub fn appendSliceAssumeCapacity(l: *MemoryMappedList, items: []const u8) void {
+        if (items.len == 0) return;
         const old_len = l.items.len;
         const new_len = old_len + items.len;
         assert(new_len <= l.capacity);
