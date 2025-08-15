@@ -78,15 +78,14 @@ pub const table_size_max = struct {
 };
 
 fn testDecompress(gpa: std.mem.Allocator, compressed: []const u8) ![]u8 {
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    defer out.deinit(gpa);
-    try out.ensureUnusedCapacity(gpa, default_window_len);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
 
-    var in: std.io.Reader = .fixed(compressed);
+    var in: std.Io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
-    try zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited);
+    _ = try zstd_stream.reader.streamRemaining(&out.writer);
 
-    return out.toOwnedSlice(gpa);
+    return out.toOwnedSlice();
 }
 
 fn testExpectDecompress(uncompressed: []const u8, compressed: []const u8) !void {
@@ -99,15 +98,14 @@ fn testExpectDecompress(uncompressed: []const u8, compressed: []const u8) !void 
 fn testExpectDecompressError(err: anyerror, compressed: []const u8) !void {
     const gpa = std.testing.allocator;
 
-    var out: std.ArrayListUnmanaged(u8) = .empty;
-    defer out.deinit(gpa);
-    try out.ensureUnusedCapacity(gpa, default_window_len);
+    var out: std.Io.Writer.Allocating = .init(gpa);
+    defer out.deinit();
 
-    var in: std.io.Reader = .fixed(compressed);
+    var in: std.Io.Reader = .fixed(compressed);
     var zstd_stream: Decompress = .init(&in, &.{}, .{});
     try std.testing.expectError(
         error.ReadFailed,
-        zstd_stream.reader.appendRemaining(gpa, null, &out, .unlimited),
+        zstd_stream.reader.streamRemaining(&out.writer),
     );
     try std.testing.expectError(err, zstd_stream.err orelse {});
 }

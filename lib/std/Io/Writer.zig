@@ -329,7 +329,7 @@ pub fn rebase(w: *Writer, preserve: usize, unused_capacity_len: usize) Error!voi
         @branchHint(.likely);
         return;
     }
-    try w.vtable.rebase(w, preserve, unused_capacity_len);
+    return w.vtable.rebase(w, preserve, unused_capacity_len);
 }
 
 pub fn defaultRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
@@ -2349,6 +2349,13 @@ pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Erro
     unreachable;
 }
 
+pub fn unreachableRebase(w: *Writer, preserve: usize, capacity: usize) Error!void {
+    _ = w;
+    _ = preserve;
+    _ = capacity;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2489,10 +2496,6 @@ pub fn Hashing(comptime Hasher: type) type {
 pub const Allocating = struct {
     allocator: Allocator,
     writer: Writer,
-    /// Every call to `drain` ensures at least this amount of unused capacity
-    /// before it returns. This prevents an infinite loop in interface logic
-    /// that calls `drain`.
-    minimum_unused_capacity: usize = 1,
 
     pub fn init(allocator: Allocator) Allocating {
         return .{
@@ -2604,13 +2607,12 @@ pub const Allocating = struct {
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
-        const bump = a.minimum_unused_capacity;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
         assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + bump) catch return error.WriteFailed;
+            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
         if (splat == 0) {
@@ -2641,11 +2643,12 @@ pub const Allocating = struct {
     }
 
     fn growingRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
-        _ = preserve; // This implementation always preserves the entire buffer.
         const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
+        const total = std.math.add(usize, preserve, minimum_len) catch return error.WriteFailed;
+        list.ensureTotalCapacity(gpa, total) catch return error.WriteFailed;
         list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
     }
 
