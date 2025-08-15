@@ -3,10 +3,10 @@ const std = @import("std");
 const expect = std.testing.expect;
 
 test "simple switch loop" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -27,10 +27,10 @@ test "simple switch loop" {
 }
 
 test "switch loop with ranges" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         fn doTheTest() !void {
@@ -48,10 +48,10 @@ test "switch loop with ranges" {
 }
 
 test "switch loop on enum" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         const E = enum { a, b, c };
@@ -72,10 +72,10 @@ test "switch loop on enum" {
 }
 
 test "switch loop with error set" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         const E = error{ Foo, Bar, Baz };
@@ -96,10 +96,10 @@ test "switch loop with error set" {
 }
 
 test "switch loop on tagged union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const S = struct {
@@ -129,10 +129,10 @@ test "switch loop on tagged union" {
 }
 
 test "switch loop dispatching instructions" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         const Inst = union(enum) {
@@ -179,10 +179,10 @@ test "switch loop dispatching instructions" {
 }
 
 test "switch loop with pointer capture" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
 
     const S = struct {
         const U = union(enum) {
@@ -211,6 +211,63 @@ test "switch loop with pointer capture" {
             try expect(a.a == 101);
             try expect(b.b == 210);
             try expect(c.c == 350);
+        }
+    };
+    try S.doTheTest();
+    try comptime S.doTheTest();
+}
+
+test "unanalyzed continue with operand" {
+    @setRuntimeSafety(false);
+    label: switch (false) {
+        false => if (false) continue :label true,
+        true => {},
+    }
+}
+
+test "switch loop on larger than pointer integer" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    var entry: @Type(.{ .int = .{
+        .signedness = .unsigned,
+        .bits = @bitSizeOf(usize) + 1,
+    } }) = undefined;
+    entry = 0;
+    loop: switch (entry) {
+        0 => {
+            entry += 1;
+            continue :loop 1;
+        },
+        1 => |x| {
+            entry += 1;
+            continue :loop x + 1;
+        },
+        2 => entry += 1,
+        else => unreachable,
+    }
+    try expect(entry == 3);
+}
+
+test "switch loop on non-exhaustive enum" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest; // TODO
+
+    const S = struct {
+        const E = enum(u8) { a, b, c, _ };
+
+        fn doTheTest() !void {
+            var start: E = undefined;
+            start = .a;
+            const result: u32 = s: switch (start) {
+                .a => continue :s .c,
+                else => continue :s @enumFromInt(123),
+                .b, _ => |x| break :s @intFromEnum(x),
+            };
+            try expect(result == 123);
         }
     };
     try S.doTheTest();

@@ -10,7 +10,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
@@ -26,7 +27,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
@@ -42,7 +44,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );

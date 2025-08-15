@@ -1,12 +1,12 @@
 pub fn gcAtoms(macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
+    var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 1);
     defer objects.deinit();
     for (macho_file.objects.items) |index| objects.appendAssumeCapacity(index);
     if (macho_file.internal_object) |index| objects.appendAssumeCapacity(index);
 
-    var roots = std.ArrayList(*Atom).init(gpa);
+    var roots = std.array_list.Managed(*Atom).init(gpa);
     defer roots.deinit();
 
     try collectRoots(&roots, objects.items, macho_file);
@@ -14,7 +14,7 @@ pub fn gcAtoms(macho_file: *MachO) !void {
     prune(objects.items, macho_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
+fn collectRoots(roots: *std.array_list.Managed(*Atom), objects: []const File.Index, macho_file: *MachO) !void {
     for (objects) |index| {
         const object = macho_file.getFile(index).?;
         for (object.getSymbols(), 0..) |*sym, i| {
@@ -76,7 +76,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), objects: []const File.Index, macho
     }
 }
 
-fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), macho_file: *MachO) !void {
+fn markSymbol(sym: *Symbol, roots: *std.array_list.Managed(*Atom), macho_file: *MachO) !void {
     const atom = sym.getAtom(macho_file) orelse return;
     if (markAtom(atom)) try roots.append(atom);
 }
@@ -117,7 +117,7 @@ fn mark(roots: []*Atom, objects: []const File.Index, macho_file: *MachO) void {
 fn markLive(atom: *Atom, macho_file: *MachO) void {
     assert(atom.visited.load(.seq_cst));
     atom.setAlive(true);
-    track_live_log.debug("{}marking live atom({d},{s})", .{
+    track_live_log.debug("{f}marking live atom({d},{s})", .{
         track_live_level,
         atom.atom_index,
         atom.getName(macho_file),
@@ -196,15 +196,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.writeByteNTimes(' ', self.value);
+    pub fn format(self: *const @This(), w: *Writer) Writer.Error!void {
+        try w.splatByteAll(' ', self.value);
     }
 };
 
@@ -219,6 +212,7 @@ const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
 const track_live_log = std.log.scoped(.dead_strip_track_live);
 const std = @import("std");
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

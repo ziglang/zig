@@ -5,13 +5,13 @@ const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
-const ArrayList = std.ArrayList;
 const File = std.fs.File;
 const Step = std.Build.Step;
 const Watch = std.Build.Watch;
-const Fuzz = std.Build.Fuzz;
+const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 const runner = @This();
 
 pub const root = @import("@build");
@@ -24,15 +24,16 @@ pub const std_options: std.Options = .{
 };
 
 pub fn main() !void {
-    // Here we use an ArenaAllocator backed by a page allocator because a build is a short-lived,
-    // one shot program. We don't need to waste time freeing memory and finding places to squish
-    // bytes into. So we free everything all at once at the very end.
-    var single_threaded_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer single_threaded_arena.deinit();
+    // The build runner is often short-lived, but thanks to `--watch` and `--webui`, that's not
+    // always the case. So, we do need a true gpa for some things.
+    var debug_gpa_state: std.heap.DebugAllocator(.{}) = .init;
+    defer _ = debug_gpa_state.deinit();
+    const gpa = debug_gpa_state.allocator();
 
-    var thread_safe_arena: std.heap.ThreadSafeAllocator = .{
-        .child_allocator = single_threaded_arena.allocator(),
-    };
+    // ...but we'll back our arena by `std.heap.page_allocator` for efficiency.
+    var single_threaded_arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer single_threaded_arena.deinit();
+    var thread_safe_arena: std.heap.ThreadSafeAllocator = .{ .child_allocator = single_threaded_arena.allocator() };
     const arena = thread_safe_arena.allocator();
 
     const args = try process.argsAlloc(arena);
@@ -80,6 +81,7 @@ pub fn main() !void {
             .query = .{},
             .result = try std.zig.system.resolveTargetQuery(.{}),
         },
+        .time_report = false,
     };
 
     graph.cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
@@ -95,8 +97,8 @@ pub fn main() !void {
         dependencies.root_deps,
     );
 
-    var targets = ArrayList([]const u8).init(arena);
-    var debug_log_scopes = ArrayList([]const u8).init(arena);
+    var targets = std.array_list.Managed([]const u8).init(arena);
+    var debug_log_scopes = std.array_list.Managed([]const u8).init(arena);
     var thread_pool_options: std.Thread.Pool.Options = .{ .allocator = arena };
 
     var install_prefix: ?[]const u8 = null;
@@ -112,7 +114,7 @@ pub fn main() !void {
     var watch = false;
     var fuzz = false;
     var debounce_interval_ms: u16 = 50;
-    var listen_port: u16 = 0;
+    var webui_listen: ?std.net.Address = null;
 
     while (nextArg(args, &arg_idx)) |arg| {
         if (mem.startsWith(u8, arg, "-Z")) {
@@ -219,13 +221,13 @@ pub fn main() !void {
                         next_arg, @errorName(err),
                     });
                 };
-            } else if (mem.eql(u8, arg, "--port")) {
-                const next_arg = nextArg(args, &arg_idx) orelse
-                    fatalWithHint("expected u16 after '{s}'", .{arg});
-                listen_port = std.fmt.parseUnsigned(u16, next_arg, 10) catch |err| {
-                    fatal("unable to parse port '{s}' as unsigned 16-bit integer: {s}\n", .{
-                        next_arg, @errorName(err),
-                    });
+            } else if (mem.eql(u8, arg, "--webui")) {
+                webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
+            } else if (mem.startsWith(u8, arg, "--webui=")) {
+                const addr_str = arg["--webui=".len..];
+                if (std.mem.eql(u8, addr_str, "-")) fatal("web interface cannot listen on stdio", .{});
+                webui_listen = std.net.Address.parseIpAndPort(addr_str) catch |err| {
+                    fatal("invalid web UI address '{s}': {s}", .{ addr_str, @errorName(err) });
                 };
             } else if (mem.eql(u8, arg, "--debug-log")) {
                 const next_arg = nextArgOrFatal(args, &arg_idx);
@@ -254,7 +256,7 @@ pub fn main() !void {
                 builder.verbose_llvm_ir = "-";
             } else if (mem.startsWith(u8, arg, "--verbose-llvm-ir=")) {
                 builder.verbose_llvm_ir = arg["--verbose-llvm-ir=".len..];
-            } else if (mem.eql(u8, arg, "--verbose-llvm-bc=")) {
+            } else if (mem.startsWith(u8, arg, "--verbose-llvm-bc=")) {
                 builder.verbose_llvm_bc = arg["--verbose-llvm-bc=".len..];
             } else if (mem.eql(u8, arg, "--verbose-cimport")) {
                 builder.verbose_cimport = true;
@@ -266,8 +268,16 @@ pub fn main() !void {
                 prominent_compile_errors = true;
             } else if (mem.eql(u8, arg, "--watch")) {
                 watch = true;
+            } else if (mem.eql(u8, arg, "--time-report")) {
+                graph.time_report = true;
+                if (webui_listen == null) {
+                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
+                }
             } else if (mem.eql(u8, arg, "--fuzz")) {
                 fuzz = true;
+                if (webui_listen == null) {
+                    webui_listen = std.net.Address.parseIp("::1", 0) catch unreachable;
+                }
             } else if (mem.eql(u8, arg, "-fincremental")) {
                 graph.incremental = true;
             } else if (mem.eql(u8, arg, "-fno-incremental")) {
@@ -330,7 +340,12 @@ pub fn main() !void {
         }
     }
 
-    const stderr = std.io.getStdErr();
+    if (webui_listen != null) {
+        if (watch) fatal("using '--webui' and '--watch' together is not yet supported; consider omitting '--watch' in favour of the web UI \"Rebuild\" button", .{});
+        if (builtin.single_threaded) fatal("'--webui' is not yet supported on single-threaded hosts", .{});
+    }
+
+    const stderr: std.fs.File = .stderr();
     const ttyconf = get_tty_conf(color, stderr);
     switch (ttyconf) {
         .no_color => try graph.env_map.put("NO_COLOR", "1"),
@@ -365,7 +380,7 @@ pub fn main() !void {
             .data = buffer.items,
             .flags = .{ .exclusive = true },
         }) catch |err| {
-            fatal("unable to write configuration results to '{}{s}': {s}", .{
+            fatal("unable to write configuration results to '{f}{s}': {s}", .{
                 local_cache_directory, tmp_sub_path, @errorName(err),
             });
         };
@@ -378,23 +393,31 @@ pub fn main() !void {
 
     validateSystemLibraryOptions(builder);
 
-    const stdout_writer = io.getStdOut().writer();
+    if (help_menu) {
+        var w = initStdoutWriter();
+        printUsage(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
 
-    if (help_menu)
-        return usage(builder, stdout_writer);
-
-    if (steps_menu)
-        return steps(builder, stdout_writer);
+    if (steps_menu) {
+        var w = initStdoutWriter();
+        printSteps(builder, w) catch return stdout_writer_allocation.err.?;
+        w.flush() catch return stdout_writer_allocation.err.?;
+        return;
+    }
 
     var run: Run = .{
+        .gpa = gpa,
+
         .max_rss = max_rss,
         .max_rss_is_default = false,
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
         .watch = watch,
-        .fuzz = fuzz,
-        .memory_blocked_steps = std.ArrayList(*Step).init(arena),
-        .step_stack = .{},
+        .web_server = undefined, // set after `prepare`
+        .memory_blocked_steps = .empty,
+        .step_stack = .empty,
         .prominent_compile_errors = prominent_compile_errors,
 
         .claimed_rss = 0,
@@ -403,74 +426,87 @@ pub fn main() !void {
         .stderr = stderr,
         .thread_pool = undefined,
     };
+    defer {
+        run.memory_blocked_steps.deinit(gpa);
+        run.step_stack.deinit(gpa);
+    }
 
     if (run.max_rss == 0) {
         run.max_rss = process.totalSystemMemory() catch std.math.maxInt(u64);
         run.max_rss_is_default = true;
     }
 
-    const gpa = arena;
-    prepare(gpa, arena, builder, targets.items, &run, graph.random_seed) catch |err| switch (err) {
+    prepare(arena, builder, targets.items, &run, graph.random_seed) catch |err| switch (err) {
         error.UncleanExit => process.exit(1),
         else => return err,
     };
 
-    var w: Watch = if (watch and Watch.have_impl) try Watch.init() else undefined;
+    var w: Watch = w: {
+        if (!watch) break :w undefined;
+        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
+        break :w try .init();
+    };
 
     try run.thread_pool.init(thread_pool_options);
     defer run.thread_pool.deinit();
 
+    run.web_server = if (webui_listen) |listen_address| ws: {
+        if (builtin.single_threaded) unreachable; // `fatal` above
+        break :ws .init(.{
+            .gpa = gpa,
+            .thread_pool = &run.thread_pool,
+            .graph = &graph,
+            .all_steps = run.step_stack.keys(),
+            .ttyconf = run.ttyconf,
+            .root_prog_node = main_progress_node,
+            .watch = watch,
+            .listen_address = listen_address,
+        });
+    } else null;
+
+    if (run.web_server) |*ws| {
+        ws.start() catch |err| fatal("failed to start web server: {s}", .{@errorName(err)});
+    }
+
     rebuild: while (true) {
+        if (run.web_server) |*ws| ws.startBuild();
+
         runStepNames(
-            gpa,
             builder,
             targets.items,
             main_progress_node,
             &run,
         ) catch |err| switch (err) {
             error.UncleanExit => {
-                assert(!run.watch);
+                assert(!run.watch and run.web_server == null);
                 process.exit(1);
             },
             else => return err,
         };
-        if (fuzz) {
-            if (builtin.single_threaded) {
-                fatal("--fuzz not yet implemented for single-threaded builds", .{});
-            }
-            switch (builtin.os.tag) {
-                // Current implementation depends on two things that need to be ported to Windows:
-                // * Memory-mapping to share data between the fuzzer and build runner.
-                // * COFF/PE support added to `std.debug.Info` (it needs a batching API for resolving
-                //   many addresses to source locations).
-                .windows => fatal("--fuzz not yet implemented for {s}", .{@tagName(builtin.os.tag)}),
-                else => {},
-            }
-            if (@bitSizeOf(usize) != 64) {
-                // Current implementation depends on posix.mmap()'s second parameter, `length: usize`,
-                // being compatible with `std.fs.getEndPos() u64`'s return value. This is not the case
-                // on 32-bit platforms.
-                // Affects or affected by issues #5185, #22523, and #22464.
-                fatal("--fuzz not yet implemented on {d}-bit platforms", .{@bitSizeOf(usize)});
-            }
-            const listen_address = std.net.Address.parseIp("127.0.0.1", listen_port) catch unreachable;
-            try Fuzz.start(
-                gpa,
-                arena,
-                global_cache_directory,
-                zig_lib_directory,
-                zig_exe,
-                &run.thread_pool,
-                run.step_stack.keys(),
-                run.ttyconf,
-                listen_address,
-                main_progress_node,
-            );
+
+        if (run.web_server) |*web_server| {
+            web_server.finishBuild(.{ .fuzz = fuzz });
         }
 
-        if (!watch) return cleanExit();
+        if (!watch and run.web_server == null) {
+            return cleanExit();
+        }
 
-        if (!Watch.have_impl) fatal("--watch not yet implemented for {s}", .{@tagName(builtin.os.tag)});
+        if (run.web_server) |*ws| {
+            assert(!watch); // fatal error after CLI parsing
+            while (true) switch (ws.wait()) {
+                .rebuild => {
+                    for (run.step_stack.keys()) |step| {
+                        step.state = .precheck_done;
+                        step.reset(gpa);
+                    }
+                    continue :rebuild;
+                },
+            };
+        }
+
+        // Comptime-known guard to prevent including the logic below when `!Watch.have_impl`.
+        if (!Watch.have_impl) unreachable;
 
         try w.update(gpa, run.step_stack.keys());
 
@@ -481,18 +517,19 @@ pub fn main() !void {
         // recursive dependants.
         var caption_buf: [std.Progress.Node.max_name_len]u8 = undefined;
         const caption = std.fmt.bufPrint(&caption_buf, "watching {d} directories, {d} processes", .{
-            w.dir_table.entries.len, countSubProcesses(run.step_stack.keys()),
+            w.dir_count, countSubProcesses(run.step_stack.keys()),
         }) catch &caption_buf;
         var debouncing_node = main_progress_node.start(caption, 0);
-        var debounce_timeout: Watch.Timeout = .none;
-        while (true) switch (try w.wait(gpa, debounce_timeout)) {
+        var in_debounce = false;
+        while (true) switch (try w.wait(gpa, if (in_debounce) .{ .ms = debounce_interval_ms } else .none)) {
             .timeout => {
+                assert(in_debounce);
                 debouncing_node.end();
                 markFailedStepsDirty(gpa, run.step_stack.keys());
                 continue :rebuild;
             },
-            .dirty => if (debounce_timeout == .none) {
-                debounce_timeout = .{ .ms = debounce_interval_ms };
+            .dirty => if (!in_debounce) {
+                in_debounce = true;
                 debouncing_node.end();
                 debouncing_node = main_progress_node.start("Debouncing (Change Detected)", 0);
             },
@@ -523,13 +560,16 @@ fn countSubProcesses(all_steps: []const *Step) usize {
 }
 
 const Run = struct {
+    gpa: Allocator,
     max_rss: u64,
     max_rss_is_default: bool,
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
     watch: bool,
-    fuzz: bool,
-    memory_blocked_steps: std.ArrayList(*Step),
+    web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
+    /// Allocated into `gpa`.
+    memory_blocked_steps: std.ArrayListUnmanaged(*Step),
+    /// Allocated into `gpa`.
     step_stack: std.AutoArrayHashMapUnmanaged(*Step, void),
     prominent_compile_errors: bool,
     thread_pool: std.Thread.Pool,
@@ -540,19 +580,19 @@ const Run = struct {
     stderr: File,
 
     fn cleanExit(run: Run) void {
-        if (run.watch or run.fuzz) return;
+        if (run.watch or run.web_server != null) return;
         return runner.cleanExit();
     }
 };
 
 fn prepare(
-    gpa: Allocator,
     arena: Allocator,
     b: *std.Build,
     step_names: []const []const u8,
     run: *Run,
     seed: u32,
 ) !void {
+    const gpa = run.gpa;
     const step_stack = &run.step_stack;
 
     if (step_names.len == 0) {
@@ -576,7 +616,7 @@ fn prepare(
     rand.shuffle(*Step, starting_steps);
 
     for (starting_steps) |s| {
-        constructGraphAndCheckForDependencyLoop(b, s, &run.step_stack, rand) catch |err| switch (err) {
+        constructGraphAndCheckForDependencyLoop(gpa, b, s, &run.step_stack, rand) catch |err| switch (err) {
             error.DependencyLoopDetected => return uncleanExit(),
             else => |e| return e,
         };
@@ -607,12 +647,12 @@ fn prepare(
 }
 
 fn runStepNames(
-    gpa: Allocator,
     b: *std.Build,
     step_names: []const []const u8,
     parent_prog_node: std.Progress.Node,
     run: *Run,
 ) !void {
+    const gpa = run.gpa;
     const step_stack = &run.step_stack;
     const thread_pool = &run.thread_pool;
 
@@ -668,6 +708,7 @@ fn runStepNames(
                 // B will be marked as dependency_failure, while A may never be queued, and thus
                 // remain in the initial state of precheck_done.
                 s.state = .dependency_failure;
+                if (run.web_server) |*ws| ws.updateStepStatus(s, .failure);
                 pending_count += 1;
             },
             .dependency_failure => pending_count += 1,
@@ -689,31 +730,33 @@ fn runStepNames(
         .failures, .none => true,
         else => false,
     };
-    if (failure_count == 0 and failures_only) {
-        return run.cleanExit();
+    if (failure_count == 0) {
+        std.Progress.setStatus(.success);
+        if (failures_only) return run.cleanExit();
+    } else {
+        std.Progress.setStatus(.failure);
     }
 
     const ttyconf = run.ttyconf;
 
     if (run.summary != .none) {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = run.stderr;
+        const w = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        defer std.debug.unlockStderrWriter();
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
-        ttyconf.setColor(stderr, .cyan) catch {};
-        stderr.writeAll("Build Summary:") catch {};
-        ttyconf.setColor(stderr, .reset) catch {};
-        stderr.writer().print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) stderr.writer().print("; {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) stderr.writer().print("; {d} failed", .{failure_count}) catch {};
+        ttyconf.setColor(w, .cyan) catch {};
+        w.writeAll("\nBuild Summary:") catch {};
+        ttyconf.setColor(w, .reset) catch {};
+        w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) w.print("; {d} failed", .{failure_count}) catch {};
 
-        if (test_count > 0) stderr.writer().print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-        if (test_skip_count > 0) stderr.writer().print("; {d} skipped", .{test_skip_count}) catch {};
-        if (test_fail_count > 0) stderr.writer().print("; {d} failed", .{test_fail_count}) catch {};
-        if (test_leak_count > 0) stderr.writer().print("; {d} leaked", .{test_leak_count}) catch {};
+        if (test_count > 0) w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+        if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
+        if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
+        if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
 
-        stderr.writeAll("\n") catch {};
+        w.writeAll("\n") catch {};
 
         // Print a fancy tree with build results.
         var step_stack_copy = try step_stack.clone(gpa);
@@ -722,7 +765,7 @@ fn runStepNames(
         var print_node: PrintNode = .{ .parent = null };
         if (step_names.len == 0) {
             print_node.last = true;
-            printTreeStep(b, b.default_step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+            printTreeStep(b, b.default_step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
         } else {
             const last_index = if (run.summary == .all) b.top_level_steps.count() else blk: {
                 var i: usize = step_names.len;
@@ -741,9 +784,10 @@ fn runStepNames(
             for (step_names, 0..) |step_name, i| {
                 const tls = b.top_level_steps.get(step_name).?;
                 print_node.last = i + 1 == last_index;
-                printTreeStep(b, &tls.step, run, stderr, ttyconf, &print_node, &step_stack_copy) catch {};
+                printTreeStep(b, &tls.step, run, w, ttyconf, &print_node, &step_stack_copy) catch {};
             }
         }
+        w.writeByte('\n') catch {};
     }
 
     if (failure_count == 0) {
@@ -758,7 +802,7 @@ fn runStepNames(
             }
         }
 
-        if (!run.watch) {
+        if (!run.watch and run.web_server == null) {
             // Signal to parent process that we have printed compile errors. The
             // parent process may choose to omit the "following command failed"
             // line in this case.
@@ -767,7 +811,7 @@ fn runStepNames(
         }
     }
 
-    if (!run.watch) return uncleanExit();
+    if (!run.watch and run.web_server == null) return uncleanExit();
 }
 
 const PrintNode = struct {
@@ -775,7 +819,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -789,7 +833,7 @@ fn printPrefix(node: *PrintNode, stderr: File, ttyconf: std.io.tty.Config) !void
     }
 }
 
-fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -798,7 +842,7 @@ fn printChildNodePrefix(stderr: File, ttyconf: std.io.tty.Config) !void {
 
 fn printStepStatus(
     s: *Step,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     run: *const Run,
 ) !void {
@@ -820,10 +864,10 @@ fn printStepStatus(
                 try stderr.writeAll(" cached");
             } else if (s.test_results.test_count > 0) {
                 const pass_count = s.test_results.passCount();
-                try stderr.writer().print(" {d} passed", .{pass_count});
+                try stderr.print(" {d} passed", .{pass_count});
                 if (s.test_results.skip_count > 0) {
                     try ttyconf.setColor(stderr, .yellow);
-                    try stderr.writer().print(" {d} skipped", .{s.test_results.skip_count});
+                    try stderr.print(" {d} skipped", .{s.test_results.skip_count});
                 }
             } else {
                 try stderr.writeAll(" success");
@@ -832,15 +876,15 @@ fn printStepStatus(
             if (s.result_duration_ns) |ns| {
                 try ttyconf.setColor(stderr, .dim);
                 if (ns >= std.time.ns_per_min) {
-                    try stderr.writer().print(" {d}m", .{ns / std.time.ns_per_min});
+                    try stderr.print(" {d}m", .{ns / std.time.ns_per_min});
                 } else if (ns >= std.time.ns_per_s) {
-                    try stderr.writer().print(" {d}s", .{ns / std.time.ns_per_s});
+                    try stderr.print(" {d}s", .{ns / std.time.ns_per_s});
                 } else if (ns >= std.time.ns_per_ms) {
-                    try stderr.writer().print(" {d}ms", .{ns / std.time.ns_per_ms});
+                    try stderr.print(" {d}ms", .{ns / std.time.ns_per_ms});
                 } else if (ns >= std.time.ns_per_us) {
-                    try stderr.writer().print(" {d}us", .{ns / std.time.ns_per_us});
+                    try stderr.print(" {d}us", .{ns / std.time.ns_per_us});
                 } else {
-                    try stderr.writer().print(" {d}ns", .{ns});
+                    try stderr.print(" {d}ns", .{ns});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -848,13 +892,13 @@ fn printStepStatus(
                 const rss = s.result_peak_rss;
                 try ttyconf.setColor(stderr, .dim);
                 if (rss >= 1000_000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}G", .{rss / 1000_000_000});
+                    try stderr.print(" MaxRSS:{d}G", .{rss / 1000_000_000});
                 } else if (rss >= 1000_000) {
-                    try stderr.writer().print(" MaxRSS:{d}M", .{rss / 1000_000});
+                    try stderr.print(" MaxRSS:{d}M", .{rss / 1000_000});
                 } else if (rss >= 1000) {
-                    try stderr.writer().print(" MaxRSS:{d}K", .{rss / 1000});
+                    try stderr.print(" MaxRSS:{d}K", .{rss / 1000});
                 } else {
-                    try stderr.writer().print(" MaxRSS:{d}B", .{rss});
+                    try stderr.print(" MaxRSS:{d}B", .{rss});
                 }
                 try ttyconf.setColor(stderr, .reset);
             }
@@ -866,7 +910,7 @@ fn printStepStatus(
             if (skip == .skipped_oom) {
                 try stderr.writeAll(" (not enough memory)");
                 try ttyconf.setColor(stderr, .dim);
-                try stderr.writer().print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
+                try stderr.print(" upper bound of {d} exceeded runner limit ({d})", .{ s.max_rss, run.max_rss });
                 try ttyconf.setColor(stderr, .yellow);
             }
             try stderr.writeAll("\n");
@@ -878,23 +922,23 @@ fn printStepStatus(
 
 fn printStepFailure(
     s: *Step,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
-        try stderr.writer().print(" {d} errors\n", .{
+        try stderr.print(" {d} errors\n", .{
             s.result_error_bundle.errorMessageCount(),
         });
         try ttyconf.setColor(stderr, .reset);
     } else if (!s.test_results.isSuccess()) {
-        try stderr.writer().print(" {d}/{d} passed", .{
+        try stderr.print(" {d}/{d} passed", .{
             s.test_results.passCount(), s.test_results.test_count,
         });
         if (s.test_results.fail_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} failed", .{
+            try stderr.print("{d} failed", .{
                 s.test_results.fail_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -902,7 +946,7 @@ fn printStepFailure(
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.writer().print("{d} skipped", .{
+            try stderr.print("{d} skipped", .{
                 s.test_results.skip_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -910,7 +954,7 @@ fn printStepFailure(
         if (s.test_results.leak_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.writer().print("{d} leaked", .{
+            try stderr.print("{d} leaked", .{
                 s.test_results.leak_count,
             });
             try ttyconf.setColor(stderr, .reset);
@@ -932,7 +976,7 @@ fn printTreeStep(
     b: *std.Build,
     s: *Step,
     run: *const Run,
-    stderr: File,
+    stderr: *Writer,
     ttyconf: std.io.tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
@@ -992,7 +1036,7 @@ fn printTreeStep(
         if (s.dependencies.items.len == 0) {
             try stderr.writeAll(" (reused)\n");
         } else {
-            try stderr.writer().print(" (+{d} more reused dependencies)\n", .{
+            try stderr.print(" (+{d} more reused dependencies)\n", .{
                 s.dependencies.items.len,
             });
         }
@@ -1012,6 +1056,7 @@ fn printTreeStep(
 ///   when it finishes executing in `workerMakeOneStep`, it spawns next steps
 ///   to run in random order
 fn constructGraphAndCheckForDependencyLoop(
+    gpa: Allocator,
     b: *std.Build,
     s: *Step,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
@@ -1025,17 +1070,19 @@ fn constructGraphAndCheckForDependencyLoop(
         .precheck_unstarted => {
             s.state = .precheck_started;
 
-            try step_stack.ensureUnusedCapacity(b.allocator, s.dependencies.items.len);
+            try step_stack.ensureUnusedCapacity(gpa, s.dependencies.items.len);
 
             // We dupe to avoid shuffling the steps in the summary, it depends
             // on s.dependencies' order.
-            const deps = b.allocator.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            const deps = gpa.dupe(*Step, s.dependencies.items) catch @panic("OOM");
+            defer gpa.free(deps);
+
             rand.shuffle(*Step, deps);
 
             for (deps) |dep| {
-                try step_stack.put(b.allocator, dep, {});
+                try step_stack.put(gpa, dep, {});
                 try dep.dependants.append(b.allocator, s);
-                constructGraphAndCheckForDependencyLoop(b, dep, step_stack, rand) catch |err| {
+                constructGraphAndCheckForDependencyLoop(gpa, b, dep, step_stack, rand) catch |err| {
                     if (err == error.DependencyLoopDetected) {
                         std.debug.print("  {s}\n", .{s.name});
                     }
@@ -1074,6 +1121,7 @@ fn workerMakeOneStep(
             .success, .skipped => continue,
             .failure, .dependency_failure, .skipped_oom => {
                 @atomicStore(Step.State, &s.state, .dependency_failure, .seq_cst);
+                if (run.web_server) |*ws| ws.updateStepStatus(s, .failure);
                 return;
             },
             .precheck_done, .running => {
@@ -1099,7 +1147,7 @@ fn workerMakeOneStep(
         if (new_claimed_rss > run.max_rss) {
             // Running this step right now could possibly exceed the allotted RSS.
             // Add this step to the queue of memory-blocked steps.
-            run.memory_blocked_steps.append(s) catch @panic("OOM");
+            run.memory_blocked_steps.append(run.gpa, s) catch @panic("OOM");
             return;
         }
 
@@ -1116,10 +1164,14 @@ fn workerMakeOneStep(
     const sub_prog_node = prog_node.start(s.name, 0);
     defer sub_prog_node.end();
 
+    if (run.web_server) |*ws| ws.updateStepStatus(s, .wip);
+
     const make_result = s.make(.{
         .progress_node = sub_prog_node,
         .thread_pool = thread_pool,
         .watch = run.watch,
+        .web_server = if (run.web_server) |*ws| ws else null,
+        .gpa = run.gpa,
     });
 
     // No matter the result, we want to display error/warning messages.
@@ -1129,22 +1181,26 @@ fn workerMakeOneStep(
     const show_stderr = s.result_stderr.len > 0;
 
     if (show_error_msgs or show_compile_errors or show_stderr) {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-
-        const gpa = b.allocator;
-        printErrorMessages(gpa, s, .{ .ttyconf = run.ttyconf }, run.stderr, run.prominent_compile_errors) catch {};
+        const bw = std.debug.lockStderrWriter(&stdio_buffer_allocation);
+        defer std.debug.unlockStderrWriter();
+        printErrorMessages(run.gpa, s, .{ .ttyconf = run.ttyconf }, bw, run.prominent_compile_errors) catch {};
     }
 
     handle_result: {
         if (make_result) |_| {
             @atomicStore(Step.State, &s.state, .success, .seq_cst);
+            if (run.web_server) |*ws| ws.updateStepStatus(s, .success);
         } else |err| switch (err) {
             error.MakeFailed => {
                 @atomicStore(Step.State, &s.state, .failure, .seq_cst);
+                if (run.web_server) |*ws| ws.updateStepStatus(s, .failure);
+                std.Progress.setStatus(.failure_working);
                 break :handle_result;
             },
-            error.MakeSkipped => @atomicStore(Step.State, &s.state, .skipped, .seq_cst),
+            error.MakeSkipped => {
+                @atomicStore(Step.State, &s.state, .skipped, .seq_cst);
+                if (run.web_server) |*ws| ws.updateStepStatus(s, .success);
+            },
         }
 
         // Successful completion of a step, so we queue up its dependants as well.
@@ -1190,7 +1246,7 @@ pub fn printErrorMessages(
     gpa: Allocator,
     failing_step: *Step,
     options: std.zig.ErrorBundle.RenderOptions,
-    stderr: File,
+    stderr: *Writer,
     prominent_compile_errors: bool,
 ) !void {
     // Provide context for where these error messages are coming from by
@@ -1209,7 +1265,7 @@ pub fn printErrorMessages(
     var indent: usize = 0;
     while (step_stack.pop()) |s| : (indent += 1) {
         if (indent > 0) {
-            try stderr.writer().writeByteNTimes(' ', (indent - 1) * 3);
+            try stderr.splatByteAll(' ', (indent - 1) * 3);
             try printChildNodePrefix(stderr, ttyconf);
         }
 
@@ -1231,7 +1287,7 @@ pub fn printErrorMessages(
     }
 
     if (!prominent_compile_errors and failing_step.result_error_bundle.errorMessageCount() > 0) {
-        try failing_step.result_error_bundle.renderToWriter(options, stderr.writer());
+        try failing_step.result_error_bundle.renderToWriter(options, stderr);
     }
 
     for (failing_step.result_error_msgs.items) |msg| {
@@ -1243,27 +1299,27 @@ pub fn printErrorMessages(
     }
 }
 
-fn steps(builder: *std.Build, out_stream: anytype) !void {
-    const allocator = builder.allocator;
+fn printSteps(builder: *std.Build, w: *Writer) !void {
+    const arena = builder.graph.arena;
     for (builder.top_level_steps.values()) |top_level_step| {
         const name = if (&top_level_step.step == builder.default_step)
-            try fmt.allocPrint(allocator, "{s} (default)", .{top_level_step.step.name})
+            try fmt.allocPrint(arena, "{s} (default)", .{top_level_step.step.name})
         else
             top_level_step.step.name;
-        try out_stream.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
+        try w.print("  {s:<28} {s}\n", .{ name, top_level_step.description });
     }
 }
 
-fn usage(b: *std.Build, out_stream: anytype) !void {
-    try out_stream.print(
+fn printUsage(b: *std.Build, w: *Writer) !void {
+    try w.print(
         \\Usage: {s} build [steps] [options]
         \\
         \\Steps:
         \\
     , .{b.graph.zig_exe});
-    try steps(b, out_stream);
+    try printSteps(b, w);
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\General Options:
         \\  -p, --prefix [path]          Where to install files (default: zig-out)
@@ -1308,8 +1364,11 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched
         \\  --watch                      Continuously rebuild when source files are modified
-        \\  --fuzz                       Continuously search for unit test failures
         \\  --debounce <ms>              Delay before rebuilding after changed file detected
+        \\  --webui[=ip]                 Enable the web interface on the given IP address
+        \\  --fuzz                       Continuously search for unit test failures (implies '--webui')
+        \\  --time-report                Force full rebuild and provide detailed information on
+        \\                               compilation time of Zig source code (implies '--webui')
         \\     -fincremental             Enable incremental compilation
         \\  -fno-incremental             Disable incremental compilation
         \\
@@ -1317,27 +1376,27 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
     );
 
-    const arena = b.allocator;
+    const arena = b.graph.arena;
     if (b.available_options_list.items.len == 0) {
-        try out_stream.print("  (none)\n", .{});
+        try w.print("  (none)\n", .{});
     } else {
         for (b.available_options_list.items) |option| {
             const name = try fmt.allocPrint(arena, "  -D{s}=[{s}]", .{
                 option.name,
                 @tagName(option.type_id),
             });
-            try out_stream.print("{s:<30} {s}\n", .{ name, option.description });
+            try w.print("{s:<30} {s}\n", .{ name, option.description });
             if (option.enum_options) |enum_options| {
                 const padding = " " ** 33;
-                try out_stream.writeAll(padding ++ "Supported Values:\n");
+                try w.writeAll(padding ++ "Supported Values:\n");
                 for (enum_options) |enum_option| {
-                    try out_stream.print(padding ++ "  {s}\n", .{enum_option});
+                    try w.print(padding ++ "  {s}\n", .{enum_option});
                 }
             }
         }
     }
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\System Integration Options:
         \\  --search-prefix [path]       Add a path to look for binaries, libraries, headers
@@ -1352,7 +1411,7 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
         \\
     );
     if (b.graph.system_library_options.entries.len == 0) {
-        try out_stream.writeAll("  (none)                                        -\n");
+        try w.writeAll("  (none)                                        -\n");
     } else {
         for (b.graph.system_library_options.keys(), b.graph.system_library_options.values()) |k, v| {
             const status = switch (v) {
@@ -1360,11 +1419,11 @@ fn usage(b: *std.Build, out_stream: anytype) !void {
                 .declared_disabled => "no",
                 .user_enabled, .user_disabled => unreachable, // already emitted error
             };
-            try out_stream.print("    {s:<43} {s}\n", .{ k, status });
+            try w.print("    {s:<43} {s}\n", .{ k, status });
         }
     }
 
-    try out_stream.writeAll(
+    try w.writeAll(
         \\
         \\Advanced Options:
         \\  -freference-trace[=num]      How many lines of reference trace should be shown per compile error
@@ -1543,4 +1602,12 @@ fn createModuleDependenciesForStep(step: *Step) Allocator.Error!void {
             },
         };
     }
+}
+
+var stdio_buffer_allocation: [256]u8 = undefined;
+var stdout_writer_allocation: std.fs.File.Writer = undefined;
+
+fn initStdoutWriter() *Writer {
+    stdout_writer_allocation = std.fs.File.stdout().writerStreaming(&stdio_buffer_allocation);
+    return &stdout_writer_allocation.interface;
 }

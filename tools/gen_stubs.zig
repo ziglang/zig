@@ -303,14 +303,15 @@ pub fn main() !void {
             libc_so_path,
             100 * 1024 * 1024,
             1 * 1024 * 1024,
-            @alignOf(elf.Elf64_Ehdr),
+            .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {
             std.debug.panic("unable to read '{s}/{s}': {s}", .{
                 build_all_path, libc_so_path, @errorName(err),
             });
         };
-        const header = try elf.Header.parse(elf_bytes[0..@sizeOf(elf.Elf64_Ehdr)]);
+        var stream: std.Io.Reader = .fixed(elf_bytes);
+        const header = try elf.Header.read(&stream);
 
         const parse: Parse = .{
             .arena = arena,
@@ -333,7 +334,9 @@ pub fn main() !void {
         }
     }
 
-    const stdout = std.io.getStdOut().writer();
+    var stdout_buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     try stdout.writeAll(
         \\#ifdef PTR64
         \\#define WEAK64 .weak
@@ -533,6 +536,8 @@ pub fn main() !void {
         .all => {},
         .single, .multi, .family, .time32 => try stdout.writeAll("#endif\n"),
     }
+
+    try stdout.flush();
 }
 
 fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian) !void {

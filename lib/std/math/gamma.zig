@@ -189,19 +189,19 @@ fn series(comptime T: type, abs: T) T {
         2.5066282746310002701649081771338373386264310793408,
     };
     const denominator = [_]T{
-        0,
-        39916800,
-        120543840,
-        150917976,
-        105258076,
-        45995730,
-        13339535,
-        2637558,
-        357423,
-        32670,
-        1925,
-        66,
-        1,
+        0.0,
+        39916800.0,
+        120543840.0,
+        150917976.0,
+        105258076.0,
+        45995730.0,
+        13339535.0,
+        2637558.0,
+        357423.0,
+        32670.0,
+        1925.0,
+        66.0,
+        1.0,
     };
     var num: T = 0;
     var den: T = 0;
@@ -244,9 +244,9 @@ const expectApproxEqRel = std.testing.expectApproxEqRel;
 test gamma {
     inline for (&.{ f32, f64 }) |T| {
         const eps = @sqrt(std.math.floatEps(T));
-        try expectApproxEqRel(@as(T, 120), gamma(T, 6), eps);
-        try expectApproxEqRel(@as(T, 362880), gamma(T, 10), eps);
-        try expectApproxEqRel(@as(T, 6402373705728000), gamma(T, 19), eps);
+        try expectApproxEqRel(@as(T, 120.0), gamma(T, 6), eps);
+        try expectApproxEqRel(@as(T, 362880.0), gamma(T, 10), eps);
+        try expectApproxEqRel(@as(T, 6402373705728000.0), gamma(T, 19), eps);
 
         try expectApproxEqRel(@as(T, 332.7590766955334570), gamma(T, 0.003), eps);
         try expectApproxEqRel(@as(T, 1.377260301981044573), gamma(T, 0.654), eps);

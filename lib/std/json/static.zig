@@ -2,13 +2,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.array_list.Managed;
 
-const Scanner = @import("./scanner.zig").Scanner;
-const Token = @import("./scanner.zig").Token;
-const AllocWhen = @import("./scanner.zig").AllocWhen;
-const default_max_value_len = @import("./scanner.zig").default_max_value_len;
-const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const Scanner = @import("Scanner.zig");
+const Token = Scanner.Token;
+const AllocWhen = Scanner.AllocWhen;
+const default_max_value_len = Scanner.default_max_value_len;
+const isNumberFormattedLikeAnInteger = Scanner.isNumberFormattedLikeAnInteger;
 
 const Value = @import("./dynamic.zig").Value;
 const Array = @import("./dynamic.zig").Array;

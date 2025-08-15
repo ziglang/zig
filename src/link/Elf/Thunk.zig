@@ -65,47 +65,27 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) usize {
     };
 }
 
-pub fn format(
-    thunk: Thunk,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = thunk;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format Thunk directly");
-}
-
-pub fn fmt(thunk: Thunk, elf_file: *Elf) std.fmt.Formatter(format2) {
+pub fn fmt(thunk: Thunk, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     thunk: Thunk,
     elf_file: *Elf,
-};
 
-fn format2(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = unused_fmt_string;
-    const thunk = ctx.thunk;
-    const elf_file = ctx.elf_file;
-    try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
-    for (thunk.symbols.keys()) |ref| {
-        const sym = elf_file.symbol(ref).?;
-        try writer.print("  {} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
+    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        const thunk = f.thunk;
+        const elf_file = f.elf_file;
+        try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });
+        for (thunk.symbols.keys()) |ref| {
+            const sym = elf_file.symbol(ref).?;
+            try writer.print("  {f} : {s} : @{x}\n", .{ ref, sym.name(elf_file), sym.value });
+        }
     }
-}
+};
 
 pub const Index = u32;
 
@@ -115,18 +95,21 @@ const aarch64 = struct {
             const sym = elf_file.symbol(ref).?;
             const saddr = thunk.address(elf_file) + @as(i64, @intCast(i * trampoline_size));
             const taddr = sym.address(.{}, elf_file);
-            const pages = try util.calcNumberOfPages(saddr, taddr);
-            try writer.writeInt(u32, Instruction.adrp(.x16, pages).toU32(), .little);
-            const off: u12 = @truncate(@as(u64, @bitCast(taddr)));
-            try writer.writeInt(u32, Instruction.add(.x16, .x16, off, false).toU32(), .little);
-            try writer.writeInt(u32, Instruction.br(.x16).toU32(), .little);
+            try writer.writeInt(u32, @bitCast(
+                util.encoding.Instruction.adrp(.x16, try util.calcNumberOfPages(saddr, taddr) << 12),
+            ), .little);
+            try writer.writeInt(u32, @bitCast(util.encoding.Instruction.add(
+                .x16,
+                .x16,
+                .{ .immediate = @truncate(@as(u64, @bitCast(taddr))) },
+            )), .little);
+            try writer.writeInt(u32, @bitCast(util.encoding.Instruction.br(.x16)), .little);
         }
     }
 
     const trampoline_size = 3 * @sizeOf(u32);
 
     const util = @import("../aarch64.zig");
-    const Instruction = util.Instruction;
 };
 
 const assert = std.debug.assert;

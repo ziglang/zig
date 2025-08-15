@@ -38,7 +38,7 @@ fn staticWhileLoop2() i32 {
 }
 
 test "while with continue expression" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var sum: i32 = 0;
     {
@@ -124,8 +124,6 @@ test "while copies its payload" {
 }
 
 test "continue and break" {
-    if (builtin.zig_backend == .stage2_aarch64 and builtin.os.tag == .macos) return error.SkipZigTest;
-
     try runContinueAndBreakTest();
     try expect(continue_and_break_counter == 8);
 }
@@ -160,7 +158,7 @@ test "while with optional as condition with else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -178,7 +176,7 @@ test "while with optional as condition with else" {
 test "while with error union condition" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     numbers_left = 10;
     var sum: i32 = 0;
@@ -209,7 +207,6 @@ test "while on bool with else result follow break prong" {
 
 test "while on optional with else result follow else prong" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const result = while (returnNull()) |value| {
@@ -220,7 +217,6 @@ test "while on optional with else result follow else prong" {
 
 test "while on optional with else result follow break prong" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const result = while (returnOptional(10)) |value| {
@@ -292,7 +288,6 @@ test "while bool 2 break statements and an else" {
 
 test "while optional 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -311,7 +306,6 @@ test "while optional 2 break statements and an else" {
 
 test "while error 2 break statements and an else" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {
@@ -349,8 +343,7 @@ test "else continue outer while" {
 
 test "try terminating an infinite loop" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // Test coverage for https://github.com/ziglang/zig/issues/13546
     const Foo = struct {
@@ -376,7 +369,6 @@ test "while loop with comptime true condition needs no else block to return valu
 }
 
 test "int returned from switch in while" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     var x: u32 = 3;
@@ -389,7 +381,6 @@ test "int returned from switch in while" {
 
 test "breaking from a loop in an if statement" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const S = struct {

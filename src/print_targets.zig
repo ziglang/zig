@@ -14,9 +14,8 @@ const introspect = @import("introspect.zig");
 pub fn cmdTargets(
     allocator: Allocator,
     args: []const []const u8,
-    /// Output stream
-    stdout: anytype,
-    native_target: Target,
+    out: *std.Io.Writer,
+    native_target: *const Target,
 ) !void {
     _ = args;
     var zig_lib_directory = introspect.findZigLibDir(allocator) catch |err| {
@@ -38,12 +37,10 @@ pub fn cmdTargets(
     const glibc_abi = try glibc.loadMetaData(allocator, abilists_contents);
     defer glibc_abi.destroy(allocator);
 
-    var bw = io.bufferedWriter(stdout);
-    const w = bw.writer();
-    var sz = std.zon.stringify.serializer(w, .{});
+    var serializer: std.zon.Serializer = .{ .writer = out };
 
     {
-        var root_obj = try sz.beginStruct(.{});
+        var root_obj = try serializer.beginStruct(.{});
 
         try root_obj.field("arch", meta.fieldNames(Target.Cpu.Arch), .{});
         try root_obj.field("os", meta.fieldNames(Target.Os.Tag), .{});
@@ -64,7 +61,7 @@ pub fn cmdTargets(
         {
             var glibc_obj = try root_obj.beginTupleField("glibc", .{});
             for (glibc_abi.all_versions) |ver| {
-                const tmp = try std.fmt.allocPrint(allocator, "{}", .{ver});
+                const tmp = try std.fmt.allocPrint(allocator, "{f}", .{ver});
                 defer allocator.free(tmp);
                 try glibc_obj.field(tmp, .{});
             }
@@ -136,6 +133,5 @@ pub fn cmdTargets(
         try root_obj.end();
     }
 
-    try w.writeByte('\n');
-    return bw.flush();
+    try out.writeByte('\n');
 }

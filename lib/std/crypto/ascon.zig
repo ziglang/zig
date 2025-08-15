@@ -157,7 +157,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
         }
 
         /// Apply a reduced-round permutation to the state.
-        pub inline fn permuteR(state: *Self, comptime rounds: u4) void {
+        pub fn permuteR(state: *Self, comptime rounds: u4) void {
             const rks = [16]u64{ 0x3c, 0x2d, 0x1e, 0x0f, 0xf0, 0xe1, 0xd2, 0xc3, 0xb4, 0xa5, 0x96, 0x87, 0x78, 0x69, 0x5a, 0x4b };
             inline for (rks[rks.len - rounds ..]) |rk| {
                 state.round(rk);
@@ -165,13 +165,13 @@ pub fn State(comptime endian: std.builtin.Endian) type {
         }
 
         /// Apply a full-round permutation to the state.
-        pub inline fn permute(state: *Self) void {
+        pub fn permute(state: *Self) void {
             state.permuteR(12);
         }
 
         /// Apply a permutation to the state and prevent backtracking.
         /// The rate is expressed in bytes and must be a multiple of the word size (8).
-        pub inline fn permuteRatchet(state: *Self, comptime rounds: u4, comptime rate: u6) void {
+        pub fn permuteRatchet(state: *Self, comptime rounds: u4, comptime rate: u6) void {
             const capacity = block_bytes - rate;
             debug.assert(capacity > 0 and capacity % 8 == 0); // capacity must be a multiple of 64 bits
             var mask: [capacity / 8]u64 = undefined;
@@ -181,7 +181,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
         }
 
         // Core Ascon permutation.
-        inline fn round(state: *Self, rk: u64) void {
+        fn round(state: *Self, rk: u64) void {
             const x = &state.st;
             x[2] ^= rk;
 

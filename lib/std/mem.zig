@@ -674,23 +674,25 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const eqlBytes_allowed = switch (builtin.zig_backend) {
+const use_vectors = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     => false,
     // The SPIR-V backend does not support the optimized path yet.
-    .stage2_spirv64 => false,
-    // The naive memory comparison implementation is more useful for fuzzers to
-    // find interesting inputs.
-    else => !builtin.fuzz,
+    .stage2_spirv => false,
+    else => true,
 };
+
+// The naive memory comparison implementation is more useful for fuzzers to find interesting inputs.
+const use_vectors_for_comparison = use_vectors and !builtin.fuzz;
 
 /// Returns true if and only if the slices have the same length and all elements
 /// compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
-        eqlBytes_allowed)
+        use_vectors_for_comparison)
     {
         return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
     }
@@ -725,7 +727,7 @@ test eql {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
-    comptime assert(eqlBytes_allowed);
+    comptime assert(use_vectors_for_comparison);
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -1087,15 +1089,10 @@ test len {
     try testing.expect(len(c_ptr) == 2);
 }
 
-const backend_supports_vectors = switch (builtin.zig_backend) {
-    .stage2_llvm, .stage2_c => true,
-    else => false,
-};
-
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
 
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -1262,7 +1259,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
     if (start_index >= slice.len) return null;
 
     var i: usize = start_index;
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -1751,7 +1748,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
     }
-    return @as(ReturnType, @truncate(result));
+    return @truncate(result);
 }
 
 test readVarInt {
@@ -2187,7 +2184,7 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     } else {
                         byteSwapAllFields(f.type, &@field(ptr, f.name));
                     },
-                    .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .@"union", .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .@"enum" => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -2201,24 +2198,27 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
-        .array => {
-            for (ptr) |*item| {
-                switch (@typeInfo(@TypeOf(item.*))) {
-                    .@"struct", .array => byteSwapAllFields(@TypeOf(item.*), item),
-                    .@"enum" => {
-                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
-                    },
-                    .bool => {},
-                    .float => |float_info| {
-                        item.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(item.*))));
-                    },
-                    else => {
-                        item.* = @byteSwap(item.*);
-                    },
+        .@"union" => |union_info| {
+            if (union_info.tag_type != null) {
+                @compileError("byteSwapAllFields expects an untagged union");
+            }
+
+            const first_size = @bitSizeOf(union_info.fields[0].type);
+            inline for (union_info.fields) |field| {
+                if (@bitSizeOf(field.type) != first_size) {
+                    @compileError("Unable to byte-swap unions with varying field sizes");
                 }
             }
+
+            const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(S));
+            ptr.* = @bitCast(@byteSwap(@as(BackingInt, @bitCast(ptr.*))));
         },
-        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
+        .array => |info| {
+            byteSwapAllElements(info.child, ptr);
+        },
+        else => {
+            ptr.* = @byteSwap(ptr.*);
+        },
     }
 }
 
@@ -2230,6 +2230,7 @@ test byteSwapAllFields {
         f3: [1]u8,
         f4: bool,
         f5: f32,
+        f6: extern union { f0: u16, f1: u16 },
     };
     const K = extern struct {
         f0: u8,
@@ -2246,6 +2247,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x4640e400))),
+        .f6 = .{ .f0 = 0x1234 },
     };
     var k = K{
         .f0 = 0x12,
@@ -2264,6 +2266,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x00e44046))),
+        .f6 = .{ .f0 = 0x3412 },
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
@@ -2275,7 +2278,23 @@ test byteSwapAllFields {
     }, k);
 }
 
-pub const tokenize = @compileError("deprecated; use tokenizeAny, tokenizeSequence, or tokenizeScalar");
+pub fn byteSwapAllElements(comptime Elem: type, slice: []Elem) void {
+    for (slice) |*elem| {
+        switch (@typeInfo(@TypeOf(elem.*))) {
+            .@"struct", .@"union", .array => byteSwapAllFields(@TypeOf(elem.*), elem),
+            .@"enum" => {
+                elem.* = @enumFromInt(@byteSwap(@intFromEnum(elem.*)));
+            },
+            .bool => {},
+            .float => |float_info| {
+                elem.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(elem.*))));
+            },
+            else => {
+                elem.* = @byteSwap(elem.*);
+            },
+        }
+    }
+}
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the items in `delimiters`.
@@ -2475,8 +2494,6 @@ test "tokenize (reset)" {
     }
 }
 
-pub const split = @compileError("deprecated; use splitSequence, splitAny, or splitScalar");
-
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
 ///
@@ -2675,8 +2692,6 @@ test "split (reset)" {
         try testing.expect(it.next() == null);
     }
 }
-
-pub const splitBackwards = @compileError("deprecated; use splitBackwardsSequence, splitBackwardsAny, or splitBackwardsScalar");
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.
@@ -3627,7 +3642,7 @@ inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
 pub fn reverse(comptime T: type, items: []T) void {
     var i: usize = 0;
     const end = items.len / 2;
-    if (backend_supports_vectors and
+    if (use_vectors and
         !@inComptime() and
         @bitSizeOf(T) > 0 and
         std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -4501,7 +4516,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
                 );
                 asm volatile (""
                     :
-                    : [val2] "r" (val2),
+                    : [_] "r" (val2),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4509,7 +4524,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             if ((t.float.bits == 32 or t.float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
-                    : [val] "rm" (val),
+                    : [_] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4519,9 +4534,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else {
                 asm volatile (""
                     :
-                    : [val] "m" (val),
-                    : "memory"
-                );
+                    : [_] "m" (val),
+                    : .{ .memory = true });
             }
         },
         .array => {

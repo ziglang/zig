@@ -24,4 +24,4 @@ fn bar(f: *Foo) void {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux

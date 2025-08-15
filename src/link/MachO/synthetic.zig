@@ -37,33 +37,26 @@ pub const GotSection = struct {
         }
     }
 
-    const FormatCtx = struct {
+    const Format = struct {
         got: GotSection,
         macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.got.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getGotAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
+        }
     };
 
-    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .got = got, .macho_file = macho_file } };
-    }
-
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        for (ctx.got.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                i,
-                symbol.getGotAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
-        }
     }
 };
 
@@ -112,50 +105,42 @@ pub const StubsSection = struct {
                     try writer.writeInt(i32, @intCast(target - source - 2 - 4), .little);
                 },
                 .aarch64 => {
+                    const Instruction = aarch64.encoding.Instruction;
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
-                    try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                    const off = try math.divExact(u12, @truncate(target), 8);
-                    try writer.writeInt(
-                        u32,
-                        aarch64.Instruction.ldr(.x16, .x16, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
-                        .little,
-                    );
-                    try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.adrp(.x16, pages << 12)), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.ldr(
+                        .x16,
+                        .{ .unsigned_offset = .{ .base = .x16, .offset = @as(u12, @truncate(target)) } },
+                    )), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.br(.x16)), .little);
                 },
                 else => unreachable,
             }
         }
     }
 
-    const FormatCtx = struct {
-        stubs: StubsSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .stubs = stubs, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        for (ctx.stubs.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                i,
-                symbol.getStubsAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        stubs: StubsSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.stubs.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getStubsAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 };
 
 pub const StubsHelperSection = struct {
@@ -215,18 +200,16 @@ pub const StubsHelperSection = struct {
                     try writer.writeInt(i32, @intCast(target - source - 6 - 4), .little);
                 },
                 .aarch64 => {
-                    const literal = blk: {
-                        const div_res = try std.math.divExact(u64, entry_size - @sizeOf(u32), 4);
-                        break :blk std.math.cast(u18, div_res) orelse return error.Overflow;
-                    };
-                    try writer.writeInt(u32, aarch64.Instruction.ldrLiteral(
-                        .w16,
-                        literal,
-                    ).toU32(), .little);
+                    const Instruction = aarch64.encoding.Instruction;
+                    if (entry_size % Instruction.size != 0) return error.UnexpectedRemainder;
+                    try writer.writeInt(u32, @bitCast(
+                        Instruction.ldr(.w16, .{ .literal = std.math.cast(i21, entry_size - Instruction.size) orelse
+                            return error.Overflow }),
+                    ), .little);
                     const disp = math.cast(i28, @as(i64, @intCast(target)) - @as(i64, @intCast(source + 4))) orelse
                         return error.Overflow;
-                    try writer.writeInt(u32, aarch64.Instruction.b(disp).toU32(), .little);
-                    try writer.writeAll(&.{ 0x0, 0x0, 0x0, 0x0 });
+                    try writer.writeInt(u32, @bitCast(Instruction.b(disp)), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.udf(0x0)), .little);
                 },
                 else => unreachable,
             }
@@ -256,31 +239,28 @@ pub const StubsHelperSection = struct {
                 try writer.writeByte(0x90);
             },
             .aarch64 => {
+                const Instruction = aarch64.encoding.Instruction;
                 {
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(@intCast(sect.addr), @intCast(dyld_private_addr));
-                    try writer.writeInt(u32, aarch64.Instruction.adrp(.x17, pages).toU32(), .little);
-                    const off: u12 = @truncate(dyld_private_addr);
-                    try writer.writeInt(u32, aarch64.Instruction.add(.x17, .x17, off, false).toU32(), .little);
+                    try writer.writeInt(Instruction.Backing, @bitCast(Instruction.adrp(.x17, pages << 12)), .little);
+                    try writer.writeInt(Instruction.Backing, @bitCast(
+                        Instruction.add(.x17, .x17, .{ .immediate = @as(u12, @truncate(dyld_private_addr)) }),
+                    ), .little);
                 }
-                try writer.writeInt(u32, aarch64.Instruction.stp(
-                    .x16,
-                    .x17,
-                    aarch64.Register.sp,
-                    aarch64.Instruction.LoadStorePairOffset.pre_index(-16),
-                ).toU32(), .little);
+                try writer.writeInt(Instruction.Backing, @bitCast(
+                    Instruction.stp(.x16, .x17, .{ .pre_index = .{ .base = .sp, .index = -16 } }),
+                ), .little);
                 {
                     // TODO relax if possible
                     const pages = try aarch64.calcNumberOfPages(@intCast(sect.addr + 12), @intCast(dyld_stub_binder_addr));
-                    try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                    const off = try math.divExact(u12, @truncate(dyld_stub_binder_addr), 8);
-                    try writer.writeInt(u32, aarch64.Instruction.ldr(
+                    try writer.writeInt(Instruction.Backing, @bitCast(Instruction.adrp(.x16, pages << 12)), .little);
+                    try writer.writeInt(Instruction.Backing, @bitCast(Instruction.ldr(
                         .x16,
-                        .x16,
-                        aarch64.Instruction.LoadStoreOffset.imm(off),
-                    ).toU32(), .little);
+                        .{ .unsigned_offset = .{ .base = .x16, .offset = @as(u12, @truncate(dyld_stub_binder_addr)) } },
+                    )), .little);
                 }
-                try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
+                try writer.writeInt(Instruction.Backing, @bitCast(Instruction.br(.x16)), .little);
             },
             else => unreachable,
         }
@@ -357,34 +337,27 @@ pub const TlvPtrSection = struct {
         }
     }
 
-    const FormatCtx = struct {
-        tlv: TlvPtrSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .tlv = tlv, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        for (ctx.tlv.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                i,
-                symbol.getTlvPtrAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        tlv: TlvPtrSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.tlv.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getTlvPtrAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 };
 
 pub const ObjcStubsSection = struct {
@@ -447,69 +420,59 @@ pub const ObjcStubsSection = struct {
                     }
                 },
                 .aarch64 => {
+                    const Instruction = aarch64.encoding.Instruction;
                     {
                         const target = sym.getObjcSelrefsAddress(macho_file);
                         const source = addr;
                         const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
-                        try writer.writeInt(u32, aarch64.Instruction.adrp(.x1, pages).toU32(), .little);
-                        const off = try math.divExact(u12, @truncate(target), 8);
-                        try writer.writeInt(
-                            u32,
-                            aarch64.Instruction.ldr(.x1, .x1, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
-                            .little,
-                        );
+                        try writer.writeInt(u32, @bitCast(Instruction.adrp(.x1, pages << 12)), .little);
+                        try writer.writeInt(u32, @bitCast(Instruction.ldr(
+                            .x1,
+                            .{ .unsigned_offset = .{ .base = .x1, .offset = @as(u12, @truncate(target)) } },
+                        )), .little);
                     }
                     {
                         const target_sym = obj.getObjcMsgSendRef(macho_file).?.getSymbol(macho_file).?;
                         const target = target_sym.getGotAddress(macho_file);
                         const source = addr + 2 * @sizeOf(u32);
                         const pages = try aarch64.calcNumberOfPages(@intCast(source), @intCast(target));
-                        try writer.writeInt(u32, aarch64.Instruction.adrp(.x16, pages).toU32(), .little);
-                        const off = try math.divExact(u12, @truncate(target), 8);
-                        try writer.writeInt(
-                            u32,
-                            aarch64.Instruction.ldr(.x16, .x16, aarch64.Instruction.LoadStoreOffset.imm(off)).toU32(),
-                            .little,
-                        );
+                        try writer.writeInt(u32, @bitCast(Instruction.adrp(.x16, pages << 12)), .little);
+                        try writer.writeInt(u32, @bitCast(Instruction.ldr(
+                            .x16,
+                            .{ .unsigned_offset = .{ .base = .x16, .offset = @as(u12, @truncate(target)) } },
+                        )), .little);
                     }
-                    try writer.writeInt(u32, aarch64.Instruction.br(.x16).toU32(), .little);
-                    try writer.writeInt(u32, aarch64.Instruction.brk(1).toU32(), .little);
-                    try writer.writeInt(u32, aarch64.Instruction.brk(1).toU32(), .little);
-                    try writer.writeInt(u32, aarch64.Instruction.brk(1).toU32(), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.br(.x16)), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.brk(0x1)), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.brk(0x1)), .little);
+                    try writer.writeInt(u32, @bitCast(Instruction.brk(0x1)), .little);
                 },
                 else => unreachable,
             }
         }
     }
 
-    const FormatCtx = struct {
-        objc: ObjcStubsSection,
-        macho_file: *MachO,
-    };
-
-    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
         return .{ .data = .{ .objc = objc, .macho_file = macho_file } };
     }
 
-    pub fn format2(
-        ctx: FormatCtx,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = options;
-        _ = unused_fmt_string;
-        for (ctx.objc.symbols.items, 0..) |ref, i| {
-            const symbol = ref.getSymbol(ctx.macho_file).?;
-            try writer.print("  {d}@0x{x} => {d}@0x{x} ({s})\n", .{
-                i,
-                symbol.getObjcStubsAddress(ctx.macho_file),
-                ref,
-                symbol.getAddress(.{}, ctx.macho_file),
-                symbol.getName(ctx.macho_file),
-            });
+    const Format = struct {
+        objc: ObjcStubsSection,
+        macho_file: *MachO,
+
+        pub fn print(f: Format, w: *Writer) Writer.Error!void {
+            for (f.objc.symbols.items, 0..) |ref, i| {
+                const symbol = ref.getSymbol(f.macho_file).?;
+                try w.print("  {d}@0x{x} => {f}@0x{x} ({s})\n", .{
+                    i,
+                    symbol.getObjcStubsAddress(f.macho_file),
+                    ref,
+                    symbol.getAddress(.{}, f.macho_file),
+                    symbol.getName(f.macho_file),
+                });
+            }
         }
-    }
+    };
 
     pub const Index = u32;
 };
@@ -625,13 +588,14 @@ pub const DataInCode = struct {
     };
 };
 
+const std = @import("std");
 const aarch64 = @import("../aarch64.zig");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
-const std = @import("std");
-const trace = @import("../../tracy.zig").trace;
-
 const Allocator = std.mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../tracy.zig").trace;
 const MachO = @import("../MachO.zig");
 const Symbol = @import("Symbol.zig");

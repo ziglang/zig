@@ -7,7 +7,7 @@
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("Hello, World!\n");
+    try std.fs.File.stdout().writeAll("Hello, World!\n");
 }
 #expect_stdout="Hello, World!\n"
 
@@ -15,7 +15,7 @@ pub fn main() !void {
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("Hello, World!\n");
+    try std.fs.File.stdout().writeAll("Hello, World!\n");
     @compileLog("this is a log");
 }
 #expect_error=main.zig:4:5: error: found compile log statement
@@ -25,6 +25,6 @@ pub fn main() !void {
 #file=main.zig
 const std = @import("std");
 pub fn main() !void {
-    try std.io.getStdOut().writeAll("Hello, World!\n");
+    try std.fs.File.stdout().writeAll("Hello, World!\n");
 }
 #expect_stdout="Hello, World!\n"

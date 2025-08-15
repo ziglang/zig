@@ -19,4 +19,4 @@ fn mul(a: @Vector(4, u8), b: @Vector(4, u8)) @Vector(4, u8) {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux

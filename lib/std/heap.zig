@@ -146,12 +146,12 @@ const CAllocator = struct {
     else {};
 
     pub const supports_posix_memalign = switch (builtin.os.tag) {
-        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => true,
+        .dragonfly, .netbsd, .freebsd, .solaris, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos, .serenity => true,
         else => false,
     };
 
     fn getHeader(ptr: [*]u8) *[*]u8 {
-        return @alignCast(@ptrCast(ptr - @sizeOf(usize)));
+        return @ptrCast(@alignCast(ptr - @sizeOf(usize)));
     }
 
     fn alignedAlloc(len: usize, alignment: Alignment) ?[*]u8 {
@@ -287,7 +287,7 @@ fn rawCAlloc(
 ) ?[*]u8 {
     _ = context;
     _ = return_address;
-    assert(alignment.compare(.lte, comptime .fromByteUnits(@alignOf(std.c.max_align_t))));
+    assert(alignment.compare(.lte, .of(std.c.max_align_t)));
     // Note that this pointer cannot be aligncasted to max_align_t because if
     // len is < max_align_t then the alignment can be smaller. For example, if
     // max_align_t is 16, but the user requests 8 bytes, there is no built-in
@@ -673,7 +673,7 @@ pub fn testAllocatorAlignedShrink(base_allocator: mem.Allocator) !void {
     var slice = try allocator.alignedAlloc(u8, .@"16", alloc_size);
     defer allocator.free(slice);
 
-    var stuff_to_free = std.ArrayList([]align(16) u8).init(debug_allocator);
+    var stuff_to_free = std.array_list.Managed([]align(16) u8).init(debug_allocator);
     // On Windows, VirtualAlloc returns addresses aligned to a 64K boundary,
     // which is 16 pages, hence the 32. This test may require to increase
     // the size of the allocations feeding the `allocator` parameter if they

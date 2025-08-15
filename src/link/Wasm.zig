@@ -31,7 +31,7 @@ const mem = std.mem;
 
 const Mir = @import("../arch/wasm/Mir.zig");
 const CodeGen = @import("../arch/wasm/CodeGen.zig");
-const abi = @import("../arch/wasm/abi.zig");
+const abi = @import("../codegen/wasm/abi.zig");
 const Compilation = @import("../Compilation.zig");
 const Dwarf = @import("Dwarf.zig");
 const InternPool = @import("../InternPool.zig");
@@ -547,7 +547,7 @@ pub const SourceLocation = enum(u32) {
         switch (sl.unpack(wasm)) {
             .none => unreachable,
             .zig_object_nofile => diags.addError("zig compilation unit: " ++ f, args),
-            .object_index => |i| diags.addError("{}: " ++ f, .{i.ptr(wasm).path} ++ args),
+            .object_index => |i| diags.addError("{f}: " ++ f, .{i.ptr(wasm).path} ++ args),
             .source_location_index => @panic("TODO"),
         }
     }
@@ -579,9 +579,9 @@ pub const SourceLocation = enum(u32) {
             .object_index => |i| {
                 const obj = i.ptr(wasm);
                 return if (obj.archive_member_name.slice(wasm)) |obj_name|
-                    try bundle.printString("{} ({s}): {s}", .{ obj.path, std.fs.path.basename(obj_name), msg })
+                    try bundle.printString("{f} ({s}): {s}", .{ obj.path, std.fs.path.basename(obj_name), msg })
                 else
-                    try bundle.printString("{}: {s}", .{ obj.path, msg });
+                    try bundle.printString("{f}: {s}", .{ obj.path, msg });
             },
             .source_location_index => @panic("TODO"),
         };
@@ -2126,14 +2126,7 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(
-            self: Formatter,
-            comptime format_string: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            if (format_string.len != 0) std.fmt.invalidFmtError(format_string, self);
-            _ = options;
+        pub fn format(self: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
@@ -2912,9 +2905,7 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, comptime fmt: []const u8, opt: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = opt;
-        _ = fmt;
+    pub fn format(feature: Feature, writer: *std.io.Writer) std.io.Writer.Error!void {
         try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 
@@ -2943,7 +2934,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Wasm {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .wasm);
 
     const use_llvm = comp.config.use_llvm;
@@ -3036,7 +3027,7 @@ fn openParseObjectReportingFailure(wasm: *Wasm, path: Path) void {
 }
 
 fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
-    log.debug("parseObject {}", .{obj.path});
+    log.debug("parseObject {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -3060,7 +3051,7 @@ fn parseObject(wasm: *Wasm, obj: link.Input.Object) !void {
 }
 
 fn parseArchive(wasm: *Wasm, obj: link.Input.Object) !void {
-    log.debug("parseArchive {}", .{obj.path});
+    log.debug("parseArchive {f}", .{obj.path});
     const gpa = wasm.base.comp.gpa;
     const gc_sections = wasm.base.gc_sections;
 
@@ -3196,7 +3187,7 @@ pub fn updateFunc(
     const is_obj = zcu.comp.config.output_mode == .Obj;
     const target = &zcu.comp.root_mod.resolved_target.result;
     const owner_nav = zcu.funcInfo(func_index).owner_nav;
-    log.debug("updateFunc {}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
+    log.debug("updateFunc {f}", .{ip.getNav(owner_nav).fqn.fmt(ip)});
 
     // For Wasm, we do not lower the MIR to code just yet. That lowering happens during `flush`,
     // after garbage collection, which can affect function and global indexes, which affects the
@@ -3307,7 +3298,7 @@ pub fn updateNav(wasm: *Wasm, pt: Zcu.PerThread, nav_index: InternPool.Nav.Index
         .variable => |variable| .{ variable.init, variable.owner_nav },
         else => .{ nav.status.fully_resolved.val, nav_index },
     };
-    //log.debug("updateNav {} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
+    //log.debug("updateNav {f} {d}", .{ nav.fqn.fmt(ip), chased_nav_index });
     assert(!wasm.imports.contains(chased_nav_index));
 
     if (nav_init != .none and !Value.fromInterned(nav_init).typeOf(zcu).hasRuntimeBits(zcu)) {
@@ -4347,7 +4338,7 @@ fn resolveFunctionSynthetic(
     });
     if (import.type != correct_func_type) {
         const diags = &wasm.base.comp.link_diags;
-        return import.source_location.fail(diags, "synthetic function {s} {} imported with incorrect signature {}", .{
+        return import.source_location.fail(diags, "synthetic function {s} {f} imported with incorrect signature {f}", .{
             @tagName(res), correct_func_type.fmt(wasm), import.type.fmt(wasm),
         });
     }

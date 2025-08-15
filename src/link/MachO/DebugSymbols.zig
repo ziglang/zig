@@ -460,6 +460,7 @@ const math = std.math;
 const mem = std.mem;
 const padToIdeal = MachO.padToIdeal;
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const MachO = @import("../MachO.zig");

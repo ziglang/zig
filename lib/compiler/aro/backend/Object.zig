@@ -30,7 +30,7 @@ pub const Section = union(enum) {
     custom: []const u8,
 };
 
-pub fn getSection(obj: *Object, section: Section) !*std.ArrayList(u8) {
+pub fn getSection(obj: *Object, section: Section) !*std.array_list.Managed(u8) {
     switch (obj.format) {
         .elf => return @as(*Elf, @alignCast(@fieldParentPtr("obj", obj))).getSection(section),
         else => unreachable,

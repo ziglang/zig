@@ -229,8 +229,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
                                 : [_] "0" (x),
                                   [_] "1" (y),
                                   [w] "w" (w),
-                                : "v0"
-                            );
+                                : .{ .v0 = true });
                         }
 
                         d.s[0..4].* = x +% @as(V4u32, d.s[0..4].*);
@@ -376,7 +375,7 @@ fn Sha2x32(comptime iv: Iv32, digest_bits: comptime_int) type {
         }
 
         pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
+        pub const Writer = std.io.GenericWriter(*Self, Error, write);
 
         fn write(self: *Self, bytes: []const u8) Error!usize {
             self.update(bytes);

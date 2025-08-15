@@ -272,6 +272,15 @@
 #define zig_linksection_fn zig_linksection
 #endif
 
+#if zig_has_attribute(visibility)
+#define zig_visibility(name) __attribute__((visibility(#name)))
+#else
+#define zig_visibility(name) zig_visibility_##name
+#define zig_visibility_default
+#define zig_visibility_hidden zig_visibility_hidden_unavailable
+#define zig_visibility_protected zig_visibility_protected_unavailable
+#endif
+
 #if zig_has_builtin(unreachable) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
 #elif defined(zig_msvc)

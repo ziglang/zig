@@ -24,7 +24,7 @@ pub fn main() !void {
     // - replace function name with symbolic string when optimize_mode != .Debug
     // - skip empty lines
     const got: []const u8 = got_result: {
-        var buf = std.ArrayList(u8).init(arena);
+        var buf = std.array_list.Managed(u8).init(arena);
         defer buf.deinit();
         if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
         var it = mem.splitScalar(u8, stderr, '\n');
@@ -84,5 +84,5 @@ pub fn main() !void {
         break :got_result try buf.toOwnedSlice();
     };
 
-    try std.io.getStdOut().writeAll(got);
+    try std.fs.File.stdout().writeAll(got);
 }

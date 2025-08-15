@@ -1,12 +1,22 @@
+const Step = @This();
+const std = @import("../std.zig");
+const Build = std.Build;
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const builtin = @import("builtin");
+const Cache = Build.Cache;
+const Path = Cache.Path;
+const ArrayList = std.ArrayList;
+
 id: Id,
 name: []const u8,
 owner: *Build,
 makeFn: MakeFn,
 
-dependencies: std.ArrayList(*Step),
+dependencies: std.array_list.Managed(*Step),
 /// This field is empty during execution of the user's build script, and
 /// then populated during dependency loop checking in the build runner.
-dependants: std.ArrayListUnmanaged(*Step),
+dependants: ArrayList(*Step),
 /// Collects the set of files that retrigger this step to run.
 ///
 /// This is used by the build system's implementation of `--watch` but it can
@@ -39,7 +49,7 @@ state: State,
 /// total system memory available.
 max_rss: usize,
 
-result_error_msgs: std.ArrayListUnmanaged([]const u8),
+result_error_msgs: ArrayList([]const u8),
 result_error_bundle: std.zig.ErrorBundle,
 result_stderr: []const u8,
 result_cached: bool,
@@ -72,6 +82,14 @@ pub const MakeOptions = struct {
     progress_node: std.Progress.Node,
     thread_pool: *std.Thread.Pool,
     watch: bool,
+    web_server: switch (builtin.target.cpu.arch) {
+        else => ?*Build.WebServer,
+        // WASM code references `Build.abi` which happens to incidentally reference this type, but
+        // it currently breaks because `std.net.Address` doesn't work there. Work around for now.
+        .wasm32 => void,
+    },
+    /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
+    gpa: Allocator,
 };
 
 pub const MakeFn = *const fn (step: *Step, options: MakeOptions) anyerror!void;
@@ -167,7 +185,7 @@ pub const Inputs = struct {
 
     pub const Table = std.ArrayHashMapUnmanaged(Build.Cache.Path, Files, Build.Cache.Path.TableAdapter, false);
     /// The special file name "." means any changes inside the directory.
-    pub const Files = std.ArrayListUnmanaged([]const u8);
+    pub const Files = ArrayList([]const u8);
 
     pub fn populated(inputs: *Inputs) bool {
         return inputs.table.count() != 0;
@@ -196,8 +214,8 @@ pub fn init(options: StepOptions) Step {
         .name = arena.dupe(u8, options.name) catch @panic("OOM"),
         .owner = options.owner,
         .makeFn = options.makeFn,
-        .dependencies = std.ArrayList(*Step).init(arena),
-        .dependants = .{},
+        .dependencies = std.array_list.Managed(*Step).init(arena),
+        .dependants = .empty,
         .inputs = Inputs.init,
         .state = .precheck_unstarted,
         .max_rss = options.max_rss,
@@ -229,7 +247,17 @@ pub fn init(options: StepOptions) Step {
 pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!void {
     const arena = s.owner.allocator;
 
-    s.makeFn(s, options) catch |err| switch (err) {
+    var timer: ?std.time.Timer = t: {
+        if (!s.owner.graph.time_report) break :t null;
+        if (s.id == .compile) break :t null;
+        break :t std.time.Timer.start() catch @panic("--time-report not supported on this host");
+    };
+    const make_result = s.makeFn(s, options);
+    if (timer) |*t| {
+        options.web_server.?.updateTimeReportGeneric(s, t.read());
+    }
+
+    make_result catch |err| switch (err) {
         error.MakeFailed => return error.MakeFailed,
         error.MakeSkipped => return error.MakeSkipped,
         else => {
@@ -286,9 +314,7 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 }
 
 /// For debugging purposes, prints identifying information about this Step.
-pub fn dump(step: *Step, file: std.fs.File) void {
-    const w = file.writer();
-    const tty_config = std.io.tty.detectConfig(file);
+pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
     const debug_info = std.debug.getSelfDebugInfo() catch |err| {
         w.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{
             @errorName(err),
@@ -309,15 +335,6 @@ pub fn dump(step: *Step, file: std.fs.File) void {
         tty_config.setColor(w, .reset) catch {};
     }
 }
-
-const Step = @This();
-const std = @import("../std.zig");
-const Build = std.Build;
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const builtin = @import("builtin");
-const Cache = Build.Cache;
-const Path = Cache.Path;
 
 pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
     const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
@@ -361,7 +378,7 @@ pub fn addError(step: *Step, comptime fmt: []const u8, args: anytype) error{OutO
 
 pub const ZigProcess = struct {
     child: std.process.Child,
-    poller: std.io.Poller(StreamEnum),
+    poller: std.Io.Poller(StreamEnum),
     progress_ipc_fd: if (std.Progress.have_ipc) ?std.posix.fd_t else void,
 
     pub const StreamEnum = enum { stdout, stderr };
@@ -374,18 +391,20 @@ pub fn evalZigProcess(
     argv: []const []const u8,
     prog_node: std.Progress.Node,
     watch: bool,
+    web_server: ?*Build.WebServer,
+    gpa: Allocator,
 ) !?Path {
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
-        const result = zigProcessUpdate(s, zp, watch) catch |err| switch (err) {
+        const result = zigProcessUpdate(s, zp, watch, web_server, gpa) catch |err| switch (err) {
             error.BrokenPipe => {
                 // Process restart required.
                 const term = zp.child.wait() catch |e| {
                     return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
                 };
                 _ = term;
-                s.clearZigProcess();
+                s.clearZigProcess(gpa);
                 break :update;
             },
             else => |e| return e,
@@ -400,7 +419,7 @@ pub fn evalZigProcess(
                 return s.fail("unable to wait for {s}: {s}", .{ argv[0], @errorName(e) });
             };
             s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
-            s.clearZigProcess();
+            s.clearZigProcess(gpa);
             try handleChildProcessTerm(s, term, null, argv);
             return error.MakeFailed;
         }
@@ -410,7 +429,6 @@ pub fn evalZigProcess(
     assert(argv.len != 0);
     const b = s.owner;
     const arena = b.allocator;
-    const gpa = arena;
 
     try handleChildProcUnsupported(s, null, argv);
     try handleVerbose(s.owner, null, argv);
@@ -430,16 +448,19 @@ pub fn evalZigProcess(
     const zp = try gpa.create(ZigProcess);
     zp.* = .{
         .child = child,
-        .poller = std.io.poll(gpa, ZigProcess.StreamEnum, .{
+        .poller = std.Io.poll(gpa, ZigProcess.StreamEnum, .{
             .stdout = child.stdout.?,
             .stderr = child.stderr.?,
         }),
         .progress_ipc_fd = if (std.Progress.have_ipc) child.progress_node.getIpcFd() else {},
     };
     if (watch) s.setZigProcess(zp);
-    defer if (!watch) zp.poller.deinit();
+    defer if (!watch) {
+        zp.poller.deinit();
+        gpa.destroy(zp);
+    };
 
-    const result = try zigProcessUpdate(s, zp, watch);
+    const result = try zigProcessUpdate(s, zp, watch, web_server, gpa);
 
     if (!watch) {
         // Send EOF to stdin.
@@ -478,7 +499,30 @@ pub fn evalZigProcess(
     return result;
 }
 
-fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
+/// Wrapper around `std.fs.Dir.updateFile` that handles verbose and error output.
+pub fn installFile(s: *Step, src_lazy_path: Build.LazyPath, dest_path: []const u8) !std.fs.Dir.PrevStatus {
+    const b = s.owner;
+    const src_path = src_lazy_path.getPath3(b, s);
+    try handleVerbose(b, null, &.{ "install", "-C", b.fmt("{f}", .{src_path}), dest_path });
+    return src_path.root_dir.handle.updateFile(src_path.sub_path, std.fs.cwd(), dest_path, .{}) catch |err| {
+        return s.fail("unable to update file from '{f}' to '{s}': {s}", .{
+            src_path, dest_path, @errorName(err),
+        });
+    };
+}
+
+/// Wrapper around `std.fs.Dir.makePathStatus` that handles verbose and error output.
+pub fn installDir(s: *Step, dest_path: []const u8) !std.fs.Dir.MakePathStatus {
+    const b = s.owner;
+    try handleVerbose(b, null, &.{ "install", "-d", dest_path });
+    return std.fs.cwd().makePathStatus(dest_path) catch |err| {
+        return s.fail("unable to create dir '{s}': {s}", .{
+            dest_path, @errorName(err),
+        });
+    };
+}
+
+fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.WebServer, gpa: Allocator) !?Path {
     const b = s.owner;
     const arena = b.allocator;
 
@@ -487,20 +531,16 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
     try sendMessage(zp.child.stdin.?, .update);
     if (!watch) try sendMessage(zp.child.stdin.?, .exit);
 
-    const Header = std.zig.Server.Message.Header;
     var result: ?Path = null;
 
-    const stdout = zp.poller.fifo(.stdout);
+    const stdout = zp.poller.reader(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(Header)) {
-            if (!(try zp.poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try zp.poller.poll())) break :poll;
-        }
-        const body = stdout.readableSliceOfLen(header.bytes_len);
+        const Header = std.zig.Server.Message.Header;
+        while (stdout.buffered().len < @sizeOf(Header)) if (!try zp.poller.poll()) break :poll;
+        const header = stdout.takeStruct(Header, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
             .zig_version => {
@@ -520,17 +560,16 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                     body[@sizeOf(EbHdr) + extra_bytes.len ..][0..eb_hdr.string_bytes_len];
                 // TODO: use @ptrCast when the compiler supports it
                 const unaligned_extra = std.mem.bytesAsSlice(u32, extra_bytes);
-                const extra_array = try arena.alloc(u32, unaligned_extra.len);
-                @memcpy(extra_array, unaligned_extra);
-                s.result_error_bundle = .{
-                    .string_bytes = try arena.dupe(u8, string_bytes),
-                    .extra = extra_array,
-                };
-                if (watch) {
-                    // This message indicates the end of the update.
-                    stdout.discard(body.len);
-                    break;
+                {
+                    s.result_error_bundle = .{ .string_bytes = &.{}, .extra = &.{} };
+                    errdefer s.result_error_bundle.deinit(gpa);
+                    s.result_error_bundle.string_bytes = try gpa.dupe(u8, string_bytes);
+                    const extra = try gpa.alloc(u32, unaligned_extra.len);
+                    @memcpy(extra, unaligned_extra);
+                    s.result_error_bundle.extra = extra;
                 }
+                // This message indicates the end of the update.
+                if (watch) break :poll;
             },
             .emit_digest => {
                 const EmitDigest = std.zig.Server.Message.EmitDigest;
@@ -588,17 +627,29 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool) !?Path {
                     }
                 }
             },
+            .time_report => if (web_server) |ws| {
+                const TimeReport = std.zig.Server.Message.TimeReport;
+                const tr: *align(1) const TimeReport = @ptrCast(body[0..@sizeOf(TimeReport)]);
+                ws.updateTimeReportCompile(.{
+                    .compile = s.cast(Step.Compile).?,
+                    .use_llvm = tr.flags.use_llvm,
+                    .stats = tr.stats,
+                    .ns_total = timer.read(),
+                    .llvm_pass_timings_len = tr.llvm_pass_timings_len,
+                    .files_len = tr.files_len,
+                    .decls_len = tr.decls_len,
+                    .trailing = body[@sizeOf(TimeReport)..],
+                });
+            },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
     s.result_duration_ns = timer.read();
 
-    const stderr = zp.poller.fifo(.stderr);
-    if (stderr.readableLength() > 0) {
-        try s.result_error_msgs.append(arena, try stderr.toOwnedSlice());
+    const stderr_contents = try zp.poller.toOwnedSlice(.stderr);
+    if (stderr_contents.len > 0) {
+        try s.result_error_msgs.append(arena, try arena.dupe(u8, stderr_contents));
     }
 
     return result;
@@ -618,8 +669,7 @@ fn setZigProcess(s: *Step, zp: *ZigProcess) void {
     }
 }
 
-fn clearZigProcess(s: *Step) void {
-    const gpa = s.owner.allocator;
+fn clearZigProcess(s: *Step, gpa: Allocator) void {
     switch (s.id) {
         .compile => {
             const compile = s.cast(Compile).?;
@@ -714,8 +764,44 @@ pub fn allocPrintCmd2(
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.writer(arena).print("cd {s} && ", .{cwd});
+    const shell = struct {
+        fn escape(writer: *std.Io.Writer, string: []const u8, is_argv0: bool) !void {
+            for (string) |c| {
+                if (switch (c) {
+                    else => true,
+                    '%', '+'...':', '@'...'Z', '_', 'a'...'z' => false,
+                    '=' => is_argv0,
+                }) break;
+            } else return writer.writeAll(string);
+
+            try writer.writeByte('"');
+            for (string) |c| {
+                if (switch (c) {
+                    std.ascii.control_code.nul => break,
+                    '!', '"', '$', '\\', '`' => true,
+                    else => !std.ascii.isPrint(c),
+                }) try writer.writeByte('\\');
+                switch (c) {
+                    std.ascii.control_code.nul => unreachable,
+                    std.ascii.control_code.bel => try writer.writeByte('a'),
+                    std.ascii.control_code.bs => try writer.writeByte('b'),
+                    std.ascii.control_code.ht => try writer.writeByte('t'),
+                    std.ascii.control_code.lf => try writer.writeByte('n'),
+                    std.ascii.control_code.vt => try writer.writeByte('v'),
+                    std.ascii.control_code.ff => try writer.writeByte('f'),
+                    std.ascii.control_code.cr => try writer.writeByte('r'),
+                    std.ascii.control_code.esc => try writer.writeByte('E'),
+                    ' '...'~' => try writer.writeByte(c),
+                    else => try writer.print("{o:0>3}", .{c}),
+                }
+            }
+            try writer.writeByte('"');
+        }
+    };
+
+    var aw: std.Io.Writer.Allocating = .init(arena);
+    const writer = &aw.writer;
+    if (opt_cwd) |cwd| writer.print("cd {s} && ", .{cwd}) catch return error.OutOfMemory;
     if (opt_env) |env| {
         const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
         var it = env.iterator();
@@ -725,13 +811,17 @@ pub fn allocPrintCmd2(
             if (process_env_map.get(key)) |process_value| {
                 if (std.mem.eql(u8, value, process_value)) continue;
             }
-            try buf.writer(arena).print("{s}={s} ", .{ key, value });
+            writer.print("{s}=", .{key}) catch return error.OutOfMemory;
+            shell.escape(writer, value, false) catch return error.OutOfMemory;
+            writer.writeByte(' ') catch return error.OutOfMemory;
         }
     }
-    for (argv) |arg| {
-        try buf.writer(arena).print("{s} ", .{arg});
+    shell.escape(writer, argv[0], true) catch return error.OutOfMemory;
+    for (argv[1..]) |arg| {
+        writer.writeByte(' ') catch return error.OutOfMemory;
+        shell.escape(writer, arg, false) catch return error.OutOfMemory;
     }
-    return buf.toOwnedSlice(arena);
+    return aw.toOwnedSlice();
 }
 
 /// Prefer `cacheHitAndWatch` unless you already added watch inputs
@@ -758,7 +848,7 @@ fn failWithCacheError(s: *Step, man: *const Build.Cache.Manifest, err: Build.Cac
     switch (err) {
         error.CacheCheckFailed => switch (man.diagnostic) {
             .none => unreachable,
-            .manifest_create, .manifest_read, .manifest_lock, .manifest_seek => |e| return s.fail("failed to check cache: {s} {s}", .{
+            .manifest_create, .manifest_read, .manifest_lock => |e| return s.fail("failed to check cache: {s} {s}", .{
                 @tagName(man.diagnostic), @errorName(e),
             }),
             .file_open, .file_stat, .file_read, .file_hash => |op| {
@@ -891,11 +981,12 @@ fn addDirectoryWatchInputFromBuilder(step: *Step, builder: *Build, sub_path: []c
 fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const u8) !void {
     const gpa = step.owner.allocator;
     const gop = try step.inputs.table.getOrPut(gpa, path);
-    if (!gop.found_existing) gop.value_ptr.* = .{};
+    if (!gop.found_existing) gop.value_ptr.* = .empty;
     try gop.value_ptr.append(gpa, basename);
 }
 
-fn reset(step: *Step, gpa: Allocator) void {
+/// Implementation detail of file watching and forced rebuilds. Prepares the step for being re-evaluated.
+pub fn reset(step: *Step, gpa: Allocator) void {
     assert(step.state == .precheck_done);
 
     step.result_error_msgs.clearRetainingCapacity();

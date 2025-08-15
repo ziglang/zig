@@ -76,7 +76,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
     const mod_info_size = header.mod_info_size;
     const section_contrib_size = header.section_contribution_size;
 
-    var modules = std.ArrayList(Module).init(self.allocator);
+    var modules = std.array_list.Managed(Module).init(self.allocator);
     errdefer modules.deinit();
 
     // Module Info Substream
@@ -117,7 +117,7 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
 
     // Section Contribution Substream
-    var sect_contribs = std.ArrayList(pdb.SectionContribEntry).init(self.allocator);
+    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(self.allocator);
     errdefer sect_contribs.deinit();
 
     var sect_cont_offset: usize = 0;
@@ -395,7 +395,7 @@ const Msf = struct {
     streams: []MsfStream,
 
     fn init(allocator: Allocator, file: File) !Msf {
-        const in = file.reader();
+        const in = file.deprecatedReader();
 
         const superblock = try in.readStruct(pdb.SuperBlock);
 
@@ -514,7 +514,7 @@ const MsfStream = struct {
         var offset = self.pos % self.block_size;
 
         try self.in_file.seekTo(block * self.block_size + offset);
-        const in = self.in_file.reader();
+        const in = self.in_file.deprecatedReader();
 
         var size: usize = 0;
         var rem_buffer = buffer;
@@ -562,14 +562,14 @@ const MsfStream = struct {
         return block * self.block_size + offset;
     }
 
-    pub fn reader(self: *MsfStream) std.io.Reader(*MsfStream, Error, read) {
+    pub fn reader(self: *MsfStream) std.io.GenericReader(*MsfStream, Error, read) {
         return .{ .context = self };
     }
 };
 
 fn readSparseBitVector(stream: anytype, allocator: Allocator) ![]u32 {
     const num_words = try stream.readInt(u32, .little);
-    var list = std.ArrayList(u32).init(allocator);
+    var list = std.array_list.Managed(u32).init(allocator);
     errdefer list.deinit();
     var word_i: u32 = 0;
     while (word_i != num_words) : (word_i += 1) {

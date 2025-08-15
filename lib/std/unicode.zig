@@ -9,6 +9,7 @@ const native_endian = builtin.cpu.arch.endian();
 ///
 /// See also: https://en.wikipedia.org/wiki/Specials_(Unicode_block)#Replacement_character
 pub const replacement_character: u21 = 0xFFFD;
+pub const replacement_character_utf8: [3]u8 = utf8EncodeComptime(replacement_character);
 
 /// Returns how many bytes the UTF-8 representation would require
 /// for the given codepoint.
@@ -802,14 +803,7 @@ fn testDecode(bytes: []const u8) !u21 {
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-fn formatUtf8(
-    utf8: []const u8,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+fn formatUtf8(utf8: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var u8len: usize = 0;
 
@@ -898,31 +892,31 @@ fn formatUtf8(
 /// Ill-formed UTF-8 byte sequences are replaced by the replacement character (U+FFFD)
 /// according to "U+FFFD Substitution of Maximal Subparts" from Chapter 3 of
 /// the Unicode standard, and as specified by https://encoding.spec.whatwg.org/#utf-8-decoder
-pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter(formatUtf8) {
+pub fn fmtUtf8(utf8: []const u8) std.fmt.Formatter([]const u8, formatUtf8) {
     return .{ .data = utf8 };
 }
 
 test fmtUtf8 {
     const expectFmt = testing.expectFmt;
-    try expectFmt("", "{}", .{fmtUtf8("")});
-    try expectFmt("foo", "{}", .{fmtUtf8("foo")});
-    try expectFmt("𐐷", "{}", .{fmtUtf8("𐐷")});
+    try expectFmt("", "{f}", .{fmtUtf8("")});
+    try expectFmt("foo", "{f}", .{fmtUtf8("foo")});
+    try expectFmt("𐐷", "{f}", .{fmtUtf8("𐐷")});
 
     // Table 3-8. U+FFFD for Non-Shortest Form Sequences
-    try expectFmt("��������A", "{}", .{fmtUtf8("\xC0\xAF\xE0\x80\xBF\xF0\x81\x82A")});
+    try expectFmt("��������A", "{f}", .{fmtUtf8("\xC0\xAF\xE0\x80\xBF\xF0\x81\x82A")});
 
     // Table 3-9. U+FFFD for Ill-Formed Sequences for Surrogates
-    try expectFmt("��������A", "{}", .{fmtUtf8("\xED\xA0\x80\xED\xBF\xBF\xED\xAFA")});
+    try expectFmt("��������A", "{f}", .{fmtUtf8("\xED\xA0\x80\xED\xBF\xBF\xED\xAFA")});
 
     // Table 3-10. U+FFFD for Other Ill-Formed Sequences
-    try expectFmt("�����A��B", "{}", .{fmtUtf8("\xF4\x91\x92\x93\xFFA\x80\xBFB")});
+    try expectFmt("�����A��B", "{f}", .{fmtUtf8("\xF4\x91\x92\x93\xFFA\x80\xBFB")});
 
     // Table 3-11. U+FFFD for Truncated Sequences
-    try expectFmt("����A", "{}", .{fmtUtf8("\xE1\x80\xE2\xF0\x91\x92\xF1\xBFA")});
+    try expectFmt("����A", "{f}", .{fmtUtf8("\xE1\x80\xE2\xF0\x91\x92\xF1\xBFA")});
 }
 
 fn utf16LeToUtf8ArrayListImpl(
-    result: *std.ArrayList(u8),
+    result: *std.array_list.Managed(u8),
     utf16le: []const u16,
     comptime surrogates: Surrogates,
 ) (switch (surrogates) {
@@ -973,29 +967,25 @@ fn utf16LeToUtf8ArrayListImpl(
 
 pub const Utf16LeToUtf8AllocError = mem.Allocator.Error || Utf16LeToUtf8Error;
 
-pub fn utf16LeToUtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
+pub fn utf16LeToUtf8ArrayList(result: *std.array_list.Managed(u8), utf16le: []const u16) Utf16LeToUtf8AllocError!void {
     try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .cannot_encode_surrogate_half);
 }
 
-pub const utf16leToUtf8Alloc = @compileError("deprecated; renamed to utf16LeToUtf8Alloc");
-
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8Alloc(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![]u8 {
     // optimistically guess that it will all be ascii.
-    var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len);
+    var result = try std.array_list.Managed(u8).initCapacity(allocator, utf16le.len);
     errdefer result.deinit();
 
     try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
 
-pub const utf16leToUtf8AllocZ = @compileError("deprecated; renamed to utf16LeToUtf8AllocZ");
-
 /// Caller must free returned memory.
 pub fn utf16LeToUtf8AllocZ(allocator: mem.Allocator, utf16le: []const u16) Utf16LeToUtf8AllocError![:0]u8 {
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
-    var result = try std.ArrayList(u8).initCapacity(allocator, utf16le.len + 1);
+    var result = try std.array_list.Managed(u8).initCapacity(allocator, utf16le.len + 1);
     errdefer result.deinit();
 
     try utf16LeToUtf8ArrayListImpl(&result, utf16le, .cannot_encode_surrogate_half);
@@ -1059,8 +1049,6 @@ fn utf16LeToUtf8Impl(utf8: []u8, utf16le: []const u16, comptime surrogates: Surr
     }
     return dest_index;
 }
-
-pub const utf16leToUtf8 = @compileError("deprecated; renamed to utf16LeToUtf8");
 
 pub fn utf16LeToUtf8(utf8: []u8, utf16le: []const u16) Utf16LeToUtf8Error!usize {
     return utf16LeToUtf8Impl(utf8, utf16le, .cannot_encode_surrogate_half);
@@ -1129,7 +1117,7 @@ test utf16LeToUtf8 {
     }
 }
 
-fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, comptime surrogates: Surrogates) !void {
+fn utf8ToUtf16LeArrayListImpl(result: *std.array_list.Managed(u16), utf8: []const u8, comptime surrogates: Surrogates) !void {
     assert(result.unusedCapacitySlice().len >= utf8.len);
 
     var remaining = utf8;
@@ -1167,25 +1155,23 @@ fn utf8ToUtf16LeArrayListImpl(result: *std.ArrayList(u16), utf8: []const u8, com
     }
 }
 
-pub fn utf8ToUtf16LeArrayList(result: *std.ArrayList(u16), utf8: []const u8) error{ InvalidUtf8, OutOfMemory }!void {
+pub fn utf8ToUtf16LeArrayList(result: *std.array_list.Managed(u16), utf8: []const u8) error{ InvalidUtf8, OutOfMemory }!void {
     try result.ensureUnusedCapacity(utf8.len);
     return utf8ToUtf16LeArrayListImpl(result, utf8, .cannot_encode_surrogate_half);
 }
 
 pub fn utf8ToUtf16LeAlloc(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![]u16 {
     // optimistically guess that it will not require surrogate pairs
-    var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len);
+    var result = try std.array_list.Managed(u16).initCapacity(allocator, utf8.len);
     errdefer result.deinit();
 
     try utf8ToUtf16LeArrayListImpl(&result, utf8, .cannot_encode_surrogate_half);
     return result.toOwnedSlice();
 }
 
-pub const utf8ToUtf16LeWithNull = @compileError("deprecated; renamed to utf8ToUtf16LeAllocZ");
-
 pub fn utf8ToUtf16LeAllocZ(allocator: mem.Allocator, utf8: []const u8) error{ InvalidUtf8, OutOfMemory }![:0]u16 {
     // optimistically guess that it will not require surrogate pairs
-    var result = try std.ArrayList(u16).initCapacity(allocator, utf8.len + 1);
+    var result = try std.array_list.Managed(u16).initCapacity(allocator, utf8.len + 1);
     errdefer result.deinit();
 
     try utf8ToUtf16LeArrayListImpl(&result, utf8, .cannot_encode_surrogate_half);
@@ -1272,19 +1258,19 @@ test utf8ToUtf16Le {
 
 test utf8ToUtf16LeArrayList {
     {
-        var list = std.ArrayList(u16).init(testing.allocator);
+        var list = std.array_list.Managed(u16).init(testing.allocator);
         defer list.deinit();
         try utf8ToUtf16LeArrayList(&list, "𐐷");
         try testing.expectEqualSlices(u8, "\x01\xd8\x37\xdc", mem.sliceAsBytes(list.items));
     }
     {
-        var list = std.ArrayList(u16).init(testing.allocator);
+        var list = std.array_list.Managed(u16).init(testing.allocator);
         defer list.deinit();
         try utf8ToUtf16LeArrayList(&list, "\u{10FFFF}");
         try testing.expectEqualSlices(u8, "\xff\xdb\xff\xdf", mem.sliceAsBytes(list.items));
     }
     {
-        var list = std.ArrayList(u16).init(testing.allocator);
+        var list = std.array_list.Managed(u16).init(testing.allocator);
         defer list.deinit();
         const result = utf8ToUtf16LeArrayList(&list, "\xf4\x90\x80\x80");
         try testing.expectError(error.InvalidUtf8, result);
@@ -1345,7 +1331,7 @@ test utf8ToUtf16LeAllocZ {
 test "ArrayList functions on a re-used list" {
     // utf8ToUtf16LeArrayList
     {
-        var list = std.ArrayList(u16).init(testing.allocator);
+        var list = std.array_list.Managed(u16).init(testing.allocator);
         defer list.deinit();
 
         const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
@@ -1359,7 +1345,7 @@ test "ArrayList functions on a re-used list" {
 
     // utf16LeToUtf8ArrayList
     {
-        var list = std.ArrayList(u8).init(testing.allocator);
+        var list = std.array_list.Managed(u8).init(testing.allocator);
         defer list.deinit();
 
         const init_slice = "abcdefg";
@@ -1373,7 +1359,7 @@ test "ArrayList functions on a re-used list" {
 
     // wtf8ToWtf16LeArrayList
     {
-        var list = std.ArrayList(u16).init(testing.allocator);
+        var list = std.array_list.Managed(u16).init(testing.allocator);
         defer list.deinit();
 
         const init_slice = utf8ToUtf16LeStringLiteral("abcdefg");
@@ -1387,7 +1373,7 @@ test "ArrayList functions on a re-used list" {
 
     // wtf16LeToWtf8ArrayList
     {
-        var list = std.ArrayList(u8).init(testing.allocator);
+        var list = std.array_list.Managed(u8).init(testing.allocator);
         defer list.deinit();
 
         const init_slice = "abcdefg";
@@ -1477,14 +1463,7 @@ test calcWtf16LeLen {
 
 /// Print the given `utf16le` string, encoded as UTF-8 bytes.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-fn formatUtf16Le(
-    utf16le: []const u16,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = fmt;
-    _ = options;
+fn formatUtf16Le(utf16le: []const u16, writer: *std.io.Writer) std.io.Writer.Error!void {
     var buf: [300]u8 = undefined; // just an arbitrary size
     var it = Utf16LeIterator.init(utf16le);
     var u8len: usize = 0;
@@ -1500,28 +1479,26 @@ fn formatUtf16Le(
     try writer.writeAll(buf[0..u8len]);
 }
 
-pub const fmtUtf16le = @compileError("deprecated; renamed to fmtUtf16Le");
-
 /// Return a Formatter for a (potentially ill-formed) UTF-16 LE string,
 /// which will be converted to UTF-8 during formatting.
 /// Unpaired surrogates are replaced by the replacement character (U+FFFD).
-pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter(formatUtf16Le) {
+pub fn fmtUtf16Le(utf16le: []const u16) std.fmt.Formatter([]const u16, formatUtf16Le) {
     return .{ .data = utf16le };
 }
 
 test fmtUtf16Le {
     const expectFmt = testing.expectFmt;
-    try expectFmt("", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral(""))});
-    try expectFmt("", "{}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral(""))});
-    try expectFmt("foo", "{}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
-    try expectFmt("foo", "{}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("foo"))});
-    try expectFmt("𐐷", "{}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("𐐷"))});
-    try expectFmt("퟿", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xd7", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xd8", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdb", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xdc", native_endian)})});
-    try expectFmt("�", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdf", native_endian)})});
-    try expectFmt("", "{}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
+    try expectFmt("", "{f}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral(""))});
+    try expectFmt("", "{f}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral(""))});
+    try expectFmt("foo", "{f}", .{fmtUtf16Le(utf8ToUtf16LeStringLiteral("foo"))});
+    try expectFmt("foo", "{f}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("foo"))});
+    try expectFmt("𐐷", "{f}", .{fmtUtf16Le(wtf8ToWtf16LeStringLiteral("𐐷"))});
+    try expectFmt("퟿", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xd7", native_endian)})});
+    try expectFmt("�", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xd8", native_endian)})});
+    try expectFmt("�", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdb", native_endian)})});
+    try expectFmt("�", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xdc", native_endian)})});
+    try expectFmt("�", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\xff\xdf", native_endian)})});
+    try expectFmt("", "{f}", .{fmtUtf16Le(&[_]u16{mem.readInt(u16, "\x00\xe0", native_endian)})});
 }
 
 fn testUtf8ToUtf16LeStringLiteral(utf8ToUtf16LeStringLiteral_: anytype) !void {
@@ -1773,7 +1750,7 @@ pub const Wtf8Iterator = struct {
     }
 };
 
-pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) mem.Allocator.Error!void {
+pub fn wtf16LeToWtf8ArrayList(result: *std.array_list.Managed(u8), utf16le: []const u16) mem.Allocator.Error!void {
     try result.ensureUnusedCapacity(utf16le.len);
     return utf16LeToUtf8ArrayListImpl(result, utf16le, .can_encode_surrogate_half);
 }
@@ -1781,7 +1758,7 @@ pub fn wtf16LeToWtf8ArrayList(result: *std.ArrayList(u8), utf16le: []const u16) 
 /// Caller must free returned memory.
 pub fn wtf16LeToWtf8Alloc(allocator: mem.Allocator, wtf16le: []const u16) mem.Allocator.Error![]u8 {
     // optimistically guess that it will all be ascii.
-    var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len);
+    var result = try std.array_list.Managed(u8).initCapacity(allocator, wtf16le.len);
     errdefer result.deinit();
 
     try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
@@ -1791,7 +1768,7 @@ pub fn wtf16LeToWtf8Alloc(allocator: mem.Allocator, wtf16le: []const u16) mem.Al
 /// Caller must free returned memory.
 pub fn wtf16LeToWtf8AllocZ(allocator: mem.Allocator, wtf16le: []const u16) mem.Allocator.Error![:0]u8 {
     // optimistically guess that it will all be ascii (and allocate space for the null terminator)
-    var result = try std.ArrayList(u8).initCapacity(allocator, wtf16le.len + 1);
+    var result = try std.array_list.Managed(u8).initCapacity(allocator, wtf16le.len + 1);
     errdefer result.deinit();
 
     try utf16LeToUtf8ArrayListImpl(&result, wtf16le, .can_encode_surrogate_half);
@@ -1802,14 +1779,14 @@ pub fn wtf16LeToWtf8(wtf8: []u8, wtf16le: []const u16) usize {
     return utf16LeToUtf8Impl(wtf8, wtf16le, .can_encode_surrogate_half) catch |err| switch (err) {};
 }
 
-pub fn wtf8ToWtf16LeArrayList(result: *std.ArrayList(u16), wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }!void {
+pub fn wtf8ToWtf16LeArrayList(result: *std.array_list.Managed(u16), wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }!void {
     try result.ensureUnusedCapacity(wtf8.len);
     return utf8ToUtf16LeArrayListImpl(result, wtf8, .can_encode_surrogate_half);
 }
 
 pub fn wtf8ToWtf16LeAlloc(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![]u16 {
     // optimistically guess that it will not require surrogate pairs
-    var result = try std.ArrayList(u16).initCapacity(allocator, wtf8.len);
+    var result = try std.array_list.Managed(u16).initCapacity(allocator, wtf8.len);
     errdefer result.deinit();
 
     try utf8ToUtf16LeArrayListImpl(&result, wtf8, .can_encode_surrogate_half);
@@ -1818,7 +1795,7 @@ pub fn wtf8ToWtf16LeAlloc(allocator: mem.Allocator, wtf8: []const u8) error{ Inv
 
 pub fn wtf8ToWtf16LeAllocZ(allocator: mem.Allocator, wtf8: []const u8) error{ InvalidWtf8, OutOfMemory }![:0]u16 {
     // optimistically guess that it will not require surrogate pairs
-    var result = try std.ArrayList(u16).initCapacity(allocator, wtf8.len + 1);
+    var result = try std.array_list.Managed(u16).initCapacity(allocator, wtf8.len + 1);
     errdefer result.deinit();
 
     try utf8ToUtf16LeArrayListImpl(&result, wtf8, .can_encode_surrogate_half);

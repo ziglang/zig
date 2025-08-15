@@ -158,10 +158,9 @@ fn testArray() !void {
 }
 
 test "type info: error set, error union info, anyerror" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testErrorSet();
     try comptime testErrorSet();
@@ -190,10 +189,9 @@ fn testErrorSet() !void {
 }
 
 test "type info: error set single value" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const TestSet = error.One;
 
@@ -204,10 +202,9 @@ test "type info: error set single value" {
 }
 
 test "type info: error set merged" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const TestSet = error{ One, Two } || error{Three};
 
@@ -221,9 +218,8 @@ test "type info: error set merged" {
 
 test "type info: enum info" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testEnum();
     try comptime testEnum();
@@ -286,7 +282,7 @@ fn testUnion() !void {
 
 test "type info: struct info" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testStruct();
     try comptime testStruct();
@@ -354,7 +350,7 @@ fn testOpaque() !void {
 }
 
 test "type info: function type info" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     try testFunction();
@@ -362,6 +358,8 @@ test "type info: function type info" {
 }
 
 fn testFunction() !void {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
     const S = struct {
         export fn typeInfoFoo() callconv(.c) usize {
             unreachable;
@@ -389,7 +387,6 @@ fn testFunction() !void {
 
     // Avoid looking at `typeInfoFooAligned` on targets which don't support function alignment.
     switch (builtin.target.cpu.arch) {
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -540,23 +537,9 @@ fn add(a: i32, b: i32) i32 {
     return a + b;
 }
 
-test "type info for async frames" {
-    if (true) {
-        // https://github.com/ziglang/zig/issues/6025
-        return error.SkipZigTest;
-    }
-
-    switch (@typeInfo(@Frame(add))) {
-        .frame => |frame| {
-            try expect(@as(@TypeOf(add), @ptrCast(frame.function)) == add);
-        },
-        else => unreachable,
-    }
-}
-
 test "Declarations are returned in declaration order" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = struct {
         pub const a = 1;
@@ -578,7 +561,7 @@ test "Struct.is_tuple for anon list literal" {
 }
 
 test "Struct.is_tuple for anon struct literal" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -593,24 +576,6 @@ test "StructField.is_comptime" {
     try expect(info.fields[1].is_comptime);
 }
 
-test "typeInfo resolves usingnamespace declarations" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const A = struct {
-        pub const f1 = 42;
-    };
-
-    const B = struct {
-        pub const f0 = 42;
-        pub usingnamespace A;
-    };
-
-    const decls = @typeInfo(B).@"struct".decls;
-    try expect(decls.len == 2);
-    try expectEqualStrings(decls[0].name, "f0");
-    try expectEqualStrings(decls[1].name, "f1");
-}
-
 test "value from struct @typeInfo default_value_ptr can be loaded at comptime" {
     comptime {
         const a = @typeInfo(@TypeOf(.{ .foo = @as(u8, 1) })).@"struct".fields[0].default_value_ptr;
@@ -618,75 +583,10 @@ test "value from struct @typeInfo default_value_ptr can be loaded at comptime" {
     }
 }
 
-test "@typeInfo decls and usingnamespace" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const A = struct {
-        pub const x = 5;
-        pub const y = 34;
-
-        comptime {}
-    };
-    const B = struct {
-        pub usingnamespace A;
-        pub const z = 56;
-
-        test {}
-    };
-    const decls = @typeInfo(B).@"struct".decls;
-    try expect(decls.len == 3);
-    try expectEqualStrings(decls[0].name, "z");
-    try expectEqualStrings(decls[1].name, "x");
-    try expectEqualStrings(decls[2].name, "y");
-}
-
-test "@typeInfo decls ignore dependency loops" {
-    const S = struct {
-        pub fn Def(comptime T: type) type {
-            std.debug.assert(@typeInfo(T).@"struct".decls.len == 1);
-            return struct {
-                const foo = u32;
-            };
-        }
-        usingnamespace Def(@This());
-    };
-    _ = S.foo;
-}
-
 test "type info of tuple of string literal default value" {
     const struct_field = @typeInfo(@TypeOf(.{"hi"})).@"struct".fields[0];
     const value = struct_field.defaultValue().?;
     comptime std.debug.assert(value[0] == 'h');
-}
-
-test "@typeInfo only contains pub decls" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
-    const other = struct {
-        const std = @import("std");
-
-        usingnamespace struct {
-            pub const inside_non_pub_usingnamespace = 0;
-        };
-
-        pub const Enum = enum {
-            a,
-            b,
-            c,
-        };
-
-        pub const Struct = struct {
-            foo: i32,
-        };
-    };
-    const ti = @typeInfo(other);
-    const decls = ti.@"struct".decls;
-
-    try std.testing.expectEqual(2, decls.len);
-    try std.testing.expectEqualStrings("Enum", decls[0].name);
-    try std.testing.expectEqualStrings("Struct", decls[1].name);
 }
 
 test "@typeInfo function with generic return type and inferred error set" {

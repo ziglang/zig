@@ -13,7 +13,7 @@ framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
 rpaths: std.ArrayListUnmanaged([]const u8) = .empty,
 warnings: std.ArrayListUnmanaged([]const u8) = .empty,
 
-pub fn detect(arena: Allocator, native_target: std.Target) !NativePaths {
+pub fn detect(arena: Allocator, native_target: *const std.Target) !NativePaths {
     var self: NativePaths = .{ .arena = arena };
     var is_nix = false;
     if (process.getEnvVarOwned(arena, "NIX_CFLAGS_COMPILE")) |nix_cflags_compile| {

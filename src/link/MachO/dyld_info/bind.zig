@@ -34,7 +34,7 @@ pub const Bind = struct {
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
 
-        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+        var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
         defer objects.deinit();
         objects.appendSliceAssumeCapacity(macho_file.objects.items);
         if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
@@ -205,7 +205,7 @@ pub const Bind = struct {
                 }
             }
 
-            log.debug("{x}, {d}, {x}, {?x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
+            log.debug("{x}, {d}, {x}, {x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
             log.debug("  => {x}", .{current.offset});
             switch (state) {
                 .start => {
@@ -286,7 +286,7 @@ pub const WeakBind = struct {
         const gpa = macho_file.base.comp.gpa;
         const cpu_arch = macho_file.getTarget().cpu.arch;
 
-        var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+        var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
         defer objects.deinit();
         objects.appendSliceAssumeCapacity(macho_file.objects.items);
         if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
@@ -447,7 +447,7 @@ pub const WeakBind = struct {
                 }
             }
 
-            log.debug("{x}, {d}, {x}, {?x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
+            log.debug("{x}, {d}, {x}, {x}, {s}", .{ offset, count, skip, addend, @tagName(state) });
             log.debug("  => {x}", .{current.offset});
             switch (state) {
                 .start => {

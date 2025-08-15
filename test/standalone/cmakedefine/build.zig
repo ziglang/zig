@@ -71,40 +71,35 @@ pub fn build(b: *std.Build) void {
         },
     );
 
+    const check_exe = b.addExecutable(.{
+        .name = "check",
+        .root_module = b.createModule(.{
+            .target = b.graph.host,
+            .root_source_file = b.path("check.zig"),
+        }),
+    });
+
     const test_step = b.step("test", "Test it");
-    test_step.makeFn = compare_headers;
-    test_step.dependOn(&config_header.step);
-    test_step.dependOn(&pwd_sh.step);
-    test_step.dependOn(&sigil_header.step);
-    test_step.dependOn(&stack_header.step);
-    test_step.dependOn(&wrapper_header.step);
+    b.default_step = test_step;
+    test_step.dependOn(addCheck(b, check_exe, config_header));
+    test_step.dependOn(addCheck(b, check_exe, pwd_sh));
+    test_step.dependOn(addCheck(b, check_exe, sigil_header));
+    test_step.dependOn(addCheck(b, check_exe, stack_header));
+    test_step.dependOn(addCheck(b, check_exe, wrapper_header));
 }
 
-fn compare_headers(step: *std.Build.Step, options: std.Build.Step.MakeOptions) !void {
-    _ = options;
-    const allocator = step.owner.allocator;
-    const expected_fmt = "expected_{s}";
+fn addCheck(
+    b: *std.Build,
+    check_exe: *std.Build.Step.Compile,
+    ch: *ConfigHeader,
+) *std.Build.Step {
+    // We expect `ch.include_path` to only be a basename to infer where the expected output is.
+    std.debug.assert(std.fs.path.dirname(ch.include_path) == null);
+    const expected_path = b.fmt("expected_{s}", .{ch.include_path});
 
-    for (step.dependencies.items) |config_header_step| {
-        const config_header: *ConfigHeader = @fieldParentPtr("step", config_header_step);
+    const run_check = b.addRunArtifact(check_exe);
+    run_check.addFileArg(ch.getOutputFile());
+    run_check.addFileArg(b.path(expected_path));
 
-        const zig_header_path = config_header.output_file.path orelse @panic("Could not locate header file");
-
-        const cwd = std.fs.cwd();
-
-        const cmake_header_path = try std.fmt.allocPrint(allocator, expected_fmt, .{std.fs.path.basename(zig_header_path)});
-        defer allocator.free(cmake_header_path);
-
-        const cmake_header = try cwd.readFileAlloc(allocator, cmake_header_path, config_header.max_bytes);
-        defer allocator.free(cmake_header);
-
-        const zig_header = try cwd.readFileAlloc(allocator, zig_header_path, config_header.max_bytes);
-        defer allocator.free(zig_header);
-
-        const header_text_index = std.mem.indexOf(u8, zig_header, "\n") orelse @panic("Could not find comment in header filer");
-
-        if (!std.mem.eql(u8, zig_header[header_text_index + 1 ..], cmake_header)) {
-            @panic("processed cmakedefine header does not match expected output");
-        }
-    }
+    return &run_check.step;
 }

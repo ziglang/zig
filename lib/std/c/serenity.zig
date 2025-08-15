@@ -71,5 +71,3 @@ pub extern "c" fn serenity_open(path: [*]const u8, path_length: usize, options: 
 
 pub extern "c" fn getkeymap(name_buffer: [*]u8, name_buffer_size: usize, map: [*]u32, shift_map: [*]u32, alt_map: [*]u32, altgr_map: [*]u32, shift_altgr_map: [*]u32) c_int;
 pub extern "c" fn setkeymap(name: [*]const u8, map: [*]const u32, shift_map: [*]const u32, alt_map: [*]const u32, altgr_map: [*]const u32, shift_altgr_map: [*]const u32) c_int;
-
-pub extern "c" fn internet_checksum(ptr: *const anyopaque, count: usize) u16;

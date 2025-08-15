@@ -465,25 +465,25 @@ pub const Register = enum(u8) {
         return @intCast(@intFromEnum(reg) - base);
     }
 
-    pub fn bitSize(reg: Register) u10 {
+    pub fn size(reg: Register) Memory.Size {
         return switch (@intFromEnum(reg)) {
             // zig fmt: off
-            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => 64,
-            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => 32,
-            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => 16,
-            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => 8,
-            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => 8,
+            @intFromEnum(Register.rax)  ... @intFromEnum(Register.r15)   => .qword,
+            @intFromEnum(Register.eax)  ... @intFromEnum(Register.r15d)  => .dword,
+            @intFromEnum(Register.ax)   ... @intFromEnum(Register.r15w)  => .word,
+            @intFromEnum(Register.al)   ... @intFromEnum(Register.r15b)  => .byte,
+            @intFromEnum(Register.ah)   ... @intFromEnum(Register.bh)    => .byte,
 
-            @intFromEnum(Register.zmm0) ... @intFromEnum(Register.zmm15) => 512,
-            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => 256,
-            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => 128,
-            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => 64,
-            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => 80,
+            @intFromEnum(Register.zmm0) ... @intFromEnum(Register.zmm15) => .zword,
+            @intFromEnum(Register.ymm0) ... @intFromEnum(Register.ymm15) => .yword,
+            @intFromEnum(Register.xmm0) ... @intFromEnum(Register.xmm15) => .xword,
+            @intFromEnum(Register.mm0)  ... @intFromEnum(Register.mm7)   => .qword,
+            @intFromEnum(Register.st0)  ... @intFromEnum(Register.st7)   => .tbyte,
 
-            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => 16,
+            @intFromEnum(Register.es)   ... @intFromEnum(Register.gs)    => .word,
 
-            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => 64,
-            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => 64,
+            @intFromEnum(Register.cr0)  ... @intFromEnum(Register.cr15)  => .gpr,
+            @intFromEnum(Register.dr0)  ... @intFromEnum(Register.dr15)  => .gpr,
 
             else => unreachable,
             // zig fmt: on
@@ -549,8 +549,8 @@ pub const Register = enum(u8) {
         };
     }
 
-    pub fn toSize(reg: Register, size: Memory.Size, target: *const std.Target) Register {
-        return switch (size) {
+    pub fn toSize(reg: Register, new_size: Memory.Size, target: *const std.Target) Register {
+        return switch (new_size) {
             .none => unreachable,
             .ptr => reg.toBitSize(target.ptrBitWidth()),
             .gpr => switch (target.cpu.arch) {
@@ -727,23 +727,6 @@ pub const FrameIndex = enum(u32) {
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
     }
-
-    pub fn format(
-        fi: FrameIndex,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeAll("FrameIndex");
-        if (fi.isNamed()) {
-            try writer.writeByte('.');
-            try writer.writeAll(@tagName(fi));
-        } else {
-            try writer.writeByte('(');
-            try std.fmt.formatType(@intFromEnum(fi), fmt, options, writer, 0);
-            try writer.writeByte(')');
-        }
-    }
 };
 
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };
@@ -844,12 +827,7 @@ pub const Memory = struct {
             };
         }
 
-        pub fn format(
-            s: Size,
-            comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
+        pub fn format(s: Size, writer: *std.io.Writer) std.io.Writer.Error!void {
             if (s == .none) return;
             try writer.writeAll(@tagName(s));
             switch (s) {
@@ -914,12 +892,7 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn format(
-        imm: Immediate,
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
+    pub fn format(imm: Immediate, writer: *std.io.Writer) std.io.Writer.Error!void {
         switch (imm) {
             inline else => |int| try writer.print("{d}", .{int}),
             .nav => |nav_off| try writer.print("Nav({d}) + {d}", .{ @intFromEnum(nav_off.nav), nav_off.off }),

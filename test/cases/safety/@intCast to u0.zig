@@ -19,4 +19,4 @@ fn bar(one: u1, not_zero: i32) void {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

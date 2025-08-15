@@ -54,12 +54,15 @@ inline fn generic_fmin(comptime T: type, x: T, y: T) T {
         return y;
     if (math.isNan(y))
         return x;
+    if (math.signbit(x) != math.signbit(y))
+        return if (math.signbit(x)) x else y;
     return if (x < y) x else y;
 }
 
 test "generic_fmin" {
     inline for ([_]type{ f32, f64, c_longdouble, f80, f128 }) |T| {
         const nan_val = math.nan(T);
+        const Int = std.meta.Int(.unsigned, @bitSizeOf(T));
 
         try std.testing.expect(math.isNan(generic_fmin(T, nan_val, nan_val)));
         try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, nan_val, 1.0));
@@ -67,5 +70,8 @@ test "generic_fmin" {
 
         try std.testing.expectEqual(@as(T, 1.0), generic_fmin(T, 1.0, 10.0));
         try std.testing.expectEqual(@as(T, -1.0), generic_fmin(T, 1.0, -1.0));
+
+        try std.testing.expectEqual(@as(Int, @bitCast(@as(T, -0.0))), @as(Int, @bitCast(generic_fmin(T, 0.0, -0.0))));
+        try std.testing.expectEqual(@as(Int, @bitCast(@as(T, -0.0))), @as(Int, @bitCast(generic_fmin(T, -0.0, 0.0))));
     }
 }

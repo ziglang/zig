@@ -26,7 +26,7 @@ pub fn createEmpty(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Xcoff {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const use_lld = build_options.have_llvm and comp.config.use_lld;
     const use_llvm = comp.config.use_llvm;
 
@@ -59,7 +59,7 @@ pub fn open(
     emit: Path,
     options: link.File.OpenOptions,
 ) !*Xcoff {
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     assert(target.ofmt == .xcoff);
     return createEmpty(arena, comp, emit, options);
 }
