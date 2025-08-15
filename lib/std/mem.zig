@@ -1628,11 +1628,9 @@ test count {
 
 /// Returns the number of needles inside the haystack
 pub fn countScalar(comptime T: type, haystack: []const T, needle: T) usize {
-    var i: usize = 0;
     var found: usize = 0;
-    while (indexOfScalarPos(T, haystack, i, needle)) |idx| {
-        i = idx + 1;
-        found += 1;
+    for (haystack) |item| {
+        if (item == needle) found += 1;
     }
     return found;
 }
