@@ -6278,7 +6278,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+                var stderr_reader = child.stderr.?.readerStreaming(&.{});
+                const stderr = try stderr_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
