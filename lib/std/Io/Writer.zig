@@ -98,22 +98,11 @@ pub const FileAllError = error{
     WriteFailed,
 };
 
-pub const FileReadingError = error{
-    /// Detailed diagnostics are found on the `File.Reader` struct.
-    ReadFailed,
-    /// See the `Writer` implementation for detailed diagnostics.
-    WriteFailed,
-    /// Reached the end of the file being read.
-    EndOfStream,
-};
-
 pub const SendFileError = error{
     /// Detailed diagnostics are found on the `File.Reader` struct.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
-    /// Reached the end of the file being read.
-    EndOfStream,
     /// Indicates the caller should do its own file reading; the callee cannot
     /// offer a more efficient implementation.
     Unimplemented,
@@ -915,9 +904,12 @@ pub fn sendFileHeader(
 }
 
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
+pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
     const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = try file_reader.read(dest);
+    const n = file_reader.read(dest) catch |err| switch (err) {
+        error.EndOfStream => return 0,
+        else => |e| return e,
+    };
     w.advance(n);
     return n;
 }
@@ -928,7 +920,6 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
-            error.EndOfStream => break,
             error.Unimplemented => {
                 file_reader.mode = file_reader.mode.toReading();
                 remaining -= try w.sendFileReadingAll(file_reader, .limited(remaining));
@@ -936,6 +927,9 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
             },
             else => |e| return e,
         };
+        if (n == 0 and file_reader.atEnd()) {
+            break;
+        }
         remaining -= n;
     }
     return @intFromEnum(limit) - remaining;
@@ -950,10 +944,11 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
 pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
-        remaining -= sendFileReading(w, file_reader, .limited(remaining)) catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
+        const n = try sendFileReading(w, file_reader, .limited(remaining));
+        if (n == 0 and file_reader.atEnd()) {
+            break;
+        }
+        remaining -= n;
     }
     return @intFromEnum(limit) - remaining;
 }
@@ -2266,7 +2261,7 @@ pub const Discarding = struct {
         if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
-            if (n == 0) return error.EndOfStream;
+            if (n == 0) return 0;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2640,10 +2635,13 @@ pub const Allocating = struct {
         defer setArrayList(a, list);
         const pos = file_reader.logicalPos();
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
-        if (additional == 0) return error.EndOfStream;
+        if (additional == 0) return 0;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = try file_reader.read(dest);
+        const n = file_reader.read(dest) catch |err| switch (err) {
+            error.EndOfStream => return 0,
+            else => |e| return e,
+        };
         list.items.len += n;
         return n;
     }

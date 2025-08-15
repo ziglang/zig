@@ -950,7 +950,7 @@ pub const BodyWriter = struct {
         if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
-            if (n == 0) return error.EndOfStream;
+            if (n == 0) return 0;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             switch (bw.state) {
                 .content_length => |*len| len.* -= n,

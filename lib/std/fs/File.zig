@@ -1781,7 +1781,7 @@ pub const Writer = struct {
                 if (reader_buffered.len != 0) {
                     return sendFileBuffered(io_w, file_reader, reader_buffered);
                 } else {
-                    return error.EndOfStream;
+                    return 0;
                 }
             }
         }
@@ -1838,7 +1838,7 @@ pub const Writer = struct {
             }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             const consumed = io_w.consume(@intCast(sbytes));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
@@ -1899,7 +1899,7 @@ pub const Writer = struct {
             }
             if (len == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             const consumed = io_w.consume(@bitCast(len));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
@@ -1944,7 +1944,7 @@ pub const Writer = struct {
             };
             if (n == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             file_reader.pos += n;
             w.pos += n;
@@ -1986,7 +1986,7 @@ pub const Writer = struct {
             };
             if (n == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             file_reader.pos += n;
             w.pos += n;
