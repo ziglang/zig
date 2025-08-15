@@ -1194,11 +1194,16 @@ pub const Reader = struct {
         };
     }
 
-    pub fn initMode(file: File, buffer: []u8, init_mode: Reader.Mode) Reader {
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode skips a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Reader {
         return .{
             .file = file,
-            .interface = initInterface(buffer),
-            .mode = init_mode,
+            .interface = Reader.initInterface(buffer),
+            .mode = .streaming,
+            .seek_err = error.Unseekable,
+            .size_err = error.Streaming,
         };
     }
 
@@ -1578,14 +1583,21 @@ pub const Writer = struct {
     const max_buffers_len = 16;
 
     pub fn init(file: File, buffer: []u8) Writer {
-        return initMode(file, buffer, .positional);
-    }
-
-    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) Writer {
         return .{
             .file = file,
             .interface = initInterface(buffer),
-            .mode = init_mode,
+            .mode = .positional,
+        };
+    }
+
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode will skip a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Writer {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+            .mode = .streaming,
         };
     }
 
@@ -2092,15 +2104,10 @@ pub fn reader(file: File, buffer: []u8) Reader {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Reader.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode skips a failed syscall.
 pub fn readerStreaming(file: File, buffer: []u8) Reader {
-    return .{
-        .file = file,
-        .interface = Reader.initInterface(buffer),
-        .mode = .streaming,
-        .seek_err = error.Unseekable,
-    };
+    return .initStreaming(file, buffer);
 }
 
 /// Defaults to positional reading; falls back to streaming.
@@ -2112,10 +2119,10 @@ pub fn writer(file: File, buffer: []u8) Writer {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Writer.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode will skip a failed syscall.
 pub fn writerStreaming(file: File, buffer: []u8) Writer {
-    return .initMode(file, buffer, .streaming);
+    return .initStreaming(file, buffer);
 }
 
 const range_off: windows.LARGE_INTEGER = 0;

@@ -283,8 +283,6 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 /// such case, the next byte that would be read will be the first one to exceed
 /// `limit`, and all preceeding bytes have been discarded.
 ///
-/// Asserts `buffer` has nonzero capacity.
-///
 /// See also:
 /// * `appendRemaining`
 pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocError![]u8 {
