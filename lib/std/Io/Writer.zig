@@ -141,7 +141,13 @@ pub const failing: Writer = .{
         .sendFile = failingSendFile,
         .rebase = failingRebase,
     },
+    .buffer = &.{},
 };
+
+test failing {
+    var fw: Writer = .failing;
+    try testing.expectError(error.WriteFailed, fw.writeAll("always fails"));
+}
 
 /// Returns the contents not yet drained.
 pub fn buffered(w: *const Writer) []u8 {
