@@ -9131,7 +9131,30 @@ pub const perf_event_header = extern struct {
     /// Event type: sample/mmap/fork/etc.
     type: PERF.RECORD,
     /// Additional informations on the event: kernel/user/hypervisor/etc.
-    misc: u16,
+    misc: packed struct(u16) {
+        cpu_mode: enum(u3) {
+            UNKNOWN = 0,
+            KERNEL = 1,
+            USER = 2,
+            HYPERVISOR = 3,
+            GUEST_KERNEL = 4,
+            GUEST_USER = 5,
+        },
+        _: u9,
+        PROC_MAP_PARSE_TIMEOUT: bool,
+        bit13: packed union {
+            MMAP_DATA: bool,
+            COMM_EXEC: bool,
+            FORK_EXEC: bool,
+            SWITCH_OUT: bool,
+        },
+        bit14: packed union {
+            EXACT_IP: bool,
+            SWITCH_OUT_PREEMPT: bool,
+            MMAP_BUILD_ID: bool,
+        },
+        MISC_EXT_RESERVED: bool,
+    },
     /// Size of the following record
     size: u16,
 };
@@ -9339,25 +9362,6 @@ pub const PERF = struct {
         CGROUP = 19,
         TEXT_POKE = 20,
         AUX_OUTPUT_HW_ID = 21,
-
-        pub const MISC = struct {
-            pub const CPUMODE_MASK = 7 << 0;
-            pub const CPUMODE_UNKNOWN = 0 << 0;
-            pub const KERNEL = 1 << 0;
-            pub const USER = 2 << 0;
-            pub const HYPERVISOR = 3 << 0;
-            pub const GUEST_KERNEL = 4 << 0;
-            pub const GUEST_USER = 5 << 0;
-            pub const PROC_MAP_PARSE_TIMEOUT = 1 << 12;
-            pub const MMAP_DATA = 1 << 13;
-            pub const COMM_EXEC = 1 << 13;
-            pub const FORK_EXEC = 1 << 13;
-            pub const SWITCH_OUT = 1 << 13;
-            pub const EXACT_IP = 1 << 14;
-            pub const SWITCH_OUT_PREEMPT = 1 << 14;
-            pub const MMAP_BUILD_ID = 1 << 14;
-            pub const EXT_RESERVED = 1 << 15;
-        };
     };
 
     pub const FLAG = struct {
