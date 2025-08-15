@@ -3149,18 +3149,23 @@ pub fn processExports(pt: Zcu.PerThread) !void {
         }
     }
 
+    // If there are compile errors, we won't call `updateExports`. Not only would it be redundant
+    // work, but the linker may not have seen an exported `Nav` due to a compile error, so linker
+    // implementations would have to handle that case. This early return avoids that.
+    const skip_linker_work = zcu.comp.anyErrors();
+
     // Map symbol names to `Export` for name collision detection.
     var symbol_exports: SymbolExports = .{};
     defer symbol_exports.deinit(gpa);
 
     for (nav_exports.keys(), nav_exports.values()) |exported_nav, exports_list| {
         const exported: Zcu.Exported = .{ .nav = exported_nav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 
     for (uav_exports.keys(), uav_exports.values()) |exported_uav, exports_list| {
         const exported: Zcu.Exported = .{ .uav = exported_uav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 }
 
@@ -3171,6 +3176,7 @@ fn processExportsInner(
     symbol_exports: *SymbolExports,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
+    skip_linker_work: bool,
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3216,12 +3222,13 @@ fn processExportsInner(
             }
             break :failed false;
         }) {
-            // This `Decl` is failed, so was never sent to codegen.
-            // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
-            return;
+            // This `Nav` is failed, so was never sent to codegen. There should be a compile error.
+            assert(skip_linker_work);
         },
         .uav => {},
     }
+
+    if (skip_linker_work) return;
 
     if (zcu.llvm_object) |llvm_object| {
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
