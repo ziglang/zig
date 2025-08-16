@@ -91,7 +91,7 @@ pub const Error = error{
     WriteFailed,
 };
 
-pub const FileAllError = error{
+pub const FileError = error{
     /// Detailed diagnostics are found on the `File.Reader` struct.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
@@ -904,7 +904,7 @@ pub fn sendFileHeader(
 }
 
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     const dest = limit.slice(try w.writableSliceGreedy(1));
     const n = file_reader.read(dest) catch |err| switch (err) {
         error.EndOfStream => return 0,
@@ -916,7 +916,7 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 
 /// Number of bytes logically written is returned. This excludes bytes from
 /// `buffer` because they have already been logically written.
-pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
@@ -941,7 +941,7 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
 /// that error code does not appear in this function's error set.
 ///
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = try sendFileReading(w, file_reader, .limited(remaining));
