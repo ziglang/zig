@@ -29,17 +29,12 @@ pub fn build(b: *std.Build) void {
     const tools_tests_step = b.step("standalone_test_cases.tools", "Test tools");
     step.dependOn(tools_tests_step);
     const tools_target = b.resolveTargetQuery(.{});
-    const spirv_spec = b.createModule(.{
-        .root_source_file = b.path("../../src/codegen/spirv/spec.zig"),
-        .target = tools_target,
-    });
     for ([_][]const u8{
         // Alphabetically sorted. No need to build `tools/spirv/grammar.zig`.
         "../../tools/dump-cov.zig",
         "../../tools/fetch_them_macos_headers.zig",
         "../../tools/gen_macos_headers_c.zig",
         "../../tools/gen_outline_atomics.zig",
-        "../../tools/gen_spirv_spec.zig",
         "../../tools/gen_stubs.zig",
         "../../tools/generate_c_size_and_align_checks.zig",
         "../../tools/generate_JSONTestSuite.zig",
@@ -58,6 +53,22 @@ pub fn build(b: *std.Build) void {
         if (std.mem.endsWith(u8, tool_src_path, "dump-cov.zig") and tools_target.result.os.tag == .windows) continue;
 
         const tool = b.addExecutable(.{
+            .name = std.fs.path.stem(tool_src_path),
+            .root_module = b.createModule(.{
+                .root_source_file = b.path(tool_src_path),
+                .target = tools_target,
+            }),
+        });
+        tools_tests_step.dependOn(&tool.step);
+    }
+    const spirv_spec = b.createModule(.{
+        .root_source_file = b.path("../../src/codegen/spirv/spec.zig"),
+        .target = tools_target,
+    });
+    for ([_][]const u8{
+        "../../tools/gen_spirv_spec.zig",
+    }) |tool_src_path| {
+        const tool = b.addTest(.{
             .name = std.fs.path.stem(tool_src_path),
             .root_module = b.createModule(.{
                 .root_source_file = b.path(tool_src_path),
