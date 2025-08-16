@@ -1206,12 +1206,35 @@ pub const Reader = struct {
         return r.size orelse {
             if (r.size_err) |err| return err;
             if (is_windows) {
-                if (windows.GetFileSizeEx(r.file.handle)) |size| {
-                    r.size = size;
-                    return size;
-                } else |err| {
-                    r.size_err = err;
-                    return err;
+                const device_type = blk: {
+                    var io_status: windows.IO_STATUS_BLOCK = undefined;
+                    var device_info: windows.FILE_FS_DEVICE_INFORMATION = undefined;
+                    const rc = windows.ntdll.NtQueryVolumeInformationFile(
+                        r.file.handle,
+                        &io_status,
+                        &device_info,
+                        @sizeOf(windows.FILE_FS_DEVICE_INFORMATION),
+                        .FileFsDeviceInformation,
+                    );
+                    break :blk switch (rc) {
+                        .SUCCESS => device_info.DeviceType,
+                        else => return windows.unexpectedStatus(rc),
+                    };
+                };
+                switch (device_type) {
+                    windows.FILE_DEVICE_NAMED_PIPE,
+                    windows.FILE_DEVICE_CONSOLE,
+                    => {
+                        r.size_err = error.Streaming;
+                        return error.Streaming;
+                    },
+                    else => if (windows.GetFileSizeEx(r.file.handle)) |size| {
+                        r.size = size;
+                        return size;
+                    } else |err| {
+                        r.size_err = err;
+                        return err;
+                    },
                 }
             }
             if (posix.Stat == void) {
