@@ -3036,10 +3036,8 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
         },
 
         .opengl => switch (c_type) {
-            .char => return 8,
-            .short, .ushort => return 16,
-            .int, .uint, .float => return 32,
-            .long, .ulong, .longlong, .ulonglong, .double, .longdouble => return 64,
+            .char, .short, .ushort, .int, .uint, .float, .long, .ulong, .longlong, .ulonglong => return 32,
+            .double, .longdouble => return 64,
         },
 
         .opencl, .vulkan => switch (c_type) {
