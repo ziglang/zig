@@ -882,6 +882,9 @@ pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
 /// Unlike `writeSplat` and `writeVec`, this function will call into `VTable`
 /// even if there is enough buffer capacity for the file contents.
 ///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
+///
 /// Although it would be possible to eliminate `error.Unimplemented` from the
 /// error set by reading directly into the buffer in such case, this is not
 /// done because it is more efficient to do it higher up the call stack so that
@@ -924,7 +927,16 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 
 /// Number of bytes logically written is returned. This excludes bytes from
 /// `buffer` because they have already been logically written.
+///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
+///
+/// Asserts nonzero buffer capacity.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+    // The fallback sendFileReadingAll() path asserts non-zero buffer capacity.
+    // Explicitly assert it here as well to ensure the assert is hit even if
+    // the fallback path is not taken.
+    assert(w.buffer.len > 0);
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
