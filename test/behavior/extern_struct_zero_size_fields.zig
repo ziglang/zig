@@ -10,9 +10,9 @@ const T = extern struct {
     baz: struct {} = .{},
     ayy: E = .the_only_possible_value,
     arr: [0]u0 = .{},
-    matey: [128]void = [_]void{{}} ** 128,
+    matey: [128]void = @splat({}),
     running_out_of_ideas: packed struct {} = .{},
-    one_more: [256]S = [_]S{.{}} ** 256,
+    one_more: [256]S = @splat(.{}),
 };
 
 test {

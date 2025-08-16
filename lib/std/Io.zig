@@ -444,7 +444,7 @@ fn dummyWrite(context: void, data: []const u8) error{}!usize {
 }
 
 test null_writer {
-    null_writer.writeAll("yay" ** 10) catch |err| switch (err) {};
+    null_writer.writeAll("yay") catch |err| switch (err) {};
 }
 
 pub fn poll(
@@ -459,9 +459,7 @@ pub fn poll(
         .poll_fds = undefined,
         .windows = if (is_windows) .{
             .first_read_done = false,
-            .overlapped = [1]windows.OVERLAPPED{
-                std.mem.zeroes(windows.OVERLAPPED),
-            } ** enum_fields.len,
+            .overlapped = @splat(std.mem.zeroes(windows.OVERLAPPED)),
             .small_bufs = undefined,
             .active = .{
                 .count = 0,

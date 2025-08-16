@@ -823,19 +823,19 @@ test "bcrypt crypt format" {
     );
 
     var long_buf: [hash_length]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash(&strMul("password", 100), hash_options, &long_buf);
 
     try testing.expect(mem.startsWith(u8, long_s, crypt_format.prefix));
-    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, &strMul("password", 100), verify_options);
     try testing.expectError(
         error.PasswordVerificationFailed,
-        strVerify(long_s, "password" ** 101, verify_options),
+        strVerify(long_s, &strMul("password", 101), verify_options),
     );
 
     hash_options.params.silently_truncate_password = true;
     verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    long_s = try strHash(&strMul("password", 100), hash_options, &long_buf);
+    try strVerify(long_s, &strMul("password", 101), verify_options);
 
     try strVerify(
         "$2b$08$WUQKyBCaKpziCwUXHiMVvu40dYVjkTxtWJlftl0PpjY2BxWSvFIEe",
@@ -863,19 +863,19 @@ test "bcrypt phc format" {
     );
 
     var long_buf: [hash_length * 2]u8 = undefined;
-    var long_s = try strHash("password" ** 100, hash_options, &long_buf);
+    var long_s = try strHash(&strMul("password", 100), hash_options, &long_buf);
 
     try testing.expect(mem.startsWith(u8, long_s, prefix));
-    try strVerify(long_s, "password" ** 100, verify_options);
+    try strVerify(long_s, &strMul("password", 100), verify_options);
     try testing.expectError(
         error.PasswordVerificationFailed,
-        strVerify(long_s, "password" ** 101, verify_options),
+        strVerify(long_s, &strMul("password", 101), verify_options),
     );
 
     hash_options.params.silently_truncate_password = true;
     verify_options.silently_truncate_password = true;
-    long_s = try strHash("password" ** 100, hash_options, &long_buf);
-    try strVerify(long_s, "password" ** 101, verify_options);
+    long_s = try strHash(&strMul("password", 100), hash_options, &long_buf);
+    try strVerify(long_s, &strMul("password", 101), verify_options);
 
     try strVerify(
         "$bcrypt$r=5$2NopntlgE2lX3cTwr4qz8A$r3T7iKYQNnY4hAhGjk9RmuyvgrYJZwc",
@@ -892,4 +892,11 @@ test "openssh kdf" {
     try opensshKdf(pass, salt, &key, rounds);
     const expected = [_]u8{ 65, 207, 68, 58, 55, 252, 114, 141, 255, 65, 216, 175, 5, 92, 235, 68, 220, 92, 118, 161, 40, 13, 241, 190, 56, 152, 69, 136, 41, 214, 51, 205, 37, 221, 101, 59, 105, 73, 133, 36, 14, 59, 94, 212, 111, 107, 109, 237, 213, 235, 246, 119, 59, 76, 45, 130, 142, 81, 178, 231, 161, 158, 138, 108, 18, 162, 26, 50, 218, 251, 23, 66, 2, 232, 20, 202, 216, 46, 12, 250, 247, 246, 252, 23, 155, 74, 77, 195, 120, 113, 57, 88, 126, 81, 9, 249, 72, 18, 208, 160 };
     try testing.expectEqualSlices(u8, &key, &expected);
+}
+
+/// Only for use in tests
+inline fn strMul(comptime str: []const u8, comptime times: usize) [str.len * times]u8 {
+    var result: [times * str.len]u8 = undefined;
+    for (0..times) |i| @memcpy(result[i * str.len ..][0..str.len], str);
+    return result;
 }

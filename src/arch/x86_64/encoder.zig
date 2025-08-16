@@ -14,7 +14,7 @@ const Symbol = bits.Symbol;
 pub const Instruction = struct {
     prefix: Prefix = .none,
     encoding: Encoding,
-    ops: [4]Operand = .{.none} ** 4,
+    ops: [4]Operand = @splat(.none),
 
     pub const Mnemonic = Encoding.Mnemonic;
 
@@ -347,7 +347,7 @@ pub const Instruction = struct {
         var inst: Instruction = .{
             .prefix = prefix,
             .encoding = encoding,
-            .ops = [1]Operand{.none} ** 4,
+            .ops = @splat(.none),
         };
         @memcpy(inst.ops[0..ops.len], ops);
         return inst;
