@@ -450,11 +450,11 @@ pub const Request = struct {
         try out.writeAll("\r\n");
         const elide_body = request.head.method == .HEAD;
         const state: http.BodyWriter.State = if (o.transfer_encoding) |te| switch (te) {
-            .chunked => .{ .chunked = .init },
+            .chunked => .init_chunked,
             .none => .none,
         } else if (options.content_length) |len| .{
             .content_length = len,
-        } else .{ .chunked = .init };
+        } else .init_chunked;
 
         return if (elide_body) .{
             .http_protocol_output = request.server.out,
@@ -480,7 +480,7 @@ pub const Request = struct {
                         .drain = http.BodyWriter.contentLengthDrain,
                         .sendFile = http.BodyWriter.contentLengthSendFile,
                     },
-                    .chunked => &.{
+                    .chunk_len => &.{
                         .drain = http.BodyWriter.chunkedDrain,
                         .sendFile = http.BodyWriter.chunkedSendFile,
                     },

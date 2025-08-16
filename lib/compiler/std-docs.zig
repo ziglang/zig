@@ -106,9 +106,19 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
                 return;
             },
         };
-        serveRequest(&request, context) catch |err| {
-            std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
-            return;
+        serveRequest(&request, context) catch |err| switch (err) {
+            error.WriteFailed => {
+                if (conn_writer.err) |e| {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(e) });
+                } else {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                }
+                return;
+            },
+            else => {
+                std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                return;
+            },
         };
     }
 }

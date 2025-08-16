@@ -912,7 +912,7 @@ pub const Request = struct {
         return switch (r.transfer_encoding) {
             .chunked => .{
                 .http_protocol_output = http_protocol_output,
-                .state = .{ .chunked = .init },
+                .state = .init_chunked,
                 .writer = .{
                     .buffer = buffer,
                     .vtable = &.{
