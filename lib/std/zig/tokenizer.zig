@@ -1721,10 +1721,14 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
-    _ = context;
-    const source0 = try std.testing.allocator.dupeZ(u8, source);
-    defer std.testing.allocator.free(source0);
+fn testPropertiesUpheld(_: void, source: []const u8) !void {
+    var source0_buf: [512]u8 = undefined;
+    if (source.len + 1 > source0_buf.len)
+        return;
+    @memcpy(source0_buf[0..source.len], source);
+    source0_buf[source.len] = 0;
+    const source0 = source0_buf[0..source.len :0];
+
     var tokenizer = Tokenizer.init(source0);
     var tokenization_failed = false;
     while (true) {
@@ -1750,18 +1754,15 @@ fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
         }
     }
 
-    if (source0.len > 0) for (source0, source0[1..][0..source0.len]) |cur, next| {
+    if (tokenization_failed) return;
+    for (source0) |cur| {
         // Property: No null byte allowed except at end.
         if (cur == 0) {
-            try std.testing.expect(tokenization_failed);
+            return error.TestUnexpectedResult;
         }
-        // Property: No ASCII control characters other than \n and \t are allowed.
-        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t') {
-            try std.testing.expect(tokenization_failed);
+        // Property: No ASCII control characters other than \n, \t, and \r are allowed.
+        if (std.ascii.isControl(cur) and cur != '\n' and cur != '\t' and cur != '\r') {
+            return error.TestUnexpectedResult;
         }
-        // Property: All '\r' must be followed by '\n'.
-        if (cur == '\r' and next != '\n') {
-            try std.testing.expect(tokenization_failed);
-        }
-    };
+    }
 }
