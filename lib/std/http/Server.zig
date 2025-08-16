@@ -29,6 +29,7 @@ pub fn init(in: *Reader, out: *Writer) Server {
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = in.buffer.len,
         },
         .out = out,
     };
@@ -251,6 +252,7 @@ pub const Request = struct {
                 .in = undefined,
                 .state = .received_head,
                 .interface = undefined,
+                .max_head_len = 4096,
             },
             .out = undefined,
         };
