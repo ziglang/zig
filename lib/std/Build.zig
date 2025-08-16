@@ -265,6 +265,7 @@ pub fn create(
         .graph = graph,
         .build_root = build_root,
         .cache_root = cache_root,
+        .debug_stack_frames_count = std.Build.debug_stack_frames_count, // strange: errors out as undeclared without the prefixes
         .verbose = false,
         .verbose_link = false,
         .verbose_cc = false,
