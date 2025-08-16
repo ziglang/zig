@@ -1780,13 +1780,19 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             };
             defer file.close();
             // TODO https://github.com/ziglang/zig/issues/23955
-            var buffer: [1024]u8 = undefined;
-            var file_reader = file.reader(&buffer);
-            var stdin_writer = child.stdin.?.writer(&.{});
+            var read_buffer: [1024]u8 = undefined;
+            var file_reader = file.reader(&read_buffer);
+            var write_buffer: [1024]u8 = undefined;
+            var stdin_writer = child.stdin.?.writer(&write_buffer);
             _ = stdin_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
                 error.ReadFailed => return run.step.fail("failed to read from {f}: {t}", .{
                     path, file_reader.err.?,
                 }),
+                error.WriteFailed => return run.step.fail("failed to write to stdin: {t}", .{
+                    stdin_writer.err.?,
+                }),
+            };
+            stdin_writer.interface.flush() catch |err| switch (err) {
                 error.WriteFailed => return run.step.fail("failed to write to stdin: {t}", .{
                     stdin_writer.err.?,
                 }),
