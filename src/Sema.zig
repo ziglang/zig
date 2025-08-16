@@ -11255,6 +11255,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         undefined,
         &.{},
         &.{},
+        try sema.typeHasOnePossibleValue(operand_err_set_ty) != null,
     );
 
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
@@ -11954,6 +11955,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
     defer child_block.instructions.deinit(gpa);
     defer merges.deinit(gpa);
 
+    const cond_has_opv = try sema.typeHasOnePossibleValue(cond_ty) != null;
+
     if (scalar_cases_len + multi_cases_len == 0 and
         special_members_only == null and
         !special_generic.is_inline)
@@ -11969,7 +11972,8 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
             .loop => |l| l.init_cond,
         };
         if (zcu.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and
-            raw_operand_ty.zigTypeTag(zcu) == .@"enum" and !raw_operand_ty.isNonexhaustiveEnum(zcu))
+            raw_operand_ty.zigTypeTag(zcu) == .@"enum" and !cond_has_opv and
+            !raw_operand_ty.isNonexhaustiveEnum(zcu))
         {
             try sema.zirDbgStmt(block, cond_dbg_node_index);
             const ok = try block.addUnOp(.is_named_enum_value, init_cond);
@@ -12147,7 +12151,16 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
         special_members_only_src,
         extra_case_vals.items.items,
         extra_case_vals.ranges.items,
+        cond_has_opv,
     );
+
+    assert(merges.extra_insts.items.len == 0 or operand == .loop);
+
+    const simplified = switch (sema.air_instructions.items(.tag)[@intFromEnum(air_switch_ref.toIndex().?)]) {
+        .loop_switch_br, .switch_br => false,
+        .loop, .block => true,
+        else => unreachable,
+    };
 
     for (merges.extra_insts.items, merges.extra_src_locs.items) |placeholder_inst, dispatch_src| {
         var replacement_block = block.makeSubBlock();
@@ -12169,19 +12182,28 @@ fn zirSwitchBlock(sema: *Sema, block: *Block, inst: Zir.Inst.Index, operand_is_r
 
         if (zcu.backendSupportsFeature(.is_named_enum_value) and block.wantSafety() and
             cond_ty.zigTypeTag(zcu) == .@"enum" and !cond_ty.isNonexhaustiveEnum(zcu) and
-            !try sema.isComptimeKnown(new_cond))
+            !try sema.isComptimeKnown(new_cond) and !cond_has_opv)
         {
             const ok = try replacement_block.addUnOp(.is_named_enum_value, new_cond);
             try sema.addSafetyCheck(&replacement_block, src, ok, .corrupt_switch);
         }
 
-        _ = try replacement_block.addInst(.{
-            .tag = .switch_dispatch,
-            .data = .{ .br = .{
-                .block_inst = air_switch_ref.toIndex().?,
-                .operand = new_cond,
-            } },
-        });
+        if (simplified) {
+            _ = try replacement_block.addInst(.{
+                .tag = .repeat,
+                .data = .{ .repeat = .{
+                    .loop_inst = air_switch_ref.toIndex().?,
+                } },
+            });
+        } else {
+            _ = try replacement_block.addInst(.{
+                .tag = .switch_dispatch,
+                .data = .{ .br = .{
+                    .block_inst = air_switch_ref.toIndex().?,
+                    .operand = new_cond,
+                } },
+            });
+        }
 
         if (replacement_block.instructions.items.len == 1) {
             // Optimization: we don't need a block!
@@ -12251,6 +12273,7 @@ fn analyzeSwitchRuntimeBlock(
     extra_prong_src: LazySrcLoc,
     extra_prong_items: []const Air.Inst.Ref,
     extra_prong_ranges: []const [2]Air.Inst.Ref,
+    operand_has_opv: bool,
 ) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
@@ -12568,7 +12591,9 @@ fn analyzeSwitchRuntimeBlock(
         cases_extra.appendSliceAssumeCapacity(@ptrCast(case_block.instructions.items));
     }
 
-    const else_body: []const Air.Inst.Index = if (else_prong.body.len != 0 or case_block.wantSafety()) else_body: {
+    const else_body: []const Air.Inst.Index = if (else_prong.body.len != 0 or
+        (case_block.wantSafety() and !operand_has_opv))
+    else_body: {
         var emit_bb = false;
         // If this is true we must have a 'true' else prong and not an underscore because
         // underscore prongs can never be inlined. We've already checked for this.
@@ -12802,7 +12827,7 @@ fn analyzeSwitchRuntimeBlock(
 
         if (zcu.backendSupportsFeature(.is_named_enum_value) and
             else_prong.body.len != 0 and block.wantSafety() and
-            operand_ty.zigTypeTag(zcu) == .@"enum" and
+            operand_ty.zigTypeTag(zcu) == .@"enum" and !operand_has_opv and
             (!operand_ty.isNonexhaustiveEnum(zcu) or union_originally))
         {
             try sema.zirDbgStmt(&case_block, cond_dbg_node_index);
@@ -12865,6 +12890,45 @@ fn analyzeSwitchRuntimeBlock(
 
     assert(branch_hints.items.len == cases_len + 1);
 
+    const has_any_continues = spa.operand == .loop and child_block.label.?.merges.extra_insts.items.len > 0;
+    if (cases_len == 0 or (cases_len == 1 and operand_has_opv)) {
+        assert(cases_len == 0 or else_body.len == 0);
+        const body: []const Air.Inst.Index = if (cases_extra.items.len > 0) body: {
+            // We've already written an `Air.SwitchBr.Case` into `cases_extra`,
+            // but we're only interested in the body.
+            const case: Air.SwitchBr.Case = .{
+                .items_len = cases_extra.items[std.meta.fieldIndex(Air.SwitchBr.Case, "items_len").?],
+                .ranges_len = cases_extra.items[std.meta.fieldIndex(Air.SwitchBr.Case, "ranges_len").?],
+                .body_len = cases_extra.items[std.meta.fieldIndex(Air.SwitchBr.Case, "body_len").?],
+            };
+            assert(case.ranges_len == 0);
+            const body_start = @typeInfo(Air.SwitchBr.Case).@"struct".fields.len + case.items_len;
+            break :body @ptrCast(cases_extra.items[body_start..][0..case.body_len]);
+        } else else_body;
+        const need_noreturn_terminator = !sema.isNoReturn(body[body.len - 1].toRef());
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.Block).@"struct".fields.len +
+            body.len + @intFromBool(need_noreturn_terminator));
+        const payload_index = sema.addExtraAssumeCapacity(Air.Block{
+            .body_len = @intCast(body.len + @intFromBool(need_noreturn_terminator)),
+        });
+        sema.air_extra.appendSliceAssumeCapacity(@ptrCast(body));
+        if (need_noreturn_terminator) {
+            const terminator: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
+            try sema.air_instructions.append(gpa, .{
+                .tag = .unreach,
+                .data = .{ .no_op = {} },
+            });
+            sema.air_extra.appendAssumeCapacity(@intFromEnum(terminator));
+        }
+        return try child_block.addInst(.{
+            .tag = if (has_any_continues) .loop else .block,
+            .data = .{ .ty_pl = .{
+                .ty = .noreturn_type,
+                .payload = payload_index,
+            } },
+        });
+    }
+
     try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.SwitchBr).@"struct".fields.len +
         cases_extra.items.len + else_body.len +
         (std.math.divCeil(usize, branch_hints.items.len, 10) catch unreachable)); // branch hints
@@ -12891,8 +12955,6 @@ fn analyzeSwitchRuntimeBlock(
     }
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(cases_extra.items));
     sema.air_extra.appendSliceAssumeCapacity(@ptrCast(else_body));
-
-    const has_any_continues = spa.operand == .loop and child_block.label.?.merges.extra_insts.items.len > 0;
 
     return try child_block.addInst(.{
         .tag = if (has_any_continues) .loop_switch_br else .switch_br,
