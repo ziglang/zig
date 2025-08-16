@@ -126,6 +126,8 @@ test parse {
             color: enum { auto, never, always } = .auto,
             /// --seed=0x<something> is actually passed in by the `zig test` system (as of 0.14.1), which we receive here.
             seed: u32 = 0,
+            @"cache-dir": []const u8 = "",
+            listen: []const u8 = "",
         },
         /// Receives the rest of the arguments.
         positional: []const [:0]const u8 = &.{},
