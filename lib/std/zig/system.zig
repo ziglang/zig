@@ -172,6 +172,8 @@ pub const DetectError = error{
     OSVersionDetectionFail,
     Unexpected,
     ProcessNotFound,
+    /// Android-only. Querying API level through `getprop` failed.
+    ApiLevelQueryFailed,
 };
 
 /// Given a `Target.Query`, which specifies in detail which parts of the
@@ -447,6 +449,23 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 result_ver_range.windows.min = abi_ver_range.windows.min;
             },
         }
+    }
+
+    if (result.abi.isAndroid() and query.os_tag == null and query.android_api_level == null) {
+        result.os.version_range.linux.android = detectAndroidApiLevel() catch |err| return switch (err) {
+            error.InvalidWtf8,
+            error.CurrentWorkingDirectoryUnlinked,
+            error.InvalidBatchScriptArg,
+            error.InvalidHandle,
+            => unreachable, // Windows-only
+            error.SystemResources,
+            error.FileSystem,
+            error.ProcessFdQuotaExceeded,
+            error.SystemFdQuotaExceeded,
+            error.SymLinkLoop,
+            => |e| e,
+            else => error.ApiLevelQueryFailed,
+        };
     }
 
     return result;
@@ -1147,6 +1166,11 @@ fn detectAbiAndDynamicLinker(
                 error.FileTooBig,
                 error.Unexpected,
                 => |e| {
+                    if (e == error.FileNotFound and os.tag == .linux and mem.eql(u8, file_name, "/usr/bin/env")) {
+                        // Android does not have a /usr directory, so try again
+                        file_name = "/system/bin/env";
+                        continue;
+                    }
                     std.log.warn("Encountered error: {s}, falling back to default ABI and dynamic linker.", .{@errorName(e)});
                     return defaultAbiAndDynamicLinker(cpu, os, query);
                 },
@@ -1292,6 +1316,31 @@ fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Type
             return int_32;
         }
     }
+}
+
+fn detectAndroidApiLevel() !u32 {
+    var alloc_buf: [384]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&alloc_buf);
+    var child = std.process.Child.init(&.{ "/system/bin/getprop", "ro.build.version.sdk" }, fba.allocator());
+    // pass empty EnvMap, no allocator and deinit() required
+    child.env_map = &std.process.EnvMap.init(undefined);
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Pipe;
+    child.stderr_behavior = .Ignore;
+
+    try child.spawn();
+    errdefer _ = child.kill() catch {};
+
+    // PROP_VALUE_MAX is 92, output is value + newline.
+    // Currently API levels are two-digit numbers, but we want to make sure we never read a partial value.
+    var stdout_buf: [92 + 1]u8 = undefined;
+    var reader = child.stdout.?.readerStreaming(&.{});
+    const n = try reader.interface.readSliceShort(&stdout_buf);
+    const api_level = std.fmt.parseInt(u32, stdout_buf[0 .. n - 1], 10) catch return error.GetpropOutputMalformed;
+
+    const term = try child.wait();
+    if (term != .Exited or term.Exited != 0) return error.GetpropTerminatedAbnormally;
+    return api_level;
 }
 
 const builtin = @import("builtin");
