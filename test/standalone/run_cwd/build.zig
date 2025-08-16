@@ -21,7 +21,7 @@ pub fn build(b: *Build) void {
 fn addCheck(b: *Build, exe: *Build.Step.Compile, cwd_name: []const u8, opt_cwd: ?Build.LazyPath) *Build.Step {
     const run = b.addRunArtifact(exe);
     if (opt_cwd) |cwd| run.setCwd(cwd);
-    run.addFileArg(b.path("file_that_exists.txt"));
+    run.addFileArg(.{ .lazy_path = b.path("file_that_exists.txt") });
     run.setName(b.fmt("check in '{s}'", .{cwd_name}));
     run.expectExitCode(0);
     return &run.step;

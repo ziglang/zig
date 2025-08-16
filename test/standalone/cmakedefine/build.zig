@@ -98,8 +98,8 @@ fn addCheck(
     const expected_path = b.fmt("expected_{s}", .{ch.include_path});
 
     const run_check = b.addRunArtifact(check_exe);
-    run_check.addFileArg(ch.getOutputFile());
-    run_check.addFileArg(b.path(expected_path));
+    run_check.addFileArg(.{ .lazy_path = ch.getOutputFile() });
+    run_check.addFileArg(.{ .lazy_path = b.path(expected_path) });
 
     return &run_check.step;
 }
