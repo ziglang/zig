@@ -1766,7 +1766,7 @@ pub const Writer = struct {
         io_w: *std.Io.Writer,
         file_reader: *Reader,
         limit: std.Io.Limit,
-    ) std.Io.Writer.FileError!usize {
+    ) std.Io.Writer.SendFileError!usize {
         const reader_buffered = file_reader.interface.buffered();
         if (reader_buffered.len >= @intFromEnum(limit))
             return sendFileBuffered(io_w, file_reader, reader_buffered);
@@ -1781,7 +1781,7 @@ pub const Writer = struct {
                 if (reader_buffered.len != 0) {
                     return sendFileBuffered(io_w, file_reader, reader_buffered);
                 } else {
-                    return error.EndOfStream;
+                    return 0;
                 }
             }
         }
@@ -1838,7 +1838,7 @@ pub const Writer = struct {
             }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             const consumed = io_w.consume(@intCast(sbytes));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
@@ -1899,7 +1899,7 @@ pub const Writer = struct {
             }
             if (len == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             const consumed = io_w.consume(@bitCast(len));
             file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
@@ -1944,7 +1944,7 @@ pub const Writer = struct {
             };
             if (n == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             file_reader.pos += n;
             w.pos += n;
@@ -1986,7 +1986,7 @@ pub const Writer = struct {
             };
             if (n == 0) {
                 file_reader.size = file_reader.pos;
-                return error.EndOfStream;
+                return 0;
             }
             file_reader.pos += n;
             w.pos += n;
@@ -2033,7 +2033,7 @@ pub const Writer = struct {
         io_w: *std.Io.Writer,
         file_reader: *Reader,
         reader_buffered: []const u8,
-    ) std.Io.Writer.FileError!usize {
+    ) std.Io.Writer.SendFileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
         file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
         return n;

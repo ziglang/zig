@@ -65,7 +65,7 @@ pub const VTable = struct {
         /// assume that the file size does not exceed this amount. Data from
         /// `buffer` does not count towards this limit.
         limit: Limit,
-    ) FileError!usize = unimplementedSendFile,
+    ) SendFileError!usize = unimplementedSendFile,
 
     /// Consumes all remaining buffer.
     ///
@@ -91,29 +91,18 @@ pub const Error = error{
     WriteFailed,
 };
 
-pub const FileAllError = error{
-    /// Detailed diagnostics are found on the `File.Reader` struct.
-    ReadFailed,
-    /// See the `Writer` implementation for detailed diagnostics.
-    WriteFailed,
-};
-
-pub const FileReadingError = error{
-    /// Detailed diagnostics are found on the `File.Reader` struct.
-    ReadFailed,
-    /// See the `Writer` implementation for detailed diagnostics.
-    WriteFailed,
-    /// Reached the end of the file being read.
-    EndOfStream,
-};
-
 pub const FileError = error{
     /// Detailed diagnostics are found on the `File.Reader` struct.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
     WriteFailed,
-    /// Reached the end of the file being read.
-    EndOfStream,
+};
+
+pub const SendFileError = error{
+    /// Detailed diagnostics are found on the `File.Reader` struct.
+    ReadFailed,
+    /// See the `Writer` implementation for detailed diagnostics.
+    WriteFailed,
     /// Indicates the caller should do its own file reading; the callee cannot
     /// offer a more efficient implementation.
     Unimplemented,
@@ -889,7 +878,7 @@ pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
 ///
 /// See `sendFileReading` for an alternative that does not have
 /// `error.Unimplemented` in the error set.
-pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     return w.vtable.sendFile(w, file_reader, limit);
 }
 
@@ -901,7 +890,7 @@ pub fn sendFileHeader(
     header: []const u8,
     file_reader: *File.Reader,
     limit: Limit,
-) FileError!usize {
+) SendFileError!usize {
     const new_end = w.end + header.len;
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
@@ -915,20 +904,22 @@ pub fn sendFileHeader(
 }
 
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
+pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = try file_reader.read(dest);
+    const n = file_reader.read(dest) catch |err| switch (err) {
+        error.EndOfStream => return 0,
+        else => |e| return e,
+    };
     w.advance(n);
     return n;
 }
 
 /// Number of bytes logically written is returned. This excludes bytes from
 /// `buffer` because they have already been logically written.
-pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
-            error.EndOfStream => break,
             error.Unimplemented => {
                 file_reader.mode = file_reader.mode.toReading();
                 remaining -= try w.sendFileReadingAll(file_reader, .limited(remaining));
@@ -936,6 +927,9 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
             },
             else => |e| return e,
         };
+        if (n == 0 and file_reader.atEnd()) {
+            break;
+        }
         remaining -= n;
     }
     return @intFromEnum(limit) - remaining;
@@ -947,13 +941,14 @@ pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllE
 /// that error code does not appear in this function's error set.
 ///
 /// Asserts nonzero buffer capacity.
-pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+pub fn sendFileReadingAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
-        remaining -= sendFileReading(w, file_reader, .limited(remaining)) catch |err| switch (err) {
-            error.EndOfStream => break,
-            else => |e| return e,
-        };
+        const n = try sendFileReading(w, file_reader, .limited(remaining));
+        if (n == 0 and file_reader.atEnd()) {
+            break;
+        }
+        remaining -= n;
     }
     return @intFromEnum(limit) - remaining;
 }
@@ -2207,7 +2202,7 @@ pub fn failingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!us
     return error.WriteFailed;
 }
 
-pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     _ = w;
     _ = file_reader;
     _ = limit;
@@ -2254,7 +2249,7 @@ pub const Discarding = struct {
         return written;
     }
 
-    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         switch (builtin.zig_backend) {
             else => {},
@@ -2266,7 +2261,7 @@ pub const Discarding = struct {
         if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
-            if (n == 0) return error.EndOfStream;
+            if (n == 0) return 0;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2305,7 +2300,7 @@ pub fn consumeAll(w: *Writer) usize {
 
 /// For use when the `Writer` implementation can cannot offer a more efficient
 /// implementation than a basic read/write loop on the file.
-pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     _ = w;
     _ = file_reader;
     _ = limit;
@@ -2631,7 +2626,7 @@ pub const Allocating = struct {
         return list.items.len - start_len;
     }
 
-    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
@@ -2640,10 +2635,13 @@ pub const Allocating = struct {
         defer setArrayList(a, list);
         const pos = file_reader.logicalPos();
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
-        if (additional == 0) return error.EndOfStream;
+        if (additional == 0) return 0;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = try file_reader.read(dest);
+        const n = file_reader.read(dest) catch |err| switch (err) {
+            error.EndOfStream => return 0,
+            else => |e| return e,
+        };
         list.items.len += n;
         return n;
     }
