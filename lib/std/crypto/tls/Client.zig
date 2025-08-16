@@ -183,7 +183,6 @@ const InitError = error{
 /// `input` is asserted to have buffer capacity at least `min_buffer_len`.
 pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
-    assert(output.buffer.len >= min_buffer_len);
     const host = switch (options.host) {
         .no_verification => "",
         .explicit => |host| host,
@@ -1124,12 +1123,6 @@ fn readIndirect(c: *Client) Reader.Error!usize {
         if (record_end > input.buffered().len) return 0;
     }
 
-    if (r.seek == r.end) {
-        r.seek = 0;
-        r.end = 0;
-    }
-    const cleartext_buffer = r.buffer[r.end..];
-
     const cleartext_len, const inner_ct: tls.ContentType = cleartext: switch (c.application_cipher) {
         inline else => |*p| switch (c.tls_version) {
             .tls_1_3 => {
@@ -1145,7 +1138,8 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                     const operand: V = pad ++ mem.toBytes(big(c.read_seq));
                     break :nonce @as(V, pv.server_iv) ^ operand;
                 };
-                const cleartext = cleartext_buffer[0..ciphertext.len];
+                rebase(r, ciphertext.len);
+                const cleartext = r.buffer[r.end..][0..ciphertext.len];
                 P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_key) catch
                     return failRead(c, error.TlsBadRecordMac);
                 // TODO use scalar, non-slice version
@@ -1171,7 +1165,8 @@ fn readIndirect(c: *Client) Reader.Error!usize {
                 };
                 const ciphertext = input.take(message_len) catch unreachable; // already peeked
                 const auth_tag = (input.takeArray(P.mac_length) catch unreachable).*; // already peeked
-                const cleartext = cleartext_buffer[0..ciphertext.len];
+                rebase(r, ciphertext.len);
+                const cleartext = r.buffer[r.end..][0..ciphertext.len];
                 P.AEAD.decrypt(cleartext, ciphertext, auth_tag, ad, nonce, pv.server_write_key) catch
                     return failRead(c, error.TlsBadRecordMac);
                 break :cleartext .{ cleartext.len, ct };
@@ -1179,7 +1174,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
             else => unreachable,
         },
     };
-    const cleartext = cleartext_buffer[0..cleartext_len];
+    const cleartext = r.buffer[r.end..][0..cleartext_len];
     c.read_seq = std.math.add(u64, c.read_seq, 1) catch return failRead(c, error.TlsSequenceOverflow);
     switch (inner_ct) {
         .alert => {
@@ -1273,6 +1268,15 @@ fn readIndirect(c: *Client) Reader.Error!usize {
         },
         else => return failRead(c, error.TlsUnexpectedMessage),
     }
+}
+
+fn rebase(r: *Reader, capacity: usize) void {
+    if (r.buffer.len - r.end >= capacity) return;
+    const data = r.buffer[r.seek..r.end];
+    @memmove(r.buffer[0..data.len], data);
+    r.seek = 0;
+    r.end = data.len;
+    assert(r.buffer.len - r.end >= capacity);
 }
 
 fn failRead(c: *Client, err: ReadError) error{ReadFailed} {

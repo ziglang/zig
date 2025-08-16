@@ -329,6 +329,7 @@ pub const Reader = struct {
     /// read from `in`.
     trailers: []const u8 = &.{},
     body_err: ?BodyError = null,
+    max_head_len: usize,
 
     pub const RemainingChunkLen = enum(u64) {
         head = 0,
@@ -387,10 +388,11 @@ pub const Reader = struct {
     pub fn receiveHead(reader: *Reader) HeadError![]const u8 {
         reader.trailers = &.{};
         const in = reader.in;
+        const max_head_len = reader.max_head_len;
         var hp: HeadParser = .{};
         var head_len: usize = 0;
         while (true) {
-            if (in.buffer.len - head_len == 0) return error.HttpHeadersOversize;
+            if (head_len >= max_head_len) return error.HttpHeadersOversize;
             const remaining = in.buffered()[head_len..];
             if (remaining.len == 0) {
                 in.fillMore() catch |err| switch (err) {
