@@ -2301,7 +2301,7 @@ pub const Stream = struct {
                 });
             }
 
-            fn sendFile(io_w: *Io.Writer, file_reader: *File.Reader, limit: Io.Limit) Io.Writer.FileError!usize {
+            fn sendFile(io_w: *Io.Writer, file_reader: *File.Reader, limit: Io.Limit) Io.Writer.SendFileError!usize {
                 const w: *Writer = @alignCast(@fieldParentPtr("interface", io_w));
                 const n = try w.file_writer.interface.sendFileHeader(io_w.buffered(), file_reader, limit);
                 return io_w.consume(n);

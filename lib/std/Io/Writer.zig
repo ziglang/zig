@@ -65,7 +65,7 @@ pub const VTable = struct {
         /// assume that the file size does not exceed this amount. Data from
         /// `buffer` does not count towards this limit.
         limit: Limit,
-    ) FileError!usize = unimplementedSendFile,
+    ) SendFileError!usize = unimplementedSendFile,
 
     /// Consumes all remaining buffer.
     ///
@@ -107,7 +107,7 @@ pub const FileReadingError = error{
     EndOfStream,
 };
 
-pub const FileError = error{
+pub const SendFileError = error{
     /// Detailed diagnostics are found on the `File.Reader` struct.
     ReadFailed,
     /// See the `Writer` implementation for detailed diagnostics.
@@ -889,7 +889,7 @@ pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
 ///
 /// See `sendFileReading` for an alternative that does not have
 /// `error.Unimplemented` in the error set.
-pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     return w.vtable.sendFile(w, file_reader, limit);
 }
 
@@ -901,7 +901,7 @@ pub fn sendFileHeader(
     header: []const u8,
     file_reader: *File.Reader,
     limit: Limit,
-) FileError!usize {
+) SendFileError!usize {
     const new_end = w.end + header.len;
     if (new_end <= w.buffer.len) {
         @memcpy(w.buffer[w.end..][0..header.len], header);
@@ -2207,7 +2207,7 @@ pub fn failingDrain(w: *Writer, data: []const []const u8, splat: usize) Error!us
     return error.WriteFailed;
 }
 
-pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     _ = w;
     _ = file_reader;
     _ = limit;
@@ -2254,7 +2254,7 @@ pub const Discarding = struct {
         return written;
     }
 
-    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         switch (builtin.zig_backend) {
             else => {},
@@ -2305,7 +2305,7 @@ pub fn consumeAll(w: *Writer) usize {
 
 /// For use when the `Writer` implementation can cannot offer a more efficient
 /// implementation than a basic read/write loop on the file.
-pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+pub fn unimplementedSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
     _ = w;
     _ = file_reader;
     _ = limit;
@@ -2631,7 +2631,7 @@ pub const Allocating = struct {
         return list.items.len - start_len;
     }
 
-    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
+    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) SendFileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);

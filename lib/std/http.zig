@@ -938,7 +938,7 @@ pub const BodyWriter = struct {
         return written;
     }
 
-    pub fn elidingSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
+    pub fn elidingSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.SendFileError!usize {
         const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         if (File.Handle == void) return error.Unimplemented;
         if (builtin.zig_backend == .stage2_aarch64) return error.Unimplemented;
@@ -965,7 +965,7 @@ pub const BodyWriter = struct {
     }
 
     /// Returns `null` if size cannot be computed without making any syscalls.
-    pub fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
+    pub fn noneSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.SendFileError!usize {
         const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
@@ -973,7 +973,7 @@ pub const BodyWriter = struct {
         return w.consume(n);
     }
 
-    pub fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
+    pub fn contentLengthSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.SendFileError!usize {
         const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const out = bw.http_protocol_output;
@@ -982,7 +982,7 @@ pub const BodyWriter = struct {
         return w.consume(n);
     }
 
-    pub fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.FileError!usize {
+    pub fn chunkedSendFile(w: *Writer, file_reader: *File.Reader, limit: std.Io.Limit) Writer.SendFileError!usize {
         const bw: *BodyWriter = @alignCast(@fieldParentPtr("writer", w));
         assert(!bw.isEliding());
         const data_len = Writer.countSendFileLowerBound(w.end, file_reader, limit) orelse {
