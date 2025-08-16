@@ -422,6 +422,10 @@ fn addEntryPoint(fuzz: *Fuzz, coverage_id: u64, addr: u64) error{ AlreadyReporte
     const coverage_map = fuzz.coverage_files.getPtr(coverage_id).?;
     const header: *const abi.SeenPcsHeader = @ptrCast(coverage_map.mapped_memory[0..@sizeOf(abi.SeenPcsHeader)]);
     const pcs = header.pcAddrs();
+    if (pcs.len == 0) {
+        log.err("no program counters recorded for unit test (coverage_id=0x{x}); addr=0x{x}", .{ coverage_id, addr });
+        return error.AlreadyReported;
+    }
 
     // Since this pcs list is unsorted, we must linear scan for the best index.
     const index = i: {
