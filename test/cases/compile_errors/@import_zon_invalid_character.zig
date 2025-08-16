@@ -6,4 +6,4 @@ export fn entry() void {
 // error
 // imports=zon/invalid_character.zon
 //
-// invalid_character.zon:1:3: error: invalid escape character: 'a'
+// invalid_character.zon:1:3: error: invalid escape character: 'e'
