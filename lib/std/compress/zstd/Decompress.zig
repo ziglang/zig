@@ -765,6 +765,9 @@ pub const Frame = struct {
                 const match_length: usize = sequence.match_length;
                 const sequence_length = literal_length + match_length;
 
+                if (sequence_length > dest[write_pos..].len)
+                    return error.MalformedSequence;
+
                 const copy_start = std.math.sub(usize, write_pos + sequence.literal_length, sequence.offset) catch
                     return error.MalformedSequence;
 
