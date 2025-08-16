@@ -1212,10 +1212,11 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
-            const window_size = std.compress.zstd.default_window_len;
-            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const window_len = std.compress.zstd.default_window_len;
+            const window_buffer = try f.arena.allocator().alloc(u8, window_len + std.compress.zstd.block_size_max);
             var decompress: std.compress.zstd.Decompress = .init(resource.reader(), window_buffer, .{
                 .verify_checksum = false,
+                .window_len = window_len,
             });
             return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
