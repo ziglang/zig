@@ -1632,7 +1632,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer: fs.File.Writer = .initMode(.stdout(), &stdout_buffer, .streaming);
+    var stdout_writer: fs.File.Writer = .initStreaming(.stdout(), &stdout_buffer);
     const w = &stdout_writer.interface;
     for (all_files) |hashed_file| {
         try w.print("{t}: {x}: {s}\n", .{ hashed_file.kind, &hashed_file.hash, hashed_file.normalized_path });

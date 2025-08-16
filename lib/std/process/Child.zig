@@ -1003,14 +1003,14 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     var buffer: [8]u8 = undefined;
-    var fw: std.fs.File.Writer = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fw: std.fs.File.Writer = .initStreaming(.{ .handle = fd }, &buffer);
     fw.interface.writeInt(u64, value, .little) catch unreachable;
     fw.interface.flush() catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     var buffer: [8]u8 = undefined;
-    var fr: std.fs.File.Reader = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
     return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
 }
 
