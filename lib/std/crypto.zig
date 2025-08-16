@@ -197,6 +197,16 @@ pub const stream = struct {
         pub const Salsa20 = @import("crypto/salsa20.zig").Salsa20;
         pub const XSalsa20 = @import("crypto/salsa20.zig").XSalsa20;
     };
+
+    pub const aegis = struct {
+        const variants = @import("crypto/aegis.zig");
+        pub const Aegis128X4 = variants.Aegis128X4;
+        pub const Aegis128X2 = variants.Aegis128X2;
+        pub const Aegis128L = variants.Aegis128L;
+        pub const Aegis256X4 = variants.Aegis256X4;
+        pub const Aegis256X2 = variants.Aegis256X2;
+        pub const Aegis256 = variants.Aegis256;
+    };
 };
 
 pub const nacl = struct {

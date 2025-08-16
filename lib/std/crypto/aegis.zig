@@ -116,6 +116,23 @@ fn State128X(comptime degree: u7) type {
             blocks[4] = blocks[4].xorBlocks(d2);
         }
 
+        fn stream(state: *State, dst: *[rate]u8) void {
+            const blocks = &state.blocks;
+            var tmp0 = blocks[6].xorBlocks(blocks[1]);
+            var tmp1 = blocks[2].xorBlocks(blocks[5]);
+            tmp0 = tmp0.xorBlocks(blocks[2].andBlocks(blocks[3]));
+            tmp1 = tmp1.xorBlocks(blocks[6].andBlocks(blocks[7]));
+            dst[0..aes_block_length].* = tmp0.toBytes();
+            dst[aes_block_length..rate].* = tmp1.toBytes();
+
+            const tmp = blocks[7];
+            comptime var i: usize = 7;
+            inline while (i > 0) : (i -= 1) {
+                blocks[i] = blocks[i - 1].encrypt(blocks[i]);
+            }
+            blocks[0] = tmp.encrypt(blocks[0]);
+        }
+
         fn absorb(state: *State, src: *const [rate]u8) void {
             const msg0 = AesBlockVec.fromBytes(src[0..aes_block_length]);
             const msg1 = AesBlockVec.fromBytes(src[aes_block_length..rate]);
@@ -268,6 +285,7 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
     comptime assert(tag_bits == 128 or tag_bits == 256); // tag must be 128 or 256 bits
 
     return struct {
+        const Stream = @This();
         const State = State128X(degree);
 
         pub const tag_length = tag_bits / 8;
@@ -276,6 +294,21 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
         pub const block_length = State.rate;
 
         const alignment = State.alignment;
+
+        state: State = undefined,
+
+        /// Initialize AEGIS as a stream cipher with the given key and nonce, which means it holds
+        /// the state and can continuously produce blocks of the keystream using `next()`.
+        pub fn init(key: [key_length]u8, nonce: [nonce_length]u8) Stream {
+            return .{
+                .state = State.init(key, nonce),
+            };
+        }
+
+        /// Write the next block of the AEGIS key stream into out.
+        pub fn next(self: *Stream, out: *[block_length]u8) void {
+            self.state.stream(out);
+        }
 
         /// c: ciphertext: output buffer should be of size m.len
         /// tag: authentication tag: output MAC
@@ -345,6 +378,44 @@ fn Aegis128XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
                 crypto.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
+            }
+        }
+
+        /// Add the output of the AEGIS stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption. Use `encrypt`/'decrypt`
+        /// for proper AEAD.
+        pub fn xor(out: []u8, in: []const u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var tmp: [block_length]u8 = undefined;
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(tmp[0..]);
+                for (0..block_length) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                self.next(&tmp);
+                for (0..trailing) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+        }
+
+        /// Utilizes AEGIS as a stream cipher and generates a key stream.
+        /// `out`: the key stream
+        /// `key`: Private key
+        /// `npub`: Public nonce
+        pub fn stream(out: []u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(out[i..][0..block_length]);
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                var tmp: [block_length]u8 = undefined;
+                self.next(&tmp);
+                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
             }
         }
     };
@@ -421,6 +492,20 @@ fn State256X(comptime degree: u7) type {
                 blocks[i] = blocks[i - 1].encrypt(blocks[i]);
             }
             blocks[0] = tmp.xorBlocks(d);
+        }
+
+        fn stream(state: *State, dst: *[rate]u8) void {
+            const blocks = &state.blocks;
+            var tmp = blocks[5].xorBlocks(blocks[4]).xorBlocks(blocks[1]);
+            tmp = tmp.xorBlocks(blocks[2].andBlocks(blocks[3]));
+            dst.* = tmp.toBytes();
+
+            tmp = blocks[5].encrypt(blocks[0]);
+            comptime var i: usize = 5;
+            inline while (i > 0) : (i -= 1) {
+                blocks[i] = blocks[i - 1].encrypt(blocks[i]);
+            }
+            blocks[0] = tmp;
         }
 
         fn absorb(state: *State, src: *const [rate]u8) void {
@@ -563,6 +648,7 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
     comptime assert(tag_bits == 128 or tag_bits == 256); // tag must be 128 or 256 bits
 
     return struct {
+        const Stream = @This();
         const State = State256X(degree);
 
         pub const tag_length = tag_bits / 8;
@@ -571,6 +657,21 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
         pub const block_length = State.rate;
 
         const alignment = State.alignment;
+
+        state: State = undefined,
+
+        /// Initialize AEGIS as a stream cipher with the given key and nonce, which means it holds
+        /// the state and can continuously produce blocks of the keystream using `next()`.
+        pub fn init(key: [key_length]u8, nonce: [nonce_length]u8) Stream {
+            return .{
+                .state = State.init(key, nonce),
+            };
+        }
+
+        /// Write the next block of the AEGIS key stream into out.
+        pub fn next(self: *Stream, out: *[block_length]u8) void {
+            self.state.stream(out);
+        }
 
         /// c: ciphertext: output buffer should be of size m.len
         /// tag: authentication tag: output MAC
@@ -640,6 +741,44 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
                 crypto.secureZero(u8, &computed_tag);
                 @memset(m, undefined);
                 return error.AuthenticationFailed;
+            }
+        }
+
+        /// Add the output of the AEGIS stream cipher to `in` and stores the result into `out`.
+        /// WARNING: This function doesn't provide authenticated encryption. Use `encrypt`/'decrypt`
+        /// for proper AEAD.
+        pub fn xor(out: []u8, in: []const u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var tmp: [block_length]u8 = undefined;
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(tmp[0..]);
+                for (0..block_length) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                self.next(&tmp);
+                for (0..trailing) |j| out[i + j] = in[i + j] ^ tmp[j];
+            }
+        }
+
+        /// Utilizes AEGIS as a stream cipher and generates a key stream.
+        /// `out`: the key stream
+        /// `key`: Private key
+        /// `npub`: Public nonce
+        pub fn stream(out: []u8, key: [key_length]u8, npub: [nonce_length]u8) void {
+            var self = Stream.init(key, npub);
+
+            var i: usize = 0;
+            while (i + block_length <= out.len) : (i += block_length) {
+                self.next(out[i..][0..block_length]);
+            }
+            const trailing = out.len % block_length;
+            if (trailing != 0) {
+                var tmp: [block_length]u8 = undefined;
+                self.next(&tmp);
+                @memcpy(out[i..][0..trailing], tmp[0..trailing]);
             }
         }
     };
@@ -963,6 +1102,28 @@ test "Aegis256X4 test vector 1" {
     try testing.expectError(error.AuthenticationFailed, Aegis256X4.decrypt(&empty, &empty, tag, &empty, nonce, key));
     tag256[0] +%= 1;
     try testing.expectError(error.AuthenticationFailed, Aegis256X4_256.decrypt(&empty, &empty, tag256, &empty, nonce, key));
+}
+test "Aegis stream cipher" {
+    const Ciphers = [_]type{ Aegis128L, Aegis128X2, Aegis128X4, Aegis256, Aegis256X2, Aegis256X4 };
+
+    inline for (Ciphers) |cipher| {
+        var c: [1337]u8 = undefined;
+        var tag: [16]u8 = undefined;
+        const zeros: [c.len]u8 = @splat(0);
+
+        const key = [_]u8{ 0x10, 0x01 } ++ [_]u8{0x00} ** (cipher.key_length - 2);
+        const nonce = [_]u8{ 0x10, 0x00, 0x02 } ++ [_]u8{0x00} ** (cipher.nonce_length - 3);
+
+        // Key stream should equal encryption of zeros
+        var stream: [c.len]u8 = undefined;
+        cipher.encrypt(&c, &tag, &zeros, &[_]u8{}, nonce, key);
+        cipher.stream(&stream, key, nonce);
+        try testing.expectEqualStrings(&c, &stream);
+
+        // xor between key stream and cipher should equal zero
+        cipher.xor(&stream, &c, key, nonce);
+        try testing.expectEqualStrings(&zeros, &stream);
+    }
 }
 
 test "Aegis MAC" {
