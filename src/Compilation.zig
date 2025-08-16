@@ -4254,14 +4254,10 @@ fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, loggi
     }
 }
 
-fn anyErrors(comp: *Compilation) bool {
-    return (totalErrorCount(comp) catch return true) != 0;
-}
-
-fn totalErrorCount(comp: *Compilation) !u32 {
-    var errors = try comp.getAllErrorsAlloc();
+pub fn anyErrors(comp: *Compilation) bool {
+    var errors = comp.getAllErrorsAlloc() catch return true;
     defer errors.deinit(comp.gpa);
-    return errors.errorMessageCount();
+    return errors.errorMessageCount() > 0;
 }
 
 pub const ErrorNoteHashContext = struct {
@@ -6921,7 +6917,7 @@ pub fn addCCArgs(
                         // We don't currently respect the minor and patch components. This wouldn't be particularly
                         // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
                         // symbols would be inconsistent with header declarations.
-                        min_ver.major * 100_000,
+                        min_ver.major * 100_000 + 500,
                     }));
                 } else if (target.isNetBSDLibC()) {
                     const min_ver = target.os.version_range.semver.min;

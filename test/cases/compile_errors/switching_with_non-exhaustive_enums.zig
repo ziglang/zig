@@ -37,7 +37,7 @@ pub export fn entry3() void {
 // :12:5: error: switch must handle all possibilities
 // :3:5: note: unhandled enumeration value: 'b'
 // :1:11: note: enum 'tmp.E' declared here
-// :19:5: error: switch on non-exhaustive enum must include 'else' or '_' prong
+// :19:5: error: switch on non-exhaustive enum must include 'else' or '_' prong or both
 // :26:5: error: '_' prong only allowed when switching on non-exhaustive enums
-// :29:11: note: '_' prong here
+// :29:9: note: '_' prong here
 // :26:5: note: consider using 'else'

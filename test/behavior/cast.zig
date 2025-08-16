@@ -2722,3 +2722,18 @@ test "@intFromFloat vector boundary cases" {
     try S.doTheTest();
     try comptime S.doTheTest();
 }
+
+test "coerce enum to union with zero-bit fields through local variables" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const E = enum(u1) { foo, bar };
+    const U = union(E) { foo, bar };
+
+    var runtime: E = undefined;
+    runtime = .foo;
+
+    var result: U = undefined;
+    result = runtime;
+
+    try expect(result == .foo);
+}

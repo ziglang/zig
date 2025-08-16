@@ -1214,6 +1214,10 @@ pub const Reader = struct {
                     return err;
                 }
             }
+            if (posix.Stat == void) {
+                r.size_err = error.Streaming;
+                return error.Streaming;
+            }
             if (stat(r.file)) |st| {
                 if (st.kind == .file) {
                     r.size = st.size;
@@ -1236,6 +1240,10 @@ pub const Reader = struct {
                 setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
             },
             .streaming, .streaming_reading => {
+                if (posix.SEEK == void) {
+                    r.seek_err = error.Unseekable;
+                    return error.Unseekable;
+                }
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
                         setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
@@ -1247,12 +1255,10 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
+                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
-                    r.pos += n;
-                    remaining -= n;
                 }
                 r.interface.seek = 0;
                 r.interface.end = 0;
@@ -1436,9 +1442,8 @@ pub const Reader = struct {
                 fallback: {
                     if (r.size_err == null and r.seek_err == null) break :fallback;
                     var trash_buffer: [128]u8 = undefined;
-                    const trash = &trash_buffer;
                     if (is_windows) {
-                        const n = windows.ReadFile(file.handle, trash, null) catch |err| {
+                        const n = windows.ReadFile(file.handle, limit.slice(&trash_buffer), null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
@@ -1453,7 +1458,7 @@ pub const Reader = struct {
                     var iovecs_i: usize = 0;
                     var remaining = @intFromEnum(limit);
                     while (remaining > 0 and iovecs_i < iovecs.len) {
-                        iovecs[iovecs_i] = .{ .base = trash, .len = @min(trash.len, remaining) };
+                        iovecs[iovecs_i] = .{ .base = &trash_buffer, .len = @min(trash_buffer.len, remaining) };
                         remaining -= iovecs[iovecs_i].len;
                         iovecs_i += 1;
                     }
@@ -1826,6 +1831,11 @@ pub const Writer = struct {
                 .NOBUFS => w.sendfile_err = error.SystemResources,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
@@ -1881,6 +1891,11 @@ pub const Writer = struct {
                 .IO => w.sendfile_err = error.InputOutput,
                 .PIPE => w.sendfile_err = error.BrokenPipe,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
+            }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
             }
             if (len == 0) {
                 file_reader.size = file_reader.pos;

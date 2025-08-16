@@ -154,12 +154,6 @@ test "Saturating Shift Left where lhs is of a computed type" {
     try expect(value.exponent == 0);
 }
 
-comptime {
-    var image: [1]u8 = undefined;
-    _ = &image;
-    _ = @shlExact(@as(u16, image[0]), 8);
-}
-
 test "Saturating Shift Left" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;

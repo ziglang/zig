@@ -2563,6 +2563,10 @@ pub const Instruction = packed union {
         /// PSTATE
         pub const Pstate = packed union {
             group: @This().Group,
+            msr: Msr,
+            cfinv: Cfinv,
+            xaflag: Xaflag,
+            axflag: Axflag,
 
             pub const Group = packed struct {
                 Rt: Register.Encoded,
@@ -2615,6 +2619,7 @@ pub const Instruction = packed union {
 
             pub const Decoded = union(enum) {
                 unallocated,
+                msr: Msr,
                 cfinv: Cfinv,
                 xaflag: Xaflag,
                 axflag: Axflag,
@@ -11414,7 +11419,10 @@ pub const Instruction = packed union {
         assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == switch (sf) {
+                    .word => .word,
+                    .doubleword => extended_register_explicit.option.sf(),
+                });
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .add = .{
                         .Rd = d.alias.encode(.{ .sp = true }),
@@ -11484,6 +11492,18 @@ pub const Instruction = packed union {
             } },
         }
     }
+    /// C7.2.6 ADDG
+    pub fn addg(d: Register, n: Register, uimm6: u10, uimm4: u4) Instruction {
+        assert(d.format.general == .doubleword and n.format.general == .doubleword);
+        return .{ .data_processing_immediate = .{ .add_subtract_immediate_with_tags = .{
+            .addg = .{
+                .Xd = d.alias.encode(.{ .sp = true }),
+                .Xn = n.alias.encode(.{ .sp = true }),
+                .uimm4 = uimm4,
+                .uimm6 = @intCast(@shrExact(uimm6, 4)),
+            },
+        } } };
+    }
     /// C7.2.4 ADDP (scalar)
     /// C7.2.5 ADDP (vector)
     pub fn addp(d: Register, n: Register, form: union(enum) {
@@ -11536,7 +11556,10 @@ pub const Instruction = packed union {
         assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == switch (sf) {
+                    .word => .word,
+                    .doubleword => extended_register_explicit.option.sf(),
+                });
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .adds = .{
                         .Rd = d.alias.encode(.{}),
@@ -11766,6 +11789,12 @@ pub const Instruction = packed union {
                 .Rm = m.alias.encode(.{}),
                 .sf = sf,
             },
+        } } };
+    }
+    /// C6.2.24 AXFLAG
+    pub fn axflag() Instruction {
+        return .{ .branch_exception_generating_system = .{ .pstate = .{
+            .axflag = .{},
         } } };
     }
     /// C6.2.25 B
@@ -12065,6 +12094,12 @@ pub const Instruction = packed union {
                 },
             } } },
         }
+    }
+    /// C6.2.52 CFINV
+    pub fn cfinv() Instruction {
+        return .{ .branch_exception_generating_system = .{ .pstate = .{
+            .cfinv = .{},
+        } } };
     }
     /// C6.2.56 CLREX
     pub fn clrex(imm: u4) Instruction {
@@ -16057,7 +16092,10 @@ pub const Instruction = packed union {
         assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == switch (sf) {
+                    .word => .word,
+                    .doubleword => extended_register_explicit.option.sf(),
+                });
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .sub = .{
                         .Rd = d.alias.encode(.{ .sp = true }),
@@ -16127,6 +16165,18 @@ pub const Instruction = packed union {
             } },
         }
     }
+    /// C7.2.359 SUBG
+    pub fn subg(d: Register, n: Register, uimm6: u10, uimm4: u4) Instruction {
+        assert(d.format.general == .doubleword and n.format.general == .doubleword);
+        return .{ .data_processing_immediate = .{ .add_subtract_immediate_with_tags = .{
+            .subg = .{
+                .Xd = d.alias.encode(.{ .sp = true }),
+                .Xn = n.alias.encode(.{ .sp = true }),
+                .uimm4 = uimm4,
+                .uimm6 = @intCast(@shrExact(uimm6, 4)),
+            },
+        } } };
+    }
     /// C6.2.362 SUBS (extended register)
     /// C6.2.363 SUBS (immediate)
     /// C6.2.364 SUBS (shifted register)
@@ -16147,7 +16197,10 @@ pub const Instruction = packed union {
         assert(n.format.general == sf);
         form: switch (form) {
             .extended_register_explicit => |extended_register_explicit| {
-                assert(extended_register_explicit.register.format.general == extended_register_explicit.option.sf());
+                assert(extended_register_explicit.register.format.general == switch (sf) {
+                    .word => .word,
+                    .doubleword => extended_register_explicit.option.sf(),
+                });
                 return .{ .data_processing_register = .{ .add_subtract_extended_register = .{
                     .subs = .{
                         .Rd = d.alias.encode(.{}),
@@ -16469,6 +16522,12 @@ pub const Instruction = packed union {
     pub fn wfi() Instruction {
         return .{ .branch_exception_generating_system = .{ .hints = .{
             .wfi = .{},
+        } } };
+    }
+    /// C6.2.400 XAFLAG
+    pub fn xaflag() Instruction {
+        return .{ .branch_exception_generating_system = .{ .pstate = .{
+            .xaflag = .{},
         } } };
     }
     /// C6.2.402 YIELD

@@ -70,14 +70,8 @@
 #include <semaphore.h>
 #include <signal.h>
 #include <stddef.h>
-#include <md5.h>
-#include <sha224.h>
-#include <sha256.h>
-#include <sha384.h>
-#include <sha512.h>
 #include <stdio.h>
 #include <stringlist.h>
-#include <term.h>
 #include <termios.h>
 #include <time.h>
 #include <ttyent.h>
@@ -378,22 +372,6 @@ const int si_SEGV_MAPERR = SEGV_MAPERR;
 const int si_SEGV_ACCERR = SEGV_ACCERR;
 const int unvis_valid = UNVIS_VALID;
 const int unvis_validpush = UNVIS_VALIDPUSH;
-
-const unsigned MD5_CTX_sz = sizeof(MD5_CTX);
-const unsigned MD5_return_length = MD5_DIGEST_STRING_LENGTH;
-
-#define SHA2_CONST(LEN)                                                      \
-  const unsigned SHA##LEN##_CTX_sz = sizeof(SHA##LEN##_CTX);                 \
-  const unsigned SHA##LEN##_return_length = SHA##LEN##_DIGEST_STRING_LENGTH; \
-  const unsigned SHA##LEN##_block_length = SHA##LEN##_BLOCK_LENGTH;          \
-  const unsigned SHA##LEN##_digest_length = SHA##LEN##_DIGEST_LENGTH
-
-SHA2_CONST(224);
-SHA2_CONST(256);
-SHA2_CONST(384);
-SHA2_CONST(512);
-
-#undef SHA2_CONST
 }  // namespace __sanitizer
 
 using namespace __sanitizer;

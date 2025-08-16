@@ -2247,7 +2247,7 @@ pub const ElfModule = struct {
                 var decompress: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
                 var decompressed_section: ArrayList(u8) = .empty;
                 defer decompressed_section.deinit(gpa);
-                decompress.reader.appendRemainingUnlimited(gpa, null, &decompressed_section, std.compress.flate.history_len) catch {
+                decompress.reader.appendRemainingUnlimited(gpa, &decompressed_section) catch {
                     invalidDebugInfoDetected();
                     continue;
                 };

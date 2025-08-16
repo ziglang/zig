@@ -9,13 +9,12 @@ pub fn build(b: *std.Build) !void {
     for ([_]struct { std.Target.Os.Tag, []const std.Target.Cpu.Arch }{
         // .s390x and mips64(el) fail to build
         .{ .linux, &.{ .aarch64, .aarch64_be, .loongarch64, .powerpc64, .powerpc64le, .riscv64, .x86_64 } },
-        .{ .macos, &.{ .x86_64, .aarch64 } },
+        .{ .macos, &.{ .aarch64, .x86_64 } },
 
-        // Missing system headers
-        // https://github.com/ziglang/zig/issues/24736
+        // https://github.com/ziglang/zig/issues/24841
         // .{ .freebsd, &.{ .aarch64, .powerpc64, .powerpc64le, .riscv64, .x86_64 } },
-        // https://github.com/ziglang/zig/issues/24737
-        // .{ .netbsd, &.{ .aarch64, .aarch64_be, .x86_64 } },
+
+        .{ .netbsd, &.{.x86_64} },
 
         // TSan doesn't have full support for windows yet.
         // .{ .windows, &.{ .aarch64, .x86_64 } },

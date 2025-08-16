@@ -1,11 +1,11 @@
-/* $NetBSD: byte_swap.h,v 1.5 2020/04/04 21:13:20 christos Exp $ */
+/*	$NetBSD: byte_swap.h,v 1.16 2017/01/17 11:08:50 rin Exp $	*/
 
 /*-
- * Copyright (c) 2014 The NetBSD Foundation, Inc.
+ * Copyright (c) 1997, 1999, 2002 The NetBSD Foundation, Inc.
  * All rights reserved.
  *
  * This code is derived from software contributed to The NetBSD Foundation
- * by Matt Thomas of 3am Software Foundry.
+ * by Charles M. Hannum, Neil A. Carson, and Jason R. Thorpe.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,57 +29,57 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef _RISCV_BYTE_SWAP_H_
-#define	_RISCV_BYTE_SWAP_H_
+#ifndef _ARM_BYTE_SWAP_H_
+#define	_ARM_BYTE_SWAP_H_
 
 #ifdef _LOCORE
 
-#define	BSWAP16(_src, _dst, _tmp)	\
-	andi	_dst, _src, 0xff	;\
-	slli	_dst, _dst, 8		;\
-	srli	_tmp, _src, 8		;\
-	and	_tmp, _tmp, 0xff	;\
-	ori	_dst, _dst, _tmp
+#if defined(_ARM_ARCH_6) || defined(_ARM_ARCH_7)
 
-#define BSWAP32(_src, _dst, _tmp)	\
-	li	v1, 0xff00		;\
-	slli	_dst, _src, 24		;\
-	srli	_tmp, _src, 24		;\
-	ori	_dst, _dst, _tmp	;\
-	and	_tmp, _src, v1		;\
-	slli	_tmp, _src, 8		;\
-	ori	_dst, _dst, _tmp	;\
-	srli	_tmp, _src, 8		;\
-	and	_tmp, _tmp, v1		;\
-	ori	_dst, _dst, _tmp
+#define	BSWAP16(_src, _dst, _tmp)		\
+	rev16	_dst, _src
+#define	BSWAP32(_src, _dst, _tmp)		\
+	rev	_dst, _src
 
 #else
 
+#define	BSWAP16(_src, _dst, _tmp)		\
+	mov	_tmp, _src, ror #8		;\
+	orr	_tmp, _tmp, _tmp, lsr #16	;\
+	bic	_dst, _tmp, _tmp, lsl #16
+
+#define	BSWAP32(_src, _dst, _tmp)		\
+	eor	_tmp, _src, _src, ror #16	;\
+	bic	_tmp, _tmp, #0x00FF0000		;\
+	mov	_dst, _src, ror #8		;\
+	eor	_dst, _dst, _tmp, lsr #8
+
+#endif
+
+
+#else
+
+#ifdef __GNUC__
 #include <sys/types.h>
 __BEGIN_DECLS
-
-#define	__BYTE_SWAP_U64_VARIABLE __byte_swap_u64_variable
-static __inline uint64_t
-__byte_swap_u64_variable(uint64_t v)
-{
-	const uint64_t m1 = 0x0000ffff0000ffffull;
-	const uint64_t m0 = 0x00ff00ff00ff00ffull;
-
-	v = (v >> 32) | (v << 32);
-	v = ((v >> 16) & m1) | ((v & m1) << 16);
-	v = ((v >> 8) & m0) | ((v & m0) << 8);
-
-	return v;
-}
 
 #define	__BYTE_SWAP_U32_VARIABLE __byte_swap_u32_variable
 static __inline uint32_t
 __byte_swap_u32_variable(uint32_t v)
 {
-	const uint32_t m = 0xff00ff;
+	uint32_t t1;
 
-	v = (v >> 16) | (v << 16);
-	v = ((v >> 8) & m) | ((v & m) << 8);
+#ifdef _ARM_ARCH_6
+	if (!__builtin_constant_p(v)) {
+		__asm("rev\t%0, %1" : "=r" (v) : "0" (v));
+		return v;
+	}
+#endif
+
+	t1 = v ^ ((v << 16) | (v >> 16));
+	t1 &= 0xff00ffffU;
+	v = (v >> 8) | (v << 24);
+	v ^= (t1 >> 8);
 
 	return v;
 }
@@ -88,12 +88,34 @@ __byte_swap_u32_variable(uint32_t v)
 static __inline uint16_t
 __byte_swap_u16_variable(uint16_t v)
 {
-	/*LINTED*/
-	return (uint16_t)((v >> 8) | (v << 8));
+
+#ifdef _ARM_ARCH_6
+	if (!__builtin_constant_p(v)) {
+		uint32_t v32 = v;
+		__asm("rev16\t%0, %1" : "=r" (v32) : "0" (v32));
+		return (uint16_t)v32;
+	}
+#elif !defined(__thumb__) && 0	/* gcc produces decent code for this */
+	if (!__builtin_constant_p(v)) {
+		uint32_t v0 = v;
+		__asm volatile(
+			"mov	%0, %1, ror #8\n"
+			"orr	%0, %0, %0, lsr #16\n"
+			"bic	%0, %0, %0, lsl #16"
+		: "=&r" (v0)
+		: "0" (v0));
+		return (uint16_t)v0;
+	}
+#endif
+	v &= 0xffff;
+	v = (uint16_t)((v >> 8) | (v << 8));
+
+	return v;
 }
 
 __END_DECLS
+#endif
 
 #endif	/* _LOCORE */
 
-#endif /* _RISCV_BYTE_SWAP_H_ */
+#endif /* _ARM_BYTE_SWAP_H_ */

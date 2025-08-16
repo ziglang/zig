@@ -3575,7 +3575,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) return o.builder.undefConst(llvm_int_ty);
+        if (val.isUndef(zcu)) return o.builder.undefConst(llvm_int_ty);
 
         const ty = Type.fromInterned(val_key.typeOf());
         switch (val_key) {
@@ -3666,7 +3666,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             return o.builder.undefConst(try o.lowerType(pt, Type.fromInterned(val_key.typeOf())));
         }
 
@@ -5574,7 +5574,7 @@ pub const FuncGen = struct {
             const ptr_ty = try pt.singleMutPtrType(ret_ty);
 
             const operand = try self.resolveInst(un_op);
-            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
             if (val_is_undef and safety) undef: {
                 const ptr_info = ptr_ty.ptrInfo(zcu);
                 const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
@@ -5629,7 +5629,7 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, pt, fn_info);
         const operand = try self.resolveInst(un_op);
-        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
 
         if (val_is_undef and safety) {
@@ -9680,7 +9680,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(zcu);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
         if (val_is_undef) {
             const owner_mod = self.ng.ownerModule();
 
@@ -10021,7 +10021,7 @@ pub const FuncGen = struct {
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
-            if (elem_val.isUndefDeep(zcu)) {
+            if (elem_val.isUndef(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
                 // 0xaa or actual undefined for the fill byte.
@@ -10475,11 +10475,14 @@ pub const FuncGen = struct {
         const slice_ty = self.typeOfIndex(inst);
         const slice_llvm_ty = try o.lowerType(pt, slice_ty);
 
+        // If operand is small (e.g. `u8`), then signedness becomes a problem -- GEP always treats the index as signed.
+        const extended_operand = try self.wip.conv(.unsigned, operand, try o.lowerType(pt, .usize), "");
+
         const error_name_table_ptr = try self.getErrorNameTable();
         const error_name_table =
             try self.wip.load(.normal, .ptr, error_name_table_ptr.toValue(&o.builder), .default, "");
         const error_name_ptr =
-            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{operand}, "");
+            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{extended_operand}, "");
         return self.wip.load(.normal, slice_llvm_ty, error_name_ptr, .default, "");
     }
 
@@ -12780,7 +12783,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => return false,
-            else => return ty.hasRuntimeBits(zcu),
+            else => return ty.hasRuntimeBits(zcu) and !ty.unionHasAllZeroBitFieldTypes(zcu),
         },
         .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);

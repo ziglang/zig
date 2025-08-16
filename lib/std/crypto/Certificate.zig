@@ -344,45 +344,73 @@ pub const Parsed = struct {
     // component or component fragment. E.g., *.a.com matches foo.a.com but
     // not bar.foo.a.com. f*.com matches foo.com but not bar.com.
     fn checkHostName(host_name: []const u8, dns_name: []const u8) bool {
+        // Empty strings should not match
+        if (host_name.len == 0 or dns_name.len == 0) return false;
+
+        // RFC 6125 Section 6.4.1: Exact match (case-insensitive)
         if (std.ascii.eqlIgnoreCase(dns_name, host_name)) {
             return true; // exact match
         }
 
-        var it_host = std.mem.splitScalar(u8, host_name, '.');
-        var it_dns = std.mem.splitScalar(u8, dns_name, '.');
+        // RFC 6125 Section 6.4.3: Wildcard certificates
+        // Wildcard must be leftmost label and in the form "*.rest.of.domain"
+        if (dns_name.len >= 3 and mem.startsWith(u8, dns_name, "*.")) {
+            const wildcard_suffix = dns_name[2..];
 
-        const len_match = while (true) {
-            const host = it_host.next();
-            const dns = it_dns.next();
+            // No additional wildcards allowed in the suffix
+            if (mem.indexOf(u8, wildcard_suffix, "*") != null) return false;
 
-            if (host == null or dns == null) {
-                break host == null and dns == null;
-            }
+            // Find the first dot in hostname to split first label from rest
+            const dot_pos = mem.indexOf(u8, host_name, ".") orelse return false;
 
-            // If not a wildcard and they dont
-            // match then there is no match.
-            if (mem.eql(u8, dns.?, "*") == false and std.ascii.eqlIgnoreCase(dns.?, host.?) == false) {
-                return false;
-            }
-        };
+            // Wildcard matches exactly one label, so compare the rest
+            const host_suffix = host_name[dot_pos + 1 ..];
 
-        // If the components are not the same
-        // length then there is no match.
-        return len_match;
+            // Match suffixes (case-insensitive per RFC 6125)
+            return std.ascii.eqlIgnoreCase(wildcard_suffix, host_suffix);
+        }
+
+        return false;
     }
 };
 
-test "Parsed.checkHostName" {
+test "Parsed.checkHostName RFC 6125 compliance" {
     const expectEqual = std.testing.expectEqual;
 
+    // Exact match tests
     try expectEqual(true, Parsed.checkHostName("ziglang.org", "ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("ziglang.org", "Ziglang.org")); // case insensitive
+    try expectEqual(true, Parsed.checkHostName("ZIGLANG.ORG", "ziglang.org")); // case insensitive
+
+    // Valid wildcard matches
     try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.ziglang.org"));
+    try expectEqual(true, Parsed.checkHostName("BAR.ziglang.org", "*.Ziglang.ORG")); // case insensitive
+
+    // RFC 6125: Wildcard matches exactly one label
     try expectEqual(false, Parsed.checkHostName("foo.bar.ziglang.org", "*.ziglang.org"));
+    try expectEqual(false, Parsed.checkHostName("ziglang.org", "*.ziglang.org")); // no empty match
+
+    // RFC 6125: No partial wildcards allowed
     try expectEqual(false, Parsed.checkHostName("ziglang.org", "zig*.org"));
-    try expectEqual(false, Parsed.checkHostName("lang.org", "zig*.org"));
-    // host name check should be case insensitive
-    try expectEqual(true, Parsed.checkHostName("ziglang.org", "Ziglang.org"));
-    try expectEqual(true, Parsed.checkHostName("bar.ziglang.org", "*.Ziglang.ORG"));
+    try expectEqual(false, Parsed.checkHostName("ziglang.org", "*lang.org"));
+    try expectEqual(false, Parsed.checkHostName("ziglang.org", "zi*ng.org"));
+
+    // RFC 6125: No multiple wildcards
+    try expectEqual(false, Parsed.checkHostName("foo.bar.org", "*.*.org"));
+
+    // RFC 6125: Wildcard must be in leftmost label
+    try expectEqual(false, Parsed.checkHostName("foo.bar.org", "foo.*.org"));
+
+    // Single label hostnames should not match wildcards
+    try expectEqual(false, Parsed.checkHostName("localhost", "*.local"));
+    try expectEqual(false, Parsed.checkHostName("localhost", "*.localhost"));
+
+    // Edge cases
+    try expectEqual(false, Parsed.checkHostName("", ""));
+    try expectEqual(false, Parsed.checkHostName("example.com", ""));
+    try expectEqual(false, Parsed.checkHostName("", "*.example.com"));
+    try expectEqual(false, Parsed.checkHostName("example.com", "*"));
+    try expectEqual(false, Parsed.checkHostName("example.com", "*."));
 }
 
 pub const ParseError = der.Element.ParseError || ParseVersionError || ParseTimeError || ParseEnumError || ParseBitStringError;

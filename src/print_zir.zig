@@ -192,7 +192,7 @@ const Writer = struct {
             .alloc_comptime_mut,
             .elem_type,
             .indexable_ptr_elem_type,
-            .vec_arr_elem_type,
+            .splat_op_result_ty,
             .indexable_ptr_len,
             .anyframe_type,
             .bit_not,
@@ -2087,15 +2087,10 @@ const Writer = struct {
 
         self.indent += 2;
 
-        else_prong: {
-            const special_prong = extra.data.bits.specialProng();
-            const prong_name = switch (special_prong) {
-                .@"else" => "else",
-                .under => "_",
-                else => break :else_prong,
-            };
+        const special_prongs = extra.data.bits.special_prongs;
 
-            const info = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(self.code.extra[extra_index]));
+        if (special_prongs.hasElse()) {
+            const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(self.code.extra[extra_index]);
             const capture_text = switch (info.capture) {
                 .none => "",
                 .by_val => "by_val ",
@@ -2108,7 +2103,63 @@ const Writer = struct {
 
             try stream.writeAll(",\n");
             try stream.splatByteAll(' ', self.indent);
-            try stream.print("{s}{s}{s} => ", .{ capture_text, inline_text, prong_name });
+            try stream.print("{s}{s}else => ", .{ capture_text, inline_text });
+            try self.writeBracedBody(stream, body);
+        }
+
+        if (special_prongs.hasUnder()) {
+            var single_item_ref: Zir.Inst.Ref = .none;
+            var items_len: u32 = 0;
+            var ranges_len: u32 = 0;
+            if (special_prongs.hasOneAdditionalItem()) {
+                single_item_ref = @enumFromInt(self.code.extra[extra_index]);
+                extra_index += 1;
+            } else if (special_prongs.hasManyAdditionalItems()) {
+                items_len = self.code.extra[extra_index];
+                extra_index += 1;
+                ranges_len = self.code.extra[extra_index];
+                extra_index += 1;
+            }
+            const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(self.code.extra[extra_index]);
+            extra_index += 1;
+            const items = self.code.refSlice(extra_index, items_len);
+            extra_index += items_len;
+
+            try stream.writeAll(",\n");
+            try stream.splatByteAll(' ', self.indent);
+            switch (info.capture) {
+                .none => {},
+                .by_val => try stream.writeAll("by_val "),
+                .by_ref => try stream.writeAll("by_ref "),
+            }
+            if (info.is_inline) try stream.writeAll("inline ");
+
+            try stream.writeAll("_");
+            if (single_item_ref != .none) {
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, single_item_ref);
+            }
+            for (items) |item_ref| {
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_ref);
+            }
+
+            var range_i: usize = 0;
+            while (range_i < ranges_len) : (range_i += 1) {
+                const item_first: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
+                extra_index += 1;
+                const item_last: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
+                extra_index += 1;
+
+                try stream.writeAll(", ");
+                try self.writeInstRef(stream, item_first);
+                try stream.writeAll("...");
+                try self.writeInstRef(stream, item_last);
+            }
+
+            const body = self.code.bodySlice(extra_index, info.body_len);
+            extra_index += info.body_len;
+            try stream.writeAll(" => ");
             try self.writeBracedBody(stream, body);
         }
 
@@ -2116,9 +2167,9 @@ const Writer = struct {
             const scalar_cases_len = extra.data.bits.scalar_cases_len;
             var scalar_i: usize = 0;
             while (scalar_i < scalar_cases_len) : (scalar_i += 1) {
-                const item_ref = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                const item_ref: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
                 extra_index += 1;
-                const info = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(self.code.extra[extra_index]));
+                const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(self.code.extra[extra_index]);
                 extra_index += 1;
                 const body = self.code.bodySlice(extra_index, info.body_len);
                 extra_index += info.body_len;
@@ -2143,7 +2194,7 @@ const Writer = struct {
                 extra_index += 1;
                 const ranges_len = self.code.extra[extra_index];
                 extra_index += 1;
-                const info = @as(Zir.Inst.SwitchBlock.ProngInfo, @bitCast(self.code.extra[extra_index]));
+                const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(self.code.extra[extra_index]);
                 extra_index += 1;
                 const items = self.code.refSlice(extra_index, items_len);
                 extra_index += items_len;
@@ -2164,9 +2215,9 @@ const Writer = struct {
 
                 var range_i: usize = 0;
                 while (range_i < ranges_len) : (range_i += 1) {
-                    const item_first = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                    const item_first: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
                     extra_index += 1;
-                    const item_last = @as(Zir.Inst.Ref, @enumFromInt(self.code.extra[extra_index]));
+                    const item_last: Zir.Inst.Ref = @enumFromInt(self.code.extra[extra_index]);
                     extra_index += 1;
 
                     if (range_i != 0 or items.len != 0) {

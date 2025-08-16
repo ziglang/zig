@@ -980,13 +980,14 @@ fn unflattenArray(
     elems: []const InternPool.Index,
     next_idx: *u64,
 ) Allocator.Error!Value {
-    const zcu = sema.pt.zcu;
+    const pt = sema.pt;
+    const zcu = pt.zcu;
     const arena = sema.arena;
 
     if (ty.zigTypeTag(zcu) != .array) {
         const val = Value.fromInterned(elems[@intCast(next_idx.*)]);
         next_idx.* += 1;
-        return sema.pt.getCoerced(val, ty);
+        return pt.getCoerced(val, ty);
     }
 
     const elem_ty = ty.childType(zcu);
@@ -998,10 +999,7 @@ fn unflattenArray(
         // TODO: validate sentinel
         _ = try unflattenArray(sema, elem_ty, elems, next_idx);
     }
-    return Value.fromInterned(try sema.pt.intern(.{ .aggregate = .{
-        .ty = ty.toIntern(),
-        .storage = .{ .elems = buf },
-    } }));
+    return pt.aggregateValue(ty, buf);
 }
 
 /// Given a `MutableValue` representing a potentially-nested array, treats `index` as an index into

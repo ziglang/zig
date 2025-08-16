@@ -6077,7 +6077,7 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
       {#header_open|Exact Left Shift Overflow#}
       <p>At compile-time:</p>
-      {#code|test_comptime_shlExact_overwlow.zig#}
+      {#code|test_comptime_shlExact_overflow.zig#}
 
       <p>At runtime:</p>
       {#code|runtime_shlExact_overflow.zig#}

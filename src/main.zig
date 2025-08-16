@@ -4694,9 +4694,7 @@ fn cmdTranslateC(
 
         try zig_file.writeAll(formatted);
 
-        man.writeManifest() catch |err| warn("failed to write cache manifest: {s}", .{
-            @errorName(err),
-        });
+        man.writeManifest() catch |err| warn("failed to write cache manifest: {t}", .{err});
 
         if (file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
 
@@ -4716,6 +4714,7 @@ fn cmdTranslateC(
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         var file_reader = zig_file.reader(&.{});
         _ = try stdout_writer.interface.sendFileAll(&file_reader, .unlimited);
+        try stdout_writer.interface.flush();
         return cleanExit();
     }
 }
