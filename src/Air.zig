@@ -1154,6 +1154,10 @@ pub const Inst = struct {
         pub fn fromValue(v: Value) Ref {
             return .fromIntern(v.toIntern());
         }
+
+        pub fn fromType(t: Type) Ref {
+            return .fromIntern(t.toIntern());
+        }
     };
 
     /// All instructions have an 8-byte payload, which is contained within
