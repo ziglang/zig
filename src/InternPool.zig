@@ -2257,6 +2257,7 @@ pub const Key = union(enum) {
         /// The `Nav` corresponding to this extern symbol.
         /// This is ignored by hashing and equality.
         owner_nav: Nav.Index,
+        source: Tag.Extern.Flags.Source,
     };
 
     pub const Func = struct {
@@ -2859,7 +2860,7 @@ pub const Key = union(enum) {
                 asBytes(&e.is_threadlocal) ++ asBytes(&e.is_dll_import) ++
                 asBytes(&e.relocation) ++
                 asBytes(&e.is_const) ++ asBytes(&e.alignment) ++ asBytes(&e.@"addrspace") ++
-                asBytes(&e.zir_index)),
+                asBytes(&e.zir_index) ++ &[1]u8{@intFromEnum(e.source)}),
         };
     }
 
@@ -2958,7 +2959,8 @@ pub const Key = union(enum) {
                     a_info.is_const == b_info.is_const and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
-                    a_info.zir_index == b_info.zir_index;
+                    a_info.zir_index == b_info.zir_index and
+                    a_info.source == b_info.source;
             },
             .func => |a_info| {
                 const b_info = b.func;
@@ -5967,7 +5969,10 @@ pub const Tag = enum(u8) {
             is_threadlocal: bool,
             is_dll_import: bool,
             relocation: std.builtin.ExternOptions.Relocation,
-            _: u25 = 0,
+            source: Source,
+            _: u24 = 0,
+
+            pub const Source = enum(u1) { builtin, syntax };
         };
     };
 
@@ -7320,6 +7325,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
                 .owner_nav = extra.owner_nav,
+                .source = extra.flags.source,
             } };
         },
         .func_instance => .{ .func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), data) },
@@ -9212,6 +9218,7 @@ pub fn getExtern(
             .is_threadlocal = key.is_threadlocal,
             .is_dll_import = key.is_dll_import,
             .relocation = key.relocation,
+            .source = key.source,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,

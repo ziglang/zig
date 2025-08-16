@@ -56,3 +56,16 @@ test "coerce extern function types" {
 
     _ = @as(fn () callconv(.c) ?*u32, c_extern_function);
 }
+
+fn a_function(func: fn () callconv(.c) void) void {
+    _ = func;
+}
+
+test "pass extern function to function" {
+    a_function(struct {
+        extern fn an_extern_function() void;
+    }.an_extern_function);
+    a_function(@extern(*const fn () callconv(.c) void, .{ .name = "an_extern_function" }).*);
+}
+
+export fn an_extern_function() void {}

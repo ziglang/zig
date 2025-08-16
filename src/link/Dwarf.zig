@@ -1720,7 +1720,7 @@ pub const WipNav = struct {
             std.leb.writeUnsignedFixed(
                 block_bytes,
                 wip_nav.debug_info.written()[block.abbrev_code..][0..block_bytes],
-                try wip_nav.dwarf.refAbbrevCode(.empty_block),
+                @intCast(try wip_nav.dwarf.refAbbrevCode(.empty_block)),
             );
         std.mem.writeInt(u32, wip_nav.debug_info.written()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
         wip_nav.any_children = true;
@@ -1782,7 +1782,7 @@ pub const WipNav = struct {
             std.leb.writeUnsignedFixed(
                 inlined_func_bytes,
                 wip_nav.debug_info.written()[block.abbrev_code..][0..inlined_func_bytes],
-                try wip_nav.dwarf.refAbbrevCode(.empty_inlined_func),
+                @intCast(try wip_nav.dwarf.refAbbrevCode(.empty_inlined_func)),
             );
         std.mem.writeInt(u32, wip_nav.debug_info.written()[block.high_pc..][0..4], @intCast(code_off - block.low_pc_off), wip_nav.dwarf.endian);
         try wip_nav.setInlineFunc(func);
@@ -2077,7 +2077,11 @@ pub const WipNav = struct {
         const ty = value.typeOf(zcu);
         if (std.debug.runtime_safety) assert(ty.comptimeOnly(zcu) and try ty.onePossibleValue(wip_nav.pt) == null);
         if (ty.toIntern() == .type_type) return wip_nav.getTypeEntry(value.toType());
-        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(zcu.funcInfo(value.toIntern()).owner_nav);
+        if (ip.isFunctionType(ty.toIntern()) and !value.isUndef(zcu)) return wip_nav.getNavEntry(switch (ip.indexToKey(value.toIntern())) {
+            else => unreachable,
+            .func => |func| func.owner_nav,
+            .@"extern" => |@"extern"| @"extern".owner_nav,
+        });
         const gop = try wip_nav.dwarf.values.getOrPut(wip_nav.dwarf.gpa, value.toIntern());
         const unit: Unit.Index = .main;
         if (gop.found_existing) return .{ unit, gop.value_ptr.* };
@@ -2250,6 +2254,8 @@ pub const WipNav = struct {
                     .decl_func,
                     .decl_nullary_func_generic,
                     .decl_func_generic,
+                    .decl_extern_nullary_func,
+                    .decl_extern_func,
                     => false,
                     .generic_decl_var,
                     .generic_decl_const,
@@ -2585,7 +2591,7 @@ pub fn initWipNav(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     sym_index: u32,
-) error{ OutOfMemory, CodegenFail }!?WipNav {
+) error{ OutOfMemory, CodegenFail }!WipNav {
     return initWipNavInner(dwarf, pt, nav_index, sym_index) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => |e| pt.zcu.codegenFail(nav_index, "failed to init dwarf: {s}", .{@errorName(e)}),
@@ -2597,7 +2603,7 @@ fn initWipNavInner(
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
     sym_index: u32,
-) !?WipNav {
+) !WipNav {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -2612,15 +2618,6 @@ fn initWipNavInner(
         @intFromEnum(inst_info.inst),
         nav.fqn.fmt(ip),
     });
-
-    const nav_val = zcu.navValue(nav_index);
-    const nav_key = ip.indexToKey(nav_val.toIntern());
-    switch (nav_key) {
-        // Ignore @extern
-        .@"extern" => |@"extern"| if (decl.linkage != .@"extern" or
-            !@"extern".name.eqlSlice(file.zir.?.nullTerminatedString(decl.name), ip)) return null,
-        else => {},
-    }
 
     const mod = file.mod.?;
     const unit = try dwarf.getUnit(mod);
@@ -2654,44 +2651,63 @@ fn initWipNavInner(
     };
     errdefer wip_nav.deinit();
 
-    switch (nav_key) {
-        else => {
-            const diw = &wip_nav.debug_info.writer;
-            try wip_nav.declCommon(.{
-                .decl = .decl_var,
-                .generic_decl = .generic_decl_var,
-                .decl_instance = .decl_instance_var,
-            }, &nav, inst_info.file, &decl);
-            try wip_nav.strp(nav.fqn.toSlice(ip));
-            const ty: Type = nav_val.typeOf(zcu);
-            const addr: Loc = .{ .addr_reloc = sym_index };
-            const loc: Loc = if (decl.is_threadlocal) loc: {
-                const target = zcu.comp.root_mod.resolved_target.result;
-                break :loc switch (target.cpu.arch) {
-                    .x86_64 => .{ .form_tls_address = &addr },
-                    else => .empty,
+    const nav_val = zcu.navValue(nav_index);
+    nav_val: switch (ip.indexToKey(nav_val.toIntern())) {
+        .@"extern" => |@"extern"| switch (@"extern".source) {
+            .builtin => {
+                const maybe_func_type = switch (ip.indexToKey(@"extern".ty)) {
+                    .func_type => |func_type| func_type,
+                    else => null,
                 };
-            } else addr;
-            switch (decl.kind) {
-                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
-                .@"const" => {
-                    const const_ty_reloc_index = try wip_nav.refForward();
-                    try wip_nav.infoExprLoc(loc);
-                    try diw.writeUleb128(nav.status.fully_resolved.alignment.toByteUnits() orelse
-                        ty.abiAlignment(zcu).toByteUnits().?);
-                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
-                    wip_nav.finishForward(const_ty_reloc_index);
-                    try wip_nav.abbrevCode(.is_const);
-                    try wip_nav.refType(ty);
+                const diw = &wip_nav.debug_info.writer;
+                try wip_nav.abbrevCode(if (maybe_func_type) |func_type|
+                    if (func_type.param_types.len > 0 or func_type.is_var_args) .builtin_extern_func else .builtin_extern_nullary_func
+                else
+                    .builtin_extern_var);
+                try wip_nav.refType(.fromInterned(zcu.fileRootType(inst_info.file)));
+                try wip_nav.strp(@"extern".name.toSlice(ip));
+                try wip_nav.refType(.fromInterned(if (maybe_func_type) |func_type| func_type.return_type else @"extern".ty));
+                if (maybe_func_type) |func_type| {
+                    try wip_nav.infoAddrSym(sym_index, 0);
+                    try diw.writeByte(@intFromBool(ip.isNoReturn(func_type.return_type)));
+                    if (func_type.param_types.len > 0 or func_type.is_var_args) {
+                        for (func_type.param_types.get(ip)) |param_type| {
+                            try wip_nav.abbrevCode(.extern_param);
+                            try wip_nav.refType(.fromInterned(param_type));
+                        }
+                        if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
+                        try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
+                    }
+                } else try wip_nav.infoExprLoc(.{ .addr_reloc = sym_index });
+            },
+            .syntax => switch (ip.isFunctionType(@"extern".ty)) {
+                false => continue :nav_val .{ .variable = undefined },
+                true => {
+                    const func_type = ip.indexToKey(@"extern".ty).func_type;
+                    const diw = &wip_nav.debug_info.writer;
+                    try wip_nav.declCommon(if (func_type.param_types.len > 0 or func_type.is_var_args) .{
+                        .decl = .decl_extern_func,
+                        .generic_decl = .generic_decl_func,
+                        .decl_instance = .decl_instance_extern_func,
+                    } else .{
+                        .decl = .decl_extern_nullary_func,
+                        .generic_decl = .generic_decl_func,
+                        .decl_instance = .decl_instance_extern_nullary_func,
+                    }, &nav, inst_info.file, &decl);
+                    try wip_nav.strp(@"extern".name.toSlice(ip));
+                    try wip_nav.refType(.fromInterned(func_type.return_type));
+                    try wip_nav.infoAddrSym(sym_index, 0);
+                    try diw.writeByte(@intFromBool(ip.isNoReturn(func_type.return_type)));
+                    if (func_type.param_types.len > 0 or func_type.is_var_args) {
+                        for (func_type.param_types.get(ip)) |param_type| {
+                            try wip_nav.abbrevCode(.extern_param);
+                            try wip_nav.refType(.fromInterned(param_type));
+                        }
+                        if (func_type.is_var_args) try wip_nav.abbrevCode(.is_var_args);
+                        try diw.writeUleb128(@intFromEnum(AbbrevCode.null));
+                    }
                 },
-                .@"var" => {
-                    try wip_nav.refType(ty);
-                    try wip_nav.infoExprLoc(loc);
-                    try diw.writeUleb128(nav.status.fully_resolved.alignment.toByteUnits() orelse
-                        ty.abiAlignment(zcu).toByteUnits().?);
-                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
-                },
-            }
+            },
         },
         .func => |func| if (func.owner_nav != nav_index) {
             try wip_nav.declCommon(.{
@@ -2752,7 +2768,10 @@ fn initWipNavInner(
                 .generic_decl = .generic_decl_func,
                 .decl_instance = .decl_instance_func,
             }, &nav, inst_info.file, &decl);
-            try wip_nav.strp(nav.fqn.toSlice(ip));
+            try wip_nav.strp(switch (decl.linkage) {
+                .normal => nav.fqn,
+                .@"extern", .@"export" => nav.name,
+            }.toSlice(ip));
             try wip_nav.refType(.fromInterned(func_type.return_type));
             try wip_nav.infoAddrSym(sym_index, 0);
             wip_nav.func_high_pc = @intCast(diw.end);
@@ -2763,7 +2782,7 @@ fn initWipNavInner(
                 else => |a| a.maxStrict(target_info.minFunctionAlignment(target)),
             }.toByteUnits().?);
             try diw.writeByte(@intFromBool(decl.linkage != .normal));
-            try diw.writeByte(@intFromBool(func_type.return_type == .noreturn_type));
+            try diw.writeByte(@intFromBool(ip.isNoReturn(func_type.return_type)));
 
             const dlw = &wip_nav.debug_line.writer;
             try dlw.writeByte(DW.LNS.extended_op);
@@ -2799,6 +2818,47 @@ fn initWipNavInner(
                 try dlw.writeUleb128(func.lbrace_column + 1);
 
                 try wip_nav.advancePCAndLine(@intCast(decl.src_line + func.lbrace_line), 0);
+            }
+        },
+        else => {
+            const diw = &wip_nav.debug_info.writer;
+            try wip_nav.declCommon(.{
+                .decl = .decl_var,
+                .generic_decl = .generic_decl_var,
+                .decl_instance = .decl_instance_var,
+            }, &nav, inst_info.file, &decl);
+            try wip_nav.strp(switch (decl.linkage) {
+                .normal => nav.fqn,
+                .@"extern", .@"export" => nav.name,
+            }.toSlice(ip));
+            const ty: Type = nav_val.typeOf(zcu);
+            const addr: Loc = .{ .addr_reloc = sym_index };
+            const loc: Loc = if (decl.is_threadlocal) loc: {
+                const target = zcu.comp.root_mod.resolved_target.result;
+                break :loc switch (target.cpu.arch) {
+                    .x86_64 => .{ .form_tls_address = &addr },
+                    else => .empty,
+                };
+            } else addr;
+            switch (decl.kind) {
+                .unnamed_test, .@"test", .decltest, .@"comptime" => unreachable,
+                .@"const" => {
+                    const const_ty_reloc_index = try wip_nav.refForward();
+                    try wip_nav.infoExprLoc(loc);
+                    try diw.writeUleb128(nav.status.fully_resolved.alignment.toByteUnits() orelse
+                        ty.abiAlignment(zcu).toByteUnits().?);
+                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
+                    wip_nav.finishForward(const_ty_reloc_index);
+                    try wip_nav.abbrevCode(.is_const);
+                    try wip_nav.refType(ty);
+                },
+                .@"var" => {
+                    try wip_nav.refType(ty);
+                    try wip_nav.infoExprLoc(loc);
+                    try diw.writeUleb128(nav.status.fully_resolved.alignment.toByteUnits() orelse
+                        ty.abiAlignment(zcu).toByteUnits().?);
+                    try diw.writeByte(@intFromBool(decl.linkage != .normal));
+                },
             }
         },
     }
@@ -2891,11 +2951,11 @@ fn finishWipNavFuncWriterError(
             std.leb.writeUnsignedFixed(
                 AbbrevCode.decl_bytes,
                 abbrev_code_buf,
-                try dwarf.refAbbrevCode(switch (abbrev_code) {
+                @intCast(try dwarf.refAbbrevCode(switch (abbrev_code) {
                     else => unreachable,
                     .decl_func => .decl_nullary_func,
                     .decl_instance_func => .decl_instance_nullary_func,
-                }),
+                })),
             );
         }
     }
@@ -3357,7 +3417,10 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                 .generic_decl = .generic_decl_var,
                 .decl_instance = .decl_instance_var,
             }, &nav, inst_info.file, &decl);
-            try wip_nav.strp(nav.fqn.toSlice(ip));
+            try wip_nav.strp(switch (decl.linkage) {
+                .normal => nav.fqn,
+                .@"extern", .@"export" => nav.name,
+            }.toSlice(ip));
             const nav_ty = nav_val.typeOf(zcu);
             try wip_nav.refType(nav_ty);
             try wip_nav.blockValue(nav_src_loc, nav_val);
@@ -3387,7 +3450,10 @@ fn updateComptimeNavInner(dwarf: *Dwarf, pt: Zcu.PerThread, nav_index: InternPoo
                 .generic_decl = .generic_decl_const,
                 .decl_instance = .decl_instance_const,
             }, &nav, inst_info.file, &decl);
-            try wip_nav.strp(nav.fqn.toSlice(ip));
+            try wip_nav.strp(switch (decl.linkage) {
+                .normal => nav.fqn,
+                .@"extern", .@"export" => nav.name,
+            }.toSlice(ip));
             const nav_ty_reloc_index = try wip_nav.refForward();
             try diw.writeUleb128(nav.status.fully_resolved.alignment.toByteUnits() orelse
                 nav_ty.abiAlignment(zcu).toByteUnits().?);
@@ -5109,6 +5175,8 @@ const AbbrevCode = enum {
     decl_func,
     decl_nullary_func_generic,
     decl_func_generic,
+    decl_extern_nullary_func,
+    decl_extern_func,
     generic_decl_var,
     generic_decl_const,
     generic_decl_func,
@@ -5128,6 +5196,8 @@ const AbbrevCode = enum {
     decl_instance_func,
     decl_instance_nullary_func_generic,
     decl_instance_func_generic,
+    decl_instance_extern_nullary_func,
+    decl_instance_extern_func,
     // the rest are unrestricted other than empty variants must not be longer
     // than the non-empty variant, and so should appear first
     compile_unit,
@@ -5179,6 +5249,9 @@ const AbbrevCode = enum {
     packed_struct_type,
     empty_union_type,
     union_type,
+    builtin_extern_nullary_func,
+    builtin_extern_func,
+    builtin_extern_var,
     empty_block,
     block,
     empty_inlined_func,
@@ -5193,6 +5266,7 @@ const AbbrevCode = enum {
     unnamed_comptime_arg_comptime_state,
     comptime_arg_runtime_bits_comptime_state,
     unnamed_comptime_arg_runtime_bits_comptime_state,
+    extern_param,
     local_var,
     local_const,
     local_const_runtime_bits,
@@ -5214,7 +5288,7 @@ const AbbrevCode = enum {
     comptime_value_elem_runtime_bits,
     comptime_value_elem_comptime_state,
 
-    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_instance_func_generic));
+    const decl_bytes = uleb128Bytes(@intFromEnum(AbbrevCode.decl_instance_extern_func));
     comptime {
         assert(uleb128Bytes(@intFromEnum(AbbrevCode.pad_1)) == 1);
         assert(uleb128Bytes(@intFromEnum(AbbrevCode.pad_n)) == 1);
@@ -5389,6 +5463,27 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
             },
         },
+        .decl_extern_nullary_func = .{
+            .tag = .subprogram,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
+            },
+        },
+        .decl_extern_func = .{
+            .tag = .subprogram,
+            .children = true,
+            .attrs = decl_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
+            },
+        },
         .generic_decl_var = .{
             .tag = .variable,
             .attrs = generic_decl_abbrev_common_attrs,
@@ -5535,6 +5630,27 @@ const AbbrevCode = enum {
             .children = true,
             .attrs = decl_instance_abbrev_common_attrs ++ .{
                 .{ .type, .ref_addr },
+            },
+        },
+        .decl_instance_extern_nullary_func = .{
+            .tag = .subprogram,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
+            },
+        },
+        .decl_instance_extern_func = .{
+            .tag = .subprogram,
+            .children = true,
+            .attrs = decl_instance_abbrev_common_attrs ++ .{
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
             },
         },
         .compile_unit = .{
@@ -5934,6 +6050,39 @@ const AbbrevCode = enum {
                 .{ .alignment, .udata },
             },
         },
+        .builtin_extern_nullary_func = .{
+            .tag = .subprogram,
+            .attrs = &.{
+                .{ .ZIG_parent, .ref_addr },
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
+            },
+        },
+        .builtin_extern_func = .{
+            .tag = .subprogram,
+            .children = true,
+            .attrs = &.{
+                .{ .ZIG_parent, .ref_addr },
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .low_pc, .addr },
+                .{ .external, .flag_present },
+                .{ .noreturn, .flag },
+            },
+        },
+        .builtin_extern_var = .{
+            .tag = .variable,
+            .attrs = &.{
+                .{ .ZIG_parent, .ref_addr },
+                .{ .linkage_name, .strp },
+                .{ .type, .ref_addr },
+                .{ .location, .exprloc },
+                .{ .external, .flag_present },
+            },
+        },
         .empty_block = .{
             .tag = .lexical_block,
             .attrs = &.{
@@ -6051,6 +6200,12 @@ const AbbrevCode = enum {
                 .{ .type, .ref_addr },
                 .{ .const_value, .block },
                 .{ .ZIG_comptime_value, .ref_addr },
+            },
+        },
+        .extern_param = .{
+            .tag = .formal_parameter,
+            .attrs = &.{
+                .{ .type, .ref_addr },
             },
         },
         .local_var = .{

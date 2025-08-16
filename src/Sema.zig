@@ -25768,6 +25768,7 @@ fn zirBuiltinExtern(
             },
         },
         .owner_nav = undefined, // ignored by `getExtern`
+        .source = .builtin,
     });
 
     const uncasted_ptr = try sema.analyzeNavRef(block, src, ip.indexToKey(extern_val).@"extern".owner_nav);
