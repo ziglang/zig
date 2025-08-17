@@ -1883,10 +1883,8 @@ pub const GenericBlob = extern struct {
 pub const data_in_code_entry = extern struct {
     /// From mach_header to start of data range.
     offset: u32,
-
     /// Number of bytes in data range.
     length: u16,
-
     /// A DICE_KIND value.
     kind: u16,
 };

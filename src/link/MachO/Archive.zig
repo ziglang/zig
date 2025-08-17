@@ -81,34 +81,20 @@ pub fn writeHeader(
     object_name: []const u8,
     object_size: usize,
     format: Format,
-    writer: anytype,
+    writer: *Writer,
 ) !void {
-    var hdr: ar_hdr = .{
-        .ar_name = undefined,
-        .ar_date = undefined,
-        .ar_uid = undefined,
-        .ar_gid = undefined,
-        .ar_mode = undefined,
-        .ar_size = undefined,
-        .ar_fmag = undefined,
-    };
-    @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
-        var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
-        stream.writer().print("0", .{}) catch unreachable;
-    }
-    @memcpy(&hdr.ar_fmag, ARFMAG);
+    var hdr: ar_hdr = .{};
 
     const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
     const total_object_size = object_size + object_name_len;
 
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        stream.writer().print("#1/{d}", .{object_name_len}) catch unreachable;
+        var stream: Writer = .fixed(&hdr.ar_name);
+        stream.print("#1/{d}", .{object_name_len}) catch unreachable;
     }
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{total_object_size}) catch unreachable;
+        var stream: Writer = .fixed(&hdr.ar_size);
+        stream.print("{d}", .{total_object_size}) catch unreachable;
     }
 
     try writer.writeAll(mem.asBytes(&hdr));
@@ -116,7 +102,7 @@ pub fn writeHeader(
 
     const padding = object_name_len - object_name.len - 1;
     if (padding > 0) {
-        try writer.writeByteNTimes(0, padding);
+        try writer.splatByteAll(0, padding);
     }
 }
 
@@ -138,25 +124,19 @@ pub const SYMDEF64_SORTED = "__.SYMDEF_64 SORTED";
 
 pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
-    ar_name: [16]u8,
-
+    ar_name: [16]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// File date, decimal seconds since Epoch.
-    ar_date: [12]u8,
-
+    ar_date: [12]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// User ID, in ASCII format.
-    ar_uid: [6]u8,
-
+    ar_uid: [6]u8 = "0\x20\x20\x20\x20\x20".*,
     /// Group ID, in ASCII format.
-    ar_gid: [6]u8,
-
+    ar_gid: [6]u8 = "0\x20\x20\x20\x20\x20".*,
     /// File mode, in ASCII octal.
-    ar_mode: [8]u8,
-
+    ar_mode: [8]u8 = "0\x20\x20\x20\x20\x20\x20\x20".*,
     /// File size, in ASCII decimal.
-    ar_size: [10]u8,
-
+    ar_size: [10]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// Always contains ARFMAG.
-    ar_fmag: [2]u8,
+    ar_fmag: [2]u8 = ARFMAG.*,
 
     fn date(self: ar_hdr) !u64 {
         const value = mem.trimEnd(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
@@ -201,7 +181,7 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
+    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: *Writer) !void {
         const ptr_width = ptrWidth(format);
         // Header
         try writeHeader(SYMDEF, ar.size(format), format, writer);
@@ -226,7 +206,7 @@ pub const ArSymtab = struct {
         // Strtab
         try writer.writeAll(ar.strtab.buffer.items);
         if (padding > 0) {
-            try writer.writeByteNTimes(0, padding);
+            try writer.splatByteAll(0, padding);
         }
     }
 
@@ -275,7 +255,7 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
+pub fn writeInt(format: Format, value: u64, writer: *Writer) !void {
     switch (format) {
         .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
         .p64 => try writer.writeInt(u64, value, .little),
@@ -299,7 +279,7 @@ const mem = std.mem;
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Archive = @This();
 const File = @import("file.zig").File;

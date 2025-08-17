@@ -2381,6 +2381,7 @@ pub fn fromArrayList(array_list: *ArrayList(u8)) Writer {
         .vtable = &.{
             .drain = fixedDrain,
             .flush = noopFlush,
+            .rebase = failingRebase,
         },
         .buffer = array_list.allocatedSlice(),
         .end = array_list.items.len,

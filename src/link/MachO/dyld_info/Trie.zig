@@ -170,8 +170,13 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
     }
 
     try self.buffer.ensureTotalCapacityPrecise(allocator, size);
+
+    var allocating: std.Io.Writer.Allocating = .fromArrayList(allocator, &self.buffer);
+    defer self.buffer = allocating.toArrayList();
+    const writer = &allocating.writer;
+
     for (ordered_nodes.items) |node_index| {
-        try self.writeNode(node_index, self.buffer.writer(allocator));
+        try self.writeNode(node_index, writer);
     }
 }
 
@@ -232,7 +237,7 @@ pub fn deinit(self: *Trie, allocator: Allocator) void {
     self.buffer.deinit(allocator);
 }
 
-pub fn write(self: Trie, writer: anytype) !void {
+pub fn write(self: Trie, writer: *std.Io.Writer) !void {
     if (self.buffer.items.len == 0) return;
     try writer.writeAll(self.buffer.items);
 }
@@ -243,7 +248,7 @@ pub fn write(self: Trie, writer: anytype) !void {
 /// iterate over `Trie.ordered_nodes` and call this method on each node.
 /// This is one of the requirements of the MachO.
 /// Panics if `finalize` was not called before calling this method.
-fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
+fn writeNode(self: *Trie, node_index: Node.Index, writer: *std.Io.Writer) !void {
     const slice = self.nodes.slice();
     const edges = slice.items(.edges)[node_index];
     const is_terminal = slice.items(.is_terminal)[node_index];
@@ -253,21 +258,21 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: anytype) !void {
     if (is_terminal) {
         // Terminal node info: encode export flags and vmaddr offset of this symbol.
         var info_buf: [@sizeOf(u64) * 2]u8 = undefined;
-        var info_stream = std.io.fixedBufferStream(&info_buf);
+        var info_stream: std.Io.Writer = .fixed(&info_buf);
         // TODO Implement for special flags.
         assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
             export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-        try leb.writeUleb128(info_stream.writer(), export_flags);
-        try leb.writeUleb128(info_stream.writer(), vmaddr_offset);
+        try leb.writeUleb128(&info_stream, export_flags);
+        try leb.writeUleb128(&info_stream, vmaddr_offset);
 
         // Encode the size of the terminal node info.
         var size_buf: [@sizeOf(u64)]u8 = undefined;
-        var size_stream = std.io.fixedBufferStream(&size_buf);
-        try leb.writeUleb128(size_stream.writer(), info_stream.pos);
+        var size_stream: std.Io.Writer = .fixed(&size_buf);
+        try leb.writeUleb128(&size_stream, info_stream.end);
 
         // Now, write them to the output stream.
-        try writer.writeAll(size_buf[0..size_stream.pos]);
-        try writer.writeAll(info_buf[0..info_stream.pos]);
+        try writer.writeAll(size_buf[0..size_stream.end]);
+        try writer.writeAll(info_buf[0..info_stream.end]);
     } else {
         // Non-terminal node is delimited by 0 byte.
         try writer.writeByte(0);
