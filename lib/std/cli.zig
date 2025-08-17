@@ -118,7 +118,7 @@ pub const Error = error{
 ///
 /// It is not possible to precisely deallocate the memory allocated by this function.
 /// An `ArenaAllocator` is recommended to prevent memory leaks.
-pub fn parse(comptime Args: type, arena: Allocator, options: Options) Error!Args {
+pub fn parse(comptime Args: type, arena: Allocator, options: Options) (Error || ArgIterator.InitError)!Args {
     var iter: ArgIterator = try .initWithAllocator(arena);
     // Do not call iter.deinit(). It holds the string data returned in the Args.
 
