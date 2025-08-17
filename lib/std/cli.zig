@@ -112,7 +112,7 @@ pub const Error = error{
 /// If `options.prog` is `null`, then the final path component of `argv[0]` is used by default.
 ///
 /// If a parsing/validation error occurs or the `--help` arg is given,
-/// this function calls `std.process.exit` with an error status unless `options.exit` is set to `false`,
+/// this function calls `std.process.exit` with `1` and `0` respectively unless `options.exit` is set to `false`,
 /// in which case parsing/validation errors return `error.Usage` and `--help` returns `error.Help`.
 /// Allocator errors are always returned from the function.
 ///
@@ -165,7 +165,7 @@ test parse {
 ///
 /// If a parsing/validation error occurs or the `--help` arg is given,
 /// this function returns `error.Usage` or `error.Help` respectively,
-/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with an error status instead.
+/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with `1` or `0` respectively.
 /// Allocator errors are always returned from the function.
 ///
 /// An `ArenaAllocator` is recommended to cleanup the memory allocated from this function;
@@ -187,7 +187,7 @@ pub fn parseIter(comptime Args: type, arena: Allocator, iter: anytype, options: 
 ///
 /// If a parsing/validation error occurs or the `--help` arg is given,
 /// this function returns `error.Usage` or `error.Help` respectively,
-/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with an error status instead.
+/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with `1` or `0` respectively.
 /// Allocator errors are always returned from the function.
 ///
 /// An `ArenaAllocator` is recommended to cleanup the memory allocated from this function;
@@ -296,7 +296,7 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                 printGeneratedHelp(writer, prog, named_info);
             }
             if (exit_on_error) {
-                std.process.exit(1);
+                std.process.exit(0);
             }
             return error.Help;
         }
@@ -437,7 +437,7 @@ fn checkArgsType(comptime Args: type) void {
 
     inline for (@typeInfo(args_fields[0].type).@"struct".fields) |field| {
         if (field.is_comptime) @compileError("comptime fields are not supported: " ++ field.name);
-        if (comptime mem.eql(u8, field.name, "help")) @compileError("A field named help is not allowed. to provide custom help formatting, give options.writer and handle error.Help");
+        if (comptime mem.eql(u8, field.name, "help")) @compileError("A field named help is not allowed. add a `pub const help = \"...\";` to your `Args` to provide a custom help string.");
         if (comptime mem.startsWith(u8, field.name, "no-")) @compileError("Field name starts with @\"no-\": " ++ field.name ++ ". Note: use a bool type field, and --<name> and --no-<name> will turn it on and off.");
         if (comptime mem.indexOfScalar(u8, field.name, '=') != null) @compileError("Field name contains @\"=\": " ++ field.name);
 
@@ -502,10 +502,10 @@ test @"error" {
     const args = try parseSlice(Args, arena.allocator(), &[_][]const u8{ "--output=o.txt", "i.txt" }, .{});
 
     if (std.fs.path.isAbsolute(args.named.output)) {
-        return std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, .{ .exit_on_error = false });
+        return std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, .{ .exit = false });
     }
     if (args.positional.len > 1) {
-        return std.cli.@"error"("expected exactly 1 positional arg", .{}, .{ .exit_on_error = false });
+        return std.cli.@"error"("expected exactly 1 positional arg", .{}, .{ .exit = false });
     }
 }
 
@@ -633,7 +633,7 @@ inline fn quoteIfEmpty(comptime s: []const u8) []const u8 {
 }
 
 var failing_writer: Writer = .failing;
-const silent_options = Options{ .writer = &failing_writer };
+const silent_options = Options{ .writer = &failing_writer, .exit = false };
 
 test "usage errors" {
     var arena: std.heap.ArenaAllocator = .init(testing.allocator);
