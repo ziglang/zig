@@ -1549,7 +1549,8 @@ pub const SystemLib = link.SystemLib;
 pub const CacheMode = enum {
     /// The results of this compilation are not cached. The compilation is always performed, and the
     /// results are emitted directly to their output locations. Temporary files will be placed in a
-    /// temporary directory in the cache, but deleted after the compilation is done.
+    /// temporary directory in the cache, but deleted after the compilation is done, unless they are
+    /// needed for the output binary to work correctly.
     ///
     /// This mode is typically used for direct CLI invocations like `zig build-exe`, because such
     /// processes are typically low-level usages which would not make efficient use of the cache.
@@ -1593,8 +1594,8 @@ const CacheUse = union(CacheMode) {
     const None = struct {
         /// User-requested artifacts are written directly to their output path in this cache mode.
         /// However, if we need to emit any temporary files, they are placed in this directory.
-        /// We will recursively delete this directory at the end of this update. This field is
-        /// non-`null` only inside `update`.
+        /// We will recursively delete this directory at the end of this update if possible. This
+        /// field is non-`null` only inside `update`.
         tmp_artifact_directory: ?Cache.Directory,
     };
 
@@ -2805,6 +2806,17 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
                 if (dev.env == .bootstrap) {
                     // zig1 uses `CacheMode.none`, but it doesn't need to know how to delete
                     // temporary directories; it doesn't have a real cache directory anyway.
+                    return;
+                }
+                // Usually, we want to delete the temporary directory. However, if we are emitting
+                // an unstripped Mach-O binary with the LLVM backend, then the temporary directory
+                // contains the ZCU object file emitted by LLVM, which contains debug symbols not
+                // replicated in the output binary (the output instead contains a reference to that
+                // file which debug tooling can look through). So, in that particular case, we need
+                // to keep this directory around so that the output binary can be debugged.
+                if (comp.bin_file != null and comp.getTarget().ofmt == .macho and comp.config.debug_format != .strip) {
+                    // We are emitting an unstripped Mach-O binary with the LLVM backend: the ZCU
+                    // object file must remain on-disk for its debug info.
                     return;
                 }
                 const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
@@ -6266,7 +6278,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+                var stderr_reader = child.stderr.?.readerStreaming(&.{});
+                const stderr = try stderr_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });

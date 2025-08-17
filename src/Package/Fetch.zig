@@ -1212,10 +1212,11 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
-            const window_size = std.compress.zstd.default_window_len;
-            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const window_len = std.compress.zstd.default_window_len;
+            const window_buffer = try f.arena.allocator().alloc(u8, window_len + std.compress.zstd.block_size_max);
             var decompress: std.compress.zstd.Decompress = .init(resource.reader(), window_buffer, .{
                 .verify_checksum = false,
+                .window_len = window_len,
             });
             return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
@@ -1632,7 +1633,7 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
     var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer: fs.File.Writer = .initMode(.stdout(), &stdout_buffer, .streaming);
+    var stdout_writer: fs.File.Writer = .initStreaming(.stdout(), &stdout_buffer);
     const w = &stdout_writer.interface;
     for (all_files) |hashed_file| {
         try w.print("{t}: {x}: {s}\n", .{ hashed_file.kind, &hashed_file.hash, hashed_file.normalized_path });

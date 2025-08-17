@@ -86,12 +86,12 @@ pub const VTable = struct {
     /// `Reader.buffer`, whichever is bigger.
     readVec: *const fn (r: *Reader, data: [][]u8) Error!usize = defaultReadVec,
 
-    /// Ensures `capacity` more data can be buffered without rebasing.
+    /// Ensures `capacity` data can be buffered without rebasing.
     ///
     /// Asserts `capacity` is within buffer capacity, or that the stream ends
     /// within `capacity` bytes.
     ///
-    /// Only called when `capacity` cannot fit into the unused capacity of
+    /// Only called when `capacity` cannot be satisfied by unused capacity of
     /// `buffer`.
     ///
     /// The default implementation moves buffered data to the start of
@@ -282,8 +282,6 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 /// If `limit` would be exceeded, `error.StreamTooLong` is returned instead. In
 /// such case, the next byte that would be read will be the first one to exceed
 /// `limit`, and all preceeding bytes have been discarded.
-///
-/// Asserts `buffer` has nonzero capacity.
 ///
 /// See also:
 /// * `appendRemaining`
@@ -1037,7 +1035,7 @@ fn fillUnbuffered(r: *Reader, n: usize) Error!void {
 ///
 /// Asserts buffer capacity is at least 1.
 pub fn fillMore(r: *Reader) Error!void {
-    try rebase(r, 1);
+    try rebase(r, r.end - r.seek + 1);
     var bufs: [1][]u8 = .{""};
     _ = try r.vtable.readVec(r, &bufs);
 }
@@ -1205,24 +1203,6 @@ pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     } }))) orelse error.Overflow;
 }
 
-pub fn expandTotalCapacity(r: *Reader, allocator: Allocator, n: usize) Allocator.Error!void {
-    if (n <= r.buffer.len) return;
-    if (r.seek > 0) rebase(r, r.buffer.len);
-    var list: ArrayList(u8) = .{
-        .items = r.buffer[0..r.end],
-        .capacity = r.buffer.len,
-    };
-    defer r.buffer = list.allocatedSlice();
-    try list.ensureTotalCapacity(allocator, n);
-}
-
-pub const FillAllocError = Error || Allocator.Error;
-
-pub fn fillAlloc(r: *Reader, allocator: Allocator, n: usize) FillAllocError!void {
-    try expandTotalCapacity(r, allocator, n);
-    return fill(r, n);
-}
-
 fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
     comptime assert(result_info.bits % 7 == 0);
@@ -1253,9 +1233,9 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
     }
 }
 
-/// Ensures `capacity` more data can be buffered without rebasing.
+/// Ensures `capacity` data can be buffered without rebasing.
 pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
-    if (r.end + capacity <= r.buffer.len) {
+    if (r.buffer.len - r.seek >= capacity) {
         @branchHint(.likely);
         return;
     }
@@ -1263,11 +1243,12 @@ pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
 }
 
 pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
-    if (r.end <= r.buffer.len - capacity) return;
+    assert(r.buffer.len - r.seek < capacity);
     const data = r.buffer[r.seek..r.end];
     @memmove(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
+    assert(r.buffer.len - r.seek >= capacity);
 }
 
 test fixed {

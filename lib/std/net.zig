@@ -2233,7 +2233,7 @@ pub const Stream = struct {
                         },
                         .buffer = buffer,
                     },
-                    .file_writer = .initMode(.{ .handle = stream.handle }, &.{}, .streaming),
+                    .file_writer = .initStreaming(.{ .handle = stream.handle }, &.{}),
                 };
             }
 
