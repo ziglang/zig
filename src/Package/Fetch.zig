@@ -200,7 +200,7 @@ pub const JobQueue = struct {
 
             const hash_slice = hash.toSlice();
 
-            try buf.writer().print(
+            try buf.print(
                 \\    pub const {f} = struct {{
                 \\
             , .{std.zig.fmtId(hash_slice)});
@@ -226,13 +226,13 @@ pub const JobQueue = struct {
                 }
             }
 
-            try buf.writer().print(
+            try buf.print(
                 \\        pub const build_root = "{f}";
                 \\
             , .{std.fmt.alt(fetch.package_root, .formatEscapeString)});
 
             if (fetch.has_build_zig) {
-                try buf.writer().print(
+                try buf.print(
                     \\        pub const build_zig = @import("{f}");
                     \\
                 , .{std.zig.fmtString(hash_slice)});
@@ -245,7 +245,7 @@ pub const JobQueue = struct {
                 );
                 for (manifest.dependencies.keys(), manifest.dependencies.values()) |name, dep| {
                     const h = depDigest(fetch.package_root, jq.global_cache, dep) orelse continue;
-                    try buf.writer().print(
+                    try buf.print(
                         "            .{{ \"{f}\", \"{f}\" }},\n",
                         .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
                     );
@@ -277,7 +277,7 @@ pub const JobQueue = struct {
 
         for (root_manifest.dependencies.keys(), root_manifest.dependencies.values()) |name, dep| {
             const h = depDigest(root_fetch.package_root, jq.global_cache, dep) orelse continue;
-            try buf.writer().print(
+            try buf.print(
                 "    .{{ \"{f}\", \"{f}\" }},\n",
                 .{ std.zig.fmtString(name), std.zig.fmtString(h.toSlice()) },
             );

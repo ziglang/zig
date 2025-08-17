@@ -304,9 +304,8 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.fs.File.stderr().deprecatedWriter();
+        var stderr = std.debug.lockStderrWriter();
+        defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
@@ -410,9 +409,9 @@ fn findDef(
         // Try the archtecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{ lib_path, lib_name });
+            try override_path.print(fmt_path, .{ lib_path, lib_name });
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -427,9 +426,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -444,9 +443,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();

@@ -675,10 +675,13 @@ pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) st
     // Write the locals in the prologue of the function body.
     try code.ensureUnusedCapacity(gpa, 5 + mir.locals.len * 6 + 38);
 
-    std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(mir.locals.len))) catch unreachable;
+    var w: std.Io.Writer = .fixed(code.unusedCapacitySlice());
+
+    w.writeLeb128(@as(u32, @intCast(mir.locals.len))) catch unreachable;
+
     for (mir.locals) |local| {
-        std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-        code.appendAssumeCapacity(@intFromEnum(local));
+        w.writeLeb128(@as(u32, 1)) catch unreachable;
+        w.writeByte(@intFromEnum(local)) catch unreachable;
     }
 
     // Stack management section of function prologue.
@@ -686,32 +689,34 @@ pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) st
     if (stack_alignment.toByteUnits()) |align_bytes| {
         const sp_global: Wasm.GlobalIndex = .stack_pointer;
         // load stack pointer
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-        std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.global_get)) catch unreachable;
+        w.writeUleb128(@intFromEnum(sp_global)) catch unreachable;
         // store stack pointer so we can restore it when we return from the function
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-        leb.writeUleb128(code.fixedWriter(), mir.prologue.sp_local) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        w.writeUleb128(mir.prologue.sp_local) catch unreachable;
         // get the total stack size
         const aligned_stack: i32 = @intCast(stack_alignment.forward(mir.prologue.stack_size));
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-        leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        w.writeSleb128(aligned_stack) catch unreachable;
         // subtract it from the current stack pointer
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_sub)) catch unreachable;
         // Get negative stack alignment
         const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-        leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        w.writeSleb128(neg_stack_align) catch unreachable;
         // Bitwise-and the value to get the new stack pointer to ensure the
         // pointers are aligned with the abi alignment.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_and)) catch unreachable;
         // The bottom will be used to calculate all stack pointer offsets.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-        leb.writeUleb128(code.fixedWriter(), mir.prologue.bottom_stack_local) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        w.writeUleb128(mir.prologue.bottom_stack_local) catch unreachable;
         // Store the current stack pointer value into the global stack pointer so other function calls will
         // start from this value instead and not overwrite the current stack.
-        code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-        std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.global_set)) catch unreachable;
+        w.writeUleb128(@intFromEnum(sp_global)) catch unreachable;
     }
+
+    code.items.len += w.end;
 
     var emit: Emit = .{
         .mir = mir.*,

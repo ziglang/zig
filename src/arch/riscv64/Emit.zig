@@ -31,7 +31,7 @@ pub fn emitMir(emit: *Emit) Error!void {
         var lowered_relocs = lowered.relocs;
         for (lowered.insts, 0..) |lowered_inst, lowered_index| {
             const start_offset: u32 = @intCast(emit.code.items.len);
-            try lowered_inst.encode(emit.code.writer(gpa));
+            std.mem.writeInt(u32, try emit.code.addManyAsArray(gpa, 4), lowered_inst.toU32(), .little);
 
             while (lowered_relocs.len > 0 and
                 lowered_relocs[0].lowered_inst_index == lowered_index) : ({

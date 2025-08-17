@@ -76,7 +76,9 @@ fn runThread(ids: *IncrementalDebugServer) void {
                 ids.mutex.lock();
             }
             defer ids.mutex.unlock();
-            handleCommand(ids.zcu, &text_out, cmd, arg) catch @panic("IncrementalDebugServer: out of memory");
+            var allocating: std.Io.Writer.Allocating = .fromArrayList(gpa, &text_out);
+            defer text_out = allocating.toArrayList();
+            handleCommand(ids.zcu, &allocating.writer, cmd, arg) catch @panic("IncrementalDebugServer: out of memory");
         }
         text_out.append(gpa, '\n') catch @panic("IncrementalDebugServer: out of memory");
         conn.stream.writeAll(text_out.items) catch @panic("IncrementalDebugServer: failed to write");
@@ -119,10 +121,8 @@ const help_str: []const u8 =
     \\
 ;
 
-fn handleCommand(zcu: *Zcu, output: *std.ArrayListUnmanaged(u8), cmd_str: []const u8, arg_str: []const u8) Allocator.Error!void {
+fn handleCommand(zcu: *Zcu, w: *std.Io.Writer, cmd_str: []const u8, arg_str: []const u8) error{ WriteFailed, OutOfMemory }!void {
     const ip = &zcu.intern_pool;
-    const gpa = zcu.gpa;
-    const w = output.writer(gpa);
     if (std.mem.eql(u8, cmd_str, "help")) {
         try w.writeAll(help_str);
     } else if (std.mem.eql(u8, cmd_str, "summary")) {

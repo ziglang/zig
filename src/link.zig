@@ -1976,7 +1976,7 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.tbd", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
+        try checked_paths.print(gpa, "\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :tbd,
             else => |e| fatal("unable to search for tbd library '{f}': {s}", .{ test_path, @errorName(e) }),
@@ -1995,7 +1995,7 @@ fn resolveLibInput(
                 },
             }),
         };
-        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
+        try checked_paths.print(gpa, "\n  {f}", .{test_path});
         switch (try resolvePathInputLib(gpa, arena, unresolved_inputs, resolved_inputs, ld_script_bytes, target, .{
             .path = test_path,
             .query = name_query.query,
@@ -2012,7 +2012,7 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.so", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
+        try checked_paths.print(gpa, "\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :so,
             else => |e| fatal("unable to search for so library '{f}': {s}", .{
@@ -2030,7 +2030,7 @@ fn resolveLibInput(
             .root_dir = lib_directory,
             .sub_path = try std.fmt.allocPrint(arena, "lib{s}.a", .{lib_name}),
         };
-        try checked_paths.writer(gpa).print("\n  {f}", .{test_path});
+        try checked_paths.print(gpa, "\n  {f}", .{test_path});
         var file = test_path.root_dir.handle.openFile(test_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => break :mingw,
             else => |e| fatal("unable to search for static library '{f}': {s}", .{ test_path, @errorName(e) }),
