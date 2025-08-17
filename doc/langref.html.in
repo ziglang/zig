@@ -2470,6 +2470,13 @@ or
       {#code|test_union_method.zig#}
 
       <p>
+      Unions with inferred enum tag types can also assign ordinal values to their inferred tag.
+      This requires the tag to specify an explicit integer type.
+      {#link|@intFromEnum#} can be used to access the ordinal value corresponding to the active field.
+      </p>
+      {#code|test_tagged_union_with_tag_values.zig#}
+
+      <p>
       {#link|@tagName#} can be used to return a {#link|comptime#}
       {#syntax#}[:0]const u8{#endsyntax#} value representing the field name:
       </p>
