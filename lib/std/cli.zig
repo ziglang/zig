@@ -11,8 +11,8 @@ const mem = std.mem;
 const Allocator = mem.Allocator;
 
 pub const Options = struct {
-    /// When returning error.Usage, print a short error message to this writer, defaults to stderr.
-    /// When returning error.Help, print the long help documentation to this writer, defaults to stdout.
+    /// Parsing/validation errors and the long `--help` documentation will be written to this writer.
+    /// By default, parsing/validation errors are written to stderr, and the long `--help` documentation is written to stdout.
     /// Any error while writing is silently ignored.
     writer: ?*Writer = null,
 
@@ -20,6 +20,10 @@ pub const Options = struct {
     /// By default uses the last path component of the process's first argument (`argv[0]`).
     /// When there is no `argv[0]` (such as with `parseSlice`), the default is `"<prog>"`.
     prog: ?[]const u8 = null,
+
+    /// Call `std.process.exit` with an error status instead of returning `error.Usage` or `error.Help`.
+    /// The default is `true` for `parse` and `@"error"`, and `false` otherwise.
+    exit: ?bool = null,
 };
 
 pub const Error = error{
@@ -56,7 +60,7 @@ pub const Error = error{
 /// <other>           (7)
 /// ```
 /// Forms (1), (2), and (3) must correspond to a field `Args.named.<name>`; see below for named argument handling.
-/// Form (4) immediately prints the long help documentation and returns `error.Help`.
+/// Form (4) immediately prints the long help documentation and exits or returns `error.Help` depending on options.exit.
 /// Form (6) signals that all following arg strings are positional.
 /// Form (7) and all arg strings following form (6) are appended into the `positional` array in order.
 ///
@@ -107,12 +111,20 @@ pub const Error = error{
 /// The first arg returned by the `ArgIterator` (`argv[0]`) is skipped by all the above parsing logic.
 /// If `options.prog` is `null`, then the final path component of `argv[0]` is used by default.
 ///
+/// If a parsing/validation error occurs or the `--help` arg is given,
+/// this function calls `std.process.exit` with an error status unless `options.exit` is set to `false`,
+/// in which case parsing/validation errors return `error.Usage` and `--help` returns `error.Help`.
+/// Allocator errors are always returned from the function.
+///
 /// It is not possible to precisely deallocate the memory allocated by this function.
 /// An `ArenaAllocator` is recommended to prevent memory leaks.
 pub fn parse(comptime Args: type, arena: Allocator, options: Options) Error!Args {
     var iter: ArgIterator = try .initWithAllocator(arena);
     // Do not call iter.deinit(). It holds the string data returned in the Args.
-    return parseIter(Args, arena, &iter, options);
+
+    const argv0 = iter.next();
+    const prog = options.prog orelse if (argv0) |arg| std.fs.path.basename(arg) else "<prog>";
+    return innerParse(Args, arena, &iter, prog, options.writer, options.exit orelse true);
 }
 
 test parse {
@@ -151,12 +163,18 @@ test parse {
 /// The first string arg returned by the `iter` (`argv[0]`) is skipped by all the parsing logic.
 /// If `options.prog` is `null`, then the final path component of `argv[0]` is used by default.
 ///
+/// If a parsing/validation error occurs or the `--help` arg is given,
+/// this function returns `error.Usage` or `error.Help` respectively,
+/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with an error status instead.
+/// Allocator errors are always returned from the function.
+///
 /// An `ArenaAllocator` is recommended to cleanup the memory allocated from this function;
 /// however, it's also possible to free all the memory by freeing every slice field `[]const C` (other than `u8`)
 /// in the returned `args.named` as well as freeing `args.positional`.
 pub fn parseIter(comptime Args: type, arena: Allocator, iter: anytype, options: Options) Error!Args {
-    const prog = options.prog orelse if (iter.next()) |arg0| std.fs.path.basename(arg0) else "<prog>";
-    return innerParse(Args, arena, iter, prog, options.writer);
+    const argv0 = iter.next();
+    const prog = options.prog orelse if (argv0) |arg| std.fs.path.basename(arg) else "<prog>";
+    return innerParse(Args, arena, iter, prog, options.writer, options.exit orelse false);
 }
 
 /// Like `parse`, but takes a slice of strings in place of using an `ArgIterator`.
@@ -166,6 +184,11 @@ pub fn parseIter(comptime Args: type, arena: Allocator, iter: anytype, options: 
 ///
 /// Unlike `parse` and `parseIter`, this function does not skip the first item of `argv`.
 /// Use `options.prog` instead.
+///
+/// If a parsing/validation error occurs or the `--help` arg is given,
+/// this function returns `error.Usage` or `error.Help` respectively,
+/// unless `options.exit` is set to `true`, in which case `std.process.exit` is called with an error status instead.
+/// Allocator errors are always returned from the function.
 ///
 /// An `ArenaAllocator` is recommended to cleanup the memory allocated from this function;
 /// however, it's also possible to free all the memory by freeing every slice field `[]const C` (other than `u8`)
@@ -179,7 +202,7 @@ pub fn parseSlice(comptime Args: type, arena: Allocator, argv: anytype, options:
     else
         @compileError("expected argv to be `*const [_]String` or `[]const String` where `String` is `[]const u8` or similar");
     var iter = ArgIteratorSlice(String){ .slice = argv };
-    return innerParse(Args, arena, &iter, options.prog orelse "<prog>", options.writer);
+    return innerParse(Args, arena, &iter, options.prog orelse "<prog>", options.writer, options.exit orelse false);
 }
 
 test parseSlice {
@@ -219,8 +242,8 @@ test parseSlice {
     }, args);
 }
 
-fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []const u8, writer: ?*Writer) Error!Args {
-    // arg0 has already been consumed.
+fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []const u8, writer: ?*Writer, exit_on_error: bool) Error!Args {
+    // argv0 has already been consumed.
 
     // Do all comptime checks up front so that we can be sure any compile error the user sees is the one we wrote.
     comptime checkArgsType(Args);
@@ -272,13 +295,16 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
             } else {
                 printGeneratedHelp(writer, prog, named_info);
             }
+            if (exit_on_error) {
+                std.process.exit(1);
+            }
             return error.Help;
         }
 
         if (arg.len >= 2 and arg[0] == '-' and isAlphabetic(arg[1])) {
             // Always invalid.
             // Examples: -h, -flag, -I/path
-            return usageError(writer, "unrecognized argument: {s}", .{arg});
+            return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
         }
         if (mem.eql(u8, arg, "--")) {
             // Stop recognizing named arguments. Everything else is positional.
@@ -312,31 +338,31 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
         inline for (named_info.fields, 0..) |field, i| {
             if (mem.eql(u8, field.name, arg_name)) {
                 if (field.type == bool) {
-                    if (immediate_value != null) return usageError(writer, "cannot specify value for bool argument: {s}", .{arg});
+                    if (immediate_value != null) return usageError(writer, "cannot specify value for bool argument: {s}", .{arg}, exit_on_error);
                     @field(result.named, field.name) = !no_prefixed;
                     fields_seen[i] = true;
                     break;
                 }
-                if (no_prefixed) return usageError(writer, "unrecognized argument: {s}", .{arg});
+                if (no_prefixed) return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
 
                 // All other argument types require a value.
-                const arg_value = immediate_value orelse iter.next() orelse return usageError(writer, "expected argument after --{s}", .{field.name});
+                const arg_value = immediate_value orelse iter.next() orelse return usageError(writer, "expected argument after --{s}", .{field.name}, exit_on_error);
 
                 switch (@typeInfo(field.type)) {
                     .bool => unreachable, // Handled above.
                     .float => {
                         @field(result.named, field.name) = std.fmt.parseFloat(field.type, arg_value) catch |err| {
-                            return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) });
+                            return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) }, exit_on_error);
                         };
                     },
                     .int => {
                         @field(result.named, field.name) = std.fmt.parseInt(field.type, arg_value, 0) catch |err| {
-                            return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) });
+                            return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) }, exit_on_error);
                         };
                     },
                     .@"enum" => {
                         @field(result.named, field.name) = std.meta.stringToEnum(field.type, arg_value) orelse {
-                            return usageError(writer, "unrecognized value: --{s}={s}, expected one of: {s}", .{ field.name, arg_value, enumValuesExpr(field.type) });
+                            return usageError(writer, "unrecognized value: --{s}={s}, expected one of: {s}", .{ field.name, arg_value, enumValuesExpr(field.type) }, exit_on_error);
                         };
                     },
                     .pointer => |ptrInfo| {
@@ -349,12 +375,12 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                                 .bool => comptime unreachable, // Nicer compile error emitted in checkArgsType().
                                 .float => {
                                     try array_list.append(allocator, std.fmt.parseFloat(ptrInfo.child, arg_value) catch |err| {
-                                        return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) });
+                                        return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) }, exit_on_error);
                                     });
                                 },
                                 .int => {
                                     try array_list.append(allocator, std.fmt.parseInt(ptrInfo.child, arg_value, 0) catch |err| {
-                                        return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) });
+                                        return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field.name, arg_value, @errorName(err) }, exit_on_error);
                                     });
                                 },
                                 .@"enum" => comptime unreachable,
@@ -376,7 +402,7 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
             }
         } else {
             // Didn't match anything.
-            return usageError(writer, "unrecognized argument: {s}", .{arg});
+            return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
         }
     }
 
@@ -387,9 +413,9 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                 @field(result.named, field.name) = default;
             } else {
                 if (field.type == bool) {
-                    return usageError(writer, "missing required argument: --" ++ field.name ++ " or --no-" ++ field.name, .{});
+                    return usageError(writer, "missing required argument: --" ++ field.name ++ " or --no-" ++ field.name, .{}, exit_on_error);
                 } else {
-                    return usageError(writer, "missing required argument: --" ++ field.name, .{});
+                    return usageError(writer, "missing required argument: --" ++ field.name, .{}, exit_on_error);
                 }
             }
         }
@@ -456,8 +482,11 @@ fn checkArgsType(comptime Args: type) void {
 /// An error message will be written to `options.writer` or stderr by default, and `error.Usage` is returned.
 /// The given `msg` template is prefixed by `"error: "` and suffixed by a newline and a prompt to try passing in `--help`.
 /// `options.prog` is not used by this function, but could be in the future.
+///
+/// This function calls `std.process.exit` with an error status unless `options.exit` is set to `false`, in which case it returns `error.Usage`.
+/// This matches the default behavior of `parse`, not `parseIter` or `parseSlice`.
 pub fn @"error"(comptime msg: []const u8, args: anytype, options: Options) error{Usage} {
-    return usageError(options.writer, msg, args);
+    return usageError(options.writer, msg, args, options.exit orelse true);
 }
 
 test @"error" {
@@ -472,15 +501,15 @@ test @"error" {
     defer arena.deinit();
     const args = try parseSlice(Args, arena.allocator(), &[_][]const u8{ "--output=o.txt", "i.txt" }, .{});
 
-    if (std.fs.path.isAbsolutePosix(args.named.output)) {
-        return std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, .{});
+    if (std.fs.path.isAbsolute(args.named.output)) {
+        return std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, .{ .exit_on_error = false });
     }
     if (args.positional.len > 1) {
-        return std.cli.@"error"("expected exactly 1 positional arg", .{}, .{});
+        return std.cli.@"error"("expected exactly 1 positional arg", .{}, .{ .exit_on_error = false });
     }
 }
 
-fn usageError(writer: ?*Writer, comptime msg: []const u8, args: anytype) error{Usage} {
+fn usageError(writer: ?*Writer, comptime msg: []const u8, args: anytype, exit_on_error: bool) error{Usage} {
     const whole_msg =
         "error: " ++ msg ++ "\n" ++
         \\try --help for full help info
@@ -490,6 +519,9 @@ fn usageError(writer: ?*Writer, comptime msg: []const u8, args: anytype) error{U
         w.print(whole_msg, args) catch {};
     } else {
         std.debug.print(whole_msg, args);
+    }
+    if (exit_on_error) {
+        std.process.exit(1);
     }
     return error.Usage;
 }
