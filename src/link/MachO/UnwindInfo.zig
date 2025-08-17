@@ -293,8 +293,7 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     const seg = macho_file.getTextSegment();
     const header = macho_file.sections.items(.header)[macho_file.unwind_info_sect_index.?];
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer: Writer = .fixed(buffer);
 
     const common_encodings_offset: u32 = @sizeOf(macho.unwind_info_section_header);
     const common_encodings_count: u32 = info.common_encodings_count;
@@ -303,14 +302,14 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     const indexes_offset: u32 = personalities_offset + personalities_count * @sizeOf(u32);
     const indexes_count: u32 = @as(u32, @intCast(info.pages.items.len + 1));
 
-    try writer.writeStruct(macho.unwind_info_section_header{
+    try writer.writeStruct(@as(macho.unwind_info_section_header, .{
         .commonEncodingsArraySectionOffset = common_encodings_offset,
         .commonEncodingsArrayCount = common_encodings_count,
         .personalityArraySectionOffset = personalities_offset,
         .personalityArrayCount = personalities_count,
         .indexSectionOffset = indexes_offset,
         .indexCount = indexes_count,
-    });
+    }), .little);
 
     try writer.writeAll(mem.sliceAsBytes(info.common_encodings[0..info.common_encodings_count]));
 
@@ -325,42 +324,42 @@ pub fn write(info: UnwindInfo, macho_file: *MachO, buffer: []u8) !void {
     for (info.pages.items, 0..) |page, i| {
         assert(page.count > 0);
         const rec = info.records.items[page.start].getUnwindRecord(macho_file);
-        try writer.writeStruct(macho.unwind_info_section_header_index_entry{
+        try writer.writeStruct(@as(macho.unwind_info_section_header_index_entry, .{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .secondLevelPagesSectionOffset = @as(u32, @intCast(pages_base_offset + i * second_level_page_bytes)),
             .lsdaIndexArraySectionOffset = lsda_base_offset +
                 info.lsdas_lookup.items[page.start] * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
-        });
+        }), .little);
     }
 
     const last_rec = info.records.items[info.records.items.len - 1].getUnwindRecord(macho_file);
     const sentinel_address = @as(u32, @intCast(last_rec.getAtomAddress(macho_file) + last_rec.length - seg.vmaddr));
-    try writer.writeStruct(macho.unwind_info_section_header_index_entry{
+    try writer.writeStruct(@as(macho.unwind_info_section_header_index_entry, .{
         .functionOffset = sentinel_address,
         .secondLevelPagesSectionOffset = 0,
         .lsdaIndexArraySectionOffset = lsda_base_offset +
             @as(u32, @intCast(info.lsdas.items.len)) * @sizeOf(macho.unwind_info_section_header_lsda_index_entry),
-    });
+    }), .little);
 
     for (info.lsdas.items) |index| {
         const rec = info.records.items[index].getUnwindRecord(macho_file);
-        try writer.writeStruct(macho.unwind_info_section_header_lsda_index_entry{
+        try writer.writeStruct(@as(macho.unwind_info_section_header_lsda_index_entry, .{
             .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
             .lsdaOffset = @as(u32, @intCast(rec.getLsdaAddress(macho_file) - seg.vmaddr)),
-        });
+        }), .little);
     }
 
     for (info.pages.items) |page| {
-        const start = stream.pos;
-        try page.write(info, macho_file, writer);
-        const nwritten = stream.pos - start;
+        const start = writer.end;
+        try page.write(info, macho_file, &writer);
+        const nwritten = writer.end - start;
         if (nwritten < second_level_page_bytes) {
             const padding = math.cast(usize, second_level_page_bytes - nwritten) orelse return error.Overflow;
-            try writer.writeByteNTimes(0, padding);
+            try writer.splatByteAll(0, padding);
         }
     }
 
-    @memset(buffer[stream.pos..], 0);
+    @memset(buffer[writer.end..], 0);
 }
 
 fn getOrPutPersonalityFunction(info: *UnwindInfo, ref: MachO.Ref) error{TooManyPersonalities}!u2 {
@@ -611,33 +610,33 @@ const Page = struct {
         } };
     }
 
-    fn write(page: Page, info: UnwindInfo, macho_file: *MachO, writer: anytype) !void {
+    fn write(page: Page, info: UnwindInfo, macho_file: *MachO, writer: *Writer) !void {
         const seg = macho_file.getTextSegment();
 
         switch (page.kind) {
             .regular => {
-                try writer.writeStruct(macho.unwind_info_regular_second_level_page_header{
+                try writer.writeStruct(@as(macho.unwind_info_regular_second_level_page_header, .{
                     .entryPageOffset = @sizeOf(macho.unwind_info_regular_second_level_page_header),
                     .entryCount = page.count,
-                });
+                }), .little);
 
                 for (info.records.items[page.start..][0..page.count]) |ref| {
                     const rec = ref.getUnwindRecord(macho_file);
-                    try writer.writeStruct(macho.unwind_info_regular_second_level_entry{
+                    try writer.writeStruct(@as(macho.unwind_info_regular_second_level_entry, .{
                         .functionOffset = @as(u32, @intCast(rec.getAtomAddress(macho_file) - seg.vmaddr)),
                         .encoding = rec.enc.enc,
-                    });
+                    }), .little);
                 }
             },
             .compressed => {
                 const entry_offset = @sizeOf(macho.unwind_info_compressed_second_level_page_header) +
                     @as(u16, @intCast(page.page_encodings_count)) * @sizeOf(u32);
-                try writer.writeStruct(macho.unwind_info_compressed_second_level_page_header{
+                try writer.writeStruct(@as(macho.unwind_info_compressed_second_level_page_header, .{
                     .entryPageOffset = entry_offset,
                     .entryCount = page.count,
                     .encodingsPageOffset = @sizeOf(macho.unwind_info_compressed_second_level_page_header),
                     .encodingsCount = page.page_encodings_count,
-                });
+                }), .little);
 
                 for (page.page_encodings[0..page.page_encodings_count]) |enc| {
                     try writer.writeInt(u32, enc.enc, .little);
@@ -656,7 +655,7 @@ const Page = struct {
                         .funcOffset = @as(u24, @intCast(rec.getAtomAddress(macho_file) - first_rec.getAtomAddress(macho_file))),
                         .encodingIndex = @as(u8, @intCast(enc_index)),
                     };
-                    try writer.writeStruct(compressed);
+                    try writer.writeStruct(compressed, .little);
                 }
             },
         }
@@ -673,7 +672,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

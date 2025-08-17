@@ -110,11 +110,13 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
 fn finalize(rebase: *Rebase, gpa: Allocator) !void {
     if (rebase.entries.items.len == 0) return;
 
-    const writer = rebase.buffer.writer(gpa);
-
     log.debug("rebase opcodes", .{});
 
     std.mem.sort(Entry, rebase.entries.items, {}, Entry.lessThan);
+
+    var allocating: std.Io.Writer.Allocating = .fromArrayList(gpa, &rebase.buffer);
+    defer rebase.buffer = allocating.toArrayList();
+    const writer = &allocating.writer;
 
     try setTypePointer(writer);
 

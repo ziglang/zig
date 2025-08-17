@@ -581,7 +581,7 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
     relocs_log.debug("{x}: {s}", .{ self.value, name });
 
     var has_error = false;
-    var stream = std.io.fixedBufferStream(buffer);
+    var stream: Writer = .fixed(buffer);
     var i: usize = 0;
     while (i < relocs.len) : (i += 1) {
         const rel = relocs[i];
@@ -592,8 +592,8 @@ pub fn resolveRelocs(self: Atom, macho_file: *MachO, buffer: []u8) !void {
             if (rel.getTargetSymbol(self, macho_file).getFile(macho_file) == null) continue;
         }
 
-        try stream.seekTo(rel_offset);
-        self.resolveRelocInner(rel, subtractor, buffer, macho_file, stream.writer()) catch |err| {
+        stream.end = rel_offset;
+        self.resolveRelocInner(rel, subtractor, buffer, macho_file, &stream) catch |err| {
             switch (err) {
                 error.RelaxFail => {
                     const target = switch (rel.tag) {
@@ -630,6 +630,7 @@ const ResolveError = error{
     UnexpectedRemainder,
     Overflow,
     OutOfMemory,
+    WriteFailed,
 };
 
 fn resolveRelocInner(
@@ -638,7 +639,7 @@ fn resolveRelocInner(
     subtractor: ?Relocation,
     code: []u8,
     macho_file: *MachO,
-    writer: anytype,
+    writer: *Writer,
 ) ResolveError!void {
     const t = &macho_file.base.comp.root_mod.resolved_target.result;
     const cpu_arch = t.cpu.arch;
@@ -1147,7 +1148,7 @@ const math = std.math;
 const mem = std.mem;
 const log = std.log.scoped(.link);
 const relocs_log = std.log.scoped(.link_relocs);
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const Allocator = mem.Allocator;
 const AtomicBool = std.atomic.Value(bool);
 

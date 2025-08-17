@@ -589,7 +589,7 @@ pub fn flush(
     );
 
     const ncmds, const sizeofcmds, const uuid_cmd_offset = self.writeLoadCommands() catch |err| switch (err) {
-        error.NoSpaceLeft => unreachable,
+        error.WriteFailed => unreachable,
         error.OutOfMemory => return error.OutOfMemory,
         error.LinkFailure => return error.LinkFailure,
     };
@@ -1074,7 +1074,7 @@ fn accessLibPath(
 
     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "lib{s}{s}", .{ search_dir, name, ext });
+        try test_path.print("{s}" ++ sep ++ "lib{s}{s}", .{ search_dir, name, ext });
         try checked_paths.append(try arena.dupe(u8, test_path.items));
         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
             error.FileNotFound => continue,
@@ -1097,7 +1097,7 @@ fn accessFrameworkPath(
 
     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
         test_path.clearRetainingCapacity();
-        try test_path.writer().print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
+        try test_path.print("{s}" ++ sep ++ "{s}.framework" ++ sep ++ "{s}{s}", .{
             search_dir,
             name,
             name,
@@ -1178,9 +1178,9 @@ fn parseDependentDylibs(self: *MachO) !void {
                     for (&[_][]const u8{ ".tbd", ".dylib", "" }) |ext| {
                         test_path.clearRetainingCapacity();
                         if (self.base.comp.sysroot) |root| {
-                            try test_path.writer().print("{s}" ++ fs.path.sep_str ++ "{s}{s}", .{ root, path, ext });
+                            try test_path.print("{s}" ++ fs.path.sep_str ++ "{s}{s}", .{ root, path, ext });
                         } else {
-                            try test_path.writer().print("{s}{s}", .{ path, ext });
+                            try test_path.print("{s}{s}", .{ path, ext });
                         }
                         try checked_paths.append(try arena.dupe(u8, test_path.items));
                         fs.cwd().access(test_path.items, .{}) catch |err| switch (err) {
@@ -2528,8 +2528,8 @@ fn writeThunkWorker(self: *MachO, thunk: Thunk) void {
         fn doWork(th: Thunk, buffer: []u8, macho_file: *MachO) !void {
             const off = try macho_file.cast(usize, th.value);
             const size = th.size();
-            var stream = std.io.fixedBufferStream(buffer[off..][0..size]);
-            try th.write(macho_file, stream.writer());
+            var stream: Writer = .fixed(buffer[off..][0..size]);
+            try th.write(macho_file, &stream);
         }
     }.doWork;
     const out = self.sections.items(.out)[thunk.out_n_sect].items;
@@ -2556,15 +2556,15 @@ fn writeSyntheticSectionWorker(self: *MachO, sect_id: u8, out: []u8) void {
 
     const doWork = struct {
         fn doWork(macho_file: *MachO, tag: Tag, buffer: []u8) !void {
-            var stream = std.io.fixedBufferStream(buffer);
+            var stream: Writer = .fixed(buffer);
             switch (tag) {
                 .eh_frame => eh_frame.write(macho_file, buffer),
                 .unwind_info => try macho_file.unwind_info.write(macho_file, buffer),
-                .got => try macho_file.got.write(macho_file, stream.writer()),
-                .stubs => try macho_file.stubs.write(macho_file, stream.writer()),
-                .la_symbol_ptr => try macho_file.la_symbol_ptr.write(macho_file, stream.writer()),
-                .tlv_ptr => try macho_file.tlv_ptr.write(macho_file, stream.writer()),
-                .objc_stubs => try macho_file.objc_stubs.write(macho_file, stream.writer()),
+                .got => try macho_file.got.write(macho_file, &stream),
+                .stubs => try macho_file.stubs.write(macho_file, &stream),
+                .la_symbol_ptr => try macho_file.la_symbol_ptr.write(macho_file, &stream),
+                .tlv_ptr => try macho_file.tlv_ptr.write(macho_file, &stream),
+                .objc_stubs => try macho_file.objc_stubs.write(macho_file, &stream),
             }
         }
     }.doWork;
@@ -2605,8 +2605,8 @@ fn updateLazyBindSizeWorker(self: *MachO) void {
             try macho_file.lazy_bind_section.updateSize(macho_file);
             const sect_id = macho_file.stubs_helper_sect_index.?;
             const out = &macho_file.sections.items(.out)[sect_id];
-            var stream = std.io.fixedBufferStream(out.items);
-            try macho_file.stubs_helper.write(macho_file, stream.writer());
+            var stream: Writer = .fixed(out.items);
+            try macho_file.stubs_helper.write(macho_file, &stream);
         }
     }.doWork;
     doWork(self) catch |err|
@@ -2669,18 +2669,17 @@ fn writeDyldInfo(self: *MachO) !void {
     defer gpa.free(buffer);
     @memset(buffer, 0);
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer: Writer = .fixed(buffer);
 
-    try self.rebase_section.write(writer);
-    try stream.seekTo(cmd.bind_off - base_off);
-    try self.bind_section.write(writer);
-    try stream.seekTo(cmd.weak_bind_off - base_off);
-    try self.weak_bind_section.write(writer);
-    try stream.seekTo(cmd.lazy_bind_off - base_off);
-    try self.lazy_bind_section.write(writer);
-    try stream.seekTo(cmd.export_off - base_off);
-    try self.export_trie.write(writer);
+    try self.rebase_section.write(&writer);
+    writer.end = cmd.bind_off - base_off;
+    try self.bind_section.write(&writer);
+    writer.end = cmd.weak_bind_off - base_off;
+    try self.weak_bind_section.write(&writer);
+    writer.end = cmd.lazy_bind_off - base_off;
+    try self.lazy_bind_section.write(&writer);
+    writer.end = cmd.export_off - base_off;
+    try self.export_trie.write(&writer);
     try self.pwriteAll(buffer, cmd.rebase_off);
 }
 
@@ -2689,10 +2688,10 @@ pub fn writeDataInCode(self: *MachO) !void {
     defer tracy.end();
     const gpa = self.base.comp.gpa;
     const cmd = self.data_in_code_cmd;
-    var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.data_in_code.size());
+    var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.data_in_code.size());
     defer buffer.deinit();
-    try self.data_in_code.write(self, buffer.writer());
-    try self.pwriteAll(buffer.items, cmd.dataoff);
+    self.data_in_code.write(self, &buffer.writer) catch return error.OutOfMemory;
+    try self.pwriteAll(buffer.written(), cmd.dataoff);
 }
 
 fn writeIndsymtab(self: *MachO) !void {
@@ -2701,10 +2700,11 @@ fn writeIndsymtab(self: *MachO) !void {
     const gpa = self.base.comp.gpa;
     const cmd = self.dysymtab_cmd;
     const needed_size = cmd.nindirectsyms * @sizeOf(u32);
-    var buffer = try std.array_list.Managed(u8).initCapacity(gpa, needed_size);
-    defer buffer.deinit();
-    try self.indsymtab.write(self, buffer.writer());
-    try self.pwriteAll(buffer.items, cmd.indirectsymoff);
+    const buffer = try gpa.alloc(u8, needed_size);
+    defer gpa.free(buffer);
+    var writer: Writer = .fixed(buffer);
+    try self.indsymtab.write(self, &writer);
+    try self.pwriteAll(buffer, cmd.indirectsymoff);
 }
 
 pub fn writeSymtabToFile(self: *MachO) !void {
@@ -2821,8 +2821,7 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
     const buffer = try gpa.alloc(u8, needed_size);
     defer gpa.free(buffer);
 
-    var stream = std.io.fixedBufferStream(buffer);
-    const writer = stream.writer();
+    var writer: Writer = .fixed(buffer);
 
     var ncmds: usize = 0;
 
@@ -2831,26 +2830,26 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
         const slice = self.sections.slice();
         var sect_id: usize = 0;
         for (self.segments.items) |seg| {
-            try writer.writeStruct(seg);
+            try writer.writeStruct(seg, .little);
             for (slice.items(.header)[sect_id..][0..seg.nsects]) |header| {
-                try writer.writeStruct(header);
+                try writer.writeStruct(header, .little);
             }
             sect_id += seg.nsects;
         }
         ncmds += self.segments.items.len;
     }
 
-    try writer.writeStruct(self.dyld_info_cmd);
+    try writer.writeStruct(self.dyld_info_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.function_starts_cmd);
+    try writer.writeStruct(self.function_starts_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.data_in_code_cmd);
+    try writer.writeStruct(self.data_in_code_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.symtab_cmd);
+    try writer.writeStruct(self.symtab_cmd, .little);
     ncmds += 1;
-    try writer.writeStruct(self.dysymtab_cmd);
+    try writer.writeStruct(self.dysymtab_cmd, .little);
     ncmds += 1;
-    try load_commands.writeDylinkerLC(writer);
+    try load_commands.writeDylinkerLC(&writer);
     ncmds += 1;
 
     if (self.getInternalObject()) |obj| {
@@ -2861,44 +2860,44 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
                 0
             else
                 @as(u32, @intCast(sym.getAddress(.{ .stubs = true }, self) - seg.vmaddr));
-            try writer.writeStruct(macho.entry_point_command{
+            try writer.writeStruct(@as(macho.entry_point_command, .{
                 .entryoff = entryoff,
                 .stacksize = self.base.stack_size,
-            });
+            }), .little);
             ncmds += 1;
         }
     }
 
     if (self.base.isDynLib()) {
-        try load_commands.writeDylibIdLC(self, writer);
+        try load_commands.writeDylibIdLC(self, &writer);
         ncmds += 1;
     }
 
     for (self.rpath_list) |rpath| {
-        try load_commands.writeRpathLC(rpath, writer);
+        try load_commands.writeRpathLC(rpath, &writer);
         ncmds += 1;
     }
     if (comp.config.any_sanitize_thread) {
         const path = try comp.tsan_lib.?.full_object_path.toString(gpa);
         defer gpa.free(path);
         const rpath = std.fs.path.dirname(path) orelse ".";
-        try load_commands.writeRpathLC(rpath, writer);
+        try load_commands.writeRpathLC(rpath, &writer);
         ncmds += 1;
     }
 
-    try writer.writeStruct(macho.source_version_command{ .version = 0 });
+    try writer.writeStruct(@as(macho.source_version_command, .{ .version = 0 }), .little);
     ncmds += 1;
 
     if (self.platform.isBuildVersionCompatible()) {
-        try load_commands.writeBuildVersionLC(self.platform, self.sdk_version, writer);
+        try load_commands.writeBuildVersionLC(self.platform, self.sdk_version, &writer);
         ncmds += 1;
     } else {
-        try load_commands.writeVersionMinLC(self.platform, self.sdk_version, writer);
+        try load_commands.writeVersionMinLC(self.platform, self.sdk_version, &writer);
         ncmds += 1;
     }
 
-    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + stream.pos;
-    try writer.writeStruct(self.uuid_cmd);
+    const uuid_cmd_offset = @sizeOf(macho.mach_header_64) + writer.end;
+    try writer.writeStruct(self.uuid_cmd, .little);
     ncmds += 1;
 
     for (self.dylibs.items) |index| {
@@ -2916,16 +2915,16 @@ fn writeLoadCommands(self: *MachO) !struct { usize, usize, u64 } {
             .timestamp = dylib_id.timestamp,
             .current_version = dylib_id.current_version,
             .compatibility_version = dylib_id.compatibility_version,
-        }, writer);
+        }, &writer);
         ncmds += 1;
     }
 
     if (self.requiresCodeSig()) {
-        try writer.writeStruct(self.codesig_cmd);
+        try writer.writeStruct(self.codesig_cmd, .little);
         ncmds += 1;
     }
 
-    assert(stream.pos == needed_size);
+    assert(writer.end == needed_size);
 
     try self.pwriteAll(buffer, @sizeOf(macho.mach_header_64));
 
@@ -3014,25 +3013,26 @@ pub fn writeCodeSignaturePadding(self: *MachO, code_sig: *CodeSignature) !void {
 pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const seg = self.getTextSegment();
     const offset = self.codesig_cmd.dataoff;
+    const gpa = self.base.comp.gpa;
 
-    var buffer = std.array_list.Managed(u8).init(self.base.comp.gpa);
-    defer buffer.deinit();
-    try buffer.ensureTotalCapacityPrecise(code_sig.size());
+    const buffer = try gpa.alloc(u8, code_sig.size());
+    defer gpa.free(buffer);
+    var writer: Writer = .fixed(buffer);
     try code_sig.writeAdhocSignature(self, .{
         .file = self.base.file.?,
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
         .file_size = offset,
         .dylib = self.base.isDynLib(),
-    }, buffer.writer());
-    assert(buffer.items.len == code_sig.size());
+    }, &writer);
+    assert(writer.buffered().len == code_sig.size());
 
     log.debug("writing code signature from 0x{x} to 0x{x}", .{
         offset,
-        offset + buffer.items.len,
+        offset + writer.buffered().len,
     });
 
-    try self.pwriteAll(buffer.items, offset);
+    try self.pwriteAll(writer.buffered(), offset);
 }
 
 pub fn updateFunc(
@@ -5372,7 +5372,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const meta = std.meta;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const aarch64 = codegen.aarch64.encoding;
 const bind = @import("MachO/dyld_info/bind.zig");

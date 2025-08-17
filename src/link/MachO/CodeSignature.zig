@@ -304,10 +304,10 @@ pub fn writeAdhocSignature(
     var hash: [hash_size]u8 = undefined;
 
     if (self.requirements) |*req| {
-        var buf = std.array_list.Managed(u8).init(allocator);
-        defer buf.deinit();
-        try req.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(allocator);
+        defer a.deinit();
+        try req.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(req.slotType(), hash);
 
         try blobs.append(.{ .requirements = req });
@@ -316,10 +316,10 @@ pub fn writeAdhocSignature(
     }
 
     if (self.entitlements) |*ents| {
-        var buf = std.array_list.Managed(u8).init(allocator);
-        defer buf.deinit();
-        try ents.write(buf.writer());
-        Sha256.hash(buf.items, &hash, .{});
+        var a: std.Io.Writer.Allocating = .init(allocator);
+        defer a.deinit();
+        try ents.write(&a.writer);
+        Sha256.hash(a.written(), &hash, .{});
         self.code_directory.addSpecialHash(ents.slotType(), hash);
 
         try blobs.append(.{ .entitlements = ents });
