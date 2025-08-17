@@ -952,7 +952,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const is_tls = sym.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.writer(gpa).print("{s}\x00", .{name});
+        try self.strtab.print(gpa, "{s}\x00", .{name});
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;

@@ -89,7 +89,7 @@ pub fn allocate(list: *AtomList, elf_file: *Elf) !void {
     list.dirty = false;
 }
 
-pub fn write(list: AtomList, buffer: *std.array_list.Managed(u8), undefs: anytype, elf_file: *Elf) !void {
+pub fn write(list: AtomList, buffer: *std.Io.Writer.Allocating, undefs: anytype, elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
     const osec = elf_file.sections.items(.shdr)[list.output_section_index];
     assert(osec.sh_type != elf.SHT_NOBITS);
@@ -98,8 +98,7 @@ pub fn write(list: AtomList, buffer: *std.array_list.Managed(u8), undefs: anytyp
     log.debug("writing atoms in section '{s}'", .{elf_file.getShString(osec.sh_name)});
 
     const list_size = math.cast(usize, list.size) orelse return error.Overflow;
-    try buffer.ensureUnusedCapacity(list_size);
-    buffer.appendNTimesAssumeCapacity(0, list_size);
+    try buffer.writer.splatByteAll(0, list_size);
 
     for (list.atoms.keys()) |ref| {
         const atom_ptr = elf_file.atom(ref).?;
@@ -113,7 +112,7 @@ pub fn write(list: AtomList, buffer: *std.array_list.Managed(u8), undefs: anytyp
         const object = atom_ptr.file(elf_file).?.object;
         const code = try object.codeDecompressAlloc(elf_file, ref.index);
         defer gpa.free(code);
-        const out_code = buffer.items[off..][0..size];
+        const out_code = buffer.written()[off..][0..size];
         @memcpy(out_code, code);
 
         if (osec.sh_flags & elf.SHF_ALLOC == 0)
@@ -122,7 +121,7 @@ pub fn write(list: AtomList, buffer: *std.array_list.Managed(u8), undefs: anytyp
             try atom_ptr.resolveRelocsAlloc(elf_file, out_code);
     }
 
-    try elf_file.base.file.?.pwriteAll(buffer.items, list.offset(elf_file));
+    try elf_file.base.file.?.pwriteAll(buffer.written(), list.offset(elf_file));
     buffer.clearRetainingCapacity();
 }
 
