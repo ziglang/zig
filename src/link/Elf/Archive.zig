@@ -123,8 +123,7 @@ pub fn setArHdr(opts: struct {
     @memcpy(&hdr.ar_fmag, elf.ARFMAG);
 
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        const writer = stream.writer();
+        var writer: std.Io.Writer = .fixed(&hdr.ar_name);
         switch (opts.name) {
             .symtab => writer.print("{s}", .{elf.SYM64NAME}) catch unreachable,
             .strtab => writer.print("//", .{}) catch unreachable,
@@ -133,8 +132,8 @@ pub fn setArHdr(opts: struct {
         }
     }
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{opts.size}) catch unreachable;
+        var writer: std.Io.Writer = .fixed(&hdr.ar_size);
+        writer.print("{d}", .{opts.size}) catch unreachable;
     }
 
     return hdr;
@@ -246,7 +245,7 @@ pub const ArStrtab = struct {
 
     pub fn insert(ar: *ArStrtab, allocator: Allocator, name: []const u8) error{OutOfMemory}!u32 {
         const off = @as(u32, @intCast(ar.buffer.items.len));
-        try ar.buffer.writer(allocator).print("{s}/{c}", .{ name, strtab_delimiter });
+        try ar.buffer.print(allocator, "{s}/{c}", .{ name, strtab_delimiter });
         return off;
     }
 
