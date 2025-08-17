@@ -57,7 +57,7 @@ comptime {
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(&mainWithoutEnv, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "__main_argc_argv" });
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
