@@ -336,15 +336,21 @@ pid_t gettid(void);
 #endif
 #define _POSIX_VDISABLE         0
 
-#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT)
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT) || !defined(_WASI_STRICT_PTHREAD)
 #define _POSIX_THREADS          _POSIX_VERSION
-#endif
 #define _POSIX_THREAD_PROCESS_SHARED _POSIX_VERSION
 #define _POSIX_THREAD_SAFE_FUNCTIONS _POSIX_VERSION
+#endif
+#if defined(__wasilibc_unmodified_upstream) /* wasi-libc doesn't provide pthread_attr_{get,set}stackaddr */
 #define _POSIX_THREAD_ATTR_STACKADDR _POSIX_VERSION
+#endif
+#if defined(__wasilibc_unmodified_upstream) || defined(_REENTRANT) || !defined(_WASI_STRICT_PTHREAD)
 #define _POSIX_THREAD_ATTR_STACKSIZE _POSIX_VERSION
+#endif
+#if defined(__wasilibc_unmodified_upstream) /* WASI has no scheduling control, and wasi-libc doesn't provide pthread_getcpuclockid */
 #define _POSIX_THREAD_PRIORITY_SCHEDULING _POSIX_VERSION
 #define _POSIX_THREAD_CPUTIME   _POSIX_VERSION
+#endif
 #define _POSIX_TIMERS           _POSIX_VERSION
 #define _POSIX_TIMEOUTS         _POSIX_VERSION
 #define _POSIX_MONOTONIC_CLOCK  _POSIX_VERSION
@@ -529,6 +535,8 @@ pid_t gettid(void);
 #define _SC_XOPEN_STREAMS	246
 #define _SC_THREAD_ROBUST_PRIO_INHERIT	247
 #define _SC_THREAD_ROBUST_PRIO_PROTECT	248
+#define _SC_MINSIGSTKSZ	249
+#define _SC_SIGSTKSZ	250
 
 #define _CS_PATH	0
 #define _CS_POSIX_V6_WIDTH_RESTRICTED_ENVS	1
@@ -571,6 +579,8 @@ pid_t gettid(void);
 #define _CS_POSIX_V7_LPBIG_OFFBIG_LINTFLAGS	1147
 #define _CS_V6_ENV	1148
 #define _CS_V7_ENV	1149
+#define _CS_POSIX_V7_THREADS_CFLAGS	1150
+#define _CS_POSIX_V7_THREADS_LDFLAGS	1151
 
 #ifdef __cplusplus
 }
