@@ -190,7 +190,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
     else
         &libcxx_base_files;
 
-    var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
+    var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxx_files.len);
 
     for (libcxx_files) |cxx_src| {
         // These don't compile on WASI due to e.g. `fchmod` usage.
@@ -201,7 +201,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         if (std.mem.startsWith(u8, cxx_src, "src/support/ibm/") and target.os.tag != .zos)
             continue;
 
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try addCxxArgs(comp, arena, &cflags);
 
@@ -233,7 +233,7 @@ pub fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) BuildError!
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
         // should not be overridden here.
-        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+        var cache_exempt_flags = std.array_list.Managed([]const u8).init(arena);
 
         try cache_exempt_flags.append("-I");
         try cache_exempt_flags.append(cxx_include_path);
@@ -385,7 +385,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         return error.AlreadyReported;
     };
 
-    var c_source_files = try std.ArrayList(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
+    var c_source_files = try std.array_list.Managed(Compilation.CSourceFile).initCapacity(arena, libcxxabi_files.len);
 
     for (libcxxabi_files) |cxxabi_src| {
         if (!comp.config.any_non_single_threaded and std.mem.startsWith(u8, cxxabi_src, "src/cxa_thread_atexit.cpp"))
@@ -394,7 +394,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             (std.mem.eql(u8, cxxabi_src, "src/cxa_exception.cpp") or std.mem.eql(u8, cxxabi_src, "src/cxa_personality.cpp")))
             continue;
 
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try addCxxArgs(comp, arena, &cflags);
 
@@ -425,7 +425,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         // These depend on only the zig lib directory file path, which is
         // purposefully either in the cache or not in the cache. The decision
         // should not be overridden here.
-        var cache_exempt_flags = std.ArrayList([]const u8).init(arena);
+        var cache_exempt_flags = std.array_list.Managed([]const u8).init(arena);
 
         try cache_exempt_flags.append("-I");
         try cache_exempt_flags.append(cxxabi_include_path);
@@ -497,7 +497,7 @@ pub fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
 pub fn addCxxArgs(
     comp: *const Compilation,
     arena: std.mem.Allocator,
-    cflags: *std.ArrayList([]const u8),
+    cflags: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const optimize_mode = comp.compilerRtOptMode();

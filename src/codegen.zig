@@ -327,7 +327,7 @@ pub fn generateSymbol(
 
     log.debug("generateSymbol: val = {f}", .{val.fmtValue(pt)});
 
-    if (val.isUndefDeep(zcu)) {
+    if (val.isUndef(zcu)) {
         const abi_size = math.cast(usize, ty.abiSize(zcu)) orelse return error.Overflow;
         try code.appendNTimes(gpa, 0xaa, abi_size);
         return;
@@ -997,8 +997,6 @@ pub fn genNavRef(
             },
             .link_once => unreachable,
         }
-    } else if (lf.cast(.plan9)) |p9| {
-        return .{ .sym_index = try p9.seeNav(pt, nav_index) };
     } else {
         const msg = try ErrorMsg.create(zcu.gpa, src_loc, "TODO genNavRef for target {}", .{target});
         return .{ .fail = msg };

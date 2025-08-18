@@ -4,7 +4,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 const Writer = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const Limit = std.io.Limit;
+const Limit = std.Io.Limit;
 const File = std.fs.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -76,6 +76,14 @@ pub const VTable = struct {
     /// There may be subsequent calls to `drain` and `sendFile` after a `flush`
     /// operation.
     flush: *const fn (w: *Writer) Error!void = defaultFlush,
+
+    /// Ensures `capacity` more bytes can be buffered without rebasing.
+    ///
+    /// The most recent `preserve` bytes must remain buffered.
+    ///
+    /// Only called when `capacity` bytes cannot fit into the unused capacity
+    /// of `buffer`.
+    rebase: *const fn (w: *Writer, preserve: usize, capacity: usize) Error!void = defaultRebase,
 };
 
 pub const Error = error{
@@ -117,6 +125,7 @@ pub fn fixed(buffer: []u8) Writer {
         .vtable = &.{
             .drain = fixedDrain,
             .flush = noopFlush,
+            .rebase = failingRebase,
         },
         .buffer = buffer,
     };
@@ -130,8 +139,15 @@ pub const failing: Writer = .{
     .vtable = &.{
         .drain = failingDrain,
         .sendFile = failingSendFile,
+        .rebase = failingRebase,
     },
+    .buffer = &.{},
 };
+
+test failing {
+    var fw: Writer = .failing;
+    try testing.expectError(error.WriteFailed, fw.writeAll("always fails"));
+}
 
 /// Returns the contents not yet drained.
 pub fn buffered(w: *const Writer) []u8 {
@@ -276,7 +292,7 @@ fn writeSplatHeaderLimitFinish(
 
 test "writeSplatHeader splatting avoids buffer aliasing temptation" {
     const initial_buf = try testing.allocator.alloc(u8, 8);
-    var aw: std.io.Writer.Allocating = .initOwnedSlice(testing.allocator, initial_buf);
+    var aw: Allocating = .initOwnedSlice(testing.allocator, initial_buf);
     defer aw.deinit();
     // This test assumes 8 vector buffer in this function.
     const n = try aw.writer.writeSplatHeader("header which is longer than buf ", &.{
@@ -307,24 +323,41 @@ pub fn noopFlush(w: *Writer) Error!void {
 
 test "fixed buffer flush" {
     var buffer: [1]u8 = undefined;
-    var writer: std.io.Writer = .fixed(&buffer);
+    var writer: Writer = .fixed(&buffer);
 
     try writer.writeByte(10);
     try writer.flush();
     try testing.expectEqual(10, buffer[0]);
 }
 
-/// Calls `VTable.drain` but hides the last `preserve_len` bytes from the
-/// implementation, keeping them buffered.
-pub fn drainPreserve(w: *Writer, preserve_len: usize) Error!void {
-    const preserved_head = w.end -| preserve_len;
-    const preserved_tail = w.end;
-    const preserved_len = preserved_tail - preserved_head;
-    w.end = preserved_head;
-    defer w.end += preserved_len;
-    assert(0 == try w.vtable.drain(w, &.{""}, 1));
-    assert(w.end <= preserved_head + preserved_len);
-    @memmove(w.buffer[w.end..][0..preserved_len], w.buffer[preserved_head..preserved_tail]);
+pub fn rebase(w: *Writer, preserve: usize, unused_capacity_len: usize) Error!void {
+    if (w.buffer.len - w.end >= unused_capacity_len) {
+        @branchHint(.likely);
+        return;
+    }
+    return w.vtable.rebase(w, preserve, unused_capacity_len);
+}
+
+pub fn defaultRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
+    while (w.buffer.len - w.end < minimum_len) {
+        {
+            // TODO: instead of this logic that "hides" data from
+            // the implementation, introduce a seek index to Writer
+            const preserved_head = w.end -| preserve;
+            const preserved_tail = w.end;
+            const preserved_len = preserved_tail - preserved_head;
+            w.end = preserved_head;
+            defer w.end += preserved_len;
+            assert(0 == try w.vtable.drain(w, &.{""}, 1));
+            assert(w.end <= preserved_head + preserved_len);
+            @memmove(w.buffer[w.end..][0..preserved_len], w.buffer[preserved_head..preserved_tail]);
+        }
+
+        // If the loop condition was false this assertion would have passed
+        // anyway. Otherwise, give the implementation a chance to grow the
+        // buffer before asserting on the buffer length.
+        assert(w.buffer.len - preserve >= minimum_len);
+    }
 }
 
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
@@ -353,50 +386,44 @@ pub fn writableSlice(w: *Writer, len: usize) Error![]u8 {
     return big_slice[0..len];
 }
 
-/// Asserts the provided buffer has total capacity enough for `minimum_length`.
+/// Asserts the provided buffer has total capacity enough for `minimum_len`.
 ///
 /// Does not `advance` the buffer end position.
 ///
-/// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
-pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= minimum_length);
-    while (w.buffer.len - w.end < minimum_length) {
-        assert(0 == try w.vtable.drain(w, &.{""}, 1));
-    } else {
-        @branchHint(.likely);
-        return w.buffer[w.end..];
-    }
+/// If `minimum_len` is zero, this is equivalent to `unusedCapacitySlice`.
+pub fn writableSliceGreedy(w: *Writer, minimum_len: usize) Error![]u8 {
+    return writableSliceGreedyPreserve(w, 0, minimum_len);
 }
 
-/// Asserts the provided buffer has total capacity enough for `minimum_length`
-/// and `preserve_len` combined.
+/// Asserts the provided buffer has total capacity enough for `minimum_len`
+/// and `preserve` combined.
 ///
 /// Does not `advance` the buffer end position.
 ///
-/// When draining the buffer, ensures that at least `preserve_len` bytes
+/// When draining the buffer, ensures that at least `preserve` bytes
 /// remain buffered.
 ///
-/// If `preserve_len` is zero, this is equivalent to `writableSliceGreedy`.
-pub fn writableSliceGreedyPreserve(w: *Writer, preserve_len: usize, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= preserve_len + minimum_length);
-    while (w.buffer.len - w.end < minimum_length) {
-        try drainPreserve(w, preserve_len);
-    } else {
+/// If `preserve` is zero, this is equivalent to `writableSliceGreedy`.
+pub fn writableSliceGreedyPreserve(w: *Writer, preserve: usize, minimum_len: usize) Error![]u8 {
+    if (w.buffer.len - w.end >= minimum_len) {
         @branchHint(.likely);
         return w.buffer[w.end..];
     }
+    try rebase(w, preserve, minimum_len);
+    assert(w.buffer.len >= preserve + minimum_len);
+    return w.buffer[w.end..];
 }
 
 /// Asserts the provided buffer has total capacity enough for `len`.
 ///
 /// Advances the buffer end position by `len`.
 ///
-/// When draining the buffer, ensures that at least `preserve_len` bytes
+/// When draining the buffer, ensures that at least `preserve` bytes
 /// remain buffered.
 ///
-/// If `preserve_len` is zero, this is equivalent to `writableSlice`.
-pub fn writableSlicePreserve(w: *Writer, preserve_len: usize, len: usize) Error![]u8 {
-    const big_slice = try w.writableSliceGreedyPreserve(preserve_len, len);
+/// If `preserve` is zero, this is equivalent to `writableSlice`.
+pub fn writableSlicePreserve(w: *Writer, preserve: usize, len: usize) Error![]u8 {
+    const big_slice = try w.writableSliceGreedyPreserve(preserve, len);
     advance(w, len);
     return big_slice[0..len];
 }
@@ -498,42 +525,11 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     return w.vtable.drain(w, &.{bytes}, 1);
 }
 
-/// Asserts `buffer` capacity exceeds `preserve_len`.
-pub fn writePreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!usize {
-    assert(preserve_len <= w.buffer.len);
-    if (w.end + bytes.len <= w.buffer.len) {
-        @branchHint(.likely);
-        @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
-        w.end += bytes.len;
-        return bytes.len;
-    }
-    const temp_end = w.end -| preserve_len;
-    const preserved = w.buffer[temp_end..w.end];
-    w.end = temp_end;
-    defer w.end += preserved.len;
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    assert(w.end <= temp_end + preserved.len);
-    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
-    return n;
-}
-
 /// Calls `drain` as many times as necessary such that all of `bytes` are
 /// transferred.
 pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try w.write(bytes[index..]);
-}
-
-/// Calls `drain` as many times as necessary such that all of `bytes` are
-/// transferred.
-///
-/// When draining the buffer, ensures that at least `preserve_len` bytes
-/// remain buffered.
-///
-/// Asserts `buffer` capacity exceeds `preserve_len`.
-pub fn writeAllPreserve(w: *Writer, preserve_len: usize, bytes: []const u8) Error!void {
-    var index: usize = 0;
-    while (index < bytes.len) index += try w.writePreserve(preserve_len, bytes[index..]);
 }
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -736,16 +732,18 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
     }
 }
 
-/// When draining the buffer, ensures that at least `preserve_len` bytes
+/// When draining the buffer, ensures that at least `preserve` bytes
 /// remain buffered.
-pub fn writeBytePreserve(w: *Writer, preserve_len: usize, byte: u8) Error!void {
-    while (w.buffer.len - w.end == 0) {
-        try drainPreserve(w, preserve_len);
-    } else {
+pub fn writeBytePreserve(w: *Writer, preserve: usize, byte: u8) Error!void {
+    if (w.buffer.len - w.end != 0) {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
+        return;
     }
+    try w.vtable.rebase(w, preserve, 1);
+    w.buffer[w.end] = byte;
+    w.end += 1;
 }
 
 /// Writes the same byte many times, performing the underlying write call as
@@ -763,18 +761,18 @@ test splatByteAll {
     try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
 }
 
-pub fn splatBytePreserve(w: *Writer, preserve_len: usize, byte: u8, n: usize) Error!void {
+pub fn splatBytePreserve(w: *Writer, preserve: usize, byte: u8, n: usize) Error!void {
     const new_end = w.end + n;
     if (new_end <= w.buffer.len) {
         @memset(w.buffer[w.end..][0..n], byte);
         w.end = new_end;
         return;
     }
-    // If `n` is large, we can ignore `preserve_len` up to a point.
+    // If `n` is large, we can ignore `preserve` up to a point.
     var remaining = n;
-    while (remaining > preserve_len) {
+    while (remaining > preserve) {
         assert(remaining != 0);
-        remaining -= try splatByte(w, byte, remaining - preserve_len);
+        remaining -= try splatByte(w, byte, remaining - preserve);
         if (w.end + remaining <= w.buffer.len) {
             @memset(w.buffer[w.end..][0..remaining], byte);
             w.end += remaining;
@@ -782,9 +780,9 @@ pub fn splatBytePreserve(w: *Writer, preserve_len: usize, byte: u8, n: usize) Er
         }
     }
     // All the next bytes received must be preserved.
-    if (preserve_len < w.end) {
-        @memmove(w.buffer[0..preserve_len], w.buffer[w.end - preserve_len ..][0..preserve_len]);
-        w.end = preserve_len;
+    if (preserve < w.end) {
+        @memmove(w.buffer[0..preserve], w.buffer[w.end - preserve ..][0..preserve]);
+        w.end = preserve;
     }
     while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
 }
@@ -884,6 +882,9 @@ pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
 /// Unlike `writeSplat` and `writeVec`, this function will call into `VTable`
 /// even if there is enough buffer capacity for the file contents.
 ///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
+///
 /// Although it would be possible to eliminate `error.Unimplemented` from the
 /// error set by reading directly into the buffer in such case, this is not
 /// done because it is more efficient to do it higher up the call stack so that
@@ -896,6 +897,8 @@ pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!u
 }
 
 /// Returns how many bytes from `header` and `file_reader` were consumed.
+///
+/// `limit` only applies to `file_reader`.
 pub fn sendFileHeader(
     w: *Writer,
     header: []const u8,
@@ -910,7 +913,7 @@ pub fn sendFileHeader(
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
-    file_reader.interface.toss(n - header.len);
+    file_reader.interface.toss(n -| header.len);
     return n;
 }
 
@@ -924,7 +927,16 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 
 /// Number of bytes logically written is returned. This excludes bytes from
 /// `buffer` because they have already been logically written.
+///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
+///
+/// Asserts nonzero buffer capacity.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+    // The fallback sendFileReadingAll() path asserts non-zero buffer capacity.
+    // Explicitly assert it here as well to ensure the assert is hit even if
+    // the fallback path is not taken.
+    assert(w.buffer.len > 0);
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
@@ -1693,7 +1705,7 @@ pub const ByteSizeUnits = enum {
 
 /// Format option `precision` is ignored when `value` is less than 1kB
 pub fn printByteSize(
-    w: *std.io.Writer,
+    w: *Writer,
     value: u64,
     comptime units: ByteSizeUnits,
     options: std.fmt.Options,
@@ -1878,39 +1890,30 @@ pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
     try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
         .signedness = value_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, value_info.bits, 7),
+        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
     } }), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    comptime assert(value_info.bits % 7 == 0);
+    const Byte = packed struct(u8) { bits: u7, more: bool };
+    var bytes: [@divExact(value_info.bits, 7)]Byte = undefined;
     var remaining = value;
-    while (true) {
-        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try w.writableSliceGreedy(1));
-        for (buffer, 1..) |*byte, len| {
-            const more = switch (value_info.signedness) {
-                .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
-                .unsigned => remaining > std.math.maxInt(u7),
-            };
-            byte.* = if (@inComptime()) @typeInfo(@TypeOf(buffer)).pointer.child{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            } else .{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            };
-            if (value_info.bits > 7) remaining >>= 7;
-            if (!more) return w.advance(len);
-        }
-        w.advance(buffer.len);
-    }
+    for (&bytes, 1..) |*byte, len| {
+        const more = switch (value_info.signedness) {
+            .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
+            .unsigned => remaining > std.math.maxInt(u7),
+        };
+        byte.* = .{
+            .bits = @bitCast(@as(@Type(.{ .int = .{
+                .signedness = value_info.signedness,
+                .bits = 7,
+            } }), @truncate(remaining))),
+            .more = more,
+        };
+        if (value_info.bits > 7) remaining >>= 7;
+        if (!more) return w.writeAll(@ptrCast(bytes[0..len]));
+    } else unreachable;
 }
 
 test "printValue max_depth" {
@@ -2204,7 +2207,7 @@ test "fixed output" {
 
 test "writeSplat 0 len splat larger than capacity" {
     var buf: [8]u8 = undefined;
-    var w: std.io.Writer = .fixed(&buf);
+    var w: Writer = .fixed(&buf);
     const n = try w.writeSplat(&.{"something that overflows buf"}, 0);
     try testing.expectEqual(0, n);
 }
@@ -2220,6 +2223,13 @@ pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     _ = w;
     _ = file_reader;
     _ = limit;
+    return error.WriteFailed;
+}
+
+pub fn failingRebase(w: *Writer, preserve: usize, capacity: usize) Error!void {
+    _ = w;
+    _ = preserve;
+    _ = capacity;
     return error.WriteFailed;
 }
 
@@ -2357,6 +2367,13 @@ pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Erro
     unreachable;
 }
 
+pub fn unreachableRebase(w: *Writer, preserve: usize, capacity: usize) Error!void {
+    _ = w;
+    _ = preserve;
+    _ = capacity;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2490,17 +2507,13 @@ pub fn Hashing(comptime Hasher: type) type {
 /// Maintains `Writer` state such that it writes to the unused capacity of an
 /// array list, filling it up completely before making a call through the
 /// vtable, causing a resize. Consequently, the same, optimized, non-generic
-/// machine code that uses `std.io.Reader`, such as formatted printing, takes
+/// machine code that uses `std.Io.Reader`, such as formatted printing, takes
 /// the hot paths when using this API.
 ///
 /// When using this API, it is not necessary to call `flush`.
 pub const Allocating = struct {
     allocator: Allocator,
     writer: Writer,
-    /// Every call to `drain` ensures at least this amount of unused capacity
-    /// before it returns. This prevents an infinite loop in interface logic
-    /// that calls `drain`.
-    minimum_unused_capacity: usize = 1,
 
     pub fn init(allocator: Allocator) Allocating {
         return .{
@@ -2549,6 +2562,7 @@ pub const Allocating = struct {
         .drain = Allocating.drain,
         .sendFile = Allocating.sendFile,
         .flush = noopFlush,
+        .rebase = growingRebase,
     };
 
     pub fn deinit(a: *Allocating) void {
@@ -2594,7 +2608,7 @@ pub const Allocating = struct {
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
-    pub fn getWritten(a: *Allocating) []u8 {
+    pub fn written(a: *Allocating) []u8 {
         return a.writer.buffered();
     }
 
@@ -2611,13 +2625,12 @@ pub const Allocating = struct {
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
-        const bump = a.minimum_unused_capacity;
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
         assert(data.len != 0);
         for (data) |bytes| {
-            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + bump) catch return error.WriteFailed;
+            list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
             list.appendSliceAssumeCapacity(bytes);
         }
         if (splat == 0) {
@@ -2630,7 +2643,7 @@ pub const Allocating = struct {
         return list.items.len - start_len;
     }
 
-    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
+    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
@@ -2647,6 +2660,16 @@ pub const Allocating = struct {
         return n;
     }
 
+    fn growingRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
+        const a: *Allocating = @fieldParentPtr("writer", w);
+        const gpa = a.allocator;
+        var list = a.toArrayList();
+        defer setArrayList(a, list);
+        const total = std.math.add(usize, preserve, minimum_len) catch return error.WriteFailed;
+        list.ensureTotalCapacity(gpa, total) catch return error.WriteFailed;
+        list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
+    }
+
     fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
         a.writer.buffer = list.allocatedSlice();
         a.writer.end = list.items.len;
@@ -2661,7 +2684,7 @@ pub const Allocating = struct {
         const y: i32 = 1234;
         try w.print("x: {}\ny: {}\n", .{ x, y });
 
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.getWritten());
+        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
     }
 };
 
@@ -2680,7 +2703,7 @@ test "discarding sendFile" {
     try file_reader.seekTo(0);
 
     var w_buffer: [256]u8 = undefined;
-    var discarding: std.io.Writer.Discarding = .init(&w_buffer);
+    var discarding: Writer.Discarding = .init(&w_buffer);
 
     _ = try file_reader.interface.streamRemaining(&discarding.writer);
 }
@@ -2699,7 +2722,7 @@ test "allocating sendFile" {
     var file_reader = file_writer.moveToReader();
     try file_reader.seekTo(0);
 
-    var allocating: std.io.Writer.Allocating = .init(testing.allocator);
+    var allocating: Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
 
     _ = try file_reader.interface.streamRemaining(&allocating.writer);
@@ -2736,4 +2759,11 @@ test writeSliceEndian {
     const array: [2]u16 = .{ 0x1234, 0x5678 };
     try writeSliceEndian(&w, u16, &array, .big);
     try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
+}
+
+test "writableSlice with fixed writer" {
+    var buf: [2]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try w.writeByte(1);
+    try std.testing.expectError(error.WriteFailed, w.writableSlice(2));
 }

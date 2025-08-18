@@ -53,7 +53,7 @@ fn subArchName(target: *const std.Target, comptime family: std.Target.Cpu.Arch.F
 }
 
 pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8 {
-    var llvm_triple = std.ArrayList(u8).init(allocator);
+    var llvm_triple = std.array_list.Managed(u8).init(allocator);
     defer llvm_triple.deinit();
 
     const llvm_arch = switch (target.cpu.arch) {
@@ -820,7 +820,7 @@ pub const Object = struct {
         }
 
         {
-            var module_flags = try std.ArrayList(Builder.Metadata).initCapacity(o.gpa, 8);
+            var module_flags = try std.array_list.Managed(Builder.Metadata).initCapacity(o.gpa, 8);
             defer module_flags.deinit();
 
             const behavior_error = try o.builder.metadataConstant(try o.builder.intConst(.i32, 1));
@@ -2583,7 +2583,7 @@ pub const Object = struct {
             .@"fn" => {
                 const fn_info = zcu.typeToFunc(ty).?;
 
-                var debug_param_types = std.ArrayList(Builder.Metadata).init(gpa);
+                var debug_param_types = std.array_list.Managed(Builder.Metadata).init(gpa);
                 defer debug_param_types.deinit();
 
                 try debug_param_types.ensureUnusedCapacity(3 + fn_info.param_types.len);
@@ -3575,7 +3575,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) return o.builder.undefConst(llvm_int_ty);
+        if (val.isUndef(zcu)) return o.builder.undefConst(llvm_int_ty);
 
         const ty = Type.fromInterned(val_key.typeOf());
         switch (val_key) {
@@ -3666,7 +3666,7 @@ pub const Object = struct {
         const val = Value.fromInterned(arg_val);
         const val_key = ip.indexToKey(val.toIntern());
 
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             return o.builder.undefConst(try o.lowerType(pt, Type.fromInterned(val_key.typeOf())));
         }
 
@@ -5254,7 +5254,7 @@ pub const FuncGen = struct {
         const target = zcu.getTarget();
         const sret = firstParamSRet(fn_info, zcu, target);
 
-        var llvm_args = std.ArrayList(Builder.Value).init(self.gpa);
+        var llvm_args = std.array_list.Managed(Builder.Value).init(self.gpa);
         defer llvm_args.deinit();
 
         var attributes: Builder.FunctionAttributes.Wip = .{};
@@ -5574,7 +5574,7 @@ pub const FuncGen = struct {
             const ptr_ty = try pt.singleMutPtrType(ret_ty);
 
             const operand = try self.resolveInst(un_op);
-            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+            const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
             if (val_is_undef and safety) undef: {
                 const ptr_info = ptr_ty.ptrInfo(zcu);
                 const needs_bitmask = (ptr_info.packed_offset.host_size != 0);
@@ -5629,7 +5629,7 @@ pub const FuncGen = struct {
 
         const abi_ret_ty = try lowerFnRetTy(o, pt, fn_info);
         const operand = try self.resolveInst(un_op);
-        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(un_op, pt)) |val| val.isUndef(zcu) else false;
         const alignment = ret_ty.abiAlignment(zcu).toLlvm();
 
         if (val_is_undef and safety) {
@@ -7536,7 +7536,7 @@ pub const FuncGen = struct {
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
         // hackety hacks until stage2 has proper inline asm in the frontend.
-        var rendered_template = std.ArrayList(u8).init(gpa);
+        var rendered_template = std.array_list.Managed(u8).init(gpa);
         defer rendered_template.deinit();
 
         const State = enum { start, percent, input, modifier };
@@ -9234,8 +9234,7 @@ pub const FuncGen = struct {
 
         const dest_is_enum = dest_ty.zigTypeTag(zcu) == .@"enum";
 
-        safety: {
-            if (!safety) break :safety;
+        bounds_check: {
             const dest_scalar = dest_ty.scalarType(zcu);
             const operand_scalar = operand_ty.scalarType(zcu);
 
@@ -9254,7 +9253,7 @@ pub const FuncGen = struct {
                 };
             };
 
-            if (!have_min_check and !have_max_check) break :safety;
+            if (!have_min_check and !have_max_check) break :bounds_check;
 
             const operand_llvm_ty = try o.lowerType(pt, operand_ty);
             const operand_scalar_llvm_ty = try o.lowerType(pt, operand_scalar);
@@ -9272,12 +9271,16 @@ pub const FuncGen = struct {
                     const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
                     break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
                 } else ok_maybe_vec;
-                const fail_block = try fg.wip.block(1, "IntMinFail");
-                const ok_block = try fg.wip.block(1, "IntMinOk");
-                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
-                fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
-                fg.wip.cursor = .{ .block = ok_block };
+                if (safety) {
+                    const fail_block = try fg.wip.block(1, "IntMinFail");
+                    const ok_block = try fg.wip.block(1, "IntMinOk");
+                    _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                    fg.wip.cursor = .{ .block = fail_block };
+                    try fg.buildSimplePanic(panic_id);
+                    fg.wip.cursor = .{ .block = ok_block };
+                } else {
+                    _ = try fg.wip.callIntrinsic(.normal, .none, .assume, &.{}, &.{ok}, "");
+                }
             }
 
             if (have_max_check) {
@@ -9288,12 +9291,16 @@ pub const FuncGen = struct {
                     const vec_ty = ok_maybe_vec.typeOfWip(&fg.wip);
                     break :ok try fg.wip.callIntrinsic(.normal, .none, .@"vector.reduce.and", &.{vec_ty}, &.{ok_maybe_vec}, "");
                 } else ok_maybe_vec;
-                const fail_block = try fg.wip.block(1, "IntMaxFail");
-                const ok_block = try fg.wip.block(1, "IntMaxOk");
-                _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
-                fg.wip.cursor = .{ .block = fail_block };
-                try fg.buildSimplePanic(panic_id);
-                fg.wip.cursor = .{ .block = ok_block };
+                if (safety) {
+                    const fail_block = try fg.wip.block(1, "IntMaxFail");
+                    const ok_block = try fg.wip.block(1, "IntMaxOk");
+                    _ = try fg.wip.brCond(ok, ok_block, fail_block, .none);
+                    fg.wip.cursor = .{ .block = fail_block };
+                    try fg.buildSimplePanic(panic_id);
+                    fg.wip.cursor = .{ .block = ok_block };
+                } else {
+                    _ = try fg.wip.callIntrinsic(.normal, .none, .assume, &.{}, &.{ok}, "");
+                }
             }
         }
 
@@ -9673,7 +9680,7 @@ pub const FuncGen = struct {
         const ptr_ty = self.typeOf(bin_op.lhs);
         const operand_ty = ptr_ty.childType(zcu);
 
-        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+        const val_is_undef = if (try self.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
         if (val_is_undef) {
             const owner_mod = self.ng.ownerModule();
 
@@ -10014,7 +10021,7 @@ pub const FuncGen = struct {
         self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
 
         if (try self.air.value(bin_op.rhs, pt)) |elem_val| {
-            if (elem_val.isUndefDeep(zcu)) {
+            if (elem_val.isUndef(zcu)) {
                 // Even if safety is disabled, we still emit a memset to undefined since it conveys
                 // extra information to LLVM. However, safety makes the difference between using
                 // 0xaa or actual undefined for the fill byte.
@@ -10468,11 +10475,14 @@ pub const FuncGen = struct {
         const slice_ty = self.typeOfIndex(inst);
         const slice_llvm_ty = try o.lowerType(pt, slice_ty);
 
+        // If operand is small (e.g. `u8`), then signedness becomes a problem -- GEP always treats the index as signed.
+        const extended_operand = try self.wip.conv(.unsigned, operand, try o.lowerType(pt, .usize), "");
+
         const error_name_table_ptr = try self.getErrorNameTable();
         const error_name_table =
             try self.wip.load(.normal, .ptr, error_name_table_ptr.toValue(&o.builder), .default, "");
         const error_name_ptr =
-            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{operand}, "");
+            try self.wip.gep(.inbounds, slice_llvm_ty, error_name_table, &.{extended_operand}, "");
         return self.wip.load(.normal, slice_llvm_ty, error_name_ptr, .default, "");
     }
 
@@ -12767,7 +12777,7 @@ fn isByRef(ty: Type, zcu: *Zcu) bool {
         },
         .@"union" => switch (ty.containerLayout(zcu)) {
             .@"packed" => return false,
-            else => return ty.hasRuntimeBits(zcu),
+            else => return ty.hasRuntimeBits(zcu) and !ty.unionHasAllZeroBitFieldTypes(zcu),
         },
         .error_union => {
             const payload_ty = ty.errorUnionPayload(zcu);

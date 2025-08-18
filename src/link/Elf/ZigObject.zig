@@ -950,7 +950,6 @@ pub fn getNavVAddr(
                 .target_sym = this_sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }
@@ -983,7 +982,6 @@ pub fn getUavVAddr(
                 .target_sym = sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }
@@ -1199,7 +1197,7 @@ fn getNavShdrIndex(
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         return osec;
     }
-    if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
+    if (nav_init != .none and Value.fromInterned(nav_init).isUndef(zcu))
         return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => {
                 if (self.data_index) |symbol_index|

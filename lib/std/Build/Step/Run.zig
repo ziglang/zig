@@ -679,15 +679,15 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const run: *Run = @fieldParentPtr("step", step);
     const has_side_effects = run.hasSideEffects();
 
-    var argv_list = std.ArrayList([]const u8).init(arena);
-    var output_placeholders = std.ArrayList(IndexedOutput).init(arena);
+    var argv_list = std.array_list.Managed([]const u8).init(arena);
+    var output_placeholders = std.array_list.Managed(IndexedOutput).init(arena);
 
     var man = b.graph.cache.obtain();
     defer man.deinit();
 
     if (run.env_map) |env_map| {
         const KV = struct { []const u8, []const u8 };
-        var kv_pairs = try std.ArrayList(KV).initCapacity(arena, env_map.count());
+        var kv_pairs = try std.array_list.Managed(KV).initCapacity(arena, env_map.count());
         var iter = env_map.iterator();
         while (iter.next()) |entry| {
             kv_pairs.appendAssumeCapacity(.{ entry.key_ptr.*, entry.value_ptr.* });
@@ -1080,7 +1080,7 @@ fn runCommand(
         else => false,
     };
 
-    var interp_argv = std.ArrayList([]const u8).init(b.allocator);
+    var interp_argv = std.array_list.Managed([]const u8).init(b.allocator);
     defer interp_argv.deinit();
 
     var env_map = run.env_map orelse &b.graph.env_map;
@@ -1780,13 +1780,19 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             };
             defer file.close();
             // TODO https://github.com/ziglang/zig/issues/23955
-            var buffer: [1024]u8 = undefined;
-            var file_reader = file.reader(&buffer);
-            var stdin_writer = child.stdin.?.writer(&.{});
+            var read_buffer: [1024]u8 = undefined;
+            var file_reader = file.reader(&read_buffer);
+            var write_buffer: [1024]u8 = undefined;
+            var stdin_writer = child.stdin.?.writer(&write_buffer);
             _ = stdin_writer.interface.sendFileAll(&file_reader, .unlimited) catch |err| switch (err) {
                 error.ReadFailed => return run.step.fail("failed to read from {f}: {t}", .{
                     path, file_reader.err.?,
                 }),
+                error.WriteFailed => return run.step.fail("failed to write to stdin: {t}", .{
+                    stdin_writer.err.?,
+                }),
+            };
+            stdin_writer.interface.flush() catch |err| switch (err) {
                 error.WriteFailed => return run.step.fail("failed to write to stdin: {t}", .{
                     stdin_writer.err.?,
                 }),
@@ -1821,8 +1827,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             stdout_bytes = try poller.toOwnedSlice(.stdout);
             stderr_bytes = try poller.toOwnedSlice(.stderr);
         } else {
-            var small_buffer: [1]u8 = undefined;
-            var stdout_reader = stdout.readerStreaming(&small_buffer);
+            var stdout_reader = stdout.readerStreaming(&.{});
             stdout_bytes = stdout_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
                 error.OutOfMemory => return error.OutOfMemory,
                 error.ReadFailed => return stdout_reader.err.?,
@@ -1830,8 +1835,7 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
             };
         }
     } else if (child.stderr) |stderr| {
-        var small_buffer: [1]u8 = undefined;
-        var stderr_reader = stderr.readerStreaming(&small_buffer);
+        var stderr_reader = stderr.readerStreaming(&.{});
         stderr_bytes = stderr_reader.interface.allocRemaining(arena, run.stdio_limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.ReadFailed => return stderr_reader.err.?,

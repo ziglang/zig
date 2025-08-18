@@ -1123,7 +1123,7 @@ pub const CObject = struct {
                 var aw: Writer.Allocating = .init(eb.gpa);
                 defer aw.deinit();
                 _ = file_reader.interface.streamDelimiterEnding(&aw.writer, '\n') catch break :source_line 0;
-                break :source_line try eb.addString(aw.getWritten());
+                break :source_line try eb.addString(aw.written());
             };
 
             return .{
@@ -1549,7 +1549,8 @@ pub const SystemLib = link.SystemLib;
 pub const CacheMode = enum {
     /// The results of this compilation are not cached. The compilation is always performed, and the
     /// results are emitted directly to their output locations. Temporary files will be placed in a
-    /// temporary directory in the cache, but deleted after the compilation is done.
+    /// temporary directory in the cache, but deleted after the compilation is done, unless they are
+    /// needed for the output binary to work correctly.
     ///
     /// This mode is typically used for direct CLI invocations like `zig build-exe`, because such
     /// processes are typically low-level usages which would not make efficient use of the cache.
@@ -1593,8 +1594,8 @@ const CacheUse = union(CacheMode) {
     const None = struct {
         /// User-requested artifacts are written directly to their output path in this cache mode.
         /// However, if we need to emit any temporary files, they are placed in this directory.
-        /// We will recursively delete this directory at the end of this update. This field is
-        /// non-`null` only inside `update`.
+        /// We will recursively delete this directory at the end of this update if possible. This
+        /// field is non-`null` only inside `update`.
         tmp_artifact_directory: ?Cache.Directory,
     };
 
@@ -2807,6 +2808,17 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
                     // temporary directories; it doesn't have a real cache directory anyway.
                     return;
                 }
+                // Usually, we want to delete the temporary directory. However, if we are emitting
+                // an unstripped Mach-O binary with the LLVM backend, then the temporary directory
+                // contains the ZCU object file emitted by LLVM, which contains debug symbols not
+                // replicated in the output binary (the output instead contains a reference to that
+                // file which debug tooling can look through). So, in that particular case, we need
+                // to keep this directory around so that the output binary can be debugged.
+                if (comp.bin_file != null and comp.getTarget().ofmt == .macho and comp.config.debug_format != .strip) {
+                    // We are emitting an unstripped Mach-O binary with the LLVM backend: the ZCU
+                    // object file must remain on-disk for its debug info.
+                    return;
+                }
                 const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
@@ -3644,10 +3656,10 @@ pub fn saveState(comp: *Compilation) !void {
 
     const gpa = comp.gpa;
 
-    var bufs = std.ArrayList([]const u8).init(gpa);
+    var bufs = std.array_list.Managed([]const u8).init(gpa);
     defer bufs.deinit();
 
-    var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
+    var pt_headers = std.array_list.Managed(Header.PerThread).init(gpa);
     defer pt_headers.deinit();
 
     if (comp.zcu) |zcu| {
@@ -3865,7 +3877,7 @@ pub fn saveState(comp: *Compilation) !void {
     try af.finish();
 }
 
-fn addBuf(list: *std.ArrayList([]const u8), buf: []const u8) void {
+fn addBuf(list: *std.array_list.Managed([]const u8), buf: []const u8) void {
     if (buf.len == 0) return;
     list.appendAssumeCapacity(buf);
 }
@@ -4254,14 +4266,10 @@ fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, loggi
     }
 }
 
-fn anyErrors(comp: *Compilation) bool {
-    return (totalErrorCount(comp) catch return true) != 0;
-}
-
-fn totalErrorCount(comp: *Compilation) !u32 {
-    var errors = try comp.getAllErrorsAlloc();
+pub fn anyErrors(comp: *Compilation) bool {
+    var errors = comp.getAllErrorsAlloc() catch return true;
     defer errors.deinit(comp.gpa);
-    return errors.errorMessageCount();
+    return errors.errorMessageCount() > 0;
 }
 
 pub const ErrorNoteHashContext = struct {
@@ -5657,7 +5665,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             log.info("C import source: {s}", .{out_h_path});
         }
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
@@ -6113,7 +6121,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     const target = comp.getTarget();
     const o_ext = target.ofmt.fileExt(target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
 
         // In case we are doing passthrough mode, we need to detect -S and -emit-llvm.
@@ -6270,7 +6278,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+                var stderr_reader = child.stderr.?.readerStreaming(&.{});
+                const stderr = try stderr_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -6458,7 +6467,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
             defer argv.deinit();
 
             try argv.appendSlice(&.{
@@ -6515,7 +6524,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // so we need a temporary filename.
         const out_res_path = try comp.tmpFilePath(arena, res_filename);
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         const depfile_filename = try std.fmt.allocPrint(arena, "{s}.d.json", .{rc_basename_noext});
@@ -6698,7 +6707,7 @@ pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error
 pub fn addTranslateCCArgs(
     comp: *Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     owner_mod: *Package.Module,
@@ -6713,7 +6722,7 @@ pub fn addTranslateCCArgs(
 pub fn addCCArgs(
     comp: *const Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
@@ -6921,7 +6930,7 @@ pub fn addCCArgs(
                         // We don't currently respect the minor and patch components. This wouldn't be particularly
                         // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
                         // symbols would be inconsistent with header declarations.
-                        min_ver.major * 100_000,
+                        min_ver.major * 100_000 + 500,
                     }));
                 } else if (target.isNetBSDLibC()) {
                     const min_ver = target.os.version_range.semver.min;

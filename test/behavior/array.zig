@@ -1088,6 +1088,8 @@ test "pass pointer to empty array initializer to anytype parameter" {
 }
 
 test "initialize pointer to anyopaque with reference to empty array initializer" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const ptr: *const anyopaque = &.{};
     // The above acts like an untyped initializer, since the `.{}` has no result type.
     // So, `ptr` points in memory to an empty tuple (`@TypeOf(.{})`).
@@ -1109,4 +1111,17 @@ test "sentinel of runtime-known array initialization is populated" {
 
     try expect(elems[0] == 42);
     try expect(elems[1] == 123);
+}
+
+test "splat with an error union or optional result type" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    const S = struct {
+        fn doTest(T: type) !?T {
+            return @splat(1);
+        }
+    };
+
+    _ = try S.doTest(@Vector(4, u32));
+    _ = try S.doTest([4]u32);
 }

@@ -23,19 +23,19 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_file, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
     const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(u32));
 
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
-
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);
 
-    try walk(arena, &tokenizer, out_dir, buffered_writer.writer());
+    try walk(arena, &tokenizer, out_dir, &out_file_writer.interface);
 
-    try buffered_writer.flush();
+    try out_file_writer.end();
 }
 
 const Token = struct {
@@ -319,13 +319,13 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                     }
 
                     var mode: std.builtin.OptimizeMode = .Debug;
-                    var link_objects = std.ArrayList([]const u8).init(arena);
+                    var link_objects = std.array_list.Managed([]const u8).init(arena);
                     var target_str: ?[]const u8 = null;
                     var link_libc = false;
                     var link_mode: ?std.builtin.LinkMode = null;
                     var disable_cache = false;
                     var verbose_cimport = false;
-                    var additional_options = std.ArrayList([]const u8).init(arena);
+                    var additional_options = std.array_list.Managed([]const u8).init(arena);
 
                     const source_token = while (true) {
                         const content_tok = try eatToken(tokenizer, .content);
@@ -437,7 +437,7 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
 }
 
 fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();

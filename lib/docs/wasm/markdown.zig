@@ -159,9 +159,10 @@ fn mainImpl() !void {
     var doc = try parser.endInput();
     defer doc.deinit(gpa);
 
-    var stdout_buf = std.io.bufferedWriter(std.fs.File.stdout().deprecatedWriter());
-    try doc.render(stdout_buf.writer());
-    try stdout_buf.flush();
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    try doc.render(&stdout_writer.interface);
+    try stdout_writer.interface.flush();
 }
 
 test "empty document" {
@@ -1118,7 +1119,7 @@ fn testRender(input: []const u8, expected: []const u8) !void {
     var doc = try parser.endInput();
     defer doc.deinit(testing.allocator);
 
-    var actual = std.ArrayList(u8).init(testing.allocator);
+    var actual = std.array_list.Managed(u8).init(testing.allocator);
     defer actual.deinit();
     try doc.render(actual.writer());
 

@@ -826,7 +826,7 @@ pub fn readToEndAllocOptions(
     // size. If the reported size is zero, as it happens on Linux for files
     // in /proc, a small buffer is allocated instead.
     const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.ArrayListAligned(u8, alignment).initCapacity(allocator, initial_cap);
+    var array_list = try std.array_list.AlignedManaged(u8, alignment).initCapacity(allocator, initial_cap);
     defer array_list.deinit();
 
     self.deprecatedReader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
@@ -1122,9 +1122,14 @@ pub const Reader = struct {
     /// position, use `logicalPos`.
     pos: u64 = 0,
     size: ?u64 = null,
-    size_err: ?GetEndPosError = null,
+    size_err: ?SizeError = null,
     seek_err: ?Reader.SeekError = null,
     interface: std.Io.Reader,
+
+    pub const SizeError = std.os.windows.GetFileSizeError || StatError || error{
+        /// Occurs if, for example, the file handle is a network socket and therefore does not have a size.
+        Streaming,
+    };
 
     pub const SeekError = File.SeekError || error{
         /// Seeking fell back to reading, and reached the end before the requested seek position.
@@ -1189,20 +1194,44 @@ pub const Reader = struct {
         };
     }
 
-    pub fn initMode(file: File, buffer: []u8, init_mode: Reader.Mode) Reader {
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode skips a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Reader {
         return .{
             .file = file,
-            .interface = initInterface(buffer),
-            .mode = init_mode,
+            .interface = Reader.initInterface(buffer),
+            .mode = .streaming,
+            .seek_err = error.Unseekable,
+            .size_err = error.Streaming,
         };
     }
 
-    pub fn getSize(r: *Reader) GetEndPosError!u64 {
+    pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
-            if (r.file.getEndPos()) |size| {
-                r.size = size;
-                return size;
+            if (is_windows) {
+                if (windows.GetFileSizeEx(r.file.handle)) |size| {
+                    r.size = size;
+                    return size;
+                } else |err| {
+                    r.size_err = err;
+                    return err;
+                }
+            }
+            if (posix.Stat == void) {
+                r.size_err = error.Streaming;
+                return error.Streaming;
+            }
+            if (stat(r.file)) |st| {
+                if (st.kind == .file) {
+                    r.size = st.size;
+                    return st.size;
+                } else {
+                    r.mode = r.mode.toStreaming();
+                    r.size_err = error.Streaming;
+                    return error.Streaming;
+                }
             } else |err| {
                 r.size_err = err;
                 return err;
@@ -1216,6 +1245,10 @@ pub const Reader = struct {
                 setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
             },
             .streaming, .streaming_reading => {
+                if (posix.SEEK == void) {
+                    r.seek_err = error.Unseekable;
+                    return error.Unseekable;
+                }
                 const seek_err = r.seek_err orelse e: {
                     if (posix.lseek_CUR(r.file.handle, offset)) |_| {
                         setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
@@ -1227,12 +1260,10 @@ pub const Reader = struct {
                 };
                 var remaining = std.math.cast(u64, offset) orelse return seek_err;
                 while (remaining > 0) {
-                    const n = discard(&r.interface, .limited64(remaining)) catch |err| {
+                    remaining -= discard(&r.interface, .limited64(remaining)) catch |err| {
                         r.seek_err = err;
                         return err;
                     };
-                    r.pos += n;
-                    remaining -= n;
                 }
                 r.interface.seek = 0;
                 r.interface.end = 0;
@@ -1400,13 +1431,8 @@ pub const Reader = struct {
         const pos = r.pos;
         switch (r.mode) {
             .positional, .positional_reading => {
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                        r.mode = r.mode.toStreaming();
-                    }
+                const size = r.getSize() catch {
+                    r.mode = r.mode.toStreaming();
                     return 0;
                 };
                 const delta = @min(@intFromEnum(limit), size - pos);
@@ -1421,9 +1447,8 @@ pub const Reader = struct {
                 fallback: {
                     if (r.size_err == null and r.seek_err == null) break :fallback;
                     var trash_buffer: [128]u8 = undefined;
-                    const trash = &trash_buffer;
                     if (is_windows) {
-                        const n = windows.ReadFile(file.handle, trash, null) catch |err| {
+                        const n = windows.ReadFile(file.handle, limit.slice(&trash_buffer), null) catch |err| {
                             r.err = err;
                             return error.ReadFailed;
                         };
@@ -1438,7 +1463,7 @@ pub const Reader = struct {
                     var iovecs_i: usize = 0;
                     var remaining = @intFromEnum(limit);
                     while (remaining > 0 and iovecs_i < iovecs.len) {
-                        iovecs[iovecs_i] = .{ .base = trash, .len = @min(trash.len, remaining) };
+                        iovecs[iovecs_i] = .{ .base = &trash_buffer, .len = @min(trash_buffer.len, remaining) };
                         remaining -= iovecs[iovecs_i].len;
                         iovecs_i += 1;
                     }
@@ -1453,14 +1478,7 @@ pub const Reader = struct {
                     r.pos = pos + n;
                     return n;
                 }
-                const size = r.size orelse {
-                    if (file.getEndPos()) |size| {
-                        r.size = size;
-                    } else |err| {
-                        r.size_err = err;
-                    }
-                    return 0;
-                };
+                const size = r.getSize() catch return 0;
                 const n = @min(size - pos, maxInt(i64), @intFromEnum(limit));
                 file.seekBy(n) catch |err| {
                     r.seek_err = err;
@@ -1565,14 +1583,21 @@ pub const Writer = struct {
     const max_buffers_len = 16;
 
     pub fn init(file: File, buffer: []u8) Writer {
-        return initMode(file, buffer, .positional);
-    }
-
-    pub fn initMode(file: File, buffer: []u8, init_mode: Writer.Mode) Writer {
         return .{
             .file = file,
             .interface = initInterface(buffer),
-            .mode = init_mode,
+            .mode = .positional,
+        };
+    }
+
+    /// Positional is more threadsafe, since the global seek position is not
+    /// affected, but when such syscalls are not available, preemptively
+    /// initializing in streaming mode will skip a failed syscall.
+    pub fn initStreaming(file: File, buffer: []u8) Writer {
+        return .{
+            .file = file,
+            .interface = initInterface(buffer),
+            .mode = .streaming,
         };
     }
 
@@ -1818,6 +1843,11 @@ pub const Writer = struct {
                 .NOBUFS => w.sendfile_err = error.SystemResources,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (sbytes == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
@@ -1874,6 +1904,11 @@ pub const Writer = struct {
                 .PIPE => w.sendfile_err = error.BrokenPipe,
                 else => |err| w.sendfile_err = posix.unexpectedErrno(err),
             }
+            if (w.sendfile_err != null) {
+                // Give calling code chance to observe the error before trying
+                // something else.
+                return 0;
+            }
             if (len == 0) {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
@@ -1893,15 +1928,7 @@ pub const Writer = struct {
             var off: std.os.linux.off_t = undefined;
             const off_ptr: ?*std.os.linux.off_t, const count: usize = switch (file_reader.mode) {
                 .positional => o: {
-                    const size = file_reader.size orelse {
-                        if (file_reader.file.getEndPos()) |size| {
-                            file_reader.size = size;
-                        } else |err| {
-                            file_reader.size_err = err;
-                            file_reader.mode = .streaming;
-                        }
-                        return 0;
-                    };
+                    const size = file_reader.getSize() catch return 0;
                     off = std.math.cast(std.os.linux.off_t, file_reader.pos) orelse return error.ReadFailed;
                     break :o .{ &off, @min(@intFromEnum(limit), size - file_reader.pos, max_count) };
                 },
@@ -2077,15 +2104,10 @@ pub fn reader(file: File, buffer: []u8) Reader {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Reader.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode skips a failed syscall.
 pub fn readerStreaming(file: File, buffer: []u8) Reader {
-    return .{
-        .file = file,
-        .interface = Reader.initInterface(buffer),
-        .mode = .streaming,
-        .seek_err = error.Unseekable,
-    };
+    return .initStreaming(file, buffer);
 }
 
 /// Defaults to positional reading; falls back to streaming.
@@ -2097,10 +2119,10 @@ pub fn writer(file: File, buffer: []u8) Writer {
 }
 
 /// Positional is more threadsafe, since the global seek position is not
-/// affected, but when such syscalls are not available, preemptively choosing
-/// `Writer.Mode.streaming` will skip a failed syscall.
+/// affected, but when such syscalls are not available, preemptively
+/// initializing in streaming mode will skip a failed syscall.
 pub fn writerStreaming(file: File, buffer: []u8) Writer {
-    return .initMode(file, buffer, .streaming);
+    return .initStreaming(file, buffer);
 }
 
 const range_off: windows.LARGE_INTEGER = 0;

@@ -14,7 +14,7 @@ const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -1003,14 +1003,14 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
     var buffer: [8]u8 = undefined;
-    var fw: std.fs.File.Writer = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fw: std.fs.File.Writer = .initStreaming(.{ .handle = fd }, &buffer);
     fw.interface.writeInt(u64, value, .little) catch unreachable;
     fw.interface.flush() catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
     var buffer: [8]u8 = undefined;
-    var fr: std.fs.File.Reader = .initMode(.{ .handle = fd }, &buffer, .streaming);
+    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
     return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
 }
 
@@ -1545,7 +1545,7 @@ fn argvToCommandLineWindows(
     allocator: mem.Allocator,
     argv: []const []const u8,
 ) ArgvToCommandLineError![:0]u16 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     if (argv.len != 0) {
@@ -1725,7 +1725,7 @@ fn argvToScriptCommandLineWindows(
     /// Arguments, not including the script name itself. Expected to be encoded as WTF-8.
     script_args: []const []const u8,
 ) ArgvToScriptCommandLineError![:0]u16 {
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 64);
     defer buf.deinit();
 
     // `/d` disables execution of AutoRun commands.

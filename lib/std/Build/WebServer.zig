@@ -59,21 +59,9 @@ pub const Options = struct {
     listen_address: std.net.Address,
 };
 pub fn init(opts: Options) WebServer {
-    if (builtin.single_threaded) {
-        // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
-        // instead of threads, so that the web server can function in single-threaded builds.
-        std.process.fatal("--webui not yet implemented for single-threaded builds", .{});
-    }
-
-    if (builtin.os.tag == .windows) {
-        // At the time of writing, there are two bugs in the standard library which break this feature on Windows:
-        // * Reading from a socket on one thread while writing to it on another seems to deadlock.
-        // * Vectored writes to sockets currently trigger an infinite loop when a buffer has length 0.
-        //
-        // Both of these bugs are expected to be solved by changes which are currently in the unmerged
-        // 'wrangle-writer-buffering' branch. Until that makes it in, this must remain disabled.
-        std.process.fatal("--webui is currently disabled on Windows due to bugs", .{});
-    }
+    // The upcoming `std.Io` interface should allow us to use `Io.async` and `Io.concurrent`
+    // instead of threads, so that the web server can function in single-threaded builds.
+    comptime assert(!builtin.single_threaded);
 
     const all_steps = opts.all_steps;
 
@@ -297,7 +285,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
         copy.* = @atomicLoad(u8, shared, .monotonic);
     }
 
-    _ = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
+    const recv_thread = try std.Thread.spawn(.{}, recvWebSocketMessages, .{ ws, sock });
+    defer recv_thread.join();
 
     {
         const hello_header: abi.Hello = .{

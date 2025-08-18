@@ -37,7 +37,7 @@ pub fn main() !void {
         \\
     );
 
-    var footer = std.ArrayList(u8).init(arena);
+    var footer = std.array_list.Managed(u8).init(arena);
     try footer.appendSlice("\ncomptime {\n");
 
     for ([_]N{ .one, .two, .four, .eight, .sixteen }) |n| {

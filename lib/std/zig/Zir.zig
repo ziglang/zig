@@ -273,9 +273,13 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector or array type, returns its element type.
+        /// Given a vector or array type, strips off any error unions or
+        /// optionals layered on top and returns its element type.
+        ///
+        /// `!?[N]T` -> `T`
+        ///
         /// Uses the `un_node` field.
-        vec_arr_elem_type,
+        splat_op_result_ty,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -1098,7 +1102,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1395,7 +1399,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1630,7 +1634,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vec_arr_elem_type = .un_node,
+                .splat_op_result_ty = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -3226,20 +3230,32 @@ pub const Inst = struct {
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
-    /// 2. else_body { // If has_else or has_under is set.
+    /// 2. else_body { // If special_prong.hasElse() is set.
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 3. scalar_cases: { // for every scalar_cases_len
+    /// 3. under_body { // If special_prong.hasUnder() is set.
+    ///        item: Ref, // If special_prong.hasOneAdditionalItem() is set.
+    ///        items_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        ranges_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        info: ProngInfo,
+    ///        item: Ref, // for every items_len
+    ///        ranges: { // for every ranges_len
+    ///            item_first: Ref,
+    ///            item_last: Ref,
+    ///        }
+    ///        body member Index for every info.body_len
+    ///     }
+    /// 4. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 4. multi_cases: { // for every multi_cases_len
+    /// 5. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
     ///        info: ProngInfo,
-    ///        item: Ref // for every items_len
+    ///        item: Ref, // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
@@ -3275,30 +3291,18 @@ pub const Inst = struct {
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
-            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
-            has_else: bool,
-            /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
-            has_under: bool,
+            /// Information about the special prong.
+            special_prongs: SpecialProngs,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
             /// If true, at least one prong has a capture which may not
             /// be comptime-known via `inline`.
             any_non_inline_capture: bool,
+            /// If true, at least one prong contains a `continue`.
             has_continue: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u26;
-
-            pub fn specialProng(bits: Bits) SpecialProng {
-                const has_else: u2 = @intFromBool(bits.has_else);
-                const has_under: u2 = @intFromBool(bits.has_under);
-                return switch ((has_else << 1) | has_under) {
-                    0b00 => .none,
-                    0b01 => .under,
-                    0b10 => .@"else",
-                    0b11 => unreachable,
-                };
-            }
+            pub const ScalarCasesLen = u25;
         };
 
         pub const MultiProng = struct {
@@ -3874,7 +3878,68 @@ pub const Inst = struct {
     };
 };
 
-pub const SpecialProng = enum { none, @"else", under };
+pub const SpecialProngs = enum(u3) {
+    none = 0b000,
+    /// Simple `else` prong.
+    /// `else => {},`
+    @"else" = 0b001,
+    /// Simple `_` prong.
+    /// `_ => {},`
+    under = 0b010,
+    /// Both an `else` and a `_` prong.
+    /// `else => {},`
+    /// `_ => {},`
+    under_and_else = 0b011,
+    /// `_` prong with 1 additional item.
+    /// `a, _ => {},`
+    under_one_item = 0b100,
+    /// Both an `else` and a `_` prong with 1 additional item.
+    /// `else => {},`
+    /// `a, _ => {},`
+    under_one_item_and_else = 0b101,
+    /// `_` prong with >1 additional items.
+    /// `a, _, b => {},`
+    under_many_items = 0b110,
+    /// Both an `else` and a `_` prong with >1 additional items.
+    /// `else => {},`
+    /// `a, _, b => {},`
+    under_many_items_and_else = 0b111,
+
+    pub const AdditionalItems = enum(u3) {
+        none = @intFromEnum(SpecialProngs.under),
+        one = @intFromEnum(SpecialProngs.under_one_item),
+        many = @intFromEnum(SpecialProngs.under_many_items),
+    };
+
+    pub fn init(has_else: bool, has_under: bool, additional_items: AdditionalItems) SpecialProngs {
+        const else_bit: u3 = @intFromBool(has_else);
+        const under_bits: u3 = if (has_under)
+            @intFromEnum(additional_items)
+        else
+            @intFromEnum(SpecialProngs.none);
+        return @enumFromInt(else_bit | under_bits);
+    }
+
+    pub fn hasElse(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b001) != 0;
+    }
+
+    pub fn hasUnder(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) != 0;
+    }
+
+    pub fn hasAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b100) != 0;
+    }
+
+    pub fn hasOneAdditionalItem(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_one_item);
+    }
+
+    pub fn hasManyAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_many_items);
+    }
+};
 
 pub const DeclIterator = struct {
     extra_index: u32,
@@ -4112,7 +4177,7 @@ fn findTrackableInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vec_arr_elem_type,
+        .splat_op_result_ty,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
@@ -4718,7 +4783,7 @@ fn findTrackableSwitch(
     }
 
     const has_special = switch (kind) {
-        .normal => extra.data.bits.specialProng() != .none,
+        .normal => extra.data.bits.special_prongs != .none,
         .err_union => has_special: {
             // Handle `non_err_body` first.
             const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
@@ -4733,12 +4798,40 @@ fn findTrackableSwitch(
     };
 
     if (has_special) {
-        const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
-        extra_index += 1;
-        const body = zir.bodySlice(extra_index, prong_info.body_len);
-        extra_index += body.len;
+        const has_else = if (kind == .normal)
+            extra.data.bits.special_prongs.hasElse()
+        else
+            true;
+        if (has_else) {
+            const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+            extra_index += 1;
+            const body = zir.bodySlice(extra_index, prong_info.body_len);
+            extra_index += body.len;
 
-        try zir.findTrackableBody(gpa, contents, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
+        }
+        if (kind == .normal) {
+            const special_prongs = extra.data.bits.special_prongs;
+
+            if (special_prongs.hasUnder()) {
+                var trailing_items_len: u32 = 0;
+                if (special_prongs.hasOneAdditionalItem()) {
+                    extra_index += 1;
+                } else if (special_prongs.hasManyAdditionalItems()) {
+                    const items_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    trailing_items_len = items_len + ranges_len * 2;
+                }
+                const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+                extra_index += 1 + trailing_items_len;
+                const body = zir.bodySlice(extra_index, prong_info.body_len);
+                extra_index += body.len;
+
+                try zir.findTrackableBody(gpa, contents, defers, body);
+            }
+        }
     }
 
     {

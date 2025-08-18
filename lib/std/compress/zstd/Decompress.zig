@@ -17,7 +17,6 @@ const State = union(enum) {
     new_frame,
     in_frame: InFrame,
     skipping_frame: usize,
-    end,
 
     const InFrame = struct {
         frame: Frame,
@@ -74,6 +73,20 @@ pub const Error = error{
     WindowSizeUnknown,
 };
 
+const direct_vtable: Reader.VTable = .{
+    .stream = streamDirect,
+    .rebase = rebaseFallible,
+    .discard = discardDirect,
+    .readVec = readVec,
+};
+
+const indirect_vtable: Reader.VTable = .{
+    .stream = streamIndirect,
+    .rebase = rebaseFallible,
+    .discard = discardIndirect,
+    .readVec = readVec,
+};
+
 /// When connecting `reader` to a `Writer`, `buffer` should be empty, and
 /// `Writer.buffer` capacity has requirements based on `Options.window_len`.
 ///
@@ -85,12 +98,7 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
         .verify_checksum = options.verify_checksum,
         .window_len = options.window_len,
         .reader = .{
-            .vtable = &.{
-                .stream = stream,
-                .rebase = rebase,
-                .discard = discard,
-                .readVec = readVec,
-            },
+            .vtable = if (buffer.len == 0) &direct_vtable else &indirect_vtable,
             .buffer = buffer,
             .seek = 0,
             .end = 0,
@@ -98,11 +106,27 @@ pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
     };
 }
 
-fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
+fn streamDirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    return stream(d, w, limit);
+}
+
+fn streamIndirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    _ = limit;
+    _ = w;
+    return streamIndirectInner(d);
+}
+
+fn rebaseFallible(r: *Reader, capacity: usize) Reader.RebaseError!void {
+    rebase(r, capacity);
+}
+
+fn rebase(r: *Reader, capacity: usize) void {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     assert(capacity <= r.buffer.len - d.window_len);
     assert(r.end + capacity > r.buffer.len);
-    const discard_n = r.end - d.window_len;
+    const discard_n = @min(r.seek, r.end - d.window_len);
     const keep = r.buffer[discard_n..r.end];
     @memmove(r.buffer[0..keep.len], keep);
     r.end = keep.len;
@@ -111,9 +135,9 @@ fn rebase(r: *Reader, capacity: usize) Reader.RebaseError!void {
 
 /// This could be improved so that when an amount is discarded that includes an
 /// entire frame, skip decoding that frame.
-fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
+fn discardDirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    r.rebase(d.window_len) catch unreachable;
+    rebase(r, d.window_len);
     var writer: Writer = .{
         .vtable = &.{
             .drain = std.Io.Writer.Discarding.drain,
@@ -135,43 +159,75 @@ fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     return n;
 }
 
-fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
-    _ = data;
+fn discardIndirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    assert(r.seek == r.end);
-    r.rebase(d.window_len) catch unreachable;
+    rebase(r, d.window_len);
     var writer: Writer = .{
         .buffer = r.buffer,
         .end = r.end,
-        .vtable = &.{ .drain = Writer.fixedDrain },
+        .vtable = &.{ .drain = Writer.unreachableDrain },
     };
-    r.end += r.vtable.stream(r, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
+    {
+        defer r.end = writer.end;
+        _ = stream(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
+            error.WriteFailed => unreachable,
+            else => |e| return e,
+        };
+    }
+    const n = limit.minInt(r.end - r.seek);
+    r.seek += n;
+    return n;
+}
+
+fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
+    _ = data;
+    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+    return streamIndirectInner(d);
+}
+
+fn streamIndirectInner(d: *Decompress) Reader.Error!usize {
+    const r = &d.reader;
+    if (r.buffer.len - r.end < zstd.block_size_max) rebase(r, zstd.block_size_max);
+    assert(r.buffer.len - r.end >= zstd.block_size_max);
+    var writer: Writer = .{
+        .buffer = r.buffer,
+        .end = r.end,
+        .vtable = &.{
+            .drain = Writer.unreachableDrain,
+            .rebase = Writer.unreachableRebase,
+        },
+    };
+    defer r.end = writer.end;
+    _ = stream(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         else => |e| return e,
     };
     return 0;
 }
 
-fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
-    const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+fn stream(d: *Decompress, w: *Writer, limit: Limit) Reader.StreamError!usize {
     const in = d.input;
 
-    switch (d.state) {
+    state: switch (d.state) {
         .new_frame => {
-            // Allow error.EndOfStream only on the frame magic.
+            // Only return EndOfStream when there are exactly 0 bytes remaining on the
+            // frame magic. Any partial magic bytes should be considered a failure.
+            in.fill(@sizeOf(Frame.Magic)) catch |err| switch (err) {
+                error.EndOfStream => {
+                    if (in.bufferedLen() != 0) {
+                        d.err = error.BadMagic;
+                        return error.ReadFailed;
+                    }
+                    return err;
+                },
+                else => |e| return e,
+            };
             const magic = try in.takeEnumNonexhaustive(Frame.Magic, .little);
-            initFrame(d, w.buffer.len, magic) catch |err| {
+            initFrame(d, magic) catch |err| {
                 d.err = err;
                 return error.ReadFailed;
             };
-            return readInFrame(d, w, limit, &d.state.in_frame) catch |err| switch (err) {
-                error.ReadFailed => return error.ReadFailed,
-                error.WriteFailed => return error.WriteFailed,
-                else => |e| {
-                    d.err = e;
-                    return error.ReadFailed;
-                },
-            };
+            continue :state d.state;
         },
         .in_frame => |*in_frame| {
             return readInFrame(d, w, limit, in_frame) catch |err| switch (err) {
@@ -192,17 +248,16 @@ fn stream(r: *Reader, w: *Writer, limit: Limit) Reader.StreamError!usize {
             if (remaining.* == 0) d.state = .new_frame;
             return 0;
         },
-        .end => return error.EndOfStream,
     }
 }
 
-fn initFrame(d: *Decompress, window_size_max: usize, magic: Frame.Magic) !void {
+fn initFrame(d: *Decompress, magic: Frame.Magic) !void {
     const in = d.input;
     switch (magic.kind() orelse return error.BadMagic) {
         .zstandard => {
             const header = try Frame.Zstandard.Header.decode(in);
             d.state = .{ .in_frame = .{
-                .frame = try Frame.init(header, window_size_max, d.verify_checksum),
+                .frame = try Frame.init(header, d.window_len, d.verify_checksum),
                 .checksum = null,
                 .decompressed_size = 0,
                 .decode = .init,
@@ -256,7 +311,6 @@ fn readInFrame(d: *Decompress, w: *Writer, limit: Limit, state: *State.InFrame) 
                     try decode.readInitialFseState(&bit_stream);
 
                     // Ensures the following calls to `decodeSequence` will not flush.
-                    if (window_len + frame_block_size_max > w.buffer.len) return error.OutputBufferUndersize;
                     const dest = (try w.writableSliceGreedyPreserve(window_len, frame_block_size_max))[0..frame_block_size_max];
                     const write_pos = dest.ptr - w.buffer.ptr;
                     for (0..sequences_header.sequence_count - 1) |_| {
@@ -711,6 +765,9 @@ pub const Frame = struct {
                 const match_length: usize = sequence.match_length;
                 const sequence_length = literal_length + match_length;
 
+                if (sequence_length > dest[write_pos..].len)
+                    return error.MalformedSequence;
+
                 const copy_start = std.math.sub(usize, write_pos + sequence.literal_length, sequence.offset) catch
                     return error.MalformedSequence;
 
@@ -773,7 +830,6 @@ pub const Frame = struct {
                         try w.splatByteAll(d.literal_streams.one[0], len);
                     },
                     .compressed, .treeless => {
-                        if (len > w.buffer.len) return error.OutputBufferUndersize;
                         const buf = try w.writableSlice(len);
                         const huffman_tree = d.huffman_tree.?;
                         const max_bit_count = huffman_tree.max_bit_count;

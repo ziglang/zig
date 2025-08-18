@@ -727,7 +727,7 @@ fn analyzeMemoizedState(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage)
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -870,7 +870,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -1097,7 +1097,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -1471,7 +1471,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -2807,7 +2807,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.array_list.Managed(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     // In the case of a generic function instance, this is the type of the
@@ -3149,18 +3149,23 @@ pub fn processExports(pt: Zcu.PerThread) !void {
         }
     }
 
+    // If there are compile errors, we won't call `updateExports`. Not only would it be redundant
+    // work, but the linker may not have seen an exported `Nav` due to a compile error, so linker
+    // implementations would have to handle that case. This early return avoids that.
+    const skip_linker_work = zcu.comp.anyErrors();
+
     // Map symbol names to `Export` for name collision detection.
     var symbol_exports: SymbolExports = .{};
     defer symbol_exports.deinit(gpa);
 
     for (nav_exports.keys(), nav_exports.values()) |exported_nav, exports_list| {
         const exported: Zcu.Exported = .{ .nav = exported_nav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 
     for (uav_exports.keys(), uav_exports.values()) |exported_uav, exports_list| {
         const exported: Zcu.Exported = .{ .uav = exported_uav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 }
 
@@ -3171,6 +3176,7 @@ fn processExportsInner(
     symbol_exports: *SymbolExports,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
+    skip_linker_work: bool,
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3216,12 +3222,13 @@ fn processExportsInner(
             }
             break :failed false;
         }) {
-            // This `Decl` is failed, so was never sent to codegen.
-            // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
-            return;
+            // This `Nav` is failed, so was never sent to codegen. There should be a compile error.
+            assert(skip_linker_work);
         },
         .uav => {},
     }
+
+    if (skip_linker_work) return;
 
     if (zcu.llvm_object) |llvm_object| {
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
@@ -3327,10 +3334,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
                     .byte_offset = 0,
                 } }),
             };
-            test_fn_val.* = try pt.intern(.{ .aggregate = .{
-                .ty = test_fn_ty.toIntern(),
-                .storage = .{ .elems = &test_fn_fields },
-            } });
+            test_fn_val.* = (try pt.aggregateValue(test_fn_ty, &test_fn_fields)).toIntern();
         }
 
         const array_ty = try pt.arrayType(.{
@@ -3338,13 +3342,9 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_val = try pt.intern(.{ .aggregate = .{
-            .ty = array_ty.toIntern(),
-            .storage = .{ .elems = test_fn_vals },
-        } });
         break :array .{
             .orig_ty = (try pt.singleConstPtrType(array_ty)).toIntern(),
-            .val = array_val,
+            .val = (try pt.aggregateValue(array_ty, test_fn_vals)).toIntern(),
         };
     };
 
@@ -3670,6 +3670,31 @@ pub fn unionValue(pt: Zcu.PerThread, union_ty: Type, tag: Value, val: Value) All
         .tag = tag.toIntern(),
         .val = val.toIntern(),
     }));
+}
+
+pub fn aggregateValue(pt: Zcu.PerThread, ty: Type, elems: []const InternPool.Index) Allocator.Error!Value {
+    for (elems) |elem| {
+        if (!Value.fromInterned(elem).isUndef(pt.zcu)) break;
+    } else if (elems.len > 0) {
+        return pt.undefValue(ty); // all-undef
+    }
+    return .fromInterned(try pt.intern(.{ .aggregate = .{
+        .ty = ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } }));
+}
+
+/// Asserts that `ty` is either an array or a vector.
+pub fn aggregateSplatValue(pt: Zcu.PerThread, ty: Type, repeated_elem: Value) Allocator.Error!Value {
+    switch (ty.zigTypeTag(pt.zcu)) {
+        .array, .vector => {},
+        else => unreachable,
+    }
+    if (repeated_elem.isUndef(pt.zcu)) return pt.undefValue(ty);
+    return .fromInterned(try pt.intern(.{ .aggregate = .{
+        .ty = ty.toIntern(),
+        .storage = .{ .repeated_elem = repeated_elem.toIntern() },
+    } }));
 }
 
 /// This function casts the float representation down to the representation of the type, potentially

@@ -173,7 +173,7 @@ pub const JobQueue = struct {
 
     /// Creates the dependencies.zig source code for the build runner to obtain
     /// via `@import("@dependencies")`.
-    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn createDependenciesSource(jq: *JobQueue, buf: *std.array_list.Managed(u8)) Allocator.Error!void {
         const keys = jq.table.keys();
 
         assert(keys.len != 0); // caller should have added the first one
@@ -285,7 +285,7 @@ pub const JobQueue = struct {
         try buf.appendSlice("};\n");
     }
 
-    pub fn createEmptyDependenciesSource(buf: *std.ArrayList(u8)) Allocator.Error!void {
+    pub fn createEmptyDependenciesSource(buf: *std.array_list.Managed(u8)) Allocator.Error!void {
         try buf.appendSlice(
             \\pub const packages = struct {};
             \\pub const root_deps: []const struct { []const u8, []const u8 } = &.{};
@@ -1212,10 +1212,11 @@ fn unpackResource(
             return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
         },
         .@"tar.zst" => {
-            const window_size = std.compress.zstd.default_window_len;
-            const window_buffer = try f.arena.allocator().create([window_size]u8);
+            const window_len = std.compress.zstd.default_window_len;
+            const window_buffer = try f.arena.allocator().alloc(u8, window_len + std.compress.zstd.block_size_max);
             var decompress: std.compress.zstd.Decompress = .init(resource.reader(), window_buffer, .{
                 .verify_checksum = false,
+                .window_len = window_len,
             });
             return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
@@ -1474,10 +1475,10 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
     const root_dir = pkg_path.root_dir.handle;
 
     // Collect all files, recursively, then sort.
-    var all_files = std.ArrayList(*HashedFile).init(gpa);
+    var all_files = std.array_list.Managed(*HashedFile).init(gpa);
     defer all_files.deinit();
 
-    var deleted_files = std.ArrayList(*DeletedFile).init(gpa);
+    var deleted_files = std.array_list.Managed(*DeletedFile).init(gpa);
     defer deleted_files.deinit();
 
     // Track directories which had any files deleted from them so that empty directories
@@ -1631,19 +1632,13 @@ fn computeHash(f: *Fetch, pkg_path: Cache.Path, filter: Filter) RunError!Compute
 }
 
 fn dumpHashInfo(all_files: []const *const HashedFile) !void {
-    const stdout: std.fs.File = .stdout();
-    var bw = std.io.bufferedWriter(stdout.deprecatedWriter());
-    const w = bw.writer();
-
+    var stdout_buffer: [1024]u8 = undefined;
+    var stdout_writer: fs.File.Writer = .initStreaming(.stdout(), &stdout_buffer);
+    const w = &stdout_writer.interface;
     for (all_files) |hashed_file| {
-        try w.print("{s}: {x}: {s}\n", .{
-            @tagName(hashed_file.kind),
-            &hashed_file.hash,
-            hashed_file.normalized_path,
-        });
+        try w.print("{t}: {x}: {s}\n", .{ hashed_file.kind, &hashed_file.hash, hashed_file.normalized_path });
     }
-
-    try bw.flush();
+    try w.flush();
 }
 
 fn workerHashFile(dir: fs.Dir, hashed_file: *HashedFile) void {
@@ -2035,7 +2030,7 @@ const UnpackResult = struct {
             \\    note: unable to create symlink from 'dir2/file2' to 'filename': SymlinkError
             \\    note: file 'dir2/file4' has unsupported type 'x'
             \\
-        , aw.getWritten());
+        , aw.written());
     }
 };
 
@@ -2339,7 +2334,7 @@ const TestFetchBuilder = struct {
         var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
-        try std.testing.expectEqualStrings(msg, aw.getWritten());
+        try std.testing.expectEqualStrings(msg, aw.written());
     }
 };
 

@@ -69,13 +69,13 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt0_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-DHAVE_INITFINI_ARRAY",
                 "-w", // Disable all warnings.
             });
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 // See `Compilation.addCCArgs`.
                 try std.fmt.allocPrint(arena, "-D__NetBSD_Version__={d}", .{(target_version.major * 100_000_000) + (target_version.minor * 1_000_000)}),
@@ -454,7 +454,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         break :blk latest_index;
     };
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -465,7 +465,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_writer.writeAll(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
 
         var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);

@@ -166,7 +166,7 @@ pub const Diags = struct {
     ) Allocator.Error!void {
         const gpa = diags.gpa;
 
-        var context_lines = std.ArrayList([]const u8).init(gpa);
+        var context_lines = std.array_list.Managed([]const u8).init(gpa);
         defer context_lines.deinit();
 
         var current_err: ?*Lld = null;
@@ -530,6 +530,7 @@ pub const File = struct {
             return &lld.base;
         }
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+            .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 const ptr = try tag.Type().open(arena, comp, emit, options);
@@ -552,6 +553,7 @@ pub const File = struct {
             return &lld.base;
         }
         switch (Tag.fromObjectFormat(comp.root_mod.resolved_target.result.ofmt)) {
+            .plan9 => return error.UnsupportedObjectFormat,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 const ptr = try tag.Type().createEmpty(arena, comp, emit, options);
@@ -571,7 +573,7 @@ pub const File = struct {
         const gpa = comp.gpa;
         switch (base.tag) {
             .lld => assert(base.file == null),
-            .coff, .elf, .macho, .plan9, .wasm, .goff, .xcoff => {
+            .coff, .elf, .macho, .wasm, .goff, .xcoff => {
                 if (base.file != null) return;
                 dev.checkAny(&.{ .coff_linker, .elf_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 const emit = base.emit;
@@ -612,6 +614,7 @@ pub const File = struct {
                 });
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .plan9 => unreachable,
         }
     }
 
@@ -659,7 +662,7 @@ pub const File = struct {
                     }
                 }
             },
-            .coff, .macho, .plan9, .wasm, .goff, .xcoff => if (base.file) |f| {
+            .coff, .macho, .wasm, .goff, .xcoff => if (base.file) |f| {
                 dev.checkAny(&.{ .coff_linker, .macho_linker, .plan9_linker, .wasm_linker, .goff_linker, .xcoff_linker });
                 f.close();
                 base.file = null;
@@ -675,12 +678,12 @@ pub const File = struct {
                 }
             },
             .c, .spirv => dev.checkAny(&.{ .c_linker, .spirv_linker }),
+            .plan9 => unreachable,
         }
     }
 
     pub const DebugInfoOutput = union(enum) {
         dwarf: *Dwarf.WipNav,
-        plan9: *Plan9.DebugInfoOutput,
         none,
     };
     pub const UpdateDebugInfoError = Dwarf.UpdateError;
@@ -699,7 +702,6 @@ pub const File = struct {
         log.debug("getGlobalSymbol '{s}' (expected in '{?s}')", .{ name, lib_name });
         switch (base.tag) {
             .lld => unreachable,
-            .plan9 => unreachable,
             .spirv => unreachable,
             .c => unreachable,
             inline else => |tag| {
@@ -717,6 +719,7 @@ pub const File = struct {
         assert(nav.status == .fully_resolved);
         switch (base.tag) {
             .lld => unreachable,
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateNav(pt, nav_index);
@@ -759,6 +762,7 @@ pub const File = struct {
         switch (base.tag) {
             .lld => unreachable,
             .spirv => unreachable, // see corresponding special case in `Zcu.PerThread.runCodegenInner`
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateFunc(pt, func_index, mir);
@@ -788,6 +792,7 @@ pub const File = struct {
             .lld => unreachable,
             .spirv => {},
             .goff, .xcoff => {},
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateLineNumber(pt, ti_id);
@@ -812,6 +817,7 @@ pub const File = struct {
         base.releaseLock();
         if (base.file) |f| f.close();
         switch (base.tag) {
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 @as(*tag.Type(), @fieldParentPtr("base", base)).deinit();
@@ -851,6 +857,7 @@ pub const File = struct {
         }
         assert(base.post_prelink);
         switch (base.tag) {
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).flush(arena, tid, prog_node);
@@ -877,6 +884,7 @@ pub const File = struct {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .lld => unreachable,
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).updateExports(pt, exported, export_indices);
@@ -911,6 +919,7 @@ pub const File = struct {
             .spirv => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getNavVAddr(pt, nav_index, reloc_info);
@@ -933,6 +942,7 @@ pub const File = struct {
             .spirv => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).lowerUav(pt, decl_val, decl_align, src_loc);
@@ -949,6 +959,7 @@ pub const File = struct {
             .spirv => unreachable,
             .wasm => unreachable,
             .goff, .xcoff => unreachable,
+            .plan9 => unreachable,
             inline else => |tag| {
                 dev.check(tag.devFeature());
                 return @as(*tag.Type(), @fieldParentPtr("base", base)).getUavVAddr(decl_val, reloc_info);
@@ -965,8 +976,8 @@ pub const File = struct {
         assert(base.comp.zcu.?.llvm_object == null);
         switch (base.tag) {
             .lld => unreachable,
+            .plan9 => unreachable,
 
-            .plan9,
             .spirv,
             .goff,
             .xcoff,
@@ -1116,10 +1127,10 @@ pub const File = struct {
                 .c => C,
                 .wasm => Wasm,
                 .spirv => SpirV,
-                .plan9 => Plan9,
                 .goff => Goff,
                 .xcoff => Xcoff,
                 .lld => Lld,
+                .plan9 => comptime unreachable,
             };
         }
 
@@ -1211,7 +1222,6 @@ pub const File = struct {
     pub const Lld = @import("link/Lld.zig");
     pub const C = @import("link/C.zig");
     pub const Coff = @import("link/Coff.zig");
-    pub const Plan9 = @import("link/Plan9.zig");
     pub const Elf = @import("link/Elf.zig");
     pub const MachO = @import("link/MachO.zig");
     pub const SpirV = @import("link/SpirV.zig");

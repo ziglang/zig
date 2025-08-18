@@ -93,9 +93,12 @@ pub fn main() !void {
 fn accept(context: *Context, connection: std.net.Server.Connection) void {
     defer connection.stream.close();
 
-    var read_buffer: [8000]u8 = undefined;
-    var server = std.http.Server.init(connection, &read_buffer);
-    while (server.state == .ready) {
+    var recv_buffer: [4000]u8 = undefined;
+    var send_buffer: [4000]u8 = undefined;
+    var conn_reader = connection.stream.reader(&recv_buffer);
+    var conn_writer = connection.stream.writer(&send_buffer);
+    var server = std.http.Server.init(conn_reader.interface(), &conn_writer.interface);
+    while (server.reader.state == .ready) {
         var request = server.receiveHead() catch |err| switch (err) {
             error.HttpConnectionClosing => return,
             else => {
@@ -103,9 +106,19 @@ fn accept(context: *Context, connection: std.net.Server.Connection) void {
                 return;
             },
         };
-        serveRequest(&request, context) catch |err| {
-            std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
-            return;
+        serveRequest(&request, context) catch |err| switch (err) {
+            error.WriteFailed => {
+                if (conn_writer.err) |e| {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(e) });
+                } else {
+                    std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                }
+                return;
+            },
+            else => {
+                std.log.err("unable to serve {s}: {s}", .{ request.head.target, @errorName(err) });
+                return;
+            },
         };
     }
 }
@@ -175,8 +188,7 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     const gpa = context.gpa;
 
     var send_buffer: [0x4000]u8 = undefined;
-    var response = request.respondStreaming(.{
-        .send_buffer = &send_buffer,
+    var response = try request.respondStreaming(&send_buffer, .{
         .respond_options = .{
             .extra_headers = &.{
                 .{ .name = "content-type", .value = "application/x-tar" },
@@ -191,11 +203,7 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
     var walker = try std_dir.walk(gpa);
     defer walker.deinit();
 
-    var adapter_buffer: [500]u8 = undefined;
-    var response_writer = response.writer().adaptToNewApi();
-    response_writer.new_interface.buffer = &adapter_buffer;
-
-    var archiver: std.tar.Writer = .{ .underlying_writer = &response_writer.new_interface };
+    var archiver: std.tar.Writer = .{ .underlying_writer = &response.writer };
     archiver.prefix = "std";
 
     while (try walker.next()) |entry| {
@@ -229,7 +237,6 @@ fn serveSourcesTar(request: *std.http.Server.Request, context: *Context) !void {
 
     // intentionally omitting the pointless trailer
     //try archiver.finish();
-    try response_writer.new_interface.flush();
     try response.end();
 }
 

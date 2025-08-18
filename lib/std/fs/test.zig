@@ -464,7 +464,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -497,7 +497,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -531,7 +531,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -567,7 +567,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -617,7 +617,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -2128,4 +2128,20 @@ test "seek keeping partial buffer" {
     try testing.expectEqual(4, n);
 
     try testing.expectEqualStrings("6789", &buf);
+}
+
+test "seekBy" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var reader = f.readerStreaming(&.{});
+    try reader.seekBy(2);
+
+    var buffer: [20]u8 = undefined;
+    const n = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(15, n);
+    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
 }

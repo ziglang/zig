@@ -89,8 +89,8 @@ pub fn detect(
 }
 
 fn detectFromInstallation(arena: Allocator, target: *const std.Target, lci: *const LibCInstallation) !LibCDirs {
-    var list = try std.ArrayList([]const u8).initCapacity(arena, 5);
-    var framework_list = std.ArrayList([]const u8).init(arena);
+    var list = try std.array_list.Managed([]const u8).initCapacity(arena, 5);
+    var framework_list = std.array_list.Managed([]const u8).init(arena);
 
     list.appendAssumeCapacity(lci.include_dir.?);
 

@@ -36,7 +36,7 @@ pub fn writeDir(w: *Writer, sub_path: []const u8, options: Options) Error!void {
     try w.writeHeader(.directory, sub_path, "", 0, options);
 }
 
-pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.GetEndPosError;
+pub const WriteFileError = std.Io.Writer.FileError || Error || std.fs.File.Reader.SizeError;
 
 pub fn writeFile(
     w: *Writer,
@@ -403,7 +403,7 @@ test "write files" {
         for (files) |file|
             try w.writeFileBytes(file.path, file.content, .{});
 
-        var input: std.Io.Reader = .fixed(output.getWritten());
+        var input: std.Io.Reader = .fixed(output.written());
         var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -427,7 +427,7 @@ test "write files" {
             var content: std.Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
             try it.streamRemaining(actual, &content.writer);
-            try testing.expectEqualSlices(u8, expected.content, content.getWritten());
+            try testing.expectEqualSlices(u8, expected.content, content.written());
         }
     }
     // without root
@@ -440,7 +440,7 @@ test "write files" {
             try w.writeFileStream(file.path, file.content.len, &content, .{});
         }
 
-        var input: std.Io.Reader = .fixed(output.getWritten());
+        var input: std.Io.Reader = .fixed(output.written());
         var it: std.tar.Iterator = .init(&input, .{
             .file_name_buffer = &file_name_buffer,
             .link_name_buffer = &link_name_buffer,
@@ -455,7 +455,7 @@ test "write files" {
             var content: std.Io.Writer.Allocating = .init(testing.allocator);
             defer content.deinit();
             try it.streamRemaining(actual, &content.writer);
-            try testing.expectEqualSlices(u8, expected.content, content.getWritten());
+            try testing.expectEqualSlices(u8, expected.content, content.written());
         }
         try w.finishPedantically();
     }

@@ -9,7 +9,7 @@ const TokenIndex = Tree.TokenIndex;
 const NodeIndex = Tree.NodeIndex;
 const Type = @import("Type.zig");
 const Diagnostics = @import("Diagnostics.zig");
-const NodeList = std.ArrayList(NodeIndex);
+const NodeList = std.array_list.Managed(NodeIndex);
 const Parser = @import("Parser.zig");
 
 const Item = struct {

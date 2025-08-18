@@ -1301,7 +1301,7 @@ fn resolveCallingConventionValues(
     };
     if (cc == .naked) return result;
 
-    var args = std.ArrayList(WValue).init(gpa);
+    var args = std.array_list.Managed(WValue).init(gpa);
     defer args.deinit();
 
     // Check if we store the result as a pointer to the stack rather than
@@ -3131,7 +3131,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const zcu = pt.zcu;
     assert(!isByRef(ty, zcu, cg.target));
     const ip = &zcu.intern_pool;
-    if (val.isUndefDeep(zcu)) return cg.emitUndefined(ty);
+    if (val.isUndef(zcu)) return cg.emitUndefined(ty);
 
     switch (ip.indexToKey(val.ip_index)) {
         .int_type,
@@ -7132,7 +7132,7 @@ fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = try cg.allocLocal(Type.bool);
 
     const names = error_set_ty.errorSetNames(zcu);
-    var values = try std.ArrayList(u32).initCapacity(cg.gpa, names.len);
+    var values = try std.array_list.Managed(u32).initCapacity(cg.gpa, names.len);
     defer values.deinit();
 
     var lowest: ?u32 = null;

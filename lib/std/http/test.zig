@@ -149,9 +149,8 @@ test "HTTP server handles a chunked transfer coding request" {
         "content-type: text/plain\r\n" ++
         "\r\n" ++
         "message from server!\n";
-    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
-    var stream_reader = stream.reader(&tiny_buffer);
-    const response = try stream_reader.interface().allocRemaining(gpa, .limited(expected_response.len));
+    var stream_reader = stream.reader(&.{});
+    const response = try stream_reader.interface().allocRemaining(gpa, .limited(expected_response.len + 1));
     defer gpa.free(response);
     try expectEqualStrings(expected_response, response);
 }
@@ -293,12 +292,11 @@ test "Server.Request.respondStreaming non-chunked, unknown content-length" {
     var stream_writer = stream.writer(&.{});
     try stream_writer.interface.writeAll(request_bytes);
 
-    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
-    var stream_reader = stream.reader(&tiny_buffer);
+    var stream_reader = stream.reader(&.{});
     const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
-    var expected_response = std.ArrayList(u8).init(gpa);
+    var expected_response = std.array_list.Managed(u8).init(gpa);
     defer expected_response.deinit();
 
     try expected_response.appendSlice("HTTP/1.1 200 OK\r\nconnection: close\r\n\r\n");
@@ -364,12 +362,11 @@ test "receiving arbitrary http headers from the client" {
     var stream_writer = stream.writer(&.{});
     try stream_writer.interface.writeAll(request_bytes);
 
-    var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
-    var stream_reader = stream.reader(&tiny_buffer);
+    var stream_reader = stream.reader(&.{});
     const response = try stream_reader.interface().allocRemaining(gpa, .unlimited);
     defer gpa.free(response);
 
-    var expected_response = std.ArrayList(u8).init(gpa);
+    var expected_response = std.array_list.Managed(u8).init(gpa);
     defer expected_response.deinit();
 
     try expected_response.appendSlice("HTTP/1.1 200 OK\r\n");
@@ -1020,7 +1017,7 @@ fn echoTests(client: *http.Client, port: u16) !void {
             .response_writer = &body.writer,
         });
         try expectEqual(.ok, res.status);
-        try expectEqualStrings("Hello, World!\n", body.getWritten());
+        try expectEqualStrings("Hello, World!\n", body.written());
     }
 
     { // expect: 100-continue

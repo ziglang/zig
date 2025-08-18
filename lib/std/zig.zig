@@ -349,7 +349,7 @@ pub const LtoMode = enum { none, full, thin };
 /// Renders a `std.Target.Cpu` value into a textual representation that can be parsed
 /// via the `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.Error!void {
+pub fn serializeCpu(buffer: *std.array_list.Managed(u8), cpu: std.Target.Cpu) Allocator.Error!void {
     const all_features = cpu.arch.allFeaturesList();
     var populated_cpu_features = cpu.model.features;
     populated_cpu_features.populateDependencies(all_features);
@@ -377,7 +377,7 @@ pub fn serializeCpu(buffer: *std.ArrayList(u8), cpu: std.Target.Cpu) Allocator.E
 }
 
 pub fn serializeCpuAlloc(ally: Allocator, cpu: std.Target.Cpu) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(&buffer, cpu);
     return buffer.toOwnedSlice();
 }
@@ -554,8 +554,11 @@ test isUnderscore {
     try std.testing.expect(!isUnderscore("\\x5f"));
 }
 
+/// If the source can be UTF-16LE encoded, this function asserts that `gpa`
+/// will align a byte-sized allocation to at least 2. Allocators that don't do
+/// this are rare.
 pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader) ![:0]u8 {
-    var buffer: std.ArrayListAlignedUnmanaged(u8, .@"2") = .empty;
+    var buffer: std.ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
 
     if (file_reader.getSize()) |size| {
@@ -564,7 +567,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
         try buffer.ensureTotalCapacityPrecise(gpa, casted_size + 1);
     } else |_| {}
 
-    try file_reader.interface.appendRemaining(gpa, .@"2", &buffer, .limited(max_src_size));
+    try file_reader.interface.appendRemaining(gpa, &buffer, .limited(max_src_size));
 
     // Detect unsupported file types with their Byte Order Mark
     const unsupported_boms = [_][]const u8{
@@ -581,7 +584,7 @@ pub fn readSourceFileToEndAlloc(gpa: Allocator, file_reader: *std.fs.File.Reader
     // If the file starts with a UTF-16 little endian BOM, translate it to UTF-8
     if (std.mem.startsWith(u8, buffer.items, "\xff\xfe")) {
         if (buffer.items.len % 2 != 0) return error.InvalidEncoding;
-        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(buffer.items)) catch |err| switch (err) {
+        return std.unicode.utf16LeToUtf8AllocZ(gpa, @ptrCast(@alignCast(buffer.items))) catch |err| switch (err) {
             error.DanglingSurrogateHalf => error.UnsupportedEncoding,
             error.ExpectedSecondSurrogateHalf => error.UnsupportedEncoding,
             error.UnexpectedSecondSurrogateHalf => error.UnsupportedEncoding,
@@ -633,7 +636,7 @@ pub fn parseTargetQueryOrReportFatalError(
     return std.Target.Query.parse(opts_with_diags) catch |err| switch (err) {
         error.UnknownCpuModel => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allCpuModels()) |cpu| {
                     help_text.print(" {s}\n", .{cpu.name}) catch break :help;
@@ -646,7 +649,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownCpuFeature => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 for (diags.arch.?.allFeaturesList()) |feature| {
                     help_text.print(" {s}: {s}\n", .{ feature.name, feature.description }) catch break :help;
@@ -659,7 +662,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownObjectFormat => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.ObjectFormat).@"enum".fields) |field| {
                     help_text.print(" {s}\n", .{field.name}) catch break :help;
@@ -670,7 +673,7 @@ pub fn parseTargetQueryOrReportFatalError(
         },
         error.UnknownArchitecture => {
             help: {
-                var help_text = std.ArrayList(u8).init(allocator);
+                var help_text = std.array_list.Managed(u8).init(allocator);
                 defer help_text.deinit();
                 inline for (@typeInfo(std.Target.Cpu.Arch).@"enum".fields) |field| {
                     help_text.print(" {s}\n", .{field.name}) catch break :help;

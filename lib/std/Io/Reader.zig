@@ -8,7 +8,7 @@ const Writer = std.io.Writer;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const ArrayList = std.ArrayListUnmanaged;
+const ArrayList = std.ArrayList;
 const Limit = std.io.Limit;
 
 pub const Limited = @import("Reader/Limited.zig");
@@ -86,12 +86,12 @@ pub const VTable = struct {
     /// `Reader.buffer`, whichever is bigger.
     readVec: *const fn (r: *Reader, data: [][]u8) Error!usize = defaultReadVec,
 
-    /// Ensures `capacity` more data can be buffered without rebasing.
+    /// Ensures `capacity` data can be buffered without rebasing.
     ///
     /// Asserts `capacity` is within buffer capacity, or that the stream ends
     /// within `capacity` bytes.
     ///
-    /// Only called when `capacity` cannot fit into the unused capacity of
+    /// Only called when `capacity` cannot be satisfied by unused capacity of
     /// `buffer`.
     ///
     /// The default implementation moves buffered data to the start of
@@ -283,110 +283,68 @@ pub const LimitedAllocError = Allocator.Error || ShortError || error{StreamTooLo
 /// such case, the next byte that would be read will be the first one to exceed
 /// `limit`, and all preceeding bytes have been discarded.
 ///
-/// Asserts `buffer` has nonzero capacity.
-///
 /// See also:
 /// * `appendRemaining`
 pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocError![]u8 {
     var buffer: ArrayList(u8) = .empty;
     defer buffer.deinit(gpa);
-    try appendRemaining(r, gpa, null, &buffer, limit);
+    try appendRemaining(r, gpa, &buffer, limit);
     return buffer.toOwnedSlice(gpa);
 }
 
 /// Transfers all bytes from the current position to the end of the stream, up
 /// to `limit`, appending them to `list`.
 ///
-/// If `limit` would be exceeded, `error.StreamTooLong` is returned instead. In
-/// such case, the next byte that would be read will be the first one to exceed
-/// `limit`, and all preceeding bytes have been appended to `list`.
-///
-/// If `limit` is not `Limit.unlimited`, asserts `buffer` has nonzero capacity.
+/// If `limit` is reached or exceeded, `error.StreamTooLong` is returned
+/// instead. In such case, the next byte that would be read will be the first
+/// one to exceed `limit`, and all preceeding bytes have been appended to
+/// `list`.
 ///
 /// See also:
 /// * `allocRemaining`
 pub fn appendRemaining(
     r: *Reader,
     gpa: Allocator,
-    comptime alignment: ?std.mem.Alignment,
-    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
+    list: *ArrayList(u8),
     limit: Limit,
 ) LimitedAllocError!void {
-    if (limit == .unlimited) return appendRemainingUnlimited(r, gpa, alignment, list, 1);
-    assert(r.buffer.len != 0); // Needed to detect limit exceeded without losing data.
-    const buffer_contents = r.buffer[r.seek..r.end];
-    const copy_len = limit.minInt(buffer_contents.len);
-    try list.appendSlice(gpa, r.buffer[0..copy_len]);
-    r.seek += copy_len;
-    if (buffer_contents.len - copy_len != 0) return error.StreamTooLong;
-    r.seek = 0;
-    r.end = 0;
-    var remaining = @intFromEnum(limit) - copy_len;
-    // From here, we leave `buffer` empty, appending directly to `list`.
-    var writer: Writer = .{
-        .buffer = undefined,
-        .end = undefined,
-        .vtable = &.{ .drain = Writer.fixedDrain },
-    };
-    while (true) {
-        try list.ensureUnusedCapacity(gpa, 2);
-        const cap = list.unusedCapacitySlice();
-        const dest = cap[0..@min(cap.len, remaining + 1)];
-        writer.buffer = list.allocatedSlice();
-        writer.end = list.items.len;
-        const n = r.vtable.stream(r, &writer, .limited(dest.len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable, // Prevented by the limit.
+    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.items);
+    a.writer.end = list.items.len;
+    list.* = .empty;
+    defer {
+        list.* = .{
+            .items = a.writer.buffer[0..a.writer.end],
+            .capacity = a.writer.buffer.len,
+        };
+    }
+    var remaining = limit;
+    while (remaining.nonzero()) {
+        const n = stream(r, &a.writer, remaining) catch |err| switch (err) {
             error.EndOfStream => return,
+            error.WriteFailed => return error.OutOfMemory,
             error.ReadFailed => return error.ReadFailed,
         };
-        list.items.len += n;
-        if (n > remaining) {
-            // Move the byte to `Reader.buffer` so it is not lost.
-            assert(n - remaining == 1);
-            assert(r.end == 0);
-            r.buffer[0] = list.items[list.items.len - 1];
-            list.items.len -= 1;
-            r.end = 1;
-            return;
-        }
-        remaining -= n;
+        remaining = remaining.subtract(n).?;
     }
+    return error.StreamTooLong;
 }
 
 pub const UnlimitedAllocError = Allocator.Error || ShortError;
 
-pub fn appendRemainingUnlimited(
-    r: *Reader,
-    gpa: Allocator,
-    comptime alignment: ?std.mem.Alignment,
-    list: *std.ArrayListAlignedUnmanaged(u8, alignment),
-    bump: usize,
-) UnlimitedAllocError!void {
-    const buffer_contents = r.buffer[r.seek..r.end];
-    try list.ensureUnusedCapacity(gpa, buffer_contents.len + bump);
-    list.appendSliceAssumeCapacity(buffer_contents);
-    // If statement protects `ending`.
-    if (r.end != 0) {
-        r.seek = 0;
-        r.end = 0;
-    }
-    // From here, we leave `buffer` empty, appending directly to `list`.
-    var writer: Writer = .{
-        .buffer = undefined,
-        .end = undefined,
-        .vtable = &.{ .drain = Writer.fixedDrain },
-    };
-    while (true) {
-        try list.ensureUnusedCapacity(gpa, bump);
-        writer.buffer = list.allocatedSlice();
-        writer.end = list.items.len;
-        const n = r.vtable.stream(r, &writer, .limited(list.unusedCapacitySlice().len)) catch |err| switch (err) {
-            error.WriteFailed => unreachable, // Prevented by the limit.
-            error.EndOfStream => return,
-            error.ReadFailed => return error.ReadFailed,
+pub fn appendRemainingUnlimited(r: *Reader, gpa: Allocator, list: *ArrayList(u8)) UnlimitedAllocError!void {
+    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.items);
+    a.writer.end = list.items.len;
+    list.* = .empty;
+    defer {
+        list.* = .{
+            .items = a.writer.buffer[0..a.writer.end],
+            .capacity = a.writer.buffer.len,
         };
-        list.items.len += n;
     }
+    _ = streamRemaining(r, &a.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        error.ReadFailed => return error.ReadFailed,
+    };
 }
 
 /// Writes bytes from the internally tracked stream position to `data`.
@@ -1077,7 +1035,7 @@ fn fillUnbuffered(r: *Reader, n: usize) Error!void {
 ///
 /// Asserts buffer capacity is at least 1.
 pub fn fillMore(r: *Reader) Error!void {
-    try rebase(r, 1);
+    try rebase(r, r.end - r.seek + 1);
     var bufs: [1][]u8 = .{""};
     _ = try r.vtable.readVec(r, &bufs);
 }
@@ -1245,24 +1203,6 @@ pub fn takeLeb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     } }))) orelse error.Overflow;
 }
 
-pub fn expandTotalCapacity(r: *Reader, allocator: Allocator, n: usize) Allocator.Error!void {
-    if (n <= r.buffer.len) return;
-    if (r.seek > 0) rebase(r, r.buffer.len);
-    var list: ArrayList(u8) = .{
-        .items = r.buffer[0..r.end],
-        .capacity = r.buffer.len,
-    };
-    defer r.buffer = list.allocatedSlice();
-    try list.ensureTotalCapacity(allocator, n);
-}
-
-pub const FillAllocError = Error || Allocator.Error;
-
-pub fn fillAlloc(r: *Reader, allocator: Allocator, n: usize) FillAllocError!void {
-    try expandTotalCapacity(r, allocator, n);
-    return fill(r, n);
-}
-
 fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Result {
     const result_info = @typeInfo(Result).int;
     comptime assert(result_info.bits % 7 == 0);
@@ -1293,18 +1233,22 @@ fn takeMultipleOf7Leb128(r: *Reader, comptime Result: type) TakeLeb128Error!Resu
     }
 }
 
-/// Ensures `capacity` more data can be buffered without rebasing.
+/// Ensures `capacity` data can be buffered without rebasing.
 pub fn rebase(r: *Reader, capacity: usize) RebaseError!void {
-    if (r.end + capacity <= r.buffer.len) return;
+    if (r.buffer.len - r.seek >= capacity) {
+        @branchHint(.likely);
+        return;
+    }
     return r.vtable.rebase(r, capacity);
 }
 
 pub fn defaultRebase(r: *Reader, capacity: usize) RebaseError!void {
-    if (r.end <= r.buffer.len - capacity) return;
+    assert(r.buffer.len - r.seek < capacity);
     const data = r.buffer[r.seek..r.end];
     @memmove(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
+    assert(r.buffer.len - r.seek >= capacity);
 }
 
 test fixed {

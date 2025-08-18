@@ -117,7 +117,7 @@ pub fn GenericReader(
 
         pub inline fn readAllArrayList(
             self: Self,
-            array_list: *std.ArrayList(u8),
+            array_list: *std.array_list.Managed(u8),
             max_append_size: usize,
         ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayList(array_list, max_append_size));
@@ -126,7 +126,7 @@ pub fn GenericReader(
         pub inline fn readAllArrayListAligned(
             self: Self,
             comptime alignment: ?Alignment,
-            array_list: *std.ArrayListAligned(u8, alignment),
+            array_list: *std.array_list.AlignedManaged(u8, alignment),
             max_append_size: usize,
         ) (error{StreamTooLong} || Allocator.Error || Error)!void {
             return @errorCast(self.any().readAllArrayListAligned(
@@ -146,7 +146,7 @@ pub fn GenericReader(
 
         pub inline fn readUntilDelimiterArrayList(
             self: Self,
-            array_list: *std.ArrayList(u8),
+            array_list: *std.array_list.Managed(u8),
             delimiter: u8,
             max_size: usize,
         ) (NoEofError || Allocator.Error || error{StreamTooLong})!void {
@@ -387,11 +387,11 @@ pub fn GenericWriter(
         }
 
         /// Helper for bridging to the new `Writer` API while upgrading.
-        pub fn adaptToNewApi(self: *const Self) Adapter {
+        pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
             return .{
                 .derp_writer = self.*,
                 .new_interface = .{
-                    .buffer = &.{},
+                    .buffer = buffer,
                     .vtable = &.{ .drain = Adapter.drain },
                 },
             };
@@ -423,10 +423,6 @@ pub fn GenericWriter(
 pub const AnyReader = @import("Io/DeprecatedReader.zig");
 /// Deprecated in favor of `Writer`.
 pub const AnyWriter = @import("Io/DeprecatedWriter.zig");
-/// Deprecated in favor of `Writer`.
-pub const BufferedWriter = @import("Io/buffered_writer.zig").BufferedWriter;
-/// Deprecated in favor of `Writer`.
-pub const bufferedWriter = @import("Io/buffered_writer.zig").bufferedWriter;
 /// Deprecated in favor of `Reader`.
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
@@ -721,7 +717,12 @@ pub fn Poller(comptime StreamEnum: type) type {
                 const unused = r.buffer[r.end..];
                 if (unused.len >= min_len) return unused;
             }
-            if (r.seek > 0) r.rebase(r.buffer.len) catch unreachable;
+            if (r.seek > 0) {
+                const data = r.buffer[r.seek..r.end];
+                @memmove(r.buffer[0..data.len], data);
+                r.seek = 0;
+                r.end = data.len;
+            }
             {
                 var list: std.ArrayListUnmanaged(u8) = .{
                     .items = r.buffer[0..r.end],
@@ -912,7 +913,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = BufferedWriter;
     _ = CountingReader;
     _ = FixedBufferStream;
     _ = tty;

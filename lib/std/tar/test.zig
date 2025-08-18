@@ -361,7 +361,7 @@ fn testCase(case: Case) !void {
             var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
             defer aw.deinit();
             try it.streamRemaining(actual, &aw.writer);
-            const chksum = std.fmt.bytesToHex(std.crypto.hash.Md5.hashResult(aw.getWritten()), .lower);
+            const chksum = std.fmt.bytesToHex(std.crypto.hash.Md5.hashResult(aw.written()), .lower);
             try testing.expectEqualStrings(case.chksums[i], &chksum);
         } else {
             if (expected.truncated) {

@@ -728,7 +728,7 @@ pub const Object = struct {
     }
     fn outdent(o: *Object) !void {
         o.indent_counter -= indent_width;
-        const written = o.code.getWritten();
+        const written = o.code.written();
         switch (written[written.len - 1]) {
             indent_char => o.code.shrinkRetainingCapacity(written.len - indent_width),
             '\n' => try o.code.writer.splatByteAll(indent_char, o.indent_counter),
@@ -1012,7 +1012,7 @@ pub const DeclGen = struct {
         };
 
         const ty = val.typeOf(zcu);
-        if (val.isUndefDeep(zcu)) return dg.renderUndefValue(w, ty, location);
+        if (val.isUndef(zcu)) return dg.renderUndefValue(w, ty, location);
         const ctype = try dg.ctypeFromType(ty, location.toCTypeKind());
         switch (ip.indexToKey(val.toIntern())) {
             // types, not values
@@ -1316,12 +1316,12 @@ pub const DeclGen = struct {
                         try w.writeByte('{');
                         var index: usize = 0;
                         while (index < ai.len) : (index += 1) {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             const elem_val = try val.elemValue(pt, index);
                             try dg.renderValue(w, elem_val, initializer_type);
                         }
                         if (ai.sentinel) |s| {
-                            if (index != 0) try w.writeByte(',');
+                            if (index > 0) try w.writeByte(',');
                             try dg.renderValue(w, s, initializer_type);
                         }
                         try w.writeByte('}');
@@ -1854,12 +1854,14 @@ pub const DeclGen = struct {
                 .array_type, .vector_type => {
                     const ai = ty.arrayInfo(zcu);
                     if (ai.elem_type.eql(.u8, zcu)) {
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
-                        var literal: StringLiteral = .init(w, @intCast(c_len));
+                        var literal: StringLiteral = .init(w, @intCast(ty.arrayLenIncludingSentinel(zcu)));
                         try literal.start();
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1)
-                            try literal.writeChar(0xaa);
+                        while (index < ai.len) : (index += 1) try literal.writeChar(0xaa);
+                        if (ai.sentinel) |s| {
+                            const s_u8: u8 = @intCast(s.toUnsignedInt(zcu));
+                            if (s_u8 != 0) try literal.writeChar(s_u8);
+                        }
                         return literal.end();
                     } else {
                         if (!location.isInitializer()) {
@@ -1869,11 +1871,14 @@ pub const DeclGen = struct {
                         }
 
                         try w.writeByte('{');
-                        const c_len = ty.arrayLenIncludingSentinel(zcu);
                         var index: u64 = 0;
-                        while (index < c_len) : (index += 1) {
+                        while (index < ai.len) : (index += 1) {
                             if (index > 0) try w.writeAll(", ");
                             try dg.renderUndefValue(w, ty.childType(zcu), initializer_type);
+                        }
+                        if (ai.sentinel) |s| {
+                            if (index > 0) try w.writeAll(", ");
+                            try dg.renderValue(w, s, location);
                         }
                         return w.writeByte('}');
                     }
@@ -2217,6 +2222,7 @@ pub const DeclGen = struct {
         });
         try dg.writeName(w, name);
         try renderTypeSuffix(dg.pass, &dg.ctype_pool, zcu, w, ctype, .suffix, .{});
+        if (ctype.isNonString(&dg.ctype_pool)) try w.writeAll(" zig_nonstring");
     }
 
     fn writeName(dg: *DeclGen, w: *Writer, c_value: CValue) !void {
@@ -2713,6 +2719,7 @@ fn renderFields(
         );
         try w.print("{f}{f}", .{ trailing, fmtCTypePoolString(field_info.name, ctype_pool, true) });
         try renderTypeSuffix(.flush, ctype_pool, zcu, w, field_info.ctype, .suffix, .{});
+        if (field_info.ctype.isNonString(ctype_pool)) try w.writeAll(" zig_nonstring");
         try w.writeAll(";\n");
     }
     try w.splatByteAll(' ', indent);
@@ -4209,7 +4216,7 @@ fn airStore(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const ptr_val = try f.resolveInst(bin_op.lhs);
     const src_ty = f.typeOf(bin_op.rhs);
 
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |v| v.isUndefDeep(zcu) else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |v| v.isUndef(zcu) else false;
 
     const w = &f.object.code.writer;
     if (val_is_undef) {
@@ -4935,7 +4942,7 @@ fn airDbgVar(f: *Function, inst: Air.Inst.Index) !CValue {
     const tag = f.air.instructions.items(.tag)[@intFromEnum(inst)];
     const pl_op = f.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const name: Air.NullTerminatedString = @enumFromInt(pl_op.payload);
-    const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndefDeep(zcu) else false;
+    const operand_is_undef = if (try f.air.value(pl_op.operand, pt)) |v| v.isUndef(zcu) else false;
     if (!operand_is_undef) _ = try f.resolveInst(pl_op.operand);
 
     try reap(f, inst, &.{pl_op.operand});
@@ -7110,7 +7117,7 @@ fn airMemset(f: *Function, inst: Air.Inst.Index, safety: bool) !CValue {
     const value = try f.resolveInst(bin_op.rhs);
     const elem_ty = f.typeOf(bin_op.rhs);
     const elem_abi_size = elem_ty.abiSize(zcu);
-    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |val| val.isUndefDeep(zcu) else false;
+    const val_is_undef = if (try f.air.value(bin_op.rhs, pt)) |val| val.isUndef(zcu) else false;
     const w = &f.object.code.writer;
 
     if (val_is_undef) {
@@ -8331,7 +8338,7 @@ fn formatIntLiteral(data: FormatIntLiteralContext, w: *std.io.Writer) std.io.Wri
     defer allocator.free(undef_limbs);
 
     var int_buf: Value.BigIntSpace = undefined;
-    const int = if (data.val.isUndefDeep(zcu)) blk: {
+    const int = if (data.val.isUndef(zcu)) blk: {
         undef_limbs = allocator.alloc(BigIntLimb, BigInt.calcTwosCompLimbCount(data.int_info.bits)) catch return error.WriteFailed;
         @memset(undef_limbs, undefPattern(BigIntLimb));
 

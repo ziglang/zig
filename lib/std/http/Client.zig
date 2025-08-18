@@ -42,7 +42,7 @@ connection_pool: ConnectionPool = .{},
 ///
 /// If the entire HTTP header cannot fit in this amount of bytes,
 /// `error.HttpHeadersOversize` will be returned from `Request.wait`.
-read_buffer_size: usize = 4096 + if (disable_tls) 0 else std.crypto.tls.Client.min_buffer_len,
+read_buffer_size: usize = 8192,
 /// Each `Connection` allocates this amount for the writer buffer.
 write_buffer_size: usize = 1024,
 
@@ -302,18 +302,22 @@ pub const Connection = struct {
             const base = try gpa.alignedAlloc(u8, .of(Tls), alloc_len);
             errdefer gpa.free(base);
             const host_buffer = base[@sizeOf(Tls)..][0..remote_host.len];
-            const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..client.tls_buffer_size];
+            // The TLS client wants enough buffer for the max encrypted frame
+            // size, and the HTTP body reader wants enough buffer for the
+            // entire HTTP header. This means we need a combined upper bound.
+            const tls_read_buffer_len = client.tls_buffer_size + client.read_buffer_size;
+            const tls_read_buffer = host_buffer.ptr[host_buffer.len..][0..tls_read_buffer_len];
             const tls_write_buffer = tls_read_buffer.ptr[tls_read_buffer.len..][0..client.tls_buffer_size];
-            const write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
-            const read_buffer = write_buffer.ptr[write_buffer.len..][0..client.read_buffer_size];
-            assert(base.ptr + alloc_len == read_buffer.ptr + read_buffer.len);
+            const socket_write_buffer = tls_write_buffer.ptr[tls_write_buffer.len..][0..client.write_buffer_size];
+            const socket_read_buffer = socket_write_buffer.ptr[socket_write_buffer.len..][0..client.tls_buffer_size];
+            assert(base.ptr + alloc_len == socket_read_buffer.ptr + socket_read_buffer.len);
             @memcpy(host_buffer, remote_host);
             const tls: *Tls = @ptrCast(base);
             tls.* = .{
                 .connection = .{
                     .client = client,
                     .stream_writer = stream.writer(tls_write_buffer),
-                    .stream_reader = stream.reader(tls_read_buffer),
+                    .stream_reader = stream.reader(socket_read_buffer),
                     .pool_node = .{},
                     .port = port,
                     .host_len = @intCast(remote_host.len),
@@ -329,8 +333,8 @@ pub const Connection = struct {
                         .host = .{ .explicit = remote_host },
                         .ca = .{ .bundle = client.ca_bundle },
                         .ssl_key_log = client.ssl_key_log,
-                        .read_buffer = read_buffer,
-                        .write_buffer = write_buffer,
+                        .read_buffer = tls_read_buffer,
+                        .write_buffer = socket_write_buffer,
                         // This is appropriate for HTTPS because the HTTP headers contain
                         // the content length which is used to detect truncation attacks.
                         .allow_truncation_attacks = true,
@@ -348,8 +352,9 @@ pub const Connection = struct {
         }
 
         fn allocLen(client: *Client, host_len: usize) usize {
-            return @sizeOf(Tls) + host_len + client.tls_buffer_size + client.tls_buffer_size +
-                client.write_buffer_size + client.read_buffer_size;
+            const tls_read_buffer_len = client.tls_buffer_size + client.read_buffer_size;
+            return @sizeOf(Tls) + host_len + tls_read_buffer_len + client.tls_buffer_size +
+                client.write_buffer_size + client.tls_buffer_size;
         }
 
         fn host(tls: *Tls) []u8 {
@@ -907,7 +912,7 @@ pub const Request = struct {
         return switch (r.transfer_encoding) {
             .chunked => .{
                 .http_protocol_output = http_protocol_output,
-                .state = .{ .chunked = .init },
+                .state = .init_chunked,
                 .writer = .{
                     .buffer = buffer,
                     .vtable = &.{
@@ -1214,6 +1219,7 @@ pub const Request = struct {
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = r.client.read_buffer_size,
         };
         r.redirect_behavior.subtractOne();
     }
@@ -1679,6 +1685,7 @@ pub fn request(
             .state = .ready,
             // Populated when `http.Reader.bodyReader` is called.
             .interface = undefined,
+            .max_head_len = client.read_buffer_size,
         },
         .keep_alive = options.keep_alive,
         .method = method,
