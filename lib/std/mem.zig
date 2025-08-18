@@ -1278,7 +1278,7 @@ pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, 
             // line so explicit alignment prologues may be worth exploration.
             const Block = @Vector(block_len, T);
             const mask: Block = @splat(value);
-            while (i <= slice.len - block_len * 4 and slice.len >= block_len * 4) : (i += block_len * 4) {
+            while (i <= slice.len -| block_len * 4 and slice.len >= block_len * 4) : (i += block_len * 4) {
                 var matches: [4]@TypeOf(mask == mask) = undefined;
                 inline for (0..4) |j| {
                     const start = i + j * block_len;
