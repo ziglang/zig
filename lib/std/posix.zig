@@ -5055,7 +5055,12 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
         return faccessat(dirfd, mem.sliceTo(path, 0), mode, flags);
     }
 
+    const flags_unsupported = switch (system) {
+        linux => builtin.abi.isAndroid() //standard android programs run in a seccomp sandbox that seems to trigger signal 31 (SIGSYS) for faccessat2
+        else => false,
+    };
     const need_flags = (flags != 0);
+    if (need_flags and flags_unsupported) return error.UnsupportedFlags;
     const faccessat_result = switch (system) {
         linux => if (need_flags) //the older, simpler syscall should stay supported, so we only need to use faccessat2 if we need flags
             linux.faccessat2(dirfd, path, mode, flags)
