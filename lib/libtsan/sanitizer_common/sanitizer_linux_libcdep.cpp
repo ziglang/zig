@@ -105,8 +105,12 @@ int internal_sigaction(int signum, const void *act, void *oldact) {
   // library initialization order the table can be relocated after the call to
   // InitializeDeadlySignals() which then crashes when dereferencing the
   // uninitialized pointer in libc.
+#    if defined(__x86_64__) || defined(__aarch64__)
+  return internal_syscall(SYSCALL(sigaction), signum, (uptr)act, (uptr)oldact);
+#    else
   return __sys_sigaction(signum, (const struct sigaction *)act,
                          (struct sigaction *)oldact);
+#    endif
 #  else
 #    if !SANITIZER_GO
   if (&real_sigaction)
