@@ -5054,7 +5054,16 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
     } else if (native_os == .wasi and !builtin.link_libc) {
         return faccessat(dirfd, mem.sliceTo(path, 0), mode, flags);
     }
-    switch (errno(system.faccessat(dirfd, path, mode, flags))) {
+
+    const need_flags = (flags != 0);
+    const faccessat_result = switch (system) {
+        linux => if (need_flags) //the older, simpler syscall should stay supported, so we only need to use faccessat2 if we need flags
+            linux.faccessat2(dirfd, path, mode, flags)
+        else
+            linux.faccessat(dirfd, path, mode),
+        else => system.faccessat(dirfd, path, mode, flags),
+    };
+    switch (errno(faccessat_result)) {
         .SUCCESS => return,
         .ACCES => return error.AccessDenied,
         .PERM => return error.PermissionDenied,
