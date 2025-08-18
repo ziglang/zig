@@ -1803,9 +1803,15 @@ pub const Writer = struct {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
-            const consumed = io_w.consume(@intCast(sbytes));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
-            return consumed;
+            const n = io_w.consume(@intCast(sbytes));
+            if (n <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(n);
+            } else {
+                const direct_n = n - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(direct_n)) catch return error.ReadFailed;
+            }
+            return n;
         }
 
         if (native_os.isDarwin() and w.mode == .streaming) sf: {
@@ -1864,9 +1870,15 @@ pub const Writer = struct {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
-            const consumed = io_w.consume(@bitCast(len));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
-            return consumed;
+            const n = io_w.consume(@bitCast(len));
+            if (n <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(n);
+            } else {
+                const direct_n = n - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(direct_n)) catch return error.ReadFailed;
+            }
+            return n;
         }
 
         if (native_os == .linux and w.mode == .streaming) sf: {
@@ -1998,7 +2010,7 @@ pub const Writer = struct {
         reader_buffered: []const u8,
     ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
-        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        file_reader.interface.toss(n);
         return n;
     }
 
