@@ -1853,7 +1853,13 @@ pub const Writer = struct {
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@intCast(sbytes));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            if (consumed <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(consumed);
+            } else {
+                const directn = consumed - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(directn)) catch return error.ReadFailed;
+            }
             return consumed;
         }
 
@@ -1914,7 +1920,13 @@ pub const Writer = struct {
                 return error.EndOfStream;
             }
             const consumed = io_w.consume(@bitCast(len));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
+            if (consumed <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(consumed);
+            } else {
+                const directn = consumed - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(directn)) catch return error.ReadFailed;
+            }
             return consumed;
         }
 
@@ -2047,7 +2059,7 @@ pub const Writer = struct {
         reader_buffered: []const u8,
     ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
-        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        file_reader.interface.toss(n);
         return n;
     }
 
