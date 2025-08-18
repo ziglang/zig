@@ -522,8 +522,8 @@ fn render_meson(
     const build = step.owner;
     const allocator = build.allocator;
 
-    var line_buffer: std.ArrayList(u8) = .init(allocator);
-    defer line_buffer.deinit();
+    var line_buffer: std.ArrayList(u8) = .empty;
+    defer line_buffer.deinit(allocator);
 
     var any_errors = false;
     var line_index: u32 = 0;
@@ -532,7 +532,7 @@ fn render_meson(
         const last_line = line_it.index == line_it.buffer.len;
 
         line_buffer.clearRetainingCapacity();
-        const line = expand_variables_meson(&line_buffer, raw_line, values) catch |err| {
+        const line = expand_variables_meson(&line_buffer, allocator, raw_line, values) catch |err| {
             switch (err) {
                 error.MissingValue => {
                     const key = line_buffer.items;
@@ -874,6 +874,7 @@ fn countEscapes(before_symbol: []const u8) usize {
 }
 fn expand_variables_meson(
     buffer: *std.ArrayList(u8),
+    allocator: Allocator,
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) error{ MissingValue, InvalidCharacter, OutOfMemory }![]const u8 {
@@ -885,26 +886,26 @@ fn expand_variables_meson(
         // find an unescaped @
         while (true) {
             const escapes = countEscapes(contents[0..current]);
-            try buffer.appendSlice(contents[prev .. current - escapes]);
-            try buffer.appendNTimes('\\', escapes / 2);
+            try buffer.appendSlice(allocator, contents[prev .. current - escapes]);
+            try buffer.appendNTimes(allocator, '\\', escapes / 2);
 
             // candidate for expansion
             if (escapes == 0) {
                 break;
             }
 
-            try buffer.append('@');
+            try buffer.append(allocator, '@');
             prev = current + 1;
             current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break :outer;
         }
 
         const valid_varname_end = std.mem.indexOfNonePos(u8, contents, current + 1, valid_varname_chars) orelse {
-            try buffer.append('@');
+            try buffer.append(allocator, '@');
             break;
         };
 
         if (contents[valid_varname_end] != '@') {
-            try buffer.append('@');
+            try buffer.append(allocator, '@');
             prev = current + 1;
             current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse {
                 // nothing more to expand
@@ -915,7 +916,7 @@ fn expand_variables_meson(
 
         if (current + 1 == valid_varname_end) {
             // back-to-back @@, don't expand
-            try buffer.append('@');
+            try buffer.append(allocator, '@');
             prev = current + 1;
             current = valid_varname_end;
             continue;
@@ -925,19 +926,19 @@ fn expand_variables_meson(
         const value = values.get(key) orelse {
             // return the key which is missing a value
             buffer.clearRetainingCapacity();
-            try buffer.appendSlice(key);
+            try buffer.appendSlice(allocator, key);
             return error.MissingValue;
         };
         switch (value) {
             .undef, .defined => {},
             .boolean => |b| {
-                try buffer.append(if (b) '1' else '0');
+                try buffer.append(allocator, if (b) '1' else '0');
             },
             .int => |i| {
-                try buffer.writer().print("{d}", .{i});
+                try buffer.print(allocator, "{d}", .{i});
             },
             .ident, .string => |s| {
-                try buffer.appendSlice(s);
+                try buffer.appendSlice(allocator, s);
             },
         }
 
@@ -946,7 +947,7 @@ fn expand_variables_meson(
         current = std.mem.indexOfScalarPos(u8, contents, current + 1, '@') orelse break;
     }
 
-    try buffer.appendSlice(contents[current + 1 ..]);
+    try buffer.appendSlice(allocator, contents[current + 1 ..]);
     return buffer.items;
 }
 
@@ -987,9 +988,9 @@ fn testReplaceVariablesMeson(
     expected: []const u8,
     values: std.StringArrayHashMap(Value),
 ) !void {
-    var buffer: std.ArrayList(u8) = .init(allocator);
-    defer buffer.deinit();
-    const actual = try expand_variables_meson(&buffer, contents, values);
+    var buffer: std.ArrayList(u8) = .empty;
+    defer buffer.deinit(allocator);
+    const actual = try expand_variables_meson(&buffer, allocator, contents, values);
 
     try std.testing.expectEqualStrings(expected, actual);
 }
