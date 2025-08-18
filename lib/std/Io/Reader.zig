@@ -836,7 +836,6 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         error.EndOfStream => {
             const remaining = r.buffer[r.seek..r.end];
             if (remaining.len == 0) return error.EndOfStream;
-            r.toss(remaining.len);
             return remaining;
         },
         else => |e| return e,
