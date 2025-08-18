@@ -256,7 +256,7 @@ uptr internal_mmap(void *addr, uptr length, int prot, int flags, int fd,
 #        else
   return (uptr)__sys_mmap(addr, length, prot, flags, fd, offset);
 #        endif
-#      elif SANITIZER_LINUX_USES_64BIT_SYSCALLS
+#      if SANITIZER_FREEBSD || SANITIZER_LINUX_USES_64BIT_SYSCALLS
   return internal_syscall(SYSCALL(mmap), (uptr)addr, length, prot, flags, fd,
                           offset);
 #      else
