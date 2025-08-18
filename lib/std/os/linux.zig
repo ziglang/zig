@@ -9127,19 +9127,21 @@ pub const perf_event_attr = extern struct {
     config3: u64 = 0,
 };
 
+pub const CPU_MODE = enum(u3) {
+    UNKNOWN = 0,
+    KERNEL = 1,
+    USER = 2,
+    HYPERVISOR = 3,
+    GUEST_KERNEL = 4,
+    GUEST_USER = 5,
+};
+
 pub const perf_event_header = extern struct {
     /// Event type: sample/mmap/fork/etc.
     type: PERF.RECORD,
     /// Additional informations on the event: kernel/user/hypervisor/etc.
     misc: packed struct(u16) {
-        cpu_mode: enum(u3) {
-            UNKNOWN = 0,
-            KERNEL = 1,
-            USER = 2,
-            HYPERVISOR = 3,
-            GUEST_KERNEL = 4,
-            GUEST_USER = 5,
-        },
+        cpu_mode: CPU_MODE,
         _: u9,
         PROC_MAP_PARSE_TIMEOUT: bool,
         bit13: packed union {
