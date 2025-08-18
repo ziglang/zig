@@ -5056,7 +5056,8 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
     }
 
     const flags_unsupported = switch (system) {
-        linux => builtin.abi.isAndroid() //standard android programs run in a seccomp sandbox that seems to trigger signal 31 (SIGSYS) for faccessat2
+        linux => (builtin.abi.isAndroid() //standard android programs run in a seccomp sandbox that seems to trigger signal 31 (SIGSYS) for faccessat2
+            or builtin.target.os.isAtLeast(.linux, .{ .major = 5, .minor = 8, .patch = 0 }) != true), //faccessat2 was introduced in Linux 5.8
         else => false,
     };
     const need_flags = (flags != 0);
@@ -5084,6 +5085,10 @@ pub fn faccessatZ(dirfd: fd_t, path: [*:0]const u8, mode: u32, flags: u32) Acces
         .NOMEM => return error.SystemResources,
         .ILSEQ => |err| if (native_os == .wasi)
             return error.InvalidUtf8
+        else
+            return unexpectedErrno(err),
+        .NOSYS => |err| if (system == linux)
+            return error.UnsupportedFlags
         else
             return unexpectedErrno(err),
         else => |err| return unexpectedErrno(err),
