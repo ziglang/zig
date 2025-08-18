@@ -1764,6 +1764,18 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             };
             return @as(usize, @intCast(physmem));
         },
+        .macos => {
+            // "hw.memsize" returns uint64_t
+            var physmem: u64 = undefined;
+            var len: usize = @sizeOf(u64);
+            posix.sysctlbynameZ("hw.memsize", &physmem, &len, null, 0) catch |err| switch (err) {
+                error.PermissionDenied => unreachable, // only when setting values,
+                error.SystemResources => unreachable, // memory already on the stack
+                error.UnknownName => unreachable, // constant, known good value
+                else => return error.UnknownTotalSystemMemory,
+            };
+            return physmem;
+        },
         .openbsd => {
             const mib: [2]c_int = [_]c_int{
                 posix.CTL.HW,
