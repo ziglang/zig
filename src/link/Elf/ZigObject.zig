@@ -1543,8 +1543,8 @@ pub fn updateNav(
                 @"extern".lib_name.toSlice(ip),
             );
             if (@"extern".is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) self.symbol(sym_index).flags.is_tls = true;
-            if (self.dwarf) |*dwarf| dwarf: {
-                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
+            if (self.dwarf) |*dwarf| {
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,
