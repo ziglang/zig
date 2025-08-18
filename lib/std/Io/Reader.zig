@@ -1364,6 +1364,7 @@ test peekDelimiterExclusive {
     try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
     r.toss(3);
     try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
 }
 
 test streamDelimiter {
