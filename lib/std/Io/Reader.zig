@@ -59,7 +59,7 @@ pub const VTable = struct {
     /// sizes combined with short reads (returning a value less than `limit`)
     /// in order to minimize complexity.
     ///
-    /// The default implementation is is based on calling `stream`, borrowing
+    /// The default implementation is based on calling `stream`, borrowing
     /// `buffer` to construct a temporary `Writer` and ignoring the written
     /// data.
     ///

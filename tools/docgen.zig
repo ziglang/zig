@@ -1,6 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const io = std.io;
+const Io = std.Io;
 const fs = std.fs;
 const process = std.process;
 const Progress = std.Progress;
@@ -626,7 +626,7 @@ fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice();
 }
 
-fn writeEscaped(out: anytype, input: []const u8) !void {
+fn writeEscaped(out: *Io.Writer, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.writeAll("&amp;"),
@@ -662,14 +662,14 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn writeEscapedLines(out: anytype, text: []const u8) !void {
+fn writeEscapedLines(out: *Io.Writer, text: []const u8) !void {
     return writeEscaped(out, text);
 }
 
 fn tokenizeAndPrintRaw(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Io.Writer,
     source_token: Token,
     raw_src: []const u8,
 ) !void {
@@ -907,14 +907,14 @@ fn tokenizeAndPrintRaw(
 fn tokenizeAndPrint(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Io.Writer,
     source_token: Token,
 ) !void {
     const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
     return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
+fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: *Io.Writer, syntax_block: SyntaxBlock) !void {
     const source_type = @tagName(syntax_block.source_type);
 
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{ source_type, syntax_block.name });
@@ -932,7 +932,7 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
     try out.writeAll("</pre></figure>");
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShell(out: *Io.Writer, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -984,7 +984,7 @@ fn genHtml(
     tokenizer: *Tokenizer,
     toc: *Toc,
     code_dir: std.fs.Dir,
-    out: anytype,
+    out: *Io.Writer,
 ) !void {
     for (toc.nodes) |node| {
         switch (node) {
