@@ -1762,7 +1762,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
                 error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };
-            return @as(usize, @intCast(physmem));
+            return @as(u64, @intCast(physmem));
         },
         .macos => {
             // "hw.memsize" returns uint64_t
