@@ -1599,6 +1599,25 @@ pub const MADV = switch (native_os) {
     },
     else => void,
 };
+pub const MCL = switch (native_os) {
+    .linux => linux.MCL,
+    // https://github.com/freebsd/freebsd-src/blob/39fea5c8dc598021e900c4feaf0e18111fda57b2/sys/sys/mman.h#L133
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/088552723935447397400336f5ddb7aa5f5de660/sys/sys/mman.h#L118
+    // https://github.com/NetBSD/src/blob/fd2741deca927c18e3ba15acdf78b8b14b2abe36/sys/sys/mman.h#L179
+    // https://github.com/openbsd/src/blob/39404228f6d36c0ca4be5f04ab5385568ebd6aa3/sys/sys/mman.h#L129
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/mman.h#L379
+    // https://github.com/illumos/illumos-gate/blob/5280477614f83fea20fc938729df6adb3e44340d/usr/src/uts/common/sys/mman.h#L343
+    .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => packed struct(c_int) {
+        CURRENT: bool = 0,
+        FUTURE: bool = 0,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 2) = 0,
+    },
+    else => void,
+};
+pub const MLOCK = switch (native_os) {
+    .linux => linux.MLOCK,
+    else => void,
+};
 pub const MSF = switch (native_os) {
     .linux => linux.MSF,
     .emscripten => emscripten.MSF,
@@ -10425,6 +10444,31 @@ pub const gettimeofday = switch (native_os) {
     else => private.gettimeofday,
 };
 
+pub const mlock = switch (native_os) {
+    .windows, .wasi => {},
+    else => private.mlock,
+};
+
+pub const mlock2 = switch (native_os) {
+    linux => private.mlock2,
+    else => {},
+};
+
+pub const munlock = switch (native_os) {
+    .windows, .wasi => {},
+    else => private.munlock,
+};
+
+pub const mlockall = switch (native_os) {
+    .linux, .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => private.mlockall,
+    else => {},
+};
+
+pub const munlockall = switch (native_os) {
+    .linux, .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => private.munlockall,
+    else => {},
+};
+
 pub const msync = switch (native_os) {
     .netbsd => private.__msync13,
     else => private.msync,
@@ -11313,6 +11357,12 @@ const private = struct {
     extern "c" fn malloc_size(?*const anyopaque) usize;
     extern "c" fn malloc_usable_size(?*const anyopaque) usize;
     extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+
+    extern "c" fn mlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
+    extern "c" fn mlock2(addr: *align(page_size) const anyopaque, len: usize, flags: MLOCK) c_int;
+    extern "c" fn munlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
+    extern "c" fn mlockall(flags: MCL) c_int;
+    extern "c" fn munlockall() c_int;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.
