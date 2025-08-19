@@ -836,7 +836,6 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         error.EndOfStream => {
             const remaining = r.buffer[r.seek..r.end];
             if (remaining.len == 0) return error.EndOfStream;
-            r.toss(remaining.len);
             return remaining;
         },
         else => |e| return e,
@@ -1363,6 +1362,7 @@ test peekDelimiterExclusive {
     try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
     try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
     r.toss(3);
+    try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
     try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
 }
 
