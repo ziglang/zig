@@ -10,7 +10,7 @@ const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
 const ValueInterpretMode = enum { direct, by_name };
 
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
