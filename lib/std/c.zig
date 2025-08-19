@@ -11064,6 +11064,7 @@ pub const kinfo_getfile = freebsd.kinfo_getfile;
 
 pub const COPYFILE = darwin.COPYFILE;
 pub const CPUFAMILY = darwin.CPUFAMILY;
+pub const PT = darwin.PT;
 pub const DB_RECORDTYPE = darwin.DB_RECORDTYPE;
 pub const EXC = darwin.EXC;
 pub const EXCEPTION = darwin.EXCEPTION;
