@@ -1992,8 +1992,7 @@ pub const Stream = struct {
                 };
                 if (n == 0) return error.EndOfStream;
                 if (n > data_size) {
-                    io_r.seek = 0;
-                    io_r.end = n - data_size;
+                    io_r.end += n - data_size;
                     return data_size;
                 }
                 return n;

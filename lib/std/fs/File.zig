@@ -1343,14 +1343,15 @@ pub const Reader = struct {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it
                     // requires page alignment.
-                    assert(io_reader.seek == io_reader.end);
-                    io_reader.seek = 0;
-                    io_reader.end = 0;
+                    if (io_reader.seek == io_reader.end) {
+                        io_reader.seek = 0;
+                        io_reader.end = 0;
+                    }
                     const first = data[0];
-                    if (first.len >= io_reader.buffer.len) {
+                    if (first.len >= io_reader.buffer.len - io_reader.end) {
                         return readPositional(r, first);
                     } else {
-                        io_reader.end += try readPositional(r, io_reader.buffer);
+                        io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
                         return 0;
                     }
                 }
@@ -1391,14 +1392,15 @@ pub const Reader = struct {
                 if (is_windows) {
                     // Unfortunately, `ReadFileScatter` cannot be used since it
                     // requires page alignment.
-                    assert(io_reader.seek == io_reader.end);
-                    io_reader.seek = 0;
-                    io_reader.end = 0;
+                    if (io_reader.seek == io_reader.end) {
+                        io_reader.seek = 0;
+                        io_reader.end = 0;
+                    }
                     const first = data[0];
-                    if (first.len >= io_reader.buffer.len) {
-                        return readStreaming(r, first);
+                    if (first.len >= io_reader.buffer.len - io_reader.end) {
+                        return readPositional(r, first);
                     } else {
-                        io_reader.end += try readStreaming(r, io_reader.buffer);
+                        io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
                         return 0;
                     }
                 }
