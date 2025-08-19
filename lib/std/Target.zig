@@ -3035,6 +3035,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
+        // OpenGL has no well defined C ABI, we do this to prevent panic when using floating point types.
         .opengl => switch (c_type) {
             .char, .short, .ushort, .int, .uint, .float, .long, .ulong, .longlong, .ulonglong => return 32,
             .double, .longdouble => return 64,
