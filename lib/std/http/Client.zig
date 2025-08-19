@@ -787,6 +787,13 @@ pub const Request = struct {
     /// Standard headers that have default, but overridable, behavior.
     headers: Headers,
 
+    /// Populated in `receiveHead`; used in `deinit` to determine whether to
+    /// discard the body to reuse the connection.
+    response_content_length: ?u64 = null,
+    /// Populated in `receiveHead`; used in `deinit` to determine whether to
+    /// discard the body to reuse the connection.
+    response_transfer_encoding: http.TransferEncoding = .none,
+
     /// These headers are kept including when following a redirect to a
     /// different domain.
     /// Externally-owned; must outlive the Request.
@@ -860,7 +867,15 @@ pub const Request = struct {
         if (r.connection) |connection| {
             connection.closing = connection.closing or switch (r.reader.state) {
                 .ready => false,
-                .received_head => r.method.requestHasBody(),
+                .received_head => c: {
+                    if (r.method.requestHasBody()) break :c true;
+                    if (!r.method.responseHasBody()) break :c false;
+                    const reader = r.reader.bodyReader(&.{}, r.response_transfer_encoding, r.response_content_length);
+                    _ = reader.discardRemaining() catch |err| switch (err) {
+                        error.ReadFailed => break :c true,
+                    };
+                    break :c r.reader.state != .ready;
+                },
                 else => true,
             };
             r.client.connection_pool.release(connection);
@@ -1102,6 +1117,8 @@ pub const Request = struct {
 
             if (head.status == .@"continue") {
                 if (r.handle_continue) continue;
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response; // we're not handling the 100-continue
             }
 
@@ -1113,6 +1130,8 @@ pub const Request = struct {
             if (r.method == .CONNECT and head.status.class() == .success) {
                 // This connection is no longer doing HTTP.
                 connection.closing = false;
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response;
             }
 
@@ -1126,6 +1145,8 @@ pub const Request = struct {
             if (r.method == .HEAD or head.status.class() == .informational or
                 head.status == .no_content or head.status == .not_modified)
             {
+                r.response_transfer_encoding = head.transfer_encoding;
+                r.response_content_length = head.content_length;
                 return response;
             }
 
@@ -1146,6 +1167,8 @@ pub const Request = struct {
             if (!r.accept_encoding[@intFromEnum(head.content_encoding)])
                 return error.HttpContentEncodingUnsupported;
 
+            r.response_transfer_encoding = head.transfer_encoding;
+            r.response_content_length = head.content_length;
             return response;
         }
     }

@@ -1983,13 +1983,21 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             if (options.skip_linker_dependencies) break :s .none;
             const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
             if (!want) break :s .none;
-            if (have_zcu and target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm and use_llvm)) {
+            const need_llvm = switch (target_util.canBuildLibCompilerRt(target)) {
+                .no => break :s .none, // impossible to build
+                .yes => false,
+                .llvm_only => true,
+            };
+            if (have_zcu and (!need_llvm or use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
-                if (switch (target_util.zigBackend(target, use_llvm)) {
-                    else => false,
-                    .stage2_aarch64, .stage2_x86_64 => target.ofmt == .coff,
-                }) break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                switch (target_util.zigBackend(target, use_llvm)) {
+                    else => {},
+                    .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
+                        break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                    },
+                }
             }
+            if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
@@ -2031,14 +2039,22 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
         }
 
         // unlike compiler_rt, we always want to go through the `_ = @import("ubsan-rt")`
-        // approach, since the ubsan runtime uses quite a lot of the standard library
-        // and this reduces unnecessary bloat.
+        // approach if possible, since the ubsan runtime uses quite a lot of the standard
+        // library and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(target, use_llvm, build_options.have_llvm);
-            const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
-            if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
-            if (have_zcu and target_util.canBuildLibUbsanRt(target, use_llvm, build_options.have_llvm and use_llvm)) break :s .zcu;
+            const want = options.want_ubsan_rt orelse (any_sanitize_c == .full and is_exe_or_dyn_lib);
+            if (!want) break :s .none;
+            const need_llvm = switch (target_util.canBuildLibUbsanRt(target)) {
+                .no => break :s .none, // impossible to build
+                .yes => false,
+                .llvm_only => true,
+                .llvm_lld_only => if (!options.config.use_lld) {
+                    break :s .none; // only LLD can handle ubsan-rt for this target
+                } else true,
+            };
+            if (have_zcu and (!need_llvm or use_llvm)) break :s .zcu;
+            if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
@@ -2476,8 +2492,6 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
     };
     errdefer comp.destroy();
 
-    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm);
-
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
@@ -2637,33 +2651,39 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 comp.queued_jobs.libtsan = true;
             }
 
-            if (can_build_compiler_rt) {
-                if (comp.compiler_rt_strat == .lib) {
+            switch (comp.compiler_rt_strat) {
+                .none, .zcu => {},
+                .lib => {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
-                } else if (comp.compiler_rt_strat == .obj) {
+                },
+                .obj => {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
-                    // In this case we are making a static library, so we ask
-                    // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
-                } else if (comp.compiler_rt_strat == .dyn_lib) {
+                },
+                .dyn_lib => {
                     // hack for stage2_x86_64 + coff
                     log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
                     comp.queued_jobs.compiler_rt_dyn_lib = true;
-                }
+                },
+            }
 
-                if (comp.ubsan_rt_strat == .lib) {
+            switch (comp.ubsan_rt_strat) {
+                .none, .zcu => {},
+                .lib => {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
                     comp.queued_jobs.ubsan_rt_lib = true;
-                } else if (comp.ubsan_rt_strat == .obj) {
+                },
+                .obj => {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
-                }
+                },
+                .dyn_lib => unreachable, // hack for compiler_rt only
+            }
 
-                if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
-                    log.debug("queuing a job to build libfuzzer", .{});
-                    comp.queued_jobs.fuzzer_lib = true;
-                }
+            if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
+                log.debug("queuing a job to build libfuzzer", .{});
+                comp.queued_jobs.fuzzer_lib = true;
             }
         }
 
@@ -7638,11 +7658,11 @@ pub fn dump_argv(argv: []const []const u8) void {
     const stderr = std.debug.lockStderrWriter(&buffer);
     defer std.debug.unlockStderrWriter();
     nosuspend {
-        for (argv) |arg| {
+        for (argv, 0..) |arg, i| {
+            if (i != 0) stderr.writeByte(' ') catch return;
             stderr.writeAll(arg) catch return;
-            (stderr.writableArray(1) catch return)[0] = ' ';
         }
-        stderr.buffer[stderr.end - 1] = '\n';
+        stderr.writeByte('\n') catch return;
     }
 }
 

@@ -351,43 +351,41 @@ pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.builtin.Opti
     }
 }
 
-pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
+pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_only } {
     switch (target.os.tag) {
-        .plan9 => return false,
+        .plan9 => return .no,
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
-        .amdgcn => return false,
+        .amdgcn => return .no,
         else => {},
     }
-    return switch (zigBackend(target, use_llvm)) {
-        .stage2_aarch64 => true,
-        .stage2_llvm => true,
+    return switch (zigBackend(target, false)) {
+        .stage2_aarch64 => .yes,
         .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => true,
-            else => have_llvm,
+            .elf, .macho => .yes,
+            else => .llvm_only,
         },
-        else => have_llvm,
+        else => .llvm_only,
     };
 }
 
-pub fn canBuildLibUbsanRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
+pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, llvm_lld_only } {
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
-        .nvptx, .nvptx64 => return false,
+        .nvptx, .nvptx64 => return .no,
         else => {},
     }
-    return switch (zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
-        .stage2_wasm => false,
+    return switch (zigBackend(target, false)) {
+        .stage2_wasm => .llvm_lld_only,
         .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => true,
-            else => have_llvm,
+            .elf, .macho => .yes,
+            else => .llvm_only,
         },
-        else => have_llvm,
+        else => .llvm_only,
     };
 }
 

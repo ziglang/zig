@@ -1249,6 +1249,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
                 .@"addrspace" = modifiers.@"addrspace",
                 .zir_index = old_nav.analysis.?.zir_index, // `declaration` instruction
                 .owner_nav = undefined, // ignored by `getExtern`
+                .source = .syntax,
             }));
         },
     };
@@ -3435,6 +3436,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
                 .@"addrspace" = e.@"addrspace",
                 .zir_index = e.zir_index,
                 .owner_nav = undefined, // ignored by `getExtern`.
+                .source = e.source,
             });
             return Value.fromInterned(coerced);
         },

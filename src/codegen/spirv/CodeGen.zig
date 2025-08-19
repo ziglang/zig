@@ -254,13 +254,7 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
             try cg.module.debugName(func_result_id, nav.fqn.toSlice(ip));
         },
         .global => {
-            const maybe_init_val: ?Value = switch (ip.indexToKey(val.toIntern())) {
-                .func => unreachable,
-                .variable => |variable| .fromInterned(variable.init),
-                .@"extern" => null,
-                else => val,
-            };
-            assert(maybe_init_val == null); // TODO
+            assert(ip.indexToKey(val.toIntern()) == .@"extern");
 
             const storage_class = cg.module.storageClass(nav.getAddrspace());
             assert(storage_class != .generic); // These should be instance globals
@@ -273,13 +267,6 @@ pub fn genNav(cg: *CodeGen, do_codegen: bool) Error!void {
                 .id_result = result_id,
                 .storage_class = storage_class,
             });
-
-            if (nav.getAlignment() != ty.abiAlignment(zcu)) {
-                if (target.os.tag != .opencl) return cg.fail("cannot apply alignment to variables", .{});
-                try cg.module.decorate(result_id, .{
-                    .alignment = .{ .alignment = @intCast(nav.getAlignment().toByteUnits().?) },
-                });
-            }
 
             switch (target.os.tag) {
                 .vulkan, .opengl => {
