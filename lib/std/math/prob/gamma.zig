@@ -62,7 +62,7 @@ fn stirf(x: f64) f64 {
 
     if (x > MAXSTIR) {
         // Avoid overflow in pow()
-        var v = math.pow(f64, x, 0.5 * x - 0.25);
+        const v = math.pow(f64, x, 0.5 * x - 0.25);
         y = v * (v / y);
     } else {
         y = math.pow(f64, x, x - 0.5) / y;

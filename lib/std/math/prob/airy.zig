@@ -196,16 +196,16 @@ pub fn airy(x: f64) AiryResult {
     if (x < -2.09) {
         domflg = 15;
         var t = math.sqrt(-x);
-        var zeta = -2.0 * x * t / 3.0;
+        const zeta = -2.0 * x * t / 3.0;
         t = math.sqrt(t);
         var k = sqpii / t;
-        var z = 1.0 / zeta;
-        var zz = z * z;
+        const z = 1.0 / zeta;
+        const zz = z * z;
         var uf = 1.0 + zz * polevl(zz, AFN[0..]) / p1evl(zz, AFD[0..]);
         var ug = z * polevl(zz, AGN[0..]) / p1evl(zz, AGD[0..]);
-        var theta = zeta + 0.25 * C.PI;
-        var f = math.sin(theta);
-        var g = math.cos(theta);
+        const theta = zeta + 0.25 * C.PI;
+        const f = math.sin(theta);
+        const g = math.cos(theta);
         ai = k * (f * uf - g * ug);
         bi = k * (g * uf + f * ug);
 
@@ -224,11 +224,11 @@ pub fn airy(x: f64) AiryResult {
     if (x >= 2.09) {
         domflg = 5;
         var t = math.sqrt(x);
-        var zeta = 2.0 * x * t / 3.0;
-        var g = math.exp(zeta);
+        const zeta = 2.0 * x * t / 3.0;
+        const g = math.exp(zeta);
         t = math.sqrt(t);
         var k = 2.0 * t * g;
-        var z = 1.0 / zeta;
+        const z = 1.0 / zeta;
         var f = polevl(z, AN[0..]) / polevl(z, AD[0..]);
         ai = sqpii * f / k;
 
@@ -255,7 +255,7 @@ pub fn airy(x: f64) AiryResult {
     var uf: f64 = 1.0;
     var ug: f64 = x;
     var k: f64 = 1.0;
-    var z: f64 = x * x * x;
+    const z: f64 = x * x * x;
 
     while (t > C.MACHEP) {
         uf *= z;

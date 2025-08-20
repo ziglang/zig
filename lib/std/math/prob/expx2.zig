@@ -41,8 +41,8 @@ pub fn expx2(x_: f64, sign: isize) f64 {
     // Represent x as an exact multiple of M plus a residual.
     // M is a power of 2 chosen so that exp(m * m) does not overflow
     // or underflow and so that |x - m| is small.
-    var m = MINV * math.floor(M * x + 0.5);
-    var f = x - m;
+    const m = MINV * math.floor(M * x + 0.5);
+    const f = x - m;
 
     // x^2 = m^2 + 2mf + f^2
     var u = m * m;

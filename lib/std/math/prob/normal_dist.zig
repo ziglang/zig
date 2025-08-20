@@ -96,7 +96,7 @@ const UTHRESH = 37.519379347;
 ///   message         condition         value returned
 /// erfc underflow    x > 37.519379347       0.0
 pub fn normalDist(a: f64) f64 {
-    var x = a * C.SQRTH;
+    const x = a * C.SQRTH;
     var z = math.fabs(x);
 
     if (z < 1.0) {
@@ -231,16 +231,16 @@ pub fn inverseNormalDist(y0: f64) f64 {
 
     if (y > 0.13533528323661269189) {
         y = y - 0.5;
-        var y2 = y * y;
+        const y2 = y * y;
         var x = y + y * (y2 * polevl(y2, P0[0..]) / p1evl(y2, Q0[0..]));
         x = x * s2pi;
         return x;
     }
 
     var x = math.sqrt(-2.0 * math.ln(y));
-    var x0 = x - math.ln(x) / x;
+    const x0 = x - math.ln(x) / x;
 
-    var z = 1.0 / x;
+    const z = 1.0 / x;
 
     // y > exp(-32) = 1.2664165549e-14
     const x1 = if (x < 8.0)
@@ -304,7 +304,7 @@ fn under(a: f64) f64 {
 ///   message         condition              value returned
 /// erfc underflow    x > 9.231948545 (DEC)       0.0
 pub fn erfc(a: f64) f64 {
-    var x = if (a < 0.0) -a else a;
+    const x = if (a < 0.0) -a else a;
     if (x < 1.0) {
         return 1.0 - erf(a);
     }
@@ -388,8 +388,8 @@ pub fn erf(x: f64) f64 {
         return 1.0 - erfc(x);
     }
 
-    var z = x * x;
-    var y = x * polevl(z, T[0..]) / p1evl(z, U[0..]);
+    const z = x * x;
+    const y = x * polevl(z, T[0..]) / p1evl(z, U[0..]);
     return y;
 }
 

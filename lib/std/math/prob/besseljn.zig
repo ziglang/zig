@@ -54,12 +54,12 @@ pub fn besselj(n_: f64, x_: f64) f64 {
 
     var nint = false; // Flag for integer n
     var sign: f64 = 1; // Flag for sign inversion
-    var an = math.fabs(n);
+    const an = math.fabs(n);
     var y = math.floor(an);
 
     if (y == an) {
         nint = true;
-        var i: isize = @intFromFloat(an - 16384.0 * math.floor(an / 16384.0));
+        const i: isize = @intFromFloat(an - 16384.0 * math.floor(an / 16384.0));
         if (n < 0.0) {
             if (i & 1 != 0) {
                 sign = -sign;
@@ -230,21 +230,21 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
         var qkm2: f64 = 1;
         var pkm1 = x;
         var qkm1 = n.* + n.*;
-        var xk = -x * x;
+        const xk = -x * x;
         var yk = qkm1;
         var ctr: isize = 0;
 
         // mimic do-while
         while (true) {
             yk += 2.0;
-            var pk = pkm1 * yk + pkm2 * xk;
-            var qk = qkm1 * yk + qkm2 * xk;
+            const pk = pkm1 * yk + pkm2 * xk;
+            const qk = qkm1 * yk + qkm2 * xk;
             pkm2 = pkm1;
             pkm1 = pk;
             qkm2 = qkm1;
             qkm1 = qk;
 
-            var r = if (qk != 0) pk / qk else 0.0;
+            const r = if (qk != 0) pk / qk else 0.0;
 
             const t = blk: {
                 if (r != 0) {
@@ -286,7 +286,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
         break;
     }
 
-    var kf = newn.*;
+    const kf = newn.*;
 
     // backward recurrence
     //              2k
@@ -328,7 +328,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
 // AMS55 #9.1.10.
 fn jvs(n: f64, x: f64) f64 {
     var sgngam: f64 = -1;
-    var z: f64 = -x * x / 4.0;
+    const z: f64 = -x * x / 4.0;
     var u: f64 = 1;
     var y: f64 = u;
     var k: f64 = 1;
@@ -413,8 +413,8 @@ fn hankel(n: f64, x: f64) f64 {
         }
     }
 
-    u = x - (0.5 * n + 0.25) * PI;
-    t = math.sqrt(2.0 / (PI * x)) * (pp * math.cos(u) - qq * math.sin(u));
+    u = x - (0.5 * n + 0.25) * C.PI;
+    t = math.sqrt(2.0 / (C.PI * x)) * (pp * math.cos(u) - qq * math.sin(u));
     return t;
 }
 
@@ -481,14 +481,14 @@ const P7 = [_]f64{
 fn jnx(n: f64, x: f64) f64 {
     // Test for x very close to n.
     // Use expansion for transition region if so.
-    var cbn = math.cbrt(n);
+    const cbn = math.cbrt(n);
     var z = (x - n) / cbn;
     if (math.fabs(z) <= 0.7) {
         return jnt(n, x);
     }
 
     z = x / n;
-    var zz = 1.0 - z * z;
+    const zz = 1.0 - z * z;
     if (zz == 0.0) {
         return 0.0;
     }
@@ -509,21 +509,21 @@ fn jnx(n: f64, x: f64) f64 {
         nflg = -1;
     }
 
-    var z32i = math.fabs(1.0 / t);
-    var sqz = math.cbrt(t);
+    const z32i = math.fabs(1.0 / t);
+    const sqz = math.cbrt(t);
 
     // Airy function
-    var n23 = math.cbrt(n * n);
+    const n23 = math.cbrt(n * n);
     t = n23 * zeta;
 
     const ar = airy(t);
 
     // polynomials in expansion
-    var zzi = 1.0 / zz;
-    var pp1 = zz * zz;
-    var pp2 = pp1 * zz;
+    const zzi = 1.0 / zz;
+    const pp1 = zz * zz;
+    const pp2 = pp1 * zz;
 
-    var u = [8]f64{
+    const u = [8]f64{
         1.0,
         polevl(zzi, P1[0..1]) / sz,
         polevl(zzi, P2[0..2]) / zz,
@@ -546,8 +546,8 @@ fn jnx(n: f64, x: f64) f64 {
 
     var k: usize = 0;
     while (k <= 3) : (k += 1) {
-        var tk = 2 * k;
-        var tkp1 = tk + 1;
+        const tk = 2 * k;
+        const tkp1 = tk + 1;
         var zp: f64 = 1.0;
         var ak: f64 = 0.0;
         var bk: f64 = 0.0;
@@ -564,7 +564,7 @@ fn jnx(n: f64, x: f64) f64 {
             }
 
             if (dob) {
-                var m = tkp1 - s;
+                const m = tkp1 - s;
                 if (((m + 1) & 3) > 1) {
                     sign = nflg;
                 } else {
@@ -645,9 +645,9 @@ const PG3 = [_]f64{
 // n large and x close to n.
 // AMS55 #9.3.23.
 fn jnt(n: f64, x: f64) f64 {
-    var cbn = math.cbrt(n);
-    var z = (x - n) / cbn;
-    var cbtwo = math.cbrt(@as(f64, 2.0)); // TODO lift to constants?
+    const cbn = math.cbrt(n);
+    const z = (x - n) / cbn;
+    const cbtwo = math.cbrt(@as(f64, 2.0)); // TODO lift to constants?
 
     // Airy function
     var zz = -cbtwo * z;
@@ -676,19 +676,19 @@ fn jnt(n: f64, x: f64) f64 {
     var pp: f64 = 0.0;
     var qq: f64 = 0.0;
     var nk: f64 = 1.0;
-    var n23 = math.cbrt(n * n);
+    const n23 = math.cbrt(n * n);
 
     var k: usize = 0;
     while (k <= 4) : (k += 1) {
-        var fk = F[k] * nk;
+        const fk = F[k] * nk;
         pp += fk;
         if (k != 4) {
-            var gk = G[k] * nk;
+            const gk = G[k] * nk;
             qq += gk;
         }
         nk /= n23;
     }
 
-    var fk = cbtwo * ar.ai * pp / cbn + math.cbrt(@as(f64, 4.0)) * ar.aip * qq / n;
+    const fk = cbtwo * ar.ai * pp / cbn + math.cbrt(@as(f64, 4.0)) * ar.aip * qq / n;
     return fk;
 }

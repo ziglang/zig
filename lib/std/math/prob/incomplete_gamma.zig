@@ -288,7 +288,7 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
     var yl: f64 = 0;
     var x1: f64 = 0;
     var yh: f64 = 1.0;
-    var dithresh: f64 = 5.0 * C.MACHEP;
+    const dithresh: f64 = 5.0 * C.MACHEP;
 
     // approximation to inverse function
     var d: f64 = 1.0 / (9.0 * a);

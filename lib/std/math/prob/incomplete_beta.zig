@@ -169,7 +169,7 @@ fn incbcf(a: f64, b: f64, x: f64) f64 {
     var ans: f64 = 1;
     var r: f64 = 1;
     var n: f64 = 0;
-    var thresh: f64 = 3.0 * C.MACHEP;
+    const thresh: f64 = 3.0 * C.MACHEP;
 
     // mimic do-while
     while (true) {
@@ -249,11 +249,11 @@ fn incbd(a: f64, b: f64, x: f64) f64 {
     var qkm2: f64 = 1;
     var pkm1: f64 = 1;
     var qkm1: f64 = 1;
-    var z: f64 = x / (1.0 - x);
+    const z: f64 = x / (1.0 - x);
     var ans: f64 = 1;
     var r: f64 = 1;
     var n: f64 = 0;
-    var thresh: f64 = 3.0 * C.MACHEP;
+    const thresh: f64 = 3.0 * C.MACHEP;
 
     // mimic do-while
     while (true) {
@@ -323,14 +323,14 @@ fn incbd(a: f64, b: f64, x: f64) f64 {
 /// Power series for incomplete beta integral.
 /// Use when b*x is small and x not too close to 1.
 fn pseries(a: f64, b: f64, x: f64) f64 {
-    var ai = 1.0 / a;
+    const ai = 1.0 / a;
     var u = (1.0 - b) * x;
     var v = u / (a + 1.0);
-    var t1 = v;
+    const t1 = v;
     var t = u;
     var n: f64 = 2.0;
     var s: f64 = 0.0;
-    var z: f64 = C.MACHEP * ai;
+    const z: f64 = C.MACHEP * ai;
 
     while (math.fabs(v) > z) {
         u = (n - b) * x / n;
@@ -666,10 +666,10 @@ test "inverseIncompleteBeta" {
     };
 
     for (cases) |c| {
-        var r = incompleteBeta(c[0], c[1], c[2]);
+        const r = incompleteBeta(c[0], c[1], c[2]);
         expectApproxEqRel(r, c[3], epsilon);
 
-        var ri = inverseIncompleteBeta(c[0], c[1], r);
+        const ri = inverseIncompleteBeta(c[0], c[1], r);
         expectApproxEqRel(ri, c[2], epsilon);
     }
 }
