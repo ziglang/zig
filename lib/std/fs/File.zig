@@ -1398,9 +1398,9 @@ pub const Reader = struct {
                     }
                     const first = data[0];
                     if (first.len >= io_reader.buffer.len - io_reader.end) {
-                        return readPositional(r, first);
+                        return readStreaming(r, first);
                     } else {
-                        io_reader.end += try readPositional(r, io_reader.buffer[io_reader.end..]);
+                        io_reader.end += try readStreaming(r, io_reader.buffer[io_reader.end..]);
                         return 0;
                     }
                 }
