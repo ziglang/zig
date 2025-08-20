@@ -55,11 +55,11 @@ fn importBackend(comptime backend: std.builtin.CompilerBackend) type {
         .stage2_c => @import("codegen/c.zig"),
         .stage2_llvm => @import("codegen/llvm.zig"),
         .stage2_powerpc => unreachable,
-        .stage2_riscv64 => @import("arch/riscv64/CodeGen.zig"),
-        .stage2_sparc64 => @import("arch/sparc64/CodeGen.zig"),
+        .stage2_riscv64 => @import("codegen/riscv64/CodeGen.zig"),
+        .stage2_sparc64 => @import("codegen/sparc64/CodeGen.zig"),
         .stage2_spirv => @import("codegen/spirv/CodeGen.zig"),
-        .stage2_wasm => @import("arch/wasm/CodeGen.zig"),
-        .stage2_x86, .stage2_x86_64 => @import("arch/x86_64/CodeGen.zig"),
+        .stage2_wasm => @import("codegen/wasm/CodeGen.zig"),
+        .stage2_x86, .stage2_x86_64 => @import("codegen/x86_64/CodeGen.zig"),
         _ => unreachable,
     };
 }
@@ -99,10 +99,10 @@ pub fn wantsLiveness(pt: Zcu.PerThread, nav_index: InternPool.Nav.Index) bool {
 /// union of all MIR types. The active tag is known from the backend in use; see `AnyMir.tag`.
 pub const AnyMir = union {
     aarch64: if (dev.env.supports(.aarch64_backend)) @import("codegen/aarch64/Mir.zig") else noreturn,
-    riscv64: if (dev.env.supports(.riscv64_backend)) @import("arch/riscv64/Mir.zig") else noreturn,
-    sparc64: if (dev.env.supports(.sparc64_backend)) @import("arch/sparc64/Mir.zig") else noreturn,
-    x86_64: if (dev.env.supports(.x86_64_backend)) @import("arch/x86_64/Mir.zig") else noreturn,
-    wasm: if (dev.env.supports(.wasm_backend)) @import("arch/wasm/Mir.zig") else noreturn,
+    riscv64: if (dev.env.supports(.riscv64_backend)) @import("codegen/riscv64/Mir.zig") else noreturn,
+    sparc64: if (dev.env.supports(.sparc64_backend)) @import("codegen/sparc64/Mir.zig") else noreturn,
+    x86_64: if (dev.env.supports(.x86_64_backend)) @import("codegen/x86_64/Mir.zig") else noreturn,
+    wasm: if (dev.env.supports(.wasm_backend)) @import("codegen/wasm/Mir.zig") else noreturn,
     c: if (dev.env.supports(.c_backend)) @import("codegen/c.zig").Mir else noreturn,
 
     pub inline fn tag(comptime backend: std.builtin.CompilerBackend) []const u8 {

@@ -102,7 +102,7 @@ const DebugFrame = struct {
         } + switch (target.cpu.arch) {
             .x86_64 => len: {
                 dev.check(.x86_64_backend);
-                const Register = @import("../arch/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.zig").Register;
                 break :len uleb128Bytes(1) + sleb128Bytes(-8) + uleb128Bytes(Register.rip.dwarfNum()) +
                     1 + uleb128Bytes(Register.rsp.dwarfNum()) + sleb128Bytes(-1) +
                     1 + uleb128Bytes(1);
@@ -2349,7 +2349,7 @@ pub fn init(lf: *link.File, format: DW.Format) Dwarf {
         .debug_aranges = .{ .section = Section.init },
         .debug_frame = .{
             .header = if (target.cpu.arch == .x86_64 and target.ofmt == .elf) header: {
-                const Register = @import("../arch/x86_64/bits.zig").Register;
+                const Register = @import("../codegen/x86_64/bits.zig").Register;
                 break :header comptime .{
                     .format = .eh_frame,
                     .code_alignment_factor = 1,
@@ -4833,7 +4833,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
             .eh_frame => switch (target.cpu.arch) {
                 .x86_64 => {
                     dev.check(.x86_64_backend);
-                    const Register = @import("../arch/x86_64/bits.zig").Register;
+                    const Register = @import("../codegen/x86_64/bits.zig").Register;
                     for (dwarf.debug_frame.section.units.items) |*unit| {
                         header_aw.clearRetainingCapacity();
                         try header_aw.ensureTotalCapacity(unit.header_len);

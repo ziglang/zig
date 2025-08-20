@@ -901,9 +901,9 @@ const x86_64 = struct {
         for (insts) |inst| try inst.encode(&stream, .{});
     }
 
-    const bits = @import("../../arch/x86_64/bits.zig");
-    const encoder = @import("../../arch/x86_64/encoder.zig");
-    const Disassembler = @import("../../arch/x86_64/Disassembler.zig");
+    const bits = @import("../../codegen/x86_64/bits.zig");
+    const encoder = @import("../../codegen/x86_64/encoder.zig");
+    const Disassembler = @import("../../codegen/x86_64/Disassembler.zig");
     const Immediate = bits.Immediate;
     const Instruction = encoder.Instruction;
 };
