@@ -124,7 +124,7 @@ pub fn gamma(x_: f64) f64 {
                 return math.nan(f64); // Domain
             }
 
-            var i: isize = @intFromFloat(p);
+            const i: isize = @intFromFloat(p);
             if (i & 1 == 0) {
                 sgngam = -1;
             }
@@ -139,7 +139,7 @@ pub fn gamma(x_: f64) f64 {
                 return sgngam * math.inf(f64);
             }
             z = math.fabs(z);
-            z = PI / (z * stirf(q));
+            z = C.PI / (z * stirf(q));
         } else {
             z = stirf(x);
         }
@@ -173,7 +173,7 @@ pub fn gamma(x_: f64) f64 {
     }
 
     x -= 2.0;
-    var p = polevl(x, P[0..]);
+    const p = polevl(x, P[0..]);
     q = polevl(x, Q[0..]);
     return z * p / q;
 }
@@ -267,15 +267,15 @@ pub fn lnGamma(x_: f64) f64 {
 
     var z: f64 = undefined;
     if (x < -34.0) {
-        var q = -x;
-        var w = lnGamma(q);
+        const q = -x;
+        const w = lnGamma(q);
 
         var p = math.floor(q);
         if (p == q) {
             return math.inf(f64); // Singularity
         }
 
-        var i: isize = @intFromFloat(p);
+        const i: isize = @intFromFloat(p);
         sgngam = if (i & 1 == 0) -1 else 1;
 
         z = q - p;
@@ -337,7 +337,7 @@ pub fn lnGamma(x_: f64) f64 {
         return q;
     }
 
-    var p = 1.0 / (x * x);
+    const p = 1.0 / (x * x);
     if (x >= 1000.0) {
         q += ((7.9365079365079365079365e-4 * p - 2.7777777777777777777778e-3) * p + 0.0833333333333333333333) / x;
     } else {

@@ -374,9 +374,9 @@ fn jvs(n: f64, x: f64) f64 {
 // for large x.
 // AMS55 #9.2.5.
 fn hankel(n: f64, x: f64) f64 {
-    var m: f64 = 4 * n * n;
+    const m: f64 = 4 * n * n;
     var j: f64 = 1;
-    var z: f64 = 8 * x;
+    const z: f64 = 8 * x;
     var k: f64 = 1;
     var p: f64 = 1;
     var u = (m - 1.0) / z;
@@ -656,7 +656,7 @@ fn jnt(n: f64, x: f64) f64 {
 
     // polynomials in expansion
     zz = z * z;
-    var z3 = zz * z;
+    const z3 = zz * z;
 
     const F = [5]f64{
         1.0,
