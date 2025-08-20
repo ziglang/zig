@@ -12,7 +12,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const lnGamma = math.prob.lnGamma;
 
@@ -65,7 +65,7 @@ pub fn incompleteGamma(a: f64, x: f64) f64 {
 
     // Compute  x**a * exp(-x) / gamma(a)
     var ax = a * math.ln(x) - x - lnGamma(a);
-    if (ax < -MAXLOG) {
+    if (ax < -C.MAXLOG) {
         return 0.0; // Underflow
     }
     ax = math.exp(ax);
@@ -81,7 +81,7 @@ pub fn incompleteGamma(a: f64, x: f64) f64 {
         c *= x / r;
         ans += c;
 
-        if (c / ans <= MACHEP) break;
+        if (c / ans <= C.MACHEP) break;
     }
 
     return ans * ax / a;
@@ -162,7 +162,7 @@ pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
     }
 
     var ax = a * math.ln(x) - x - lnGamma(a);
-    if (ax < -MAXLOG) {
+    if (ax < -C.MAXLOG) {
         return 0.0; // Underflow
     }
     ax = math.exp(ax);
@@ -284,11 +284,11 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
     var i: usize = 0;
 
     // bound the solution
-    var x0: f64 = MAXNUM;
+    var x0: f64 = C.MAXNUM;
     var yl: f64 = 0;
     var x1: f64 = 0;
     var yh: f64 = 1.0;
-    var dithresh: f64 = 5.0 * MACHEP;
+    var dithresh: f64 = 5.0 * C.MACHEP;
 
     // approximation to inverse function
     var d: f64 = 1.0 / (9.0 * a);
@@ -322,7 +322,7 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
         d = -math.exp(d);
         // compute the step to the next approximation of x
         d = (y - y0) / d;
-        if (math.fabs(d / x) < MACHEP) {
+        if (math.fabs(d / x) < C.MACHEP) {
             return x; // done
         }
         x = x - d;

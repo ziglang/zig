@@ -12,7 +12,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
@@ -51,7 +51,7 @@ const STIR = [_]f64{
 };
 
 const MAXSTIR = 143.01608;
-const SQTPI = 2.50662827463100050242E0;
+const SQTPI = 2.50662827463100050242E0; // sqrt(2pi), lift to constants
 
 /// Gamma function computed by Stirling's formula.
 /// The polynomial STIR is valid for 33 <= x <= 172.

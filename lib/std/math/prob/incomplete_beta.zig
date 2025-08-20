@@ -12,7 +12,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const gamma = math.prob.gamma;
 const lnGamma = math.prob.lnGamma;
@@ -23,8 +23,8 @@ const biginv = 2.22044604925031308085e-16;
 
 fn done(flag: bool, t: f64) f64 {
     if (flag) {
-        if (t <= MACHEP) {
-            return 1.0 - MACHEP;
+        if (t <= C.MACHEP) {
+            return 1.0 - C.MACHEP;
         } else {
             return 1.0 - t;
         }
@@ -129,7 +129,7 @@ pub fn incompleteBeta(aa: f64, bb: f64, xx: f64) f64 {
     //  x  (1-x)   | (a+b) / ( a | (a) | (b) )
     y = a * math.ln(x);
     var t = b * math.ln(xc);
-    if (a + b < MAXGAM and math.fabs(y) < MAXLOG and math.fabs(t) < MAXLOG) {
+    if (a + b < MAXGAM and math.fabs(y) < C.MAXLOG and math.fabs(t) < C.MAXLOG) {
         t = math.pow(f64, xc, b);
         t *= math.pow(f64, x, a);
         t /= a;
@@ -141,7 +141,7 @@ pub fn incompleteBeta(aa: f64, bb: f64, xx: f64) f64 {
     // Resort to logarithms.
     y += t + lnGamma(a + b) - lnGamma(a) - lnGamma(b);
     y += math.ln(w / a);
-    if (y < MINLOG) {
+    if (y < C.MINLOG) {
         t = 0.0;
     } else {
         t = math.exp(y);
@@ -169,7 +169,7 @@ fn incbcf(a: f64, b: f64, x: f64) f64 {
     var ans: f64 = 1;
     var r: f64 = 1;
     var n: f64 = 0;
-    var thresh: f64 = 3.0 * MACHEP;
+    var thresh: f64 = 3.0 * C.MACHEP;
 
     // mimic do-while
     while (true) {
@@ -253,7 +253,7 @@ fn incbd(a: f64, b: f64, x: f64) f64 {
     var ans: f64 = 1;
     var r: f64 = 1;
     var n: f64 = 0;
-    var thresh: f64 = 3.0 * MACHEP;
+    var thresh: f64 = 3.0 * C.MACHEP;
 
     // mimic do-while
     while (true) {
@@ -330,7 +330,7 @@ fn pseries(a: f64, b: f64, x: f64) f64 {
     var t = u;
     var n: f64 = 2.0;
     var s: f64 = 0.0;
-    var z: f64 = MACHEP * ai;
+    var z: f64 = C.MACHEP * ai;
 
     while (math.fabs(v) > z) {
         u = (n - b) * x / n;
@@ -344,12 +344,12 @@ fn pseries(a: f64, b: f64, x: f64) f64 {
     s += ai;
 
     u = a * math.ln(x);
-    if ((a + b) < MAXGAM and math.fabs(u) < MAXLOG) {
+    if ((a + b) < MAXGAM and math.fabs(u) < C.MAXLOG) {
         t = gamma(a + b) / (gamma(a) * gamma(b));
         s = s * t * math.pow(f64, x, a);
     } else {
         t = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + u + math.ln(s);
-        if (t < MINLOG) {
+        if (t < C.MINLOG) {
             s = 0.0;
         } else {
             s = math.exp(t);
@@ -494,7 +494,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                 if (i != 0) {
                     x = x0 + di * (x1 - x0);
                     if (x == 1.0) {
-                        x = 1.0 - MACHEP;
+                        x = 1.0 - C.MACHEP;
                     }
                     if (x == 0.0) {
                         di = 0.5;
@@ -550,7 +550,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                     }
                 } else {
                     x1 = x;
-                    if (rflg and x1 < MACHEP) {
+                    if (rflg and x1 < C.MACHEP) {
                         return done(rflg, 0.0);
                     }
                     yh = y;
@@ -571,7 +571,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
             // Partial Precision Loss
 
             if (x0 >= 1.0) {
-                x = 1.0 - MACHEP;
+                x = 1.0 - C.MACHEP;
                 return done(rflg, x);
             }
             if (x <= 0.0) {
@@ -615,10 +615,10 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
 
                 // Compute the derivative of the function at this point.
                 var d = (a - 1.0) * math.ln(x) + (b - 1.0) * math.ln(1.0 - x) + lgm;
-                if (d < MINLOG) {
+                if (d < C.MINLOG) {
                     return done(rflg, x);
                 }
-                if (d > MAXLOG) {
+                if (d > C.MAXLOG) {
                     break;
                 }
                 d = math.exp(d);
@@ -640,13 +640,13 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                     }
                 }
                 x = xt;
-                if (math.fabs(d / x) < 128.0 * MACHEP) {
+                if (math.fabs(d / x) < 128.0 * C.MACHEP) {
                     return done(rflg, x);
                 }
             }
 
             // Did not converge.
-            dithresh = 256.0 * MACHEP;
+            dithresh = 256.0 * C.MACHEP;
             continue :sw .ihalve;
         },
     }

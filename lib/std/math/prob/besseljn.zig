@@ -18,7 +18,7 @@ const airy = prob.airy;
 const polevl = prob.polevl;
 const p1evl = prob.p1evl;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const MAXGAM = 34.84425627277176174;
 const BIG = 1.44115188075855872E+17;
@@ -86,7 +86,7 @@ pub fn besselj(n_: f64, x_: f64) f64 {
     }
 
     y = math.fabs(x);
-    if (y < MACHEP) {
+    if (y < C.MACHEP) {
         y = 0.0;
         return sign * y; // Underflow
     }
@@ -260,7 +260,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
             if (ctr > 1000) {
                 break; // Underflow
             }
-            if (t < MACHEP) {
+            if (t < C.MACHEP) {
                 break;
             }
 
@@ -271,7 +271,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
                 qkm1 /= big;
             }
 
-            if (t <= MACHEP) break;
+            if (t <= C.MACHEP) break;
         }
 
         // Change n to n-1 if n < 0 and the continued fraction is small
@@ -334,7 +334,7 @@ fn jvs(n: f64, x: f64) f64 {
     var k: f64 = 1;
     var t: f64 = 1;
 
-    while (t > MACHEP) {
+    while (t > C.MACHEP) {
         u *= z / (k * (n + k));
         y += u;
         k += 1.0;
@@ -358,10 +358,10 @@ fn jvs(n: f64, x: f64) f64 {
         }
 
         t += math.ln(y);
-        if (t < -MAXLOG) {
+        if (t < -C.MAXLOG) {
             return 0.0;
         }
-        if (t > MAXLOG) {
+        if (t > C.MAXLOG) {
             return math.inf(f64); // Overflow
         }
         y = sgngam * math.exp(t);
@@ -388,7 +388,7 @@ fn hankel(n: f64, x: f64) f64 {
     var qq: f64 = 1e38;
     var flag = false;
 
-    while (t > MACHEP) {
+    while (t > C.MACHEP) {
         k += 2.0;
         j += 1.0;
         sign = -sign;
@@ -540,8 +540,8 @@ fn jnx(n: f64, x: f64) f64 {
     // flags to stop when terms get larger
     var doa = true;
     var dob = true;
-    var akl: f64 = MAXNUM;
-    var bkl: f64 = MAXNUM;
+    var akl: f64 = C.MAXNUM;
+    var bkl: f64 = C.MAXNUM;
     var sign: f64 = 1;
 
     var k: usize = 0;

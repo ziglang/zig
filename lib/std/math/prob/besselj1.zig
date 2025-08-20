@@ -14,7 +14,7 @@ const math = std.math;
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const RP = [_]f64{
     -8.99971225705559398224E8,  4.52228297998194034323E11,
@@ -101,9 +101,9 @@ pub fn besselj1(x: f64) f64 {
     const z = w * w;
     var p = polevl(z, PP[0..]) / polevl(z, PQ[0..]);
     const q = polevl(z, QP[0..]) / p1evl(z, QQ[0..]);
-    const xn = x - THPIO4;
+    const xn = x - C.THPIO4;
     p = p * math.cos(xn) - w * q * math.sin(xn);
-    return p * SQ2OPI / math.sqrt(x);
+    return p * C.SQ2OPI / math.sqrt(x);
 }
 
 const expectApproxEqRel = std.testing.expectApproxEqRel;
@@ -151,7 +151,7 @@ pub fn bessely1(x: f64) f64 {
     if (x <= 5.0) {
         const z = x * x;
         var w = x * (polevl(z, YP[0..]) / p1evl(z, YQ[0..]));
-        w += TWOOPI * (besselj1(x) * math.ln(x) - 1.0 / x);
+        w += C.TWOOPI * (besselj1(x) * math.ln(x) - 1.0 / x);
         return w;
     }
 
@@ -159,9 +159,9 @@ pub fn bessely1(x: f64) f64 {
     const z = w * w;
     var p = polevl(z, PP[0..]) / polevl(z, PQ[0..]);
     const q = polevl(z, QP[0..]) / p1evl(z, QQ[0..]);
-    const xn = x - THPIO4;
+    const xn = x - C.THPIO4;
     p = p * math.sin(xn) + w * q * math.cos(xn);
-    return p * SQ2OPI / math.sqrt(x);
+    return p * C.SQ2OPI / math.sqrt(x);
 }
 
 test "y1" {

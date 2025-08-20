@@ -13,7 +13,7 @@ const math = std.math;
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 // Note: all coefficients satisfy the relative error criterion
 // except YP, YQ which are designed for absolute error.
@@ -120,7 +120,7 @@ pub fn besselj0(x_: f64) f64 {
     q = polevl(q, QP[0..]) / p1evl(q, QQ[0..]);
     const xn = x - PIO4;
     p = p * math.cos(xn) - w * q * math.sin(xn);
-    return p * SQ2OPI / math.sqrt(x);
+    return p * C.SQ2OPI / math.sqrt(x);
 }
 
 const expectApproxEqRel = std.testing.expectApproxEqRel;
@@ -177,16 +177,16 @@ pub fn bessely0(x: f64) f64 {
     if (x <= 5.0) {
         const z = x * x;
         const w = polevl(z, YP[0..]) / p1evl(z, YQ[0..]);
-        return w + TWOOPI * math.ln(x) * besselj0(x);
+        return w + C.TWOOPI * math.ln(x) * besselj0(x);
     }
 
     const w = 5.0 / x;
     const z = 25.0 / (x * x);
     var p = polevl(z, PP[0..]) / polevl(z, PQ[0..]);
     const q = polevl(z, QP[0..]) / p1evl(z, QQ[0..]);
-    const xn = x - PIO4;
+    const xn = x - C.PIO4;
     p = p * math.sin(xn) + w * q * math.cos(xn);
-    return p * SQ2OPI / math.sqrt(x);
+    return p * C.SQ2OPI / math.sqrt(x);
 }
 
 test "bessely0" {

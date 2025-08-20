@@ -12,7 +12,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const M = 128.0;
 const MINV = 0.0078125;
@@ -53,7 +53,7 @@ pub fn expx2(x_: f64, sign: isize) f64 {
         u1_ = -u1_;
     }
 
-    if ((u + u1_) > MAXLOG) {
+    if ((u + u1_) > C.MAXLOG) {
         return math.inf(f64);
     }
 

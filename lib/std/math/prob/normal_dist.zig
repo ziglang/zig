@@ -11,7 +11,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
@@ -311,7 +311,7 @@ pub fn erfc(a: f64) f64 {
 
     var z = -a * a;
 
-    if (z < -MAXLOG) {
+    if (z < -C.MAXLOG) {
         return under(a);
     }
 

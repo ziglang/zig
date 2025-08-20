@@ -14,7 +14,7 @@ const math = std.math;
 const prob = math.prob;
 
 // TODO nix "usingnamespace" here.
-usingnamespace @import("constants.zig");
+const C = @import("constants.zig");
 
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
@@ -257,7 +257,7 @@ pub fn airy(x: f64) AiryResult {
     var k: f64 = 1.0;
     var z: f64 = x * x * x;
 
-    while (t > MACHEP) {
+    while (t > C.MACHEP) {
         uf *= z;
         k += 1.0;
         uf /= k;
@@ -292,7 +292,7 @@ pub fn airy(x: f64) AiryResult {
     uf /= 3.0;
     t = 1.0;
 
-    while (t > MACHEP) {
+    while (t > C.MACHEP) {
         uf *= z;
         ug /= k;
         k += 1.0;
