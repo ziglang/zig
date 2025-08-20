@@ -4768,7 +4768,6 @@ fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     if (path != null) {
         fs.cwd().makePath(path.?) catch |e|
             switch (e) {
-                error.PathAlreadyExists => return,
                 error.NotDir => {
                     fatal("specified path contains non-directory", .{});
                 },
