@@ -4736,7 +4736,7 @@ const usage_init =
 fn cmdInit(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     dev.check(.init_command);
 
-    var path: ?[]const u8 = "";
+    var path: ?[]const u8 = null;
     var template: enum { example, minimal } = .example;
     {
         var i: usize = 0;
