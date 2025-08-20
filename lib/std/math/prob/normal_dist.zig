@@ -21,6 +21,7 @@ const expx2 = @import("expx2.zig").expx2;
 // by using the expx2 function.  The tradeoff is that doing so
 // generates two calls to the exponential function instead of one.  */
 const USE_EXPXSQ = false;
+// TODO: figure out if USE_EXPXSQ actually does anything
 
 const P = [_]f64{
     2.46196981473530512524E-10, 5.64189564831068821977E-1,
@@ -131,7 +132,7 @@ test "normalDist" {
     expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }
 
-// sqrt(2pi)
+// sqrt(2pi) // TODO: lift to constants
 const s2pi = 2.50662827463100050242E0;
 
 // approximation for 0 <= |y - 0.5| <= 3/8
@@ -222,7 +223,7 @@ pub fn inverseNormalDist(y0: f64) f64 {
     var code = true;
 
     var y = y0;
-    // 0.135... = exp(-2) */
+    // 0.135... = exp(-2) // TODO: lift to constants
     if (y > 1.0 - 0.13533528323661269189) {
         y = 1.0 - y;
         code = false;
@@ -321,15 +322,13 @@ pub fn erfc(a: f64) f64 {
         z = math.exp(z);
     }
 
-    var p: f64 = undefined;
-    var q: f64 = undefined;
-    if (x < 8.0) {
-        p = polevl(x, P[0..]);
-        q = p1evl(x, Q[0..]);
-    } else {
-        p = polevl(x, R[0..]);
-        q = p1evl(x, S[0..]);
-    }
+    //var p: f64 = undefined;
+    //var q: f64 = undefined;
+    const p, const q = if (x < 8.0) .{
+        polevl(x, P[0..]), p1evl(x, Q[0..])
+    } else .{
+        polevl(x, R[0..]), p1evl(x, S[0..])
+    };
 
     var y = (z * p) / q;
 
@@ -349,15 +348,13 @@ pub fn erfc(a: f64) f64 {
 /// valid for x > 1.
 /// Use with ndtr and expx2.
 fn erfce(x: f64) f64 {
-    var p: f64 = undefined;
-    var q: f64 = undefined;
-    if (x < 8.0) {
-        p = polevl(x, P[0..]);
-        q = p1evl(x, Q[0..]);
-    } else {
-        p = polevl(x, R[0..]);
-        q = p1evl(x, S[0..]);
-    }
+    // var p: f64 = undefined;
+    // var q: f64 = undefined;
+    const p, const q = if (x < 8.0) .{
+        polevl(x, P[0..]), p1evl(x, Q[0..])
+    } else .{
+        polevl(x, R[0..]), p1evl(x, S[0..])
+    };
 
     return p / q;
 }
