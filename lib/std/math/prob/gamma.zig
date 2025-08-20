@@ -134,7 +134,7 @@ pub fn gamma(x_: f64) f64 {
                 p += 1.0;
                 z = q - p;
             }
-            z = q * math.sin(PI * z);
+            z = q * math.sin(C.PI * z);
             if (z == 0.0) {
                 return sgngam * math.inf(f64);
             }
@@ -283,7 +283,7 @@ pub fn lnGamma(x_: f64) f64 {
             p += 1.0;
             z = p - q;
         }
-        z = q * math.sin(PI * z);
+        z = q * math.sin(C.PI * z);
         if (z == 0.0) {
             return math.inf(f64); // Singularity
         }
