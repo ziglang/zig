@@ -13,6 +13,7 @@ const std = @import("../../std.zig");
 const math = std.math;
 const prob = math.prob;
 
+// TODO nix "usingnamespace" here.
 usingnamespace @import("constants.zig");
 
 const polevl = math.prob.polevl;
@@ -20,11 +21,13 @@ const p1evl = math.prob.p1evl;
 
 const c1 = 0.35502805388781723926;
 const c2 = 0.258819403792806798405;
-const sqrt3 = 1.732050807568877293527;
+const sqrt3 = 1.732050807568877293527; // TODO: move to constants
 const sqpii = 5.64189583547756286948E-1;
 
 // IBMPC or MIEEE 53-bit, not UNK
 const MAXAIRY = 103.892;
+
+// TODO: document whatever the hell *these* are.
 
 const AN = [_]f64{
     3.46538101525629032477E-1, 1.20075952739645805542E1,
@@ -140,6 +143,7 @@ const APGD = [_]f64{
     1.37480673554219441465E-6, 5.79912514929147598821E-9,
 };
 
+// TODO: see if this fits in with the rest of the math stdlib.
 pub const AiryResult = struct {
     /// Ai
     ai: f64,
@@ -215,6 +219,8 @@ pub fn airy(x: f64) AiryResult {
     }
 
     // cbrt(9)
+    // TODO: look into this. cbrt(9) ≈ 2.08
+    //       new constant?
     if (x >= 2.09) {
         domflg = 5;
         var t = math.sqrt(x);

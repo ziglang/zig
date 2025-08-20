@@ -24,7 +24,7 @@ pub const MINLOG = -7.451332191019412076235E2;
 /// 2**1024*(1-MACHEP)
 pub const MAXNUM = 1.79769313486231570815E308;
 
-/// pi
+/// pi (in math.zig)
 pub const PI = 3.14159265358979323846;
 
 /// pi/2
@@ -33,19 +33,19 @@ pub const PIO2 = 1.57079632679489661923;
 /// pi/4
 pub const PIO4 = 7.85398163397448309616E-1;
 
-/// sqrt(2)
+/// sqrt(2) (in math.zig)
 pub const SQRT2 = 1.41421356237309504880;
 
-/// sqrt(2)/2
+/// sqrt(2)/2 (in math.zig)
 pub const SQRTH = 7.07106781186547524401E-1;
 
-/// 1/log(2)
+/// 1/log(2) (in math.zig)
 pub const LOG2E = 1.4426950408889634073599;
 
-/// sqrt( 2/pi )
+/// sqrt( 2/pi ) (*almost* in math.zig)
 pub const SQ2OPI = 7.9788456080286535587989E-1;
 
-/// log(2)
+/// log(2) (in math.zig)
 pub const LOGE2 = 6.93147180559945309417E-1;
 
 /// log(2)/2
