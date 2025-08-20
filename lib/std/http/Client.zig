@@ -1800,6 +1800,7 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
         var body = try req.sendBody(&.{});
         try body.writer.writeAll(payload);
         try body.end();
+        try req.connection.?.flush();
     } else {
         try req.sendBodiless();
     }
