@@ -9,7 +9,7 @@
 // Cephes Math Library Release 2.9:  June, 2000
 // Copyright 2000 by Stephen L. Moshier
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const math = std.math;
 
 const C = @import("constants.zig");

@@ -10,7 +10,7 @@
 // Copyright 1984, 1987, 1988 by Stephen L. Moshier
 // Direct inquiries to 30 Frost Street, Cambridge, MA 02140
 
-const std = @import("../../std.zig");
+const std = @import("std");
 
 /// Evaluate polynomial
 ///

@@ -9,7 +9,7 @@
 // Cephes Math Library Release 2.8:  June, 2000
 // Copyright 1984, 1987, 1989, 1992, 2000 by Stephen L. Moshier
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const math = std.math;
 
 const CN = @import("constants.zig");
@@ -134,12 +134,12 @@ pub fn gamma(x_: f64) f64 {
                 p += 1.0;
                 z = q - p;
             }
-            z = q * math.sin(C.PI * z);
+            z = q * math.sin(CN.PI * z);
             if (z == 0.0) {
                 return sgngam * math.inf(f64);
             }
             z = math.fabs(z);
-            z = C.PI / (z * stirf(q));
+            z = CN.PI / (z * stirf(q));
         } else {
             z = stirf(x);
         }
@@ -283,7 +283,7 @@ pub fn lnGamma(x_: f64) f64 {
             p += 1.0;
             z = p - q;
         }
-        z = q * math.sin(C.PI * z);
+        z = q * math.sin(CN.PI * z);
         if (z == 0.0) {
             return math.inf(f64); // Singularity
         }

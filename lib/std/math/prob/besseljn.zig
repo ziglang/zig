@@ -9,7 +9,7 @@
 // Cephes Math Library Release 2.8:  June, 2000
 // Copyright 1984, 1987, 1989, 1992, 2000 by Stephen L. Moshier
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const math = std.math;
 const prob = std.math.prob;
 const gamma = prob.gamma;
