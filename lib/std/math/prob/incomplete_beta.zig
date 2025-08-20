@@ -484,176 +484,171 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
     var yh: f64 = 1;
     var nflg = false;
 
-    outer: while (true) {
-        switch (state) {
-            .ihalve => {
-                var dir: f64 = 0;
-                var di: f64 = 0.5;
+    sw: switch (state) {
+        .ihalve => {
+            var dir: f64 = 0;
+            var di: f64 = 0.5;
 
-                var i: usize = 0;
-                while (i < 100) : (i += 1) {
-                    if (i != 0) {
+            var i: usize = 0;
+            while (i < 100) : (i += 1) {
+                if (i != 0) {
+                    x = x0 + di * (x1 - x0);
+                    if (x == 1.0) {
+                        x = 1.0 - MACHEP;
+                    }
+                    if (x == 0.0) {
+                        di = 0.5;
                         x = x0 + di * (x1 - x0);
-                        if (x == 1.0) {
-                            x = 1.0 - MACHEP;
-                        }
                         if (x == 0.0) {
-                            di = 0.5;
-                            x = x0 + di * (x1 - x0);
-                            if (x == 0.0) {
-                                return done(rflg, 0.0); // Underflow
-                            }
-                        }
-                        y = incompleteBeta(a, b, x);
-                        yp = (x1 - x0) / (x1 + x0);
-                        if (math.fabs(yp) < dithresh) {
-                            state = .newton;
-                            continue :outer;
-                        }
-                        yp = (y - y0) / y0;
-                        if (math.fabs(yp) < dithresh) {
-                            state = .newton;
-                            continue :outer;
+                            return done(rflg, 0.0); // Underflow
                         }
                     }
-                    if (y < y0) {
-                        x0 = x;
-                        yl = y;
-                        if (dir < 0) {
-                            dir = 0;
-                            di = 0.5;
-                        } else if (dir > 3) {
-                            di = 1.0 - (1.0 - di) * (1.0 - di);
-                        } else if (dir > 1) {
-                            di = 0.5 * di + 0.5;
-                        } else {
-                            di = (y0 - y) / (yh - yl);
-                        }
-
-                        dir += 1;
-                        if (x0 > 0.75) {
-                            if (rflg) {
-                                rflg = false;
-                                a = aa;
-                                b = bb;
-                                y0 = yy0;
-                            } else {
-                                rflg = true;
-                                a = bb;
-                                b = aa;
-                                y0 = 1.0 - yy0;
-                            }
-                            x = 1.0 - x;
-                            y = incompleteBeta(a, b, x);
-                            x0 = 0.0;
-                            yl = 0.0;
-                            x1 = 1.0;
-                            yh = 1.0;
-                            state = .ihalve;
-                            continue :outer;
-                        }
-                    } else {
-                        x1 = x;
-                        if (rflg and x1 < MACHEP) {
-                            return done(rflg, 0.0);
-                        }
-                        yh = y;
-                        if (dir > 0) {
-                            dir = 0;
-                            di = 0.5;
-                        } else if (dir < -3) {
-                            di = di * di;
-                        } else if (dir < -1) {
-                            di = 0.5 * di;
-                        } else {
-                            di = (y - y0) / (yh - yl);
-                        }
-                        dir -= 1;
+                    y = incompleteBeta(a, b, x);
+                    yp = (x1 - x0) / (x1 + x0);
+                    if (math.fabs(yp) < dithresh) {
+                        continue :sw .newton;
+                    }
+                    yp = (y - y0) / y0;
+                    if (math.fabs(yp) < dithresh) {
+                        continue :sw .newton;
                     }
                 }
+                if (y < y0) {
+                    x0 = x;
+                    yl = y;
+                    if (dir < 0) {
+                        dir = 0;
+                        di = 0.5;
+                    } else if (dir > 3) {
+                        di = 1.0 - (1.0 - di) * (1.0 - di);
+                    } else if (dir > 1) {
+                        di = 0.5 * di + 0.5;
+                    } else {
+                        di = (y0 - y) / (yh - yl);
+                    }
 
-                // Partial Precision Loss
+                    dir += 1;
+                    if (x0 > 0.75) {
+                        if (rflg) {
+                            rflg = false;
+                            a = aa;
+                            b = bb;
+                            y0 = yy0;
+                        } else {
+                            rflg = true;
+                            a = bb;
+                            b = aa;
+                            y0 = 1.0 - yy0;
+                        }
+                        x = 1.0 - x;
+                        y = incompleteBeta(a, b, x);
+                        x0 = 0.0;
+                        yl = 0.0;
+                        x1 = 1.0;
+                        yh = 1.0;
+                        continue :sw .ihalve;
+                    }
+                } else {
+                    x1 = x;
+                    if (rflg and x1 < MACHEP) {
+                        return done(rflg, 0.0);
+                    }
+                    yh = y;
+                    if (dir > 0) {
+                        dir = 0;
+                        di = 0.5;
+                    } else if (dir < -3) {
+                        di = di * di;
+                    } else if (dir < -1) {
+                        di = 0.5 * di;
+                    } else {
+                        di = (y - y0) / (yh - yl);
+                    }
+                    dir -= 1;
+                }
+            }
 
-                if (x0 >= 1.0) {
-                    x = 1.0 - MACHEP;
+            // Partial Precision Loss
+
+            if (x0 >= 1.0) {
+                x = 1.0 - MACHEP;
+                return done(rflg, x);
+            }
+            if (x <= 0.0) {
+                return done(rflg, 0.0); // Underflow
+            }
+
+            continue :sw .newton;
+        },
+
+        .newton => {
+            if (nflg) {
+                return done(rflg, x);
+            }
+
+            nflg = true;
+            const lgm = lnGamma(a + b) - lnGamma(a) - lnGamma(b);
+
+            var i: usize = 0;
+            while (i < 8) : (i += 1) {
+                // Compute the function at this point.
+                if (i != 0) {
+                    y = incompleteBeta(a, b, x);
+                }
+                if (y < yl) {
+                    x = x0;
+                    y = yl;
+                } else if (y > yh) {
+                    x = x1;
+                    y = yh;
+                } else if (y < y0) {
+                    x0 = x;
+                    yl = y;
+                } else {
+                    x1 = x;
+                    yh = y;
+                }
+
+                if (x == 1.0 or x == 0.0) {
+                    break;
+                }
+
+                // Compute the derivative of the function at this point.
+                var d = (a - 1.0) * math.ln(x) + (b - 1.0) * math.ln(1.0 - x) + lgm;
+                if (d < MINLOG) {
                     return done(rflg, x);
                 }
-                if (x <= 0.0) {
-                    return done(rflg, 0.0); // Underflow
+                if (d > MAXLOG) {
+                    break;
                 }
-
-                state = .newton;
-            },
-
-            .newton => {
-                if (nflg) {
+                d = math.exp(d);
+                // Compute the step to the next approximation of x.
+                d = (y - y0) / d;
+                var xt = x - d;
+                if (xt <= x0) {
+                    y = (x - x0) / (x1 - x0);
+                    xt = x0 + 0.5 * y * (x - x0);
+                    if (xt <= 0.0) {
+                        break;
+                    }
+                }
+                if (xt >= x1) {
+                    y = (x1 - x) / (x1 - x0);
+                    xt = x1 - 0.5 * y * (x1 - x);
+                    if (xt >= 1.0) {
+                        break;
+                    }
+                }
+                x = xt;
+                if (math.fabs(d / x) < 128.0 * MACHEP) {
                     return done(rflg, x);
                 }
+            }
 
-                nflg = true;
-                const lgm = lnGamma(a + b) - lnGamma(a) - lnGamma(b);
-
-                var i: usize = 0;
-                while (i < 8) : (i += 1) {
-                    // Compute the function at this point.
-                    if (i != 0) {
-                        y = incompleteBeta(a, b, x);
-                    }
-                    if (y < yl) {
-                        x = x0;
-                        y = yl;
-                    } else if (y > yh) {
-                        x = x1;
-                        y = yh;
-                    } else if (y < y0) {
-                        x0 = x;
-                        yl = y;
-                    } else {
-                        x1 = x;
-                        yh = y;
-                    }
-
-                    if (x == 1.0 or x == 0.0) {
-                        break;
-                    }
-
-                    // Compute the derivative of the function at this point.
-                    var d = (a - 1.0) * math.ln(x) + (b - 1.0) * math.ln(1.0 - x) + lgm;
-                    if (d < MINLOG) {
-                        return done(rflg, x);
-                    }
-                    if (d > MAXLOG) {
-                        break;
-                    }
-                    d = math.exp(d);
-                    // Compute the step to the next approximation of x.
-                    d = (y - y0) / d;
-                    var xt = x - d;
-                    if (xt <= x0) {
-                        y = (x - x0) / (x1 - x0);
-                        xt = x0 + 0.5 * y * (x - x0);
-                        if (xt <= 0.0) {
-                            break;
-                        }
-                    }
-                    if (xt >= x1) {
-                        y = (x1 - x) / (x1 - x0);
-                        xt = x1 - 0.5 * y * (x1 - x);
-                        if (xt >= 1.0) {
-                            break;
-                        }
-                    }
-                    x = xt;
-                    if (math.fabs(d / x) < 128.0 * MACHEP) {
-                        return done(rflg, x);
-                    }
-                }
-
-                // Did not converge.
-                dithresh = 256.0 * MACHEP;
-                state = .ihalve;
-            },
-        }
+            // Did not converge.
+            dithresh = 256.0 * MACHEP;
+            continue :sw .ihalve;
+        },
     }
 
     unreachable;

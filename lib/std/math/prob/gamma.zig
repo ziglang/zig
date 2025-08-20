@@ -220,7 +220,7 @@ const C = [_]f64{
     -2.01889141433532773231E6,
 };
 
-// log(sqrt( 2*pi ))
+// log(sqrt( 2*pi )) // TODO: lift to constants
 const LS2PI = 0.91893853320467274178;
 const MAXLGM = 2.556348e305;
 
