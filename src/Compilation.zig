@@ -6924,6 +6924,11 @@ pub fn addCCArgs(
                 },
             }
 
+            switch (target.os.tag) {
+                .@"3ds" => try argv.append("-D__3DS__"),
+                else => {},
+            }
+
             if (comp.config.link_libc) {
                 if (target.isGnuLibC()) {
                     const target_version = target.os.versionRange().gnuLibCVersion().?;
