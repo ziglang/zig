@@ -36,7 +36,7 @@ pub fn polevl(x: f64, coef: []const f64) f64 {
     std.debug.assert(coef.len >= 1);
 
     var a = coef[0];
-    for (coef[1..], 0..) |c, i| {
+    for (coef[1..]) |c| {
         a = a * x + c;
     }
     return a;
@@ -69,7 +69,7 @@ pub fn p1evl(x: f64, coef: []const f64) f64 {
     std.debug.assert(coef.len >= 1);
 
     var a = x + coef[0];
-    for (coef[1..], 0..) |c, i| {
+    for (coef[1..]) |c| {
         a = a * x + c;
     }
     return a;

@@ -203,7 +203,7 @@ pub fn airy(x: f64) AiryResult {
         var zz = z * z;
         var uf = 1.0 + zz * polevl(zz, AFN[0..]) / p1evl(zz, AFD[0..]);
         var ug = z * polevl(zz, AGN[0..]) / p1evl(zz, AGD[0..]);
-        var theta = zeta + 0.25 * PI;
+        var theta = zeta + 0.25 * C.PI;
         var f = math.sin(theta);
         var g = math.cos(theta);
         ai = k * (f * uf - g * ug);

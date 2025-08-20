@@ -39,7 +39,7 @@ const Q = [_]f64{
 };
 
 const MAXGAM = 171.624376956302725;
-const LOGPI = 1.14472988584940017414;
+const LOGPI = 1.14472988584940017414; // lift to constants
 
 // Stirling's formula for the gamma function
 const STIR = [_]f64{
@@ -288,7 +288,7 @@ pub fn lnGamma(x_: f64) f64 {
             return math.inf(f64); // Singularity
         }
 
-        //	z = log(PI) - log( z ) - w;
+        // z = log(PI) - log( z ) - w;
         z = LOGPI - math.ln(z) - w;
         return z;
     }

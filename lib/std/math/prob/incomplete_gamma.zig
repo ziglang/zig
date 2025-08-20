@@ -330,11 +330,11 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
 
     // Resort to interval halving if Newton iteration did not converge.
     d = 0.0625;
-    if (x0 == MAXNUM) {
+    if (x0 == C.MAXNUM) {
         if (x <= 0.0) {
             x = 1.0;
         }
-        while (x0 == MAXNUM) {
+        while (x0 == C.MAXNUM) {
             x = (1.0 + d) * x;
             y = complementedIncompleteGamma(a, x);
             if (y < y0) {
