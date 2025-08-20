@@ -12,7 +12,7 @@
 const std = @import("../../std.zig");
 const math = std.math;
 
-const C = @import("constants.zig");
+const CN = @import("constants.zig");
 
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
@@ -124,7 +124,7 @@ pub fn gamma(x_: f64) f64 {
                 return math.nan(f64); // Domain
             }
 
-            var i = @floatToInt(isize, p);
+            var i: isize = @intFromFloat(p);
             if (i & 1 == 0) {
                 sgngam = -1;
             }
@@ -275,7 +275,7 @@ pub fn lnGamma(x_: f64) f64 {
             return math.inf(f64); // Singularity
         }
 
-        var i = @floatToInt(isize, p);
+        var i: isize = @intFromFloat(p);
         sgngam = if (i & 1 == 0) -1 else 1;
 
         z = q - p;
