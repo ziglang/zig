@@ -159,7 +159,7 @@ pub const AiryResult = struct {
 ///
 /// Solution of the differential equation
 ///
-///	y"(x) = xy.
+///     y"(x) = xy.
 ///
 /// The function returns the two independent solutions Ai, Bi
 /// and their first derivatives Ai'(x), Bi'(x).

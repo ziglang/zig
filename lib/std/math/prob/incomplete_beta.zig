@@ -464,7 +464,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
         x = 2.0 / (1.0 / (2.0 * a - 1.0) + 1.0 / (2.0 * b - 1.0));
         var d = yp * math.sqrt(x + lgm) / x - (1.0 / (2.0 * b - 1.0) - 1.0 / (2.0 * a - 1.0)) * (lgm + 5.0 / 6.0 - 2.0 / (3.0 * x));
         d = 2.0 * d;
-        if (d < MINLOG) {
+        if (d < C.MINLOG) {
             return done(rflg, 0.0); // Underflow
         }
         x = a / (a + b * math.exp(d));

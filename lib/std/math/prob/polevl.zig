@@ -57,8 +57,8 @@ test "polevl" {
     std.testing.expectApproxEqRel(polevl(0.5, p[0..]), 1.305615, epsilon);
 }
 
-///							p1evl()
-///                                          N
+/// p1evl()
+/// N
 /// Evaluate polynomial when coefficient of x  is 1.0.
 /// Otherwise same as polevl.
 ///

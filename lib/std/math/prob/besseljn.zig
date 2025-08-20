@@ -59,7 +59,7 @@ pub fn besselj(n_: f64, x_: f64) f64 {
 
     if (y == an) {
         nint = true;
-        var i = @floatToInt(isize, an - 16384.0 * math.floor(an / 16384.0));
+        var i: isize = @intFromFloat(an - 16384.0 * math.floor(an / 16384.0));
         if (n < 0.0) {
             if (i & 1 != 0) {
                 sign = -sign;
@@ -345,7 +345,7 @@ fn jvs(n: f64, x: f64) f64 {
 
     const frr = math.frexp(0.5 * x);
     t = frr.significand;
-    var ex = @intToFloat(f64, frr.exponent);
+    var ex: f64 = @floatFromInt(frr.exponent);
     ex = ex * n;
     if (ex > -1023 and ex < 1023 and n > 0.0 and n < (MAXGAM - 1.0)) {
         t = math.pow(f64, 0.5 * x, n) / gamma(n + 1.0);

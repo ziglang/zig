@@ -207,7 +207,7 @@ pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
             qkm1 *= biginv;
         }
 
-        if (t <= MACHEP) break;
+        if (t <= C.MACHEP) break;
     }
 
     return ans * ax;
@@ -316,7 +316,7 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
         }
         // compute the derivative of the function at this point
         d = (a - 1.0) * math.ln(x) - x - lgm;
-        if (d < -MAXLOG) {
+        if (d < -C.MAXLOG) {
             break;
         }
         d = -math.exp(d);

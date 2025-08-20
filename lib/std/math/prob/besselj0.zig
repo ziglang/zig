@@ -118,7 +118,7 @@ pub fn besselj0(x_: f64) f64 {
     var q = 25.0 / (x * x);
     var p = polevl(q, PP[0..]) / polevl(q, PQ[0..]);
     q = polevl(q, QP[0..]) / p1evl(q, QQ[0..]);
-    const xn = x - PIO4;
+    const xn = x - C.PIO4;
     p = p * math.cos(xn) - w * q * math.sin(xn);
     return p * C.SQ2OPI / math.sqrt(x);
 }
