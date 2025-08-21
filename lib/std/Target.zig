@@ -609,6 +609,11 @@ pub const Os = struct {
                 },
                 .@"3ds" => .{
                     .semver = .{
+                        // These signify release versions (https://www.3dbrew.org/wiki/NCCH/Extended_Header#ARM11_Kernel_Capabilities)
+                        // which are different from user-facing system versions (https://www.3dbrew.org/wiki/Home_Menu#System_Versions_List).
+                        //
+                        // Multiple system versions could refer to the same release version.
+                        // The comment indicates the system version that release version was introduced (for minimum) and the latest (for maximum).
                         .min = .{ .major = 2, .minor = 27, .patch = 0 }, // 1.0.0-0
                         .max = .{ .major = 2, .minor = 58, .patch = 0 }, // 11.17.0-50
                     },
