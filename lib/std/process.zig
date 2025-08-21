@@ -1670,6 +1670,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
 }
 
 test posixGetUserInfo {
+    if (native_os != .linux and native_os != .macos and !native_os.isBSD()) return error.SkipZigTest;
     if (!builtin.link_libc) return error.SkipZigTest;
 
     const nobody = try posixGetUserInfo("nobody");
