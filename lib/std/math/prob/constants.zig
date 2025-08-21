@@ -12,20 +12,20 @@
 const std = @import("std");
 const math = std.math;
 
-/// 2**-53
-pub const MACHEP = 1.11022302462515654042E-16;
+/// f64 machine epsilon, 2**-53 ≈ 1.11022302462515654042E-16
+pub const MACHEP = math.floatEps(f64); 
 
-/// 2**-1022
-pub const UFLOWTHRESH = 2.22507385850720138309E-308;
+/// f64 smallest normal number, 2**-1022 ≈ 2.22507385850720138309E-308
+pub const UFLOWTHRESH = math.floatMin(f64);
+
+/// f64 largest normal number, 2**1024*(1-MACHEP) ≈ 1.79769313486231570815E308
+pub const MAXNUM = math.floatMax(f64);
 
 /// log(MAXNUM)
 pub const MAXLOG = 7.09782712893383996732E2;
 
 /// log(2**-1075)
 pub const MINLOG = -7.451332191019412076235E2;
-
-/// 2**1024*(1-MACHEP)
-pub const MAXNUM = 1.79769313486231570815E308;
 
 /// pi (in math.zig)
 pub const PI = math.pi;
