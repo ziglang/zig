@@ -5291,13 +5291,19 @@ pub fn sysctl(
     }
 }
 
+pub const SysCtlByNameError = error{
+    PermissionDenied,
+    SystemResources,
+    UnknownName,
+} || UnexpectedError;
+
 pub fn sysctlbynameZ(
     name: [*:0]const u8,
     oldp: ?*anyopaque,
     oldlenp: ?*usize,
     newp: ?*anyopaque,
     newlen: usize,
-) SysCtlError!void {
+) SysCtlByNameError!void {
     if (native_os == .wasi) {
         @compileError("sysctl not supported on WASI");
     }

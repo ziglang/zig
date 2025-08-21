@@ -1759,7 +1759,7 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             var physmem: c_ulong = undefined;
             var len: usize = @sizeOf(c_ulong);
             posix.sysctlbynameZ("hw.physmem", &physmem, &len, null, 0) catch |err| switch (err) {
-                error.NameTooLong, error.UnknownName => unreachable,
+                error.UnknownName => unreachable,
                 else => return error.UnknownTotalSystemMemory,
             };
             return @as(usize, @intCast(physmem));
