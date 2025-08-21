@@ -133,7 +133,11 @@ pub const MACH = struct {
         /// Send 64-bit code and subcode in the exception header */
         CODES: bool = false,
 
-        pub const MASK = @compileError("use MACH.EXCEPTION and set/check all named fields");
+        pub const MASK: exception_mask_t = @bitCast(MACH.EXCEPTION{
+            .BACKTRACE_PREFERRED = true,
+            .ERRORS = true,
+            .CODES = true,
+        });
     };
 
     pub const MSG = packed struct(kern_return_t) {
@@ -155,16 +159,16 @@ pub const MACH = struct {
             .IPC_SPACE = true,
         });
 
-        pub const TIMEOUT_NONE = @compileError("use mach_msg_timeout_t.NONE");
-        pub const OPTION_NONE = @compileError("use MACH.RCV and/or MACH.SEND with their default values");
+        pub const TIMEOUT_NONE: mach_msg_timeout_t = .NONE;
+        pub const OPTION_NONE: mach_msg_option_t = .NONE;
         pub const STRICT_REPLY = @compileError("use MACH.RCV.STRICT_REPLY and/or MACH.SEND.STRICT_REPLY");
 
-        pub const TYPE = @compileError("use mach_msg_type_name_t members");
+        pub const TYPE = mach_msg_type_name_t;
     };
 
     pub const PORT = struct {
         pub const NULL: mach_port_t = 0;
-        pub const RIGHT = @compileError("use mach_port_right_t members");
+        pub const RIGHT = mach_port_right_t;
     };
 
     pub const RCV = packed struct(integer_t) {
@@ -222,8 +226,8 @@ pub const MACH = struct {
     };
 };
 
-pub const MACH_MSG_TYPE = @compileError("use use mach_msg_type_name_t members");
-pub const MACH_PORT_RIGHT = @compileError("use mach_port_right_t members");
+pub const MACH_MSG_TYPE = @compileError("use MACH.MSG.TYPE");
+pub const MACH_PORT_RIGHT = @compileError("use MACH.PORT.RIGHT");
 pub const MACH_TASK_BASIC_INFO = @compileError("use MACH.TASK.BASIC.INFO");
 pub const MACH_TASK_BASIC_INFO_COUNT = @compileError("use MACH.TASK.BASIC.INFO_COUNT");
 
@@ -521,6 +525,8 @@ pub const ipc_space_port_t = ipc_space_t;
 pub const mach_msg_option_t = packed union {
     RCV: MACH.RCV,
     SEND: MACH.SEND,
+
+    pub const NONE: mach_msg_option_t = @bitCast(@as(integer_t, 0));
 
     pub fn sendAndRcv(send: MACH.SEND, rcv: MACH.RCV) mach_msg_option_t {
         return @bitCast(@as(integer_t, @bitCast(send)) | @as(integer_t, @bitCast(rcv)));
