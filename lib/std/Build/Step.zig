@@ -66,15 +66,16 @@ pub const TestResults = struct {
     fail_count: u32 = 0,
     skip_count: u32 = 0,
     leak_count: u32 = 0,
+    timeout_count: u32 = 0,
     log_err_count: u32 = 0,
     test_count: u32 = 0,
 
     pub fn isSuccess(tr: TestResults) bool {
-        return tr.fail_count == 0 and tr.leak_count == 0 and tr.log_err_count == 0;
+        return tr.fail_count == 0 and tr.leak_count == 0 and tr.log_err_count == 0 and tr.timeout_count == 0;
     }
 
     pub fn passCount(tr: TestResults) u32 {
-        return tr.test_count - tr.fail_count - tr.skip_count;
+        return tr.test_count - tr.fail_count - tr.skip_count - tr.timeout_count;
     }
 };
 
@@ -88,6 +89,8 @@ pub const MakeOptions = struct {
         // it currently breaks because `std.net.Address` doesn't work there. Work around for now.
         .wasm32 => void,
     },
+    /// If set, this is a timeout to enforce on all individual unit tests, in nanoseconds.
+    unit_test_timeout_ns: ?u64,
     /// Not to be confused with `Build.allocator`, which is an alias of `Build.graph.arena`.
     gpa: Allocator,
 };
@@ -243,6 +246,7 @@ pub fn make(s: *Step, options: MakeOptions) error{ MakeFailed, MakeSkipped }!voi
     var timer: ?std.time.Timer = t: {
         if (!s.owner.graph.time_report) break :t null;
         if (s.id == .compile) break :t null;
+        if (s.id == .run and s.cast(Run).?.stdio == .zig_test) break :t null;
         break :t std.time.Timer.start() catch @panic("--time-report not supported on this host");
     };
     const make_result = s.makeFn(s, options);
@@ -513,7 +517,6 @@ fn zigProcessUpdate(s: *Step, zp: *ZigProcess, watch: bool, web_server: ?*Build.
         const header = stdout.takeStruct(Header, .little) catch unreachable;
         while (stdout.buffered().len < header.bytes_len) if (!try zp.poller.poll()) break :poll;
         const body = stdout.take(header.bytes_len) catch unreachable;
-
         switch (header.tag) {
             .zig_version => {
                 if (!std.mem.eql(u8, builtin.zig_version_string, body)) {

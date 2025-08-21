@@ -106,6 +106,7 @@ pub fn main() !void {
     var summary: ?Summary = null;
     var max_rss: u64 = 0;
     var skip_oom_steps = false;
+    var test_timeout_ms: ?u64 = null;
     var color: Color = .auto;
     var prominent_compile_errors = false;
     var help_menu = false;
@@ -175,6 +176,14 @@ pub fn main() !void {
                 };
             } else if (mem.eql(u8, arg, "--skip-oom-steps")) {
                 skip_oom_steps = true;
+            } else if (mem.eql(u8, arg, "--test-timeout-ms")) {
+                const millis_str = nextArgOrFatal(args, &arg_idx);
+                test_timeout_ms = std.fmt.parseInt(u64, millis_str, 10) catch |err| {
+                    std.debug.print("invalid millisecond count: '{s}': {s}\n", .{
+                        millis_str, @errorName(err),
+                    });
+                    process.exit(1);
+                };
             } else if (mem.eql(u8, arg, "--search-prefix")) {
                 const search_prefix = nextArgOrFatal(args, &arg_idx);
                 builder.addSearchPrefix(search_prefix);
@@ -448,6 +457,11 @@ pub fn main() !void {
         .max_rss_is_default = false,
         .max_rss_mutex = .{},
         .skip_oom_steps = skip_oom_steps,
+        .unit_test_timeout_ns = ns: {
+            const ms = test_timeout_ms orelse break :ns null;
+            break :ns std.math.mul(u64, ms, std.time.ns_per_ms) catch null;
+        },
+
         .watch = watch,
         .web_server = undefined, // set after `prepare`
         .memory_blocked_steps = .empty,
@@ -605,6 +619,7 @@ const Run = struct {
     max_rss_is_default: bool,
     max_rss_mutex: std.Thread.Mutex,
     skip_oom_steps: bool,
+    unit_test_timeout_ns: ?u64,
     watch: bool,
     web_server: if (!builtin.single_threaded) ?WebServer else ?noreturn,
     /// Allocated into `gpa`.
@@ -724,6 +739,7 @@ fn runStepNames(
     var test_fail_count: usize = 0;
     var test_pass_count: usize = 0;
     var test_leak_count: usize = 0;
+    var test_timeout_count: usize = 0;
     var test_count: usize = 0;
 
     var success_count: usize = 0;
@@ -736,6 +752,7 @@ fn runStepNames(
         test_fail_count += s.test_results.fail_count;
         test_skip_count += s.test_results.skip_count;
         test_leak_count += s.test_results.leak_count;
+        test_timeout_count += s.test_results.timeout_count;
         test_pass_count += s.test_results.passCount();
         test_count += s.test_results.test_count;
 
@@ -834,6 +851,7 @@ fn runStepNames(
         if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
         if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
         if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
+        if (test_timeout_count > 0) w.print("; {d} timed out", .{test_timeout_count}) catch {};
 
         w.writeAll("\n") catch {};
 
@@ -995,7 +1013,10 @@ fn printStepStatus(
             try stderr.writeAll("\n");
             try ttyconf.setColor(stderr, .reset);
         },
-        .failure => try printStepFailure(s, stderr, ttyconf),
+        .failure => {
+            try printStepFailure(s, stderr, ttyconf);
+            try ttyconf.setColor(stderr, .reset);
+        },
     }
 }
 
@@ -1009,7 +1030,6 @@ fn printStepFailure(
         try stderr.print(" {d} errors\n", .{
             s.result_error_bundle.errorMessageCount(),
         });
-        try ttyconf.setColor(stderr, .reset);
     } else if (!s.test_results.isSuccess()) {
         try stderr.print(" {d}/{d} passed", .{
             s.test_results.passCount(), s.test_results.test_count,
@@ -1020,7 +1040,7 @@ fn printStepFailure(
             try stderr.print("{d} failed", .{
                 s.test_results.fail_count,
             });
-            try ttyconf.setColor(stderr, .reset);
+            try ttyconf.setColor(stderr, .white);
         }
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
@@ -1028,7 +1048,7 @@ fn printStepFailure(
             try stderr.print("{d} skipped", .{
                 s.test_results.skip_count,
             });
-            try ttyconf.setColor(stderr, .reset);
+            try ttyconf.setColor(stderr, .white);
         }
         if (s.test_results.leak_count > 0) {
             try stderr.writeAll(", ");
@@ -1036,18 +1056,24 @@ fn printStepFailure(
             try stderr.print("{d} leaked", .{
                 s.test_results.leak_count,
             });
-            try ttyconf.setColor(stderr, .reset);
+            try ttyconf.setColor(stderr, .white);
+        }
+        if (s.test_results.timeout_count > 0) {
+            try stderr.writeAll(", ");
+            try ttyconf.setColor(stderr, .red);
+            try stderr.print("{d} timed out", .{
+                s.test_results.timeout_count,
+            });
+            try ttyconf.setColor(stderr, .white);
         }
         try stderr.writeAll("\n");
     } else if (s.result_error_msgs.items.len > 0) {
         try ttyconf.setColor(stderr, .red);
         try stderr.writeAll(" failure\n");
-        try ttyconf.setColor(stderr, .reset);
     } else {
         assert(s.result_stderr.len > 0);
         try ttyconf.setColor(stderr, .red);
         try stderr.writeAll(" stderr\n");
-        try ttyconf.setColor(stderr, .reset);
     }
 }
 
@@ -1250,6 +1276,7 @@ fn workerMakeOneStep(
         .thread_pool = thread_pool,
         .watch = run.watch,
         .web_server = if (run.web_server) |*ws| ws else null,
+        .unit_test_timeout_ns = run.unit_test_timeout_ns,
         .gpa = run.gpa,
     });
 
@@ -1439,6 +1466,7 @@ fn printUsage(b: *std.Build, w: *Writer) !void {
         \\  -j<N>                        Limit concurrent jobs (default is to use all CPU cores)
         \\  --maxrss <bytes>             Limit memory usage (default is to use available memory)
         \\  --skip-oom-steps             Instead of failing, skip steps that would exceed --maxrss
+        \\  --test-timeout-ms <ms>       Limit execution time of unit tests, terminating if exceeded
         \\  --fetch[=mode]               Fetch dependency tree (optionally choose laziness) and exit
         \\    needed                     (Default) Lazy dependencies are fetched as needed
         \\    all                        Lazy dependencies are always fetched

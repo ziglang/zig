@@ -756,7 +756,6 @@ const IndexedOutput = struct {
     output: *Output,
 };
 fn make(step: *Step, options: Step.MakeOptions) !void {
-    const prog_node = options.progress_node;
     const b = step.owner;
     const arena = b.allocator;
     const run: *Run = @fieldParentPtr("step", step);
@@ -964,7 +963,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
                 b.fmt("{s}{s}", .{ placeholder.output.prefix, arg_output_path });
         }
 
-        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, prog_node, null);
+        try runCommand(run, argv_list.items, has_side_effects, output_dir_path, options, null);
         if (!has_side_effects) try step.writeManifestAndWatch(&man);
         return;
     };
@@ -997,7 +996,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         });
     }
 
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, null);
+    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, options, null);
 
     const dep_file_dir = std.fs.cwd();
     const dep_file_basename = dep_output_file.generated_file.getPath2(b, step);
@@ -1115,7 +1114,14 @@ pub fn rerunInFuzzMode(
     const has_side_effects = false;
     const rand_int = std.crypto.random.int(u64);
     const tmp_dir_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(rand_int);
-    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, prog_node, .{
+    try runCommand(run, argv_list.items, has_side_effects, tmp_dir_path, .{
+        .progress_node = prog_node,
+        .thread_pool = undefined, // not used by `runCommand`
+        .watch = undefined, // not used by `runCommand`
+        .web_server = null, // only needed for time reports
+        .unit_test_timeout_ns = null, // don't time out fuzz tests for now
+        .gpa = undefined, // not used by `runCommand`
+    }, .{
         .unit_test_index = unit_test_index,
         .fuzz = fuzz,
     });
@@ -1196,7 +1202,7 @@ fn runCommand(
     argv: []const []const u8,
     has_side_effects: bool,
     output_dir_path: []const u8,
-    prog_node: std.Progress.Node,
+    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !void {
     const step = &run.step;
@@ -1218,7 +1224,7 @@ fn runCommand(
 
     var env_map = run.env_map orelse &b.graph.env_map;
 
-    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, prog_node, fuzz_context) catch |err| term: {
+    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, options, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1357,7 +1363,7 @@ fn runCommand(
 
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
-            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, prog_node, fuzz_context) catch |e| {
+            break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, options, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
 
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
@@ -1372,8 +1378,14 @@ fn runCommand(
     step.result_duration_ns = result.elapsed_ns;
     step.result_peak_rss = result.peak_rss;
     step.test_results = result.stdio.test_results;
-    if (result.stdio.test_metadata) |tm|
+    if (result.stdio.test_metadata) |tm| {
         run.cached_test_metadata = tm.toCachedTestMetadata();
+        if (options.web_server) |ws| ws.updateTimeReportRunTest(
+            run,
+            &run.cached_test_metadata.?,
+            tm.ns_per_test,
+        );
+    }
 
     const final_argv = if (interp_argv.items.len == 0) argv else interp_argv.items;
 
@@ -1558,7 +1570,7 @@ fn spawnChildAndCollect(
     argv: []const []const u8,
     env_map: *EnvMap,
     has_side_effects: bool,
-    prog_node: std.Progress.Node,
+    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !ChildProcResult {
     const b = run.step.owner;
@@ -1604,7 +1616,7 @@ fn spawnChildAndCollect(
     const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
 
     if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
-        child.progress_node = prog_node;
+        child.progress_node = options.progress_node;
     }
 
     const term, const result, const elapsed_ns = t: {
@@ -1622,7 +1634,7 @@ fn spawnChildAndCollect(
         var timer = try std.time.Timer.start();
 
         const result = if (run.stdio == .zig_test)
-            try evalZigTest(run, &child, prog_node, fuzz_context)
+            try evalZigTest(run, &child, options, fuzz_context)
         else
             try evalGeneric(run, &child);
 
@@ -1647,13 +1659,15 @@ const StdIoResult = struct {
 fn evalZigTest(
     run: *Run,
     child: *std.process.Child,
-    prog_node: std.Progress.Node,
+    options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
 ) !StdIoResult {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
 
-    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
+    const PollEnum = enum { stdout, stderr };
+
+    var poller = std.Io.poll(gpa, PollEnum, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
@@ -1692,21 +1706,126 @@ fn evalZigTest(
     var fail_count: u32 = 0;
     var skip_count: u32 = 0;
     var leak_count: u32 = 0;
+    var timeout_count: u32 = 0;
     var test_count: u32 = 0;
     var log_err_count: u32 = 0;
 
     var metadata: ?TestMetadata = null;
     var coverage_id: ?u64 = null;
 
+    var test_is_running = false;
+
+    // String allocated into `gpa`. Owned by this function while it runs, then moved to the `Step`.
+    var result_stderr: []u8 = &.{};
+    defer run.step.result_stderr = result_stderr;
+
+    // `null` means this host does not support `std.time.Timer`. This timer is `reset()` whenever we
+    // toggle `test_is_running`, i.e. whenever a test starts or finishes.
+    var timer: ?std.time.Timer = std.time.Timer.start() catch t: {
+        std.log.warn("std.time.Timer not supported on host; test timeouts will be ignored", .{});
+        break :t null;
+    };
+
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
 
-    const stdout = poller.reader(.stdout);
-    const stderr = poller.reader(.stderr);
+    // This timeout is used when we're waiting on the test runner itself rather than a user-specified
+    // test. For instance, if the test runner leaves this much time between us requesting a test to
+    // start and it acknowledging the test starting, we terminate the child and raise an error. This
+    // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
+    const response_timeout_ns = 30 * std.time.ns_per_s;
+
     const any_write_failed = first_write_failed or poll: while (true) {
+        // These are scoped inside the loop because we sometimes respawn the child and recreate
+        // `poller` which invaldiates these readers.
+        const stdout = poller.reader(.stdout);
+        const stderr = poller.reader(.stderr);
+
         const Header = std.zig.Server.Message.Header;
-        while (stdout.buffered().len < @sizeOf(Header)) if (!try poller.poll()) break :poll false;
+
+        // This block is exited when `stdout` contains enough bytes for a `Header`.
+        header_ready: {
+            if (stdout.buffered().len >= @sizeOf(Header)) {
+                // We already have one, no need to poll!
+                break :header_ready;
+            }
+
+            // Always `null` if `timer` is `null`.
+            const opt_timeout_ns: ?u64 = ns: {
+                if (timer == null) break :ns null;
+                if (!test_is_running) break :ns response_timeout_ns;
+                break :ns options.unit_test_timeout_ns;
+            };
+
+            if (opt_timeout_ns) |timeout_ns| {
+                const remaining_ns = timeout_ns -| timer.?.read();
+                if (!try poller.pollTimeout(remaining_ns)) break :poll false;
+            } else {
+                if (!try poller.poll()) break :poll false;
+            }
+
+            if (stdout.buffered().len >= @sizeOf(Header)) {
+                // There wasn't a header before, but there is one after the `poll`.
+                break :header_ready;
+            }
+
+            const timeout_ns = opt_timeout_ns orelse continue;
+            const cur_ns = timer.?.read();
+            if (cur_ns < timeout_ns) continue;
+
+            // There was a timeout.
+
+            if (!test_is_running) {
+                // The child stopped responding while *not* running a test. To avoid getting into
+                // a loop if something's broken, don't retry; just report an error and stop.
+                try run.step.addError("test runner failed to respond for {D}", .{cur_ns});
+                break :poll false;
+            }
+
+            // A test has probably just gotten stuck. We'll report an error, then just kill the
+            // child and continue with the next test in the list.
+
+            const md = &metadata.?;
+            const test_index = md.next_index - 1;
+
+            timeout_count += 1;
+            try run.step.addError(
+                "'{s}' timed out after {D}",
+                .{ md.testName(test_index), cur_ns },
+            );
+            if (stderr.buffered().len > 0) {
+                const new_bytes = stderr.buffered();
+                const old_len = result_stderr.len;
+                result_stderr = try gpa.realloc(result_stderr, old_len + new_bytes.len);
+                @memcpy(result_stderr[old_len..], new_bytes);
+            }
+
+            _ = try child.kill();
+            // Respawn the test runner. There's a double-cleanup if this fails, but that's
+            // fine because our caller's `kill` will just return `error.AlreadyTerminated`.
+            try child.spawn();
+            try child.waitForSpawn();
+
+            // After respawning the child, we must update the poller's streams.
+            poller.deinit();
+            poller = std.Io.poll(gpa, PollEnum, .{
+                .stdout = child.stdout.?,
+                .stderr = child.stderr.?,
+            });
+
+            test_is_running = false;
+            md.ns_per_test[test_index] = timer.?.lap();
+
+            requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| {
+                try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
+                break :poll true;
+            };
+
+            continue :poll; // continue work with the new (respawned) child
+        }
+        // There is definitely a header available now -- read it.
         const header = stdout.takeStruct(Header, .little) catch unreachable;
+
         while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
         const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
@@ -1720,6 +1839,12 @@ fn evalZigTest(
             },
             .test_metadata => {
                 assert(fuzz_context == null);
+
+                // `metadata` would only be populated if we'd already seen a `test_metadata`, but we
+                // only request it once (and importantly, we don't re-request it if we kill and
+                // restart the test runner).
+                assert(metadata == null);
+
                 const TmHdr = std.zig.Server.Message.TestMetadata;
                 const tm_hdr = @as(*align(1) const TmHdr, @ptrCast(body));
                 test_count = tm_hdr.tests_len;
@@ -1730,32 +1855,42 @@ fn evalZigTest(
 
                 const names = std.mem.bytesAsSlice(u32, names_bytes);
                 const expected_panic_msgs = std.mem.bytesAsSlice(u32, expected_panic_msgs_bytes);
+
                 const names_aligned = try arena.alloc(u32, names.len);
                 for (names_aligned, names) |*dest, src| dest.* = src;
 
                 const expected_panic_msgs_aligned = try arena.alloc(u32, expected_panic_msgs.len);
                 for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
 
-                prog_node.setEstimatedTotalItems(names.len);
+                options.progress_node.setEstimatedTotalItems(names.len);
                 metadata = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
+                    .ns_per_test = try arena.alloc(u64, test_count),
                     .names = names_aligned,
                     .expected_panic_msgs = expected_panic_msgs_aligned,
                     .next_index = 0,
-                    .prog_node = prog_node,
+                    .prog_node = options.progress_node,
                 };
+                @memset(metadata.?.ns_per_test, std.math.maxInt(u64));
+
+                test_is_running = false;
+                if (timer) |*t| t.reset();
 
                 requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
                     try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
                     break :poll true;
                 };
             },
+            .test_started => {
+                test_is_running = true;
+                if (timer) |*t| t.reset();
+            },
             .test_results => {
                 assert(fuzz_context == null);
-                const md = metadata.?;
+                const md = &metadata.?;
 
                 const TrHdr = std.zig.Server.Message.TestResults;
-                const tr_hdr = @as(*align(1) const TrHdr, @ptrCast(body));
+                const tr_hdr: *align(1) const TrHdr = @ptrCast(body);
                 fail_count +|= @intFromBool(tr_hdr.flags.fail);
                 skip_count +|= @intFromBool(tr_hdr.flags.skip);
                 leak_count +|= @intFromBool(tr_hdr.flags.leak);
@@ -1764,7 +1899,7 @@ fn evalZigTest(
                 if (tr_hdr.flags.fuzz) try run.fuzz_tests.append(gpa, tr_hdr.index);
 
                 if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
-                    const name = std.mem.sliceTo(md.string_bytes[md.names[tr_hdr.index]..], 0);
+                    const name = std.mem.sliceTo(md.testName(tr_hdr.index), 0);
                     const stderr_contents = stderr.buffered();
                     stderr.toss(stderr_contents.len);
                     const msg = std.mem.trim(u8, stderr_contents, "\n");
@@ -1783,7 +1918,10 @@ fn evalZigTest(
                     }
                 }
 
-                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
+                test_is_running = false;
+                if (timer) |*t| md.ns_per_test[tr_hdr.index] = t.lap();
+
+                requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| {
                     try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
                     break :poll true;
                 };
@@ -1831,9 +1969,12 @@ fn evalZigTest(
         while (try poller.poll()) {}
     }
 
-    const stderr_contents = std.mem.trim(u8, stderr.buffered(), "\n");
-    if (stderr_contents.len > 0) {
-        run.step.result_stderr = try arena.dupe(u8, stderr_contents);
+    const stderr = poller.reader(.stderr);
+    if (stderr.buffered().len > 0) {
+        const new_bytes = stderr.buffered();
+        const old_len = result_stderr.len;
+        result_stderr = try gpa.realloc(result_stderr, old_len + new_bytes.len);
+        @memcpy(result_stderr[old_len..], new_bytes);
     }
 
     // Send EOF to stdin.
@@ -1848,6 +1989,7 @@ fn evalZigTest(
             .fail_count = fail_count,
             .skip_count = skip_count,
             .leak_count = leak_count,
+            .timeout_count = timeout_count,
             .log_err_count = log_err_count,
         },
         .test_metadata = metadata,
@@ -1856,6 +1998,7 @@ fn evalZigTest(
 
 const TestMetadata = struct {
     names: []const u32,
+    ns_per_test: []u64,
     expected_panic_msgs: []const u32,
     string_bytes: []const u8,
     next_index: u32,
@@ -1896,6 +2039,7 @@ fn requestNextTest(in: fs.File, metadata: *TestMetadata, sub_prog_node: *?std.Pr
         try sendRunTestMessage(in, .run_test, i);
         return;
     } else {
+        metadata.next_index = std.math.maxInt(u32); // indicate that all tests are done
         try sendMessage(in, .exit);
     }
 }
