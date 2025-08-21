@@ -6,6 +6,7 @@ const link = @import("link.zig");
 const log = std.log.scoped(.codegen);
 const mem = std.mem;
 const math = std.math;
+const ArrayList = std.ArrayList;
 const target_util = @import("target.zig");
 const trace = @import("tracy.zig").trace;
 
@@ -179,7 +180,7 @@ pub fn emitFunction(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     any_mir: *const AnyMir,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
@@ -204,7 +205,7 @@ pub fn generateLazyFunction(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
 ) CodeGenError!void {
     const zcu = pt.zcu;
@@ -236,7 +237,7 @@ pub fn generateLazySymbol(
     lazy_sym: link.File.LazySymbol,
     // TODO don't use an "out" parameter like this; put it in the result instead
     alignment: *Alignment,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     debug_output: link.File.DebugInfoOutput,
     reloc_parent: link.File.RelocInfo.Parent,
 ) CodeGenError!void {
@@ -311,7 +312,7 @@ pub fn generateSymbol(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     val: Value,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     reloc_parent: link.File.RelocInfo.Parent,
 ) GenerateSymbolError!void {
     const tracy = trace(@src());
@@ -379,7 +380,7 @@ pub fn generateSymbol(
         },
         .err => |err| {
             const int = try pt.getErrorValue(err.name);
-            try code.writer(gpa).writeInt(u16, @intCast(int), endian);
+            mem.writeInt(u16, try code.addManyAsArray(gpa, 2), @intCast(int), endian);
         },
         .error_union => |error_union| {
             const payload_ty = ty.errorUnionPayload(zcu);
@@ -389,7 +390,7 @@ pub fn generateSymbol(
             };
 
             if (!payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
-                try code.writer(gpa).writeInt(u16, err_val, endian);
+                mem.writeInt(u16, try code.addManyAsArray(gpa, 2), err_val, endian);
                 return;
             }
 
@@ -399,7 +400,7 @@ pub fn generateSymbol(
 
             // error value first when its type is larger than the error union's payload
             if (error_align.order(payload_align) == .gt) {
-                try code.writer(gpa).writeInt(u16, err_val, endian);
+                mem.writeInt(u16, try code.addManyAsArray(gpa, 2), err_val, endian);
             }
 
             // emit payload part of the error union
@@ -421,7 +422,7 @@ pub fn generateSymbol(
             // Payload size is larger than error set, so emit our error set last
             if (error_align.compare(.lte, payload_align)) {
                 const begin = code.items.len;
-                try code.writer(gpa).writeInt(u16, err_val, endian);
+                mem.writeInt(u16, try code.addManyAsArray(gpa, 2), err_val, endian);
                 const unpadded_end = code.items.len - begin;
                 const padded_end = abi_align.forward(unpadded_end);
                 const padding = math.cast(usize, padded_end - unpadded_end) orelse return error.Overflow;
@@ -476,7 +477,7 @@ pub fn generateSymbol(
                     }));
                     try generateSymbol(bin_file, pt, src_loc, value, code, reloc_parent);
                 }
-                try code.writer(gpa).writeByte(@intFromBool(payload_val != null));
+                try code.append(gpa, @intFromBool(payload_val != null));
                 try code.appendNTimes(gpa, 0, padding);
             }
         },
@@ -721,7 +722,7 @@ fn lowerPtr(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     ptr_val: InternPool.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     reloc_parent: link.File.RelocInfo.Parent,
     prev_offset: u64,
 ) GenerateSymbolError!void {
@@ -774,7 +775,7 @@ fn lowerUavRef(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     uav: InternPool.Key.Ptr.BaseAddr.Uav,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) GenerateSymbolError!void {
@@ -834,7 +835,7 @@ fn lowerNavRef(
     lf: *link.File,
     pt: Zcu.PerThread,
     nav_index: InternPool.Nav.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    code: *ArrayList(u8),
     reloc_parent: link.File.RelocInfo.Parent,
     offset: u64,
 ) GenerateSymbolError!void {
