@@ -3,7 +3,7 @@ const Emit = @This();
 const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
-const leb = std.leb;
+const ArrayList = std.ArrayList;
 
 const Wasm = link.File.Wasm;
 const Mir = @import("Mir.zig");
@@ -15,7 +15,7 @@ const codegen = @import("../../codegen.zig");
 mir: Mir,
 wasm: *Wasm,
 /// The binary representation that will be emitted by this module.
-code: *std.ArrayListUnmanaged(u8),
+code: *ArrayList(u8),
 
 pub const Error = error{
     OutOfMemory,
@@ -85,7 +85,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             if (is_obj) {
                 @panic("TODO");
             } else {
-                leb.writeUleb128(code.fixedWriter(), 1 + @intFromEnum(indirect_func_idx)) catch unreachable;
+                writeUleb128(code, 1 + @intFromEnum(indirect_func_idx));
             }
             inst += 1;
             continue :loop tags[inst];
@@ -99,7 +99,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
             // MIR is lowered during flush, so there is indeed only one thread at this time.
             const errors_len = 1 + comp.zcu.?.intern_pool.global_error_set.getNamesFromMainThread().len;
-            leb.writeIleb128(code.fixedWriter(), errors_len) catch unreachable;
+            writeSleb128(code, errors_len);
 
             inst += 1;
             continue :loop tags[inst];
@@ -122,7 +122,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 continue :loop tags[inst];
             } else {
                 const addr: u32 = wasm.errorNameTableAddr();
-                leb.writeIleb128(code.fixedWriter(), addr) catch unreachable;
+                writeSleb128(code, addr);
 
                 inst += 1;
                 continue :loop tags[inst];
@@ -131,7 +131,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .br_if, .br, .memory_grow, .memory_size => {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            leb.writeUleb128(code.fixedWriter(), datas[inst].label) catch unreachable;
+            writeUleb128(code, datas[inst].label);
 
             inst += 1;
             continue :loop tags[inst];
@@ -140,7 +140,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .local_get, .local_set, .local_tee => {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(tags[inst]));
-            leb.writeUleb128(code.fixedWriter(), datas[inst].local) catch unreachable;
+            writeUleb128(code, datas[inst].local);
 
             inst += 1;
             continue :loop tags[inst];
@@ -153,8 +153,8 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             try code.ensureUnusedCapacity(gpa, 11 + 10 * labels.len);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.br_table));
             // -1 because default label is not part of length/depth.
-            leb.writeUleb128(code.fixedWriter(), extra.data.length - 1) catch unreachable;
-            for (labels) |label| leb.writeUleb128(code.fixedWriter(), label) catch unreachable;
+            writeUleb128(code, extra.data.length - 1);
+            for (labels) |label| writeUleb128(code, label);
 
             inst += 1;
             continue :loop tags[inst];
@@ -199,9 +199,9 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
                 const index: Wasm.Flush.FuncTypeIndex = .fromTypeIndex(func_ty_index, &wasm.flush_buffer);
-                leb.writeUleb128(code.fixedWriter(), @intFromEnum(index)) catch unreachable;
+                writeUleb128(code, @intFromEnum(index));
             }
-            leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // table index
+            writeUleb128(code, @as(u32, 0)); // table index
 
             inst += 1;
             continue :loop tags[inst];
@@ -263,7 +263,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                 code.appendNTimesAssumeCapacity(0, 5);
             } else {
                 const sp_global: Wasm.GlobalIndex = .stack_pointer;
-                std.leb.writeUleb128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
+                writeUleb128(code, @intFromEnum(sp_global));
             }
 
             inst += 1;
@@ -291,7 +291,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
         .i32_const => {
             try code.ensureUnusedCapacity(gpa, 6);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), datas[inst].imm32) catch unreachable;
+            writeSleb128(code, datas[inst].imm32);
 
             inst += 1;
             continue :loop tags[inst];
@@ -300,7 +300,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             try code.ensureUnusedCapacity(gpa, 11);
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i64_const));
             const int64: i64 = @bitCast(mir.extraData(Mir.Imm64, datas[inst].payload).data.toInt());
-            leb.writeIleb128(code.fixedWriter(), int64) catch unreachable;
+            writeSleb128(code, int64);
 
             inst += 1;
             continue :loop tags[inst];
@@ -476,33 +476,33 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const extra_index = datas[inst].payload;
             const opcode = mir.extra[extra_index];
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.misc_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            writeUleb128(code, opcode);
             switch (@as(std.wasm.MiscOpcode, @enumFromInt(opcode))) {
                 // bulk-memory opcodes
                 .data_drop => {
                     const segment = mir.extra[extra_index + 1];
-                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
+                    writeUleb128(code, segment);
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_init => {
                     const segment = mir.extra[extra_index + 1];
-                    leb.writeUleb128(code.fixedWriter(), segment) catch unreachable;
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+                    writeUleb128(code, segment);
+                    writeUleb128(code, @as(u32, 0)); // memory index
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_fill => {
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // memory index
+                    writeUleb128(code, @as(u32, 0)); // memory index
 
                     inst += 1;
                     continue :loop tags[inst];
                 },
                 .memory_copy => {
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // dst memory index
-                    leb.writeUleb128(code.fixedWriter(), @as(u32, 0)) catch unreachable; // src memory index
+                    writeUleb128(code, @as(u32, 0)); // dst memory index
+                    writeUleb128(code, @as(u32, 0)); // src memory index
 
                     inst += 1;
                     continue :loop tags[inst];
@@ -538,7 +538,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const extra_index = datas[inst].payload;
             const opcode = mir.extra[extra_index];
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.simd_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            writeUleb128(code, opcode);
             switch (@as(std.wasm.SimdOpcode, @enumFromInt(opcode))) {
                 .v128_store,
                 .v128_load,
@@ -824,7 +824,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
             const extra_index = datas[inst].payload;
             const opcode = mir.extra[extra_index];
             code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.atomics_prefix));
-            leb.writeUleb128(code.fixedWriter(), opcode) catch unreachable;
+            writeUleb128(code, opcode);
             switch (@as(std.wasm.AtomicsOpcode, @enumFromInt(opcode))) {
                 .i32_atomic_load,
                 .i64_atomic_load,
@@ -900,7 +900,7 @@ pub fn lowerToCode(emit: *Emit) Error!void {
                     // Hard-codes memory index 0 since multi-memory proposal is
                     // not yet accepted nor implemented.
                     const memory_index: u32 = 0;
-                    leb.writeUleb128(code.fixedWriter(), memory_index) catch unreachable;
+                    writeUleb128(code, memory_index);
                     inst += 1;
                     continue :loop tags[inst];
                 },
@@ -915,15 +915,15 @@ pub fn lowerToCode(emit: *Emit) Error!void {
 }
 
 /// Asserts 20 unused capacity.
-fn encodeMemArg(code: *std.ArrayListUnmanaged(u8), mem_arg: Mir.MemArg) void {
+fn encodeMemArg(code: *ArrayList(u8), mem_arg: Mir.MemArg) void {
     assert(code.unusedCapacitySlice().len >= 20);
     // Wasm encodes alignment as power of 2, rather than natural alignment.
     const encoded_alignment = @ctz(mem_arg.alignment);
-    leb.writeUleb128(code.fixedWriter(), encoded_alignment) catch unreachable;
-    leb.writeUleb128(code.fixedWriter(), mem_arg.offset) catch unreachable;
+    writeUleb128(code, encoded_alignment);
+    writeUleb128(code, mem_arg.offset);
 }
 
-fn uavRefObj(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
+fn uavRefObj(wasm: *Wasm, code: *ArrayList(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -940,7 +940,7 @@ fn uavRefObj(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.I
     code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
 }
 
-fn uavRefExe(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
+fn uavRefExe(wasm: *Wasm, code: *ArrayList(u8), value: InternPool.Index, offset: i32, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const gpa = comp.gpa;
     const opcode: std.wasm.Opcode = if (is_wasm32) .i32_const else .i64_const;
@@ -949,10 +949,10 @@ fn uavRefExe(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), value: InternPool.I
     code.appendAssumeCapacity(@intFromEnum(opcode));
 
     const addr = wasm.uavAddr(value);
-    leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + offset))) catch unreachable;
+    writeUleb128(code, @as(u32, @intCast(@as(i64, addr) + offset)));
 }
 
-fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
+fn navRefOff(wasm: *Wasm, code: *ArrayList(u8), data: Mir.NavRefOff, is_wasm32: bool) !void {
     const comp = wasm.base.comp;
     const zcu = comp.zcu.?;
     const ip = &zcu.intern_pool;
@@ -975,10 +975,22 @@ fn navRefOff(wasm: *Wasm, code: *std.ArrayListUnmanaged(u8), data: Mir.NavRefOff
         code.appendNTimesAssumeCapacity(0, if (is_wasm32) 5 else 10);
     } else {
         const addr = wasm.navAddr(data.nav_index);
-        leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(@as(i64, addr) + data.offset))) catch unreachable;
+        writeUleb128(code, @as(u32, @intCast(@as(i64, addr) + data.offset)));
     }
 }
 
-fn appendOutputFunctionIndex(code: *std.ArrayListUnmanaged(u8), i: Wasm.OutputFunctionIndex) void {
-    leb.writeUleb128(code.fixedWriter(), @intFromEnum(i)) catch unreachable;
+fn appendOutputFunctionIndex(code: *ArrayList(u8), i: Wasm.OutputFunctionIndex) void {
+    writeUleb128(code, @intFromEnum(i));
+}
+
+fn writeUleb128(code: *ArrayList(u8), arg: anytype) void {
+    var w: std.Io.Writer = .fixed(code.unusedCapacitySlice());
+    w.writeUleb128(arg) catch unreachable;
+    code.items.len += w.end;
+}
+
+fn writeSleb128(code: *ArrayList(u8), arg: anytype) void {
+    var w: std.Io.Writer = .fixed(code.unusedCapacitySlice());
+    w.writeSleb128(arg) catch unreachable;
+    code.items.len += w.end;
 }
