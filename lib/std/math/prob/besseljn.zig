@@ -413,8 +413,8 @@ fn hankel(n: f64, x: f64) f64 {
         }
     }
 
-    u = x - (0.5 * n + 0.25) * C.PI;
-    t = math.sqrt(2.0 / (C.PI * x)) * (pp * math.cos(u) - qq * math.sin(u));
+    u = x - (0.5 * n + 0.25) * math.pi;
+    t = math.sqrt(2.0 / (math.pi * x)) * (pp * math.cos(u) - qq * math.sin(u));
     return t;
 }
 
