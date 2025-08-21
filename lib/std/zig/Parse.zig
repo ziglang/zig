@@ -188,7 +188,7 @@ fn failMsg(p: *Parse, msg: Ast.Error) error{ ParseError, OutOfMemory } {
     return error.ParseError;
 }
 
-/// Root <- skip container_doc_comment? ContainerMembers eof
+/// Root <- skip ContainerMembers eof
 pub fn parseRoot(p: *Parse) !void {
     // Root node must be index 0.
     p.nodes.appendAssumeCapacity(.{
@@ -227,7 +227,7 @@ pub fn parseZon(p: *Parse) !void {
     p.nodes.items(.data)[0] = .{ .node = node_index };
 }
 
-/// ContainerMembers <- ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
+/// ContainerMembers <- container_doc_comment? ContainerDeclaration* (ContainerField COMMA)* (ContainerField / ContainerDeclaration*)
 ///
 /// ContainerDeclaration <- TestDecl / ComptimeDecl / doc_comment? KEYWORD_pub? Decl
 ///
@@ -2423,7 +2423,7 @@ fn parseSuffixExpr(p: *Parse) !?Node.Index {
 ///
 /// ContainerDecl <- (KEYWORD_extern / KEYWORD_packed)? ContainerDeclAuto
 ///
-/// ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+/// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 ///
 /// InitList
 ///     <- LBRACE FieldInit (COMMA FieldInit)* COMMA? RBRACE
@@ -3317,7 +3317,7 @@ fn parseSuffixOp(p: *Parse, lhs: Node.Index) !?Node.Index {
 
 /// Caller must have already verified the first token.
 ///
-/// ContainerDeclAuto <- ContainerDeclType LBRACE container_doc_comment? ContainerMembers RBRACE
+/// ContainerDeclAuto <- ContainerDeclType LBRACE ContainerMembers RBRACE
 ///
 /// ContainerDeclType
 ///     <- KEYWORD_struct (LPAREN Expr RPAREN)?
