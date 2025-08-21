@@ -135,6 +135,10 @@ fn mainServer() !void {
                 var fail = false;
                 var skip = false;
                 is_fuzz_test = false;
+
+                // let the build server know we're starting the test now
+                try server.serveStringMessage(.test_started, &.{});
+
                 test_fn.func() catch |err| switch (err) {
                     error.SkipZigTest => skip = true,
                     else => {

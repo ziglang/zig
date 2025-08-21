@@ -34,6 +34,12 @@ pub const Message = struct {
         test_metadata,
         /// Body is a TestResults
         test_results,
+        /// Does not have a body.
+        /// Notifies the build runner that the next test (requested by `Client.Message.Tag.run_test`)
+        /// is starting execution. This message helps to ensure that the timestamp used by the build
+        /// runner to enforce unit test time limits is relatively accurate under extreme system load
+        /// (where there may be a non-trivial delay before the test process is scheduled).
+        test_started,
         /// Body is a series of strings, delimited by null bytes.
         /// Each string is a prefixed file path.
         /// The first byte indicates the file prefix path (see prefixes fields

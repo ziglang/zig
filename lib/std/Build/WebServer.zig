@@ -751,6 +751,64 @@ pub fn updateTimeReportGeneric(ws: *WebServer, step: *Build.Step, ns_total: u64)
     ws.notifyUpdate();
 }
 
+pub fn updateTimeReportRunTest(
+    ws: *WebServer,
+    run: *Build.Step.Run,
+    tests: *const Build.Step.Run.CachedTestMetadata,
+    ns_per_test: []const u64,
+) void {
+    const gpa = ws.gpa;
+
+    const step_idx: u32 = for (ws.all_steps, 0..) |s, i| {
+        if (s == &run.step) break @intCast(i);
+    } else unreachable;
+
+    assert(tests.names.len == ns_per_test.len);
+    const tests_len: u32 = @intCast(tests.names.len);
+
+    const new_len: u64 = len: {
+        var names_len: u64 = 0;
+        for (0..tests_len) |i| {
+            names_len += tests.testName(@intCast(i)).len + 1;
+        }
+        break :len @sizeOf(abi.time_report.RunTestResult) + names_len + 8 * tests_len;
+    };
+    const old_buf = old: {
+        ws.time_report_mutex.lock();
+        defer ws.time_report_mutex.unlock();
+        const old = ws.time_report_msgs[step_idx];
+        ws.time_report_msgs[step_idx] = &.{};
+        break :old old;
+    };
+    const buf = gpa.realloc(old_buf, new_len) catch @panic("out of memory");
+
+    const out_header: *align(1) abi.time_report.RunTestResult = @ptrCast(buf[0..@sizeOf(abi.time_report.RunTestResult)]);
+    out_header.* = .{
+        .step_idx = step_idx,
+        .tests_len = tests_len,
+    };
+    var offset: usize = @sizeOf(abi.time_report.RunTestResult);
+    const ns_per_test_out: []align(1) u64 = @ptrCast(buf[offset..][0 .. tests_len * 8]);
+    @memcpy(ns_per_test_out, ns_per_test);
+    offset += tests_len * 8;
+    for (0..tests_len) |i| {
+        const name = tests.testName(@intCast(i));
+        @memcpy(buf[offset..][0..name.len], name);
+        buf[offset..][name.len] = 0;
+        offset += name.len + 1;
+    }
+    assert(offset == buf.len);
+
+    {
+        ws.time_report_mutex.lock();
+        defer ws.time_report_mutex.unlock();
+        assert(ws.time_report_msgs[step_idx].len == 0);
+        ws.time_report_msgs[step_idx] = buf;
+        ws.time_report_update_times[step_idx] = ws.now();
+    }
+    ws.notifyUpdate();
+}
+
 const RunnerRequest = union(enum) {
     rebuild,
 };
