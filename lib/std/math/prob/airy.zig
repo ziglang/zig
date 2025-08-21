@@ -18,7 +18,9 @@ const C = @import("constants.zig");
 const polevl = math.prob.polevl;
 const p1evl = math.prob.p1evl;
 
+/// ai0, apparently
 const c1 = 0.35502805388781723926;
+/// -aip0, apparently
 const c2 = 0.258819403792806798405;
 const sqrt3 = math.sqrt3;
 const sqpii = math.sqrt1_pi;
@@ -203,16 +205,16 @@ pub fn airy(x: f64) AiryResult {
         var uf = 1.0 + zz * polevl(zz, AFN[0..]) / p1evl(zz, AFD[0..]);
         var ug = z * polevl(zz, AGN[0..]) / p1evl(zz, AGD[0..]);
         const theta = zeta + 0.25 * math.pi;
-        const f = math.sin(theta);
-        const g = math.cos(theta);
-        ai = k * (f * uf - g * ug);
-        bi = k * (g * uf + f * ug);
+        const s = math.sin(theta);
+        const c = math.cos(theta);
+        ai = k * (s * uf - c * ug);
+        bi = k * (c * uf + s * ug);
 
         uf = 1.0 + zz * polevl(zz, APFN[0..]) / p1evl(zz, APFD[0..]);
         ug = z * polevl(zz, APGN[0..]) / p1evl(zz, APGD[0..]);
         k = sqpii * t;
-        aip = -k * (g * uf + f * ug);
-        bip = k * (f * uf - g * ug);
+        aip = -k * (c * uf + s * ug);
+        bip = k * (s * uf - c * ug);
 
         return AiryResult{ .ai = ai, .aip = aip, .bi = bi, .bip = bip };
     }
@@ -223,7 +225,7 @@ pub fn airy(x: f64) AiryResult {
     if (x >= 2.09) {
         domflg = 5;
         var t = math.sqrt(x);
-        const zeta = 2.0 * x * t / 3.0;
+        const zeta = 2.0 * x * t / 3.0; // (2/3)*x^(3/2)
         const g = math.exp(zeta);
         t = math.sqrt(t);
         var k = 2.0 * t * g;
@@ -236,7 +238,7 @@ pub fn airy(x: f64) AiryResult {
         aip = f * k;
 
         // zeta > 16
-        if (x > 8.3203353) {
+        if (x > 8.3203353) { // ≈ (3*16/2)^(2/3)
             f = z * polevl(z, BN16[0..]) / p1evl(z, BD16[0..]);
             k = sqpii * g;
             bi = k * (1.0 + f) / t;
