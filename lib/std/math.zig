@@ -18,6 +18,19 @@ pub const phi = 1.6180339887498948482045868343656381177203091798057628621;
 /// Circle constant (τ)
 pub const tau = 2 * pi;
 
+/// π/4
+pub const pi_4 = 0.785398163397448309616; // Cephes lift; expand
+
+/// π/2
+pub const pi_2 = 1.57079632679489661923; // Cephes lift; expand
+
+/// 2/π
+pub const two_pi = 0.636619772367581343075535; // Cephes lift; expand
+// This won't get confusing at all, I swear!
+
+/// 3π/4
+pub const threepi_4 = 2.35619449019234492885; // Cephes lift; expand
+
 /// log2(e)
 pub const log2e = 1.442695040888963407359924681001892137;
 
@@ -26,6 +39,9 @@ pub const log10e = 0.434294481903251827651128918916605082;
 
 /// ln(2)
 pub const ln2 = 0.693147180559945309417232121458176568;
+
+/// ln(2)/2
+pub const lnsqrt2 = 0.346573590279972654709; // Cephes lift; expand
 
 /// ln(10)
 pub const ln10 = 2.302585092994045684017991454684364208;
@@ -58,7 +74,7 @@ pub const sqrt1_2 = 0.707106781186547524400844362104849039;
 pub const sqrt3 = 1.732050807568877293527; // Cephes lift; expand
 
 /// cbrt(2)
-pub const cbrt2 = math.cbrt(@as(f64, 2.0)); // Cephes lift; expand
+pub const cbrt2 = std.math.cbrt(@as(f64, 2.0)); // Cephes lift; expand
 
 /// pi/180.0
 pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;
@@ -300,18 +316,18 @@ test radiansToDegrees {
     const half_pi: f32 = pi / 2.0;
     const neg_quart_pi: f32 = -pi / 4.0;
     const one_pi: f32 = pi;
-    const two_pi: f32 = 2.0 * pi;
+    const _two_pi: f32 = 2.0 * pi;
     try std.testing.expectApproxEqAbs(@as(f32, 0), radiansToDegrees(zero), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 90), radiansToDegrees(half_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -45), radiansToDegrees(neg_quart_pi), 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, 180), radiansToDegrees(one_pi), 1e-6);
-    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(two_pi), 1e-6);
+    try std.testing.expectApproxEqAbs(@as(f32, 360), radiansToDegrees(_two_pi), 1e-6);
 
     const result = radiansToDegrees(@Vector(4, f32){
         half_pi,
         neg_quart_pi,
         one_pi,
-        two_pi,
+        _two_pi,
     });
     try std.testing.expectApproxEqAbs(@as(f32, 90), result[0], 1e-6);
     try std.testing.expectApproxEqAbs(@as(f32, -45), result[1], 1e-6);
