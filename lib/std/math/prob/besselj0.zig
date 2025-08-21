@@ -137,7 +137,7 @@ test "besselj0" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(besselj0(c[0]), c[1], epsilon);
+        try expectApproxEqRel(besselj0(c[0]), c[1], epsilon);
     }
 }
 
@@ -177,7 +177,7 @@ pub fn bessely0(x: f64) f64 {
     if (x <= 5.0) {
         const z = x * x;
         const w = polevl(z, YP[0..]) / p1evl(z, YQ[0..]);
-        return w + C.TWOOPI * math.ln(x) * besselj0(x);
+        return w + C.TWOOPI * @log(x) * besselj0(x);
     }
 
     const w = 5.0 / x;
@@ -196,9 +196,9 @@ test "bessely0" {
         [_]f64{ 3.141, 0.328578958219224 },
     };
 
-    expect(math.isNegativeInf(bessely0(0)));
+    try expect(math.isNegativeInf(bessely0(0)));
 
     for (cases) |c| {
-        expectApproxEqRel(bessely0(c[0]), c[1], epsilon);
+        try expectApproxEqRel(bessely0(c[0]), c[1], epsilon);
     }
 }

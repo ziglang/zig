@@ -54,7 +54,7 @@ pub fn besselj(n_: f64, x_: f64) f64 {
 
     var nint = false; // Flag for integer n
     var sign: f64 = 1; // Flag for sign inversion
-    const an = math.fabs(n);
+    const an = @abs(n);
     var y = math.floor(an);
 
     if (y == an) {
@@ -85,7 +85,7 @@ pub fn besselj(n_: f64, x_: f64) f64 {
         return sign * y; // Domain
     }
 
-    y = math.fabs(x);
+    y = @abs(x);
     if (y < C.MACHEP) {
         y = 0.0;
         return sign * y; // Underflow
@@ -166,7 +166,7 @@ pub fn besselj(n_: f64, x_: f64) f64 {
 
         // boundary between convergence of
         // power series and Hankel expansion
-        y = math.fabs(k);
+        y = @abs(k);
         if (y < 26.0) {
             t = (0.0083 * y + 0.09) * y + 12.9;
         } else {
@@ -212,10 +212,10 @@ const expect = std.testing.expect;
 const epsilon = 0.000001;
 
 test "besselj" {
-    expectApproxEqRel(besselj(1.5, 0), 0, epsilon);
-    expectApproxEqRel(besselj(1.5, 1), 0.240297839123, epsilon);
-    expectApproxEqRel(besselj(1.5, 1.5), 0.387142217276067, epsilon);
-    expectApproxEqRel(besselj(-1.5, 1.5), -0.6805601853491455, epsilon);
+    try expectApproxEqRel(besselj(1.5, 0), 0, epsilon);
+    try expectApproxEqRel(besselj(1.5, 1), 0.240297839123, epsilon);
+    try expectApproxEqRel(besselj(1.5, 1.5), 0.387142217276067, epsilon);
+    try expectApproxEqRel(besselj(-1.5, 1.5), -0.6805601853491455, epsilon);
 }
 
 // Reduce the order by backward recurrence.
@@ -248,7 +248,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
 
             const t = blk: {
                 if (r != 0) {
-                    const tv = math.fabs((ans - r) / r);
+                    const tv = @abs((ans - r) / r);
                     ans = r;
                     break :blk tv;
                 } else {
@@ -264,7 +264,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
                 break;
             }
 
-            if (math.fabs(pk) > big) {
+            if (@abs(pk) > big) {
                 pkm2 /= big;
                 pkm1 /= big;
                 qkm2 /= big;
@@ -276,7 +276,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
 
         // Change n to n-1 if n < 0 and the continued fraction is small
         if (nflag > 0) {
-            if (math.fabs(ans) < 0.125) {
+            if (@abs(ans) < 0.125) {
                 nflag = -1;
                 n.* = n.* - 1.0;
                 continue :fstart;
@@ -314,7 +314,7 @@ fn recur(n: *f64, x: f64, newn: *f64, cancel: bool) f64 {
     // Take the larger of the last two iterates
     // on the theory that it may have less cancellation error.
     if (cancel) {
-        if (kf >= 0.0 and math.fabs(pk) > math.fabs(pkm1)) {
+        if (kf >= 0.0 and @abs(pk) > @abs(pkm1)) {
             k += 1.0;
             pkm2 = pk;
         }
@@ -339,7 +339,7 @@ fn jvs(n: f64, x: f64) f64 {
         y += u;
         k += 1.0;
         if (y != 0) {
-            t = math.fabs(u / y);
+            t = @abs(u / y);
         }
     }
 
@@ -351,13 +351,13 @@ fn jvs(n: f64, x: f64) f64 {
         t = math.pow(f64, 0.5 * x, n) / gamma(n + 1.0);
         y *= t;
     } else {
-        t = n * math.ln(0.5 * x) - lnGamma(n + 1.0);
+        t = n * @log(0.5 * x) - lnGamma(n + 1.0);
         if (y < 0) {
             sgngam = -sgngam;
             y = -y;
         }
 
-        t += math.ln(y);
+        t += @log(y);
         if (t < -C.MAXLOG) {
             return 0.0;
         }
@@ -398,7 +398,7 @@ fn hankel(n: f64, x: f64) f64 {
         j += 1.0;
         u *= (m - k * k) / (j * z);
         q += sign * u;
-        t = math.fabs(u / p);
+        t = @abs(u / p);
 
         if (t < conv) {
             conv = t;
@@ -483,7 +483,7 @@ fn jnx(n: f64, x: f64) f64 {
     // Use expansion for transition region if so.
     const cbn = math.cbrt(n);
     var z = (x - n) / cbn;
-    if (math.fabs(z) <= 0.7) {
+    if (@abs(z) <= 0.7) {
         return jnt(n, x);
     }
 
@@ -499,7 +499,7 @@ fn jnx(n: f64, x: f64) f64 {
     var zeta: f64 = undefined;
     if (zz > 0.0) {
         sz = math.sqrt(zz);
-        t = 1.5 * (math.ln((1.0 + sz) / z) - sz); // zeta ** 3/2
+        t = 1.5 * (@log((1.0 + sz) / z) - sz); // zeta ** 3/2
         zeta = math.cbrt(t * t);
         nflg = 1;
     } else {
@@ -509,7 +509,7 @@ fn jnx(n: f64, x: f64) f64 {
         nflg = -1;
     }
 
-    const z32i = math.fabs(1.0 / t);
+    const z32i = @abs(1.0 / t);
     const sqz = math.cbrt(t);
 
     // Airy function
@@ -577,7 +577,7 @@ fn jnx(n: f64, x: f64) f64 {
 
         if (doa) {
             ak *= np;
-            t = math.fabs(ak);
+            t = @abs(ak);
             if (t < akl) {
                 akl = t;
                 pp += ak;
@@ -589,7 +589,7 @@ fn jnx(n: f64, x: f64) f64 {
         if (dob) {
             bk += lambda[tkp1] * zp * u[0];
             bk *= -np / sqz;
-            t = math.fabs(bk);
+            t = @abs(bk);
             if (t < bkl) {
                 bkl = t;
                 qq += bk;

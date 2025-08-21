@@ -64,7 +64,7 @@ pub fn incompleteGamma(a: f64, x: f64) f64 {
     }
 
     // Compute  x**a * exp(-x) / gamma(a)
-    var ax = a * math.ln(x) - x - lnGamma(a);
+    var ax = a * @log(x) - x - lnGamma(a);
     if (ax < -C.MAXLOG) {
         return 0.0; // Underflow
     }
@@ -112,7 +112,7 @@ test "incompleteGamma" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(incompleteGamma(c[0], c[1]), c[2], epsilon);
+        try expectApproxEqRel(incompleteGamma(c[0], c[1]), c[2], epsilon);
     }
 }
 
@@ -161,7 +161,7 @@ pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
         return 0.0;
     }
 
-    var ax = a * math.ln(x) - x - lnGamma(a);
+    var ax = a * @log(x) - x - lnGamma(a);
     if (ax < -C.MAXLOG) {
         return 0.0; // Underflow
     }
@@ -188,7 +188,7 @@ pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
         const t = blk: {
             if (qk != 0) {
                 const r = pk / qk;
-                const tv = math.fabs((ans - r) / r);
+                const tv = @abs((ans - r) / r);
                 ans = r;
                 break :blk tv;
             } else {
@@ -200,7 +200,7 @@ pub fn complementedIncompleteGamma(a: f64, x: f64) f64 {
         pkm1 = pk;
         qkm2 = qkm1;
         qkm1 = qk;
-        if (math.fabs(pk) > big) {
+        if (@abs(pk) > big) {
             pkm2 *= biginv;
             pkm1 *= biginv;
             qkm2 *= biginv;
@@ -243,7 +243,7 @@ test "complementedIncompleteGamma" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(complementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
+        try expectApproxEqRel(complementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
     }
 }
 
@@ -315,14 +315,14 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
             yh = y;
         }
         // compute the derivative of the function at this point
-        d = (a - 1.0) * math.ln(x) - x - lgm;
+        d = (a - 1.0) * @log(x) - x - lgm;
         if (d < -C.MAXLOG) {
             break;
         }
         d = -math.exp(d);
         // compute the step to the next approximation of x
         d = (y - y0) / d;
-        if (math.fabs(d / x) < C.MACHEP) {
+        if (@abs(d / x) < C.MACHEP) {
             return x; // done
         }
         x = x - d;
@@ -354,11 +354,11 @@ pub fn inverseComplementedIncompleteGamma(a: f64, y0: f64) f64 {
         x = x1 + d * (x0 - x1);
         y = complementedIncompleteGamma(a, x);
         lgm = (x0 - x1) / (x1 + x0);
-        if (math.fabs(lgm) < dithresh) {
+        if (@abs(lgm) < dithresh) {
             break;
         }
         lgm = (y - y0) / y0;
-        if (math.fabs(lgm) < dithresh) {
+        if (@abs(lgm) < dithresh) {
             break;
         }
         if (x <= 0.0) {
@@ -423,6 +423,6 @@ test "inverseComplementedIncompleteGamma" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(inverseComplementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
+        try expectApproxEqRel(inverseComplementedIncompleteGamma(c[0], c[1]), c[2], epsilon);
     }
 }

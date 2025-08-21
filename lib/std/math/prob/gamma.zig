@@ -116,7 +116,7 @@ pub fn gamma(x_: f64) f64 {
     }
 
     var z: f64 = undefined;
-    var q = math.fabs(x);
+    var q = @abs(x);
     if (q > 33.0) {
         if (x < 0.0) {
             var p = math.floor(q);
@@ -138,7 +138,7 @@ pub fn gamma(x_: f64) f64 {
             if (z == 0.0) {
                 return sgngam * math.inf(f64);
             }
-            z = math.fabs(z);
+            z = @abs(z);
             z = CN.PI / (z * stirf(q));
         } else {
             z = stirf(x);
@@ -183,14 +183,14 @@ const expect = std.testing.expect;
 const epsilon = 0.000001;
 
 test "gamma" {
-    expect(math.isNan(gamma(0)));
-    expect(math.isNan(gamma(-1)));
+    try expect(math.isNan(gamma(0)));
+    try expect(math.isNan(gamma(-1)));
 
-    expectApproxEqRel(gamma(1), 1, epsilon);
-    expectApproxEqRel(gamma(1.5), 0.886226925453, epsilon);
-    expectApproxEqRel(gamma(1.9), 0.961765831907, epsilon);
+    try expectApproxEqRel(gamma(1), 1, epsilon);
+    try expectApproxEqRel(gamma(1.5), 0.886226925453, epsilon);
+    try expectApproxEqRel(gamma(1.9), 0.961765831907, epsilon);
 
-    expectApproxEqRel(gamma(-0.5), -3.5449077018, epsilon);
+    try expectApproxEqRel(gamma(-0.5), -3.5449077018, epsilon);
 }
 
 // A[]: Stirling's formula expansion of log gamma
@@ -289,7 +289,7 @@ pub fn lnGamma(x_: f64) f64 {
         }
 
         // z = log(PI) - log( z ) - w;
-        z = LOGPI - math.ln(z) - w;
+        z = LOGPI - @log(z) - w;
         return z;
     }
 
@@ -319,20 +319,20 @@ pub fn lnGamma(x_: f64) f64 {
         }
 
         if (u == 2.0) {
-            return math.ln(z);
+            return @log(z);
         }
 
         p -= 2.0;
         x = x + p;
         p = x * polevl(x, B[0..]) / p1evl(x, C[0..]);
-        return math.ln(z) + p;
+        return @log(z) + p;
     }
 
     if (x > MAXLGM) {
         return sgngam * math.inf(f64);
     }
 
-    var q = (x - 0.5) * math.ln(x) - x + LS2PI;
+    var q = (x - 0.5) * @log(x) - x + LS2PI;
     if (x > 1.0e8) {
         return q;
     }
@@ -348,12 +348,12 @@ pub fn lnGamma(x_: f64) f64 {
 }
 
 test "lnGamma" {
-    expect(math.isInf(lnGamma(0)));
-    expect(math.isInf(lnGamma(-1)));
+    try expect(math.isInf(lnGamma(0)));
+    try expect(math.isInf(lnGamma(-1)));
 
-    expectApproxEqRel(lnGamma(1), 0, epsilon);
-    expectApproxEqRel(lnGamma(1.5), -0.12078223764, epsilon);
-    expectApproxEqRel(lnGamma(1.9), -0.03898427592, epsilon);
+    try expectApproxEqRel(lnGamma(1), 0, epsilon);
+    try expectApproxEqRel(lnGamma(1.5), -0.12078223764, epsilon);
+    try expectApproxEqRel(lnGamma(1.9), -0.03898427592, epsilon);
 
-    expectApproxEqRel(lnGamma(-0.5), 1.26551212348, epsilon);
+    try expectApproxEqRel(lnGamma(-0.5), 1.26551212348, epsilon);
 }

@@ -269,7 +269,7 @@ pub fn airy(x: f64) AiryResult {
         k += 1.0;
         ug /= k;
         g += ug;
-        t = math.fabs(uf / f);
+        t = @abs(uf / f);
     }
 
     uf = c1 * f;
@@ -304,7 +304,7 @@ pub fn airy(x: f64) AiryResult {
         uf /= k;
         g += ug;
         k += 1.0;
-        t = math.fabs(ug / g);
+        t = @abs(ug / g);
     }
 
     uf = c1 * f;
@@ -328,17 +328,17 @@ const epsilon = 0.000001;
 test "airy" {
     {
         const r = airy(0);
-        expectApproxEqRel(r.ai, 0.3550280538878, epsilon);
-        expectApproxEqRel(r.aip, -0.2588194037928, epsilon);
-        expectApproxEqRel(r.bi, 0.614926627446, epsilon);
-        expectApproxEqRel(r.bip, 0.448288357353826, epsilon);
+        try expectApproxEqRel(r.ai, 0.3550280538878, epsilon);
+        try expectApproxEqRel(r.aip, -0.2588194037928, epsilon);
+        try expectApproxEqRel(r.bi, 0.614926627446, epsilon);
+        try expectApproxEqRel(r.bip, 0.448288357353826, epsilon);
     }
 
     {
         const r = airy(5);
-        expectApproxEqRel(r.ai, 0.0001083444281, epsilon);
-        expectApproxEqRel(r.aip, -0.00024741389, epsilon);
-        expectApproxEqRel(r.bi, 657.792044171171182, epsilon);
-        expectApproxEqRel(r.bip, 1435.81908021798252, epsilon);
+        try expectApproxEqRel(r.ai, 0.0001083444281, epsilon);
+        try expectApproxEqRel(r.aip, -0.00024741389, epsilon);
+        try expectApproxEqRel(r.bi, 657.792044171171182, epsilon);
+        try expectApproxEqRel(r.bip, 1435.81908021798252, epsilon);
     }
 }

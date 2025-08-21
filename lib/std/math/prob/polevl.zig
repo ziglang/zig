@@ -54,7 +54,7 @@ test "polevl" {
         1.0,
     };
 
-    std.testing.expectApproxEqRel(polevl(0.5, p[0..]), 1.305615, epsilon);
+    try std.testing.expectApproxEqRel(polevl(0.5, p[0..]), 1.305615, epsilon);
 }
 
 /// p1evl()
@@ -86,5 +86,5 @@ test "p1evl" {
         -2.01889141433532773231e6,
     };
 
-    std.testing.expectApproxEqRel(p1evl(0.5, p[0..]), -3598630.126745, epsilon);
+    try std.testing.expectApproxEqRel(p1evl(0.5, p[0..]), -3598630.126745, epsilon);
 }

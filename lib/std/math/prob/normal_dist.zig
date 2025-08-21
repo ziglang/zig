@@ -97,7 +97,7 @@ const UTHRESH = 37.519379347;
 /// erfc underflow    x > 37.519379347       0.0
 pub fn normalDist(a: f64) f64 {
     const x = a * C.SQRTH;
-    var z = math.fabs(x);
+    var z = @abs(x);
 
     if (z < 1.0) {
         return 0.5 + 0.5 * erf(x);
@@ -125,11 +125,11 @@ pub fn normalDist(a: f64) f64 {
 test "normalDist" {
     const e2 = 1e-3; // TODO: Get more accurate reference
 
-    expectApproxEqRel(normalDist(-10), 7.62e-24, e2);
-    expectApproxEqRel(normalDist(-1), 0.1587, e2);
-    expectApproxEqRel(normalDist(0), 0.5, e2);
-    expectApproxEqRel(normalDist(1), 0.8413, e2);
-    expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
+    try expectApproxEqRel(normalDist(-10), 7.62e-24, e2);
+    try expectApproxEqRel(normalDist(-1), 0.1587, e2);
+    try expectApproxEqRel(normalDist(0), 0.5, e2);
+    try expectApproxEqRel(normalDist(1), 0.8413, e2);
+    try expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }
 
 // sqrt(2pi) // TODO: lift to constants
@@ -237,8 +237,8 @@ pub fn inverseNormalDist(y0: f64) f64 {
         return x;
     }
 
-    var x = math.sqrt(-2.0 * math.ln(y));
-    const x0 = x - math.ln(x) / x;
+    var x = math.sqrt(-2.0 * @log(y));
+    const x0 = x - @log(x) / x;
 
     const z = 1.0 / x;
 
@@ -261,11 +261,11 @@ const expect = std.testing.expect;
 const epsilon = 1e5;
 
 test "inverseNormalDist" {
-    expectApproxEqRel(inverseNormalDist(7.62e-24), 10, epsilon);
-    expectApproxEqRel(inverseNormalDist(0.1587), -1, epsilon);
-    expectApproxEqRel(inverseNormalDist(0.5), 0, epsilon);
-    expectApproxEqRel(inverseNormalDist(0.8413), 1, epsilon);
-    expectApproxEqRel(inverseNormalDist(1 - 2.867e-7), 5, epsilon);
+    try expectApproxEqRel(inverseNormalDist(7.62e-24), 10, epsilon);
+    try expectApproxEqRel(inverseNormalDist(0.1587), -1, epsilon);
+    try expectApproxEqRel(inverseNormalDist(0.5), 0, epsilon);
+    try expectApproxEqRel(inverseNormalDist(0.8413), 1, epsilon);
+    try expectApproxEqRel(inverseNormalDist(1 - 2.867e-7), 5, epsilon);
 }
 
 fn under(a: f64) f64 {
@@ -384,7 +384,7 @@ fn erfce(x: f64) f64 {
 /// arithmetic   domain     # trials      peak         rms
 ///    IEEE      0,1         30000       3.7e-16     1.0e-16
 pub fn erf(x: f64) f64 {
-    if (math.fabs(x) > 1.0) {
+    if (@abs(x) > 1.0) {
         return 1.0 - erfc(x);
     }
 
@@ -394,22 +394,22 @@ pub fn erf(x: f64) f64 {
 }
 
 test "erf" {
-    expectApproxEqRel(erf(0), 0, epsilon);
-    expectApproxEqRel(erf(1), 0.8427007929497, epsilon);
-    expectApproxEqRel(erf(-1), -0.8427007929497, epsilon);
-    expectApproxEqRel(erf(5), 0.9999999999984625, epsilon);
+    try expectApproxEqRel(erf(0), 0, epsilon);
+    try expectApproxEqRel(erf(1), 0.8427007929497, epsilon);
+    try expectApproxEqRel(erf(-1), -0.8427007929497, epsilon);
+    try expectApproxEqRel(erf(5), 0.9999999999984625, epsilon);
 }
 
 test "erfc" {
-    expectApproxEqRel(erfc(0), 1, epsilon);
-    expectApproxEqRel(erfc(1), 0.157299207050285, epsilon);
-    expectApproxEqRel(erfc(-1), 1.84270079294971, epsilon);
-    expectApproxEqRel(erfc(5), 1.5374597944280e-12, epsilon);
+    try expectApproxEqRel(erfc(0), 1, epsilon);
+    try expectApproxEqRel(erfc(1), 0.157299207050285, epsilon);
+    try expectApproxEqRel(erfc(-1), 1.84270079294971, epsilon);
+    try expectApproxEqRel(erfc(5), 1.5374597944280e-12, epsilon);
 }
 
 test "erfce" {
-    expectApproxEqRel(erfce(0), 1, epsilon);
-    expectApproxEqRel(erfce(1), 0.4275835761558, epsilon);
-    expectApproxEqRel(erfce(-1), 5.008980080762283, 1e-3); // TODO: Confirm against c implementation
-    expectApproxEqRel(erfce(5), 0.1107046377339686, epsilon);
+    try expectApproxEqRel(erfce(0), 1, epsilon);
+    try expectApproxEqRel(erfce(1), 0.4275835761558, epsilon);
+    try expectApproxEqRel(erfce(-1), 5.008980080762283, 1e-3); // TODO: Confirm against c implementation
+    try expectApproxEqRel(erfce(5), 0.1107046377339686, epsilon);
 }

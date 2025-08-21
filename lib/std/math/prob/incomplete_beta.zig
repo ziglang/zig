@@ -127,9 +127,9 @@ pub fn incompleteBeta(aa: f64, bb: f64, xx: f64) f64 {
     // Multiply w by the factor
     //   a      b   _             _     _
     //  x  (1-x)   | (a+b) / ( a | (a) | (b) )
-    y = a * math.ln(x);
-    var t = b * math.ln(xc);
-    if (a + b < MAXGAM and math.fabs(y) < C.MAXLOG and math.fabs(t) < C.MAXLOG) {
+    y = a * @log(x);
+    var t = b * @log(xc);
+    if (a + b < MAXGAM and @abs(y) < C.MAXLOG and @abs(t) < C.MAXLOG) {
         t = math.pow(f64, xc, b);
         t *= math.pow(f64, x, a);
         t /= a;
@@ -140,7 +140,7 @@ pub fn incompleteBeta(aa: f64, bb: f64, xx: f64) f64 {
 
     // Resort to logarithms.
     y += t + lnGamma(a + b) - lnGamma(a) - lnGamma(b);
-    y += math.ln(w / a);
+    y += @log(w / a);
     if (y < C.MINLOG) {
         t = 0.0;
     } else {
@@ -195,7 +195,7 @@ fn incbcf(a: f64, b: f64, x: f64) f64 {
 
         var t: f64 = 1.0;
         if (r != 0) {
-            t = math.fabs((ans - r) / r);
+            t = @abs((ans - r) / r);
             ans = r;
         }
 
@@ -212,14 +212,14 @@ fn incbcf(a: f64, b: f64, x: f64) f64 {
         k7 += 2.0;
         k8 += 2.0;
 
-        if (math.fabs(qk) + math.fabs(pk) > big) {
+        if (@abs(qk) + @abs(pk) > big) {
             pkm2 *= biginv;
             pkm1 *= biginv;
             qkm2 *= biginv;
             qkm1 *= biginv;
         }
 
-        if (math.fabs(qk) < biginv or math.fabs(pk) < biginv) {
+        if (@abs(qk) < biginv or @abs(pk) < biginv) {
             pkm2 *= big;
             pkm1 *= big;
             qkm2 *= big;
@@ -279,7 +279,7 @@ fn incbd(a: f64, b: f64, x: f64) f64 {
 
         const t = blk: {
             if (r != 0) {
-                const tv = math.fabs((ans - r) / r);
+                const tv = @abs((ans - r) / r);
                 ans = r;
                 break :blk tv;
             } else {
@@ -300,13 +300,13 @@ fn incbd(a: f64, b: f64, x: f64) f64 {
         k7 += 2.0;
         k8 += 2.0;
 
-        if (math.fabs(qk) + math.fabs(pk) > big) {
+        if (@abs(qk) + @abs(pk) > big) {
             pkm2 *= biginv;
             pkm1 *= biginv;
             qkm2 *= biginv;
             qkm1 *= biginv;
         }
-        if (math.fabs(qk) < biginv or math.fabs(pk) < biginv) {
+        if (@abs(qk) < biginv or @abs(pk) < biginv) {
             pkm2 *= big;
             pkm1 *= big;
             qkm2 *= big;
@@ -332,7 +332,7 @@ fn pseries(a: f64, b: f64, x: f64) f64 {
     var s: f64 = 0.0;
     const z: f64 = C.MACHEP * ai;
 
-    while (math.fabs(v) > z) {
+    while (@abs(v) > z) {
         u = (n - b) * x / n;
         t *= u;
         v = t / (a + n);
@@ -343,12 +343,12 @@ fn pseries(a: f64, b: f64, x: f64) f64 {
     s += t1;
     s += ai;
 
-    u = a * math.ln(x);
-    if ((a + b) < MAXGAM and math.fabs(u) < C.MAXLOG) {
+    u = a * @log(x);
+    if ((a + b) < MAXGAM and @abs(u) < C.MAXLOG) {
         t = gamma(a + b) / (gamma(a) * gamma(b));
         s = s * t * math.pow(f64, x, a);
     } else {
-        t = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + u + math.ln(s);
+        t = lnGamma(a + b) - lnGamma(a) - lnGamma(b) + u + @log(s);
         if (t < C.MINLOG) {
             s = 0.0;
         } else {
@@ -375,8 +375,8 @@ test "incompleteBeta" {
     };
 
     for (cases) |c| {
-        expectApproxEqRel(incompleteBeta(c[0], c[1], c[2]), c[3], epsilon);
-        expectApproxEqRel(1 - incompleteBeta(c[1], c[0], 1 - c[2]), c[3], epsilon);
+        try expectApproxEqRel(incompleteBeta(c[0], c[1], c[2]), c[3], epsilon);
+        try expectApproxEqRel(1 - incompleteBeta(c[1], c[0], 1 - c[2]), c[3], epsilon);
     }
 }
 
@@ -470,7 +470,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
         x = a / (a + b * math.exp(d));
         y = incompleteBeta(a, b, x);
         yp = (y - y0) / y0;
-        if (math.fabs(yp) < 0.2) {
+        if (@abs(yp) < 0.2) {
             state = .newton;
             break;
         }
@@ -505,11 +505,11 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                     }
                     y = incompleteBeta(a, b, x);
                     yp = (x1 - x0) / (x1 + x0);
-                    if (math.fabs(yp) < dithresh) {
+                    if (@abs(yp) < dithresh) {
                         continue :sw .newton;
                     }
                     yp = (y - y0) / y0;
-                    if (math.fabs(yp) < dithresh) {
+                    if (@abs(yp) < dithresh) {
                         continue :sw .newton;
                     }
                 }
@@ -614,7 +614,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                 }
 
                 // Compute the derivative of the function at this point.
-                var d = (a - 1.0) * math.ln(x) + (b - 1.0) * math.ln(1.0 - x) + lgm;
+                var d = (a - 1.0) * @log(x) + (b - 1.0) * @log(1.0 - x) + lgm;
                 if (d < C.MINLOG) {
                     return done(rflg, x);
                 }
@@ -640,7 +640,7 @@ pub fn inverseIncompleteBeta(aa: f64, bb: f64, yy0: f64) f64 {
                     }
                 }
                 x = xt;
-                if (math.fabs(d / x) < 128.0 * C.MACHEP) {
+                if (@abs(d / x) < 128.0 * C.MACHEP) {
                     return done(rflg, x);
                 }
             }
@@ -667,9 +667,9 @@ test "inverseIncompleteBeta" {
 
     for (cases) |c| {
         const r = incompleteBeta(c[0], c[1], c[2]);
-        expectApproxEqRel(r, c[3], epsilon);
+        try expectApproxEqRel(r, c[3], epsilon);
 
         const ri = inverseIncompleteBeta(c[0], c[1], r);
-        expectApproxEqRel(ri, c[2], epsilon);
+        try expectApproxEqRel(ri, c[2], epsilon);
     }
 }
