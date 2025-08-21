@@ -251,7 +251,6 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .sparc64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .sparc64, .os_tag = .solaris, .abi = .none },
 
-    .{ .cpu_arch = .thumb, .os_tag = .@"3ds", .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .thumb, .os_tag = .freestanding, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .linux, .abi = .eabi },
