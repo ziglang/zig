@@ -6925,12 +6925,14 @@ fn addCommonCCArgs(
         .mm,
         .hmm,
         => {
-            if (is_clang) try argv.append("-fno-spell-checking");
+            if (is_clang) {
+                try argv.append("-fno-spell-checking");
 
-            if (target.os.tag == .windows and target.abi.isGnu()) {
-                // windows.h has files such as pshpack1.h which do #pragma packing,
-                // triggering a clang warning. So for this target, we disable this warning.
-                try argv.append("-Wno-pragma-pack");
+                if (target.os.tag == .windows and target.abi.isGnu()) {
+                    // windows.h has files such as pshpack1.h which do #pragma packing,
+                    // triggering a clang warning. So for this target, we disable this warning.
+                    try argv.append("-Wno-pragma-pack");
+                }
             }
 
             if (mod.optimize_mode != .Debug) {
