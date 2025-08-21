@@ -1,19 +1,13 @@
 const std = @import("std");
-const builtin = @import("builtin");
-const io = std.io;
+const Io = std.Io;
 const fs = std.fs;
 const process = std.process;
-const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
-const testing = std.testing;
-const Allocator = std.mem.Allocator;
-const getExternalExecutor = std.zig.system.getExternalExecutor;
+const Allocator = mem.Allocator;
 const fatal = std.process.fatal;
 
 const max_doc_file_size = 10 * 1024 * 1024;
-
-const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
 
 const usage =
     \\Usage: docgen [options] input output
@@ -617,16 +611,7 @@ fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice();
 }
 
-fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    defer buf.deinit();
-
-    const out = buf.writer();
-    try writeEscaped(out, input);
-    return try buf.toOwnedSlice();
-}
-
-fn writeEscaped(out: anytype, input: []const u8) !void {
+fn writeEscaped(out: *Io.Writer, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.writeAll("&amp;"),
@@ -662,14 +647,10 @@ fn isType(name: []const u8) bool {
     return false;
 }
 
-fn writeEscapedLines(out: anytype, text: []const u8) !void {
-    return writeEscaped(out, text);
-}
-
 fn tokenizeAndPrintRaw(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Io.Writer,
     source_token: Token,
     raw_src: []const u8,
 ) !void {
@@ -691,7 +672,7 @@ fn tokenizeAndPrintRaw(
             const comment_end_off = mem.indexOf(u8, src[comment_start..token.loc.start], "\n");
             const comment_end = if (comment_end_off) |o| comment_start + o else token.loc.start;
 
-            try writeEscapedLines(out, src[index..comment_start]);
+            try writeEscaped(out, src[index..comment_start]);
             try out.writeAll("<span class=\"tok-comment\">");
             try writeEscaped(out, src[comment_start..comment_end]);
             try out.writeAll("</span>");
@@ -700,7 +681,7 @@ fn tokenizeAndPrintRaw(
             continue;
         }
 
-        try writeEscapedLines(out, src[index..token.loc.start]);
+        try writeEscaped(out, src[index..token.loc.start]);
         switch (token.tag) {
             .eof => break,
 
@@ -907,14 +888,14 @@ fn tokenizeAndPrintRaw(
 fn tokenizeAndPrint(
     allocator: Allocator,
     docgen_tokenizer: *Tokenizer,
-    out: anytype,
+    out: *Io.Writer,
     source_token: Token,
 ) !void {
     const raw_src = docgen_tokenizer.buffer[source_token.start..source_token.end];
     return tokenizeAndPrintRaw(allocator, docgen_tokenizer, out, source_token, raw_src);
 }
 
-fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: anytype, syntax_block: SyntaxBlock) !void {
+fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: *Io.Writer, syntax_block: SyntaxBlock) !void {
     const source_type = @tagName(syntax_block.source_type);
 
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{ source_type, syntax_block.name });
@@ -925,53 +906,37 @@ fn printSourceBlock(allocator: Allocator, docgen_tokenizer: *Tokenizer, out: any
             const trimmed_raw_source = mem.trim(u8, raw_source, " \r\n");
 
             try out.writeAll("<code>");
-            try writeEscapedLines(out, trimmed_raw_source);
+            try writeEscaped(out, trimmed_raw_source);
             try out.writeAll("</code>");
         },
     }
     try out.writeAll("</pre></figure>");
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShell(out: *Io.Writer, shell_content: []const u8) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
-    var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
+    var iter = mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
         const line = mem.trimEnd(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimStart(u8, line[1..], " ");
-            if (escape) {
-                try writeEscaped(out, s);
-            } else {
-                try out.writeAll(s);
-            }
+            const s = mem.trimStart(u8, line[1..], " ");
+            try writeEscaped(out, s);
             try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimStart(u8, line[1..], " ");
-            if (escape) {
-                try writeEscaped(out, s);
-            } else {
-                try out.writeAll(s);
-            }
+            const s = mem.trimStart(u8, line[1..], " ");
+            try writeEscaped(out, s);
             try out.writeAll("\n");
             cmd_cont = true;
         } else if (line.len > 0 and line[line.len - 1] != '\\' and cmd_cont) {
-            if (escape) {
-                try writeEscaped(out, line);
-            } else {
-                try out.writeAll(line);
-            }
+            try writeEscaped(out, line);
             try out.writeAll("</kbd>" ++ "\n");
             cmd_cont = false;
         } else {
-            if (escape) {
-                try writeEscaped(out, line);
-            } else {
-                try out.writeAll(line);
-            }
+            try writeEscaped(out, line);
             try out.writeAll("\n");
         }
     }
@@ -983,8 +948,8 @@ fn genHtml(
     allocator: Allocator,
     tokenizer: *Tokenizer,
     toc: *Toc,
-    code_dir: std.fs.Dir,
-    out: anytype,
+    code_dir: fs.Dir,
+    out: *Io.Writer,
 ) !void {
     for (toc.nodes) |node| {
         switch (node) {
@@ -1028,7 +993,7 @@ fn genHtml(
             },
             .Shell => |content_tok| {
                 const raw_shell_content = tokenizer.buffer[content_tok.start..content_tok.end];
-                try printShell(out, raw_shell_content, true);
+                try printShell(out, raw_shell_content);
             },
             .SyntaxBlock => |syntax_block| {
                 try printSourceBlock(allocator, tokenizer, out, syntax_block);
