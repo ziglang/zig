@@ -8,7 +8,7 @@ test "anyopaque extern symbol" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const a = @extern(*anyopaque, .{ .name = "a_mystery_symbol" });
-    const b: *i32 = @alignCast(@ptrCast(a));
+    const b: *i32 = @ptrCast(@alignCast(a));
     try expect(b.* == 1234);
 }
 
@@ -56,3 +56,16 @@ test "coerce extern function types" {
 
     _ = @as(fn () callconv(.c) ?*u32, c_extern_function);
 }
+
+fn a_function(func: fn () callconv(.c) void) void {
+    _ = func;
+}
+
+test "pass extern function to function" {
+    a_function(struct {
+        extern fn an_extern_function() void;
+    }.an_extern_function);
+    a_function(@extern(*const fn () callconv(.c) void, .{ .name = "an_extern_function" }).*);
+}
+
+export fn an_extern_function() void {}

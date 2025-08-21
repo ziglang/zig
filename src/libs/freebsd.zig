@@ -57,7 +57,7 @@ fn libcPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
@@ -76,12 +76,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt1_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-O2",
                 "-fno-common",
                 "-std=gnu99",
-                "-DPIC",
                 "-w", // Disable all warnings.
             });
 
@@ -89,15 +88,16 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try cflags.append("-mlongcall");
             }
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 "-DLOCORE",
                 // See `Compilation.addCCArgs`.
-                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000}),
+                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000 + 500}),
             });
 
             inline for (.{ &cflags, &acflags }) |flags| {
                 try flags.appendSlice(&.{
+                    "-DPIC",
                     "-DSTRIP_FBSDID",
                     "-I",
                     try includePath(comp, arena, try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
@@ -414,7 +414,7 @@ fn wordDirective(target: *const std.Target) []const u8 {
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     // See also glibc.zig which this code is based on.
 
@@ -510,7 +510,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             try map_contents.writer().print("FBSD_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
         }
@@ -518,7 +518,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         map_contents.deinit();
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -529,7 +529,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_writer.writeAll(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
         var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
@@ -977,10 +977,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 }
 
-pub fn sharedObjectsCount() u8 {
-    return libs.len;
-}
-
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;
@@ -1069,7 +1065,10 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"freebsd libc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -1094,8 +1093,14 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"freebsd libc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }

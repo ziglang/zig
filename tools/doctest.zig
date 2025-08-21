@@ -84,9 +84,10 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
-    var bw = std.io.bufferedWriter(out_file.deprecatedWriter());
-    const out = bw.writer();
+    const out = &out_file_writer.interface;
 
     try printSourceBlock(arena, out, source, fs.path.basename(input_path));
     try printOutput(
@@ -102,7 +103,7 @@ pub fn main() !void {
             null,
     );
 
-    try bw.flush();
+    try out_file_writer.end();
 }
 
 fn printOutput(
@@ -125,7 +126,7 @@ fn printOutput(
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
     const print = std.debug.print;
 
-    var shell_buffer = std.ArrayList(u8).init(arena);
+    var shell_buffer = std.array_list.Managed(u8).init(arena);
     defer shell_buffer.deinit();
     var shell_out = shell_buffer.writer();
 
@@ -133,7 +134,7 @@ fn printOutput(
 
     switch (code.id) {
         .exe => |expected_outcome| code_block: {
-            var build_args = std.ArrayList([]const u8).init(arena);
+            var build_args = std.array_list.Managed([]const u8).init(arena);
             defer build_args.deinit();
             try build_args.appendSlice(&[_][]const u8{
                 zig_exe,    "build-exe",
@@ -283,7 +284,7 @@ fn printOutput(
             try shell_out.writeAll("\n");
         },
         .@"test" => {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -344,7 +345,7 @@ fn printOutput(
             try shell_out.print("\n{s}{s}\n", .{ escaped_stderr, escaped_stdout });
         },
         .test_error => |error_match| {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -398,7 +399,7 @@ fn printOutput(
             try shell_out.print("\n{s}\n", .{colored_stderr});
         },
         .test_safety => |error_match| {
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -460,7 +461,7 @@ fn printOutput(
         },
         .obj => |maybe_error_match| {
             const name_plus_obj_ext = try std.fmt.allocPrint(arena, "{s}{s}", .{ code_name, obj_ext });
-            var build_args = std.ArrayList([]const u8).init(arena);
+            var build_args = std.array_list.Managed([]const u8).init(arena);
             defer build_args.deinit();
 
             try build_args.appendSlice(&[_][]const u8{
@@ -542,7 +543,7 @@ fn printOutput(
                 .output_mode = .Lib,
             });
 
-            var test_args = std.ArrayList([]const u8).init(arena);
+            var test_args = std.array_list.Managed([]const u8).init(arena);
             defer test_args.deinit();
 
             try test_args.appendSlice(&[_][]const u8{
@@ -974,7 +975,7 @@ fn skipPrefix(line: []const u8) []const u8 {
 }
 
 fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();
@@ -1010,7 +1011,7 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     const supported_sgr_colors = [_]u8{ 31, 32, 36 };
     const supported_sgr_numbers = [_]u8{ 0, 1, 2 };
 
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     var out = buf.writer();
@@ -1400,7 +1401,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1417,7 +1418,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1431,7 +1432,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1450,7 +1451,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1471,7 +1472,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1490,7 +1491,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1513,7 +1514,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1535,7 +1536,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1552,7 +1553,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1571,7 +1572,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);
@@ -1586,7 +1587,7 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.ArrayList(u8).init(test_allocator);
+        var buffer = std.array_list.Managed(u8).init(test_allocator);
         defer buffer.deinit();
 
         try printShell(buffer.writer(), shell_out, false);

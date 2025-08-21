@@ -40,12 +40,12 @@ pub fn hash(opts: @This()) [std.Build.Cache.bin_digest_len]u8 {
 }
 
 pub fn generate(opts: @This(), allocator: Allocator) Allocator.Error![:0]u8 {
-    var buffer = std.ArrayList(u8).init(allocator);
+    var buffer = std.array_list.Managed(u8).init(allocator);
     try append(opts, &buffer);
     return buffer.toOwnedSliceSentinel(0);
 }
 
-pub fn append(opts: @This(), buffer: *std.ArrayList(u8)) Allocator.Error!void {
+pub fn append(opts: @This(), buffer: *std.array_list.Managed(u8)) Allocator.Error!void {
     const target = opts.target;
     const arch_family_name = @tagName(target.cpu.arch.family());
     const zig_backend = opts.zig_backend;
@@ -342,9 +342,9 @@ pub fn updateFileOnDisk(file: *File, comp: *Compilation) !void {
     }
 
     // `make_path` matters because the dir hasn't actually been created yet.
-    var af = try root_dir.atomicFile(sub_path, .{ .make_path = true });
+    var af = try root_dir.atomicFile(sub_path, .{ .make_path = true, .write_buffer = &.{} });
     defer af.deinit();
-    try af.file.writeAll(file.source.?);
+    try af.file_writer.interface.writeAll(file.source.?);
     af.finish() catch |err| switch (err) {
         error.AccessDenied => switch (builtin.os.tag) {
             .windows => {

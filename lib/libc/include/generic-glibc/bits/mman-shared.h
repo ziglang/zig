@@ -43,10 +43,9 @@
 # endif
 
 /* Access restrictions for pkey_alloc.  */
-# ifndef PKEY_DISABLE_ACCESS
-#  define PKEY_DISABLE_ACCESS 0x1
-#  define PKEY_DISABLE_WRITE 0x2
-# endif
+# define PKEY_UNRESTRICTED 0x0
+# define PKEY_DISABLE_ACCESS 0x1
+# define PKEY_DISABLE_WRITE 0x2
 
 __BEGIN_DECLS
 

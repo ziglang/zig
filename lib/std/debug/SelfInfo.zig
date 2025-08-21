@@ -836,7 +836,7 @@ pub const WindowsModule = struct {
 
         pub fn deinit(self: @This()) void {
             const process_handle = windows.GetCurrentProcess();
-            assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(@ptrCast(self.section_view.ptr))) == .SUCCESS);
+            assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @ptrCast(@constCast(self.section_view.ptr))) == .SUCCESS);
             windows.CloseHandle(self.section_handle);
             self.file.close();
         }
@@ -1547,8 +1547,7 @@ pub inline fn stripInstructionPtrAuthCode(ptr: usize) usize {
             \\mov x30, x16
             : [ret] "={x15}" (-> usize),
             : [ptr] "{x15}" (ptr),
-            : "x16"
-        );
+            : .{ .x16 = true });
     }
 
     return ptr;

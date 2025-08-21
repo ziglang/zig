@@ -5,7 +5,7 @@ const std = @import("std");
 const fatal = std.process.fatal;
 const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
-const SeenPcsHeader = std.Build.Fuzz.abi.SeenPcsHeader;
+const SeenPcsHeader = std.Build.abi.fuzz.SeenPcsHeader;
 
 pub fn main() !void {
     var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -33,7 +33,7 @@ pub fn main() !void {
     defer coverage.deinit(gpa);
 
     var debug_info = std.debug.Info.load(gpa, exe_path, &coverage) catch |err| {
-        fatal("failed to load debug info for {}: {s}", .{ exe_path, @errorName(err) });
+        fatal("failed to load debug info for {f}: {s}", .{ exe_path, @errorName(err) });
     };
     defer debug_info.deinit(gpa);
 
@@ -42,10 +42,10 @@ pub fn main() !void {
         cov_path.sub_path,
         1 << 30,
         null,
-        @alignOf(SeenPcsHeader),
+        .of(SeenPcsHeader),
         null,
     ) catch |err| {
-        fatal("failed to load coverage file {}: {s}", .{ cov_path, @errorName(err) });
+        fatal("failed to load coverage file {f}: {s}", .{ cov_path, @errorName(err) });
     };
 
     var stdout_buffer: [4000]u8 = undefined;

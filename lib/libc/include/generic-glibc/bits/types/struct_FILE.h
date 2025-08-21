@@ -32,6 +32,7 @@
 #endif
 
 #include <bits/types.h>
+#include <bits/wordsize.h>
 
 struct _IO_FILE;
 struct _IO_marker;
@@ -97,8 +98,15 @@ struct _IO_FILE_complete
   void *_freeres_buf;
   struct _IO_FILE **_prevchain;
   int _mode;
+#if __WORDSIZE == 64
+  int _unused3;
+#endif
+  __uint64_t _total_written;
+#if __WORDSIZE == 32
+  int _unused3;
+#endif
   /* Make sure we don't get into trouble again.  */
-  char _unused2[15 * sizeof (int) - 5 * sizeof (void *)];
+  char _unused2[12 * sizeof (int) - 5 * sizeof (void *)];
 };
 
 /* These macros are used by bits/stdio.h and internal headers.  */

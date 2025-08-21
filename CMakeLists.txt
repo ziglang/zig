@@ -38,7 +38,7 @@ project(zig
 )
 
 set(ZIG_VERSION_MAJOR 0)
-set(ZIG_VERSION_MINOR 15)
+set(ZIG_VERSION_MINOR 16)
 set(ZIG_VERSION_PATCH 0)
 set(ZIG_VERSION "" CACHE STRING "Override Zig version string. Default is to find out with git.")
 
@@ -390,15 +390,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/Io.zig
     lib/std/Io/Reader.zig
     lib/std/Io/Writer.zig
-    lib/std/Io/buffered_atomic_file.zig
-    lib/std/Io/buffered_writer.zig
-    lib/std/Io/change_detection_stream.zig
-    lib/std/Io/counting_reader.zig
-    lib/std/Io/counting_writer.zig
-    lib/std/Io/find_byte_writer.zig
-    lib/std/Io/fixed_buffer_stream.zig
-    lib/std/Io/limited_reader.zig
-    lib/std/Io/seekable_stream.zig
     lib/std/Progress.zig
     lib/std/Random.zig
     lib/std/Target.zig
@@ -446,7 +437,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/dwarf/OP.zig
     lib/std/dwarf/TAG.zig
     lib/std/elf.zig
-    lib/std/fifo.zig
     lib/std/fmt.zig
     lib/std/fmt/parse_float.zig
     lib/std/fs.zig
@@ -462,7 +452,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/heap.zig
     lib/std/heap/arena_allocator.zig
     lib/std/json.zig
-    lib/std/json/stringify.zig
     lib/std/leb128.zig
     lib/std/log.zig
     lib/std/macho.zig
@@ -505,6 +494,7 @@ set(ZIG_STAGE2_SOURCES
     lib/std/unicode.zig
     lib/std/zig.zig
     lib/std/zig/Ast.zig
+    lib/std/zig/Ast/Render.zig
     lib/std/zig/AstGen.zig
     lib/std/zig/AstRlAnnotate.zig
     lib/std/zig/LibCInstallation.zig
@@ -513,7 +503,6 @@ set(ZIG_STAGE2_SOURCES
     lib/std/zig/WindowsSdk.zig
     lib/std/zig/Zir.zig
     lib/std/zig/c_builtins.zig
-    lib/std/zig/render.zig
     lib/std/zig/string_literal.zig
     lib/std/zig/system.zig
     lib/std/zig/system/NativePaths.zig
@@ -552,15 +541,18 @@ set(ZIG_STAGE2_SOURCES
     src/clang_options.zig
     src/clang_options_data.zig
     src/codegen.zig
+    src/codegen/aarch64.zig
+    src/codegen/aarch64/abi.zig
+    src/codegen/aarch64/Assemble.zig
+    src/codegen/aarch64/Disassemble.zig
+    src/codegen/aarch64/encoding.zig
+    src/codegen/aarch64/instructions.zon
+    src/codegen/aarch64/Mir.zig
+    src/codegen/aarch64/Select.zig
     src/codegen/c.zig
     src/codegen/c/Type.zig
     src/codegen/llvm.zig
     src/codegen/llvm/bindings.zig
-    src/codegen/spirv.zig
-    src/codegen/spirv/Assembler.zig
-    src/codegen/spirv/Module.zig
-    src/codegen/spirv/Section.zig
-    src/codegen/spirv/spec.zig
     src/crash_report.zig
     src/dev.zig
     src/libs/freebsd.zig
@@ -620,14 +612,7 @@ set(ZIG_STAGE2_SOURCES
     src/link/MachO/synthetic.zig
     src/link/MachO/Thunk.zig
     src/link/MachO/uuid.zig
-    src/link/Plan9.zig
-    src/link/Plan9/aout.zig
     src/link/Queue.zig
-    src/link/SpirV.zig
-    src/link/SpirV/BinaryModule.zig
-    src/link/SpirV/deduplicate.zig
-    src/link/SpirV/lower_invocation_globals.zig
-    src/link/SpirV/prune_unused.zig
     src/link/StringTable.zig
     src/link/Wasm.zig
     src/link/Wasm/Archive.zig

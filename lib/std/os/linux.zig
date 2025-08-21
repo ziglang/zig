@@ -144,6 +144,7 @@ pub const SYS = switch (@import("builtin").cpu.arch) {
         else => syscalls.X64,
     },
     .xtensa => syscalls.Xtensa,
+    .or1k => syscalls.OpenRisc,
     else => @compileError("The Zig Standard Library is missing syscall definitions for the target CPU architecture"),
 };
 
@@ -503,7 +504,6 @@ pub var elf_aux_maybe: ?[*]std.elf.Auxv = null;
 /// Whether an external or internal getauxval implementation is used.
 const extern_getauxval = switch (builtin.zig_backend) {
     // Calling extern functions is not yet supported with these backends
-    .stage2_aarch64,
     .stage2_arm,
     .stage2_powerpc,
     .stage2_riscv64,
@@ -644,7 +644,13 @@ pub fn futimens(fd: i32, times: ?*const [2]timespec) usize {
 }
 
 pub fn utimensat(dirfd: i32, path: ?[*:0]const u8, times: ?*const [2]timespec, flags: u32) usize {
-    return syscall4(.utimensat, @as(usize, @bitCast(@as(isize, dirfd))), @intFromPtr(path), @intFromPtr(times), flags);
+    return syscall4(
+        if (@hasField(SYS, "utimensat")) .utimensat else .utimensat_time64,
+        @as(usize, @bitCast(@as(isize, dirfd))),
+        @intFromPtr(path),
+        @intFromPtr(times),
+        flags,
+    );
 }
 
 pub fn fallocate(fd: i32, mode: i32, offset: i64, length: i64) usize {
@@ -686,19 +692,38 @@ pub const futex_param4 = extern union {
 /// The futex_op parameter is a sub-command and flags.  The sub-command
 /// defines which of the subsequent paramters are relevant.
 pub fn futex(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, val2timeout: futex_param4, uaddr2: ?*const anyopaque, val3: u32) usize {
-    return syscall6(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(val2timeout.timeout), @intFromPtr(uaddr2), val3);
+    return syscall6(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(val2timeout.timeout),
+        @intFromPtr(uaddr2),
+        val3,
+    );
 }
 
 /// Three-argument variation of the v1 futex call.  Only suitable for a
 /// futex_op that ignores the remaining arguments (e.g., FUTUX_OP.WAKE).
 pub fn futex_3arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32) usize {
-    return syscall3(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val);
+    return syscall3(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+    );
 }
 
 /// Four-argument variation on the v1 futex call.  Only suitable for
 /// futex_op that ignores the remaining arguments (e.g., FUTEX_OP.WAIT).
 pub fn futex_4arg(uaddr: *const anyopaque, futex_op: FUTEX_OP, val: u32, timeout: ?*const timespec) usize {
-    return syscall4(.futex, @intFromPtr(uaddr), @as(u32, @bitCast(futex_op)), val, @intFromPtr(timeout));
+    return syscall4(
+        if (@hasField(SYS, "futex")) .futex else .futex_time64,
+        @intFromPtr(uaddr),
+        @as(u32, @bitCast(futex_op)),
+        val,
+        @intFromPtr(timeout),
+    );
 }
 
 /// Given an array of `futex2_waitone`, wait on each uaddr.
@@ -1015,29 +1040,71 @@ pub fn munmap(address: [*]const u8, length: usize) usize {
     return syscall2(.munmap, @intFromPtr(address), length);
 }
 
+pub fn mlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.mlock, @intFromPtr(address), length);
+}
+
+pub fn munlock(address: [*]const u8, length: usize) usize {
+    return syscall2(.munlock, @intFromPtr(address), length);
+}
+
+pub const MLOCK = packed struct(u32) {
+    ONFAULT: bool = false,
+    _1: u31 = 0,
+};
+
+pub fn mlock2(address: [*]const u8, length: usize, flags: MLOCK) usize {
+    return syscall3(.mlock2, @intFromPtr(address), length, @as(u32, @bitCast(flags)));
+}
+
+pub const MCL = if (native_arch.isSPARC() or native_arch.isPowerPC()) packed struct(u32) {
+    _0: u13 = 0,
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _4: u16 = 0,
+} else packed struct(u32) {
+    CURRENT: bool = false,
+    FUTURE: bool = false,
+    ONFAULT: bool = false,
+    _3: u29 = 0,
+};
+
+pub fn mlockall(flags: MCL) usize {
+    return syscall1(.mlockall, @as(u32, @bitCast(flags)));
+}
+
+pub fn munlockall() usize {
+    return syscall0(.munlockall);
+}
+
 pub fn poll(fds: [*]pollfd, n: nfds_t, timeout: i32) usize {
-    if (@hasField(SYS, "poll")) {
-        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)));
-    } else {
-        return syscall5(
-            .ppoll,
-            @intFromPtr(fds),
+    return if (@hasField(SYS, "poll"))
+        return syscall3(.poll, @intFromPtr(fds), n, @as(u32, @bitCast(timeout)))
+    else
+        ppoll(
+            fds,
             n,
-            @intFromPtr(if (timeout >= 0)
-                &timespec{
+            if (timeout >= 0)
+                @constCast(&timespec{
                     .sec = @divTrunc(timeout, 1000),
                     .nsec = @rem(timeout, 1000) * 1000000,
-                }
+                })
             else
-                null),
-            0,
-            NSIG / 8,
+                null,
+            null,
         );
-    }
 }
 
 pub fn ppoll(fds: [*]pollfd, n: nfds_t, timeout: ?*timespec, sigmask: ?*const sigset_t) usize {
-    return syscall5(.ppoll, @intFromPtr(fds), n, @intFromPtr(timeout), @intFromPtr(sigmask), NSIG / 8);
+    return syscall5(
+        if (@hasField(SYS, "ppoll")) .ppoll else .ppoll_time64,
+        @intFromPtr(fds),
+        n,
+        @intFromPtr(timeout),
+        @intFromPtr(sigmask),
+        NSIG / 8,
+    );
 }
 
 pub fn read(fd: i32, buf: [*]u8, count: usize) usize {
@@ -1561,7 +1628,11 @@ pub fn clock_gettime(clk_id: clockid_t, tp: *timespec) usize {
             }
         }
     }
-    return syscall2(.clock_gettime, @intFromEnum(clk_id), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_gettime")) .clock_gettime else .clock_gettime64,
+        @intFromEnum(clk_id),
+        @intFromPtr(tp),
+    );
 }
 
 fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
@@ -1575,16 +1646,24 @@ fn init_vdso_clock_gettime(clk: clockid_t, ts: *timespec) callconv(.c) usize {
 }
 
 pub fn clock_getres(clk_id: i32, tp: *timespec) usize {
-    return syscall2(.clock_getres, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_getres")) .clock_getres else .clock_getres_time64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_settime(clk_id: i32, tp: *const timespec) usize {
-    return syscall2(.clock_settime, @as(usize, @bitCast(@as(isize, clk_id))), @intFromPtr(tp));
+    return syscall2(
+        if (@hasField(SYS, "clock_settime")) .clock_settime else .clock_settime64,
+        @as(usize, @bitCast(@as(isize, clk_id))),
+        @intFromPtr(tp),
+    );
 }
 
 pub fn clock_nanosleep(clockid: clockid_t, flags: TIMER, request: *const timespec, remain: ?*timespec) usize {
     return syscall4(
-        .clock_nanosleep,
+        if (@hasField(SYS, "clock_nanosleep")) .clock_nanosleep else .clock_nanosleep_time64,
         @intFromEnum(clockid),
         @as(u32, @bitCast(flags)),
         @intFromPtr(request),
@@ -1983,7 +2062,7 @@ pub fn recvmsg(fd: i32, msg: *msghdr, flags: u32) usize {
 
 pub fn recvmmsg(fd: i32, msgvec: ?[*]mmsghdr, vlen: u32, flags: u32, timeout: ?*timespec) usize {
     return syscall5(
-        .recvmmsg,
+        if (@hasField(SYS, "recvmmsg")) .recvmmsg else .recvmmsg_time64,
         @as(usize, @bitCast(@as(isize, fd))),
         @intFromPtr(msgvec),
         vlen,
@@ -2332,11 +2411,21 @@ pub const itimerspec = extern struct {
 };
 
 pub fn timerfd_gettime(fd: i32, curr_value: *itimerspec) usize {
-    return syscall2(.timerfd_gettime, @bitCast(@as(isize, fd)), @intFromPtr(curr_value));
+    return syscall2(
+        if (@hasField(SYS, "timerfd_gettime")) .timerfd_gettime else .timerfd_gettime64,
+        @bitCast(@as(isize, fd)),
+        @intFromPtr(curr_value),
+    );
 }
 
 pub fn timerfd_settime(fd: i32, flags: TFD.TIMER, new_value: *const itimerspec, old_value: ?*itimerspec) usize {
-    return syscall4(.timerfd_settime, @bitCast(@as(isize, fd)), @as(u32, @bitCast(flags)), @intFromPtr(new_value), @intFromPtr(old_value));
+    return syscall4(
+        if (@hasField(SYS, "timerfd_settime")) .timerfd_settime else .timerfd_settime64,
+        @bitCast(@as(isize, fd)),
+        @as(u32, @bitCast(flags)),
+        @intFromPtr(new_value),
+        @intFromPtr(old_value),
+    );
 }
 
 // Flags for the 'setitimer' system call
@@ -6498,7 +6587,7 @@ pub const IORING_REGISTER = enum(u32) {
 
     // register/unregister io_uring fd with the ring
     REGISTER_RING_FDS,
-    NREGISTER_RING_FDS,
+    UNREGISTER_RING_FDS,
 
     // register ring based provide buffer group
     REGISTER_PBUF_RING,
@@ -6510,8 +6599,31 @@ pub const IORING_REGISTER = enum(u32) {
     // register a range of fixed file slots for automatic slot allocation
     REGISTER_FILE_ALLOC_RANGE,
 
+    // return status information for a buffer group
+    REGISTER_PBUF_STATUS,
+
+    // set/clear busy poll settings
+    REGISTER_NAPI,
+    UNREGISTER_NAPI,
+
+    REGISTER_CLOCK,
+
+    // clone registered buffers from source ring to current ring
+    REGISTER_CLONE_BUFFERS,
+
+    // send MSG_RING without having a ring
+    REGISTER_SEND_MSG_RING,
+
+    // register a netdev hw rx queue for zerocopy
+    REGISTER_ZCRX_IFQ,
+
+    // resize CQ ring
+    REGISTER_RESIZE_RINGS,
+
+    REGISTER_MEM_REGION,
+
     // flag added to the opcode to use a registered ring fd
-    IORING_REGISTER_USE_REGISTERED_RING = 1 << 31,
+    REGISTER_USE_REGISTERED_RING = 1 << 31,
 
     _,
 };
@@ -6566,6 +6678,13 @@ pub const io_uring_notification_register = extern struct {
     resv2: u64,
     data: u64,
     resv3: u64,
+};
+
+pub const io_uring_napi = extern struct {
+    busy_poll_to: u32,
+    prefer_busy_poll: u8,
+    _pad: [3]u8,
+    resv: u64,
 };
 
 /// Skip updating fd indexes set to this value in the fd table */
@@ -9043,8 +9162,26 @@ pub const perf_event_attr = extern struct {
         write_backward: bool = false,
         /// include namespaces data
         namespaces: bool = false,
+        /// include ksymbol events
+        ksymbol: bool = false,
+        /// include BPF events
+        bpf_event: bool = false,
+        /// generate AUX records instead of events
+        aux_output: bool = false,
+        /// include cgroup events
+        cgroup: bool = false,
+        /// include text poke events
+        text_poke: bool = false,
+        /// use build ID in mmap2 events
+        build_id: bool = false,
+        /// children only inherit if cloned with CLONE_THREAD
+        inherit_thread: bool = false,
+        /// event is removed from task on exec
+        remove_on_exec: bool = false,
+        /// send synchronous SIGTRAP on event
+        sigtrap: bool = false,
 
-        __reserved_1: u35 = 0,
+        __reserved_1: u26 = 0,
     } = .{},
     /// wakeup every n events, or
     /// bytes before wakeup
@@ -9087,6 +9224,118 @@ pub const perf_event_attr = extern struct {
     sample_max_stack: u16 = 0,
     /// Align to u64
     __reserved_2: u16 = 0,
+
+    aux_sample_size: u32 = 0,
+    aux_action: packed struct(u32) {
+        /// start AUX area tracing paused
+        start_paused: bool = false,
+        /// on overflow, pause AUX area tracing
+        pause: bool = false,
+        /// on overflow, resume AUX area tracing
+        @"resume": bool = false,
+
+        __reserved_3: u29 = 0,
+    } = .{},
+
+    /// User provided data if sigtrap == true
+    sig_data: u64 = 0,
+
+    /// Extension of config2
+    config3: u64 = 0,
+};
+
+pub const perf_event_header = extern struct {
+    /// Event type: sample/mmap/fork/etc.
+    type: PERF.RECORD,
+    /// Additional informations on the event: kernel/user/hypervisor/etc.
+    misc: packed struct(u16) {
+        cpu_mode: PERF.RECORD.MISC.CPU_MODE,
+        _: u9,
+        PROC_MAP_PARSE_TIMEOUT: bool,
+        bit13: packed union {
+            MMAP_DATA: bool,
+            COMM_EXEC: bool,
+            FORK_EXEC: bool,
+            SWITCH_OUT: bool,
+        },
+        bit14: packed union {
+            EXACT_IP: bool,
+            SWITCH_OUT_PREEMPT: bool,
+            MMAP_BUILD_ID: bool,
+        },
+        EXT_RESERVED: bool,
+    },
+    /// Size of the following record
+    size: u16,
+};
+
+pub const perf_event_mmap_page = extern struct {
+    /// Version number of this struct
+    version: u32,
+    /// Lowest version this is compatible with
+    compt_version: u32,
+    /// Seqlock for synchronization
+    lock: u32,
+    /// Hardware counter identifier
+    index: u32,
+    /// Add to hardware counter value
+    offset: i64,
+    /// Time the event was active
+    time_enabled: u64,
+    /// Time the event was running
+    time_running: u64,
+    capabilities: packed struct(u64) {
+        /// If kernel version < 3.12
+        /// this rapresents both user_rdpmc and user_time (user_rdpmc | user_time)
+        /// otherwise deprecated.
+        bit0: bool,
+        /// Set if bit0 is deprecated
+        bit0_is_deprecated: bool,
+        /// Hardware support for userspace read of performance counters
+        user_rdpmc: bool,
+        /// Hardware support for a constant non stop timestamp counter (Eg. TSC on x86)
+        user_time: bool,
+        /// The time_zero field is used
+        user_time_zero: bool,
+        /// The time_{cycle,mask} fields are used
+        user_time_short: bool,
+        ____res: u58,
+    },
+    /// If capabilities.user_rdpmc
+    /// this field reports the bit-width of the value read with rdpmc() or equivalent
+    pcm_width: u16,
+    /// If capabilities.user_time the following fields can be used to compute the time
+    /// delta since time_enabled (in ns) using RDTSC or similar
+    time_shift: u16,
+    time_mult: u32,
+    time_offset: u64,
+    /// If capabilities.user_time_zero the hardware clock can be calculated from
+    /// sample timestamps
+    time_zero: u64,
+    /// Header size
+    size: u32,
+    __reserved_1: u32,
+    /// The following fields are used to compute the timestamp when the hardware clock
+    /// is less than 64bit wide
+    time_cycles: u64,
+    time_mask: u64,
+    __reserved: [116 * 8]u8,
+    /// Head in the data section
+    data_head: u64,
+    /// Userspace written tail
+    data_tail: u64,
+    /// Where the buffer starts
+    data_offset: u64,
+    /// Data buffer size
+    data_size: u64,
+    // if aux is used, head in the data section
+    aux_head: u64,
+    // if aux is used, userspace written tail
+    aux_tail: u64,
+    // if aux is used, where the buffer starts
+    aux_offset: u64,
+    // if aux is used, data buffer size
+    aux_size: u64,
 };
 
 pub const PERF = struct {
@@ -9198,6 +9447,41 @@ pub const PERF = struct {
             pub const NO_CYCLES = 1 << 15;
             pub const TYPE_SAVE = 1 << 16;
             pub const MAX = 1 << 17;
+        };
+    };
+
+    pub const RECORD = enum(u32) {
+        MMAP = 1,
+        LOST = 2,
+        COMM = 3,
+        EXIT = 4,
+        THROTTLE = 5,
+        UNTHROTTLE = 6,
+        FORK = 7,
+        READ = 8,
+        SAMPLE = 9,
+        MMAP2 = 10,
+        AUX = 11,
+        ITRACE_START = 12,
+        LOST_SAMPLES = 13,
+        SWITCH = 14,
+        SWITCH_CPU_WIDE = 15,
+        NAMESPACES = 16,
+        KSYMBOL = 17,
+        BPF_EVENT = 18,
+        CGROUP = 19,
+        TEXT_POKE = 20,
+        AUX_OUTPUT_HW_ID = 21,
+
+        const MISC = struct {
+            pub const CPU_MODE = enum(u3) {
+                UNKNOWN = 0,
+                KERNEL = 1,
+                USER = 2,
+                HYPERVISOR = 3,
+                GUEST_KERNEL = 4,
+                GUEST_USER = 5,
+            };
         };
     };
 

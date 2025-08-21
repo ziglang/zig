@@ -205,7 +205,6 @@ pub fn createEmpty(
     const target = &comp.root_mod.resolved_target.result;
     const output_mode = comp.config.output_mode;
     const optimize_mode = comp.root_mod.optimize_mode;
-    const is_native_os = comp.root_mod.resolved_target.is_native_os;
 
     const obj_file_ext: []const u8 = switch (target.ofmt) {
         .coff => "obj",
@@ -234,7 +233,7 @@ pub fn createEmpty(
             .gc_sections = gc_sections,
             .print_gc_sections = options.print_gc_sections,
             .stack_size = stack_size,
-            .allow_shlib_undefined = options.allow_shlib_undefined orelse !is_native_os,
+            .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
             .build_id = options.build_id,
         },
@@ -410,7 +409,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -864,7 +863,7 @@ fn elfLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -1413,7 +1412,7 @@ fn wasmLink(lld: *Lld, arena: Allocator) !void {
         );
     } else {
         // Create an LLD command line and invoke it.
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
         // We will invoke ourselves as a child process to gain access to LLD.
         // This is necessary because LLD does not behave properly as a library -
@@ -1663,8 +1662,9 @@ fn spawnLld(
                     log.warn("failed to delete response file {s}: {s}", .{ rsp_path, @errorName(err) });
                 {
                     defer rsp_file.close();
-                    var rsp_buf = std.io.bufferedWriter(rsp_file.deprecatedWriter());
-                    const rsp_writer = rsp_buf.writer();
+                    var rsp_file_buffer: [1024]u8 = undefined;
+                    var rsp_file_writer = rsp_file.writer(&rsp_file_buffer);
+                    const rsp_writer = &rsp_file_writer.interface;
                     for (argv[2..]) |arg| {
                         try rsp_writer.writeByte('"');
                         for (arg) |c| {
@@ -1677,7 +1677,7 @@ fn spawnLld(
                         try rsp_writer.writeByte('"');
                         try rsp_writer.writeByte('\n');
                     }
-                    try rsp_buf.flush();
+                    try rsp_writer.flush();
                 }
 
                 var rsp_child = std.process.Child.init(&.{ argv[0], argv[1], try std.fmt.allocPrint(

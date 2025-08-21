@@ -39,14 +39,14 @@ pub fn readNoEof(self: Self, buf: []u8) anyerror!void {
     if (amt_read < buf.len) return error.EndOfStream;
 }
 
-/// Appends to the `std.ArrayList` contents by reading from the stream
+/// Appends to the `std.array_list.Managed` contents by reading from the stream
 /// until end of stream is found.
 /// If the number of bytes appended would exceed `max_append_size`,
 /// `error.StreamTooLong` is returned
-/// and the `std.ArrayList` has exactly `max_append_size` bytes appended.
+/// and the `std.array_list.Managed` has exactly `max_append_size` bytes appended.
 pub fn readAllArrayList(
     self: Self,
-    array_list: *std.ArrayList(u8),
+    array_list: *std.array_list.Managed(u8),
     max_append_size: usize,
 ) anyerror!void {
     return self.readAllArrayListAligned(null, array_list, max_append_size);
@@ -55,7 +55,7 @@ pub fn readAllArrayList(
 pub fn readAllArrayListAligned(
     self: Self,
     comptime alignment: ?Alignment,
-    array_list: *std.ArrayListAligned(u8, alignment),
+    array_list: *std.array_list.AlignedManaged(u8, alignment),
     max_append_size: usize,
 ) anyerror!void {
     try array_list.ensureTotalCapacity(@min(max_append_size, 4096));
@@ -87,20 +87,20 @@ pub fn readAllArrayListAligned(
 /// Caller owns returned memory.
 /// If this function returns an error, the contents from the stream read so far are lost.
 pub fn readAllAlloc(self: Self, allocator: mem.Allocator, max_size: usize) anyerror![]u8 {
-    var array_list = std.ArrayList(u8).init(allocator);
+    var array_list = std.array_list.Managed(u8).init(allocator);
     defer array_list.deinit();
     try self.readAllArrayList(&array_list, max_size);
     return try array_list.toOwnedSlice();
 }
 
 /// Deprecated: use `streamUntilDelimiter` with ArrayList's writer instead.
-/// Replaces the `std.ArrayList` contents by reading from the stream until `delimiter` is found.
+/// Replaces the `std.array_list.Managed` contents by reading from the stream until `delimiter` is found.
 /// Does not include the delimiter in the result.
-/// If the `std.ArrayList` length would exceed `max_size`, `error.StreamTooLong` is returned and the
-/// `std.ArrayList` is populated with `max_size` bytes from the stream.
+/// If the `std.array_list.Managed` length would exceed `max_size`, `error.StreamTooLong` is returned and the
+/// `std.array_list.Managed` is populated with `max_size` bytes from the stream.
 pub fn readUntilDelimiterArrayList(
     self: Self,
-    array_list: *std.ArrayList(u8),
+    array_list: *std.array_list.Managed(u8),
     delimiter: u8,
     max_size: usize,
 ) anyerror!void {
@@ -119,7 +119,7 @@ pub fn readUntilDelimiterAlloc(
     delimiter: u8,
     max_size: usize,
 ) anyerror![]u8 {
-    var array_list = std.ArrayList(u8).init(allocator);
+    var array_list = std.array_list.Managed(u8).init(allocator);
     defer array_list.deinit();
     try self.streamUntilDelimiter(array_list.writer(), delimiter, max_size);
     return try array_list.toOwnedSlice();
@@ -154,7 +154,7 @@ pub fn readUntilDelimiterOrEofAlloc(
     delimiter: u8,
     max_size: usize,
 ) anyerror!?[]u8 {
-    var array_list = std.ArrayList(u8).init(allocator);
+    var array_list = std.array_list.Managed(u8).init(allocator);
     defer array_list.deinit();
     self.streamUntilDelimiter(array_list.writer(), delimiter, max_size) catch |err| switch (err) {
         error.EndOfStream => if (array_list.items.len == 0) {
@@ -247,33 +247,6 @@ pub fn readBytesNoEof(self: Self, comptime num_bytes: usize) anyerror![num_bytes
     var bytes: [num_bytes]u8 = undefined;
     try self.readNoEof(&bytes);
     return bytes;
-}
-
-/// Reads bytes until `bounded.len` is equal to `num_bytes`,
-/// or the stream ends.
-///
-/// * it is assumed that `num_bytes` will not exceed `bounded.capacity()`
-pub fn readIntoBoundedBytes(
-    self: Self,
-    comptime num_bytes: usize,
-    bounded: *std.BoundedArray(u8, num_bytes),
-) anyerror!void {
-    while (bounded.len < num_bytes) {
-        // get at most the number of bytes free in the bounded array
-        const bytes_read = try self.read(bounded.unusedCapacitySlice());
-        if (bytes_read == 0) return;
-
-        // bytes_read will never be larger than @TypeOf(bounded.len)
-        // due to `self.read` being bounded by `bounded.unusedCapacitySlice()`
-        bounded.len += @as(@TypeOf(bounded.len), @intCast(bytes_read));
-    }
-}
-
-/// Reads at most `num_bytes` and returns as a bounded array.
-pub fn readBoundedBytes(self: Self, comptime num_bytes: usize) anyerror!std.BoundedArray(u8, num_bytes) {
-    var result = std.BoundedArray(u8, num_bytes){};
-    try self.readIntoBoundedBytes(num_bytes, &result);
-    return result;
 }
 
 pub inline fn readInt(self: Self, comptime T: type, endian: std.builtin.Endian) anyerror!T {
@@ -371,6 +344,37 @@ pub fn discard(self: Self) anyerror!u64 {
         index += n;
     }
 }
+
+/// Helper for bridging to the new `Reader` API while upgrading.
+pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
+    return .{
+        .derp_reader = self.*,
+        .new_interface = .{
+            .buffer = buffer,
+            .vtable = &.{ .stream = Adapter.stream },
+            .seek = 0,
+            .end = 0,
+        },
+    };
+}
+
+pub const Adapter = struct {
+    derp_reader: Self,
+    new_interface: std.io.Reader,
+    err: ?Error = null,
+
+    fn stream(r: *std.io.Reader, w: *std.io.Writer, limit: std.io.Limit) std.io.Reader.StreamError!usize {
+        const a: *@This() = @alignCast(@fieldParentPtr("new_interface", r));
+        const buf = limit.slice(try w.writableSliceGreedy(1));
+        const n = a.derp_reader.read(buf) catch |err| {
+            a.err = err;
+            return error.ReadFailed;
+        };
+        if (n == 0) return error.EndOfStream;
+        w.advance(n);
+        return n;
+    }
+};
 
 const std = @import("../std.zig");
 const Self = @This();

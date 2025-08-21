@@ -31,5 +31,16 @@ pub fn build(b: *std.Build) void {
     run.addArtifactArg(child);
     run.expectExitCode(0);
 
+    // Use a temporary directory within the cache as the CWD to test
+    // spawning the child using a path that contains a leading `..` component.
+    const run_relative = b.addRunArtifact(main);
+    run_relative.addArtifactArg(child);
+    const write_tmp_dir = b.addWriteFiles();
+    const tmp_cwd = write_tmp_dir.getDirectory();
+    run_relative.addDirectoryArg(tmp_cwd);
+    run_relative.setCwd(tmp_cwd);
+    run_relative.expectExitCode(0);
+
     test_step.dependOn(&run.step);
+    test_step.dependOn(&run_relative.step);
 }

@@ -49,7 +49,7 @@ fn csuPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const 
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
@@ -69,13 +69,13 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt0_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-DHAVE_INITFINI_ARRAY",
                 "-w", // Disable all warnings.
             });
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 // See `Compilation.addCCArgs`.
                 try std.fmt.allocPrint(arena, "-D__NetBSD_Version__={d}", .{(target_version.major * 100_000_000) + (target_version.minor * 1_000_000)}),
@@ -360,7 +360,7 @@ fn wordDirective(target: *const std.Target) []const u8 {
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     // See also glibc.zig which this code is based on.
 
@@ -454,7 +454,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         break :blk latest_index;
     };
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -465,7 +465,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_writer.writeAll(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
 
         var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
@@ -642,10 +642,6 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 }
 
-pub fn sharedObjectsCount() u8 {
-    return libs.len;
-}
-
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.netbsd_so_files == null);
     comp.netbsd_so_files = so_files;
@@ -733,7 +729,10 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"netbsd libc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
@@ -757,8 +756,14 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"netbsd libc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }

@@ -134,22 +134,27 @@ fn finalize(self: *Trie, allocator: Allocator) !void {
     const tracy = trace(@src());
     defer tracy.end();
 
-    var ordered_nodes = std.ArrayList(Node.Index).init(allocator);
+    var ordered_nodes = std.array_list.Managed(Node.Index).init(allocator);
     defer ordered_nodes.deinit();
     try ordered_nodes.ensureTotalCapacityPrecise(self.nodes.items(.is_terminal).len);
 
-    var fifo = std.fifo.LinearFifo(Node.Index, .Dynamic).init(allocator);
-    defer fifo.deinit();
+    {
+        var fifo: std.ArrayListUnmanaged(Node.Index) = .empty;
+        defer fifo.deinit(allocator);
 
-    try fifo.writeItem(self.root.?);
+        try fifo.append(allocator, self.root.?);
 
-    while (fifo.readItem()) |next_index| {
-        const edges = &self.nodes.items(.edges)[next_index];
-        for (edges.items) |edge_index| {
-            const edge = self.edges.items[edge_index];
-            try fifo.writeItem(edge.node);
+        var i: usize = 0;
+        while (i < fifo.items.len) {
+            const next_index = fifo.items[i];
+            i += 1;
+            const edges = &self.nodes.items(.edges)[next_index];
+            for (edges.items) |edge_index| {
+                const edge = self.edges.items[edge_index];
+                try fifo.append(allocator, edge.node);
+            }
+            ordered_nodes.appendAssumeCapacity(next_index);
         }
-        ordered_nodes.appendAssumeCapacity(next_index);
     }
 
     var more: bool = true;
@@ -181,17 +186,18 @@ const FinalizeNodeResult = struct {
 
 /// Updates offset of this node in the output byte stream.
 fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !FinalizeNodeResult {
-    var stream = std.io.countingWriter(std.io.null_writer);
-    const writer = stream.writer();
+    var trash_buffer: [64]u8 = undefined;
+    var stream: std.Io.Writer.Discarding = .init(&trash_buffer);
+    const writer = &stream.writer;
     const slice = self.nodes.slice();
 
     var node_size: u32 = 0;
     if (slice.items(.is_terminal)[node_index]) {
         const export_flags = slice.items(.export_flags)[node_index];
         const vmaddr_offset = slice.items(.vmaddr_offset)[node_index];
-        try leb.writeUleb128(writer, export_flags);
-        try leb.writeUleb128(writer, vmaddr_offset);
-        try leb.writeUleb128(writer, stream.bytes_written);
+        try writer.writeUleb128(export_flags);
+        try writer.writeUleb128(vmaddr_offset);
+        try writer.writeUleb128(stream.fullCount());
     } else {
         node_size += 1; // 0x0 for non-terminal nodes
     }
@@ -201,13 +207,13 @@ fn finalizeNode(self: *Trie, node_index: Node.Index, offset_in_trie: u32) !Final
         const edge = &self.edges.items[edge_index];
         const next_node_offset = slice.items(.trie_offset)[edge.node];
         node_size += @intCast(edge.label.len + 1);
-        try leb.writeUleb128(writer, next_node_offset);
+        try writer.writeUleb128(next_node_offset);
     }
 
     const trie_offset = slice.items(.trie_offset)[node_index];
     const updated = offset_in_trie != trie_offset;
     slice.items(.trie_offset)[node_index] = offset_in_trie;
-    node_size += @intCast(stream.bytes_written);
+    node_size += @intCast(stream.fullCount());
 
     return .{ .node_size = node_size, .updated = updated };
 }

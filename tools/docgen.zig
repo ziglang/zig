@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const io = std.io;
 const fs = std.fs;
 const process = std.process;
-const ChildProcess = std.process.Child;
 const Progress = std.Progress;
 const print = std.debug.print;
 const mem = std.mem;
@@ -71,19 +70,19 @@ pub fn main() !void {
 
     var out_file = try fs.cwd().createFile(output_path, .{});
     defer out_file.close();
+    var out_file_buffer: [4096]u8 = undefined;
+    var out_file_writer = out_file.writer(&out_file_buffer);
 
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
     const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
 
-    var buffered_writer = io.bufferedWriter(out_file.deprecatedWriter());
-
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
 
-    try genHtml(arena, &tokenizer, &toc, code_dir, buffered_writer.writer());
-    try buffered_writer.flush();
+    try genHtml(arena, &tokenizer, &toc, code_dir, &out_file_writer.interface);
+    try out_file_writer.end();
 }
 
 const Token = struct {
@@ -345,12 +344,12 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
     var last_action: Action = .open;
     var last_columns: ?u8 = null;
 
-    var toc_buf = std.ArrayList(u8).init(allocator);
+    var toc_buf = std.array_list.Managed(u8).init(allocator);
     defer toc_buf.deinit();
 
     var toc = toc_buf.writer();
 
-    var nodes = std.ArrayList(Node).init(allocator);
+    var nodes = std.array_list.Managed(Node).init(allocator);
     defer nodes.deinit();
 
     try toc.writeByte('\n');
@@ -450,7 +449,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
                         last_action = .close;
                     }
                 } else if (mem.eql(u8, tag_name, "see_also")) {
-                    var list = std.ArrayList(SeeAlsoItem).init(allocator);
+                    var list = std.array_list.Managed(SeeAlsoItem).init(allocator);
                     errdefer list.deinit();
 
                     while (true) {
@@ -600,7 +599,7 @@ fn genToc(allocator: Allocator, tokenizer: *Tokenizer) !Toc {
 }
 
 fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();
@@ -619,7 +618,7 @@ fn urlize(allocator: Allocator, input: []const u8) ![]u8 {
 }
 
 fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     const out = buf.writer();

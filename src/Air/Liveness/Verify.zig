@@ -366,16 +366,11 @@ fn verifyBody(self: *Verify, body: []const Air.Inst.Index) Error!void {
             .assembly => {
                 const ty_pl = data[@intFromEnum(inst)].ty_pl;
                 const extra = self.air.extraData(Air.Asm, ty_pl.payload);
+                const outputs_len = extra.data.flags.outputs_len;
                 var extra_i = extra.end;
-                const outputs = @as(
-                    []const Air.Inst.Ref,
-                    @ptrCast(self.air.extra.items[extra_i..][0..extra.data.outputs_len]),
-                );
+                const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..outputs_len]);
                 extra_i += outputs.len;
-                const inputs = @as(
-                    []const Air.Inst.Ref,
-                    @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]),
-                );
+                const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i..][0..extra.data.inputs_len]);
                 extra_i += inputs.len;
 
                 var bt = self.liveness.iterateBigTomb(inst);

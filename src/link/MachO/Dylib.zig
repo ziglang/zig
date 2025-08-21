@@ -814,7 +814,7 @@ pub const TargetMatcher = struct {
 
         const targets = switch (tbd) {
             .v3 => |v3| blk: {
-                var targets = std.ArrayList([]const u8).init(arena.allocator());
+                var targets = std.array_list.Managed([]const u8).init(arena.allocator());
                 for (v3.archs) |arch| {
                     if (mem.eql(u8, v3.platform, "zippered")) {
                         // From Xcode 10.3 → 11.3.1, macos SDK .tbd files specify platform as 'zippered'

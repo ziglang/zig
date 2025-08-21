@@ -13,6 +13,8 @@ const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePag
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
 
+var stdout_buffer: [1024]u8 = undefined;
+
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.debug.assert(gpa.deinit() == .ok);
@@ -41,12 +43,12 @@ pub fn main() !void {
         cli_args = args[3..];
     }
 
+    var stdout_writer2 = std.fs.File.stdout().writer(&stdout_buffer);
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = std.fs.File.stdout(),
+                .out = &stdout_writer2.interface,
                 .in = undefined, // won't be receiving messages
-                .receive_fifo = undefined, // won't be receiving messages
             },
         },
         false => .{
@@ -95,14 +97,14 @@ pub fn main() !void {
         try stdout_writer.writeByte('\n');
     }
 
-    var dependencies_list = std.ArrayList([]const u8).init(allocator);
+    var dependencies_list = std.array_list.Managed([]const u8).init(allocator);
     defer {
         for (dependencies_list.items) |item| {
             allocator.free(item);
         }
         dependencies_list.deinit();
     }
-    const maybe_dependencies_list: ?*std.ArrayList([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
+    const maybe_dependencies_list: ?*std.array_list.Managed([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
 
     var include_paths = LazyIncludePaths{
         .arena = arena,
@@ -113,7 +115,7 @@ pub fn main() !void {
 
     const full_input = full_input: {
         if (options.input_format == .rc and options.preprocess != .no) {
-            var preprocessed_buf = std.ArrayList(u8).init(allocator);
+            var preprocessed_buf = std.array_list.Managed(u8).init(allocator);
             errdefer preprocessed_buf.deinit();
 
             // We're going to throw away everything except the final preprocessed output anyway,
@@ -125,7 +127,7 @@ pub fn main() !void {
             var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
             defer argv.deinit();
 
             try argv.append("arocc"); // dummy command name
@@ -246,10 +248,11 @@ pub fn main() !void {
                 var diagnostics = Diagnostics.init(allocator);
                 defer diagnostics.deinit();
 
-                const res_stream_writer = res_stream.source.writer(allocator);
-                var output_buffered_stream = std.io.bufferedWriter(res_stream_writer);
+                var output_buffer: [4096]u8 = undefined;
+                var res_stream_writer = res_stream.source.writer(allocator).adaptToNewApi(&output_buffer);
+                const output_buffered_stream = &res_stream_writer.new_interface;
 
-                compile(allocator, final_input, output_buffered_stream.writer(), .{
+                compile(allocator, final_input, output_buffered_stream, .{
                     .cwd = std.fs.cwd(),
                     .diagnostics = &diagnostics,
                     .source_mappings = &mapping_results.mappings,
@@ -290,12 +293,14 @@ pub fn main() !void {
                     };
                     defer depfile.close();
 
-                    const depfile_writer = depfile.deprecatedWriter();
-                    var depfile_buffered_writer = std.io.bufferedWriter(depfile_writer);
+                    var depfile_buffer: [1024]u8 = undefined;
+                    var depfile_writer = depfile.writer(&depfile_buffer);
                     switch (options.depfile_fmt) {
                         .json => {
-                            var write_stream = std.json.writeStream(depfile_buffered_writer.writer(), .{ .whitespace = .indent_2 });
-                            defer write_stream.deinit();
+                            var write_stream: std.json.Stringify = .{
+                                .writer = &depfile_writer.interface,
+                                .options = .{ .whitespace = .indent_2 },
+                            };
 
                             try write_stream.beginArray();
                             for (dependencies_list.items) |dep_path| {
@@ -304,7 +309,7 @@ pub fn main() !void {
                             try write_stream.endArray();
                         },
                     }
-                    try depfile_buffered_writer.flush();
+                    try depfile_writer.interface.flush();
                 }
             }
 
@@ -321,8 +326,8 @@ pub fn main() !void {
         std.debug.assert(options.output_format == .coff);
 
         // TODO: Maybe use a buffered file reader instead of reading file into memory -> fbs
-        var fbs = std.io.fixedBufferStream(res_data.bytes);
-        break :resources cvtres.parseRes(allocator, fbs.reader(), .{ .max_size = res_data.bytes.len }) catch |err| {
+        var res_reader: std.Io.Reader = .fixed(res_data.bytes);
+        break :resources cvtres.parseRes(allocator, &res_reader, .{ .max_size = res_data.bytes.len }) catch |err| {
             // TODO: Better errors
             try error_handler.emitMessage(allocator, .err, "unable to parse res from '{s}': {s}", .{ res_stream.name, @errorName(err) });
             std.process.exit(1);
@@ -336,10 +341,11 @@ pub fn main() !void {
     };
     defer coff_stream.deinit(allocator);
 
-    var coff_output_buffered_stream = std.io.bufferedWriter(coff_stream.source.writer(allocator));
+    var coff_output_buffer: [4096]u8 = undefined;
+    var coff_output_buffered_stream = coff_stream.source.writer(allocator).adaptToNewApi(&coff_output_buffer);
 
     var cvtres_diagnostics: cvtres.Diagnostics = .{ .none = {} };
-    cvtres.writeCoff(allocator, coff_output_buffered_stream.writer(), resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
+    cvtres.writeCoff(allocator, &coff_output_buffered_stream.new_interface, resources.list.items, options.coff_options, &cvtres_diagnostics) catch |err| {
         switch (err) {
             error.DuplicateResource => {
                 const duplicate_resource = resources.list.items[cvtres_diagnostics.duplicate_resource];
@@ -376,7 +382,7 @@ pub fn main() !void {
         std.process.exit(1);
     };
 
-    try coff_output_buffered_stream.flush();
+    try coff_output_buffered_stream.new_interface.flush();
 }
 
 const IoStream = struct {
@@ -940,7 +946,7 @@ fn aroDiagnosticsToErrorBundle(
 // - Only prints the message itself (no location, source line, error: prefix, etc)
 // - Keeps track of source path/line/col instead
 const MsgWriter = struct {
-    buf: std.ArrayList(u8),
+    buf: std.array_list.Managed(u8),
     path: ?[]const u8 = null,
     // 1-indexed
     line: u32 = undefined,
@@ -950,7 +956,7 @@ const MsgWriter = struct {
 
     fn init(allocator: std.mem.Allocator) MsgWriter {
         return .{
-            .buf = std.ArrayList(u8).init(allocator),
+            .buf = std.array_list.Managed(u8).init(allocator),
         };
     }
 

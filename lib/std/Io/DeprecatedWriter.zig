@@ -83,11 +83,11 @@ pub fn writeFile(self: Self, file: std.fs.File) anyerror!void {
 }
 
 /// Helper for bridging to the new `Writer` API while upgrading.
-pub fn adaptToNewApi(self: *const Self) Adapter {
+pub fn adaptToNewApi(self: *const Self, buffer: []u8) Adapter {
     return .{
         .derp_writer = self.*,
         .new_interface = .{
-            .buffer = &.{},
+            .buffer = buffer,
             .vtable = &.{ .drain = Adapter.drain },
         },
     };
@@ -100,7 +100,12 @@ pub const Adapter = struct {
 
     fn drain(w: *std.io.Writer, data: []const []const u8, splat: usize) std.io.Writer.Error!usize {
         _ = splat;
-        const a: *@This() = @fieldParentPtr("new_interface", w);
+        const a: *@This() = @alignCast(@fieldParentPtr("new_interface", w));
+        const buffered = w.buffered();
+        if (buffered.len != 0) return w.consume(a.derp_writer.write(buffered) catch |err| {
+            a.err = err;
+            return error.WriteFailed;
+        });
         return a.derp_writer.write(data[0]) catch |err| {
             a.err = err;
             return error.WriteFailed;

@@ -195,7 +195,7 @@ pub fn calcEhFrameSize(elf_file: *Elf) !usize {
         break :blk math.cast(usize, sym.atom(elf_file).?.size) orelse return error.Overflow;
     } else 0;
 
-    var cies = std.ArrayList(Cie).init(gpa);
+    var cies = std.array_list.Managed(Cie).init(gpa);
     defer cies.deinit();
 
     for (elf_file.objects.items) |index| {
@@ -413,7 +413,7 @@ fn emitReloc(elf_file: *Elf, r_offset: u64, sym: *const Symbol, rel: elf.Elf64_R
     };
 }
 
-pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.ArrayList(elf.Elf64_Rela)) !void {
+pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.array_list.Managed(elf.Elf64_Rela)) !void {
     relocs_log.debug("{x}: .eh_frame", .{
         elf_file.sections.items(.shdr)[elf_file.section_indexes.eh_frame.?].sh_addr,
     });
@@ -493,7 +493,7 @@ pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
         }
     };
 
-    var entries = std.ArrayList(Entry).init(gpa);
+    var entries = std.array_list.Managed(Entry).init(gpa);
     defer entries.deinit();
     try entries.ensureTotalCapacityPrecise(num_fdes);
 

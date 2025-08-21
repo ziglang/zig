@@ -939,7 +939,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
             .type = T,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = 0,
+            .alignment = @alignOf(T),
         };
     }
 

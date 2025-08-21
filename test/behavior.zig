@@ -123,7 +123,6 @@ test {
     }
 
     if (builtin.zig_backend != .stage2_arm and
-        builtin.zig_backend != .stage2_aarch64 and
         builtin.zig_backend != .stage2_spirv)
     {
         _ = @import("behavior/export_keyword.zig");
@@ -141,7 +140,8 @@ test {
 }
 
 // This bug only repros in the root file
-test "deference @embedFile() of a file full of zero bytes" {
+test "dereference @embedFile() of a file full of zero bytes" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const contents = @embedFile("behavior/zero.bin").*;

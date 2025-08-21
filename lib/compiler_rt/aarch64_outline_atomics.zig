@@ -28,8 +28,7 @@ fn __aarch64_cas1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp1_relax() align(16) callconv(.naked) void {
@@ -48,8 +47,7 @@ fn __aarch64_swp1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd1_relax() align(16) callconv(.naked) void {
@@ -69,8 +67,7 @@ fn __aarch64_ldadd1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr1_relax() align(16) callconv(.naked) void {
@@ -90,8 +87,7 @@ fn __aarch64_ldclr1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor1_relax() align(16) callconv(.naked) void {
@@ -111,8 +107,7 @@ fn __aarch64_ldeor1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset1_relax() align(16) callconv(.naked) void {
@@ -132,8 +127,7 @@ fn __aarch64_ldset1_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas1_acq() align(16) callconv(.naked) void {
@@ -154,8 +148,7 @@ fn __aarch64_cas1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp1_acq() align(16) callconv(.naked) void {
@@ -174,8 +167,7 @@ fn __aarch64_swp1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd1_acq() align(16) callconv(.naked) void {
@@ -195,8 +187,7 @@ fn __aarch64_ldadd1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr1_acq() align(16) callconv(.naked) void {
@@ -216,8 +207,7 @@ fn __aarch64_ldclr1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor1_acq() align(16) callconv(.naked) void {
@@ -237,8 +227,7 @@ fn __aarch64_ldeor1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset1_acq() align(16) callconv(.naked) void {
@@ -258,8 +247,7 @@ fn __aarch64_ldset1_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas1_rel() align(16) callconv(.naked) void {
@@ -280,8 +268,7 @@ fn __aarch64_cas1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp1_rel() align(16) callconv(.naked) void {
@@ -300,8 +287,7 @@ fn __aarch64_swp1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd1_rel() align(16) callconv(.naked) void {
@@ -321,8 +307,7 @@ fn __aarch64_ldadd1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr1_rel() align(16) callconv(.naked) void {
@@ -342,8 +327,7 @@ fn __aarch64_ldclr1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor1_rel() align(16) callconv(.naked) void {
@@ -363,8 +347,7 @@ fn __aarch64_ldeor1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset1_rel() align(16) callconv(.naked) void {
@@ -384,8 +367,7 @@ fn __aarch64_ldset1_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas1_acq_rel() align(16) callconv(.naked) void {
@@ -406,8 +388,7 @@ fn __aarch64_cas1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp1_acq_rel() align(16) callconv(.naked) void {
@@ -426,8 +407,7 @@ fn __aarch64_swp1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd1_acq_rel() align(16) callconv(.naked) void {
@@ -447,8 +427,7 @@ fn __aarch64_ldadd1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr1_acq_rel() align(16) callconv(.naked) void {
@@ -468,8 +447,7 @@ fn __aarch64_ldclr1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor1_acq_rel() align(16) callconv(.naked) void {
@@ -489,8 +467,7 @@ fn __aarch64_ldeor1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset1_acq_rel() align(16) callconv(.naked) void {
@@ -510,8 +487,7 @@ fn __aarch64_ldset1_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas2_relax() align(16) callconv(.naked) void {
@@ -532,8 +508,7 @@ fn __aarch64_cas2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp2_relax() align(16) callconv(.naked) void {
@@ -552,8 +527,7 @@ fn __aarch64_swp2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd2_relax() align(16) callconv(.naked) void {
@@ -573,8 +547,7 @@ fn __aarch64_ldadd2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr2_relax() align(16) callconv(.naked) void {
@@ -594,8 +567,7 @@ fn __aarch64_ldclr2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor2_relax() align(16) callconv(.naked) void {
@@ -615,8 +587,7 @@ fn __aarch64_ldeor2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset2_relax() align(16) callconv(.naked) void {
@@ -636,8 +607,7 @@ fn __aarch64_ldset2_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas2_acq() align(16) callconv(.naked) void {
@@ -658,8 +628,7 @@ fn __aarch64_cas2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp2_acq() align(16) callconv(.naked) void {
@@ -678,8 +647,7 @@ fn __aarch64_swp2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd2_acq() align(16) callconv(.naked) void {
@@ -699,8 +667,7 @@ fn __aarch64_ldadd2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr2_acq() align(16) callconv(.naked) void {
@@ -720,8 +687,7 @@ fn __aarch64_ldclr2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor2_acq() align(16) callconv(.naked) void {
@@ -741,8 +707,7 @@ fn __aarch64_ldeor2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset2_acq() align(16) callconv(.naked) void {
@@ -762,8 +727,7 @@ fn __aarch64_ldset2_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas2_rel() align(16) callconv(.naked) void {
@@ -784,8 +748,7 @@ fn __aarch64_cas2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp2_rel() align(16) callconv(.naked) void {
@@ -804,8 +767,7 @@ fn __aarch64_swp2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd2_rel() align(16) callconv(.naked) void {
@@ -825,8 +787,7 @@ fn __aarch64_ldadd2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr2_rel() align(16) callconv(.naked) void {
@@ -846,8 +807,7 @@ fn __aarch64_ldclr2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor2_rel() align(16) callconv(.naked) void {
@@ -867,8 +827,7 @@ fn __aarch64_ldeor2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset2_rel() align(16) callconv(.naked) void {
@@ -888,8 +847,7 @@ fn __aarch64_ldset2_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas2_acq_rel() align(16) callconv(.naked) void {
@@ -910,8 +868,7 @@ fn __aarch64_cas2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp2_acq_rel() align(16) callconv(.naked) void {
@@ -930,8 +887,7 @@ fn __aarch64_swp2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd2_acq_rel() align(16) callconv(.naked) void {
@@ -951,8 +907,7 @@ fn __aarch64_ldadd2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr2_acq_rel() align(16) callconv(.naked) void {
@@ -972,8 +927,7 @@ fn __aarch64_ldclr2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor2_acq_rel() align(16) callconv(.naked) void {
@@ -993,8 +947,7 @@ fn __aarch64_ldeor2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset2_acq_rel() align(16) callconv(.naked) void {
@@ -1014,8 +967,7 @@ fn __aarch64_ldset2_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas4_relax() align(16) callconv(.naked) void {
@@ -1036,8 +988,7 @@ fn __aarch64_cas4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp4_relax() align(16) callconv(.naked) void {
@@ -1056,8 +1007,7 @@ fn __aarch64_swp4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd4_relax() align(16) callconv(.naked) void {
@@ -1077,8 +1027,7 @@ fn __aarch64_ldadd4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr4_relax() align(16) callconv(.naked) void {
@@ -1098,8 +1047,7 @@ fn __aarch64_ldclr4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor4_relax() align(16) callconv(.naked) void {
@@ -1119,8 +1067,7 @@ fn __aarch64_ldeor4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset4_relax() align(16) callconv(.naked) void {
@@ -1140,8 +1087,7 @@ fn __aarch64_ldset4_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas4_acq() align(16) callconv(.naked) void {
@@ -1162,8 +1108,7 @@ fn __aarch64_cas4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp4_acq() align(16) callconv(.naked) void {
@@ -1182,8 +1127,7 @@ fn __aarch64_swp4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd4_acq() align(16) callconv(.naked) void {
@@ -1203,8 +1147,7 @@ fn __aarch64_ldadd4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr4_acq() align(16) callconv(.naked) void {
@@ -1224,8 +1167,7 @@ fn __aarch64_ldclr4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor4_acq() align(16) callconv(.naked) void {
@@ -1245,8 +1187,7 @@ fn __aarch64_ldeor4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset4_acq() align(16) callconv(.naked) void {
@@ -1266,8 +1207,7 @@ fn __aarch64_ldset4_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas4_rel() align(16) callconv(.naked) void {
@@ -1288,8 +1228,7 @@ fn __aarch64_cas4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp4_rel() align(16) callconv(.naked) void {
@@ -1308,8 +1247,7 @@ fn __aarch64_swp4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd4_rel() align(16) callconv(.naked) void {
@@ -1329,8 +1267,7 @@ fn __aarch64_ldadd4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr4_rel() align(16) callconv(.naked) void {
@@ -1350,8 +1287,7 @@ fn __aarch64_ldclr4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor4_rel() align(16) callconv(.naked) void {
@@ -1371,8 +1307,7 @@ fn __aarch64_ldeor4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset4_rel() align(16) callconv(.naked) void {
@@ -1392,8 +1327,7 @@ fn __aarch64_ldset4_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas4_acq_rel() align(16) callconv(.naked) void {
@@ -1414,8 +1348,7 @@ fn __aarch64_cas4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp4_acq_rel() align(16) callconv(.naked) void {
@@ -1434,8 +1367,7 @@ fn __aarch64_swp4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd4_acq_rel() align(16) callconv(.naked) void {
@@ -1455,8 +1387,7 @@ fn __aarch64_ldadd4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr4_acq_rel() align(16) callconv(.naked) void {
@@ -1476,8 +1407,7 @@ fn __aarch64_ldclr4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor4_acq_rel() align(16) callconv(.naked) void {
@@ -1497,8 +1427,7 @@ fn __aarch64_ldeor4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset4_acq_rel() align(16) callconv(.naked) void {
@@ -1518,8 +1447,7 @@ fn __aarch64_ldset4_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas8_relax() align(16) callconv(.naked) void {
@@ -1540,8 +1468,7 @@ fn __aarch64_cas8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp8_relax() align(16) callconv(.naked) void {
@@ -1560,8 +1487,7 @@ fn __aarch64_swp8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd8_relax() align(16) callconv(.naked) void {
@@ -1581,8 +1507,7 @@ fn __aarch64_ldadd8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr8_relax() align(16) callconv(.naked) void {
@@ -1602,8 +1527,7 @@ fn __aarch64_ldclr8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor8_relax() align(16) callconv(.naked) void {
@@ -1623,8 +1547,7 @@ fn __aarch64_ldeor8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset8_relax() align(16) callconv(.naked) void {
@@ -1644,8 +1567,7 @@ fn __aarch64_ldset8_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas8_acq() align(16) callconv(.naked) void {
@@ -1666,8 +1588,7 @@ fn __aarch64_cas8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp8_acq() align(16) callconv(.naked) void {
@@ -1686,8 +1607,7 @@ fn __aarch64_swp8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd8_acq() align(16) callconv(.naked) void {
@@ -1707,8 +1627,7 @@ fn __aarch64_ldadd8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr8_acq() align(16) callconv(.naked) void {
@@ -1728,8 +1647,7 @@ fn __aarch64_ldclr8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor8_acq() align(16) callconv(.naked) void {
@@ -1749,8 +1667,7 @@ fn __aarch64_ldeor8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset8_acq() align(16) callconv(.naked) void {
@@ -1770,8 +1687,7 @@ fn __aarch64_ldset8_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas8_rel() align(16) callconv(.naked) void {
@@ -1792,8 +1708,7 @@ fn __aarch64_cas8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp8_rel() align(16) callconv(.naked) void {
@@ -1812,8 +1727,7 @@ fn __aarch64_swp8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd8_rel() align(16) callconv(.naked) void {
@@ -1833,8 +1747,7 @@ fn __aarch64_ldadd8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr8_rel() align(16) callconv(.naked) void {
@@ -1854,8 +1767,7 @@ fn __aarch64_ldclr8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor8_rel() align(16) callconv(.naked) void {
@@ -1875,8 +1787,7 @@ fn __aarch64_ldeor8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset8_rel() align(16) callconv(.naked) void {
@@ -1896,8 +1807,7 @@ fn __aarch64_ldset8_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas8_acq_rel() align(16) callconv(.naked) void {
@@ -1918,8 +1828,7 @@ fn __aarch64_cas8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_swp8_acq_rel() align(16) callconv(.naked) void {
@@ -1938,8 +1847,7 @@ fn __aarch64_swp8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldadd8_acq_rel() align(16) callconv(.naked) void {
@@ -1959,8 +1867,7 @@ fn __aarch64_ldadd8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldclr8_acq_rel() align(16) callconv(.naked) void {
@@ -1980,8 +1887,7 @@ fn __aarch64_ldclr8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldeor8_acq_rel() align(16) callconv(.naked) void {
@@ -2001,8 +1907,7 @@ fn __aarch64_ldeor8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_ldset8_acq_rel() align(16) callconv(.naked) void {
@@ -2022,8 +1927,7 @@ fn __aarch64_ldset8_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas16_relax() align(16) callconv(.naked) void {
@@ -2046,8 +1950,7 @@ fn __aarch64_cas16_relax() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas16_acq() align(16) callconv(.naked) void {
@@ -2070,8 +1973,7 @@ fn __aarch64_cas16_acq() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas16_rel() align(16) callconv(.naked) void {
@@ -2094,8 +1996,7 @@ fn __aarch64_cas16_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 fn __aarch64_cas16_acq_rel() align(16) callconv(.naked) void {
@@ -2118,8 +2019,7 @@ fn __aarch64_cas16_acq_rel() align(16) callconv(.naked) void {
         \\        ret
         :
         : [__aarch64_have_lse_atomics] "{w16}" (__aarch64_have_lse_atomics),
-        : "w15", "w16", "w17", "memory"
-    );
+        : .{ .w15 = true, .w16 = true, .w17 = true, .memory = true });
     unreachable;
 }
 

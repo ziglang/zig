@@ -4,7 +4,7 @@ const native_endian = builtin.target.cpu.arch.endian();
 const Writer = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
-const Limit = std.io.Limit;
+const Limit = std.Io.Limit;
 const File = std.fs.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
@@ -76,6 +76,14 @@ pub const VTable = struct {
     /// There may be subsequent calls to `drain` and `sendFile` after a `flush`
     /// operation.
     flush: *const fn (w: *Writer) Error!void = defaultFlush,
+
+    /// Ensures `capacity` more bytes can be buffered without rebasing.
+    ///
+    /// The most recent `preserve` bytes must remain buffered.
+    ///
+    /// Only called when `capacity` bytes cannot fit into the unused capacity
+    /// of `buffer`.
+    rebase: *const fn (w: *Writer, preserve: usize, capacity: usize) Error!void = defaultRebase,
 };
 
 pub const Error = error{
@@ -117,6 +125,7 @@ pub fn fixed(buffer: []u8) Writer {
         .vtable = &.{
             .drain = fixedDrain,
             .flush = noopFlush,
+            .rebase = failingRebase,
         },
         .buffer = buffer,
     };
@@ -130,8 +139,15 @@ pub const failing: Writer = .{
     .vtable = &.{
         .drain = failingDrain,
         .sendFile = failingSendFile,
+        .rebase = failingRebase,
     },
+    .buffer = &.{},
 };
+
+test failing {
+    var fw: Writer = .failing;
+    try testing.expectError(error.WriteFailed, fw.writeAll("always fails"));
+}
 
 /// Returns the contents not yet drained.
 pub fn buffered(w: *const Writer) []u8 {
@@ -191,34 +207,92 @@ pub fn writeSplatHeader(
     data: []const []const u8,
     splat: usize,
 ) Error!usize {
-    const new_end = w.end + header.len;
-    if (new_end <= w.buffer.len) {
-        @memcpy(w.buffer[w.end..][0..header.len], header);
-        w.end = new_end;
-        return header.len + try writeSplat(w, data, splat);
+    return writeSplatHeaderLimit(w, header, data, splat, .unlimited);
+}
+
+/// Equivalent to `writeSplatHeader` but writes at most `limit` bytes.
+pub fn writeSplatHeaderLimit(
+    w: *Writer,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+    limit: Limit,
+) Error!usize {
+    var remaining = @intFromEnum(limit);
+    {
+        const copy_len = @min(header.len, w.buffer.len - w.end, remaining);
+        if (header.len - copy_len != 0) return writeSplatHeaderLimitFinish(w, header, data, splat, remaining);
+        @memcpy(w.buffer[w.end..][0..copy_len], header[0..copy_len]);
+        w.end += copy_len;
+        remaining -= copy_len;
     }
-    var vecs: [8][]const u8 = undefined; // Arbitrarily chosen size.
-    var i: usize = 1;
-    vecs[0] = header;
-    for (data[0 .. data.len - 1]) |buf| {
-        if (buf.len == 0) continue;
-        vecs[i] = buf;
-        i += 1;
-        if (vecs.len - i == 0) break;
+    for (data[0 .. data.len - 1], 0..) |buf, i| {
+        const copy_len = @min(buf.len, w.buffer.len - w.end, remaining);
+        if (buf.len - copy_len != 0) return @intFromEnum(limit) - remaining +
+            try writeSplatHeaderLimitFinish(w, &.{}, data[i..], splat, remaining);
+        @memcpy(w.buffer[w.end..][0..copy_len], buf[0..copy_len]);
+        w.end += copy_len;
+        remaining -= copy_len;
     }
     const pattern = data[data.len - 1];
-    const new_splat = s: {
-        if (pattern.len == 0 or vecs.len - i == 0) break :s 1;
+    const splat_n = pattern.len * splat;
+    if (splat_n > @min(w.buffer.len - w.end, remaining)) {
+        const buffered_n = @intFromEnum(limit) - remaining;
+        const written = try writeSplatHeaderLimitFinish(w, &.{}, data[data.len - 1 ..][0..1], splat, remaining);
+        return buffered_n + written;
+    }
+
+    for (0..splat) |_| {
+        @memcpy(w.buffer[w.end..][0..pattern.len], pattern);
+        w.end += pattern.len;
+    }
+
+    remaining -= splat_n;
+    return @intFromEnum(limit) - remaining;
+}
+
+fn writeSplatHeaderLimitFinish(
+    w: *Writer,
+    header: []const u8,
+    data: []const []const u8,
+    splat: usize,
+    limit: usize,
+) Error!usize {
+    var remaining = limit;
+    var vecs: [8][]const u8 = undefined;
+    var i: usize = 0;
+    v: {
+        if (header.len != 0) {
+            const copy_len = @min(header.len, remaining);
+            vecs[i] = header[0..copy_len];
+            i += 1;
+            remaining -= copy_len;
+            if (remaining == 0) break :v;
+        }
+        for (data[0 .. data.len - 1]) |buf| if (buf.len != 0) {
+            const copy_len = @min(header.len, remaining);
+            vecs[i] = buf;
+            i += 1;
+            remaining -= copy_len;
+            if (remaining == 0) break :v;
+            if (vecs.len - i == 0) break :v;
+        };
+        const pattern = data[data.len - 1];
+        if (splat == 1) {
+            vecs[i] = pattern[0..@min(remaining, pattern.len)];
+            i += 1;
+            break :v;
+        }
         vecs[i] = pattern;
         i += 1;
-        break :s splat;
-    };
-    return w.vtable.drain(w, vecs[0..i], new_splat);
+        return w.vtable.drain(w, (&vecs)[0..i], @min(remaining / pattern.len, splat));
+    }
+    return w.vtable.drain(w, (&vecs)[0..i], 1);
 }
 
 test "writeSplatHeader splatting avoids buffer aliasing temptation" {
     const initial_buf = try testing.allocator.alloc(u8, 8);
-    var aw: std.io.Writer.Allocating = .initOwnedSlice(testing.allocator, initial_buf);
+    var aw: Allocating = .initOwnedSlice(testing.allocator, initial_buf);
     defer aw.deinit();
     // This test assumes 8 vector buffer in this function.
     const n = try aw.writer.writeSplatHeader("header which is longer than buf ", &.{
@@ -249,23 +323,41 @@ pub fn noopFlush(w: *Writer) Error!void {
 
 test "fixed buffer flush" {
     var buffer: [1]u8 = undefined;
-    var writer: std.io.Writer = .fixed(&buffer);
+    var writer: Writer = .fixed(&buffer);
 
     try writer.writeByte(10);
     try writer.flush();
     try testing.expectEqual(10, buffer[0]);
 }
 
-/// Calls `VTable.drain` but hides the last `preserve_length` bytes from the
-/// implementation, keeping them buffered.
-pub fn drainPreserve(w: *Writer, preserve_length: usize) Error!void {
-    const temp_end = w.end -| preserve_length;
-    const preserved = w.buffer[temp_end..w.end];
-    w.end = temp_end;
-    defer w.end += preserved.len;
-    assert(0 == try w.vtable.drain(w, &.{""}, 1));
-    assert(w.end <= temp_end + preserved.len);
-    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
+pub fn rebase(w: *Writer, preserve: usize, unused_capacity_len: usize) Error!void {
+    if (w.buffer.len - w.end >= unused_capacity_len) {
+        @branchHint(.likely);
+        return;
+    }
+    return w.vtable.rebase(w, preserve, unused_capacity_len);
+}
+
+pub fn defaultRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
+    while (w.buffer.len - w.end < minimum_len) {
+        {
+            // TODO: instead of this logic that "hides" data from
+            // the implementation, introduce a seek index to Writer
+            const preserved_head = w.end -| preserve;
+            const preserved_tail = w.end;
+            const preserved_len = preserved_tail - preserved_head;
+            w.end = preserved_head;
+            defer w.end += preserved_len;
+            assert(0 == try w.vtable.drain(w, &.{""}, 1));
+            assert(w.end <= preserved_head + preserved_len);
+            @memmove(w.buffer[w.end..][0..preserved_len], w.buffer[preserved_head..preserved_tail]);
+        }
+
+        // If the loop condition was false this assertion would have passed
+        // anyway. Otherwise, give the implementation a chance to grow the
+        // buffer before asserting on the buffer length.
+        assert(w.buffer.len - preserve >= minimum_len);
+    }
 }
 
 pub fn unusedCapacitySlice(w: *const Writer) []u8 {
@@ -294,103 +386,46 @@ pub fn writableSlice(w: *Writer, len: usize) Error![]u8 {
     return big_slice[0..len];
 }
 
-/// Asserts the provided buffer has total capacity enough for `minimum_length`.
+/// Asserts the provided buffer has total capacity enough for `minimum_len`.
 ///
 /// Does not `advance` the buffer end position.
 ///
-/// If `minimum_length` is zero, this is equivalent to `unusedCapacitySlice`.
-pub fn writableSliceGreedy(w: *Writer, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= minimum_length);
-    while (w.buffer.len - w.end < minimum_length) {
-        assert(0 == try w.vtable.drain(w, &.{""}, 1));
-    } else {
-        @branchHint(.likely);
-        return w.buffer[w.end..];
-    }
+/// If `minimum_len` is zero, this is equivalent to `unusedCapacitySlice`.
+pub fn writableSliceGreedy(w: *Writer, minimum_len: usize) Error![]u8 {
+    return writableSliceGreedyPreserve(w, 0, minimum_len);
 }
 
-/// Asserts the provided buffer has total capacity enough for `minimum_length`
-/// and `preserve_length` combined.
+/// Asserts the provided buffer has total capacity enough for `minimum_len`
+/// and `preserve` combined.
 ///
 /// Does not `advance` the buffer end position.
 ///
-/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// When draining the buffer, ensures that at least `preserve` bytes
 /// remain buffered.
 ///
-/// If `preserve_length` is zero, this is equivalent to `writableSliceGreedy`.
-pub fn writableSliceGreedyPreserve(w: *Writer, preserve_length: usize, minimum_length: usize) Error![]u8 {
-    assert(w.buffer.len >= preserve_length + minimum_length);
-    while (w.buffer.len - w.end < minimum_length) {
-        try drainPreserve(w, preserve_length);
-    } else {
+/// If `preserve` is zero, this is equivalent to `writableSliceGreedy`.
+pub fn writableSliceGreedyPreserve(w: *Writer, preserve: usize, minimum_len: usize) Error![]u8 {
+    if (w.buffer.len - w.end >= minimum_len) {
         @branchHint(.likely);
         return w.buffer[w.end..];
     }
+    try rebase(w, preserve, minimum_len);
+    assert(w.buffer.len >= preserve + minimum_len);
+    return w.buffer[w.end..];
 }
 
-pub const WritableVectorIterator = struct {
-    first: []u8,
-    middle: []const []u8 = &.{},
-    last: []u8 = &.{},
-    index: usize = 0,
-
-    pub fn next(it: *WritableVectorIterator) ?[]u8 {
-        while (true) {
-            const i = it.index;
-            it.index += 1;
-            if (i == 0) {
-                if (it.first.len == 0) continue;
-                return it.first;
-            }
-            const middle_index = i - 1;
-            if (middle_index < it.middle.len) {
-                const middle = it.middle[middle_index];
-                if (middle.len == 0) continue;
-                return middle;
-            }
-            if (middle_index == it.middle.len) {
-                if (it.last.len == 0) continue;
-                return it.last;
-            }
-            return null;
-        }
-    }
-};
-
-pub const VectorWrapper = struct {
-    writer: Writer,
-    it: WritableVectorIterator,
-    /// Tracks whether the "writable vector" API was used.
-    used: bool = false,
-    pub const vtable: *const VTable = &unique_vtable_allocation;
-    /// This is intended to be constant but it must be a unique address for
-    /// `@fieldParentPtr` to work.
-    var unique_vtable_allocation: VTable = .{ .drain = fixedDrain };
-};
-
-pub fn writableVectorIterator(w: *Writer) Error!WritableVectorIterator {
-    if (w.vtable == VectorWrapper.vtable) {
-        const wrapper: *VectorWrapper = @fieldParentPtr("writer", w);
-        wrapper.used = true;
-        return wrapper.it;
-    }
-    return .{ .first = try writableSliceGreedy(w, 1) };
-}
-
-pub fn writableVectorPosix(w: *Writer, buffer: []std.posix.iovec, limit: Limit) Error![]std.posix.iovec {
-    var it = try writableVectorIterator(w);
-    var i: usize = 0;
-    var remaining = limit;
-    while (it.next()) |full_buffer| {
-        if (!remaining.nonzero()) break;
-        if (buffer.len - i == 0) break;
-        const buf = remaining.slice(full_buffer);
-        if (buf.len == 0) continue;
-        buffer[i] = .{ .base = buf.ptr, .len = buf.len };
-        i += 1;
-        remaining = remaining.subtract(buf.len).?;
-    }
-    return buffer[0..i];
+/// Asserts the provided buffer has total capacity enough for `len`.
+///
+/// Advances the buffer end position by `len`.
+///
+/// When draining the buffer, ensures that at least `preserve` bytes
+/// remain buffered.
+///
+/// If `preserve` is zero, this is equivalent to `writableSlice`.
+pub fn writableSlicePreserve(w: *Writer, preserve: usize, len: usize) Error![]u8 {
+    const big_slice = try w.writableSliceGreedyPreserve(preserve, len);
+    advance(w, len);
+    return big_slice[0..len];
 }
 
 pub fn ensureUnusedCapacity(w: *Writer, n: usize) Error!void {
@@ -409,12 +444,6 @@ pub fn advance(w: *Writer, n: usize) void {
     const new_end = w.end + n;
     assert(new_end <= w.buffer.len);
     w.end = new_end;
-}
-
-/// After calling `writableVector`, this function tracks how many bytes were
-/// written to it.
-pub fn advanceVector(w: *Writer, n: usize) usize {
-    return consume(w, n);
 }
 
 /// The `data` parameter is mutable because this function needs to mutate the
@@ -438,32 +467,52 @@ pub fn writeVecAll(w: *Writer, data: [][]const u8) Error!void {
 
 /// The `data` parameter is mutable because this function needs to mutate the
 /// fields in order to handle partial writes from `VTable.writeSplat`.
+/// `data` will be restored to its original state before returning.
 pub fn writeSplatAll(w: *Writer, data: [][]const u8, splat: usize) Error!void {
     var index: usize = 0;
     var truncate: usize = 0;
-    var remaining_splat = splat;
     while (index + 1 < data.len) {
         {
             const untruncated = data[index];
             data[index] = untruncated[truncate..];
             defer data[index] = untruncated;
-            truncate += try w.writeSplat(data[index..], remaining_splat);
+            truncate += try w.writeSplat(data[index..], splat);
         }
-        while (truncate >= data[index].len) {
-            if (index + 1 < data.len) {
-                truncate -= data[index].len;
-                index += 1;
-            } else {
-                const last = data[data.len - 1];
-                remaining_splat -= @divExact(truncate, last.len);
-                while (remaining_splat > 0) {
-                    const n = try w.writeSplat(data[data.len - 1 ..][0..1], remaining_splat);
-                    remaining_splat -= @divExact(n, last.len);
-                }
-                return;
-            }
+        while (truncate >= data[index].len and index + 1 < data.len) {
+            truncate -= data[index].len;
+            index += 1;
         }
     }
+
+    // Deal with any left over splats
+    if (data.len != 0 and truncate < data[index].len * splat) {
+        assert(index == data.len - 1);
+        var remaining_splat = splat;
+        while (true) {
+            remaining_splat -= truncate / data[index].len;
+            truncate %= data[index].len;
+            if (remaining_splat == 0) break;
+            truncate += try w.writeSplat(&.{ data[index][truncate..], data[index] }, remaining_splat - 1);
+        }
+    }
+}
+
+test writeSplatAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var buffers = [_][]const u8{ "ba", "na" };
+    try aw.writer.writeSplatAll(&buffers, 2);
+    try testing.expectEqualStrings("banana", aw.writer.buffered());
+}
+
+test "writeSplatAll works with a single buffer" {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    var message: [1][]const u8 = .{"hello"};
+    try aw.writer.writeSplatAll(&message, 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 pub fn write(w: *Writer, bytes: []const u8) Error!usize {
@@ -476,42 +525,11 @@ pub fn write(w: *Writer, bytes: []const u8) Error!usize {
     return w.vtable.drain(w, &.{bytes}, 1);
 }
 
-/// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writePreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!usize {
-    assert(preserve_length <= w.buffer.len);
-    if (w.end + bytes.len <= w.buffer.len) {
-        @branchHint(.likely);
-        @memcpy(w.buffer[w.end..][0..bytes.len], bytes);
-        w.end += bytes.len;
-        return bytes.len;
-    }
-    const temp_end = w.end -| preserve_length;
-    const preserved = w.buffer[temp_end..w.end];
-    w.end = temp_end;
-    defer w.end += preserved.len;
-    const n = try w.vtable.drain(w, &.{bytes}, 1);
-    assert(w.end <= temp_end + preserved.len);
-    @memmove(w.buffer[w.end..][0..preserved.len], preserved);
-    return n;
-}
-
 /// Calls `drain` as many times as necessary such that all of `bytes` are
 /// transferred.
 pub fn writeAll(w: *Writer, bytes: []const u8) Error!void {
     var index: usize = 0;
     while (index < bytes.len) index += try w.write(bytes[index..]);
-}
-
-/// Calls `drain` as many times as necessary such that all of `bytes` are
-/// transferred.
-///
-/// When draining the buffer, ensures that at least `preserve_length` bytes
-/// remain buffered.
-///
-/// Asserts `buffer` capacity exceeds `preserve_length`.
-pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) Error!void {
-    var index: usize = 0;
-    while (index < bytes.len) index += try w.writePreserve(preserve_length, bytes[index..]);
 }
 
 /// Renders fmt string with args, calling `writer` with slices of bytes.
@@ -572,10 +590,6 @@ pub fn writeAllPreserve(w: *Writer, preserve_length: usize, bytes: []const u8) E
 /// A user type may be a `struct`, `vector`, `union` or `enum` type.
 ///
 /// To print literal curly braces, escape them by writing them twice, e.g. `{{` or `}}`.
-///
-/// Asserts `buffer` capacity of at least 2 if a union is printed. This
-/// requirement could be lifted by adjusting the code, but if you trigger that
-/// assertion it is a clue that you should probably be using a buffer.
 pub fn print(w: *Writer, comptime fmt: []const u8, args: anytype) Error!void {
     const ArgsType = @TypeOf(args);
     const args_type_info = @typeInfo(ArgsType);
@@ -718,16 +732,18 @@ pub fn writeByte(w: *Writer, byte: u8) Error!void {
     }
 }
 
-/// When draining the buffer, ensures that at least `preserve_length` bytes
+/// When draining the buffer, ensures that at least `preserve` bytes
 /// remain buffered.
-pub fn writeBytePreserve(w: *Writer, preserve_length: usize, byte: u8) Error!void {
-    while (w.buffer.len - w.end == 0) {
-        try drainPreserve(w, preserve_length);
-    } else {
+pub fn writeBytePreserve(w: *Writer, preserve: usize, byte: u8) Error!void {
+    if (w.buffer.len - w.end != 0) {
         @branchHint(.likely);
         w.buffer[w.end] = byte;
         w.end += 1;
+        return;
     }
+    try w.vtable.rebase(w, preserve, 1);
+    w.buffer[w.end] = byte;
+    w.end += 1;
 }
 
 /// Writes the same byte many times, performing the underlying write call as
@@ -737,10 +753,50 @@ pub fn splatByteAll(w: *Writer, byte: u8, n: usize) Error!void {
     while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
 }
 
+test splatByteAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatByteAll('7', 45);
+    try testing.expectEqualStrings("7" ** 45, aw.writer.buffered());
+}
+
+pub fn splatBytePreserve(w: *Writer, preserve: usize, byte: u8, n: usize) Error!void {
+    const new_end = w.end + n;
+    if (new_end <= w.buffer.len) {
+        @memset(w.buffer[w.end..][0..n], byte);
+        w.end = new_end;
+        return;
+    }
+    // If `n` is large, we can ignore `preserve` up to a point.
+    var remaining = n;
+    while (remaining > preserve) {
+        assert(remaining != 0);
+        remaining -= try splatByte(w, byte, remaining - preserve);
+        if (w.end + remaining <= w.buffer.len) {
+            @memset(w.buffer[w.end..][0..remaining], byte);
+            w.end += remaining;
+            return;
+        }
+    }
+    // All the next bytes received must be preserved.
+    if (preserve < w.end) {
+        @memmove(w.buffer[0..preserve], w.buffer[w.end - preserve ..][0..preserve]);
+        w.end = preserve;
+    }
+    while (remaining > 0) remaining -= try w.splatByte(byte, remaining);
+}
+
 /// Writes the same byte many times, allowing short writes.
 ///
 /// Does maximum of one underlying `VTable.drain`.
 pub fn splatByte(w: *Writer, byte: u8, n: usize) Error!usize {
+    if (w.end + n <= w.buffer.len) {
+        @branchHint(.likely);
+        @memset(w.buffer[w.end..][0..n], byte);
+        w.end += n;
+        return n;
+    }
     return writeSplat(w, &.{&.{byte}}, n);
 }
 
@@ -750,15 +806,24 @@ pub fn splatBytesAll(w: *Writer, bytes: []const u8, splat: usize) Error!void {
     var remaining_bytes: usize = bytes.len * splat;
     remaining_bytes -= try w.splatBytes(bytes, splat);
     while (remaining_bytes > 0) {
-        const leftover = remaining_bytes % bytes.len;
-        const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover ..], bytes };
-        remaining_bytes -= try w.splatBytes(&buffers, splat);
+        const leftover_splat = remaining_bytes / bytes.len;
+        const leftover_bytes = remaining_bytes % bytes.len;
+        const buffers: [2][]const u8 = .{ bytes[bytes.len - leftover_bytes ..], bytes };
+        remaining_bytes -= try w.writeSplat(&buffers, leftover_splat);
     }
+}
+
+test splatBytesAll {
+    var aw: Writer.Allocating = .init(testing.allocator);
+    defer aw.deinit();
+
+    try aw.writer.splatBytesAll("hello", 3);
+    try testing.expectEqualStrings("hellohellohello", aw.writer.buffered());
 }
 
 /// Writes the same slice many times, allowing short writes.
 ///
-/// Does maximum of one underlying `VTable.writeSplat`.
+/// Does maximum of one underlying `VTable.drain`.
 pub fn splatBytes(w: *Writer, bytes: []const u8, n: usize) Error!usize {
     return writeSplat(w, &.{bytes}, n);
 }
@@ -770,26 +835,19 @@ pub inline fn writeInt(w: *Writer, comptime T: type, value: T, endian: std.built
     return w.writeAll(&bytes);
 }
 
-pub fn writeStruct(w: *Writer, value: anytype) Error!void {
-    // Only extern and packed structs have defined in-memory layout.
-    comptime assert(@typeInfo(@TypeOf(value)).@"struct".layout != .auto);
-    return w.writeAll(std.mem.asBytes(&value));
-}
-
 /// The function is inline to avoid the dead code in case `endian` is
 /// comptime-known and matches host endianness.
-/// TODO: make sure this value is not a reference type
-pub inline fn writeStructEndian(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
+pub inline fn writeStruct(w: *Writer, value: anytype, endian: std.builtin.Endian) Error!void {
     switch (@typeInfo(@TypeOf(value))) {
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
                 if (native_endian == endian) {
-                    return w.writeStruct(value);
+                    return w.writeAll(@ptrCast((&value)[0..1]));
                 } else {
                     var copy = value;
                     std.mem.byteSwapAllFields(@TypeOf(value), &copy);
-                    return w.writeStruct(copy);
+                    return w.writeAll(@ptrCast((&copy)[0..1]));
                 }
             },
             .@"packed" => {
@@ -809,12 +867,23 @@ pub inline fn writeSliceEndian(
     if (native_endian == endian) {
         return writeAll(w, @ptrCast(slice));
     } else {
-        return w.writeArraySwap(w, Elem, slice);
+        return writeSliceSwap(w, Elem, slice);
+    }
+}
+
+pub fn writeSliceSwap(w: *Writer, Elem: type, slice: []const Elem) Error!void {
+    for (slice) |elem| {
+        var tmp = elem;
+        std.mem.byteSwapAllFields(Elem, &tmp);
+        try w.writeAll(@ptrCast(&tmp));
     }
 }
 
 /// Unlike `writeSplat` and `writeVec`, this function will call into `VTable`
 /// even if there is enough buffer capacity for the file contents.
+///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
 ///
 /// Although it would be possible to eliminate `error.Unimplemented` from the
 /// error set by reading directly into the buffer in such case, this is not
@@ -828,6 +897,8 @@ pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!u
 }
 
 /// Returns how many bytes from `header` and `file_reader` were consumed.
+///
+/// `limit` only applies to `file_reader`.
 pub fn sendFileHeader(
     w: *Writer,
     header: []const u8,
@@ -842,7 +913,7 @@ pub fn sendFileHeader(
     }
     const buffered_contents = limit.slice(file_reader.interface.buffered());
     const n = try w.vtable.drain(w, &.{ header, buffered_contents }, 1);
-    file_reader.interface.toss(n - header.len);
+    file_reader.interface.toss(n -| header.len);
     return n;
 }
 
@@ -856,7 +927,16 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 
 /// Number of bytes logically written is returned. This excludes bytes from
 /// `buffer` because they have already been logically written.
+///
+/// The caller is responsible for flushing. Although the buffer may be bypassed
+/// as an optimization, this is not a guarantee.
+///
+/// Asserts nonzero buffer capacity.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
+    // The fallback sendFileReadingAll() path asserts non-zero buffer capacity.
+    // Explicitly assert it here as well to ensure the assert is hit even if
+    // the fallback path is not taken.
+    assert(w.buffer.len > 0);
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
@@ -1010,7 +1090,7 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             'X' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .upper)),
                 .int, .comptime_int => return printInt(w, value, 16, .upper, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 16, .upper, options),
                 .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .upper)),
@@ -1072,8 +1152,8 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             't' => switch (@typeInfo(T)) {
-                .error_set => return w.writeAll(@errorName(value)),
-                .@"enum", .@"union" => return w.writeAll(@tagName(value)),
+                .error_set => return w.alignBufferOptions(@errorName(value), options),
+                .@"enum", .@"union" => return w.alignBufferOptions(@tagName(value), options),
                 else => invalidFmtError(fmt, value),
             },
             else => {},
@@ -1202,14 +1282,13 @@ pub fn printValue(
                 .@"extern", .@"packed" => {
                     if (info.fields.len == 0) return w.writeAll(".{}");
                     try w.writeAll(".{ ");
-                    inline for (info.fields) |field| {
+                    inline for (info.fields, 1..) |field, i| {
                         try w.writeByte('.');
                         try w.writeAll(field.name);
                         try w.writeAll(" = ");
                         try w.printValue(ANY, options, @field(value, field.name), max_depth - 1);
-                        (try w.writableArray(2)).* = ", ".*;
+                        try w.writeAll(if (i < info.fields.len) ", " else " }");
                     }
-                    w.buffer[w.end - 2 ..][0..2].* = " }".*;
                 },
             }
         },
@@ -1505,17 +1584,23 @@ pub fn printFloatHexOptions(w: *Writer, value: anytype, options: std.fmt.Number)
 }
 
 pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precision: ?usize) Error!void {
-    if (std.math.signbit(value)) try w.writeByte('-');
-    if (std.math.isNan(value)) return w.writeAll(switch (case) {
+    const v = switch (@TypeOf(value)) {
+        // comptime_float internally is a f128; this preserves precision.
+        comptime_float => @as(f128, value),
+        else => value,
+    };
+
+    if (std.math.signbit(v)) try w.writeByte('-');
+    if (std.math.isNan(v)) return w.writeAll(switch (case) {
         .lower => "nan",
         .upper => "NAN",
     });
-    if (std.math.isInf(value)) return w.writeAll(switch (case) {
+    if (std.math.isInf(v)) return w.writeAll(switch (case) {
         .lower => "inf",
         .upper => "INF",
     });
 
-    const T = @TypeOf(value);
+    const T = @TypeOf(v);
     const TU = std.meta.Int(.unsigned, @bitSizeOf(T));
 
     const mantissa_bits = std.math.floatMantissaBits(T);
@@ -1525,7 +1610,7 @@ pub fn printFloatHex(w: *Writer, value: anytype, case: std.fmt.Case, opt_precisi
     const exponent_mask = (1 << exponent_bits) - 1;
     const exponent_bias = (1 << (exponent_bits - 1)) - 1;
 
-    const as_bits: TU = @bitCast(value);
+    const as_bits: TU = @bitCast(v);
     var mantissa = as_bits & mantissa_mask;
     var exponent: i32 = @as(u16, @truncate((as_bits >> mantissa_bits) & exponent_mask));
 
@@ -1620,7 +1705,7 @@ pub const ByteSizeUnits = enum {
 
 /// Format option `precision` is ignored when `value` is less than 1kB
 pub fn printByteSize(
-    w: *std.io.Writer,
+    w: *Writer,
     value: u64,
     comptime units: ByteSizeUnits,
     options: std.fmt.Options,
@@ -1805,39 +1890,30 @@ pub fn writeLeb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
     try w.writeMultipleOf7Leb128(@as(@Type(.{ .int = .{
         .signedness = value_info.signedness,
-        .bits = std.mem.alignForwardAnyAlign(u16, value_info.bits, 7),
+        .bits = @max(std.mem.alignForwardAnyAlign(u16, value_info.bits, 7), 7),
     } }), value));
 }
 
 fn writeMultipleOf7Leb128(w: *Writer, value: anytype) Error!void {
     const value_info = @typeInfo(@TypeOf(value)).int;
-    comptime assert(value_info.bits % 7 == 0);
+    const Byte = packed struct(u8) { bits: u7, more: bool };
+    var bytes: [@divExact(value_info.bits, 7)]Byte = undefined;
     var remaining = value;
-    while (true) {
-        const buffer: []packed struct(u8) { bits: u7, more: bool } = @ptrCast(try w.writableSliceGreedy(1));
-        for (buffer, 1..) |*byte, len| {
-            const more = switch (value_info.signedness) {
-                .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
-                .unsigned => remaining > std.math.maxInt(u7),
-            };
-            byte.* = if (@inComptime()) @typeInfo(@TypeOf(buffer)).pointer.child{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            } else .{
-                .bits = @bitCast(@as(@Type(.{ .int = .{
-                    .signedness = value_info.signedness,
-                    .bits = 7,
-                } }), @truncate(remaining))),
-                .more = more,
-            };
-            if (value_info.bits > 7) remaining >>= 7;
-            if (!more) return w.advance(len);
-        }
-        w.advance(buffer.len);
-    }
+    for (&bytes, 1..) |*byte, len| {
+        const more = switch (value_info.signedness) {
+            .signed => remaining >> 6 != remaining >> (value_info.bits - 1),
+            .unsigned => remaining > std.math.maxInt(u7),
+        };
+        byte.* = .{
+            .bits = @bitCast(@as(@Type(.{ .int = .{
+                .signedness = value_info.signedness,
+                .bits = 7,
+            } }), @truncate(remaining))),
+            .more = more,
+        };
+        if (value_info.bits > 7) remaining >>= 7;
+        if (!more) return w.writeAll(@ptrCast(bytes[0..len]));
+    } else unreachable;
 }
 
 test "printValue max_depth" {
@@ -2084,6 +2160,14 @@ test "bytes.hex" {
     try testing.expectFmt("lowercase: 000ebabe\n", "lowercase: {x}\n", .{bytes_with_zeros});
 }
 
+test "padding" {
+    const foo: enum { foo } = .foo;
+    try testing.expectFmt("tag: |foo |\n", "tag: |{t:<4}|\n", .{foo});
+
+    const bar: error{bar} = error.bar;
+    try testing.expectFmt("error: |bar |\n", "error: |{t:<4}|\n", .{bar});
+}
+
 test fixed {
     {
         var buf: [255]u8 = undefined;
@@ -2123,7 +2207,7 @@ test "fixed output" {
 
 test "writeSplat 0 len splat larger than capacity" {
     var buf: [8]u8 = undefined;
-    var w: std.io.Writer = .fixed(&buf);
+    var w: Writer = .fixed(&buf);
     const n = try w.writeSplat(&.{"something that overflows buf"}, 0);
     try testing.expectEqual(0, n);
 }
@@ -2139,6 +2223,13 @@ pub fn failingSendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) File
     _ = w;
     _ = file_reader;
     _ = limit;
+    return error.WriteFailed;
+}
+
+pub fn failingRebase(w: *Writer, preserve: usize, capacity: usize) Error!void {
+    _ = w;
+    _ = preserve;
+    _ = capacity;
     return error.WriteFailed;
 }
 
@@ -2159,10 +2250,15 @@ pub const Discarding = struct {
         };
     }
 
+    /// Includes buffered data (no need to flush).
+    pub fn fullCount(d: *const Discarding) u64 {
+        return d.count + d.writer.end;
+    }
+
     pub fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         const slice = data[0 .. data.len - 1];
-        const pattern = data[slice.len..];
+        const pattern = data[slice.len];
         var written: usize = pattern.len * splat;
         for (slice) |bytes| written += bytes.len;
         d.count += w.end + written;
@@ -2172,11 +2268,17 @@ pub const Discarding = struct {
 
     pub fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
+        switch (builtin.zig_backend) {
+            else => {},
+            .stage2_aarch64 => return error.Unimplemented,
+        }
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;
+        if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
+            if (n == 0) return error.EndOfStream;
             file_reader.seekBy(@intCast(n)) catch return error.Unimplemented;
             w.end = 0;
             d.count += n;
@@ -2238,7 +2340,7 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     const pattern = data[data.len - 1];
     const dest = w.buffer[w.end..];
     switch (pattern.len) {
-        0 => return w.end,
+        0 => return 0,
         1 => {
             assert(splat >= dest.len);
             @memset(dest, pattern[0]);
@@ -2258,6 +2360,20 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
     }
 }
 
+pub fn unreachableDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+    _ = w;
+    _ = data;
+    _ = splat;
+    unreachable;
+}
+
+pub fn unreachableRebase(w: *Writer, preserve: usize, capacity: usize) Error!void {
+    _ = w;
+    _ = preserve;
+    _ = capacity;
+    unreachable;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2268,6 +2384,8 @@ pub fn fixedDrain(w: *Writer, data: []const []const u8, splat: usize) Error!usiz
 /// generic. A better solution will involve creating a writer for each hash
 /// function, where the splat buffer can be tailored to the hash implementation
 /// details.
+///
+/// Contrast with `Hashing` which terminates the stream pipeline.
 pub fn Hashed(comptime Hasher: type) type {
     return struct {
         out: *Writer,
@@ -2313,7 +2431,7 @@ pub fn Hashed(comptime Hasher: type) type {
                 this.hasher.update(slice);
             }
             const pattern = data[data.len - 1];
-            assert(remaining == splat * pattern.len);
+            assert(remaining <= splat * pattern.len);
             switch (pattern.len) {
                 0 => {
                     assert(remaining == 0);
@@ -2340,10 +2458,56 @@ pub fn Hashed(comptime Hasher: type) type {
     };
 }
 
+/// Provides a `Writer` implementation based on calling `Hasher.update`,
+/// discarding all data.
+///
+/// This implementation makes suboptimal buffering decisions due to being
+/// generic. A better solution will involve creating a writer for each hash
+/// function, where the splat buffer can be tailored to the hash implementation
+/// details.
+///
+/// The total number of bytes written is stored in `hasher`.
+///
+/// Contrast with `Hashed` which also passes the data to an underlying stream.
+pub fn Hashing(comptime Hasher: type) type {
+    return struct {
+        hasher: Hasher,
+        writer: Writer,
+
+        pub fn init(buffer: []u8) @This() {
+            return .initHasher(.init(.{}), buffer);
+        }
+
+        pub fn initHasher(hasher: Hasher, buffer: []u8) @This() {
+            return .{
+                .hasher = hasher,
+                .writer = .{
+                    .buffer = buffer,
+                    .vtable = &.{ .drain = @This().drain },
+                },
+            };
+        }
+
+        fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
+            const this: *@This() = @alignCast(@fieldParentPtr("writer", w));
+            const hasher = &this.hasher;
+            hasher.update(w.buffered());
+            w.end = 0;
+            var n: usize = 0;
+            for (data[0 .. data.len - 1]) |slice| {
+                hasher.update(slice);
+                n += slice.len;
+            }
+            for (0..splat) |_| hasher.update(data[data.len - 1]);
+            return n + splat * data[data.len - 1].len;
+        }
+    };
+}
+
 /// Maintains `Writer` state such that it writes to the unused capacity of an
 /// array list, filling it up completely before making a call through the
 /// vtable, causing a resize. Consequently, the same, optimized, non-generic
-/// machine code that uses `std.io.Reader`, such as formatted printing, takes
+/// machine code that uses `std.Io.Reader`, such as formatted printing, takes
 /// the hot paths when using this API.
 ///
 /// When using this API, it is not necessary to call `flush`.
@@ -2398,6 +2562,7 @@ pub const Allocating = struct {
         .drain = Allocating.drain,
         .sendFile = Allocating.sendFile,
         .flush = noopFlush,
+        .rebase = growingRebase,
     };
 
     pub fn deinit(a: *Allocating) void {
@@ -2418,18 +2583,32 @@ pub const Allocating = struct {
         return result;
     }
 
+    pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureUnusedCapacity(a.allocator, additional_count);
+    }
+
+    pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
+        var list = a.toArrayList();
+        defer a.setArrayList(list);
+        return list.ensureTotalCapacity(a.allocator, new_capacity);
+    }
+
     pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
         var list = a.toArrayList();
+        defer a.setArrayList(list);
         return list.toOwnedSlice(a.allocator);
     }
 
     pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
         const gpa = a.allocator;
         var list = toArrayList(a);
+        defer a.setArrayList(list);
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
 
-    pub fn getWritten(a: *Allocating) []u8 {
+    pub fn written(a: *Allocating) []u8 {
         return a.writer.buffered();
     }
 
@@ -2449,8 +2628,6 @@ pub const Allocating = struct {
         var list = a.toArrayList();
         defer setArrayList(a, list);
         const start_len = list.items.len;
-        // Even if we append no data, this function needs to ensure there is more
-        // capacity in the buffer to avoid infinite loop, hence the +1 in this loop.
         assert(data.len != 0);
         for (data) |bytes| {
             list.ensureUnusedCapacity(gpa, bytes.len + splat_len + 1) catch return error.WriteFailed;
@@ -2466,22 +2643,31 @@ pub const Allocating = struct {
         return list.items.len - start_len;
     }
 
-    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: std.io.Limit) FileError!usize {
+    fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
+        if (limit == .nothing) return 0;
         const a: *Allocating = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
-        const pos = file_reader.pos;
+        const pos = file_reader.logicalPos();
         const additional = if (file_reader.getSize()) |size| size - pos else |_| std.atomic.cache_line;
+        if (additional == 0) return error.EndOfStream;
         list.ensureUnusedCapacity(gpa, limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(list.unusedCapacitySlice());
-        const n = file_reader.read(dest) catch |err| switch (err) {
-            error.ReadFailed => return error.ReadFailed,
-            error.EndOfStream => 0,
-        };
+        const n = try file_reader.read(dest);
         list.items.len += n;
         return n;
+    }
+
+    fn growingRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
+        const a: *Allocating = @fieldParentPtr("writer", w);
+        const gpa = a.allocator;
+        var list = a.toArrayList();
+        defer setArrayList(a, list);
+        const total = std.math.add(usize, preserve, minimum_len) catch return error.WriteFailed;
+        list.ensureTotalCapacity(gpa, total) catch return error.WriteFailed;
+        list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
     }
 
     fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
@@ -2498,6 +2684,86 @@ pub const Allocating = struct {
         const y: i32 = 1234;
         try w.print("x: {}\ny: {}\n", .{ x, y });
 
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.getWritten());
+        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
     }
 };
+
+test "discarding sendFile" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var w_buffer: [256]u8 = undefined;
+    var discarding: Writer.Discarding = .init(&w_buffer);
+
+    _ = try file_reader.interface.streamRemaining(&discarding.writer);
+}
+
+test "allocating sendFile" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [256]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeByte('h');
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+
+    var allocating: Writer.Allocating = .init(testing.allocator);
+    defer allocating.deinit();
+
+    _ = try file_reader.interface.streamRemaining(&allocating.writer);
+}
+
+test writeStruct {
+    var buffer: [16]u8 = undefined;
+    const S = extern struct { a: u64, b: u32, c: u32 };
+    const s: S = .{ .a = 1, .b = 2, .c = 3 };
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .little);
+        try testing.expectEqualSlices(u8, &.{
+            1, 0, 0, 0, 0, 0, 0, 0, //
+            2, 0, 0, 0, //
+            3, 0, 0, 0, //
+        }, &buffer);
+    }
+    {
+        var w: Writer = .fixed(&buffer);
+        try w.writeStruct(s, .big);
+        try testing.expectEqualSlices(u8, &.{
+            0, 0, 0, 0, 0, 0, 0, 1, //
+            0, 0, 0, 2, //
+            0, 0, 0, 3, //
+        }, &buffer);
+    }
+}
+
+test writeSliceEndian {
+    var buffer: [5]u8 align(2) = undefined;
+    var w: Writer = .fixed(&buffer);
+    try w.writeByte('x');
+    const array: [2]u16 = .{ 0x1234, 0x5678 };
+    try writeSliceEndian(&w, u16, &array, .big);
+    try testing.expectEqualSlices(u8, &.{ 'x', 0x12, 0x34, 0x56, 0x78 }, &buffer);
+}
+
+test "writableSlice with fixed writer" {
+    var buf: [2]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&buf);
+    try w.writeByte(1);
+    try std.testing.expectError(error.WriteFailed, w.writableSlice(2));
+}

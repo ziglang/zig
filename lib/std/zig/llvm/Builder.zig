@@ -2037,7 +2037,7 @@ pub const Alignment = enum(u6) {
 
         pub fn format(p: Prefixed, w: *Writer) Writer.Error!void {
             const byte_units = p.alignment.toByteUnits() orelse return;
-            return w.print("{s}align ({d})", .{ p.prefix, byte_units });
+            return w.print("{s}align {d}", .{ p.prefix, byte_units });
         }
     };
 
@@ -2384,7 +2384,7 @@ pub const Global = struct {
         };
         fn format(data: FormatData, w: *Writer) Writer.Error!void {
             try w.print("@{f}", .{
-                data.global.unwrap(data.builder).name(data.builder).fmt(data.builder, null),
+                data.global.unwrap(data.builder).name(data.builder).fmt(data.builder, .quote_unless_valid_identifier),
             });
         }
         pub fn fmt(self: Index, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
@@ -8401,7 +8401,7 @@ pub const Metadata = enum(u32) {
                     }, w);
                 },
                 .string => |node| try w.print("{s}{f}", .{
-                    @as([]const u8, if (is_specialized) "" else "!"), node.fmt(builder),
+                    @as([]const u8, if (is_specialized) "!" else ""), node.fmt(builder),
                 }),
                 inline .bool, .u32, .u64 => |node| try w.print("{}", .{node}),
                 inline .di_flags, .sp_flags => |node| try w.print("{f}", .{node}),
@@ -8533,18 +8533,19 @@ pub const Metadata = enum(u32) {
                     .type = []const u8,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf([]const u8),
                 };
             }
             fmt_str = fmt_str ++ "(";
             inline for (fields[2..], names) |*field, name| {
                 fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
+                const T = std.fmt.Formatter(FormatData, format);
                 field.* = .{
                     .name = name,
-                    .type = std.fmt.Formatter(FormatData, format),
+                    .type = T,
                     .default_value_ptr = null,
                     .is_comptime = false,
-                    .alignment = 0,
+                    .alignment = @alignOf(T),
                 };
             }
             fmt_str = fmt_str ++ ")\n";
@@ -9106,7 +9107,7 @@ pub fn getIntrinsic(
 
     var attributes: struct {
         builder: *Builder,
-        list: std.ArrayList(Attribute.Index),
+        list: std.array_list.Managed(Attribute.Index),
 
         fn deinit(state: *@This()) void {
             state.list.deinit();
@@ -9119,7 +9120,7 @@ pub fn getIntrinsic(
                 item.* = try state.builder.attr(attribute);
             return state.builder.attrs(state.list.items);
         }
-    } = .{ .builder = self, .list = std.ArrayList(Attribute.Index).init(allocator) };
+    } = .{ .builder = self, .list = std.array_list.Managed(Attribute.Index).init(allocator) };
     defer attributes.deinit();
 
     var overload_index: usize = 0;
@@ -9782,7 +9783,7 @@ pub fn print(self: *Builder, w: *Writer) (Writer.Error || Allocator.Error)!void 
                             instruction_index.name(&function).fmt(self),
                             @tagName(tag),
                             extra.lhs.fmt(function_index, self, .{ .percent = true }),
-                            extra.rhs.fmt(function_index, self, .{ .percent = true }),
+                            extra.rhs.fmt(function_index, self, .{}),
                         });
                     },
                     .addrspacecast,

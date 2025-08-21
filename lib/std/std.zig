@@ -1,16 +1,10 @@
 pub const ArrayHashMap = array_hash_map.ArrayHashMap;
 pub const ArrayHashMapUnmanaged = array_hash_map.ArrayHashMapUnmanaged;
-pub const ArrayList = @import("array_list.zig").ArrayList;
-pub const ArrayListAligned = @import("array_list.zig").ArrayListAligned;
-pub const ArrayListAlignedUnmanaged = @import("array_list.zig").ArrayListAlignedUnmanaged;
-pub const ArrayListUnmanaged = @import("array_list.zig").ArrayListUnmanaged;
 pub const AutoArrayHashMap = array_hash_map.AutoArrayHashMap;
 pub const AutoArrayHashMapUnmanaged = array_hash_map.AutoArrayHashMapUnmanaged;
 pub const AutoHashMap = hash_map.AutoHashMap;
 pub const AutoHashMapUnmanaged = hash_map.AutoHashMapUnmanaged;
 pub const BitStack = @import("BitStack.zig");
-pub const BoundedArray = @import("bounded_array.zig").BoundedArray;
-pub const BoundedArrayAligned = @import("bounded_array.zig").BoundedArrayAligned;
 pub const Build = @import("Build.zig");
 pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
@@ -31,7 +25,6 @@ pub const PriorityQueue = @import("priority_queue.zig").PriorityQueue;
 pub const PriorityDequeue = @import("priority_dequeue.zig").PriorityDequeue;
 pub const Progress = @import("Progress.zig");
 pub const Random = @import("Random.zig");
-pub const RingBuffer = @import("RingBuffer.zig");
 pub const SegmentedList = @import("segmented_list.zig").SegmentedList;
 pub const SemanticVersion = @import("SemanticVersion.zig");
 pub const SinglyLinkedList = @import("SinglyLinkedList.zig");
@@ -45,6 +38,24 @@ pub const Thread = @import("Thread.zig");
 pub const Treap = @import("treap.zig").Treap;
 pub const Tz = tz.Tz;
 pub const Uri = @import("Uri.zig");
+
+/// A contiguous, growable list of items in memory. This is a wrapper around a
+/// slice of `T` values.
+///
+/// The same allocator must be used throughout its entire lifetime. Initialize
+/// directly with `empty` or `initCapacity`, and deinitialize with `deinit` or
+/// `toOwnedSlice`.
+pub fn ArrayList(comptime T: type) type {
+    return array_list.Aligned(T, null);
+}
+pub const array_list = @import("array_list.zig");
+
+/// Deprecated; use `array_list.Aligned`.
+pub const ArrayListAligned = array_list.Aligned;
+/// Deprecated; use `array_list.Aligned`.
+pub const ArrayListAlignedUnmanaged = array_list.Aligned;
+/// Deprecated; use `ArrayList`.
+pub const ArrayListUnmanaged = ArrayList;
 
 pub const array_hash_map = @import("array_hash_map.zig");
 pub const atomic = @import("atomic.zig");
@@ -60,7 +71,6 @@ pub const debug = @import("debug.zig");
 pub const dwarf = @import("dwarf.zig");
 pub const elf = @import("elf.zig");
 pub const enums = @import("enums.zig");
-pub const fifo = @import("fifo.zig");
 pub const fmt = @import("fmt.zig");
 pub const fs = @import("fs.zig");
 pub const gpu = @import("gpu.zig");

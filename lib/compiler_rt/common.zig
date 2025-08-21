@@ -102,9 +102,14 @@ pub const gnu_f16_abi = switch (builtin.cpu.arch) {
 
 pub const want_sparc_abi = builtin.cpu.arch.isSPARC();
 
+pub const test_safety = switch (builtin.zig_backend) {
+    .stage2_aarch64 => false,
+    else => builtin.is_test,
+};
+
 // Avoid dragging in the runtime safety mechanisms into this .o file, unless
 // we're trying to test compiler-rt.
-pub const panic = if (builtin.is_test) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
+pub const panic = if (test_safety) std.debug.FullPanic(std.debug.defaultPanic) else std.debug.no_panic;
 
 /// This seems to mostly correspond to `clang::TargetInfo::HasFloat16`.
 pub fn F16T(comptime OtherType: type) type {

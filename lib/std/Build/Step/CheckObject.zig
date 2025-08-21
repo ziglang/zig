@@ -18,7 +18,7 @@ pub const base_id: Step.Id = .check_object;
 step: Step,
 source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
-checks: std.ArrayList(Check),
+checks: std.array_list.Managed(Check),
 obj_format: std.Target.ObjectFormat,
 
 pub fn create(
@@ -36,7 +36,7 @@ pub fn create(
             .makeFn = make,
         }),
         .source = source.dupe(owner),
-        .checks = std.ArrayList(Check).init(gpa),
+        .checks = std.array_list.Managed(Check).init(gpa),
         .obj_format = obj_format,
     };
     check_object.source.addStepDependencies(&check_object.step);
@@ -81,7 +81,7 @@ const Action = struct {
         const hay = mem.trim(u8, haystack, " ");
         const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
 
-        var candidate_vars: std.ArrayList(struct { name: []const u8, value: u64 }) = .init(b.allocator);
+        var candidate_vars: std.array_list.Managed(struct { name: []const u8, value: u64 }) = .init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
         var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
@@ -157,8 +157,8 @@ const Action = struct {
     fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: anytype) !bool {
         const gpa = step.owner.allocator;
         const phrase = act.phrase.resolve(b, step);
-        var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
-        var values = std.ArrayList(u64).init(gpa);
+        var op_stack = std.array_list.Managed(enum { add, sub, mod, mul }).init(gpa);
+        var values = std.array_list.Managed(u64).init(gpa);
 
         var it = mem.tokenizeScalar(u8, phrase, ' ');
         while (it.next()) |next| {
@@ -242,15 +242,15 @@ const ComputeCompareExpected = struct {
 const Check = struct {
     kind: Kind,
     payload: Payload,
-    data: std.ArrayList(u8),
-    actions: std.ArrayList(Action),
+    data: std.array_list.Managed(u8),
+    actions: std.array_list.Managed(Action),
 
     fn create(allocator: Allocator, kind: Kind) Check {
         return .{
             .kind = kind,
             .payload = .{ .none = {} },
-            .data = std.ArrayList(u8).init(allocator),
-            .actions = std.ArrayList(Action).init(allocator),
+            .data = std.array_list.Managed(u8).init(allocator),
+            .actions = std.array_list.Managed(Action).init(allocator),
         };
     }
 
@@ -1214,7 +1214,7 @@ const MachODumper = struct {
         }
 
         fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var rebases = std.ArrayList(u64).init(ctx.gpa);
+            var rebases = std.array_list.Managed(u64).init(ctx.gpa);
             defer rebases.deinit();
             try ctx.parseRebaseInfo(data, &rebases);
             mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
@@ -1223,7 +1223,7 @@ const MachODumper = struct {
             }
         }
 
-        fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
+        fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.array_list.Managed(u64)) !void {
             var stream = std.io.fixedBufferStream(data);
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
@@ -1313,7 +1313,7 @@ const MachODumper = struct {
         };
 
         fn dumpBindInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var bindings = std.ArrayList(Binding).init(ctx.gpa);
+            var bindings = std.array_list.Managed(Binding).init(ctx.gpa);
             defer {
                 for (bindings.items) |*b| {
                     b.deinit(ctx.gpa);
@@ -1335,7 +1335,7 @@ const MachODumper = struct {
             }
         }
 
-        fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
+        fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.array_list.Managed(Binding)) !void {
             var stream = std.io.fixedBufferStream(data);
             var creader = std.io.countingReader(stream.reader());
             const reader = creader.reader();
@@ -1346,7 +1346,7 @@ const MachODumper = struct {
             var offset: u64 = 0;
             var addend: i64 = 0;
 
-            var name_buf = std.ArrayList(u8).init(ctx.gpa);
+            var name_buf = std.array_list.Managed(u8).init(ctx.gpa);
             defer name_buf.deinit();
 
             while (true) {
@@ -1434,7 +1434,7 @@ const MachODumper = struct {
             var arena = std.heap.ArenaAllocator.init(ctx.gpa);
             defer arena.deinit();
 
-            var exports = std.ArrayList(Export).init(arena.allocator());
+            var exports = std.array_list.Managed(Export).init(arena.allocator());
             var it = TrieIterator{ .data = data };
             try parseTrieNode(arena.allocator(), &it, "", &exports);
 
@@ -1546,7 +1546,7 @@ const MachODumper = struct {
             arena: Allocator,
             it: *TrieIterator,
             prefix: []const u8,
-            exports: *std.ArrayList(Export),
+            exports: *std.array_list.Managed(Export),
         ) !void {
             const size = try it.readUleb128();
             if (size > 0) {
@@ -1621,7 +1621,7 @@ const MachODumper = struct {
         var ctx = ObjectContext{ .gpa = gpa, .data = bytes, .header = hdr };
         try ctx.parse();
 
-        var output = std.ArrayList(u8).init(gpa);
+        var output = std.array_list.Managed(u8).init(gpa);
         const writer = output.writer();
 
         switch (check.kind) {
@@ -1787,7 +1787,7 @@ const ElfDumper = struct {
             try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
         }
 
-        var output = std.ArrayList(u8).init(gpa);
+        var output = std.array_list.Managed(u8).init(gpa);
         const writer = output.writer();
 
         switch (check.kind) {
@@ -1848,7 +1848,7 @@ const ElfDumper = struct {
                 files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
             }
 
-            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+            var symbols = std.AutoArrayHashMap(usize, std.array_list.Managed([]const u8)).init(ctx.gpa);
             defer {
                 for (symbols.values()) |*value| {
                     value.deinit();
@@ -1859,7 +1859,7 @@ const ElfDumper = struct {
             for (ctx.symtab.items) |entry| {
                 const gop = try symbols.getOrPut(@intCast(entry.off));
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
+                    gop.value_ptr.* = std.array_list.Managed([]const u8).init(ctx.gpa);
                 }
                 try gop.value_ptr.append(entry.name);
             }
@@ -1944,7 +1944,7 @@ const ElfDumper = struct {
             else => {},
         };
 
-        var output = std.ArrayList(u8).init(gpa);
+        var output = std.array_list.Managed(u8).init(gpa);
         const writer = output.writer();
 
         switch (check.kind) {
@@ -2398,7 +2398,7 @@ const WasmDumper = struct {
             return error.UnsupportedWasmVersion;
         }
 
-        var output = std.ArrayList(u8).init(gpa);
+        var output = std.array_list.Managed(u8).init(gpa);
         defer output.deinit();
         parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
             error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
@@ -2412,7 +2412,7 @@ const WasmDumper = struct {
         check: Check,
         bytes: []const u8,
         fbs: *std.io.FixedBufferStream([]const u8),
-        output: *std.ArrayList(u8),
+        output: *std.array_list.Managed(u8),
     ) !void {
         const reader = fbs.reader();
         const writer = output.writer();

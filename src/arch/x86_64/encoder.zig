@@ -1204,11 +1204,10 @@ const TestEncode = struct {
         mnemonic: Instruction.Mnemonic,
         ops: []const Instruction.Operand,
     ) !void {
-        var stream = std.io.fixedBufferStream(&enc.buffer);
-        var count_writer = std.io.countingWriter(stream.writer());
+        var writer: std.Io.Writer = .fixed(&enc.buffer);
         const inst: Instruction = try .new(.none, mnemonic, ops);
-        try inst.encode(count_writer.writer(), .{});
-        enc.index = count_writer.bytes_written;
+        try inst.encode(&writer, .{});
+        enc.index = writer.bufferedLen();
     }
 
     fn code(enc: TestEncode) []const u8 {
@@ -1217,7 +1216,7 @@ const TestEncode = struct {
 };
 
 test "encode" {
-    var buf = std.ArrayList(u8).init(testing.allocator);
+    var buf = std.array_list.Managed(u8).init(testing.allocator);
     defer buf.deinit();
 
     const inst: Instruction = try .new(.none, .mov, &.{
@@ -2648,7 +2647,7 @@ test "assemble" {
     // zig fmt: on
 
     var as = Assembler.init(input);
-    var output = std.ArrayList(u8).init(testing.allocator);
+    var output = std.array_list.Managed(u8).init(testing.allocator);
     defer output.deinit();
     try as.assemble(output.writer());
     try expectEqualHexStrings(expected, output.items, input);
@@ -2692,7 +2691,7 @@ test "assemble - Jcc" {
         const input = @tagName(mnemonic[0]) ++ " 0x0";
         const expected = [_]u8{ 0x0f, mnemonic[1], 0x0, 0x0, 0x0, 0x0 };
         var as = Assembler.init(input);
-        var output = std.ArrayList(u8).init(testing.allocator);
+        var output = std.array_list.Managed(u8).init(testing.allocator);
         defer output.deinit();
         try as.assemble(output.writer());
         try expectEqualHexStrings(&expected, output.items, input);
@@ -2737,7 +2736,7 @@ test "assemble - SETcc" {
         const input = @tagName(mnemonic[0]) ++ " al";
         const expected = [_]u8{ 0x0f, mnemonic[1], 0xC0 };
         var as = Assembler.init(input);
-        var output = std.ArrayList(u8).init(testing.allocator);
+        var output = std.array_list.Managed(u8).init(testing.allocator);
         defer output.deinit();
         try as.assemble(output.writer());
         try expectEqualHexStrings(&expected, output.items, input);
@@ -2782,7 +2781,7 @@ test "assemble - CMOVcc" {
         const input = @tagName(mnemonic[0]) ++ " rax, rbx";
         const expected = [_]u8{ 0x48, 0x0f, mnemonic[1], 0xC3 };
         var as = Assembler.init(input);
-        var output = std.ArrayList(u8).init(testing.allocator);
+        var output = std.array_list.Managed(u8).init(testing.allocator);
         defer output.deinit();
         try as.assemble(output.writer());
         try expectEqualHexStrings(&expected, output.items, input);

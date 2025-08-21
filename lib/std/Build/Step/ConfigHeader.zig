@@ -101,6 +101,9 @@ pub fn create(owner: *std.Build, options: Options) *ConfigHeader {
         .generated_dir = .{ .step = &config_header.step },
     };
 
+    if (options.style.getPath()) |s| {
+        s.addStepDependencies(&config_header.step);
+    }
     return config_header;
 }
 
@@ -236,7 +239,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         },
     }
 
-    const output = aw.getWritten();
+    const output = aw.written();
     man.hash.addBytes(output);
 
     if (try step.cacheHit(&man)) {
@@ -344,10 +347,10 @@ fn render_autoconf_at(
     while (line_it.next()) |line| : (line_index += 1) {
         const last_line = line_it.index == line_it.buffer.len;
 
-        const old_len = aw.getWritten().len;
+        const old_len = aw.written().len;
         expand_variables_autoconf_at(bw, line, values, used) catch |err| switch (err) {
             error.MissingValue => {
-                const name = aw.getWritten()[old_len..];
+                const name = aw.written()[old_len..];
                 defer aw.shrinkRetainingCapacity(old_len);
                 try step.addError("{s}:{d}: error: unspecified config header value: '{s}'", .{
                     src_path, line_index + 1, name,
@@ -618,7 +621,7 @@ fn expand_variables_cmake(
     contents: []const u8,
     values: std.StringArrayHashMap(Value),
 ) ![]const u8 {
-    var result: std.ArrayList(u8) = .init(allocator);
+    var result: std.array_list.Managed(u8) = .init(allocator);
     errdefer result.deinit();
 
     const valid_varname_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/_.+-";
@@ -630,7 +633,7 @@ fn expand_variables_cmake(
         source: usize,
         target: usize,
     };
-    var var_stack: std.ArrayList(Position) = .init(allocator);
+    var var_stack: std.array_list.Managed(Position) = .init(allocator);
     defer var_stack.deinit();
     loop: while (curr < contents.len) : (curr += 1) {
         switch (contents[curr]) {
@@ -760,7 +763,7 @@ fn testReplaceVariablesAutoconfAt(
     try expand_variables_autoconf_at(&aw.writer, contents, values, used);
 
     for (used) |u| if (!u) return error.UnusedValue;
-    try std.testing.expectEqualStrings(expected, aw.getWritten());
+    try std.testing.expectEqualStrings(expected, aw.written());
 }
 
 fn testReplaceVariablesCMake(

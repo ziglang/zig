@@ -57,7 +57,7 @@ comptime {
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(&mainWithoutEnv, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "__main_argc_argv" });
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
@@ -101,17 +101,11 @@ comptime {
 // Simplified start code for stage2 until it supports more language features ///
 
 fn main2() callconv(.c) c_int {
-    root.main();
-    return 0;
+    return callMain();
 }
 
 fn _start2() callconv(.withStackAlign(.c, 1)) noreturn {
-    callMain2();
-}
-
-fn callMain2() noreturn {
-    root.main();
-    exit2(0);
+    std.posix.exit(callMain());
 }
 
 fn spirvMain2() callconv(.kernel) void {
@@ -119,55 +113,7 @@ fn spirvMain2() callconv(.kernel) void {
 }
 
 fn wWinMainCRTStartup2() callconv(.c) noreturn {
-    root.main();
-    exit2(0);
-}
-
-fn exit2(code: usize) noreturn {
-    switch (native_os) {
-        .linux => switch (builtin.cpu.arch) {
-            .x86_64 => {
-                asm volatile ("syscall"
-                    :
-                    : [number] "{rax}" (231),
-                      [arg1] "{rdi}" (code),
-                    : "rcx", "r11", "memory"
-                );
-            },
-            .arm => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{r7}" (1),
-                      [arg1] "{r0}" (code),
-                    : "memory"
-                );
-            },
-            .aarch64 => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{x8}" (93),
-                      [arg1] "{x0}" (code),
-                    : "memory", "cc"
-                );
-            },
-            .sparc64 => {
-                asm volatile ("ta 0x6d"
-                    :
-                    : [number] "{g1}" (1),
-                      [arg1] "{o0}" (code),
-                    : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
-                );
-            },
-            else => @compileError("TODO"),
-        },
-        // exits(0)
-        .plan9 => std.os.plan9.exits(null),
-        .windows => {
-            std.os.windows.ntdll.RtlExitUserProcess(@truncate(code));
-        },
-        else => @compileError("TODO"),
-    }
-    unreachable;
+    std.posix.exit(callMain());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -683,7 +629,7 @@ pub inline fn callMain() u8 {
                     .stage2_powerpc,
                     .stage2_riscv64,
                     => {
-                        std.debug.print("error: failed with error\n", .{});
+                        _ = std.posix.write(std.posix.STDERR_FILENO, "error: failed with error\n") catch {};
                         return 1;
                     },
                     else => {},
@@ -753,6 +699,7 @@ fn maybeIgnoreSigpipe() void {
         .visionos,
         .dragonfly,
         .freebsd,
+        .serenity,
         => true,
 
         else => false,

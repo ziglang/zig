@@ -6,7 +6,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const print = std.debug.print;
 const expect = std.testing.expect;
-const consts = @import("consts.zig").match;
 
 const Token = @This();
 
@@ -21,16 +20,23 @@ dist: u15 = 0,
 len_lit: u8 = 0,
 kind: Kind = .literal,
 
+pub const base_length = 3; // smallest match length per the RFC section 3.2.5
+pub const min_length = 4; // min length used in this algorithm
+pub const max_length = 258;
+
+pub const min_distance = 1;
+pub const max_distance = std.compress.flate.history_len;
+
 pub fn literal(t: Token) u8 {
     return t.len_lit;
 }
 
 pub fn distance(t: Token) u16 {
-    return @as(u16, t.dist) + consts.min_distance;
+    return @as(u16, t.dist) + min_distance;
 }
 
 pub fn length(t: Token) u16 {
-    return @as(u16, t.len_lit) + consts.base_length;
+    return @as(u16, t.len_lit) + base_length;
 }
 
 pub fn initLiteral(lit: u8) Token {
@@ -40,12 +46,12 @@ pub fn initLiteral(lit: u8) Token {
 // distance range 1 - 32768, stored in dist as 0 - 32767 (u15)
 // length range 3 - 258, stored in len_lit as 0 - 255 (u8)
 pub fn initMatch(dist: u16, len: u16) Token {
-    assert(len >= consts.min_length and len <= consts.max_length);
-    assert(dist >= consts.min_distance and dist <= consts.max_distance);
+    assert(len >= min_length and len <= max_length);
+    assert(dist >= min_distance and dist <= max_distance);
     return .{
         .kind = .match,
-        .dist = @intCast(dist - consts.min_distance),
-        .len_lit = @intCast(len - consts.base_length),
+        .dist = @intCast(dist - min_distance),
+        .len_lit = @intCast(len - base_length),
     };
 }
 

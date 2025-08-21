@@ -1,7 +1,7 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-fn _start() callconv(.naked) void {}
+pub fn _start() callconv(.naked) void {}
 
 comptime {
     @export(&_start, .{ .name = if (builtin.cpu.arch.isMIPS()) "__start" else "_start" });

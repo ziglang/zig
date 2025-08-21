@@ -101,7 +101,7 @@ reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 /// within different branches. Special consideration is needed when a branch
 /// joins with its parent, to make sure all instructions have the same MCValue
 /// across each runtime branch upon joining.
-branch_stack: *std.ArrayList(Branch),
+branch_stack: *std.array_list.Managed(Branch),
 
 // Currently set vector properties, null means they haven't been set yet in the function.
 avl: ?u64,
@@ -674,7 +674,7 @@ fn restoreState(func: *Func, state: State, deaths: []const Air.Inst.Index, compt
     var stack align(@max(@alignOf(ExpectedContents), @alignOf(std.heap.StackFallbackAllocator(0)))) =
         if (opts.update_tracking) {} else std.heap.stackFallback(@sizeOf(ExpectedContents), func.gpa);
 
-    var reg_locks = if (opts.update_tracking) {} else try std.ArrayList(RegisterLock).initCapacity(
+    var reg_locks = if (opts.update_tracking) {} else try std.array_list.Managed(RegisterLock).initCapacity(
         stack.get(),
         @typeInfo(ExpectedContents).array.len,
     );
@@ -744,7 +744,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
-    liveness: *const Air.Liveness,
+    liveness: *const ?Air.Liveness,
 ) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -753,7 +753,7 @@ pub fn generate(
     const fn_type = Type.fromInterned(func.ty);
     const mod = zcu.navFileScope(func.owner_nav).mod.?;
 
-    var branch_stack = std.ArrayList(Branch).init(gpa);
+    var branch_stack = std.array_list.Managed(Branch).init(gpa);
     defer {
         assert(branch_stack.items.len == 1);
         branch_stack.items[0].deinit(gpa);
@@ -767,7 +767,7 @@ pub fn generate(
         .pt = pt,
         .mod = mod,
         .bin_file = bin_file,
-        .liveness = liveness.*,
+        .liveness = liveness.*.?,
         .target = &mod.resolved_target.result,
         .owner = .{ .nav_index = func.owner_nav },
         .args = undefined, // populated after `resolveCallingConventionValues`
@@ -4584,7 +4584,7 @@ fn structFieldPtr(func: *Func, inst: Air.Inst.Index, operand: Air.Inst.Ref, inde
     const field_offset: i32 = switch (container_ty.containerLayout(zcu)) {
         .auto, .@"extern" => @intCast(container_ty.structFieldOffset(index, zcu)),
         .@"packed" => @divExact(@as(i32, ptr_container_ty.ptrInfo(zcu).packed_offset.bit_offset) +
-            (if (zcu.typeToStruct(container_ty)) |struct_obj| pt.structPackedFieldBitOffset(struct_obj, index) else 0) -
+            (if (zcu.typeToStruct(container_ty)) |struct_obj| zcu.structPackedFieldBitOffset(struct_obj, index) else 0) -
             ptr_field_ty.ptrInfo(zcu).packed_offset.bit_offset, 8),
     };
 
@@ -4615,7 +4615,7 @@ fn airStructFieldVal(func: *Func, inst: Air.Inst.Index) !void {
         const field_off: u32 = switch (struct_ty.containerLayout(zcu)) {
             .auto, .@"extern" => @intCast(struct_ty.structFieldOffset(index, zcu) * 8),
             .@"packed" => if (zcu.typeToStruct(struct_ty)) |struct_type|
-                pt.structPackedFieldBitOffset(struct_type, index)
+                zcu.structPackedFieldBitOffset(struct_type, index)
             else
                 0,
         };
@@ -4883,7 +4883,7 @@ fn genCall(
         stack_frame_align.* = stack_frame_align.max(needed_call_frame.abi_align);
     }
 
-    var reg_locks = std.ArrayList(?RegisterLock).init(allocator);
+    var reg_locks = std.array_list.Managed(?RegisterLock).init(allocator);
     defer reg_locks.deinit();
     try reg_locks.ensureTotalCapacity(8);
     defer for (reg_locks.items) |reg_lock| if (reg_lock) |lock| func.register_manager.unlockReg(lock);
@@ -6047,16 +6047,16 @@ fn airBoolOp(func: *Func, inst: Air.Inst.Index) !void {
 fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
     const ty_pl = func.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = func.air.extraData(Air.Asm, ty_pl.payload);
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
     const outputs: []const Air.Inst.Ref =
-        @ptrCast(func.air.extra.items[extra_i..][0..extra.data.outputs_len]);
+        @ptrCast(func.air.extra.items[extra_i..][0..outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(func.air.extra.items[extra_i..][0..extra.data.inputs_len]);
     extra_i += inputs.len;
 
     var result: MCValue = .none;
-    var args = std.ArrayList(MCValue).init(func.gpa);
+    var args = std.array_list.Managed(MCValue).init(func.gpa);
     try args.ensureTotalCapacity(outputs.len + inputs.len);
     defer {
         for (args.items) |arg| if (arg.getReg()) |reg| func.register_manager.unlockReg(.{
@@ -6161,21 +6161,33 @@ fn airAsm(func: *Func, inst: Air.Inst.Index) !void {
         args.appendAssumeCapacity(arg_mcv);
     }
 
-    {
-        var clobber_i: u32 = 0;
-        while (clobber_i < clobbers_len) : (clobber_i += 1) {
-            const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(func.air.extra.items[extra_i..]), 0);
-            // This equation accounts for the fact that even if we have exactly 4 bytes
-            // for the string, we still use the next u32 for the null terminator.
-            extra_i += clobber.len / 4 + 1;
-
-            if (std.mem.eql(u8, clobber, "") or std.mem.eql(u8, clobber, "memory")) {
-                // nothing really to do
-            } else {
-                try func.register_manager.getReg(parseRegName(clobber) orelse
-                    return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+    const zcu = func.pt.zcu;
+    const ip = &zcu.intern_pool;
+    const aggregate = ip.indexToKey(extra.data.clobbers).aggregate;
+    const struct_type: Type = .fromInterned(aggregate.ty);
+    switch (aggregate.storage) {
+        .elems => |elems| for (elems, 0..) |elem, i| {
+            switch (elem) {
+                .bool_true => {
+                    const clobber = struct_type.structFieldName(i, zcu).toSlice(ip).?;
+                    assert(clobber.len != 0);
+                    if (std.mem.eql(u8, clobber, "memory")) {
+                        // nothing really to do
+                    } else {
+                        try func.register_manager.getReg(parseRegName(clobber) orelse
+                            return func.fail("invalid clobber: '{s}'", .{clobber}), null);
+                    }
+                },
+                .bool_false => continue,
+                else => unreachable,
             }
-        }
+        },
+        .repeated_elem => |elem| switch (elem) {
+            .bool_true => @panic("TODO"),
+            .bool_false => {},
+            else => unreachable,
+        },
+        .bytes => @panic("TODO"),
     }
 
     const Label = struct {
@@ -8047,7 +8059,7 @@ fn airAggregateInit(func: *Func, inst: Air.Inst.Index) !void {
 
                         const elem_abi_size: u32 = @intCast(elem_ty.abiSize(zcu));
                         const elem_abi_bits = elem_abi_size * 8;
-                        const elem_off = pt.structPackedFieldBitOffset(struct_obj, elem_i);
+                        const elem_off = zcu.structPackedFieldBitOffset(struct_obj, elem_i);
                         const elem_byte_off: i32 = @intCast(elem_off / elem_abi_bits * elem_abi_size);
                         const elem_bit_off = elem_off % elem_abi_bits;
                         const elem_mcv = try func.resolveInst(elem);

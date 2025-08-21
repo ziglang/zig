@@ -4,7 +4,6 @@
 
 const std = @import("std");
 const builtin = @import("builtin");
-const is_test = builtin.is_test;
 
 const __eqsf2 = @import("./cmpsf2.zig").__eqsf2;
 const __lesf2 = @import("./cmpsf2.zig").__lesf2;

@@ -1412,7 +1412,7 @@ pub const Mutable = struct {
     ///
     /// `limbs_buffer` is used for temporary storage during the operation. When this function returns,
     /// it will have the same length as it had when the function was called.
-    pub fn gcd(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
+    pub fn gcd(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.array_list.Managed(Limb)) !void {
         const prev_len = limbs_buffer.items.len;
         defer limbs_buffer.shrinkRetainingCapacity(prev_len);
         const x_copy = if (rma.limbs.ptr == x.limbs.ptr) blk: {
@@ -1538,13 +1538,13 @@ pub const Mutable = struct {
     /// Asserts that `rma` has enough limbs to store the result. Upper bound is given by `calcGcdNoAliasLimbLen`.
     ///
     /// `limbs_buffer` is used for temporary storage during the operation.
-    pub fn gcdNoAlias(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
+    pub fn gcdNoAlias(rma: *Mutable, x: Const, y: Const, limbs_buffer: *std.array_list.Managed(Limb)) !void {
         assert(rma.limbs.ptr != x.limbs.ptr); // illegal aliasing
         assert(rma.limbs.ptr != y.limbs.ptr); // illegal aliasing
         return gcdLehmer(rma, x, y, limbs_buffer);
     }
 
-    fn gcdLehmer(result: *Mutable, xa: Const, ya: Const, limbs_buffer: *std.ArrayList(Limb)) !void {
+    fn gcdLehmer(result: *Mutable, xa: Const, ya: Const, limbs_buffer: *std.array_list.Managed(Limb)) !void {
         var x = try xa.toManaged(limbs_buffer.allocator);
         defer x.deinit();
         x.abs();
@@ -1710,7 +1710,7 @@ pub const Mutable = struct {
 
         if (xy_trailing != 0 and r.limbs[r.len - 1] != 0) {
             // Manually shift here since we know its limb aligned.
-            mem.copyBackwards(Limb, r.limbs[xy_trailing..], r.limbs[0..r.len]);
+            @memmove(r.limbs[xy_trailing..][0..r.len], r.limbs[0..r.len]);
             @memset(r.limbs[0..xy_trailing], 0);
             r.len += xy_trailing;
         }
@@ -3267,7 +3267,7 @@ pub const Managed = struct {
     pub fn gcd(rma: *Managed, x: *const Managed, y: *const Managed) !void {
         try rma.ensureCapacity(@min(x.len(), y.len()));
         var m = rma.toMutable();
-        var limbs_buffer = std.ArrayList(Limb).init(rma.allocator);
+        var limbs_buffer = std.array_list.Managed(Limb).init(rma.allocator);
         defer limbs_buffer.deinit();
         try m.gcd(x.toConst(), y.toConst(), &limbs_buffer);
         rma.setMetadata(m.positive, m.len);
@@ -3836,8 +3836,7 @@ fn llshl(r: []Limb, a: []const Limb, shift: usize) usize {
         std.debug.assert(@intFromPtr(r.ptr) >= @intFromPtr(a.ptr));
 
     if (shift == 0) {
-        if (a.ptr != r.ptr)
-            std.mem.copyBackwards(Limb, r[0..a.len], a);
+        if (a.ptr != r.ptr) @memmove(r[0..a.len], a);
         return a.len;
     }
     if (shift >= limb_bits) {
@@ -3891,8 +3890,7 @@ fn llshr(r: []Limb, a: []const Limb, shift: usize) usize {
     if (shift == 0) {
         std.debug.assert(r.len >= a.len);
 
-        if (a.ptr != r.ptr)
-            std.mem.copyForwards(Limb, r[0..a.len], a);
+        if (a.ptr != r.ptr) @memmove(r[0..a.len], a);
         return a.len;
     }
     if (shift >= limb_bits) {

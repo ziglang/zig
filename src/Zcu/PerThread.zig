@@ -215,12 +215,15 @@ pub fn updateFile(
     };
     defer cache_file.close();
 
+    // Under `--time-report`, ignore cache hits; do the work anyway for those juicy numbers.
+    const ignore_hit = comp.time_report != null;
+
     const need_update = while (true) {
         const result = switch (file.getMode()) {
             inline else => |mode| try loadZirZoirCache(zcu, cache_file, stat, file, mode),
         };
         switch (result) {
-            .success => {
+            .success => if (!ignore_hit) {
                 log.debug("AstGen cached success: {f}", .{file.path.fmt(comp)});
                 break false;
             },
@@ -260,9 +263,16 @@ pub fn updateFile(
 
         file.source = source;
 
+        var timer = comp.startTimer();
         // Any potential AST errors are converted to ZIR errors when we run AstGen/ZonGen.
         file.tree = try Ast.parse(gpa, source, file.getMode());
+        if (timer.finish()) |ns_parse| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.cpu_ns_parse += ns_parse;
+        }
 
+        timer = comp.startTimer();
         switch (file.getMode()) {
             .zig => {
                 file.zir = try AstGen.generate(gpa, file.tree.?);
@@ -281,6 +291,11 @@ pub fn updateFile(
                     });
                 };
             },
+        }
+        if (timer.finish()) |ns_astgen| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.cpu_ns_astgen += ns_astgen;
         }
 
         log.debug("AstGen fresh success: {f}", .{file.path.fmt(comp)});
@@ -349,7 +364,7 @@ fn loadZirZoirCache(
     const cache_br = &cache_fr.interface;
 
     // First we read the header to determine the lengths of arrays.
-    const header = (cache_br.takeStruct(Header) catch |err| switch (err) {
+    const header = (cache_br.takeStructPointer(Header) catch |err| switch (err) {
         error.ReadFailed => return cache_fr.err.?,
         // This can happen if Zig bails out of this function between creating
         // the cached file and writing it.
@@ -635,6 +650,7 @@ pub fn ensureMemoizedStateUpToDate(pt: Zcu.PerThread, stage: InternPool.Memoized
             .main => .Type,
             .panic => .panic,
             .va_list => .VaList,
+            .assembly => .assembly,
         };
         if (zcu.builtin_decl_values.get(to_check) != .none) return;
     }
@@ -711,7 +727,7 @@ fn analyzeMemoizedState(pt: Zcu.PerThread, stage: InternPool.MemoizedStateStage)
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -800,8 +816,11 @@ pub fn ensureComptimeUnitUpToDate(pt: Zcu.PerThread, cu_id: InternPool.ComptimeU
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.startSemaProgNode("comptime");
-    defer unit_prog_node.end(zcu);
+    const unit_tracking = zcu.trackUnitSema(
+        "comptime",
+        zcu.intern_pool.getComptimeUnit(cu_id).zir_index,
+    );
+    defer unit_tracking.end(zcu);
 
     return pt.analyzeComptimeUnit(cu_id) catch |err| switch (err) {
         error.AnalysisFail => {
@@ -851,7 +870,7 @@ fn analyzeComptimeUnit(pt: Zcu.PerThread, cu_id: InternPool.ComptimeUnit.Id) Zcu
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -980,8 +999,8 @@ pub fn ensureNavValUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
-    defer unit_prog_node.end(zcu);
+    const unit_tracking = zcu.trackUnitSema(nav.fqn.toSlice(ip), nav.srcInst(ip));
+    defer unit_tracking.end(zcu);
 
     const invalidate_value: bool, const new_failed: bool = if (pt.analyzeNavVal(nav_id)) |result| res: {
         break :res .{
@@ -1078,7 +1097,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -1230,6 +1249,7 @@ fn analyzeNavVal(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileErr
                 .@"addrspace" = modifiers.@"addrspace",
                 .zir_index = old_nav.analysis.?.zir_index, // `declaration` instruction
                 .owner_nav = undefined, // ignored by `getExtern`
+                .source = .syntax,
             }));
         },
     };
@@ -1380,8 +1400,8 @@ pub fn ensureNavTypeUpToDate(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zc
         info.deps.clearRetainingCapacity();
     }
 
-    const unit_prog_node = zcu.startSemaProgNode(nav.fqn.toSlice(ip));
-    defer unit_prog_node.end(zcu);
+    const unit_tracking = zcu.trackUnitSema(nav.fqn.toSlice(ip), nav.srcInst(ip));
+    defer unit_tracking.end(zcu);
 
     const invalidate_type: bool, const new_failed: bool = if (pt.analyzeNavType(nav_id)) |result| res: {
         break :res .{
@@ -1452,7 +1472,7 @@ fn analyzeNavType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Zcu.CompileEr
     var analysis_arena: std.heap.ArenaAllocator = .init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace: std.ArrayList(Zcu.LazySrcLoc) = .init(gpa);
+    var comptime_err_ret_trace: std.array_list.Managed(Zcu.LazySrcLoc) = .init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     var sema: Sema = .{
@@ -1600,8 +1620,12 @@ pub fn ensureFuncBodyUpToDate(pt: Zcu.PerThread, maybe_coerced_func_index: Inter
         info.deps.clearRetainingCapacity();
     }
 
-    const func_prog_node = zcu.startSemaProgNode(ip.getNav(func.owner_nav).fqn.toSlice(ip));
-    defer func_prog_node.end(zcu);
+    const owner_nav = ip.getNav(func.owner_nav);
+    const unit_tracking = zcu.trackUnitSema(
+        owner_nav.fqn.toSlice(ip),
+        owner_nav.srcInst(ip),
+    );
+    defer unit_tracking.end(zcu);
 
     const ies_outdated, const new_failed = if (pt.analyzeFuncBody(func_index)) |result|
         .{ prev_failed or result.ies_outdated, false }
@@ -1846,6 +1870,10 @@ fn semaFile(pt: Zcu.PerThread, file_index: Zcu.File.Index) Zcu.SemaError!void {
     });
     const struct_ty = try pt.createFileRootStruct(file_index, new_namespace_index, false);
     errdefer zcu.intern_pool.remove(pt.tid, struct_ty);
+
+    if (zcu.comp.time_report) |*tr| {
+        tr.stats.n_imported_files += 1;
+    }
 }
 
 /// Called by AstGen worker threads when an import is seen. If `new_file` is returned, the caller is
@@ -2089,8 +2117,9 @@ pub fn computeAliveFiles(pt: Zcu.PerThread) Allocator.Error!bool {
     // multi-threaded environment (where things like file indices could differ between compiler runs).
 
     // The roots of our file liveness analysis will be the analysis roots.
-    try zcu.alive_files.ensureTotalCapacity(gpa, zcu.analysis_roots.len);
-    for (zcu.analysis_roots.slice()) |mod| {
+    const analysis_roots = zcu.analysisRoots();
+    try zcu.alive_files.ensureTotalCapacity(gpa, analysis_roots.len);
+    for (analysis_roots) |mod| {
         const file_index = zcu.module_roots.get(mod).?.unwrap() orelse continue;
         const file = zcu.fileByIndex(file_index);
 
@@ -2519,6 +2548,12 @@ pub fn scanNamespace(
     const gpa = zcu.gpa;
     const namespace = zcu.namespacePtr(namespace_index);
 
+    const tracked_unit = zcu.trackUnitSema(
+        Type.fromInterned(namespace.owner_type).containerTypeName(ip).toSlice(ip),
+        null,
+    );
+    defer tracked_unit.end(zcu);
+
     // For incremental updates, `scanDecl` wants to look up existing decls by their ZIR index rather
     // than their name. We'll build an efficient mapping now, then discard the current `decls`.
     // We map to the `AnalUnit`, since not every declaration has a `Nav`.
@@ -2754,6 +2789,12 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
         func.setResolvedErrorSet(ip, .none);
     }
 
+    if (zcu.comp.time_report) |*tr| {
+        if (func.generic_owner != .none) {
+            tr.stats.n_generic_instances += 1;
+        }
+    }
+
     // This is the `Nau` corresponding to the `declaration` instruction which the function or its generic owner originates from.
     const decl_nav = ip.getNav(if (func.generic_owner == .none)
         func.owner_nav
@@ -2767,7 +2808,7 @@ fn analyzeFnBodyInner(pt: Zcu.PerThread, func_index: InternPool.Index) Zcu.SemaE
     var analysis_arena = std.heap.ArenaAllocator.init(gpa);
     defer analysis_arena.deinit();
 
-    var comptime_err_ret_trace = std.ArrayList(Zcu.LazySrcLoc).init(gpa);
+    var comptime_err_ret_trace = std.array_list.Managed(Zcu.LazySrcLoc).init(gpa);
     defer comptime_err_ret_trace.deinit();
 
     // In the case of a generic function instance, this is the type of the
@@ -3109,18 +3150,23 @@ pub fn processExports(pt: Zcu.PerThread) !void {
         }
     }
 
+    // If there are compile errors, we won't call `updateExports`. Not only would it be redundant
+    // work, but the linker may not have seen an exported `Nav` due to a compile error, so linker
+    // implementations would have to handle that case. This early return avoids that.
+    const skip_linker_work = zcu.comp.anyErrors();
+
     // Map symbol names to `Export` for name collision detection.
     var symbol_exports: SymbolExports = .{};
     defer symbol_exports.deinit(gpa);
 
     for (nav_exports.keys(), nav_exports.values()) |exported_nav, exports_list| {
         const exported: Zcu.Exported = .{ .nav = exported_nav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 
     for (uav_exports.keys(), uav_exports.values()) |exported_uav, exports_list| {
         const exported: Zcu.Exported = .{ .uav = exported_uav };
-        try pt.processExportsInner(&symbol_exports, exported, exports_list.items);
+        try pt.processExportsInner(&symbol_exports, exported, exports_list.items, skip_linker_work);
     }
 }
 
@@ -3131,6 +3177,7 @@ fn processExportsInner(
     symbol_exports: *SymbolExports,
     exported: Zcu.Exported,
     export_indices: []const Zcu.Export.Index,
+    skip_linker_work: bool,
 ) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -3176,12 +3223,13 @@ fn processExportsInner(
             }
             break :failed false;
         }) {
-            // This `Decl` is failed, so was never sent to codegen.
-            // TODO: we should probably tell the backend to delete any old exports of this `Decl`?
-            return;
+            // This `Nav` is failed, so was never sent to codegen. There should be a compile error.
+            assert(skip_linker_work);
         },
         .uav => {},
     }
+
+    if (skip_linker_work) return;
 
     if (zcu.llvm_object) |llvm_object| {
         try zcu.handleUpdateExports(export_indices, llvm_object.updateExports(pt, exported, export_indices));
@@ -3287,10 +3335,7 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
                     .byte_offset = 0,
                 } }),
             };
-            test_fn_val.* = try pt.intern(.{ .aggregate = .{
-                .ty = test_fn_ty.toIntern(),
-                .storage = .{ .elems = &test_fn_fields },
-            } });
+            test_fn_val.* = (try pt.aggregateValue(test_fn_ty, &test_fn_fields)).toIntern();
         }
 
         const array_ty = try pt.arrayType(.{
@@ -3298,13 +3343,9 @@ pub fn populateTestFunctions(pt: Zcu.PerThread) Allocator.Error!void {
             .child = test_fn_ty.toIntern(),
             .sentinel = .none,
         });
-        const array_val = try pt.intern(.{ .aggregate = .{
-            .ty = array_ty.toIntern(),
-            .storage = .{ .elems = test_fn_vals },
-        } });
         break :array .{
             .orig_ty = (try pt.singleConstPtrType(array_ty)).toIntern(),
-            .val = array_val,
+            .val = (try pt.aggregateValue(array_ty, test_fn_vals)).toIntern(),
         };
     };
 
@@ -3395,6 +3436,7 @@ pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!V
                 .@"addrspace" = e.@"addrspace",
                 .zir_index = e.zir_index,
                 .owner_nav = undefined, // ignored by `getExtern`.
+                .source = e.source,
             });
             return Value.fromInterned(coerced);
         },
@@ -3632,6 +3674,31 @@ pub fn unionValue(pt: Zcu.PerThread, union_ty: Type, tag: Value, val: Value) All
     }));
 }
 
+pub fn aggregateValue(pt: Zcu.PerThread, ty: Type, elems: []const InternPool.Index) Allocator.Error!Value {
+    for (elems) |elem| {
+        if (!Value.fromInterned(elem).isUndef(pt.zcu)) break;
+    } else if (elems.len > 0) {
+        return pt.undefValue(ty); // all-undef
+    }
+    return .fromInterned(try pt.intern(.{ .aggregate = .{
+        .ty = ty.toIntern(),
+        .storage = .{ .elems = elems },
+    } }));
+}
+
+/// Asserts that `ty` is either an array or a vector.
+pub fn aggregateSplatValue(pt: Zcu.PerThread, ty: Type, repeated_elem: Value) Allocator.Error!Value {
+    switch (ty.zigTypeTag(pt.zcu)) {
+        .array, .vector => {},
+        else => unreachable,
+    }
+    if (repeated_elem.isUndef(pt.zcu)) return pt.undefValue(ty);
+    return .fromInterned(try pt.intern(.{ .aggregate = .{
+        .ty = ty.toIntern(),
+        .storage = .{ .repeated_elem = repeated_elem.toIntern() },
+    } }));
+}
+
 /// This function casts the float representation down to the representation of the type, potentially
 /// losing data if the representation wasn't correct.
 pub fn floatValue(pt: Zcu.PerThread, ty: Type, x: anytype) Allocator.Error!Value {
@@ -3734,30 +3801,6 @@ pub fn intBitsForValue(pt: Zcu.PerThread, val: Value, sign: bool) u16 {
             return Type.smallestUnsignedBits(Type.fromInterned(lazy_ty).abiSize(pt.zcu)) + @intFromBool(sign);
         },
     }
-}
-
-/// https://github.com/ziglang/zig/issues/17178 explored storing these bit offsets
-/// into the packed struct InternPool data rather than computing this on the
-/// fly, however it was found to perform worse when measured on real world
-/// projects.
-pub fn structPackedFieldBitOffset(
-    pt: Zcu.PerThread,
-    struct_type: InternPool.LoadedStructType,
-    field_index: u32,
-) u16 {
-    const zcu = pt.zcu;
-    const ip = &zcu.intern_pool;
-    assert(struct_type.layout == .@"packed");
-    assert(struct_type.haveLayout(ip));
-    var bit_sum: u64 = 0;
-    for (0..struct_type.field_types.len) |i| {
-        if (i == field_index) {
-            return @intCast(bit_sum);
-        }
-        const field_ty = Type.fromInterned(struct_type.field_types.get(ip)[i]);
-        bit_sum += field_ty.bitSize(zcu);
-    }
-    unreachable; // index out of bounds
 }
 
 pub fn navPtrType(pt: Zcu.PerThread, nav_id: InternPool.Nav.Index) Allocator.Error!Type {
@@ -4330,6 +4373,9 @@ pub fn addDependency(pt: Zcu.PerThread, unit: AnalUnit, dependee: InternPool.Dep
 /// codegen thread, depending on whether the backend supports `Zcu.Feature.separate_thread`.
 pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, out: *@import("../link.zig").ZcuTask.LinkFunc.SharedMir) void {
     const zcu = pt.zcu;
+
+    var timer = zcu.comp.startTimer();
+
     const success: bool = if (runCodegenInner(pt, func_index, air)) |mir| success: {
         out.value = mir;
         break :success true;
@@ -4350,6 +4396,25 @@ pub fn runCodegen(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air, ou
         }
         break :success false;
     };
+
+    if (timer.finish()) |ns_codegen| report_time: {
+        const ip = &zcu.intern_pool;
+        const nav = ip.indexToKey(func_index).func.owner_nav;
+        const zir_decl = ip.getNav(nav).srcInst(ip);
+        zcu.comp.mutex.lock();
+        defer zcu.comp.mutex.unlock();
+        const tr = &zcu.comp.time_report.?;
+        tr.stats.cpu_ns_codegen += ns_codegen;
+        const gop = tr.decl_codegen_ns.getOrPut(zcu.gpa, zir_decl) catch |err| switch (err) {
+            error.OutOfMemory => {
+                zcu.comp.setAllocFailure();
+                break :report_time;
+            },
+        };
+        if (!gop.found_existing) gop.value_ptr.* = 0;
+        gop.value_ptr.* += ns_codegen;
+    }
+
     // release `out.value` with this store; synchronizes with acquire loads in `link`
     out.status.store(if (success) .ready else .failed, .release);
     zcu.comp.link_task_queue.mirReady(zcu.comp, func_index, out);
@@ -4380,8 +4445,11 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         try air.legalize(pt, features);
     }
 
-    var liveness: Air.Liveness = try .analyze(zcu, air.*, ip);
-    defer liveness.deinit(gpa);
+    var liveness: ?Air.Liveness = if (codegen.wantsLiveness(pt, nav))
+        try .analyze(zcu, air.*, ip)
+    else
+        null;
+    defer if (liveness) |*l| l.deinit(gpa);
 
     if (build_options.enable_debug_extensions and comp.verbose_air) {
         const stderr = std.debug.lockStderrWriter(&.{});
@@ -4391,12 +4459,12 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
         stderr.print("# End Function AIR: {f}\n\n", .{fqn.fmt(ip)}) catch {};
     }
 
-    if (std.debug.runtime_safety) {
+    if (std.debug.runtime_safety) verify_liveness: {
         var verify: Air.Liveness.Verify = .{
             .gpa = gpa,
             .zcu = zcu,
             .air = air.*,
-            .liveness = liveness,
+            .liveness = liveness orelse break :verify_liveness,
             .intern_pool = ip,
         };
         defer verify.deinit();
@@ -4418,13 +4486,10 @@ fn runCodegenInner(pt: Zcu.PerThread, func_index: InternPool.Index, air: *Air) e
 
     const lf = comp.bin_file orelse return error.NoLinkFile;
 
-    // TODO: self-hosted codegen should always have a type of MIR; codegen should produce that MIR,
-    // and the linker should consume it. However, our SPIR-V backend is currently tightly coupled
-    // with our SPIR-V linker, so needs to work more like the LLVM backend. This should be fixed to
-    // unblock threaded codegen for SPIR-V.
+    // Just like LLVM, the SPIR-V backend can't multi-threaded due to SPIR-V design limitations.
     if (lf.cast(.spirv)) |spirv_file| {
         assert(pt.tid == .main); // SPIR-V has a lot of shared state
-        spirv_file.object.updateFunc(pt, func_index, air, &liveness) catch |err| {
+        spirv_file.updateFunc(pt, func_index, air, &liveness) catch |err| {
             switch (err) {
                 error.OutOfMemory => comp.link_diags.setAllocFailure(),
             }

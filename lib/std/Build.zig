@@ -7,7 +7,6 @@ const debug = std.debug;
 const panic = std.debug.panic;
 const assert = debug.assert;
 const log = std.log;
-const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Allocator = mem.Allocator;
 const Target = std.Target;
@@ -16,12 +15,15 @@ const EnvMap = std.process.EnvMap;
 const File = fs.File;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Build = @This();
+const ArrayList = std.ArrayList;
 
 pub const Cache = @import("Build/Cache.zig");
 pub const Step = @import("Build/Step.zig");
 pub const Module = @import("Build/Module.zig");
 pub const Watch = @import("Build/Watch.zig");
 pub const Fuzz = @import("Build/Fuzz.zig");
+pub const WebServer = @import("Build/WebServer.zig");
+pub const abi = @import("Build/abi.zig");
 
 /// Shared state among all Build instances.
 graph: *Graph,
@@ -30,7 +32,7 @@ uninstall_tls: TopLevelStep,
 allocator: Allocator,
 user_input_options: UserInputOptionsMap,
 available_options_map: AvailableOptionsMap,
-available_options_list: ArrayList(AvailableOption),
+available_options_list: std.array_list.Managed(AvailableOption),
 verbose: bool,
 verbose_link: bool,
 verbose_cc: bool,
@@ -50,7 +52,7 @@ exe_dir: []const u8,
 h_dir: []const u8,
 install_path: []const u8,
 sysroot: ?[]const u8 = null,
-search_prefixes: std.ArrayListUnmanaged([]const u8),
+search_prefixes: ArrayList([]const u8),
 libc_file: ?[]const u8 = null,
 /// Path to the directory containing build.zig.
 build_root: Cache.Directory,
@@ -125,6 +127,7 @@ pub const Graph = struct {
     random_seed: u32 = 0,
     dependency_cache: InitializedDepMap = .empty,
     allow_so_scripts: ?bool = null,
+    time_report: bool,
 };
 
 const AvailableDeps = []const struct { []const u8, []const u8 };
@@ -217,10 +220,10 @@ const UserInputOption = struct {
 const UserValue = union(enum) {
     flag: void,
     scalar: []const u8,
-    list: ArrayList([]const u8),
+    list: std.array_list.Managed([]const u8),
     map: StringHashMap(*const UserValue),
     lazy_path: LazyPath,
-    lazy_path_list: ArrayList(LazyPath),
+    lazy_path_list: std.array_list.Managed(LazyPath),
 };
 
 const TypeId = enum {
@@ -274,10 +277,10 @@ pub fn create(
         .allocator = arena,
         .user_input_options = UserInputOptionsMap.init(arena),
         .available_options_map = AvailableOptionsMap.init(arena),
-        .available_options_list = ArrayList(AvailableOption).init(arena),
+        .available_options_list = std.array_list.Managed(AvailableOption).init(arena),
         .top_level_steps = .{},
         .default_step = undefined,
-        .search_prefixes = .{},
+        .search_prefixes = .empty,
         .install_prefix = undefined,
         .lib_dir = undefined,
         .exe_dir = undefined,
@@ -360,7 +363,7 @@ fn createChildOnly(
         },
         .user_input_options = user_input_options,
         .available_options_map = AvailableOptionsMap.init(allocator),
-        .available_options_list = ArrayList(AvailableOption).init(allocator),
+        .available_options_list = std.array_list.Managed(AvailableOption).init(allocator),
         .verbose = parent.verbose,
         .verbose_link = parent.verbose_link,
         .verbose_cc = parent.verbose_cc,
@@ -408,113 +411,188 @@ fn createChildOnly(
     return child;
 }
 
-fn userInputOptionsFromArgs(allocator: Allocator, args: anytype) UserInputOptionsMap {
-    var user_input_options = UserInputOptionsMap.init(allocator);
+fn userInputOptionsFromArgs(arena: Allocator, args: anytype) UserInputOptionsMap {
+    var map = UserInputOptionsMap.init(arena);
     inline for (@typeInfo(@TypeOf(args)).@"struct".fields) |field| {
-        const v = @field(args, field.name);
-        const T = @TypeOf(v);
-        switch (T) {
-            Target.Query => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            ResolvedTarget => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v.query.zigTriple(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-                user_input_options.put("cpu", .{
-                    .name = "cpu",
-                    .value = .{ .scalar = v.query.serializeCpuAlloc(allocator) catch @panic("OOM") },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            LazyPath => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path = v.dupeInner(allocator) },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const LazyPath => {
-                var list = ArrayList(LazyPath).initCapacity(allocator, v.len) catch @panic("OOM");
-                for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(allocator));
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .lazy_path_list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const u8 => {
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .scalar = v },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            []const []const u8 => {
-                var list = ArrayList([]const u8).initCapacity(allocator, v.len) catch @panic("OOM");
-                list.appendSliceAssumeCapacity(v);
-
-                user_input_options.put(field.name, .{
-                    .name = field.name,
-                    .value = .{ .list = list },
-                    .used = false,
-                }) catch @panic("OOM");
-            },
-            else => switch (@typeInfo(T)) {
-                .bool => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = if (v) "true" else "false" },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .@"enum", .enum_literal => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = @tagName(v) },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_int, .int => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{d}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                .comptime_float, .float => {
-                    user_input_options.put(field.name, .{
-                        .name = field.name,
-                        .value = .{ .scalar = std.fmt.allocPrint(allocator, "{e}", .{v}) catch @panic("OOM") },
-                        .used = false,
-                    }) catch @panic("OOM");
-                },
-                else => @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(T)),
-            },
-        }
+        if (field.type == @Type(.null)) continue;
+        addUserInputOptionFromArg(arena, &map, field, field.type, @field(args, field.name));
     }
+    return map;
+}
 
-    return user_input_options;
+fn addUserInputOptionFromArg(
+    arena: Allocator,
+    map: *UserInputOptionsMap,
+    field: std.builtin.Type.StructField,
+    comptime T: type,
+    /// If null, the value won't be added, but `T` will still be type-checked.
+    maybe_value: ?T,
+) void {
+    switch (T) {
+        Target.Query => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.zigTriple(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            map.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.serializeCpuAlloc(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        ResolvedTarget => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = v.query.zigTriple(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+            map.put("cpu", .{
+                .name = "cpu",
+                .value = .{ .scalar = v.query.serializeCpuAlloc(arena) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        std.zig.BuildId => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = std.fmt.allocPrint(arena, "{f}", .{v}) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        LazyPath => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path = v.dupeInner(arena) },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const LazyPath => return if (maybe_value) |v| {
+            var list = std.array_list.Managed(LazyPath).initCapacity(arena, v.len) catch @panic("OOM");
+            for (v) |lp| list.appendAssumeCapacity(lp.dupeInner(arena));
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .lazy_path_list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const u8 => return if (maybe_value) |v| {
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .scalar = arena.dupe(u8, v) catch @panic("OOM") },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        []const []const u8 => return if (maybe_value) |v| {
+            var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+            for (v) |s| list.appendAssumeCapacity(arena.dupe(u8, s) catch @panic("OOM"));
+            map.put(field.name, .{
+                .name = field.name,
+                .value = .{ .list = list },
+                .used = false,
+            }) catch @panic("OOM");
+        },
+        else => switch (@typeInfo(T)) {
+            .bool => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = if (v) "true" else "false" },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .@"enum", .enum_literal => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = @tagName(v) },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_int, .int => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{d}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .comptime_float, .float => return if (maybe_value) |v| {
+                map.put(field.name, .{
+                    .name = field.name,
+                    .value = .{ .scalar = std.fmt.allocPrint(arena, "{x}", .{v}) catch @panic("OOM") },
+                    .used = false,
+                }) catch @panic("OOM");
+            },
+            .pointer => |ptr_info| switch (ptr_info.size) {
+                .one => switch (@typeInfo(ptr_info.child)) {
+                    .array => |array_info| {
+                        comptime var slice_info = ptr_info;
+                        slice_info.size = .slice;
+                        slice_info.is_const = true;
+                        slice_info.child = array_info.child;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
+                    else => {},
+                },
+                .slice => switch (@typeInfo(ptr_info.child)) {
+                    .@"enum" => return if (maybe_value) |v| {
+                        var list = std.array_list.Managed([]const u8).initCapacity(arena, v.len) catch @panic("OOM");
+                        for (v) |tag| list.appendAssumeCapacity(@tagName(tag));
+                        map.put(field.name, .{
+                            .name = field.name,
+                            .value = .{ .list = list },
+                            .used = false,
+                        }) catch @panic("OOM");
+                    },
+                    else => {
+                        comptime var slice_info = ptr_info;
+                        slice_info.is_const = true;
+                        slice_info.sentinel_ptr = null;
+                        addUserInputOptionFromArg(
+                            arena,
+                            map,
+                            field,
+                            @Type(.{ .pointer = slice_info }),
+                            maybe_value orelse null,
+                        );
+                        return;
+                    },
+                },
+                else => {},
+            },
+            .null => unreachable,
+            .optional => |info| switch (@typeInfo(info.child)) {
+                .optional => {},
+                else => {
+                    addUserInputOptionFromArg(
+                        arena,
+                        map,
+                        field,
+                        info.child,
+                        maybe_value orelse null,
+                    );
+                    return;
+                },
+            },
+            else => {},
+        },
+    }
+    @compileError("option '" ++ field.name ++ "' has unsupported type: " ++ @typeName(field.type));
 }
 
 const OrderedUserValue = union(enum) {
     flag: void,
     scalar: []const u8,
-    list: ArrayList([]const u8),
-    map: ArrayList(Pair),
+    list: std.array_list.Managed([]const u8),
+    map: std.array_list.Managed(Pair),
     lazy_path: LazyPath,
-    lazy_path_list: ArrayList(LazyPath),
+    lazy_path_list: std.array_list.Managed(LazyPath),
 
     const Pair = struct {
         name: []const u8,
@@ -564,8 +642,8 @@ const OrderedUserValue = union(enum) {
         }
     }
 
-    fn mapFromUnordered(allocator: Allocator, unordered: std.StringHashMap(*const UserValue)) ArrayList(Pair) {
-        var ordered = ArrayList(Pair).init(allocator);
+    fn mapFromUnordered(allocator: Allocator, unordered: std.StringHashMap(*const UserValue)) std.array_list.Managed(Pair) {
+        var ordered = std.array_list.Managed(Pair).init(allocator);
         var it = unordered.iterator();
         while (it.next()) |entry| {
             ordered.append(.{
@@ -616,7 +694,7 @@ const OrderedUserInputOption = struct {
 // The hash should be consistent with the same values given a different order.
 // This function takes a user input map, orders it, then hashes the contents.
 fn hashUserInputOptionsMap(allocator: Allocator, user_input_options: UserInputOptionsMap, hasher: *std.hash.Wyhash) void {
-    var ordered = ArrayList(OrderedUserInputOption).init(allocator);
+    var ordered = std.array_list.Managed(OrderedUserInputOption).init(allocator);
     var it = user_input_options.iterator();
     while (it.next()) |entry|
         ordered.append(OrderedUserInputOption.fromUnordered(allocator, entry.value_ptr.*)) catch @panic("OOM");
@@ -1008,7 +1086,7 @@ pub fn option(b: *Build, comptime T: type, name_raw: []const u8, description_raw
     const enum_options = if (type_id == .@"enum" or type_id == .enum_list) blk: {
         const EnumType = if (type_id == .enum_list) @typeInfo(T).pointer.child else T;
         const fields = comptime std.meta.fields(EnumType);
-        var options = ArrayList([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
+        var options = std.array_list.Managed([]const u8).initCapacity(b.allocator, fields.len) catch @panic("OOM");
 
         inline for (fields) |field| {
             options.appendAssumeCapacity(field.name);
@@ -1410,7 +1488,7 @@ pub fn addUserInputOption(b: *Build, name_raw: []const u8, value_raw: []const u8
     switch (gop.value_ptr.value) {
         .scalar => |s| {
             // turn it into a list
-            var list = ArrayList([]const u8).init(b.allocator);
+            var list = std.array_list.Managed([]const u8).init(b.allocator);
             try list.append(s);
             try list.append(value);
             try b.user_input_options.put(name, .{
@@ -1518,7 +1596,7 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
 }
 
 fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
+    var buf: ArrayList(u8) = .empty;
     if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
     for (argv) |arg| {
         try buf.print(gpa, "{s} ", .{arg});

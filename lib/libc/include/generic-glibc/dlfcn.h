@@ -217,15 +217,21 @@ struct dl_find_object
   int dlfo_eh_count;		/* Number of exception handling entries.  */
   unsigned int __dlfo_eh_count_pad;
 # endif
-  __extension__ unsigned long long int __dflo_reserved[7];
+  void *dlfo_sframe;		/* SFrame stack trace data of the object.  */
+#if __WORDSIZE == 32
+  unsigned int __dlfo_sframe_pad;
+#endif
+  __extension__ unsigned long long int __dlfo_reserved[6];
 };
 
 /* If ADDRESS is found in an object, fill in *RESULT and return 0.
    Otherwise, return -1.  */
 int _dl_find_object (void *__address, struct dl_find_object *__result) __THROW;
 
-#endif /* __USE_GNU */
+/* SFrame stack trace data is valid.  */
+#define DLFO_FLAG_SFRAME      (1ULL << 0)
 
+#endif /* __USE_GNU */
 
 __END_DECLS
 

@@ -423,7 +423,7 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
 
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    var aliases = std.ArrayList(Symbol.Index).init(gpa);
+    var aliases = std.array_list.Managed(Symbol.Index).init(gpa);
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.symbols.items.len);
 

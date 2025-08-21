@@ -771,7 +771,7 @@ fn writeAtom(coff: *Coff, atom_index: Atom.Index, code: []u8, resolve_relocs: bo
     // if we are running in hot-code swapping mode or not.
     // TODO: how crazy would it be to try and apply the actual image base of the loaded
     // process for the in-file values rather than the Windows defaults?
-    var relocs = std.ArrayList(*Relocation).init(gpa);
+    var relocs = std.array_list.Managed(*Relocation).init(gpa);
     defer relocs.deinit();
 
     if (resolve_relocs) {
@@ -1303,7 +1303,7 @@ fn getNavOutputSection(coff: *Coff, nav_index: InternPool.Nav.Index) u16 {
     const zig_ty = ty.zigTypeTag(zcu);
     const val = Value.fromInterned(nav.status.fully_resolved.val);
     const index: u16 = blk: {
-        if (val.isUndefDeep(zcu)) {
+        if (val.isUndef(zcu)) {
             // TODO in release-fast and release-small, we should put undef in .bss
             break :blk coff.data_section_index.?;
         }
@@ -1335,9 +1335,13 @@ fn updateNavCode(
 
     log.debug("updateNavCode {f} 0x{x}", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    const required_alignment = switch (pt.navAlignment(nav_index)) {
-        .none => target_util.defaultFunctionAlignment(target),
+    const mod = zcu.navFileScope(nav_index).mod.?;
+    const target = &mod.resolved_target.result;
+    const required_alignment = switch (nav.status.fully_resolved.alignment) {
+        .none => switch (mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
+            .ReleaseSmall => target_util.minFunctionAlignment(target),
+        },
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
@@ -1676,7 +1680,7 @@ fn flushInner(coff: *Coff, arena: Allocator, tid: Zcu.PerThread.Id) !void {
         const section = coff.sections.get(@intFromEnum(sym.section_number) - 1).header;
         const file_offset = section.pointer_to_raw_data + sym.value - section.virtual_address;
 
-        var code = std.ArrayList(u8).init(gpa);
+        var code = std.array_list.Managed(u8).init(gpa);
         defer code.deinit();
         try code.resize(math.cast(usize, atom.size) orelse return error.Overflow);
         assert(atom.size > 0);
@@ -1889,7 +1893,7 @@ pub fn updateLineNumber(coff: *Coff, pt: Zcu.PerThread, ti_id: InternPool.Tracke
 fn writeBaseRelocations(coff: *Coff) !void {
     const gpa = coff.base.comp.gpa;
 
-    var page_table = std.AutoHashMap(u32, std.ArrayList(coff_util.BaseRelocation)).init(gpa);
+    var page_table = std.AutoHashMap(u32, std.array_list.Managed(coff_util.BaseRelocation)).init(gpa);
     defer {
         var it = page_table.valueIterator();
         while (it.next()) |inner| {
@@ -1911,7 +1915,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, coff.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.array_list.Managed(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -1932,7 +1936,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
                 const page = mem.alignBackward(u32, rva, coff.page_size);
                 const gop = try page_table.getOrPut(page);
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList(coff_util.BaseRelocation).init(gpa);
+                    gop.value_ptr.* = std.array_list.Managed(coff_util.BaseRelocation).init(gpa);
                 }
                 try gop.value_ptr.append(.{
                     .offset = @as(u12, @intCast(rva - page)),
@@ -1943,7 +1947,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
     }
 
     // Sort pages by address.
-    var pages = try std.ArrayList(u32).initCapacity(gpa, page_table.count());
+    var pages = try std.array_list.Managed(u32).initCapacity(gpa, page_table.count());
     defer pages.deinit();
     {
         var it = page_table.keyIterator();
@@ -1953,7 +1957,7 @@ fn writeBaseRelocations(coff: *Coff) !void {
     }
     mem.sort(u32, pages.items, {}, std.sort.asc(u32));
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     for (pages.items) |page| {
@@ -2026,7 +2030,7 @@ fn writeImportTables(coff: *Coff) !void {
     try coff.growSection(coff.idata_section_index.?, needed_size);
 
     // Do the actual writes
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
     buffer.resize(needed_size) catch unreachable;
@@ -2149,7 +2153,7 @@ fn writeStrtab(coff: *Coff) !void {
 
     log.debug("writing strtab from 0x{x} to 0x{x}", .{ coff.strtab_offset.?, coff.strtab_offset.? + needed_size });
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(needed_size);
     buffer.appendSliceAssumeCapacity(coff.strtab.buffer.items);
@@ -2175,7 +2179,7 @@ fn writeDataDirectoriesHeaders(coff: *Coff) !void {
 fn writeHeader(coff: *Coff) !void {
     const target = &coff.base.comp.root_mod.resolved_target.result;
     const gpa = coff.base.comp.gpa;
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     const writer = buffer.writer();
 
@@ -2832,58 +2836,33 @@ pub const Relocation = struct {
     };
 
     fn resolveAarch64(reloc: Relocation, ctx: Context) void {
+        const Instruction = aarch64_util.encoding.Instruction;
         var buffer = ctx.code[reloc.offset..];
         switch (reloc.type) {
             .got_page, .import_page, .page => {
                 const source_page = @as(i32, @intCast(ctx.source_vaddr >> 12));
                 const target_page = @as(i32, @intCast(ctx.target_vaddr >> 12));
-                const pages = @as(u21, @bitCast(@as(i21, @intCast(target_page - source_page))));
-                var inst = aarch64_util.Instruction{
-                    .pc_relative_address = mem.bytesToValue(@FieldType(
-                        aarch64_util.Instruction,
-                        @tagName(aarch64_util.Instruction.pc_relative_address),
-                    ), buffer[0..4]),
-                };
-                inst.pc_relative_address.immhi = @as(u19, @truncate(pages >> 2));
-                inst.pc_relative_address.immlo = @as(u2, @truncate(pages));
-                mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                const pages: i21 = @intCast(target_page - source_page);
+                var inst: Instruction = .read(buffer[0..Instruction.size]);
+                inst.data_processing_immediate.pc_relative_addressing.group.immhi = @intCast(pages >> 2);
+                inst.data_processing_immediate.pc_relative_addressing.group.immlo = @truncate(@as(u21, @bitCast(pages)));
+                inst.write(buffer[0..Instruction.size]);
             },
             .got_pageoff, .import_pageoff, .pageoff => {
                 assert(!reloc.pcrel);
 
-                const narrowed = @as(u12, @truncate(@as(u64, @intCast(ctx.target_vaddr))));
-                if (isArithmeticOp(buffer[0..4])) {
-                    var inst = aarch64_util.Instruction{
-                        .add_subtract_immediate = mem.bytesToValue(@FieldType(
-                            aarch64_util.Instruction,
-                            @tagName(aarch64_util.Instruction.add_subtract_immediate),
-                        ), buffer[0..4]),
-                    };
-                    inst.add_subtract_immediate.imm12 = narrowed;
-                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
-                } else {
-                    var inst = aarch64_util.Instruction{
-                        .load_store_register = mem.bytesToValue(@FieldType(
-                            aarch64_util.Instruction,
-                            @tagName(aarch64_util.Instruction.load_store_register),
-                        ), buffer[0..4]),
-                    };
-                    const offset: u12 = blk: {
-                        if (inst.load_store_register.size == 0) {
-                            if (inst.load_store_register.v == 1) {
-                                // 128-bit SIMD is scaled by 16.
-                                break :blk @divExact(narrowed, 16);
-                            }
-                            // Otherwise, 8-bit SIMD or ldrb.
-                            break :blk narrowed;
-                        } else {
-                            const denom: u4 = math.powi(u4, 2, inst.load_store_register.size) catch unreachable;
-                            break :blk @divExact(narrowed, denom);
-                        }
-                    };
-                    inst.load_store_register.offset = offset;
-                    mem.writeInt(u32, buffer[0..4], inst.toU32(), .little);
+                const narrowed: u12 = @truncate(@as(u64, @intCast(ctx.target_vaddr)));
+                var inst: Instruction = .read(buffer[0..Instruction.size]);
+                switch (inst.decode()) {
+                    else => unreachable,
+                    .data_processing_immediate => inst.data_processing_immediate.add_subtract_immediate.group.imm12 = narrowed,
+                    .load_store => |load_store| inst.load_store.register_unsigned_immediate.group.imm12 =
+                        switch (load_store.register_unsigned_immediate.decode()) {
+                            .integer => |integer| @shrExact(narrowed, @intFromEnum(integer.group.size)),
+                            .vector => |vector| @shrExact(narrowed, @intFromEnum(vector.group.opc1.decode(vector.group.size))),
+                        },
                 }
+                inst.write(buffer[0..Instruction.size]);
             },
             .direct => {
                 assert(!reloc.pcrel);
@@ -2933,11 +2912,6 @@ pub const Relocation = struct {
                 }
             },
         }
-    }
-
-    fn isArithmeticOp(inst: *const [4]u8) bool {
-        const group_decode = @as(u5, @truncate(inst[3]));
-        return ((group_decode >> 2) == 4);
     }
 };
 
@@ -3112,7 +3086,7 @@ const Path = std.Build.Cache.Path;
 const Directory = std.Build.Cache.Directory;
 const Cache = std.Build.Cache;
 
-const aarch64_util = @import("../arch/aarch64/bits.zig");
+const aarch64_util = link.aarch64;
 const allocPrint = std.fmt.allocPrint;
 const codegen = @import("../codegen.zig");
 const link = @import("../link.zig");

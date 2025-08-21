@@ -151,7 +151,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
+        fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             const m0 = switch (degree) {
@@ -215,7 +215,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
+        fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
             for (0..dm) |d| {
                 for (0..4) |i| {
                     mem.writeInt(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d], .little);
@@ -226,7 +226,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             x[0] +%= ctx[0];
             x[1] +%= ctx[1];
             x[2] +%= ctx[2];
@@ -365,7 +365,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             };
         }
 
-        inline fn chacha20Core(x: *BlockVec, input: BlockVec) void {
+        fn chacha20Core(x: *BlockVec, input: BlockVec) void {
             x.* = input;
 
             const rounds = comptime [_]QuarterRound{
@@ -394,7 +394,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        inline fn hashToBytes(out: *[64]u8, x: BlockVec) void {
+        fn hashToBytes(out: *[64]u8, x: BlockVec) void {
             for (0..4) |i| {
                 mem.writeInt(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0], .little);
                 mem.writeInt(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1], .little);
@@ -403,7 +403,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        inline fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
+        fn contextFeedback(x: *BlockVec, ctx: BlockVec) void {
             for (0..16) |i| {
                 x[i] +%= ctx[i];
             }

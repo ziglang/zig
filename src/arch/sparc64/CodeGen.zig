@@ -88,7 +88,7 @@ reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 /// within different branches. Special consideration is needed when a branch
 /// joins with its parent, to make sure all instructions have the same MCValue
 /// across each runtime branch upon joining.
-branch_stack: *std.ArrayList(Branch),
+branch_stack: *std.array_list.Managed(Branch),
 
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
@@ -267,7 +267,7 @@ pub fn generate(
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
     air: *const Air,
-    liveness: *const Air.Liveness,
+    liveness: *const ?Air.Liveness,
 ) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
@@ -276,7 +276,7 @@ pub fn generate(
     const file_scope = zcu.navFileScope(func.owner_nav);
     const target = &file_scope.mod.?.resolved_target.result;
 
-    var branch_stack = std.ArrayList(Branch).init(gpa);
+    var branch_stack = std.array_list.Managed(Branch).init(gpa);
     defer {
         assert(branch_stack.items.len == 1);
         branch_stack.items[0].deinit(gpa);
@@ -288,7 +288,7 @@ pub fn generate(
         .gpa = gpa,
         .pt = pt,
         .air = air.*,
-        .liveness = liveness.*,
+        .liveness = liveness.*.?,
         .target = target,
         .bin_file = lf,
         .func_index = func_index,
@@ -873,10 +873,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = (extra.data.flags & 0x80000000) != 0;
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const is_volatile = extra.data.flags.is_volatile;
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -921,17 +921,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             try self.genSetReg(self.typeOf(input), reg, arg_mcv);
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                // TODO honor these
-            }
-        }
+        // TODO honor the clobbers
+        _ = extra.data.clobbers;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 

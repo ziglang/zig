@@ -1,5 +1,6 @@
 .{
-    .name = "standalone_test_cases",
+    .name = .standalone_test_cases,
+    .fingerprint = 0xc0dbdf9c3b92810b,
     .version = "0.0.0",
     .dependencies = .{
         .simple = .{
@@ -180,6 +181,9 @@
         .install_headers = .{
             .path = "install_headers",
         },
+        .dependency_options = .{
+            .path = "dependency_options",
+        },
         .dependencyFromBuildZig = .{
             .path = "dependencyFromBuildZig",
         },
@@ -203,6 +207,9 @@
         },
         .run_cwd = .{
             .path = "run_cwd",
+        },
+        .tsan = .{
+            .path = "tsan",
         },
     },
     .paths = .{

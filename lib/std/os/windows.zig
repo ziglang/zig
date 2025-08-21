@@ -202,7 +202,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         const name = UNICODE_STRING{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
         const attrs = OBJECT_ATTRIBUTES{
             .ObjectName = @constCast(&name),
@@ -408,7 +408,12 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
     }
 }
 
-pub const RtlGenRandomError = error{Unexpected};
+pub const RtlGenRandomError = error{
+    /// `RtlGenRandom` has been known to fail in situations where the system is under heavy load.
+    /// Unfortunately, it does not call `SetLastError`, so it is not possible to get more specific
+    /// error information; it could actually be due to an out-of-memory condition, for example.
+    SystemResources,
+};
 
 /// Call RtlGenRandom() instead of CryptGetRandom() on Windows
 /// https://github.com/rust-lang-nursery/rand/issues/111
@@ -422,7 +427,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
+            return error.SystemResources;
         }
 
         total_read += to_read;
@@ -1332,7 +1337,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1400,7 +1405,7 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1449,12 +1454,7 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 
@@ -1688,6 +1688,40 @@ pub fn getsockname(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.so
 
 pub fn getpeername(s: ws2_32.SOCKET, name: *ws2_32.sockaddr, namelen: *ws2_32.socklen_t) i32 {
     return ws2_32.getpeername(s, name, @as(*i32, @ptrCast(namelen)));
+}
+
+pub fn sendmsg(
+    s: ws2_32.SOCKET,
+    msg: *ws2_32.WSAMSG_const,
+    flags: u32,
+) i32 {
+    var bytes_send: DWORD = undefined;
+    if (ws2_32.WSASendMsg(s, msg, flags, &bytes_send, null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_send)));
+    }
+}
+
+pub fn sendto(s: ws2_32.SOCKET, buf: [*]const u8, len: usize, flags: u32, to: ?*const ws2_32.sockaddr, to_len: ws2_32.socklen_t) i32 {
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = @constCast(buf) };
+    var bytes_send: DWORD = undefined;
+    if (ws2_32.WSASendTo(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_send, flags, to, @as(i32, @intCast(to_len)), null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_send)));
+    }
+}
+
+pub fn recvfrom(s: ws2_32.SOCKET, buf: [*]u8, len: usize, flags: u32, from: ?*ws2_32.sockaddr, from_len: ?*ws2_32.socklen_t) i32 {
+    var buffer = ws2_32.WSABUF{ .len = @as(u31, @truncate(len)), .buf = buf };
+    var bytes_received: DWORD = undefined;
+    var flags_inout = flags;
+    if (ws2_32.WSARecvFrom(s, @as([*]ws2_32.WSABUF, @ptrCast(&buffer)), 1, &bytes_received, &flags_inout, from, @as(?*i32, @ptrCast(from_len)), null, null) == ws2_32.SOCKET_ERROR) {
+        return ws2_32.SOCKET_ERROR;
+    } else {
+        return @as(i32, @as(u31, @intCast(bytes_received)));
+    }
 }
 
 pub fn poll(fds: [*]ws2_32.pollfd, n: c_ulong, timeout: i32) i32 {

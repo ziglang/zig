@@ -73,7 +73,7 @@ pub fn main() anyerror!void {
 
     const args = try std.process.argsAlloc(allocator);
 
-    var argv = std.ArrayList([]const u8).init(allocator);
+    var argv = std.array_list.Managed([]const u8).init(allocator);
     var sysroot: ?[]const u8 = null;
 
     var args_iter = ArgsIterator{ .args = args[1..] };
@@ -87,7 +87,7 @@ pub fn main() anyerror!void {
 
     const sysroot_path = sysroot orelse blk: {
         const target = try std.zig.system.resolveTargetQuery(.{});
-        break :blk std.zig.system.darwin.getSdk(allocator, target) orelse
+        break :blk std.zig.system.darwin.getSdk(allocator, &target) orelse
             fatal("no SDK found; you can provide one explicitly with '--sysroot' flag", .{});
     };
 
@@ -112,7 +112,7 @@ pub fn main() anyerror!void {
         15 => .sequoia,
         else => unreachable,
     };
-    info("found SDK deployment target macOS {} aka '{s}'", .{ version, @tagName(os_ver) });
+    info("found SDK deployment target macOS {f} aka '{s}'", .{ version, @tagName(os_ver) });
 
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
@@ -145,7 +145,7 @@ fn fetchTarget(
         ver.minor,
     });
 
-    var cc_argv = std.ArrayList([]const u8).init(arena);
+    var cc_argv = std.array_list.Managed([]const u8).init(arena);
     try cc_argv.appendSlice(&[_][]const u8{
         "cc",
         "-arch",
@@ -198,7 +198,7 @@ fn fetchTarget(
     var dirs = std.StringHashMap(fs.Dir).init(arena);
     try dirs.putNoClobber(".", dest_dir);
 
-    const headers_list_str = try headers_list_file.reader().readAllAlloc(arena, std.math.maxInt(usize));
+    const headers_list_str = try headers_list_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
     const prefix = "/usr/include";
 
     var it = mem.splitScalar(u8, headers_list_str, '\n');
@@ -270,12 +270,8 @@ const Version = struct {
 
     pub fn format(
         v: Version,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+        writer: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
         try writer.print("{d}.{d}.{d}", .{ v.major, v.minor, v.patch });
     }
 };

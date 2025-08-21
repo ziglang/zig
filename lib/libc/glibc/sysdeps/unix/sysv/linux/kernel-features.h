@@ -54,6 +54,10 @@
    configurations).  */
 #define __ASSUME_SET_ROBUST_LIST	1
 
+/* The termios2 interface was introduced across all architectures except
+   Alpha in kernel 2.6.22. */
+#define __ASSUME_TERMIOS2	1
+
 /* Support for various CLOEXEC and NONBLOCK flags was added in
    2.6.27.  */
 #define __ASSUME_IN_NONBLOCK	1

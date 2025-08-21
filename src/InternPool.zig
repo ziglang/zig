@@ -54,6 +54,7 @@ namespace_name_deps: std.AutoArrayHashMapUnmanaged(NamespaceNameKey, DepEntry.In
 memoized_state_main_deps: DepEntry.Index.Optional,
 memoized_state_panic_deps: DepEntry.Index.Optional,
 memoized_state_va_list_deps: DepEntry.Index.Optional,
+memoized_state_assembly_deps: DepEntry.Index.Optional,
 
 /// Given a `Depender`, points to an entry in `dep_entries` whose `depender`
 /// matches. The `next_dependee` field can be used to iterate all such entries
@@ -96,6 +97,7 @@ pub const empty: InternPool = .{
     .memoized_state_main_deps = .none,
     .memoized_state_panic_deps = .none,
     .memoized_state_va_list_deps = .none,
+    .memoized_state_assembly_deps = .none,
     .first_dependency = .empty,
     .dep_entries = .empty,
     .free_dep_entries = .empty,
@@ -458,6 +460,8 @@ pub const MemoizedStateStage = enum(u32) {
     panic,
     /// Specifically `std.builtin.VaList`. See `Zcu.BuiltinDecl.stage`.
     va_list,
+    /// Everything within `std.builtin.assembly`. See `Zcu.BuiltinDecl.stage`.
+    assembly,
 };
 
 pub const ComptimeUnit = extern struct {
@@ -880,6 +884,7 @@ pub fn dependencyIterator(ip: *const InternPool, dependee: Dependee) DependencyI
             .main => ip.memoized_state_main_deps.unwrap(),
             .panic => ip.memoized_state_panic_deps.unwrap(),
             .va_list => ip.memoized_state_va_list_deps.unwrap(),
+            .assembly => ip.memoized_state_assembly_deps.unwrap(),
         },
     } orelse return .{
         .ip = ip,
@@ -915,6 +920,7 @@ pub fn addDependency(ip: *InternPool, gpa: Allocator, depender: AnalUnit, depend
                 .main => &ip.memoized_state_main_deps,
                 .panic => &ip.memoized_state_panic_deps,
                 .va_list => &ip.memoized_state_va_list_deps,
+                .assembly => &ip.memoized_state_assembly_deps,
             };
 
             if (deps.unwrap()) |first| {
@@ -1131,13 +1137,16 @@ const Local = struct {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
-                        .name = elem_field.name,
-                        .type = *[len]elem_field.type,
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = 0,
-                    };
+                    for (&new_fields, elem_fields) |*new_field, elem_field| {
+                        const T = *[len]elem_field.type;
+                        new_field.* = .{
+                            .name = elem_field.name,
+                            .type = T,
+                            .default_value_ptr = null,
+                            .is_comptime = false,
+                            .alignment = @alignOf(T),
+                        };
+                    }
                     return @Type(.{ .@"struct" = .{
                         .layout = .auto,
                         .fields = &new_fields,
@@ -1152,22 +1161,25 @@ const Local = struct {
                     const elem_info = @typeInfo(Elem).@"struct";
                     const elem_fields = elem_info.fields;
                     var new_fields: [elem_fields.len]std.builtin.Type.StructField = undefined;
-                    for (&new_fields, elem_fields) |*new_field, elem_field| new_field.* = .{
-                        .name = elem_field.name,
-                        .type = @Type(.{ .pointer = .{
+                    for (&new_fields, elem_fields) |*new_field, elem_field| {
+                        const T = @Type(.{ .pointer = .{
                             .size = opts.size,
                             .is_const = opts.is_const,
                             .is_volatile = false,
-                            .alignment = 0,
+                            .alignment = @alignOf(elem_field.type),
                             .address_space = .generic,
                             .child = elem_field.type,
                             .is_allowzero = false,
                             .sentinel_ptr = null,
-                        } }),
-                        .default_value_ptr = null,
-                        .is_comptime = false,
-                        .alignment = 0,
-                    };
+                        } });
+                        new_field.* = .{
+                            .name = elem_field.name,
+                            .type = T,
+                            .default_value_ptr = null,
+                            .is_comptime = false,
+                            .alignment = @alignOf(T),
+                        };
+                    }
                     return @Type(.{ .@"struct" = .{
                         .layout = .auto,
                         .fields = &new_fields,
@@ -1353,7 +1365,7 @@ const Local = struct {
                 capacity: u32,
             };
             fn header(list: ListSelf) *Header {
-                return @alignCast(@ptrCast(list.bytes - bytes_offset));
+                return @ptrCast(@alignCast(list.bytes - bytes_offset));
             }
             pub fn view(list: ListSelf) View {
                 const capacity = list.header().capacity;
@@ -1562,7 +1574,7 @@ const Shard = struct {
                 }
             };
             fn header(map: @This()) *Header {
-                return @alignCast(@ptrCast(@as([*]u8, @ptrCast(map.entries)) - entries_offset));
+                return @ptrCast(@alignCast(@as([*]u8, @ptrCast(map.entries)) - entries_offset));
             }
 
             const Entry = extern struct {
@@ -2024,6 +2036,8 @@ pub const Key = union(enum) {
     /// Each element/field stored as an `Index`.
     /// In the case of sentinel-terminated arrays, the sentinel value *is* stored,
     /// so the slice length will be one more than the type's array length.
+    /// There must be at least one element which is not `undefined`. If all elements are
+    /// undefined, instead create an undefined value of the aggregate type.
     aggregate: Aggregate,
     /// An instance of a union.
     un: Union,
@@ -2243,6 +2257,7 @@ pub const Key = union(enum) {
         /// The `Nav` corresponding to this extern symbol.
         /// This is ignored by hashing and equality.
         owner_nav: Nav.Index,
+        source: Tag.Extern.Flags.Source,
     };
 
     pub const Func = struct {
@@ -2845,7 +2860,7 @@ pub const Key = union(enum) {
                 asBytes(&e.is_threadlocal) ++ asBytes(&e.is_dll_import) ++
                 asBytes(&e.relocation) ++
                 asBytes(&e.is_const) ++ asBytes(&e.alignment) ++ asBytes(&e.@"addrspace") ++
-                asBytes(&e.zir_index)),
+                asBytes(&e.zir_index) ++ &[1]u8{@intFromEnum(e.source)}),
         };
     }
 
@@ -2944,7 +2959,8 @@ pub const Key = union(enum) {
                     a_info.is_const == b_info.is_const and
                     a_info.alignment == b_info.alignment and
                     a_info.@"addrspace" == b_info.@"addrspace" and
-                    a_info.zir_index == b_info.zir_index;
+                    a_info.zir_index == b_info.zir_index and
+                    a_info.source == b_info.source;
             },
             .func => |a_info| {
                 const b_info = b.func;
@@ -5953,7 +5969,10 @@ pub const Tag = enum(u8) {
             is_threadlocal: bool,
             is_dll_import: bool,
             relocation: std.builtin.ExternOptions.Relocation,
-            _: u25 = 0,
+            source: Source,
+            _: u24 = 0,
+
+            pub const Source = enum(u1) { builtin, syntax };
         };
     };
 
@@ -7306,6 +7325,7 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
                 .@"addrspace" = nav.status.fully_resolved.@"addrspace",
                 .zir_index = extra.zir_index,
                 .owner_nav = extra.owner_nav,
+                .source = extra.flags.source,
             } };
         },
         .func_instance => .{ .func = ip.extraFuncInstance(unwrapped_index.tid, unwrapped_index.getExtra(ip), data) },
@@ -7550,12 +7570,18 @@ fn extraFuncCoerced(ip: *const InternPool, extra: Local.Extra, extra_index: u32)
 fn indexToKeyBigInt(ip: *const InternPool, tid: Zcu.PerThread.Id, limb_index: u32, positive: bool) Key {
     const limbs_items = ip.getLocalShared(tid).getLimbs().view().items(.@"0");
     const int: Int = @bitCast(limbs_items[limb_index..][0..Int.limbs_items_len].*);
+    const big_int: BigIntConst = .{
+        .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
+        .positive = positive,
+    };
     return .{ .int = .{
         .ty = int.ty,
-        .storage = .{ .big_int = .{
-            .limbs = limbs_items[limb_index + Int.limbs_items_len ..][0..int.limbs_len],
-            .positive = positive,
-        } },
+        .storage = if (big_int.toInt(u64)) |x|
+            .{ .u64 = x }
+        else |_| if (big_int.toInt(i64)) |x|
+            .{ .i64 = x }
+        else |_|
+            .{ .big_int = big_int },
     } };
 }
 
@@ -8383,24 +8409,33 @@ pub fn get(ip: *InternPool, gpa: Allocator, tid: Zcu.PerThread.Id, key: Key) All
                     assert(sentinel == .none or elem == sentinel);
                 },
             }
-            switch (ty_key) {
+            if (aggregate.storage.values().len > 0) switch (ty_key) {
                 .array_type, .vector_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values()) |elem| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == child);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 .struct_type => {
+                    var any_defined = false;
                     for (aggregate.storage.values(), ip.loadStructType(aggregate.ty).field_types.get(ip)) |elem, field_ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == field_ty);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 .tuple_type => |tuple_type| {
+                    var any_defined = false;
                     for (aggregate.storage.values(), tuple_type.types.get(ip)) |elem, ty| {
+                        if (!ip.isUndef(elem)) any_defined = true;
                         assert(ip.typeOf(elem) == ty);
                     }
+                    assert(any_defined); // aggregate fields must not be all undefined
                 },
                 else => unreachable,
-            }
+            };
 
             if (len == 0) {
                 items.appendAssumeCapacity(.{
@@ -9183,6 +9218,7 @@ pub fn getExtern(
             .is_threadlocal = key.is_threadlocal,
             .is_dll_import = key.is_dll_import,
             .relocation = key.relocation,
+            .source = key.source,
         },
         .zir_index = key.zir_index,
         .owner_nav = owner_nav,

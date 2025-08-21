@@ -20,7 +20,7 @@ pub fn cannotDynamicLink(target: *const std.Target) bool {
 /// Similarly on FreeBSD and NetBSD we always link system libc
 /// since this is the stable syscall interface.
 pub fn osRequiresLibC(target: *const std.Target) bool {
-    return target.os.requiresLibC();
+    return target.requiresLibC();
 }
 
 pub fn libCNeedsLibUnwind(target: *const std.Target, link_mode: std.builtin.LinkMode) bool {
@@ -236,7 +236,7 @@ pub fn hasLldSupport(ofmt: std.Target.ObjectFormat) bool {
 pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     if (target.cpu.arch.isSpirV()) return true;
     if (target.cpu.arch == .x86_64 and target.ptrBitWidth() == 64) {
-        if (target.os.tag == .netbsd) {
+        if (target.os.tag == .netbsd or target.os.tag == .openbsd) {
             // Self-hosted linker needs work: https://github.com/ziglang/zig/issues/24341
             return false;
         }
@@ -248,9 +248,13 @@ pub fn selfHostedBackendIsAsRobustAsLlvm(target: *const std.Target) bool {
     return false;
 }
 
-pub fn supportsStackProbing(target: *const std.Target) bool {
-    return target.os.tag != .windows and target.os.tag != .uefi and
-        (target.cpu.arch == .x86 or target.cpu.arch == .x86_64);
+pub fn supportsStackProbing(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
+    return switch (backend) {
+        .stage2_aarch64, .stage2_x86_64 => true,
+        .stage2_llvm => target.os.tag != .windows and target.os.tag != .uefi and
+            (target.cpu.arch == .x86 or target.cpu.arch == .x86_64),
+        else => false,
+    };
 }
 
 pub fn supportsStackProtector(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
@@ -347,34 +351,42 @@ pub fn defaultCompilerRtOptimizeMode(target: *const std.Target) std.builtin.Opti
     }
 }
 
-pub fn canBuildLibCompilerRt(target: *const std.Target, use_llvm: bool, have_llvm: bool) bool {
+pub fn canBuildLibCompilerRt(target: *const std.Target) enum { no, yes, llvm_only } {
     switch (target.os.tag) {
-        .plan9 => return false,
+        .plan9 => return .no,
         else => {},
     }
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23714 is fixed
-        .amdgcn => return false,
+        .amdgcn => return .no,
         else => {},
     }
-    return switch (zigBackend(target, use_llvm)) {
-        .stage2_llvm => true,
+    return switch (zigBackend(target, false)) {
+        .stage2_aarch64 => .yes,
         .stage2_x86_64 => switch (target.ofmt) {
-            .elf, .macho => true,
-            else => have_llvm,
+            .elf, .macho => .yes,
+            else => .llvm_only,
         },
-        else => have_llvm,
+        else => .llvm_only,
     };
 }
 
-pub fn canBuildLibUbsanRt(target: *const std.Target) bool {
+pub fn canBuildLibUbsanRt(target: *const std.Target) enum { no, yes, llvm_only, llvm_lld_only } {
     switch (target.cpu.arch) {
-        .spirv32, .spirv64 => return false,
+        .spirv32, .spirv64 => return .no,
         // Remove this once https://github.com/ziglang/zig/issues/23715 is fixed
-        .nvptx, .nvptx64 => return false,
-        else => return true,
+        .nvptx, .nvptx64 => return .no,
+        else => {},
     }
+    return switch (zigBackend(target, false)) {
+        .stage2_wasm => .llvm_lld_only,
+        .stage2_x86_64 => switch (target.ofmt) {
+            .elf, .macho => .yes,
+            else => .llvm_only,
+        },
+        else => .llvm_only,
+    };
 }
 
 pub fn hasRedZone(target: *const std.Target) bool {
@@ -405,6 +417,8 @@ pub fn libcFullLinkFlags(target: *const std.Target) []const []const u8 {
             .android, .androideabi, .ohos, .ohoseabi => &.{ "-lm", "-lc", "-ldl" },
             else => &.{ "-lm", "-lpthread", "-lc", "-ldl", "-lrt", "-lutil" },
         },
+        // On SerenityOS libc includes libm, libpthread, libdl, and libssp.
+        .serenity => &.{"-lc"},
         else => &.{},
     };
     return result;
@@ -767,6 +781,7 @@ pub fn supportsTailCall(target: *const std.Target, backend: std.builtin.Compiler
 
 pub fn supportsThreads(target: *const std.Target, backend: std.builtin.CompilerBackend) bool {
     return switch (backend) {
+        .stage2_aarch64 => false,
         .stage2_powerpc => true,
         .stage2_x86_64 => target.ofmt == .macho or target.ofmt == .elf,
         else => true,
@@ -844,6 +859,7 @@ pub fn zigBackend(target: *const std.Target, use_llvm: bool) std.builtin.Compile
 pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, comptime feature: Feature) bool {
     return switch (feature) {
         .panic_fn => switch (backend) {
+            .stage2_aarch64,
             .stage2_c,
             .stage2_llvm,
             .stage2_x86_64,
@@ -864,14 +880,20 @@ pub inline fn backendSupportsFeature(backend: std.builtin.CompilerBackend, compt
             else => false,
         },
         .field_reordering => switch (backend) {
-            .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
+            .stage2_aarch64, .stage2_c, .stage2_llvm, .stage2_x86_64 => true,
             else => false,
         },
         .separate_thread => switch (backend) {
+            // Supports a separate thread but does not support N separate
+            // threads because they would all just be locking the same mutex to
+            // protect Builder.
             .stage2_llvm => false,
-            .stage2_c, .stage2_wasm, .stage2_x86_64 => true,
-            // TODO: most self-hosted backends should be able to support this without too much work.
-            else => false,
+            // Same problem. Frontend needs to allow this backend to run in the
+            // linker thread.
+            .stage2_spirv => false,
+            // Please do not make any more exceptions. Backends must support
+            // being run in a separate thread from now on.
+            else => true,
         },
     };
 }

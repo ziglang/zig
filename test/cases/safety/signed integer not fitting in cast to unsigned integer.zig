@@ -17,4 +17,4 @@ fn unsigned_cast(x: i32) u32 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

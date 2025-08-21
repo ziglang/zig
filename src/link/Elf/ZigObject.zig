@@ -950,7 +950,6 @@ pub fn getNavVAddr(
                 .target_sym = this_sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }
@@ -983,7 +982,6 @@ pub fn getUavVAddr(
                 .target_sym = sym_index,
                 .target_off = reloc_info.addend,
             }),
-            .plan9 => unreachable,
             .none => unreachable,
         },
     }
@@ -1199,7 +1197,7 @@ fn getNavShdrIndex(
         self.data_relro_index = try self.addSectionSymbol(gpa, try self.addString(gpa, ".data.rel.ro"), osec);
         return osec;
     }
-    if (nav_init != .none and Value.fromInterned(nav_init).isUndefDeep(zcu))
+    if (nav_init != .none and Value.fromInterned(nav_init).isUndef(zcu))
         return switch (zcu.navFileScope(nav_index).mod.?.optimize_mode) {
             .Debug, .ReleaseSafe => {
                 if (self.data_index) |symbol_index|
@@ -1270,9 +1268,13 @@ fn updateNavCode(
 
     log.debug("updateNavCode {f}({d})", .{ nav.fqn.fmt(ip), nav_index });
 
-    const target = &zcu.navFileScope(nav_index).mod.?.resolved_target.result;
-    const required_alignment = switch (pt.navAlignment(nav_index)) {
-        .none => target_util.defaultFunctionAlignment(target),
+    const mod = zcu.navFileScope(nav_index).mod.?;
+    const target = &mod.resolved_target.result;
+    const required_alignment = switch (nav.status.fully_resolved.alignment) {
+        .none => switch (mod.optimize_mode) {
+            .Debug, .ReleaseSafe, .ReleaseFast => target_util.defaultFunctionAlignment(target),
+            .ReleaseSmall => target_util.minFunctionAlignment(target),
+        },
         else => |a| a.maxStrict(target_util.minFunctionAlignment(target)),
     };
 
@@ -1541,8 +1543,8 @@ pub fn updateNav(
                 @"extern".lib_name.toSlice(ip),
             );
             if (@"extern".is_threadlocal and elf_file.base.comp.config.any_non_single_threaded) self.symbol(sym_index).flags.is_tls = true;
-            if (self.dwarf) |*dwarf| dwarf: {
-                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index) orelse break :dwarf;
+            if (self.dwarf) |*dwarf| {
+                var debug_wip_nav = try dwarf.initWipNav(pt, nav_index, sym_index);
                 defer debug_wip_nav.deinit();
                 dwarf.finishWipNav(pt, nav_index, &debug_wip_nav) catch |err| switch (err) {
                     error.OutOfMemory => return error.OutOfMemory,

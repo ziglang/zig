@@ -1208,8 +1208,9 @@ fn analyzeInst(
 
         .assembly => {
             const extra = a.air.extraData(Air.Asm, inst_datas[@intFromEnum(inst)].ty_pl.payload);
+            const outputs_len = extra.data.flags.outputs_len;
             var extra_i: usize = extra.end;
-            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.outputs_len]));
+            const outputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..outputs_len]));
             extra_i += outputs.len;
             const inputs = @as([]const Air.Inst.Ref, @ptrCast(a.air.extra.items[extra_i..][0..extra.data.inputs_len]));
             extra_i += inputs.len;

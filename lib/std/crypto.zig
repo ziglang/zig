@@ -1,6 +1,6 @@
 //! Cryptography.
 
-const root = @import("root");
+const std = @import("std.zig");
 
 pub const timing_safe = @import("crypto/timing_safe.zig");
 
@@ -118,7 +118,7 @@ pub const hash = struct {
     pub const blake2 = @import("crypto/blake2.zig");
     pub const Blake3 = @import("crypto/blake3.zig").Blake3;
     pub const Md5 = @import("crypto/md5.zig").Md5;
-    pub const Sha1 = @import("crypto/sha1.zig").Sha1;
+    pub const Sha1 = @import("crypto/Sha1.zig");
     pub const sha2 = @import("crypto/sha2.zig");
     pub const sha3 = @import("crypto/sha3.zig");
     pub const composition = @import("crypto/hash_composition.zig");
@@ -215,8 +215,6 @@ pub const random = @import("crypto/tlcsprng.zig").interface;
 
 /// Encoding and decoding
 pub const codecs = @import("crypto/codecs.zig");
-
-const std = @import("std.zig");
 
 pub const errors = @import("crypto/errors.zig");
 
@@ -386,7 +384,7 @@ test "issue #4532: no index out of bounds" {
 
 /// Sets a slice to zeroes.
 /// Prevents the store from being optimized out.
-pub inline fn secureZero(comptime T: type, s: []volatile T) void {
+pub fn secureZero(comptime T: type, s: []volatile T) void {
     @memset(s, 0);
 }
 

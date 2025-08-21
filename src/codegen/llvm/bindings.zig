@@ -88,7 +88,7 @@ pub const TargetMachine = opaque {
     pub const EmitOptions = extern struct {
         is_debug: bool,
         is_small: bool,
-        time_report: bool,
+        time_report_out: ?*[*:0]u8,
         tsan: bool,
         sancov: bool,
         lto: LtoPhase,

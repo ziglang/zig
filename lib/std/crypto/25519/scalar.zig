@@ -50,7 +50,7 @@ pub fn reduce64(s: [64]u8) CompressedScalar {
 
 /// Perform the X25519 "clamping" operation.
 /// The scalar is then guaranteed to be a multiple of the cofactor.
-pub inline fn clamp(s: *CompressedScalar) void {
+pub fn clamp(s: *CompressedScalar) void {
     s[0] &= 248;
     s[31] = (s[31] & 127) | 64;
 }
@@ -514,7 +514,7 @@ pub const Scalar = struct {
     }
 
     /// Square a scalar `n` times
-    inline fn sqn(x: Scalar, comptime n: comptime_int) Scalar {
+    fn sqn(x: Scalar, comptime n: comptime_int) Scalar {
         var i: usize = 0;
         var t = x;
         while (i < n) : (i += 1) {

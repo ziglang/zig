@@ -102,6 +102,9 @@
    | (1 << X86_XSTATE_ZMM_ID)		\
    | (1 << X86_XSTATE_APX_F_ID))
 
+/* The maximum supported xstate ID.  */
+# define X86_XSTATE_MAX_ID	X86_XSTATE_APX_F_ID
+
 /* AMX state mask.  */
 # define AMX_STATE_SAVE_MASK		\
   ((1 << X86_XSTATE_TILECFG_ID) | (1 << X86_XSTATE_TILEDATA_ID))
@@ -122,6 +125,9 @@
    | (1 << X86_XSTATE_BNDREGS_ID)	\
    | (1 << X86_XSTATE_K_ID)		\
    | (1 << X86_XSTATE_ZMM_H_ID))
+
+/* The maximum supported xstate ID.  */
+# define X86_XSTATE_MAX_ID	X86_XSTATE_ZMM_H_ID
 
 /* States to be included in xsave_state_size.  */
 # define FULL_STATE_SAVE_MASK		STATE_SAVE_MASK
@@ -176,6 +182,29 @@
 #endif
 
 #define atom_text_section .section ".text.atom", "ax"
+
+#ifndef DL_STACK_ALIGNMENT
+/* Due to GCC bug:
+
+   https://gcc.gnu.org/bugzilla/show_bug.cgi?id=58066
+
+   __tls_get_addr may be called with 8-byte/4-byte stack alignment.
+   Although this bug has been fixed in GCC 4.9.4, 5.3 and 6, we can't
+   assume that stack will be always aligned at 16 bytes.  */
+# ifdef __x86_64__
+#  define DL_STACK_ALIGNMENT 8
+#  define MINIMUM_ALIGNMENT 16
+# else
+#  define DL_STACK_ALIGNMENT 4
+# endif
+#endif
+
+/* True if _dl_runtime_resolve/_dl_tlsdesc_dynamic should align stack for
+   STATE_SAVE or align stack to MINIMUM_ALIGNMENT bytes before calling
+   _dl_fixup/__tls_get_addr.  */
+#define DL_RUNTIME_RESOLVE_REALIGN_STACK \
+  (STATE_SAVE_ALIGNMENT > DL_STACK_ALIGNMENT \
+   || MINIMUM_ALIGNMENT > DL_STACK_ALIGNMENT)
 
 #endif	/* __ASSEMBLER__ */
 

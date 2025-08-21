@@ -11,7 +11,14 @@ pub fn main() !void {
     var it = try std.process.argsWithAllocator(gpa);
     defer it.deinit();
     _ = it.next() orelse unreachable; // skip binary name
-    const child_path = it.next() orelse unreachable;
+    const child_path, const needs_free = child_path: {
+        const child_path = it.next() orelse unreachable;
+        const cwd_path = it.next() orelse break :child_path .{ child_path, false };
+        // If there is a third argument, it is the current CWD somewhere within the cache directory.
+        // In that case, modify the child path in order to test spawning a path with a leading `..` component.
+        break :child_path .{ try std.fs.path.relative(gpa, cwd_path, child_path), true };
+    };
+    defer if (needs_free) gpa.free(child_path);
 
     var child = std.process.Child.init(&.{ child_path, "hello arg" }, gpa);
     child.stdin_behavior = .Pipe;
@@ -39,7 +46,12 @@ pub fn main() !void {
         },
         else => |term| testError("abnormal child exit: {}", .{term}),
     }
-    return if (parent_test_error) error.ParentTestError else {};
+    if (parent_test_error) return error.ParentTestError;
+
+    // Check that FileNotFound is consistent across platforms when trying to spawn an executable that doesn't exist
+    const missing_child_path = try std.mem.concat(gpa, u8, &.{ child_path, "_intentionally_missing" });
+    defer gpa.free(missing_child_path);
+    try std.testing.expectError(error.FileNotFound, std.process.Child.run(.{ .allocator = gpa, .argv = &.{missing_child_path} }));
 }
 
 var parent_test_error = false;

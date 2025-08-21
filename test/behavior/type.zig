@@ -200,8 +200,8 @@ test "Type.ErrorUnion" {
 }
 
 test "Type.Opaque" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -258,8 +258,8 @@ test "Type.ErrorSet" {
 }
 
 test "Type.Struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
@@ -348,7 +348,6 @@ test "Type.Struct" {
 
 test "Type.Enum" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Foo = @Type(.{
@@ -409,8 +408,8 @@ test "Type.Enum" {
 }
 
 test "Type.Union" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Untagged = @Type(.{
@@ -434,8 +433,8 @@ test "Type.Union" {
             .layout = .@"packed",
             .tag_type = null,
             .fields = &.{
-                .{ .name = "signed", .type = i32, .alignment = @alignOf(i32) },
-                .{ .name = "unsigned", .type = u32, .alignment = @alignOf(u32) },
+                .{ .name = "signed", .type = i32, .alignment = 0 },
+                .{ .name = "unsigned", .type = u32, .alignment = 0 },
             },
             .decls = &.{},
         },
@@ -547,7 +546,6 @@ test "Type.Union from empty Type.Enum" {
 
 test "Type.Fn" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
 
     const some_opaque = opaque {};
     const some_ptr = *some_opaque;
@@ -724,7 +722,6 @@ test "@Type should resolve its children types" {
 }
 
 test "struct field names sliced at comptime from larger string" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const text =
@@ -738,7 +735,7 @@ test "struct field names sliced at comptime from larger string" {
         var it = std.mem.tokenizeScalar(u8, text, '\n');
         while (it.next()) |name| {
             fields = fields ++ &[_]Type.StructField{.{
-                .alignment = 0,
+                .alignment = @alignOf(usize),
                 .name = name ++ "",
                 .type = usize,
                 .default_value_ptr = null,

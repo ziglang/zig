@@ -12,6 +12,7 @@ const ThreadPool = std.Thread.Pool;
 const WaitGroup = std.Thread.WaitGroup;
 const ErrorBundle = std.zig.ErrorBundle;
 const fatal = std.process.fatal;
+const Writer = std.io.Writer;
 
 const Value = @import("Value.zig");
 const Type = @import("Type.zig");
@@ -43,6 +44,8 @@ const Air = @import("Air.zig");
 const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
+
+const DeprecatedLinearFifo = @import("deprecated.zig").LinearFifo;
 
 pub const Config = @import("Compilation/Config.zig");
 
@@ -121,15 +124,15 @@ work_queues: [
         }
         break :len len;
     }
-]std.fifo.LinearFifo(Job, .Dynamic),
+]DeprecatedLinearFifo(Job),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
-c_object_work_queue: std.fifo.LinearFifo(*CObject, .Dynamic),
+c_object_work_queue: DeprecatedLinearFifo(*CObject),
 
 /// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
 /// gets linked with the Compilation.
-win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.fifo.LinearFifo(*Win32Resource, .Dynamic) else struct {
+win32_resource_work_queue: if (dev.env.supports(.win32_resource)) DeprecatedLinearFifo(*Win32Resource) else struct {
     pub fn ensureUnusedCapacity(_: @This(), _: u0) error{}!void {}
     pub fn readItem(_: @This()) ?noreturn {
         return null;
@@ -170,7 +173,6 @@ verbose_cimport: bool,
 verbose_llvm_cpu_features: bool,
 verbose_link: bool,
 disable_c_depfile: bool,
-time_report: bool,
 stack_report: bool,
 debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
@@ -260,6 +262,8 @@ link_prog_node: std.Progress.Node = std.Progress.Node.none,
 
 llvm_opt_bisect_limit: c_int,
 
+time_report: ?TimeReport,
+
 file_system_inputs: ?*std.ArrayListUnmanaged(u8),
 
 /// This is the digest of the cache for the current compilation.
@@ -318,6 +322,72 @@ const QueuedJobs = struct {
     libtsan: bool = false,
     zigc_lib: bool = false,
 };
+
+pub const Timer = union(enum) {
+    unused,
+    active: struct {
+        start: std.time.Instant,
+        saved_ns: u64,
+    },
+    paused: u64,
+    stopped,
+
+    pub fn pause(t: *Timer) void {
+        switch (t.*) {
+            .unused => return,
+            .active => |a| {
+                const current = std.time.Instant.now() catch unreachable;
+                const new_ns = switch (current.order(a.start)) {
+                    .lt, .eq => 0,
+                    .gt => current.since(a.start),
+                };
+                t.* = .{ .paused = a.saved_ns + new_ns };
+            },
+            .paused => unreachable,
+            .stopped => unreachable,
+        }
+    }
+    pub fn @"resume"(t: *Timer) void {
+        switch (t.*) {
+            .unused => return,
+            .active => unreachable,
+            .paused => |saved_ns| t.* = .{ .active = .{
+                .start = std.time.Instant.now() catch unreachable,
+                .saved_ns = saved_ns,
+            } },
+            .stopped => unreachable,
+        }
+    }
+    pub fn finish(t: *Timer) ?u64 {
+        defer t.* = .stopped;
+        switch (t.*) {
+            .unused => return null,
+            .active => |a| {
+                const current = std.time.Instant.now() catch unreachable;
+                const new_ns = switch (current.order(a.start)) {
+                    .lt, .eq => 0,
+                    .gt => current.since(a.start),
+                };
+                return a.saved_ns + new_ns;
+            },
+            .paused => |ns| return ns,
+            .stopped => unreachable,
+        }
+    }
+};
+
+/// Starts a timer for measuring a `--time-report` value. If `comp.time_report` is `null`, the
+/// returned timer does nothing. When the thing being timed is done, call `Timer.finish`. If that
+/// function returns non-`null`, then the value is a number of nanoseconds, and `comp.time_report`
+/// is set.
+pub fn startTimer(comp: *Compilation) Timer {
+    if (comp.time_report == null) return .unused;
+    const now = std.time.Instant.now() catch @panic("std.time.Timer unsupported; cannot emit time report");
+    return .{ .active = .{
+        .start = now,
+        .saved_ns = 0,
+    } };
+}
 
 /// A filesystem path, represented relative to one of a few specific directories where possible.
 /// Every path (considering symlinks as distinct paths) has a canonical representation in this form.
@@ -684,7 +754,7 @@ pub const Directories = struct {
             global,
         },
         wasi_preopens: switch (builtin.target.os.tag) {
-            .wasi => std.fs.wasi.Preopens,
+            .wasi => fs.wasi.Preopens,
             else => void,
         },
         self_exe_path: switch (builtin.target.os.tag) {
@@ -741,7 +811,7 @@ pub const Directories = struct {
             .local_cache = local_cache,
         };
     }
-    fn openWasiPreopen(preopens: std.fs.wasi.Preopens, name: []const u8) Cache.Directory {
+    fn openWasiPreopen(preopens: fs.wasi.Preopens, name: []const u8) Cache.Directory {
         return .{
             .path = if (std.mem.eql(u8, name, ".")) null else name,
             .handle = .{
@@ -755,8 +825,8 @@ pub const Directories = struct {
         };
         const nonempty_path = if (path.len == 0) "." else path;
         const handle_or_err = switch (thing) {
-            .@"zig lib" => std.fs.cwd().openDir(nonempty_path, .{}),
-            .@"global cache", .@"local cache" => std.fs.cwd().makeOpenPath(nonempty_path, .{}),
+            .@"zig lib" => fs.cwd().openDir(nonempty_path, .{}),
+            .@"global cache", .@"local cache" => fs.cwd().makeOpenPath(nonempty_path, .{}),
         };
         return .{
             .path = if (path.len == 0) null else path,
@@ -783,6 +853,58 @@ pub inline fn debugIncremental(comp: *const Compilation) bool {
     if (!build_options.enable_debug_extensions or builtin.single_threaded) return false;
     return comp.debug_incremental;
 }
+
+pub const TimeReport = struct {
+    stats: std.Build.abi.time_report.CompileResult.Stats,
+
+    /// Allocated into `gpa`. The pass time statistics emitted by LLVM's "time-passes" option.
+    /// LLVM provides this data in ASCII form as a table, which can be directly shown to users.
+    ///
+    /// Ideally, we would be able to use `printAllJSONValues` to get *structured* data which we can
+    /// then display more nicely. Unfortunately, that function seems to trip an assertion on one of
+    /// the pass timer names at the time of writing.
+    llvm_pass_timings: []u8,
+
+    /// Key is a ZIR `declaration` instruction; value is the number of nanoseconds spent analyzing
+    /// it. This is the total across all instances of the generic parent namespace, and (if this is
+    /// a function) all generic instances of this function. It also includes time spent analyzing
+    /// function bodies if this is a function (generic or otherwise).
+    /// An entry not existing means the declaration has not been analyzed (so far).
+    decl_sema_info: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, struct {
+        ns: u64,
+        count: u32,
+    }),
+
+    /// Key is a ZIR `declaration` instruction which is a function or test; value is the number of
+    /// nanoseconds spent running codegen on it. As above, this is the total across all generic
+    /// instances, both of this function itself and of its parent namespace.
+    /// An entry not existing means the declaration has not been codegenned (so far).
+    /// Every key in `decl_codegen_ns` is also in `decl_sema_ns`.
+    decl_codegen_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+
+    /// Key is a ZIR `declaration` instruction which is anything other than a `comptime` decl; value
+    /// is the number of nanoseconds spent linking it into the binary. As above, this is the total
+    /// across all generic instances.
+    /// An entry not existing means the declaration has not been linked (so far).
+    /// Every key in `decl_link_ns` is also in `decl_sema_ns`.
+    decl_link_ns: std.AutoArrayHashMapUnmanaged(InternPool.TrackedInst.Index, u64),
+
+    pub fn deinit(tr: *TimeReport, gpa: Allocator) void {
+        tr.stats = undefined;
+        gpa.free(tr.llvm_pass_timings);
+        tr.decl_sema_info.deinit(gpa);
+        tr.decl_codegen_ns.deinit(gpa);
+        tr.decl_link_ns.deinit(gpa);
+    }
+
+    pub const init: TimeReport = .{
+        .stats = .init,
+        .llvm_pass_timings = &.{},
+        .decl_sema_info = .empty,
+        .decl_codegen_ns = .empty,
+        .decl_link_ns = .empty,
+    };
+};
 
 pub const default_stack_protector_buffer_size = target_util.default_stack_protector_buffer_size;
 pub const SemaError = Zcu.SemaError;
@@ -993,15 +1115,15 @@ pub const CObject = struct {
             const source_line = source_line: {
                 if (diag.src_loc.offset == 0 or diag.src_loc.column == 0) break :source_line 0;
 
-                const file = std.fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
+                const file = fs.cwd().openFile(file_name, .{}) catch break :source_line 0;
                 defer file.close();
-                file.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
-
-                var line = std.ArrayList(u8).init(eb.gpa);
-                defer line.deinit();
-                file.deprecatedReader().readUntilDelimiterArrayList(&line, '\n', 1 << 10) catch break :source_line 0;
-
-                break :source_line try eb.addString(line.items);
+                var buffer: [1024]u8 = undefined;
+                var file_reader = file.reader(&buffer);
+                file_reader.seekTo(diag.src_loc.offset + 1 - diag.src_loc.column) catch break :source_line 0;
+                var aw: Writer.Allocating = .init(eb.gpa);
+                defer aw.deinit();
+                _ = file_reader.interface.streamDelimiterEnding(&aw.writer, '\n') catch break :source_line 0;
+                break :source_line try eb.addString(aw.written());
             };
 
             return .{
@@ -1067,11 +1189,11 @@ pub const CObject = struct {
                     }
                 };
 
-                const file = try std.fs.cwd().openFile(path, .{});
+                var buffer: [1024]u8 = undefined;
+                const file = try fs.cwd().openFile(path, .{});
                 defer file.close();
-                var br = std.io.bufferedReader(file.deprecatedReader());
-                const reader = br.reader();
-                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = reader.any() });
+                var file_reader = file.reader(&buffer);
+                var bc = std.zig.llvm.BitcodeReader.init(gpa, .{ .reader = &file_reader.interface });
                 defer bc.deinit();
 
                 var file_names: std.AutoArrayHashMapUnmanaged(u32, []const u8) = .empty;
@@ -1269,6 +1391,7 @@ pub const Win32Resource = struct {
 };
 
 pub const MiscTask = enum {
+    open_output,
     write_builtin_zig,
     rename_results,
     check_whole_cache,
@@ -1303,11 +1426,6 @@ pub const MiscTask = enum {
     @"wasi crt1-reactor.o",
     @"wasi crt1-command.o",
     @"wasi libc.a",
-    @"wasi libdl.a",
-    @"libwasi-emulated-process-clocks.a",
-    @"libwasi-emulated-getpid.a",
-    @"libwasi-emulated-mman.a",
-    @"libwasi-emulated-signal.a",
 
     @"glibc Scrt1.o",
     @"glibc libc_nonshared.a",
@@ -1426,7 +1544,8 @@ pub const SystemLib = link.SystemLib;
 pub const CacheMode = enum {
     /// The results of this compilation are not cached. The compilation is always performed, and the
     /// results are emitted directly to their output locations. Temporary files will be placed in a
-    /// temporary directory in the cache, but deleted after the compilation is done.
+    /// temporary directory in the cache, but deleted after the compilation is done, unless they are
+    /// needed for the output binary to work correctly.
     ///
     /// This mode is typically used for direct CLI invocations like `zig build-exe`, because such
     /// processes are typically low-level usages which would not make efficient use of the cache.
@@ -1470,8 +1589,8 @@ const CacheUse = union(CacheMode) {
     const None = struct {
         /// User-requested artifacts are written directly to their output path in this cache mode.
         /// However, if we need to emit any temporary files, they are placed in this directory.
-        /// We will recursively delete this directory at the end of this update. This field is
-        /// non-`null` only inside `update`.
+        /// We will recursively delete this directory at the end of this update if possible. This
+        /// field is non-`null` only inside `update`.
         tmp_artifact_directory: ?Cache.Directory,
     };
 
@@ -1752,7 +1871,49 @@ fn addModuleTableToCacheHash(
 
 const RtStrat = enum { none, lib, obj, zcu, dyn_lib };
 
-pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compilation {
+pub const CreateDiagnostic = union(enum) {
+    export_table_import_table_conflict,
+    emit_h_without_zcu,
+    illegal_zig_import,
+    cross_libc_unavailable,
+    find_native_libc: std.zig.LibCInstallation.FindError,
+    libc_installation_missing_crt_dir,
+    create_cache_path: CreateCachePath,
+    open_output_bin: link.File.OpenError,
+    pub const CreateCachePath = struct {
+        which: enum { local, global },
+        sub: []const u8,
+        err: (fs.Dir.MakeError || fs.Dir.OpenError || fs.Dir.StatFileError),
+    };
+    pub fn format(diag: CreateDiagnostic, w: *std.Io.Writer) std.Io.Writer.Error!void {
+        switch (diag) {
+            .export_table_import_table_conflict => try w.writeAll("'--import-table' and '--export-table' cannot be used together"),
+            .emit_h_without_zcu => try w.writeAll("cannot emit C header with no Zig source files"),
+            .illegal_zig_import => try w.writeAll("this compiler implementation does not support importing the root source file of a provided module"),
+            .cross_libc_unavailable => try w.writeAll("unable to provide libc for this target"),
+            .find_native_libc => |err| try w.print("failed to find libc installation: {t}", .{err}),
+            .libc_installation_missing_crt_dir => try w.writeAll("libc installation is missing crt directory"),
+            .create_cache_path => |cache| try w.print("failed to create path '{s}' in {t} cache directory: {t}", .{
+                cache.sub,
+                cache.which,
+                cache.err,
+            }),
+            .open_output_bin => |err| try w.print("failed to open output binary: {t}", .{err}),
+        }
+    }
+
+    fn fail(out: *CreateDiagnostic, result: CreateDiagnostic) error{CreateFail} {
+        out.* = result;
+        return error.CreateFail;
+    }
+};
+pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options: CreateOptions) error{
+    OutOfMemory,
+    Unexpected,
+    CurrentWorkingDirectoryUnlinked,
+    /// An error has been stored to `diag`.
+    CreateFail,
+}!*Compilation {
     const output_mode = options.config.output_mode;
     const is_dyn_lib = switch (output_mode) {
         .Obj, .Exe => false,
@@ -1765,7 +1926,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     };
 
     if (options.linker_export_table and options.linker_import_table) {
-        return error.ExportTableAndImportTableConflict;
+        return diag.fail(.export_table_import_table_conflict);
     }
 
     const have_zcu = options.config.have_zcu;
@@ -1798,14 +1959,18 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
         const link_libc = options.config.link_libc;
 
-        const libc_dirs = try std.zig.LibCDirs.detect(
+        const libc_dirs = std.zig.LibCDirs.detect(
             arena,
             options.dirs.zig_lib.path.?,
             target,
             options.root_mod.resolved_target.is_native_abi,
             link_libc,
             options.libc_installation,
-        );
+        ) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            // Every other error is specifically related to finding the native installation
+            else => |e| return diag.fail(.{ .find_native_libc = e }),
+        };
 
         const sysroot = options.sysroot orelse libc_dirs.sysroot;
 
@@ -1813,11 +1978,21 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             if (options.skip_linker_dependencies) break :s .none;
             const want = options.want_compiler_rt orelse is_exe_or_dyn_lib;
             if (!want) break :s .none;
-            if (have_zcu) {
+            const need_llvm = switch (target_util.canBuildLibCompilerRt(target)) {
+                .no => break :s .none, // impossible to build
+                .yes => false,
+                .llvm_only => true,
+            };
+            if (have_zcu and (!need_llvm or use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
-                if (target.ofmt == .coff and target_util.zigBackend(target, use_llvm) == .stage2_x86_64)
-                    break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                switch (target_util.zigBackend(target, use_llvm)) {
+                    else => {},
+                    .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
+                        break :s if (is_exe_or_dyn_lib) .dyn_lib else .zcu;
+                    },
+                }
             }
+            if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
@@ -1825,7 +2000,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         if (compiler_rt_strat == .zcu) {
             // For objects, this mechanism relies on essentially `_ = @import("compiler-rt");`
             // injected into the object.
-            const compiler_rt_mod = try Package.Module.create(arena, .{
+            const compiler_rt_mod = Package.Module.create(arena, .{
                 .paths = .{
                     .root = .zig_lib_root,
                     .root_src_path = "compiler_rt.zig",
@@ -1839,25 +2014,48 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 },
                 .global = options.config,
                 .parent = options.root_mod,
-            });
+            }) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                // None of these are possible because the configuration matches the root module
+                // which already passed these checks.
+                error.ValgrindUnsupportedOnTarget => unreachable,
+                error.TargetRequiresSingleThreaded => unreachable,
+                error.BackendRequiresSingleThreaded => unreachable,
+                error.TargetRequiresPic => unreachable,
+                error.PieRequiresPic => unreachable,
+                error.DynamicLinkingRequiresPic => unreachable,
+                error.TargetHasNoRedZone => unreachable,
+                // These are not possible because are explicitly *not* requesting these things.
+                error.StackCheckUnsupportedByTarget => unreachable,
+                error.StackProtectorUnsupportedByTarget => unreachable,
+                error.StackProtectorUnavailableWithoutLibC => unreachable,
+            };
             try options.root_mod.deps.putNoClobber(arena, "compiler_rt", compiler_rt_mod);
         }
 
         // unlike compiler_rt, we always want to go through the `_ = @import("ubsan-rt")`
-        // approach, since the ubsan runtime uses quite a lot of the standard library
-        // and this reduces unnecessary bloat.
+        // approach if possible, since the ubsan runtime uses quite a lot of the standard
+        // library and this reduces unnecessary bloat.
         const ubsan_rt_strat: RtStrat = s: {
-            const can_build_ubsan_rt = target_util.canBuildLibUbsanRt(target);
-            const want_ubsan_rt = options.want_ubsan_rt orelse (can_build_ubsan_rt and any_sanitize_c == .full and is_exe_or_dyn_lib);
-            if (!want_ubsan_rt) break :s .none;
             if (options.skip_linker_dependencies) break :s .none;
-            if (have_zcu) break :s .zcu;
+            const want = options.want_ubsan_rt orelse (any_sanitize_c == .full and is_exe_or_dyn_lib);
+            if (!want) break :s .none;
+            const need_llvm = switch (target_util.canBuildLibUbsanRt(target)) {
+                .no => break :s .none, // impossible to build
+                .yes => false,
+                .llvm_only => true,
+                .llvm_lld_only => if (!options.config.use_lld) {
+                    break :s .none; // only LLD can handle ubsan-rt for this target
+                } else true,
+            };
+            if (have_zcu and (!need_llvm or use_llvm)) break :s .zcu;
+            if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
         };
 
         if (ubsan_rt_strat == .zcu) {
-            const ubsan_rt_mod = try Package.Module.create(arena, .{
+            const ubsan_rt_mod = Package.Module.create(arena, .{
                 .paths = .{
                     .root = .zig_lib_root,
                     .root_src_path = "ubsan_rt.zig",
@@ -1867,21 +2065,32 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .inherited = .{},
                 .global = options.config,
                 .parent = options.root_mod,
-            });
+            }) catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                // None of these are possible because the configuration matches the root module
+                // which already passed these checks.
+                error.ValgrindUnsupportedOnTarget => unreachable,
+                error.TargetRequiresSingleThreaded => unreachable,
+                error.BackendRequiresSingleThreaded => unreachable,
+                error.TargetRequiresPic => unreachable,
+                error.PieRequiresPic => unreachable,
+                error.DynamicLinkingRequiresPic => unreachable,
+                error.TargetHasNoRedZone => unreachable,
+                error.StackCheckUnsupportedByTarget => unreachable,
+                error.StackProtectorUnsupportedByTarget => unreachable,
+                error.StackProtectorUnavailableWithoutLibC => unreachable,
+            };
             try options.root_mod.deps.putNoClobber(arena, "ubsan_rt", ubsan_rt_mod);
         }
 
         if (options.verbose_llvm_cpu_features) {
             if (options.root_mod.resolved_target.llvm_cpu_features) |cf| print: {
-                std.debug.lockStdErr();
-                defer std.debug.unlockStdErr();
-                const stderr = std.fs.File.stderr().deprecatedWriter();
-                nosuspend {
-                    stderr.print("compilation: {s}\n", .{options.root_name}) catch break :print;
-                    stderr.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
-                    stderr.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
-                    stderr.print("  features: {s}\n", .{cf}) catch {};
-                }
+                const stderr_w = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                stderr_w.print("compilation: {s}\n", .{options.root_name}) catch break :print;
+                stderr_w.print("  target: {s}\n", .{try target.zigTriple(arena)}) catch break :print;
+                stderr_w.print("  cpu: {s}\n", .{target.cpu.model.name}) catch break :print;
+                stderr_w.print("  features: {s}\n", .{cf}) catch {};
             }
         }
 
@@ -1898,10 +2107,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         const cache = try arena.create(Cache);
         cache.* = .{
             .gpa = gpa,
-            .manifest_dir = try options.dirs.local_cache.handle.makeOpenPath("h", .{}),
+            .manifest_dir = options.dirs.local_cache.handle.makeOpenPath("h", .{}) catch |err| {
+                return diag.fail(.{ .create_cache_path = .{ .which = .local, .sub = "h", .err = err } });
+            },
         };
         // These correspond to std.zig.Server.Message.PathPrefix.
-        cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
+        cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
         cache.addPrefix(options.dirs.zig_lib);
         cache.addPrefix(options.dirs.local_cache);
         cache.addPrefix(options.dirs.global_cache);
@@ -1946,20 +2157,24 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             // to redundantly happen for each AstGen operation.
             const zir_sub_dir = "z";
 
-            var local_zir_dir = try options.dirs.local_cache.handle.makeOpenPath(zir_sub_dir, .{});
+            var local_zir_dir = options.dirs.local_cache.handle.makeOpenPath(zir_sub_dir, .{}) catch |err| {
+                return diag.fail(.{ .create_cache_path = .{ .which = .local, .sub = zir_sub_dir, .err = err } });
+            };
             errdefer local_zir_dir.close();
             const local_zir_cache: Cache.Directory = .{
                 .handle = local_zir_dir,
                 .path = try options.dirs.local_cache.join(arena, &.{zir_sub_dir}),
             };
-            var global_zir_dir = try options.dirs.global_cache.handle.makeOpenPath(zir_sub_dir, .{});
+            var global_zir_dir = options.dirs.global_cache.handle.makeOpenPath(zir_sub_dir, .{}) catch |err| {
+                return diag.fail(.{ .create_cache_path = .{ .which = .global, .sub = zir_sub_dir, .err = err } });
+            };
             errdefer global_zir_dir.close();
             const global_zir_cache: Cache.Directory = .{
                 .handle = global_zir_dir,
                 .path = try options.dirs.global_cache.join(arena, &.{zir_sub_dir}),
             };
 
-            const std_mod = options.std_mod orelse try Package.Module.create(arena, .{
+            const std_mod = options.std_mod orelse Package.Module.create(arena, .{
                 .paths = .{
                     .root = try .fromRoot(arena, options.dirs, .zig_lib, "std"),
                     .root_src_path = "std.zig",
@@ -1969,7 +2184,21 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .inherited = .{},
                 .global = options.config,
                 .parent = options.root_mod,
-            });
+            }) catch |err| return switch (err) {
+                error.OutOfMemory => |e| return e,
+                // None of these are possible because the configuration matches the root module
+                // which already passed these checks.
+                error.ValgrindUnsupportedOnTarget => unreachable,
+                error.TargetRequiresSingleThreaded => unreachable,
+                error.BackendRequiresSingleThreaded => unreachable,
+                error.TargetRequiresPic => unreachable,
+                error.PieRequiresPic => unreachable,
+                error.DynamicLinkingRequiresPic => unreachable,
+                error.TargetHasNoRedZone => unreachable,
+                error.StackCheckUnsupportedByTarget => unreachable,
+                error.StackProtectorUnsupportedByTarget => unreachable,
+                error.StackProtectorUnavailableWithoutLibC => unreachable,
+            };
 
             const zcu = try arena.create(Zcu);
             zcu.* = .{
@@ -1982,11 +2211,13 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 .local_zir_cache = local_zir_cache,
                 .error_limit = error_limit,
                 .llvm_object = null,
+                .analysis_roots_buffer = undefined,
+                .analysis_roots_len = 0,
             };
             try zcu.init(options.thread_pool.getIdCount());
             break :blk zcu;
         } else blk: {
-            if (options.emit_h != .no) return error.NoZigModuleForCHeader;
+            if (options.emit_h != .no) return diag.fail(.emit_h_without_zcu);
             break :blk null;
         };
         errdefer if (opt_zcu) |zcu| zcu.deinit();
@@ -2025,7 +2256,7 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .verbose_link = options.verbose_link,
             .disable_c_depfile = options.disable_c_depfile,
             .reference_trace = options.reference_trace,
-            .time_report = options.time_report,
+            .time_report = if (options.time_report) .init else null,
             .stack_report = options.stack_report,
             .test_filters = options.test_filters,
             .test_name_prefix = options.test_name_prefix,
@@ -2062,8 +2293,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             .emit_docs = try options.emit_docs.resolve(arena, &options, .docs),
         };
 
-        comp.windows_libs = try std.StringArrayHashMapUnmanaged(void).init(gpa, options.windows_lib_names, &.{});
-        errdefer comp.windows_libs.deinit(gpa);
+        errdefer {
+            for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
+            comp.windows_libs.deinit(gpa);
+        }
+        try comp.windows_libs.ensureUnusedCapacity(gpa, options.windows_lib_names.len);
+        for (options.windows_lib_names) |windows_lib| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, windows_lib), {});
 
         // Prevent some footguns by making the "any" fields of config reflect
         // the default Module settings.
@@ -2077,7 +2312,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             // Populate `zcu.module_roots`.
             const pt: Zcu.PerThread = .activate(zcu, .main);
             defer pt.deactivate();
-            try pt.populateModuleRootTable();
+            pt.populateModuleRootTable() catch |err| switch (err) {
+                error.OutOfMemory => |e| return e,
+                error.IllegalZigImport => return diag.fail(.illegal_zig_import),
+            };
         }
 
         const lf_open_opts: link.File.OpenOptions = .{
@@ -2152,10 +2390,12 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 none.* = .{ .tmp_artifact_directory = null };
                 comp.cache_use = .{ .none = none };
                 if (comp.emit_bin) |path| {
-                    comp.bin_file = try link.File.open(arena, comp, .{
+                    comp.bin_file = link.File.open(arena, comp, .{
                         .root_dir = .cwd(),
                         .sub_path = path,
-                    }, lf_open_opts);
+                    }, lf_open_opts) catch |err| {
+                        return diag.fail(.{ .open_output_bin = err });
+                    };
                 }
             },
             .incremental => {
@@ -2192,8 +2432,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                 comp.digest = hash.peekBin();
                 const digest = hash.final();
 
-                const artifact_sub_dir = "o" ++ std.fs.path.sep_str ++ digest;
-                var artifact_dir = try options.dirs.local_cache.handle.makeOpenPath(artifact_sub_dir, .{});
+                const artifact_sub_dir = "o" ++ fs.path.sep_str ++ digest;
+                var artifact_dir = options.dirs.local_cache.handle.makeOpenPath(artifact_sub_dir, .{}) catch |err| {
+                    return diag.fail(.{ .create_cache_path = .{ .which = .local, .sub = artifact_sub_dir, .err = err } });
+                };
                 errdefer artifact_dir.close();
                 const artifact_directory: Cache.Directory = .{
                     .handle = artifact_dir,
@@ -2211,7 +2453,9 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                         .root_dir = artifact_directory,
                         .sub_path = cache_rel_path,
                     };
-                    comp.bin_file = try link.File.open(arena, comp, emit, lf_open_opts);
+                    comp.bin_file = link.File.open(arena, comp, emit, lf_open_opts) catch |err| {
+                        return diag.fail(.{ .open_output_bin = err });
+                    };
                 }
             },
             .whole => {
@@ -2243,8 +2487,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     };
     errdefer comp.destroy();
 
-    const can_build_compiler_rt = target_util.canBuildLibCompilerRt(target, use_llvm, build_options.have_llvm);
-
     // Add a `CObject` for each `c_source_files`.
     try comp.c_object_table.ensureTotalCapacity(gpa, options.c_source_files.len);
     for (options.c_source_files) |c_source_file| {
@@ -2257,7 +2499,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
         };
         comp.c_object_table.putAssumeCapacityNoClobber(c_object, {});
     }
-    comp.link_task_queue.pending_prelink_tasks += @intCast(comp.c_object_table.count());
 
     // Add a `Win32Resource` for each `rc_source_files` and one for `manifest_file`.
     const win32_resource_count =
@@ -2265,10 +2506,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
     if (win32_resource_count > 0) {
         dev.check(.win32_resource);
         try comp.win32_resource_table.ensureTotalCapacity(gpa, win32_resource_count);
-        // Add this after adding logic to updateWin32Resource to pass the
-        // result into link.loadInput. loadInput integration is not implemented
-        // for Windows linking logic yet.
-        //comp.link_task_queue.pending_prelink_tasks += @intCast(win32_resource_count);
         for (options.rc_source_files) |rc_source_file| {
             const win32_resource = try gpa.create(Win32Resource);
             errdefer gpa.destroy(win32_resource);
@@ -2294,13 +2531,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
 
     if (comp.emit_bin != null and target.ofmt != .c) {
         if (!comp.skip_linker_dependencies) {
-            // These DLLs are always loaded into every Windows process.
-            if (target.os.tag == .windows and is_exe_or_dyn_lib) {
-                try comp.windows_libs.ensureUnusedCapacity(gpa, 2);
-                comp.windows_libs.putAssumeCapacity("kernel32", {});
-                comp.windows_libs.putAssumeCapacity("ntdll", {});
-            }
-
             // If we need to build libc for the target, add work items for it.
             // We go through the work queue so that building can be done in parallel.
             // If linking against host libc installation, instead queue up jobs
@@ -2318,7 +2548,10 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                         .link_mode = comp.config.link_mode,
                         .pie = comp.config.pie,
                     });
-                    const paths = try lci.resolveCrtPaths(arena, basenames, target);
+                    const paths = lci.resolveCrtPaths(arena, basenames, target) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        error.LibCInstallationMissingCrtDir => return diag.fail(.libc_installation_missing_crt_dir),
+                    };
 
                     const fields = @typeInfo(@TypeOf(paths)).@"struct".fields;
                     try comp.link_task_queue.queued_prelink.ensureUnusedCapacity(gpa, fields.len + 1);
@@ -2330,68 +2563,57 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     // Loads the libraries provided by `target_util.libcFullLinkFlags(target)`.
                     comp.link_task_queue.queued_prelink.appendAssumeCapacity(.load_host_libc);
                 } else if (target.isMuslLibC()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     if (musl.needsCrt0(comp.config.output_mode, comp.config.link_mode, comp.config.pie)) |f| {
                         comp.queued_jobs.musl_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     switch (comp.config.link_mode) {
                         .static => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_a)] = true,
                         .dynamic => comp.queued_jobs.musl_crt_file[@intFromEnum(musl.CrtFile.libc_so)] = true,
                     }
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isGnuLibC()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     if (glibc.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.glibc_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
                     comp.queued_jobs.glibc_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += glibc.sharedObjectsCount(target);
 
                     comp.queued_jobs.glibc_crt_file[@intFromEnum(glibc.CrtFile.libc_nonshared_a)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 } else if (target.isFreeBSDLibC()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     if (freebsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.freebsd_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.freebsd_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += freebsd.sharedObjectsCount();
                 } else if (target.isNetBSDLibC()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     if (netbsd.needsCrt0(comp.config.output_mode)) |f| {
                         comp.queued_jobs.netbsd_crt_file[@intFromEnum(f)] = true;
-                        comp.link_task_queue.pending_prelink_tasks += 1;
                     }
 
                     comp.queued_jobs.netbsd_shared_objects = true;
-                    comp.link_task_queue.pending_prelink_tasks += netbsd.sharedObjectsCount();
                 } else if (target.isWasiLibC()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.execModelCrtFile(comp.config.wasi_exec_model))] = true;
                     comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(wasi_libc.CrtFile.libc_a)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 2;
                 } else if (target.isMinGW()) {
-                    if (!std.zig.target.canBuildLibC(target)) return error.LibCUnavailable;
+                    if (!std.zig.target.canBuildLibC(target)) return diag.fail(.cross_libc_unavailable);
 
                     const main_crt_file: mingw.CrtFile = if (is_dyn_lib) .dllcrt2_o else .crt2_o;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(main_crt_file)] = true;
                     comp.queued_jobs.mingw_crt_file[@intFromEnum(mingw.CrtFile.libmingw32_lib)] = true;
-                    comp.link_task_queue.pending_prelink_tasks += 2;
 
                     // When linking mingw-w64 there are some import libs we always need.
                     try comp.windows_libs.ensureUnusedCapacity(gpa, mingw.always_link_libs.len);
-                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(name, {});
+                    for (mingw.always_link_libs) |name| comp.windows_libs.putAssumeCapacity(try gpa.dupe(u8, name), {});
                 } else {
-                    return error.LibCUnavailable;
+                    return diag.fail(.cross_libc_unavailable);
                 }
 
                 if ((target.isMuslLibC() and comp.config.link_mode == .static) or
@@ -2399,7 +2621,6 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
                     target.isMinGW())
                 {
                     comp.queued_jobs.zigc_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
                 }
             }
 
@@ -2416,59 +2637,54 @@ pub fn create(gpa: Allocator, arena: Allocator, options: CreateOptions) !*Compil
             }
             if (comp.wantBuildLibUnwindFromSource()) {
                 comp.queued_jobs.libunwind = true;
-                comp.link_task_queue.pending_prelink_tasks += 1;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.link_libcpp) {
                 comp.queued_jobs.libcxx = true;
                 comp.queued_jobs.libcxxabi = true;
-                comp.link_task_queue.pending_prelink_tasks += 2;
             }
             if (build_options.have_llvm and is_exe_or_dyn_lib and comp.config.any_sanitize_thread) {
                 comp.queued_jobs.libtsan = true;
-                comp.link_task_queue.pending_prelink_tasks += 1;
             }
 
-            if (can_build_compiler_rt) {
-                if (comp.compiler_rt_strat == .lib) {
+            switch (comp.compiler_rt_strat) {
+                .none, .zcu => {},
+                .lib => {
                     log.debug("queuing a job to build compiler_rt_lib", .{});
                     comp.queued_jobs.compiler_rt_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                } else if (comp.compiler_rt_strat == .obj) {
+                },
+                .obj => {
                     log.debug("queuing a job to build compiler_rt_obj", .{});
-                    // In this case we are making a static library, so we ask
-                    // for a compiler-rt object to put in it.
                     comp.queued_jobs.compiler_rt_obj = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                } else if (comp.compiler_rt_strat == .dyn_lib) {
+                },
+                .dyn_lib => {
                     // hack for stage2_x86_64 + coff
                     log.debug("queuing a job to build compiler_rt_dyn_lib", .{});
                     comp.queued_jobs.compiler_rt_dyn_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                }
+                },
+            }
 
-                if (comp.ubsan_rt_strat == .lib) {
+            switch (comp.ubsan_rt_strat) {
+                .none, .zcu => {},
+                .lib => {
                     log.debug("queuing a job to build ubsan_rt_lib", .{});
                     comp.queued_jobs.ubsan_rt_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                } else if (comp.ubsan_rt_strat == .obj) {
+                },
+                .obj => {
                     log.debug("queuing a job to build ubsan_rt_obj", .{});
                     comp.queued_jobs.ubsan_rt_obj = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                }
+                },
+                .dyn_lib => unreachable, // hack for compiler_rt only
+            }
 
-                if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
-                    log.debug("queuing a job to build libfuzzer", .{});
-                    comp.queued_jobs.fuzzer_lib = true;
-                    comp.link_task_queue.pending_prelink_tasks += 1;
-                }
+            if (is_exe_or_dyn_lib and comp.config.any_fuzz) {
+                log.debug("queuing a job to build libfuzzer", .{});
+                comp.queued_jobs.fuzzer_lib = true;
             }
         }
 
         try comp.link_task_queue.queued_prelink.append(gpa, .load_explicitly_provided);
     }
     log.debug("queued prelink tasks: {d}", .{comp.link_task_queue.queued_prelink.items.len});
-    log.debug("pending prelink tasks: {d}", .{comp.link_task_queue.pending_prelink_tasks});
-
     return comp;
 }
 
@@ -2483,10 +2699,11 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
 
-    for (comp.work_queues) |work_queue| work_queue.deinit();
+    for (&comp.work_queues) |*work_queue| work_queue.deinit();
     comp.c_object_work_queue.deinit();
     comp.win32_resource_work_queue.deinit();
 
+    for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
 
     {
@@ -2559,6 +2776,8 @@ pub fn destroy(comp: *Compilation) void {
     }
     comp.failed_win32_resources.deinit(gpa);
 
+    if (comp.time_report) |*tr| tr.deinit(gpa);
+
     comp.link_diags.deinit();
 
     comp.clearMiscFailures();
@@ -2604,11 +2823,22 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
                     // temporary directories; it doesn't have a real cache directory anyway.
                     return;
                 }
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                // Usually, we want to delete the temporary directory. However, if we are emitting
+                // an unstripped Mach-O binary with the LLVM backend, then the temporary directory
+                // contains the ZCU object file emitted by LLVM, which contains debug symbols not
+                // replicated in the output binary (the output instead contains a reference to that
+                // file which debug tooling can look through). So, in that particular case, we need
+                // to keep this directory around so that the output binary can be debugged.
+                if (comp.bin_file != null and comp.getTarget().ofmt == .macho and comp.config.debug_format != .strip) {
+                    // We are emitting an unstripped Mach-O binary with the LLVM backend: the ZCU
+                    // object file must remain on-disk for its debug info.
+                    return;
+                }
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
                         comp.dirs.local_cache.path orelse ".",
-                        std.fs.path.sep,
+                        fs.path.sep,
                         tmp_dir_sub_path,
                         @errorName(err),
                     });
@@ -2628,11 +2858,11 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
             if (whole.tmp_artifact_directory) |*tmp_dir| {
                 tmp_dir.handle.close();
                 whole.tmp_artifact_directory = null;
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 comp.dirs.local_cache.handle.deleteTree(tmp_dir_sub_path) catch |err| {
                     log.warn("failed to delete temporary directory '{s}{c}{s}': {s}", .{
                         comp.dirs.local_cache.path orelse ".",
-                        std.fs.path.sep,
+                        fs.path.sep,
                         tmp_dir_sub_path,
                         @errorName(err),
                     });
@@ -2642,8 +2872,14 @@ fn cleanupAfterUpdate(comp: *Compilation, tmp_dir_rand_int: u64) void {
     }
 }
 
+pub const UpdateError = error{
+    OutOfMemory,
+    Unexpected,
+    CurrentWorkingDirectoryUnlinked,
+};
+
 /// Detect changes to source files, perform semantic analysis, and update the output files.
-pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
+pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateError!void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -2655,6 +2891,10 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
 
     comp.clearMiscFailures();
     comp.last_update_was_cache_hit = false;
+    if (comp.time_report) |*tr| {
+        tr.deinit(gpa); // this is information about an old update
+        tr.* = .init;
+    }
 
     var tmp_dir_rand_int: u64 = undefined;
     var man: Cache.Manifest = undefined;
@@ -2668,12 +2908,12 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             assert(none.tmp_artifact_directory == null);
             none.tmp_artifact_directory = d: {
                 tmp_dir_rand_int = std.crypto.random.int(u64);
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
-                break :d .{
-                    .path = path,
-                    .handle = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}),
+                const handle = comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}) catch |err| {
+                    return comp.setMiscFailure(.open_output, "failed to create output directory '{s}': {t}", .{ path, err });
                 };
+                break :d .{ .path = path, .handle = handle };
             };
         },
         .incremental => {},
@@ -2685,6 +2925,14 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             man = comp.cache_parent.obtain();
             whole.cache_manifest = &man;
             try addNonIncrementalStuffToCacheManifest(comp, arena, &man);
+
+            // Under `--time-report`, ignore cache hits; do the work anyway for those juicy numbers.
+            const ignore_hit = comp.time_report != null;
+
+            if (ignore_hit) {
+                // We're going to do the work regardless of whether this is a hit or a miss.
+                man.want_shared_lock = false;
+            }
 
             const is_hit = man.hit() catch |err| switch (err) {
                 error.CacheCheckFailed => switch (man.diagnostic) {
@@ -2711,7 +2959,7 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
                     .{},
                 ),
             };
-            if (is_hit) {
+            if (is_hit and !ignore_hit) {
                 // In this case the cache hit contains the full set of file system inputs. Nice!
                 if (comp.file_system_inputs) |buf| try man.populateFileSystemInputs(buf);
                 if (comp.parent_whole_cache) |pwc| {
@@ -2732,22 +2980,29 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             }
             log.debug("CacheMode.whole cache miss for {s}", .{comp.root_name});
 
+            if (ignore_hit) {
+                // Okay, now set this back so that `writeManifest` will downgrade our lock later.
+                man.want_shared_lock = true;
+            }
+
             // Compile the artifacts to a temporary directory.
             whole.tmp_artifact_directory = d: {
                 tmp_dir_rand_int = std.crypto.random.int(u64);
-                const tmp_dir_sub_path = "tmp" ++ std.fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
+                const tmp_dir_sub_path = "tmp" ++ fs.path.sep_str ++ std.fmt.hex(tmp_dir_rand_int);
                 const path = try comp.dirs.local_cache.join(arena, &.{tmp_dir_sub_path});
-                break :d .{
-                    .path = path,
-                    .handle = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}),
+                const handle = comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{}) catch |err| {
+                    return comp.setMiscFailure(.open_output, "failed to create output directory '{s}': {t}", .{ path, err });
                 };
+                break :d .{ .path = path, .handle = handle };
             };
             if (comp.emit_bin) |sub_path| {
                 const emit: Cache.Path = .{
                     .root_dir = whole.tmp_artifact_directory.?,
                     .sub_path = sub_path,
                 };
-                comp.bin_file = try link.File.createEmpty(arena, comp, emit, whole.lf_open_opts);
+                comp.bin_file = link.File.createEmpty(arena, comp, emit, whole.lf_open_opts) catch |err| {
+                    return comp.setMiscFailure(.open_output, "failed to open output file '{f}': {t}", .{ emit, err });
+                };
             }
         },
     }
@@ -2784,6 +3039,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
 
+        assert(zcu.cur_analysis_timer == null);
+
         zcu.skip_analysis_this_update = false;
 
         // TODO: doing this in `resolveReferences` later could avoid adding inputs for dead embedfiles. Investigate!
@@ -2791,22 +3048,26 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             try comp.appendFileSystemInput(embed_file.path);
         }
 
-        zcu.analysis_roots.clear();
+        zcu.analysis_roots_len = 0;
 
-        zcu.analysis_roots.appendAssumeCapacity(zcu.std_mod);
+        zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.std_mod;
+        zcu.analysis_roots_len += 1;
 
         // Normally we rely on importing std to in turn import the root source file in the start code.
         // However, the main module is distinct from the root module in tests, so that won't happen there.
         if (comp.config.is_test and zcu.main_mod != zcu.std_mod) {
-            zcu.analysis_roots.appendAssumeCapacity(zcu.main_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = zcu.main_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("compiler_rt")) |compiler_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(compiler_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = compiler_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
 
         if (zcu.root_mod.deps.get("ubsan_rt")) |ubsan_rt_mod| {
-            zcu.analysis_roots.appendAssumeCapacity(ubsan_rt_mod);
+            zcu.analysis_roots_buffer[zcu.analysis_roots_len] = ubsan_rt_mod;
+            zcu.analysis_roots_len += 1;
         }
     }
 
@@ -2826,6 +3087,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
     if (comp.zcu) |zcu| {
         const pt: Zcu.PerThread = .activate(zcu, .main);
         defer pt.deactivate();
+
+        assert(zcu.cur_analysis_timer == null);
 
         if (!zcu.skip_analysis_this_update) {
             if (comp.config.is_test) {
@@ -2910,17 +3173,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             // Close tmp dir and link.File to avoid open handle during rename.
             whole.tmp_artifact_directory.?.handle.close();
             whole.tmp_artifact_directory = null;
-            const s = std.fs.path.sep_str;
+            const s = fs.path.sep_str;
             const tmp_dir_sub_path = "tmp" ++ s ++ std.fmt.hex(tmp_dir_rand_int);
             const o_sub_path = "o" ++ s ++ hex_digest;
             renameTmpIntoCache(comp.dirs.local_cache, tmp_dir_sub_path, o_sub_path) catch |err| {
                 return comp.setMiscFailure(
                     .rename_results,
-                    "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {s}",
+                    "failed to rename compilation results ('{f}{s}') into local cache ('{f}{s}'): {t}",
                     .{
                         comp.dirs.local_cache, tmp_dir_sub_path,
                         comp.dirs.local_cache, o_sub_path,
-                        @errorName(err),
+                        err,
                     },
                 );
             };
@@ -2932,17 +3195,23 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) !void {
             if (comp.bin_file) |lf| {
                 lf.emit = .{
                     .root_dir = comp.dirs.local_cache,
-                    .sub_path = try std.fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
+                    .sub_path = try fs.path.join(arena, &.{ o_sub_path, comp.emit_bin.? }),
                 };
-
-                switch (need_writable_dance) {
+                const result: link.File.OpenError!void = switch (need_writable_dance) {
                     .no => {},
-                    .lf_only => try lf.makeWritable(),
-                    .lf_and_debug => {
-                        try lf.makeWritable();
-                        try lf.reopenDebugInfo();
+                    .lf_only => lf.makeWritable(),
+                    .lf_and_debug => res: {
+                        lf.makeWritable() catch |err| break :res err;
+                        lf.reopenDebugInfo() catch |err| break :res err;
                     },
-                }
+                };
+                result catch |err| {
+                    return comp.setMiscFailure(
+                        .rename_results,
+                        "failed to re-open renamed compilation results ('{f}{s}'): {t}",
+                        .{ comp.dirs.local_cache, o_sub_path, err },
+                    );
+                };
             }
 
             try flush(comp, arena, .main);
@@ -3035,14 +3304,25 @@ fn flush(
     comp: *Compilation,
     arena: Allocator,
     tid: Zcu.PerThread.Id,
-) !void {
+) Allocator.Error!void {
     if (comp.zcu) |zcu| {
         if (zcu.llvm_object) |llvm_object| {
+            const pt: Zcu.PerThread = .activate(zcu, tid);
+            defer pt.deactivate();
+
             // Emit the ZCU object from LLVM now; it's required to flush the output file.
             // If there's an output file, it wants to decide where the LLVM object goes!
             const sub_prog_node = comp.link_prog_node.start("LLVM Emit Object", 0);
             defer sub_prog_node.end();
-            try llvm_object.emit(.{
+
+            var timer = comp.startTimer();
+            defer if (timer.finish()) |ns| {
+                comp.mutex.lock();
+                defer comp.mutex.unlock();
+                comp.time_report.?.stats.real_ns_llvm_emit = ns;
+            };
+
+            llvm_object.emit(pt, .{
                 .pre_ir_path = comp.verbose_llvm_ir,
                 .pre_bc_path = comp.verbose_llvm_bc,
 
@@ -3069,14 +3349,23 @@ fn flush(
 
                 .is_debug = comp.root_mod.optimize_mode == .Debug,
                 .is_small = comp.root_mod.optimize_mode == .ReleaseSmall,
-                .time_report = comp.time_report,
+                .time_report = if (comp.time_report) |*p| p else null,
                 .sanitize_thread = comp.config.any_sanitize_thread,
                 .fuzz = comp.config.any_fuzz,
                 .lto = comp.config.lto,
-            });
+            }) catch |err| switch (err) {
+                error.LinkFailure => {}, // Already reported.
+                error.OutOfMemory => return error.OutOfMemory,
+            };
         }
     }
     if (comp.bin_file) |lf| {
+        var timer = comp.startTimer();
+        defer if (timer.finish()) |ns| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.real_ns_link_flush = ns;
+        };
         // This is needed before reading the error flags.
         lf.flush(arena, tid, comp.link_prog_node) catch |err| switch (err) {
             error.LinkFailure => {}, // Already reported.
@@ -3105,7 +3394,7 @@ fn renameTmpIntoCache(
 ) !void {
     var seen_eaccess = false;
     while (true) {
-        std.fs.rename(
+        fs.rename(
             cache_directory.handle,
             tmp_dir_sub_path,
             cache_directory.handle,
@@ -3382,10 +3671,10 @@ pub fn saveState(comp: *Compilation) !void {
 
     const gpa = comp.gpa;
 
-    var bufs = std.ArrayList(std.posix.iovec_const).init(gpa);
+    var bufs = std.array_list.Managed([]const u8).init(gpa);
     defer bufs.deinit();
 
-    var pt_headers = std.ArrayList(Header.PerThread).init(gpa);
+    var pt_headers = std.array_list.Managed(Header.PerThread).init(gpa);
     defer pt_headers.deinit();
 
     if (comp.zcu) |zcu| {
@@ -3421,50 +3710,50 @@ pub fn saveState(comp: *Compilation) !void {
 
         try bufs.ensureTotalCapacityPrecise(14 + 8 * pt_headers.items.len);
         addBuf(&bufs, mem.asBytes(&header));
-        addBuf(&bufs, mem.sliceAsBytes(pt_headers.items));
+        addBuf(&bufs, @ptrCast(pt_headers.items));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.src_hash_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_val_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.nav_ty_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.interned_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.zon_file_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.embed_file_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_deps.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.namespace_name_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.src_hash_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.src_hash_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.nav_val_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.nav_val_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.nav_ty_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.nav_ty_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.interned_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.interned_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.zon_file_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.zon_file_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.embed_file_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.embed_file_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.namespace_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.namespace_deps.values()));
+        addBuf(&bufs, @ptrCast(ip.namespace_name_deps.keys()));
+        addBuf(&bufs, @ptrCast(ip.namespace_name_deps.values()));
 
-        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.keys()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.first_dependency.values()));
-        addBuf(&bufs, mem.sliceAsBytes(ip.dep_entries.items));
-        addBuf(&bufs, mem.sliceAsBytes(ip.free_dep_entries.items));
+        addBuf(&bufs, @ptrCast(ip.first_dependency.keys()));
+        addBuf(&bufs, @ptrCast(ip.first_dependency.values()));
+        addBuf(&bufs, @ptrCast(ip.dep_entries.items));
+        addBuf(&bufs, @ptrCast(ip.free_dep_entries.items));
 
         for (ip.locals, pt_headers.items) |*local, pt_header| {
             if (pt_header.intern_pool.limbs_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.limbs.view().items(.@"0")[0..pt_header.intern_pool.limbs_len]));
+                addBuf(&bufs, @ptrCast(local.shared.limbs.view().items(.@"0")[0..pt_header.intern_pool.limbs_len]));
             }
             if (pt_header.intern_pool.extra_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.extra.view().items(.@"0")[0..pt_header.intern_pool.extra_len]));
+                addBuf(&bufs, @ptrCast(local.shared.extra.view().items(.@"0")[0..pt_header.intern_pool.extra_len]));
             }
             if (pt_header.intern_pool.items_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
+                addBuf(&bufs, @ptrCast(local.shared.items.view().items(.data)[0..pt_header.intern_pool.items_len]));
+                addBuf(&bufs, @ptrCast(local.shared.items.view().items(.tag)[0..pt_header.intern_pool.items_len]));
             }
             if (pt_header.intern_pool.string_bytes_len > 0) {
                 addBuf(&bufs, local.shared.strings.view().items(.@"0")[0..pt_header.intern_pool.string_bytes_len]);
             }
             if (pt_header.intern_pool.tracked_insts_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
+                addBuf(&bufs, @ptrCast(local.shared.tracked_insts.view().items(.@"0")[0..pt_header.intern_pool.tracked_insts_len]));
             }
             if (pt_header.intern_pool.files_len > 0) {
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
-                addBuf(&bufs, mem.sliceAsBytes(local.shared.files.view().items(.root_type)[0..pt_header.intern_pool.files_len]));
+                addBuf(&bufs, @ptrCast(local.shared.files.view().items(.bin_digest)[0..pt_header.intern_pool.files_len]));
+                addBuf(&bufs, @ptrCast(local.shared.files.view().items(.root_type)[0..pt_header.intern_pool.files_len]));
             }
         }
 
@@ -3482,95 +3771,95 @@ pub fn saveState(comp: *Compilation) !void {
             try bufs.ensureUnusedCapacity(85);
             addBuf(&bufs, wasm.string_bytes.items);
             // TODO make it well-defined memory layout
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.objects.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.func_types.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_function_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_functions.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_global_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_globals.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_table_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_tables.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memory_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_memories.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.tag)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.offset)));
+            //addBuf(&bufs, @ptrCast(wasm.objects.items));
+            addBuf(&bufs, @ptrCast(wasm.func_types.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_function_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_function_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_functions.items));
+            addBuf(&bufs, @ptrCast(wasm.object_global_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_global_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_globals.items));
+            addBuf(&bufs, @ptrCast(wasm.object_table_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_table_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_tables.items));
+            addBuf(&bufs, @ptrCast(wasm.object_memory_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_memory_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_memories.items));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.tag)));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.offset)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.pointee)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations.items(.addend)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_init_funcs.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_segments.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_datas.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_data_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_custom_segments.values()));
+            //addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.pointee)));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations.items(.addend)));
+            addBuf(&bufs, @ptrCast(wasm.object_init_funcs.items));
+            addBuf(&bufs, @ptrCast(wasm.object_data_segments.items));
+            addBuf(&bufs, @ptrCast(wasm.object_datas.items));
+            addBuf(&bufs, @ptrCast(wasm.object_data_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_data_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_custom_segments.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_custom_segments.values()));
             // TODO make it well-defined memory layout
-            // addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdats.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_relocations_table.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.kind)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_comdat_symbols.items(.index)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.tag)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.offset)));
+            // addBuf(&bufs, @ptrCast(wasm.object_comdats.items));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations_table.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_relocations_table.values()));
+            addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.kind)));
+            addBuf(&bufs, @ptrCast(wasm.object_comdat_symbols.items(.index)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.tag)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.offset)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.pointee)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.out_relocs.items(.addend)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_fixups.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_fixups.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.func_table_fixups.items));
+            //addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.pointee)));
+            addBuf(&bufs, @ptrCast(wasm.out_relocs.items(.addend)));
+            addBuf(&bufs, @ptrCast(wasm.uav_fixups.items));
+            addBuf(&bufs, @ptrCast(wasm.nav_fixups.items));
+            addBuf(&bufs, @ptrCast(wasm.func_table_fixups.items));
             if (is_obj) {
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_obj.values()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_obj.values()));
+                addBuf(&bufs, @ptrCast(wasm.navs_obj.keys()));
+                addBuf(&bufs, @ptrCast(wasm.navs_obj.values()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_obj.keys()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_obj.values()));
             } else {
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.navs_exe.values()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.keys()));
-                addBuf(&bufs, mem.sliceAsBytes(wasm.uavs_exe.values()));
+                addBuf(&bufs, @ptrCast(wasm.navs_exe.keys()));
+                addBuf(&bufs, @ptrCast(wasm.navs_exe.values()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_exe.keys()));
+                addBuf(&bufs, @ptrCast(wasm.uavs_exe.values()));
             }
-            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.overaligned_uavs.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.keys()));
+            addBuf(&bufs, @ptrCast(wasm.overaligned_uavs.keys()));
+            addBuf(&bufs, @ptrCast(wasm.overaligned_uavs.values()));
+            addBuf(&bufs, @ptrCast(wasm.zcu_funcs.keys()));
             // TODO handle the union safety field
-            // addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_funcs.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.nav_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.uav_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.missing_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.hidden_function_exports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_exports.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.functions.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.function_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.data_segments.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.globals.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.global_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tables.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.table_imports.values()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.zcu_indirect_function_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_import_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.object_indirect_function_set.keys()));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.tag)));
+            // addBuf(&bufs, @ptrCast(wasm.zcu_funcs.values()));
+            addBuf(&bufs, @ptrCast(wasm.nav_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.nav_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.uav_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.uav_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.missing_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.hidden_function_exports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.hidden_function_exports.values()));
+            addBuf(&bufs, @ptrCast(wasm.global_exports.items));
+            addBuf(&bufs, @ptrCast(wasm.functions.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.function_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.data_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.data_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.data_segments.keys()));
+            addBuf(&bufs, @ptrCast(wasm.globals.keys()));
+            addBuf(&bufs, @ptrCast(wasm.global_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.global_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.tables.keys()));
+            addBuf(&bufs, @ptrCast(wasm.table_imports.keys()));
+            addBuf(&bufs, @ptrCast(wasm.table_imports.values()));
+            addBuf(&bufs, @ptrCast(wasm.zcu_indirect_function_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_indirect_function_import_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.object_indirect_function_set.keys()));
+            addBuf(&bufs, @ptrCast(wasm.mir_instructions.items(.tag)));
             // TODO handle the union safety field
-            //addBuf(&bufs, mem.sliceAsBytes(wasm.mir_instructions.items(.data)));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_extra.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.mir_locals.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_bytes.items));
-            addBuf(&bufs, mem.sliceAsBytes(wasm.tag_name_offs.items));
+            //addBuf(&bufs, @ptrCast(wasm.mir_instructions.items(.data)));
+            addBuf(&bufs, @ptrCast(wasm.mir_extra.items));
+            addBuf(&bufs, @ptrCast(wasm.mir_locals.items));
+            addBuf(&bufs, @ptrCast(wasm.tag_name_bytes.items));
+            addBuf(&bufs, @ptrCast(wasm.tag_name_offs.items));
 
             // TODO add as header fields
             // entry_resolution: FunctionImport.Resolution
@@ -3596,20 +3885,20 @@ pub fn saveState(comp: *Compilation) !void {
 
     // Using an atomic file prevents a crash or power failure from corrupting
     // the previous incremental compilation state.
-    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{});
+    var write_buffer: [1024]u8 = undefined;
+    var af = try lf.emit.root_dir.handle.atomicFile(basename, .{ .write_buffer = &write_buffer });
     defer af.deinit();
-    try af.file.pwritevAll(bufs.items, 0);
+    try af.file_writer.interface.writeVecAll(bufs.items);
     try af.finish();
 }
 
-fn addBuf(list: *std.ArrayList(std.posix.iovec_const), buf: []const u8) void {
-    // Even when len=0, the undefined pointer might cause EFAULT.
+fn addBuf(list: *std.array_list.Managed([]const u8), buf: []const u8) void {
     if (buf.len == 0) return;
-    list.appendAssumeCapacity(.{ .base = buf.ptr, .len = buf.len });
+    list.appendAssumeCapacity(buf);
 }
 
 /// This function is temporally single-threaded.
-pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
+pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
     const gpa = comp.gpa;
 
     var bundle: ErrorBundle.Wip = undefined;
@@ -3659,8 +3948,14 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
         for (zcu.failed_imports.items) |failed| {
             assert(zcu.alive_files.contains(failed.file_index)); // otherwise it wouldn't have been added
             const file = zcu.fileByIndex(failed.file_index);
-            const source = try file.getSource(zcu);
-            const tree = try file.getTree(zcu);
+            const source = file.getSource(zcu) catch |err| {
+                try unableToLoadZcuFile(zcu, &bundle, file, err);
+                continue;
+            };
+            const tree = file.getTree(zcu) catch |err| {
+                try unableToLoadZcuFile(zcu, &bundle, file, err);
+                continue;
+            };
             const start = tree.tokenStart(failed.import_token);
             const end = start + tree.tokenSlice(failed.import_token).len;
             const loc = std.zig.findLineColumn(source.bytes, start);
@@ -3716,7 +4011,11 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             } else {
                 assert(!is_retryable);
                 // AstGen/ZoirGen succeeded with errors. Note that this may include AST errors.
-                _ = try file.getTree(zcu); // Tree must be loaded.
+                // Tree must be loaded.
+                _ = file.getTree(zcu) catch |err| {
+                    try unableToLoadZcuFile(zcu, &bundle, file, err);
+                    continue;
+                };
                 const path = try std.fmt.allocPrint(gpa, "{f}", .{file.path.fmt(comp)});
                 defer gpa.free(path);
                 if (file.zir != null) {
@@ -3734,16 +4033,19 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             const SortOrder = struct {
                 zcu: *Zcu,
                 errors: []const *Zcu.ErrorMsg,
-                err: *?Error,
-
-                const Error = @typeInfo(
-                    @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
-                ).error_union.error_set;
-
+                read_err: *?ReadError,
+                const ReadError = struct {
+                    file: *Zcu.File,
+                    err: Zcu.File.GetSourceError,
+                };
                 pub fn lessThan(ctx: @This(), lhs_index: usize, rhs_index: usize) bool {
-                    if (ctx.err.* != null) return lhs_index < rhs_index;
-                    return ctx.errors[lhs_index].src_loc.lessThan(ctx.errors[rhs_index].src_loc, ctx.zcu) catch |e| {
-                        ctx.err.* = e;
+                    if (ctx.read_err.* != null) return lhs_index < rhs_index;
+                    var bad_file: *Zcu.File = undefined;
+                    return ctx.errors[lhs_index].src_loc.lessThan(ctx.errors[rhs_index].src_loc, ctx.zcu, &bad_file) catch |err| {
+                        ctx.read_err.* = .{
+                            .file = bad_file,
+                            .err = err,
+                        };
                         return lhs_index < rhs_index;
                     };
                 }
@@ -3755,13 +4057,16 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             var entries = try zcu.failed_analysis.entries.clone(gpa);
             errdefer entries.deinit(gpa);
 
-            var err: ?SortOrder.Error = null;
+            var read_err: ?SortOrder.ReadError = null;
             entries.sort(SortOrder{
                 .zcu = zcu,
                 .errors = entries.items(.value),
-                .err = &err,
+                .read_err = &read_err,
             });
-            if (err) |e| return e;
+            if (read_err) |e| {
+                try unableToLoadZcuFile(zcu, &bundle, e.file, e.err);
+                break :zcu_errors;
+            }
             break :s entries.slice();
         };
         defer sorted_failed_analysis.deinit(gpa);
@@ -3881,23 +4186,33 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
 
         // Okay, there *are* referenced compile logs. Sort them into a consistent order.
 
-        const SortContext = struct {
-            err: *?Error,
-            zcu: *Zcu,
-            const Error = @typeInfo(
-                @typeInfo(@TypeOf(Zcu.LazySrcLoc.lessThan)).@"fn".return_type.?,
-            ).error_union.error_set;
-            fn lessThan(ctx: @This(), lhs: Zcu.ErrorMsg, rhs: Zcu.ErrorMsg) bool {
-                if (ctx.err.* != null) return false;
-                return lhs.src_loc.lessThan(rhs.src_loc, ctx.zcu) catch |e| {
-                    ctx.err.* = e;
-                    return false;
+        {
+            const SortContext = struct {
+                zcu: *Zcu,
+                read_err: *?ReadError,
+                const ReadError = struct {
+                    file: *Zcu.File,
+                    err: Zcu.File.GetSourceError,
                 };
+                fn lessThan(ctx: @This(), lhs: Zcu.ErrorMsg, rhs: Zcu.ErrorMsg) bool {
+                    if (ctx.read_err.* != null) return false;
+                    var bad_file: *Zcu.File = undefined;
+                    return lhs.src_loc.lessThan(rhs.src_loc, ctx.zcu, &bad_file) catch |err| {
+                        ctx.read_err.* = .{
+                            .file = bad_file,
+                            .err = err,
+                        };
+                        return false;
+                    };
+                }
+            };
+            var read_err: ?SortContext.ReadError = null;
+            std.mem.sort(Zcu.ErrorMsg, messages.items, @as(SortContext, .{ .read_err = &read_err, .zcu = zcu }), SortContext.lessThan);
+            if (read_err) |e| {
+                try unableToLoadZcuFile(zcu, &bundle, e.file, e.err);
+                break :compile_log_text "";
             }
-        };
-        var sort_err: ?SortContext.Error = null;
-        std.mem.sort(Zcu.ErrorMsg, messages.items, @as(SortContext, .{ .err = &sort_err, .zcu = zcu }), SortContext.lessThan);
-        if (sort_err) |e| return e;
+        }
 
         var log_text: std.ArrayListUnmanaged(u8) = .empty;
         defer log_text.deinit(gpa);
@@ -3931,17 +4246,19 @@ pub fn getAllErrorsAlloc(comp: *Compilation) !ErrorBundle {
             // This AU is referenced and has a transitive compile error, meaning it referenced something with a compile error.
             // However, we haven't reported any such error.
             // This is a compiler bug.
-            const stderr = std.fs.File.stderr().deprecatedWriter();
-            try stderr.writeAll("referenced transitive analysis errors, but none actually emitted\n");
-            try stderr.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)});
-            while (ref) |r| {
-                try stderr.print("referenced by: {f}{s}\n", .{
-                    zcu.fmtAnalUnit(r.referencer),
-                    if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
-                });
-                ref = refs.get(r.referencer).?;
+            print_ctx: {
+                var stderr_w = std.debug.lockStderrWriter(&.{});
+                defer std.debug.unlockStderrWriter();
+                stderr_w.writeAll("referenced transitive analysis errors, but none actually emitted\n") catch break :print_ctx;
+                stderr_w.print("{f} [transitive failure]\n", .{zcu.fmtAnalUnit(failed_unit)}) catch break :print_ctx;
+                while (ref) |r| {
+                    stderr_w.print("referenced by: {f}{s}\n", .{
+                        zcu.fmtAnalUnit(r.referencer),
+                        if (zcu.transitive_failed_analysis.contains(r.referencer)) " [transitive failure]" else "",
+                    }) catch break :print_ctx;
+                    ref = refs.get(r.referencer).?;
+                }
             }
-
             @panic("referenced transitive analysis errors, but none actually emitted");
         }
     };
@@ -3964,14 +4281,10 @@ fn appendCompileLogLines(log_text: *std.ArrayListUnmanaged(u8), zcu: *Zcu, loggi
     }
 }
 
-fn anyErrors(comp: *Compilation) bool {
-    return (totalErrorCount(comp) catch return true) != 0;
-}
-
-fn totalErrorCount(comp: *Compilation) !u32 {
-    var errors = try comp.getAllErrorsAlloc();
+pub fn anyErrors(comp: *Compilation) bool {
+    var errors = comp.getAllErrorsAlloc() catch return true;
     defer errors.deinit(comp.gpa);
-    return errors.errorMessageCount();
+    return errors.errorMessageCount() > 0;
 }
 
 pub const ErrorNoteHashContext = struct {
@@ -4028,19 +4341,16 @@ pub fn addModuleErrorMsg(
     /// If `-freference-trace` is not specified, we only want to show the one reference trace.
     /// So, this is whether we have already emitted an error with a reference trace.
     already_added_error: bool,
-) !void {
+) Allocator.Error!void {
     const gpa = eb.gpa;
     const ip = &zcu.intern_pool;
     const err_src_loc = module_err_msg.src_loc.upgrade(zcu);
     const err_source = err_src_loc.file_scope.getSource(zcu) catch |err| {
-        try eb.addRootErrorMessage(.{
-            .msg = try eb.printString("unable to load '{f}': {s}", .{
-                err_src_loc.file_scope.path.fmt(zcu.comp), @errorName(err),
-            }),
-        });
-        return;
+        return unableToLoadZcuFile(zcu, eb, err_src_loc.file_scope, err);
     };
-    const err_span = try err_src_loc.span(zcu);
+    const err_span = err_src_loc.span(zcu) catch |err| {
+        return unableToLoadZcuFile(zcu, eb, err_src_loc.file_scope, err);
+    };
     const err_loc = std.zig.findLineColumn(err_source.bytes, err_span.main);
 
     var ref_traces: std.ArrayListUnmanaged(ErrorBundle.ReferenceTrace) = .empty;
@@ -4070,7 +4380,13 @@ pub fn addModuleErrorMsg(
                     const f = inline_frame.ptr(zcu).*;
                     const func_nav = ip.indexToKey(f.callee).func.owner_nav;
                     const func_name = ip.getNav(func_nav).name.toSlice(ip);
-                    try addReferenceTraceFrame(zcu, eb, &ref_traces, func_name, last_call_src, true);
+                    addReferenceTraceFrame(zcu, eb, &ref_traces, func_name, last_call_src, true) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        error.AlreadyReported => {
+                            // An incomplete reference trace isn't the end of the world; just cut it off.
+                            break :rt;
+                        },
+                    };
                     last_call_src = f.call_src;
                     opt_inline_frame = f.parent;
                 }
@@ -4082,7 +4398,13 @@ pub fn addModuleErrorMsg(
                     .memoized_state => null,
                 };
                 if (root_name) |n| {
-                    try addReferenceTraceFrame(zcu, eb, &ref_traces, n, last_call_src, false);
+                    addReferenceTraceFrame(zcu, eb, &ref_traces, n, last_call_src, false) catch |err| switch (err) {
+                        error.OutOfMemory => |e| return e,
+                        error.AlreadyReported => {
+                            // An incomplete reference trace isn't the end of the world; just cut it off.
+                            break :rt;
+                        },
+                    };
                 }
             }
             referenced_by = ref.referencer;
@@ -4119,8 +4441,12 @@ pub fn addModuleErrorMsg(
     var last_note_loc: ?std.zig.Loc = null;
     for (module_err_msg.notes) |module_note| {
         const note_src_loc = module_note.src_loc.upgrade(zcu);
-        const source = try note_src_loc.file_scope.getSource(zcu);
-        const span = try note_src_loc.span(zcu);
+        const source = note_src_loc.file_scope.getSource(zcu) catch |err| {
+            return unableToLoadZcuFile(zcu, eb, note_src_loc.file_scope, err);
+        };
+        const span = note_src_loc.span(zcu) catch |err| {
+            return unableToLoadZcuFile(zcu, eb, note_src_loc.file_scope, err);
+        };
         const loc = std.zig.findLineColumn(source.bytes, span.main);
 
         const omit_source_line = loc.eql(err_loc) or (last_note_loc != null and loc.eql(last_note_loc.?));
@@ -4165,11 +4491,17 @@ fn addReferenceTraceFrame(
     name: []const u8,
     lazy_src: Zcu.LazySrcLoc,
     inlined: bool,
-) !void {
+) error{ OutOfMemory, AlreadyReported }!void {
     const gpa = zcu.gpa;
     const src = lazy_src.upgrade(zcu);
-    const source = try src.file_scope.getSource(zcu);
-    const span = try src.span(zcu);
+    const source = src.file_scope.getSource(zcu) catch |err| {
+        try unableToLoadZcuFile(zcu, eb, src.file_scope, err);
+        return error.AlreadyReported;
+    };
+    const span = src.span(zcu) catch |err| {
+        try unableToLoadZcuFile(zcu, eb, src.file_scope, err);
+        return error.AlreadyReported;
+    };
     const loc = std.zig.findLineColumn(source.bytes, span.main);
     try ref_traces.append(gpa, .{
         .decl_name = try eb.printString("{s}{s}", .{ name, if (inlined) " [inlined]" else "" }),
@@ -4185,19 +4517,26 @@ fn addReferenceTraceFrame(
     });
 }
 
-pub fn addWholeFileError(
+fn addWholeFileError(
     zcu: *Zcu,
     eb: *ErrorBundle.Wip,
     file_index: Zcu.File.Index,
     msg: []const u8,
-) !void {
+) Allocator.Error!void {
     // note: "file imported here" on the import reference token
     const imported_note: ?ErrorBundle.MessageIndex = switch (zcu.alive_files.get(file_index).?) {
         .analysis_root => null,
-        .import => |import| try eb.addErrorMessage(.{
-            .msg = try eb.addString("file imported here"),
-            .src_loc = try zcu.fileByIndex(import.importer).errorBundleTokenSrc(import.tok, zcu, eb),
-        }),
+        .import => |import| note: {
+            const file = zcu.fileByIndex(import.importer);
+            // `errorBundleTokenSrc` expects the tree to be loaded
+            _ = file.getTree(zcu) catch |err| {
+                return unableToLoadZcuFile(zcu, eb, file, err);
+            };
+            break :note try eb.addErrorMessage(.{
+                .msg = try eb.addString("file imported here"),
+                .src_loc = try file.errorBundleTokenSrc(import.tok, zcu, eb),
+            });
+        },
     };
 
     try eb.addRootErrorMessage(.{
@@ -4211,6 +4550,20 @@ pub fn addWholeFileError(
     }
 }
 
+/// Adds an error to `eb` that the contents of `file` could not be loaded due to `err`. This is
+/// useful if `Zcu.File.getSource`/`Zcu.File.getTree` fails while lowering compile errors.
+pub fn unableToLoadZcuFile(
+    zcu: *const Zcu,
+    eb: *ErrorBundle.Wip,
+    file: *Zcu.File,
+    err: Zcu.File.GetSourceError,
+) Allocator.Error!void {
+    try eb.addRootErrorMessage(.{
+        .msg = try eb.printString("unable to load: {t}", .{err}),
+        .src_loc = try file.errorBundleWholeFileSrc(zcu, eb),
+    });
+}
+
 fn performAllTheWork(
     comp: *Compilation,
     main_progress_node: std.Progress.Node,
@@ -4219,6 +4572,17 @@ fn performAllTheWork(
     defer if (comp.zcu) |zcu| {
         zcu.generation += 1;
     };
+
+    // This is awkward: we don't want to start the timer until later, but we won't want to stop it
+    // until the wait groups finish. That means we need do do this.
+    var decl_work_timer: ?Timer = null;
+    defer commit_timer: {
+        const t = &(decl_work_timer orelse break :commit_timer);
+        const ns = t.finish() orelse break :commit_timer;
+        comp.mutex.lock();
+        defer comp.mutex.unlock();
+        comp.time_report.?.stats.real_ns_decls = ns;
+    }
 
     // Here we queue up all the AstGen tasks first, followed by C object compilation.
     // We wait until the AstGen tasks are all completed before proceeding to the
@@ -4231,10 +4595,8 @@ fn performAllTheWork(
     comp.link_task_wait_group.reset();
     defer comp.link_task_wait_group.wait();
 
-    comp.link_prog_node.increaseEstimatedTotalItems(
-        comp.link_task_queue.queued_prelink.items.len + // already queued prelink tasks
-            comp.link_task_queue.pending_prelink_tasks, // prelink tasks which will be queued
-    );
+    // Already-queued prelink tasks
+    comp.link_prog_node.increaseEstimatedTotalItems(comp.link_task_queue.queued_prelink.items.len);
     comp.link_task_queue.start(comp);
 
     if (comp.emit_docs != null) {
@@ -4250,6 +4612,7 @@ fn performAllTheWork(
         // compiler-rt due to LLD bugs as well, e.g.:
         //
         // https://github.com/llvm/llvm-project/issues/43698#issuecomment-2542660611
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4267,6 +4630,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.compiler_rt_obj and comp.compiler_rt_obj == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4285,6 +4649,7 @@ fn performAllTheWork(
 
     // hack for stage2_x86_64 + coff
     if (comp.queued_jobs.compiler_rt_dyn_lib and comp.compiler_rt_dyn_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "compiler_rt.zig",
@@ -4302,6 +4667,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.fuzzer_lib and comp.fuzzer_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "fuzzer.zig",
@@ -4316,6 +4682,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.ubsan_rt_lib and comp.ubsan_rt_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "ubsan_rt.zig",
@@ -4332,6 +4699,7 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.ubsan_rt_obj and comp.ubsan_rt_obj == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildRt, .{
             comp,
             "ubsan_rt.zig",
@@ -4348,40 +4716,49 @@ fn performAllTheWork(
     }
 
     if (comp.queued_jobs.glibc_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildGlibcSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.freebsd_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildFreeBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.netbsd_shared_objects) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildNetBSDSharedObjects, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libunwind) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibUnwind, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxx) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibCxx, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libcxxabi) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibCxxAbi, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.libtsan) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibTsan, .{ comp, main_progress_node });
     }
 
     if (comp.queued_jobs.zigc_lib and comp.zigc_static_lib == null) {
+        comp.link_task_queue.startPrelinkItem();
         comp.link_task_wait_group.spawnManager(buildLibZigC, .{ comp, main_progress_node });
     }
 
     for (0..@typeInfo(musl.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.musl_crt_file[i]) {
             const tag: musl.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildMuslCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4389,6 +4766,7 @@ fn performAllTheWork(
     for (0..@typeInfo(glibc.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.glibc_crt_file[i]) {
             const tag: glibc.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildGlibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4396,6 +4774,7 @@ fn performAllTheWork(
     for (0..@typeInfo(freebsd.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.freebsd_crt_file[i]) {
             const tag: freebsd.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildFreeBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4403,6 +4782,7 @@ fn performAllTheWork(
     for (0..@typeInfo(netbsd.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.netbsd_crt_file[i]) {
             const tag: netbsd.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildNetBSDCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4410,6 +4790,7 @@ fn performAllTheWork(
     for (0..@typeInfo(wasi_libc.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.wasi_libc_crt_file[i]) {
             const tag: wasi_libc.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildWasiLibcCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4417,6 +4798,7 @@ fn performAllTheWork(
     for (0..@typeInfo(mingw.CrtFile).@"enum".fields.len) |i| {
         if (comp.queued_jobs.mingw_crt_file[i]) {
             const tag: mingw.CrtFile = @enumFromInt(i);
+            comp.link_task_queue.startPrelinkItem();
             comp.link_task_wait_group.spawnManager(buildMingwCrtFile, .{ comp, tag, main_progress_node });
         }
     }
@@ -4427,6 +4809,13 @@ fn performAllTheWork(
 
         const zir_prog_node = main_progress_node.start("AST Lowering", 0);
         defer zir_prog_node.end();
+
+        var timer = comp.startTimer();
+        defer if (timer.finish()) |ns| {
+            comp.mutex.lock();
+            defer comp.mutex.unlock();
+            comp.time_report.?.stats.real_ns_files = ns;
+        };
 
         var astgen_wait_group: WaitGroup = .{};
         defer astgen_wait_group.wait();
@@ -4481,12 +4870,14 @@ fn performAllTheWork(
         }
 
         while (comp.c_object_work_queue.readItem()) |c_object| {
+            comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
         while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
+            comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
             });
@@ -4553,6 +4944,10 @@ fn performAllTheWork(
             return;
         }
 
+        if (comp.time_report) |*tr| {
+            tr.stats.n_reachable_files = @intCast(zcu.alive_files.count());
+        }
+
         if (comp.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
@@ -4561,7 +4956,7 @@ fn performAllTheWork(
         try zcu.flushRetryableFailures();
 
         // It's analysis time! Queue up our initial analysis.
-        for (zcu.analysis_roots.slice()) |mod| {
+        for (zcu.analysisRoots()) |mod| {
             try comp.queueJob(.{ .analyze_mod = mod });
         }
 
@@ -4585,15 +4980,19 @@ fn performAllTheWork(
         }
     };
 
+    // We aren't going to queue any more prelink tasks.
+    comp.link_task_queue.finishPrelinkItem(comp);
+
     if (!comp.separateCodegenThreadOk()) {
         // Waits until all input files have been parsed.
         comp.link_task_wait_group.wait();
         comp.link_task_wait_group.reset();
         std.log.scoped(.link).debug("finished waiting for link_task_wait_group", .{});
-        if (comp.link_task_queue.pending_prelink_tasks > 0) {
-            // Indicates an error occurred preventing prelink phase from completing.
-            return;
-        }
+    }
+
+    if (comp.zcu != null) {
+        // Start the timer for the "decls" part of the pipeline (Sema, CodeGen, link).
+        decl_work_timer = comp.startTimer();
     }
 
     work: while (true) {
@@ -4818,18 +5217,15 @@ pub fn separateCodegenThreadOk(comp: *const Compilation) bool {
 }
 
 fn workerDocsCopy(comp: *Compilation) void {
-    docsCopyFallible(comp) catch |err| {
-        return comp.lockAndSetMiscFailure(
-            .docs_copy,
-            "unable to copy autodocs artifacts: {s}",
-            .{@errorName(err)},
-        );
-    };
+    docsCopyFallible(comp) catch |err| return comp.lockAndSetMiscFailure(
+        .docs_copy,
+        "unable to copy autodocs artifacts: {s}",
+        .{@errorName(err)},
+    );
 }
 
 fn docsCopyFallible(comp: *Compilation) anyerror!void {
-    const zcu = comp.zcu orelse
-        return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
+    const zcu = comp.zcu orelse return comp.lockAndSetMiscFailure(.docs_copy, "no Zig code to document", .{});
 
     const docs_path = comp.resolveEmitPath(comp.emit_docs.?);
     var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
@@ -4842,7 +5238,7 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     defer out_dir.close();
 
     for (&[_][]const u8{ "docs/main.js", "docs/index.html" }) |sub_path| {
-        const basename = std.fs.path.basename(sub_path);
+        const basename = fs.path.basename(sub_path);
         comp.dirs.zig_lib.handle.copyFile(sub_path, out_dir, basename, .{}) catch |err| {
             comp.lockAndSetMiscFailure(.docs_copy, "unable to copy {s}: {s}", .{
                 sub_path,
@@ -4861,6 +5257,9 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     };
     defer tar_file.close();
 
+    var buffer: [1024]u8 = undefined;
+    var tar_file_writer = tar_file.writer(&buffer);
+
     var seen_table: std.AutoArrayHashMapUnmanaged(*Package.Module, []const u8) = .empty;
     defer seen_table.deinit(comp.gpa);
 
@@ -4870,31 +5269,44 @@ fn docsCopyFallible(comp: *Compilation) anyerror!void {
     var i: usize = 0;
     while (i < seen_table.count()) : (i += 1) {
         const mod = seen_table.keys()[i];
-        try comp.docsCopyModule(mod, seen_table.values()[i], tar_file);
+        try comp.docsCopyModule(mod, seen_table.values()[i], &tar_file_writer);
 
         const deps = mod.deps.values();
         try seen_table.ensureUnusedCapacity(comp.gpa, deps.len);
         for (deps) |dep| seen_table.putAssumeCapacity(dep, dep.fully_qualified_name);
     }
+
+    tar_file_writer.end() catch |err| {
+        return comp.lockAndSetMiscFailure(
+            .docs_copy,
+            "unable to write '{f}/sources.tar': {t}",
+            .{ docs_path, err },
+        );
+    };
 }
 
-fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8, tar_file: std.fs.File) !void {
+fn docsCopyModule(
+    comp: *Compilation,
+    module: *Package.Module,
+    name: []const u8,
+    tar_file_writer: *fs.File.Writer,
+) !void {
     const root = module.root;
     var mod_dir = d: {
         const root_dir, const sub_path = root.openInfo(comp.dirs);
         break :d root_dir.openDir(sub_path, .{ .iterate = true });
     } catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {s}", .{
-            root.fmt(comp), @errorName(err),
-        });
+        return comp.lockAndSetMiscFailure(.docs_copy, "unable to open directory '{f}': {t}", .{ root.fmt(comp), err });
     };
     defer mod_dir.close();
 
     var walker = try mod_dir.walk(comp.gpa);
     defer walker.deinit();
 
-    var archiver = std.tar.writer(tar_file.deprecatedWriter().any());
+    var archiver: std.tar.Writer = .{ .underlying_writer = &tar_file_writer.interface };
     archiver.prefix = name;
+
+    var buffer: [1024]u8 = undefined;
 
     while (try walker.next()) |entry| {
         switch (entry.kind) {
@@ -4906,14 +5318,17 @@ fn docsCopyModule(comp: *Compilation, module: *Package.Module, name: []const u8,
             else => continue,
         }
         var file = mod_dir.openFile(entry.path, .{}) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open '{f}{s}': {s}", .{
-                root.fmt(comp), entry.path, @errorName(err),
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to open {f}{s}: {t}", .{
+                root.fmt(comp), entry.path, err,
             });
         };
         defer file.close();
-        archiver.writeFile(entry.path, file) catch |err| {
-            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive '{f}{s}': {s}", .{
-                root.fmt(comp), entry.path, @errorName(err),
+        const stat = try file.stat();
+        var file_reader: fs.File.Reader = .initSize(file, &buffer, stat.size);
+
+        archiver.writeFile(entry.path, &file_reader, stat.mtime) catch |err| {
+            return comp.lockAndSetMiscFailure(.docs_copy, "unable to archive {f}{s}: {t}", .{
+                root.fmt(comp), entry.path, err,
             });
         };
     }
@@ -4924,14 +5339,12 @@ fn workerDocsWasm(comp: *Compilation, parent_prog_node: std.Progress.Node) void 
     defer prog_node.end();
 
     workerDocsWasmFallible(comp, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
-        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {s}", .{
-            @errorName(err),
-        }),
+        error.AlreadyReported => return,
+        else => comp.lockAndSetMiscFailure(.docs_wasm, "unable to build autodocs: {t}", .{err}),
     };
 }
 
-fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
+fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubUpdateError!void {
     const gpa = comp.gpa;
 
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
@@ -4961,7 +5374,7 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .is_explicit_dynamic_linker = false,
     };
 
-    const config = try Config.resolve(.{
+    const config = Config.resolve(.{
         .output_mode = output_mode,
         .resolved_target = resolved_target,
         .is_test = false,
@@ -4970,14 +5383,17 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .root_optimize_mode = optimize_mode,
         .link_libc = false,
         .rdynamic = true,
-    });
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(.docs_wasm, "sub-compilation of docs_wasm failed: failed to resolve compilation config: {t}", .{err});
+        return error.AlreadyReported;
+    };
 
     const src_basename = "main.zig";
-    const root_name = std.fs.path.stem(src_basename);
+    const root_name = fs.path.stem(src_basename);
 
     const dirs = comp.dirs.withoutLocalCache();
 
-    const root_mod = try Package.Module.create(arena, .{
+    const root_mod = Package.Module.create(arena, .{
         .paths = .{
             .root = try .fromRoot(arena, dirs, .zig_lib, "docs/wasm"),
             .root_src_path = src_basename,
@@ -4990,8 +5406,11 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-    });
-    const walk_mod = try Package.Module.create(arena, .{
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(.docs_wasm, "sub-compilation of docs_wasm failed: failed to create root module: {t}", .{err});
+        return error.AlreadyReported;
+    };
+    const walk_mod = Package.Module.create(arena, .{
         .paths = .{
             .root = try .fromRoot(arena, dirs, .zig_lib, "docs/wasm"),
             .root_src_path = "Walk.zig",
@@ -5004,10 +5423,14 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .global = config,
         .cc_argv = &.{},
         .parent = root_mod,
-    });
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(.docs_wasm, "sub-compilation of docs_wasm failed: failed to create 'Walk' module: {t}", .{err});
+        return error.AlreadyReported;
+    };
     try root_mod.deps.put(arena, "Walk", walk_mod);
 
-    const sub_compilation = try Compilation.create(gpa, arena, .{
+    var sub_create_diag: CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
         .dirs = dirs,
         .self_exe_path = comp.self_exe_path,
         .config = config,
@@ -5027,7 +5450,13 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         .verbose_llvm_bc = comp.verbose_llvm_bc,
         .verbose_cimport = comp.verbose_cimport,
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(.docs_wasm, "sub-compilation of docs_wasm failed: {f}", .{sub_create_diag});
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, .docs_wasm, prog_node);
@@ -5040,11 +5469,12 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
 
     const docs_path = comp.resolveEmitPath(comp.emit_docs.?);
     var out_dir = docs_path.root_dir.handle.makeOpenPath(docs_path.sub_path, .{}) catch |err| {
-        return comp.lockAndSetMiscFailure(
+        comp.lockAndSetMiscFailure(
             .docs_copy,
-            "unable to create output directory '{f}': {s}",
-            .{ docs_path, @errorName(err) },
+            "unable to create output directory '{f}': {t}",
+            .{ docs_path, err },
         );
+        return error.AlreadyReported;
     };
     defer out_dir.close();
 
@@ -5054,9 +5484,10 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) anye
         "main.wasm",
         .{},
     ) catch |err| {
-        return comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{f}' to '{f}': {s}", .{
-            crt_file.full_object_path, docs_path, @errorName(err),
+        comp.lockAndSetMiscFailure(.docs_copy, "unable to copy '{f}' to '{f}': {t}", .{
+            crt_file.full_object_path, docs_path, err,
         });
+        return error.AlreadyReported;
     };
 }
 
@@ -5068,13 +5499,13 @@ fn workerUpdateFile(
     prog_node: std.Progress.Node,
     wg: *WaitGroup,
 ) void {
-    const child_prog_node = prog_node.start(std.fs.path.basename(file.path.sub_path), 0);
+    const child_prog_node = prog_node.start(fs.path.basename(file.path.sub_path), 0);
     defer child_prog_node.end();
 
     const pt: Zcu.PerThread = .activate(comp.zcu.?, @enumFromInt(tid));
     defer pt.deactivate();
     pt.updateFile(file_index, file) catch |err| {
-        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ std.fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
+        pt.reportRetryableFileError(file_index, "unable to load '{s}': {s}", .{ fs.path.basename(file.path.sub_path), @errorName(err) }) catch |oom| switch (oom) {
             error.OutOfMemory => {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
@@ -5123,15 +5554,11 @@ fn workerUpdateFile(
 }
 
 fn workerUpdateBuiltinFile(comp: *Compilation, file: *Zcu.File) void {
-    Builtin.updateFileOnDisk(file, comp) catch |err| {
-        comp.mutex.lock();
-        defer comp.mutex.unlock();
-        comp.setMiscFailure(
-            .write_builtin_zig,
-            "unable to write '{f}': {s}",
-            .{ file.path.fmt(comp), @errorName(err) },
-        );
-    };
+    Builtin.updateFileOnDisk(file, comp) catch |err| comp.lockAndSetMiscFailure(
+        .write_builtin_zig,
+        "unable to write '{f}': {s}",
+        .{ file.path.fmt(comp), @errorName(err) },
+    );
 }
 
 fn workerUpdateEmbedFile(tid: usize, comp: *Compilation, ef_index: Zcu.EmbedFile.Index, ef: *Zcu.EmbedFile) void {
@@ -5239,7 +5666,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
         const arena = arena_allocator.allocator();
 
         const tmp_digest = man.hash.peek();
-        const tmp_dir_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
+        const tmp_dir_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &tmp_digest });
         var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath(tmp_dir_sub_path, .{});
         defer zig_cache_tmp_dir.close();
         const cimport_basename = "cimport.h";
@@ -5253,7 +5680,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             log.info("C import source: {s}", .{out_h_path});
         }
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         try argv.append(@tagName(comp.config.c_frontend)); // argv[0] is program name, actual args start at [1]
@@ -5308,7 +5735,7 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
             log.info("C import .d file: {s}", .{out_dep_path});
         }
 
-        const dep_basename = std.fs.path.basename(out_dep_path);
+        const dep_basename = fs.path.basename(out_dep_path);
         try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
         switch (comp.cache_use) {
             .whole => |whole| if (whole.cache_manifest) |whole_cache_manifest| {
@@ -5321,14 +5748,14 @@ pub fn cImport(comp: *Compilation, c_src: []const u8, owner_mod: *Package.Module
 
         const bin_digest = man.finalBin();
         const hex_digest = Cache.binToHex(bin_digest);
-        const o_sub_path = "o" ++ std.fs.path.sep_str ++ hex_digest;
+        const o_sub_path = "o" ++ fs.path.sep_str ++ hex_digest;
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
 
         var out_zig_file = try o_dir.createFile(cimport_zig_basename, .{});
         defer out_zig_file.close();
 
-        const formatted = try tree.render(comp.gpa);
+        const formatted = try tree.renderAlloc(comp.gpa);
         defer comp.gpa.free(formatted);
 
         try out_zig_file.writeAll(formatted);
@@ -5358,6 +5785,7 @@ fn workerUpdateCObject(
     c_object: *CObject,
     progress_node: std.Progress.Node,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.updateCObject(c_object, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -5375,6 +5803,7 @@ fn workerUpdateWin32Resource(
     win32_resource: *Win32Resource,
     progress_node: std.Progress.Node,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.updateWin32Resource(win32_resource, progress_node) catch |err| switch (err) {
         error.AnalysisFail => return,
         else => {
@@ -5418,6 +5847,7 @@ fn buildRt(
     options: RtOptions,
     out: *?CrtFile,
 ) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.buildOutputFromZig(
         root_source_name,
         root_name,
@@ -5428,7 +5858,7 @@ fn buildRt(
         options,
         out,
     ) catch |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(misc_task, "unable to build {s}: {s}", .{
             @tagName(misc_task), @errorName(err),
         }),
@@ -5436,10 +5866,11 @@ fn buildRt(
 }
 
 fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (musl.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.musl_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.musl_crt_file, "unable to build musl {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5447,10 +5878,11 @@ fn buildMuslCrtFile(comp: *Compilation, crt_file: musl.CrtFile, prog_node: std.P
 }
 
 fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (glibc.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.glibc_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.glibc_crt_file, "unable to build glibc {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5458,11 +5890,12 @@ fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std
 }
 
 fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (glibc.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.glibc_shared_objects = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
             @errorName(err),
         }),
@@ -5470,10 +5903,11 @@ fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) voi
 }
 
 fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (freebsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.freebsd_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.freebsd_crt_file, "unable to build FreeBSD {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5481,11 +5915,12 @@ fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node:
 }
 
 fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (freebsd.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.freebsd_shared_objects = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.freebsd_shared_objects, "unable to build FreeBSD libc shared objects: {s}", .{
             @errorName(err),
         }),
@@ -5493,10 +5928,11 @@ fn buildFreeBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) v
 }
 
 fn buildNetBSDCrtFile(comp: *Compilation, crt_file: netbsd.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (netbsd.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.netbsd_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.netbsd_crt_file, "unable to build NetBSD {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5504,11 +5940,12 @@ fn buildNetBSDCrtFile(comp: *Compilation, crt_file: netbsd.CrtFile, prog_node: s
 }
 
 fn buildNetBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (netbsd.buildSharedObjects(comp, prog_node)) |_| {
         // The job should no longer be queued up since it succeeded.
         comp.queued_jobs.netbsd_shared_objects = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.netbsd_shared_objects, "unable to build NetBSD libc shared objects: {s}", .{
             @errorName(err),
         }),
@@ -5516,10 +5953,11 @@ fn buildNetBSDSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) vo
 }
 
 fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (mingw.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.mingw_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.mingw_crt_file, "unable to build mingw-w64 {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5527,10 +5965,11 @@ fn buildMingwCrtFile(comp: *Compilation, crt_file: mingw.CrtFile, prog_node: std
 }
 
 fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (wasi_libc.buildCrtFile(comp, crt_file, prog_node)) |_| {
         comp.queued_jobs.wasi_libc_crt_file[@intFromEnum(crt_file)] = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.wasi_libc_crt_file, "unable to build WASI libc {s}: {s}", .{
             @tagName(crt_file), @errorName(err),
         }),
@@ -5538,42 +5977,47 @@ fn buildWasiLibcCrtFile(comp: *Compilation, crt_file: wasi_libc.CrtFile, prog_no
 }
 
 fn buildLibUnwind(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libunwind.buildStaticLib(comp, prog_node)) |_| {
         comp.queued_jobs.libunwind = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libunwind, "unable to build libunwind: {s}", .{@errorName(err)}),
     }
 }
 
 fn buildLibCxx(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libcxx.buildLibCxx(comp, prog_node)) |_| {
         comp.queued_jobs.libcxx = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libcxx, "unable to build libcxx: {s}", .{@errorName(err)}),
     }
 }
 
 fn buildLibCxxAbi(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libcxx.buildLibCxxAbi(comp, prog_node)) |_| {
         comp.queued_jobs.libcxxabi = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libcxxabi, "unable to build libcxxabi: {s}", .{@errorName(err)}),
     }
 }
 
 fn buildLibTsan(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     if (libtsan.buildTsan(comp, prog_node)) |_| {
         comp.queued_jobs.libtsan = false;
     } else |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libtsan, "unable to build TSAN library: {s}", .{@errorName(err)}),
     }
 }
 
 fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
+    defer comp.link_task_queue.finishPrelinkItem(comp);
     comp.buildOutputFromZig(
         "c.zig",
         "zigc",
@@ -5584,7 +6028,7 @@ fn buildLibZigC(comp: *Compilation, prog_node: std.Progress.Node) void {
         .{},
         &comp.zigc_static_lib,
     ) catch |err| switch (err) {
-        error.SubCompilationFailed => return, // error reported already
+        error.AlreadyReported => return,
         else => comp.lockAndSetMiscFailure(.libzigc, "unable to build libzigc: {s}", .{@errorName(err)}),
     };
 }
@@ -5674,7 +6118,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const c_source_basename = std.fs.path.basename(c_object.src.src_path);
+    const c_source_basename = fs.path.basename(c_object.src.src_path);
 
     const child_progress_node = c_obj_prog_node.start(c_source_basename, 0);
     defer child_progress_node.end();
@@ -5687,12 +6131,12 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
     const o_basename_noext = if (direct_o)
         comp.root_name
     else
-        c_source_basename[0 .. c_source_basename.len - std.fs.path.extension(c_source_basename).len];
+        c_source_basename[0 .. c_source_basename.len - fs.path.extension(c_source_basename).len];
 
     const target = comp.getTarget();
     const o_ext = target.ofmt.fileExt(target.cpu.arch);
     const digest = if (!comp.disable_c_depfile and try man.hit()) man.final() else blk: {
-        var argv = std.ArrayList([]const u8).init(gpa);
+        var argv = std.array_list.Managed([]const u8).init(gpa);
         defer argv.deinit();
 
         // In case we are doing passthrough mode, we need to detect -S and -emit-llvm.
@@ -5814,11 +6258,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         // Just to save disk space, we delete the files that are never needed again.
-        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(diag_file_path)) catch |err| switch (err) {
+        defer if (out_diag_path) |diag_file_path| zig_cache_tmp_dir.deleteFile(fs.path.basename(diag_file_path)) catch |err| switch (err) {
             error.FileNotFound => {}, // the file wasn't created due to an error we reported
             else => log.warn("failed to delete '{s}': {s}", .{ diag_file_path, @errorName(err) }),
         };
-        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(std.fs.path.basename(dep_file_path)) catch |err| switch (err) {
+        defer if (out_dep_path) |dep_file_path| zig_cache_tmp_dir.deleteFile(fs.path.basename(dep_file_path)) catch |err| switch (err) {
             error.FileNotFound => {}, // the file wasn't created due to an error we reported
             else => log.warn("failed to delete '{s}': {s}", .{ dep_file_path, @errorName(err) }),
         };
@@ -5849,7 +6293,8 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
                 try child.spawn();
 
-                const stderr = try child.stderr.?.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+                var stderr_reader = child.stderr.?.readerStreaming(&.{});
+                const stderr = try stderr_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
 
                 const term = child.wait() catch |err| {
                     return comp.failCObj(c_object, "failed to spawn zig clang {s}: {s}", .{ argv.items[0], @errorName(err) });
@@ -5889,7 +6334,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         }
 
         if (out_dep_path) |dep_file_path| {
-            const dep_basename = std.fs.path.basename(dep_file_path);
+            const dep_basename = fs.path.basename(dep_file_path);
             // Add the files depended on to the cache system.
             try man.addDepFilePost(zig_cache_tmp_dir, dep_basename);
             switch (comp.cache_use) {
@@ -5909,11 +6354,11 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
 
         // Rename into place.
         const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        const tmp_basename = std.fs.path.basename(out_obj_path);
-        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
+        const tmp_basename = fs.path.basename(out_obj_path);
+        try fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, o_basename);
         break :blk digest;
     };
 
@@ -5935,7 +6380,7 @@ fn updateCObject(comp: *Compilation, c_object: *CObject, c_obj_prog_node: std.Pr
         .success = .{
             .object_path = .{
                 .root_dir = comp.dirs.local_cache,
-                .sub_path = try std.fs.path.join(gpa, &.{ "o", &digest, o_basename }),
+                .sub_path = try fs.path.join(gpa, &.{ "o", &digest, o_basename }),
             },
             .lock = man.toOwnedLock(),
         },
@@ -5959,7 +6404,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         .rc => |rc_src| rc_src.src_path,
         .manifest => |src_path| src_path,
     };
-    const src_basename = std.fs.path.basename(src_path);
+    const src_basename = fs.path.basename(src_path);
 
     log.debug("updating win32 resource: {s}", .{src_path});
 
@@ -5996,7 +6441,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
             // get the digest now and write the .res directly to the cache
             const digest = man.final();
 
-            const o_sub_path = try std.fs.path.join(arena, &.{ "o", &digest });
+            const o_sub_path = try fs.path.join(arena, &.{ "o", &digest });
             var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
             defer o_dir.close();
 
@@ -6037,7 +6482,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
             try o_dir.writeFile(.{ .sub_path = rc_basename, .data = input });
 
-            var argv = std.ArrayList([]const u8).init(comp.gpa);
+            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
             defer argv.deinit();
 
             try argv.appendSlice(&.{
@@ -6082,7 +6527,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
     _ = try man.addFile(rc_src.src_path, null);
     man.hash.addListOfBytes(rc_src.extra_flags);
 
-    const rc_basename_noext = src_basename[0 .. src_basename.len - std.fs.path.extension(src_basename).len];
+    const rc_basename_noext = src_basename[0 .. src_basename.len - fs.path.extension(src_basename).len];
 
     const digest = if (try man.hit()) man.final() else blk: {
         var zig_cache_tmp_dir = try comp.dirs.local_cache.handle.makeOpenPath("tmp", .{});
@@ -6094,7 +6539,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // so we need a temporary filename.
         const out_res_path = try comp.tmpFilePath(arena, res_filename);
 
-        var argv = std.ArrayList([]const u8).init(comp.gpa);
+        var argv = std.array_list.Managed([]const u8).init(comp.gpa);
         defer argv.deinit();
 
         const depfile_filename = try std.fmt.allocPrint(arena, "{s}.d.json", .{rc_basename_noext});
@@ -6127,7 +6572,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         // Read depfile and update cache manifest
         {
-            const dep_basename = std.fs.path.basename(out_dep_path);
+            const dep_basename = fs.path.basename(out_dep_path);
             const dep_file_contents = try zig_cache_tmp_dir.readFileAlloc(arena, dep_basename, 50 * 1024 * 1024);
             defer arena.free(dep_file_contents);
 
@@ -6155,11 +6600,11 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
 
         // Rename into place.
         const digest = man.final();
-        const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
+        const o_sub_path = try fs.path.join(arena, &[_][]const u8{ "o", &digest });
         var o_dir = try comp.dirs.local_cache.handle.makeOpenPath(o_sub_path, .{});
         defer o_dir.close();
-        const tmp_basename = std.fs.path.basename(out_res_path);
-        try std.fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
+        const tmp_basename = fs.path.basename(out_res_path);
+        try fs.rename(zig_cache_tmp_dir, tmp_basename, o_dir, res_filename);
         break :blk digest;
     };
 
@@ -6205,22 +6650,20 @@ fn spawnZigRc(
         return comp.failWin32Resource(win32_resource, "unable to spawn {s} rc: {s}", .{ argv[0], @errorName(err) });
     };
 
-    var poller = std.io.poll(comp.gpa, enum { stdout }, .{
+    var poller = std.Io.poll(comp.gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
+        .stderr = child.stderr.?,
     });
     defer poller.deinit();
 
-    const stdout = poller.fifo(.stdout);
+    const stdout = poller.reader(.stdout);
 
     poll: while (true) {
-        while (stdout.readableLength() < @sizeOf(std.zig.Server.Message.Header)) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const header = stdout.reader().readStruct(std.zig.Server.Message.Header) catch unreachable;
-        while (stdout.readableLength() < header.bytes_len) {
-            if (!(try poller.poll())) break :poll;
-        }
-        const body = stdout.readableSliceOfLen(header.bytes_len);
+        const MessageHeader = std.zig.Server.Message.Header;
+        while (stdout.buffered().len < @sizeOf(MessageHeader)) if (!try poller.poll()) break :poll;
+        const header = stdout.takeStruct(MessageHeader, .little) catch unreachable;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll;
+        const body = stdout.take(header.bytes_len) catch unreachable;
 
         switch (header.tag) {
             // We expect exactly one ErrorBundle, and if any error_bundle header is
@@ -6243,13 +6686,10 @@ fn spawnZigRc(
             },
             else => {}, // ignore other messages
         }
-
-        stdout.discard(body.len);
     }
 
     // Just in case there's a failure that didn't send an ErrorBundle (e.g. an error return trace)
-    const stderr_reader = child.stderr.?.deprecatedReader();
-    const stderr = try stderr_reader.readAllAlloc(arena, 10 * 1024 * 1024);
+    const stderr = poller.reader(.stderr);
 
     const term = child.wait() catch |err| {
         return comp.failWin32Resource(win32_resource, "unable to wait for {s} rc: {s}", .{ argv[0], @errorName(err) });
@@ -6258,19 +6698,19 @@ fn spawnZigRc(
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                log.err("zig rc failed with stderr:\n{s}", .{stderr});
+                log.err("zig rc failed with stderr:\n{s}", .{stderr.buffered()});
                 return comp.failWin32Resource(win32_resource, "zig rc exited with code {d}", .{code});
             }
         },
         else => {
-            log.err("zig rc terminated with stderr:\n{s}", .{stderr});
+            log.err("zig rc terminated with stderr:\n{s}", .{stderr.buffered()});
             return comp.failWin32Resource(win32_resource, "zig rc terminated unexpectedly", .{});
         },
     }
 }
 
 pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error{OutOfMemory}![]const u8 {
-    const s = std.fs.path.sep_str;
+    const s = fs.path.sep_str;
     const rand_int = std.crypto.random.int(u64);
     if (comp.dirs.local_cache.path) |p| {
         return std.fmt.allocPrint(ally, "{s}" ++ s ++ "tmp" ++ s ++ "{x}-{s}", .{ p, rand_int, suffix });
@@ -6282,7 +6722,7 @@ pub fn tmpFilePath(comp: Compilation, ally: Allocator, suffix: []const u8) error
 pub fn addTranslateCCArgs(
     comp: *Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     owner_mod: *Package.Module,
@@ -6297,7 +6737,7 @@ pub fn addTranslateCCArgs(
 pub fn addCCArgs(
     comp: *const Compilation,
     arena: Allocator,
-    argv: *std.ArrayList([]const u8),
+    argv: *std.array_list.Managed([]const u8),
     ext: FileExt,
     out_dep_path: ?[]const u8,
     mod: *Package.Module,
@@ -6505,7 +6945,7 @@ pub fn addCCArgs(
                         // We don't currently respect the minor and patch components. This wouldn't be particularly
                         // helpful because our abilists file only tracks major FreeBSD releases, so the link-time stub
                         // symbols would be inconsistent with header declarations.
-                        min_ver.major * 100_000,
+                        min_ver.major * 100_000 + 500,
                     }));
                 } else if (target.isNetBSDLibC()) {
                     const min_ver = target.os.version_range.semver.min;
@@ -6520,12 +6960,12 @@ pub fn addCCArgs(
 
             if (comp.config.link_libcpp) {
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libcxx", "include",
                 }));
 
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libcxxabi", "include",
                 }));
 
@@ -6536,7 +6976,7 @@ pub fn addCCArgs(
             // However as noted by @dimenus, appending libc headers before compiler headers breaks
             // intrinsics and other compiler specific items.
             try argv.append("-isystem");
-            try argv.append(try std.fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
+            try argv.append(try fs.path.join(arena, &.{ comp.dirs.zig_lib.path.?, "include" }));
 
             try argv.ensureUnusedCapacity(comp.libc_include_dir_list.len * 2);
             for (comp.libc_include_dir_list) |include_dir| {
@@ -6554,7 +6994,7 @@ pub fn addCCArgs(
 
             if (comp.config.link_libunwind) {
                 try argv.append("-isystem");
-                try argv.append(try std.fs.path.join(arena, &[_][]const u8{
+                try argv.append(try fs.path.join(arena, &[_][]const u8{
                     comp.dirs.zig_lib.path.?, "libunwind", "include",
                 }));
             }
@@ -7147,7 +7587,7 @@ fn get_libc_crt_file(comp: *Compilation, arena: Allocator, basename: []const u8)
     return (try crtFilePath(&comp.crt_files, basename)) orelse {
         const lci = comp.libc_installation orelse return error.LibCInstallationNotAvailable;
         const crt_dir_path = lci.crt_dir orelse return error.LibCInstallationMissingCrtDir;
-        const full_path = try std.fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
+        const full_path = try fs.path.join(arena, &[_][]const u8{ crt_dir_path, basename });
         return Cache.Path.initCwd(full_path);
     };
 }
@@ -7209,13 +7649,16 @@ pub fn lockAndSetMiscFailure(
 }
 
 pub fn dump_argv(argv: []const []const u8) void {
-    std.debug.lockStdErr();
-    defer std.debug.unlockStdErr();
-    const stderr = std.fs.File.stderr().deprecatedWriter();
-    for (argv[0 .. argv.len - 1]) |arg| {
-        nosuspend stderr.print("{s} ", .{arg}) catch return;
+    var buffer: [64]u8 = undefined;
+    const stderr = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    nosuspend {
+        for (argv, 0..) |arg, i| {
+            if (i != 0) stderr.writeByte(' ') catch return;
+            stderr.writeAll(arg) catch return;
+        }
+        stderr.writeByte('\n') catch return;
     }
-    nosuspend stderr.print("{s}\n", .{argv[argv.len - 1]}) catch {};
 }
 
 pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
@@ -7223,12 +7666,13 @@ pub fn getZigBackend(comp: Compilation) std.builtin.CompilerBackend {
     return target_util.zigBackend(target, comp.config.use_llvm);
 }
 
+pub const SubUpdateError = UpdateError || error{AlreadyReported};
 pub fn updateSubCompilation(
     parent_comp: *Compilation,
     sub_comp: *Compilation,
     misc_task: MiscTask,
     prog_node: std.Progress.Node,
-) !void {
+) SubUpdateError!void {
     {
         const sub_node = prog_node.start(@tagName(misc_task), 0);
         defer sub_node.end();
@@ -7238,20 +7682,20 @@ pub fn updateSubCompilation(
 
     // Look for compilation errors in this sub compilation
     const gpa = parent_comp.gpa;
-    var keep_errors = false;
+
     var errors = try sub_comp.getAllErrorsAlloc();
-    defer if (!keep_errors) errors.deinit(gpa);
+    defer errors.deinit(gpa);
 
     if (errors.errorMessageCount() > 0) {
+        parent_comp.mutex.lock();
+        defer parent_comp.mutex.unlock();
         try parent_comp.misc_failures.ensureUnusedCapacity(gpa, 1);
         parent_comp.misc_failures.putAssumeCapacityNoClobber(misc_task, .{
-            .msg = try std.fmt.allocPrint(gpa, "sub-compilation of {s} failed", .{
-                @tagName(misc_task),
-            }),
+            .msg = try std.fmt.allocPrint(gpa, "sub-compilation of {t} failed", .{misc_task}),
             .children = errors,
         });
-        keep_errors = true;
-        return error.SubCompilationFailed;
+        errors = .empty; // ownership moved to the failures map
+        return error.AlreadyReported;
     }
 }
 
@@ -7265,7 +7709,7 @@ fn buildOutputFromZig(
     prog_node: std.Progress.Node,
     options: RtOptions,
     out: *?CrtFile,
-) !void {
+) SubUpdateError!void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -7279,7 +7723,7 @@ fn buildOutputFromZig(
     const strip = comp.compilerRtStrip();
     const optimize_mode = comp.compilerRtOptMode();
 
-    const config = try Config.resolve(.{
+    const config = Config.resolve(.{
         .output_mode = output_mode,
         .link_mode = link_mode,
         .resolved_target = comp.root_mod.resolved_target,
@@ -7293,9 +7737,12 @@ fn buildOutputFromZig(
         .any_error_tracing = false,
         .root_error_tracing = false,
         .lto = if (options.allow_lto) comp.config.lto else .none,
-    });
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: failed to resolve compilation config: {t}", .{ misc_task_tag, err });
+        return error.AlreadyReported;
+    };
 
-    const root_mod = try Package.Module.create(arena, .{
+    const root_mod = Package.Module.create(arena, .{
         .paths = .{
             .root = .zig_lib_root,
             .root_src_path = src_basename,
@@ -7320,7 +7767,10 @@ fn buildOutputFromZig(
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-    });
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: failed to create module: {t}", .{ misc_task_tag, err });
+        return error.AlreadyReported;
+    };
 
     const parent_whole_cache: ?ParentWholeCache = switch (comp.cache_use) {
         .whole => |whole| .{
@@ -7336,7 +7786,8 @@ fn buildOutputFromZig(
         .incremental, .none => null,
     };
 
-    const sub_compilation = try Compilation.create(gpa, arena, .{
+    var sub_create_diag: CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .cache_mode = .whole,
         .parent_whole_cache = parent_whole_cache,
@@ -7360,7 +7811,13 @@ fn buildOutputFromZig(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: {f}", .{ misc_task_tag, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
@@ -7393,7 +7850,7 @@ pub fn build_crt_file(
     /// created within this function.
     c_source_files: []CSourceFile,
     options: CrtFileOptions,
-) !void {
+) SubUpdateError!void {
     const tracy_trace = trace(@src());
     defer tracy_trace.end();
 
@@ -7408,7 +7865,7 @@ pub fn build_crt_file(
         .output_mode = output_mode,
     });
 
-    const config = try Config.resolve(.{
+    const config = Config.resolve(.{
         .output_mode = output_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
@@ -7422,8 +7879,11 @@ pub fn build_crt_file(
             .Lib => if (options.allow_lto) comp.config.lto else .none,
             .Obj, .Exe => .none,
         },
-    });
-    const root_mod = try Package.Module.create(arena, .{
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: failed to resolve compilation config: {t}", .{ misc_task_tag, err });
+        return error.AlreadyReported;
+    };
+    const root_mod = Package.Module.create(arena, .{
         .paths = .{
             .root = .zig_lib_root,
             .root_src_path = "",
@@ -7453,13 +7913,17 @@ pub fn build_crt_file(
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-    });
+    }) catch |err| {
+        comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: failed to create module: {t}", .{ misc_task_tag, err });
+        return error.AlreadyReported;
+    };
 
     for (c_source_files) |*item| {
         item.owner = root_mod;
     }
 
-    const sub_compilation = try Compilation.create(gpa, arena, .{
+    var sub_create_diag: CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -7483,7 +7947,13 @@ pub fn build_crt_file(
         .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task_tag, "sub-compilation of {t} failed: {f}", .{ misc_task_tag, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
     try comp.updateSubCompilation(sub_compilation, misc_task_tag, prog_node);
@@ -7513,6 +7983,7 @@ pub fn queuePrelinkTaskMode(comp: *Compilation, path: Cache.Path, config: *const
 /// Only valid to call during `update`. Automatically handles queuing up a
 /// linker worker task if there is not already one.
 pub fn queuePrelinkTasks(comp: *Compilation, tasks: []const link.PrelinkTask) void {
+    comp.link_prog_node.increaseEstimatedTotalItems(tasks.len);
     comp.link_task_queue.enqueuePrelink(comp, tasks) catch |err| switch (err) {
         error.OutOfMemory => return comp.setAllocFailure(),
     };
@@ -7542,7 +8013,7 @@ pub fn toCrtFile(comp: *Compilation) Allocator.Error!CrtFile {
     return .{
         .full_object_path = .{
             .root_dir = comp.dirs.local_cache,
-            .sub_path = try std.fs.path.join(comp.gpa, &.{
+            .sub_path = try fs.path.join(comp.gpa, &.{
                 "o",
                 &Cache.binToHex(comp.digest.?),
                 comp.emit_bin.?,
@@ -7583,6 +8054,27 @@ fn getCrtPathsInner(
         .crtend = if (basenames.crtend) |basename| try crtFilePath(crt_files, basename) else null,
         .crtn = if (basenames.crtn) |basename| try crtFilePath(crt_files, basename) else null,
     };
+}
+
+pub fn addLinkLib(comp: *Compilation, lib_name: []const u8) !void {
+    // Avoid deadlocking on building import libs such as kernel32.lib
+    // This can happen when the user uses `build-exe foo.obj -lkernel32` and
+    // then when we create a sub-Compilation for zig libc, it also tries to
+    // build kernel32.lib.
+    if (comp.skip_linker_dependencies) return;
+    const target = &comp.root_mod.resolved_target.result;
+    if (target.os.tag != .windows or target.ofmt == .c) return;
+
+    // This happens when an `extern "foo"` function is referenced.
+    // If we haven't seen this library yet and we're targeting Windows, we need
+    // to queue up a work item to produce the DLL import library for this.
+    const gop = try comp.windows_libs.getOrPut(comp.gpa, lib_name);
+    if (gop.found_existing) return;
+    {
+        errdefer _ = comp.windows_libs.pop();
+        gop.key_ptr.* = try comp.gpa.dupe(u8, lib_name);
+    }
+    try comp.queueJob(.{ .windows_import_lib = gop.index });
 }
 
 /// This decides the optimization mode for all zig-provided libraries, including

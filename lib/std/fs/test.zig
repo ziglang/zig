@@ -464,7 +464,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -497,7 +497,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -531,7 +531,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -567,7 +567,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -617,7 +617,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -1499,32 +1499,18 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
+    var file_reader = src_file.reader(&.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
     const amt = try dest_file.preadAll(&written_buf, 0);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
@@ -1595,9 +1581,10 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
             const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
@@ -2070,4 +2057,91 @@ test "invalid UTF-8/WTF-8 paths" {
             }
         }
     }.impl);
+}
+
+test "read file non vectored" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "hello, world!\n";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var file_reader: std.fs.File.Reader = .init(file, &.{});
+
+    var write_buffer: [100]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&write_buffer);
+
+    var i: usize = 0;
+    while (true) {
+        i += file_reader.interface.stream(&w, .limited(3)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+    }
+    try testing.expectEqualStrings(contents, w.buffered());
+    try testing.expectEqual(contents.len, i);
+}
+
+test "seek keeping partial buffer" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "0123456789";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [3]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    try testing.expectEqual(0, file_reader.logicalPos());
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+
+    if (file_reader.interface.bufferedLen() != 3) {
+        // Pass the test if the OS doesn't give us vectored reads.
+        return;
+    }
+
+    try testing.expectEqual(4, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+    try file_reader.seekTo(6);
+    try testing.expectEqual(6, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+
+    try testing.expectEqualStrings("0123", &buf);
+
+    const n = try file_reader.interface.readSliceShort(&buf);
+    try testing.expectEqual(4, n);
+
+    try testing.expectEqualStrings("6789", &buf);
+}
+
+test "seekBy" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var reader = f.readerStreaming(&.{});
+    try reader.seekBy(2);
+
+    var buffer: [20]u8 = undefined;
+    const n = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(15, n);
+    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
 }

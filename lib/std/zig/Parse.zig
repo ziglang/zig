@@ -2801,7 +2801,7 @@ fn expectSwitchSuffix(p: *Parse, main_token: TokenIndex) !Node.Index {
 ///
 /// AsmInput <- COLON AsmInputList AsmClobbers?
 ///
-/// AsmClobbers <- COLON StringList
+/// AsmClobbers <- COLON Expr
 ///
 /// StringList <- (STRINGLITERAL COMMA)* STRINGLITERAL?
 ///
@@ -2841,7 +2841,8 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             else => try p.warnExpected(.comma),
         }
     }
-    if (p.eatToken(.colon)) |_| {
+
+    const clobbers: Node.OptionalIndex = if (p.eatToken(.colon)) |_| clobbers: {
         while (true) {
             const input_item = try p.parseAsmInputItem() orelse break;
             try p.scratch.append(p.gpa, input_item);
@@ -2853,7 +2854,11 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                 else => try p.warnExpected(.comma),
             }
         }
-        if (p.eatToken(.colon)) |_| {
+
+        _ = p.eatToken(.colon) orelse break :clobbers .none;
+
+        // For automatic upgrades; delete after 0.15.0 released.
+        if (p.tokenTag(p.tok_i) == .string_literal) {
             while (p.eatToken(.string_literal)) |_| {
                 switch (p.tokenTag(p.tok_i)) {
                     .comma => p.tok_i += 1,
@@ -2862,8 +2867,25 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
                     else => try p.warnExpected(.comma),
                 }
             }
+            const rparen = try p.expectToken(.r_paren);
+            const span = try p.listToSpan(p.scratch.items[scratch_top..]);
+            return p.addNode(.{
+                .tag = .asm_legacy,
+                .main_token = asm_token,
+                .data = .{ .node_and_extra = .{
+                    template,
+                    try p.addExtra(Node.AsmLegacy{
+                        .items_start = span.start,
+                        .items_end = span.end,
+                        .rparen = rparen,
+                    }),
+                } },
+            });
         }
-    }
+
+        break :clobbers (try p.expectExpr()).toOptional();
+    } else .none;
+
     const rparen = try p.expectToken(.r_paren);
     const span = try p.listToSpan(p.scratch.items[scratch_top..]);
     return p.addNode(.{
@@ -2874,6 +2896,7 @@ fn expectAsmExpr(p: *Parse) !Node.Index {
             try p.addExtra(Node.Asm{
                 .items_start = span.start,
                 .items_end = span.end,
+                .clobbers = clobbers,
                 .rparen = rparen,
             }),
         } },

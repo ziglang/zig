@@ -27,6 +27,7 @@ const maxInt = std.math.maxInt;
 const MemoryAccessor = std.debug.MemoryAccessor;
 const Path = std.Build.Cache.Path;
 const FixedBufferReader = std.debug.FixedBufferReader;
+const ArrayList = std.ArrayList;
 
 const Dwarf = @This();
 
@@ -42,11 +43,11 @@ sections: SectionArray = null_section_array,
 is_macho: bool,
 
 /// Filled later by the initializer
-abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .empty,
+abbrev_table_list: ArrayList(Abbrev.Table) = .empty,
 /// Filled later by the initializer
-compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
+compile_unit_list: ArrayList(CompileUnit) = .empty,
 /// Filled later by the initializer
-func_list: std.ArrayListUnmanaged(Func) = .empty,
+func_list: ArrayList(Func) = .empty,
 
 /// Starts out non-`null` if the `.eh_frame_hdr` section is present. May become `null` later if we
 /// find that `.eh_frame_hdr` is incomplete.
@@ -54,10 +55,10 @@ eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
 cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
 /// Sorted by start_pc
-fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .empty,
+fde_list: ArrayList(FrameDescriptionEntry) = .empty,
 
 /// Populated by `populateRanges`.
-ranges: std.ArrayListUnmanaged(Range) = .empty,
+ranges: ArrayList(Range) = .empty,
 
 pub const Range = struct {
     start: u64,
@@ -1038,7 +1039,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
-    var attrs_buf = std.ArrayList(Die.Attr).init(allocator);
+    var attrs_buf = std.array_list.Managed(Die.Attr).init(allocator);
     defer attrs_buf.deinit();
 
     while (this_unit_offset < fbr.buf.len) {
@@ -1343,7 +1344,7 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
         .endian = di.endian,
     };
 
-    var abbrevs = std.ArrayList(Abbrev).init(allocator);
+    var abbrevs = std.array_list.Managed(Abbrev).init(allocator);
     defer {
         for (abbrevs.items) |*abbrev| {
             abbrev.deinit(allocator);
@@ -1351,7 +1352,7 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
         abbrevs.deinit();
     }
 
-    var attrs = std.ArrayList(Abbrev.Attr).init(allocator);
+    var attrs = std.array_list.Managed(Abbrev.Attr).init(allocator);
     defer attrs.deinit();
 
     while (true) {
@@ -1468,9 +1469,9 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var directories: std.ArrayListUnmanaged(FileEntry) = .empty;
+    var directories: ArrayList(FileEntry) = .empty;
     defer directories.deinit(gpa);
-    var file_entries: std.ArrayListUnmanaged(FileEntry) = .empty;
+    var file_entries: ArrayList(FileEntry) = .empty;
     defer file_entries.deinit(gpa);
 
     if (version < 5) {
@@ -2019,8 +2020,12 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
 pub fn bad() error{InvalidDebugInfo} {
-    if (debug_debug_mode) @panic("bad dwarf");
+    invalidDebugInfoDetected();
     return error.InvalidDebugInfo;
+}
+
+fn invalidDebugInfoDetected() void {
+    if (debug_debug_mode) @panic("bad dwarf");
 }
 
 fn missing() error{MissingDebugInfo} {
@@ -2235,21 +2240,23 @@ pub const ElfModule = struct {
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-                var section_stream = std.io.fixedBufferStream(section_bytes);
-                const section_reader = section_stream.reader();
-                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+                var section_reader: std.Io.Reader = .fixed(section_bytes);
+                const chdr = section_reader.takeStruct(elf.Chdr, endian) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressor(section_reader);
-
-                const decompressed_section = try gpa.alloc(u8, chdr.ch_size);
-                errdefer gpa.free(decompressed_section);
-
-                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
-                assert(read == decompressed_section.len);
-
+                var decompress: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
+                var decompressed_section: ArrayList(u8) = .empty;
+                defer decompressed_section.deinit(gpa);
+                decompress.reader.appendRemainingUnlimited(gpa, &decompressed_section) catch {
+                    invalidDebugInfoDetected();
+                    continue;
+                };
+                if (chdr.ch_size != decompressed_section.items.len) {
+                    invalidDebugInfoDetected();
+                    continue;
+                }
                 break :blk .{
-                    .data = decompressed_section,
+                    .data = try decompressed_section.toOwnedSlice(gpa),
                     .virtual_address = shdr.sh_addr,
                     .owned = true,
                 };

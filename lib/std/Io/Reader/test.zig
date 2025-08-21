@@ -34,7 +34,7 @@ test "skipBytes" {
 
 test "readUntilDelimiterArrayList returns ArrayLists with bytes read until the delimiter, then EndOfStream" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("0000\n1234\n");
@@ -49,7 +49,7 @@ test "readUntilDelimiterArrayList returns ArrayLists with bytes read until the d
 
 test "readUntilDelimiterArrayList returns an empty ArrayList" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("\n");
@@ -61,7 +61,7 @@ test "readUntilDelimiterArrayList returns an empty ArrayList" {
 
 test "readUntilDelimiterArrayList returns StreamTooLong, then an ArrayList with bytes read until the delimiter" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("1234567\n");
@@ -75,7 +75,7 @@ test "readUntilDelimiterArrayList returns StreamTooLong, then an ArrayList with 
 
 test "readUntilDelimiterArrayList returns EndOfStream" {
     const a = std.testing.allocator;
-    var list = std.ArrayList(u8).init(a);
+    var list = std.array_list.Managed(u8).init(a);
     defer list.deinit();
 
     var fis = std.io.fixedBufferStream("1234");
@@ -348,25 +348,4 @@ test "streamUntilDelimiter writes all bytes without delimiter to the output" {
     output_fbs.reset();
 
     try std.testing.expectError(error.StreamTooLong, reader.streamUntilDelimiter(writer, '!', 5));
-}
-
-test "readBoundedBytes correctly reads into a new bounded array" {
-    const test_string = "abcdefg";
-    var fis = std.io.fixedBufferStream(test_string);
-    const reader = fis.reader();
-
-    var array = try reader.readBoundedBytes(10000);
-    try testing.expectEqualStrings(array.slice(), test_string);
-}
-
-test "readIntoBoundedBytes correctly reads into a provided bounded array" {
-    const test_string = "abcdefg";
-    var fis = std.io.fixedBufferStream(test_string);
-    const reader = fis.reader();
-
-    var bounded_array = std.BoundedArray(u8, 10000){};
-
-    // compile time error if the size is not the same at the provided `bounded.capacity()`
-    try reader.readIntoBoundedBytes(10000, &bounded_array);
-    try testing.expectEqualStrings(bounded_array.slice(), test_string);
 }

@@ -1,6 +1,10 @@
 //! Types and values provided by the Zig language.
 
 const builtin = @import("builtin");
+const std = @import("std.zig");
+const root = @import("root");
+
+pub const assembly = @import("builtin/assembly.zig");
 
 /// `explicit_subsystem` is missing when the subsystem is automatically detected,
 /// so Zig standard library has the subsystem detection logic here. This should generally be
@@ -768,7 +772,7 @@ pub const Endian = enum {
 
 /// This data structure is used by the Zig language code generation and
 /// therefore must be kept in sync with the compiler implementation.
-pub const Signedness = enum {
+pub const Signedness = enum(u1) {
     signed,
     unsigned,
 };
@@ -890,7 +894,10 @@ pub const VaList = switch (builtin.cpu.arch) {
     .aarch64, .aarch64_be => switch (builtin.os.tag) {
         .windows => *u8,
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
-        else => @compileError("disabled due to miscompilations"), // VaListAarch64,
+        else => switch (builtin.zig_backend) {
+            else => VaListAarch64,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
+        },
     },
     .arm, .armeb, .thumb, .thumbeb => switch (builtin.os.tag) {
         .ios, .macos, .tvos, .watchos, .visionos => *u8,
@@ -914,7 +921,10 @@ pub const VaList = switch (builtin.cpu.arch) {
     .wasm32, .wasm64 => *anyopaque,
     .x86 => *u8,
     .x86_64 => switch (builtin.os.tag) {
-        .windows => @compileError("disabled due to miscompilations"), // *u8,
+        .windows => switch (builtin.zig_backend) {
+            else => *u8,
+            .stage2_llvm => @compileError("disabled due to miscompilations"),
+        },
         else => VaListX86_64,
     },
     .xtensa => VaListXtensa,
@@ -1100,6 +1110,3 @@ pub noinline fn returnError() void {
         st.instruction_addresses[st.index] = @returnAddress();
     st.index += 1;
 }
-
-const std = @import("std.zig");
-const root = @import("root");

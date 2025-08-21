@@ -3,7 +3,6 @@ const builtin = std.builtin;
 const tests = @import("test/tests.zig");
 const BufMap = std.BufMap;
 const mem = std.mem;
-const ArrayList = std.ArrayList;
 const io = std.io;
 const fs = std.fs;
 const InstallDirectoryOptions = std.Build.InstallDirectoryOptions;
@@ -11,7 +10,7 @@ const assert = std.debug.assert;
 const DevEnv = @import("src/dev.zig").Env;
 const ValueInterpretMode = enum { direct, by_name };
 
-const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 15, .patch = 0 };
+const zig_version: std.SemanticVersion = .{ .major = 0, .minor = 16, .patch = 0 };
 const stack_size = 46 * 1024 * 1024;
 
 pub fn build(b: *std.Build) !void {
@@ -90,6 +89,7 @@ pub fn build(b: *std.Build) !void {
     const skip_non_native = b.option(bool, "skip-non-native", "Main test suite skips non-native builds") orelse false;
     const skip_libc = b.option(bool, "skip-libc", "Main test suite skips tests that link libc") orelse false;
     const skip_single_threaded = b.option(bool, "skip-single-threaded", "Main test suite skips tests that are single-threaded") orelse false;
+    const skip_compile_errors = b.option(bool, "skip-compile-errors", "Main test suite skips compile error tests") orelse false;
     const skip_translate_c = b.option(bool, "skip-translate-c", "Main test suite skips translate-c tests") orelse false;
     const skip_run_translated_c = b.option(bool, "skip-run-translated-c", "Main test suite skips run-translated-c tests") orelse false;
     const skip_freebsd = b.option(bool, "skip-freebsd", "Main test suite skips targets with freebsd OS") orelse false;
@@ -418,6 +418,7 @@ pub fn build(b: *std.Build) !void {
     try tests.addCases(b, test_cases_step, target, .{
         .test_filters = test_filters,
         .test_target_filters = test_target_filters,
+        .skip_compile_errors = skip_compile_errors,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
         .skip_netbsd = skip_netbsd,
@@ -450,7 +451,6 @@ pub fn build(b: *std.Build) !void {
         .desc = "Run the behavior tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
-        .windows_libs = &.{},
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
@@ -473,7 +473,6 @@ pub fn build(b: *std.Build) !void {
         .desc = "Run the @cImport tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{"test/c_import"},
-        .windows_libs = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
@@ -494,7 +493,6 @@ pub fn build(b: *std.Build) !void {
         .desc = "Run the compiler_rt tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
-        .windows_libs = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
@@ -516,7 +514,6 @@ pub fn build(b: *std.Build) !void {
         .desc = "Run the zigc tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
-        .windows_libs = &.{},
         .skip_single_threaded = true,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
@@ -538,12 +535,6 @@ pub fn build(b: *std.Build) !void {
         .desc = "Run the standard library tests",
         .optimize_modes = optimization_modes,
         .include_paths = &.{},
-        .windows_libs = &.{
-            "advapi32",
-            "crypt32",
-            "iphlpapi",
-            "ws2_32",
-        },
         .skip_single_threaded = skip_single_threaded,
         .skip_non_native = skip_non_native,
         .skip_freebsd = skip_freebsd,
@@ -741,12 +732,6 @@ fn addCompilerMod(b: *std.Build, options: AddCompilerModOptions) *std.Build.Modu
     compiler_mod.addImport("aro", aro_mod);
     compiler_mod.addImport("aro_translate_c", aro_translate_c_mod);
 
-    if (options.target.result.os.tag == .windows) {
-        compiler_mod.linkSystemLibrary("advapi32", .{});
-        compiler_mod.linkSystemLibrary("crypt32", .{});
-        compiler_mod.linkSystemLibrary("ws2_32", .{});
-    }
-
     return compiler_mod;
 }
 
@@ -939,7 +924,7 @@ fn addCxxKnownPath(
         return error.RequiredLibraryNotFound;
 
     const path_padded = run: {
-        var args = std.ArrayList([]const u8).init(b.allocator);
+        var args = std.array_list.Managed([]const u8).init(b.allocator);
         try args.append(ctx.cxx_compiler);
         var it = std.mem.tokenizeAny(u8, ctx.cxx_compiler_arg1, &std.ascii.whitespace);
         while (it.next()) |arg| try args.append(arg);
@@ -1443,10 +1428,6 @@ fn generateLangRef(b: *std.Build) std.Build.LazyPath {
             .optimize = .Debug,
         }),
     });
-
-    if (b.graph.host.result.os.tag == .windows) {
-        doctest_exe.root_module.linkSystemLibrary("advapi32", .{});
-    }
 
     var dir = b.build_root.handle.openDir("doc/langref", .{ .iterate = true }) catch |err| {
         std.debug.panic("unable to open '{f}doc/langref' directory: {s}", .{
