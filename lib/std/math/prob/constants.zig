@@ -42,7 +42,7 @@ pub const SQRTH = 7.07106781186547524401E-1;
 /// 1/log(2) (in math.zig)
 pub const LOG2E = 1.4426950408889634073599;
 
-/// sqrt( 2/pi ) (*almost* in math.zig)
+/// sqrt( 2/pi ) (in math.zig, off by factor of sqrt(2))
 pub const SQ2OPI = 7.9788456080286535587989E-1;
 
 /// log(2) (in math.zig)

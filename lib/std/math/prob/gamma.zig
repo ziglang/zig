@@ -39,7 +39,7 @@ const Q = [_]f64{
 };
 
 const MAXGAM = 171.624376956302725;
-const LOGPI = 1.14472988584940017414; // lift to constants
+const LOGPI = 1.14472988584940017414; // MOVED
 
 // Stirling's formula for the gamma function
 const STIR = [_]f64{
@@ -51,7 +51,7 @@ const STIR = [_]f64{
 };
 
 const MAXSTIR = 143.01608;
-const SQTPI = 2.50662827463100050242E0; // sqrt(2pi), lift to constants
+const SQTPI = 2.50662827463100050242E0; // MOVED
 
 /// Gamma function computed by Stirling's formula.
 /// The polynomial STIR is valid for 33 <= x <= 172.
@@ -220,8 +220,8 @@ const C = [_]f64{
     -2.01889141433532773231E6,
 };
 
-// log(sqrt( 2*pi )) // TODO: lift to constants
-const LS2PI = 0.91893853320467274178;
+// log(sqrt( 2*pi ))
+const LS2PI = 0.91893853320467274178; // MOVED
 const MAXLGM = 2.556348e305;
 
 /// Natural logarithm of gamma function

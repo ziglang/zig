@@ -30,14 +30,35 @@ pub const ln2 = 0.693147180559945309417232121458176568;
 /// ln(10)
 pub const ln10 = 2.302585092994045684017991454684364208;
 
+/// ln(π)
+pub const lnpi = 1.14472988584940017414; // Cephes lift; expand
+
+/// ln(sqrt(τ))
+pub const lnsqrttau = 0.91893853320467274178; // Cephes lift; expand
+
+/// sqrt(τ)
+pub const sqrttau = 2.50662827463100050242; // Cephes lift; expand
+
 /// 2/sqrt(π)
 pub const two_sqrtpi = 1.128379167095512573896158903121545172;
+
+/// sqrt(2/π)
+pub const sqrt2_pi = 0.79788456080286535587989; // Cephes lift; expand
+
+/// sqrt(1/π)
+pub const sqrt1_pi = 0.564189583547756286948; // Cephes lift; expand
 
 /// sqrt(2)
 pub const sqrt2 = 1.414213562373095048801688724209698079;
 
 /// 1/sqrt(2)
 pub const sqrt1_2 = 0.707106781186547524400844362104849039;
+
+/// sqrt(3)
+pub const sqrt3 = 1.732050807568877293527; // Cephes lift; expand
+
+/// cbrt(2)
+pub const cbrt2 = math.cbrt(@as(f64, 2.0)); // Cephes lift; expand
 
 /// pi/180.0
 pub const rad_per_deg = 0.0174532925199432957692369076848861271344287188854172545609719144;

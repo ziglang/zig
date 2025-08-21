@@ -132,8 +132,8 @@ test "normalDist" {
     try expectApproxEqRel(normalDist(5), 1 - 2.867e-7, e2);
 }
 
-// sqrt(2pi) // TODO: lift to constants
-const s2pi = 2.50662827463100050242E0;
+// sqrt(2pi)
+const s2pi = 2.50662827463100050242E0; // MOVED
 
 // approximation for 0 <= |y - 0.5| <= 3/8
 const P0 = [_]f64{

@@ -647,7 +647,7 @@ const PG3 = [_]f64{
 fn jnt(n: f64, x: f64) f64 {
     const cbn = math.cbrt(n);
     const z = (x - n) / cbn;
-    const cbtwo = math.cbrt(@as(f64, 2.0)); // TODO lift to constants?
+    const cbtwo = math.cbrt(@as(f64, 2.0)); // MOVED
 
     // Airy function
     var zz = -cbtwo * z;
