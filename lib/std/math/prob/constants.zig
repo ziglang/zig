@@ -21,11 +21,13 @@ pub const UFLOWTHRESH = math.floatMin(f64);
 /// f64 largest normal number, 2**1024*(1-MACHEP) ≈ 1.79769313486231570815E308
 pub const MAXNUM = math.floatMax(f64);
 
-/// log(MAXNUM)
+/// ln(MAXNUM)
 pub const MAXLOG = 7.09782712893383996732E2;
 
-/// log(2**-1075)
+/// ln(2**-1075)
 pub const MINLOG = -7.451332191019412076235E2;
+// Not sure where 2^-1075 comes from… 
+// 2^-1074 is the smallest possible subnormal number
 
 /// pi (in math.zig)
 pub const PI = math.pi;

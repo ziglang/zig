@@ -96,7 +96,7 @@ const UTHRESH = 37.519379347;
 ///   message         condition         value returned
 /// erfc underflow    x > 37.519379347       0.0
 pub fn normalDist(a: f64) f64 {
-    const x = a * C.SQRTH;
+    const x = a * math.sqrt1_2;
     var z = @abs(x);
 
     if (z < 1.0) {
