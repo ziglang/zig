@@ -133,7 +133,7 @@ test "normalDist" {
 }
 
 // sqrt(2pi)
-const s2pi = 2.50662827463100050242E0; // MOVED
+const s2pi = math.sqrttau;
 
 // approximation for 0 <= |y - 0.5| <= 3/8
 const P0 = [_]f64{

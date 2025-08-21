@@ -20,8 +20,8 @@ const p1evl = math.prob.p1evl;
 
 const c1 = 0.35502805388781723926;
 const c2 = 0.258819403792806798405;
-const sqrt3 = 1.732050807568877293527; // MOVED
-const sqpii = 5.64189583547756286948E-1; // MOVED
+const sqrt3 = math.sqrt3;
+const sqpii = math.sqrt1_pi;
 
 // IBMPC or MIEEE 53-bit, not UNK
 const MAXAIRY = 103.892;
