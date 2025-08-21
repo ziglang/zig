@@ -4,8 +4,9 @@ const EpochSeconds = std.time.epoch.EpochSeconds;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 
-const Interner = @import("../backend.zig").Interner;
-const CodeGenOptions = @import("../backend.zig").CodeGenOptions;
+const backend = @import("../backend.zig");
+const Interner = backend.Interner;
+const CodeGenOptions = backend.CodeGenOptions;
 
 const Builtins = @import("Builtins.zig");
 const Builtin = Builtins.Builtin;
@@ -127,24 +128,24 @@ diagnostics: *Diagnostics,
 
 code_gen_options: CodeGenOptions = .default,
 environment: Environment = .{},
-sources: std.StringArrayHashMapUnmanaged(Source) = .{},
+sources: std.StringArrayHashMapUnmanaged(Source) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+include_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-system_include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+system_include_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-after_include_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+after_include_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+framework_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-system_framework_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+system_framework_dirs: std.ArrayList([]const u8) = .empty,
 /// Allocated into `gpa`, but keys are externally managed.
-embed_dirs: std.ArrayListUnmanaged([]const u8) = .empty,
+embed_dirs: std.ArrayList([]const u8) = .empty,
 target: std.Target = @import("builtin").target,
 cmodel: std.builtin.CodeModel = .default,
-pragma_handlers: std.StringArrayHashMapUnmanaged(*Pragma) = .{},
+pragma_handlers: std.StringArrayHashMapUnmanaged(*Pragma) = .empty,
 langopts: LangOpts = .{},
-generated_buf: std.ArrayListUnmanaged(u8) = .{},
+generated_buf: std.ArrayList(u8) = .empty,
 builtins: Builtins = .{},
 string_interner: StringInterner = .{},
 interner: Interner = .{},
@@ -243,6 +244,13 @@ fn generateSystemDefines(comp: *Compilation, w: *std.Io.Writer) !void {
         try w.print("#define __GNUC__ {d}\n", .{comp.langopts.gnuc_version / 10_000});
         try w.print("#define __GNUC_MINOR__ {d}\n", .{comp.langopts.gnuc_version / 100 % 100});
         try w.print("#define __GNUC_PATCHLEVEL__ {d}\n", .{comp.langopts.gnuc_version % 100});
+    }
+
+    if (comp.code_gen_options.optimization_level.hasAnyOptimizations()) {
+        try define(w, "__OPTIMIZE__");
+    }
+    if (comp.code_gen_options.optimization_level.isSizeOptimized()) {
+        try define(w, "__OPTIMIZE_SIZE__");
     }
 
     // os macros
@@ -1379,8 +1387,8 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, path: []const u8, buf: []u8,
     const duped_path = try comp.gpa.dupe(u8, path);
     errdefer comp.gpa.free(duped_path);
 
-    var splice_list = std.array_list.Managed(u32).init(comp.gpa);
-    defer splice_list.deinit();
+    var splice_list: std.ArrayList(u32) = .empty;
+    defer splice_list.deinit(comp.gpa);
 
     const source_id: Source.Id = @enumFromInt(comp.sources.count() + 2);
 
@@ -1413,9 +1421,9 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, path: []const u8, buf: []u8,
                     },
                     .back_slash, .trailing_ws, .back_slash_cr => {
                         i = backslash_loc;
-                        try splice_list.append(i);
+                        try splice_list.append(comp.gpa, i);
                         if (state == .trailing_ws) {
-                            try comp.addNewlineEscapeError(path, buf, splice_list.items, i, line);
+                            try comp.addNewlineEscapeError(path, buf, splice_list.items, i, line, kind);
                         }
                         state = if (state == .back_slash_cr) .cr else .back_slash_cr;
                     },
@@ -1433,10 +1441,10 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, path: []const u8, buf: []u8,
                     .back_slash, .trailing_ws => {
                         i = backslash_loc;
                         if (state == .back_slash or state == .trailing_ws) {
-                            try splice_list.append(i);
+                            try splice_list.append(comp.gpa, i);
                         }
                         if (state == .trailing_ws) {
-                            try comp.addNewlineEscapeError(path, buf, splice_list.items, i, line);
+                            try comp.addNewlineEscapeError(path, buf, splice_list.items, i, line, kind);
                         }
                     },
                     .bom1, .bom2 => break,
@@ -1486,11 +1494,11 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, path: []const u8, buf: []u8,
         }
     }
 
-    const splice_locs = try splice_list.toOwnedSlice();
+    const splice_locs = try splice_list.toOwnedSlice(comp.gpa);
     errdefer comp.gpa.free(splice_locs);
 
     if (i != contents.len) {
-        var list: std.ArrayListUnmanaged(u8) = .{
+        var list: std.ArrayList(u8) = .{
             .items = contents[0..i],
             .capacity = contents.len,
         };
@@ -1510,13 +1518,21 @@ pub fn addSourceFromOwnedBuffer(comp: *Compilation, path: []const u8, buf: []u8,
     return source;
 }
 
-fn addNewlineEscapeError(comp: *Compilation, path: []const u8, buf: []const u8, splice_locs: []const u32, byte_offset: u32, line: u32) !void {
+fn addNewlineEscapeError(
+    comp: *Compilation,
+    path: []const u8,
+    buf: []const u8,
+    splice_locs: []const u32,
+    byte_offset: u32,
+    line: u32,
+    kind: Source.Kind,
+) !void {
     // Temporary source for getting the location for errors.
     var tmp_source: Source = .{
         .path = path,
         .buf = buf,
         .id = undefined,
-        .kind = undefined,
+        .kind = kind,
         .splice_locs = splice_locs,
     };
 
@@ -1566,17 +1582,7 @@ fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kin
 }
 
 pub fn addSourceFromFile(comp: *Compilation, file: std.fs.File, path: []const u8, kind: Source.Kind) !Source {
-    var file_buf: [4096]u8 = undefined;
-    var file_reader = file.reader(&file_buf);
-    if (try file_reader.getSize() > std.math.maxInt(u32)) return error.FileTooBig;
-
-    var allocating: std.Io.Writer.Allocating = .init(comp.gpa);
-    _ = allocating.writer.sendFileAll(&file_reader, .limited(std.math.maxInt(u32))) catch |e| switch (e) {
-        error.WriteFailed => return error.OutOfMemory,
-        error.ReadFailed => return file_reader.err.?,
-    };
-
-    const contents = try allocating.toOwnedSlice();
+    const contents = try comp.getFileContents(file, .unlimited);
     errdefer comp.gpa.free(contents);
     return comp.addSourceFromOwnedBuffer(path, contents, kind);
 }
@@ -1671,7 +1677,7 @@ const FindInclude = struct {
             if (try find.checkFrameworkDir(dir, .system)) |res| return res;
         }
         for (comp.after_include_dirs.items) |dir| {
-            if (try find.checkIncludeDir(dir, .user)) |res| return res;
+            if (try find.checkIncludeDir(dir, .system)) |res| return res;
         }
         if (comp.ms_cwd_source_id) |source_id| {
             if (try find.checkMsCwdIncludeDir(source_id)) |res| return res;
@@ -1766,26 +1772,38 @@ pub const IncludeType = enum {
     angle_brackets,
 };
 
-fn getFileContents(comp: *Compilation, path: []const u8, limit: std.Io.Limit) ![]const u8 {
+fn getPathContents(comp: *Compilation, path: []const u8, limit: std.Io.Limit) ![]u8 {
     if (mem.indexOfScalar(u8, path, 0) != null) {
         return error.FileNotFound;
     }
 
     const file = try comp.cwd.openFile(path, .{});
     defer file.close();
+    return comp.getFileContents(file, limit);
+}
+
+fn getFileContents(comp: *Compilation, file: std.fs.File, limit: std.Io.Limit) ![]u8 {
+    var file_buf: [4096]u8 = undefined;
+    var file_reader = file.reader(&file_buf);
 
     var allocating: std.Io.Writer.Allocating = .init(comp.gpa);
     defer allocating.deinit();
+    if (file_reader.getSize()) |size| {
+        const limited_size = limit.minInt64(size);
+        if (limited_size > std.math.maxInt(u32)) return error.FileTooBig;
+        try allocating.ensureUnusedCapacity(limited_size);
+    } else |_| {}
 
-    var file_buf: [4096]u8 = undefined;
-    var file_reader = file.reader(&file_buf);
-    if (limit.minInt64(try file_reader.getSize()) > std.math.maxInt(u32)) return error.FileTooBig;
-
-    _ = allocating.writer.sendFileAll(&file_reader, limit) catch |err| switch (err) {
-        error.WriteFailed => return error.OutOfMemory,
-        error.ReadFailed => return file_reader.err.?,
-    };
-
+    var remaining = limit.min(.limited(std.math.maxInt(u32)));
+    while (remaining.nonzero()) {
+        const n = file_reader.interface.stream(&allocating.writer, remaining) catch |err| switch (err) {
+            error.EndOfStream => return allocating.toOwnedSlice(),
+            error.WriteFailed => return error.OutOfMemory,
+            error.ReadFailed => return file_reader.err.?,
+        };
+        remaining = remaining.subtract(n).?;
+    }
+    if (limit == .unlimited) return error.FileTooBig;
     return allocating.toOwnedSlice();
 }
 
@@ -1797,9 +1815,10 @@ pub fn findEmbed(
     include_type: IncludeType,
     limit: std.Io.Limit,
     opt_dep_file: ?*DepFile,
-) !?[]const u8 {
+) !?[]u8 {
     if (std.fs.path.isAbsolute(filename)) {
-        if (comp.getFileContents(filename, limit)) |some| {
+        if (comp.getPathContents(filename, limit)) |some| {
+            errdefer comp.gpa.free(some);
             if (opt_dep_file) |dep_file| try dep_file.addDependencyDupe(comp.gpa, comp.arena, filename);
             return some;
         } else |err| switch (err) {
@@ -1819,7 +1838,8 @@ pub fn findEmbed(
             if (comp.langopts.ms_extensions) {
                 std.mem.replaceScalar(u8, path, '\\', '/');
             }
-            if (comp.getFileContents(path, limit)) |some| {
+            if (comp.getPathContents(path, limit)) |some| {
+                errdefer comp.gpa.free(some);
                 if (opt_dep_file) |dep_file| try dep_file.addDependencyDupe(comp.gpa, comp.arena, filename);
                 return some;
             } else |err| switch (err) {
@@ -1835,7 +1855,8 @@ pub fn findEmbed(
         if (comp.langopts.ms_extensions) {
             std.mem.replaceScalar(u8, path, '\\', '/');
         }
-        if (comp.getFileContents(path, limit)) |some| {
+        if (comp.getPathContents(path, limit)) |some| {
+            errdefer comp.gpa.free(some);
             if (opt_dep_file) |dep_file| try dep_file.addDependencyDupe(comp.gpa, comp.arena, filename);
             return some;
         } else |err| switch (err) {

@@ -28,7 +28,7 @@ pub fn write(d: *const DepFile, w: *std.Io.Writer) std.Io.Writer.Error!void {
     const max_columns = 75;
     var columns: usize = 0;
 
-    try w.writeAll(d.target);
+    try writeTarget(d.target, w);
     columns += d.target.len;
     try w.writeByte(':');
     columns += 1;
@@ -48,6 +48,26 @@ pub fn write(d: *const DepFile, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.flush();
 }
 
+fn writeTarget(path: []const u8, w: *std.Io.Writer) !void {
+    for (path, 0..) |c, i| {
+        switch (c) {
+            ' ', '\t' => {
+                try w.writeByte('\\');
+                var j = i;
+                while (j != 0) {
+                    j -= 1;
+                    if (path[j] != '\\') break;
+                    try w.writeByte('\\');
+                }
+            },
+            '$' => try w.writeByte('$'),
+            '#' => try w.writeByte('\\'),
+            else => {},
+        }
+        try w.writeByte(c);
+    }
+}
+
 fn writePath(d: *const DepFile, path: []const u8, w: *std.Io.Writer) !void {
     switch (d.format) {
         .nmake => {
@@ -58,18 +78,19 @@ fn writePath(d: *const DepFile, path: []const u8, w: *std.Io.Writer) !void {
         },
         .make => {
             for (path, 0..) |c, i| {
-                if (c == '#') {
-                    try w.writeByte('\\');
-                } else if (c == '$') {
-                    try w.writeByte('$');
-                } else if (c == ' ') {
-                    try w.writeByte('\\');
-                    var j = i;
-                    while (j != 0) {
-                        j -= 1;
-                        if (path[j] != '\\') break;
+                switch (c) {
+                    ' ' => {
                         try w.writeByte('\\');
-                    }
+                        var j = i;
+                        while (j != 0) {
+                            j -= 1;
+                            if (path[j] != '\\') break;
+                            try w.writeByte('\\');
+                        }
+                    },
+                    '$' => try w.writeByte('$'),
+                    '#' => try w.writeByte('\\'),
+                    else => {},
                 }
                 try w.writeByte(c);
             }

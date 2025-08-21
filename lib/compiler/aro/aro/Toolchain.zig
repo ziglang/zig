@@ -9,7 +9,7 @@ const Filesystem = @import("Driver/Filesystem.zig").Filesystem;
 const Multilib = @import("Driver/Multilib.zig");
 const target_util = @import("target.zig");
 
-pub const PathList = std.ArrayListUnmanaged([]const u8);
+pub const PathList = std.ArrayList([]const u8);
 
 pub const RuntimeLibKind = enum {
     compiler_rt,
@@ -64,7 +64,6 @@ pub fn getTarget(tc: *const Toolchain) std.Target {
 fn getDefaultLinker(tc: *const Toolchain) []const u8 {
     return switch (tc.inner) {
         .uninitialized => unreachable,
-        .linux => |linux| linux.getDefaultLinker(tc.getTarget()),
         .unknown => "ld",
     };
 }
@@ -72,6 +71,7 @@ fn getDefaultLinker(tc: *const Toolchain) []const u8 {
 /// Call this after driver has finished parsing command line arguments to find the toolchain
 pub fn discover(tc: *Toolchain) !void {
     if (tc.inner != .uninitialized) return;
+
     tc.inner = .unknown;
     return switch (tc.inner) {
         .uninitialized => unreachable,
@@ -143,8 +143,11 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
             return use_linker;
         }
     } else {
-        var linker_name = try std.array_list.Managed(u8).initCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
-        defer linker_name.deinit();
+        const gpa = tc.driver.comp.gpa;
+        var linker_name: std.ArrayList(u8) = .empty;
+        defer linker_name.deinit(gpa);
+        try linker_name.ensureUnusedCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
+
         if (tc.getTarget().os.tag.isDarwin()) {
             linker_name.appendSliceAssumeCapacity("ld64.");
         } else {
@@ -171,20 +174,27 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
 /// TODO: this isn't exactly right since our target names don't necessarily match up
 /// with GCC's.
 /// For example the Zig target `arm-freestanding-eabi` would need the `arm-none-eabi` tools
-fn possibleProgramNames(raw_triple: ?[]const u8, name: []const u8, buf: *[64]u8, possible_names: *std.ArrayListUnmanaged([]const u8)) void {
+fn possibleProgramNames(
+    raw_triple: ?[]const u8,
+    name: []const u8,
+    buf: *[64]u8,
+    possible_name_buf: *[2][]const u8,
+) []const []const u8 {
+    var i: u32 = 0;
     if (raw_triple) |triple| {
         if (std.fmt.bufPrint(buf, "{s}-{s}", .{ triple, name })) |res| {
-            possible_names.appendAssumeCapacity(res);
+            possible_name_buf[i] = res;
+            i += 1;
         } else |_| {}
     }
-    possible_names.appendAssumeCapacity(name);
+    possible_name_buf[i] = name;
 
-    return possible_names;
+    return possible_name_buf[0..i];
 }
 
 /// Add toolchain `file_paths` to argv as `-L` arguments
-pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
-    try argv.ensureUnusedCapacity(tc.file_paths.items.len);
+pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+    try argv.ensureUnusedCapacity(tc.driver.comp.gpa, tc.file_paths.items.len);
 
     var bytes_needed: usize = 0;
     for (tc.file_paths.items) |path| {
@@ -208,11 +218,10 @@ fn getProgramPath(tc: *const Toolchain, name: []const u8, buf: []u8) []const u8 
     var fib = std.heap.FixedBufferAllocator.init(&path_buf);
 
     var tool_specific_buf: [64]u8 = undefined;
-    var possible_names_buffer: [2][]const u8 = undefined;
-    var possible_names = std.ArrayListUnmanaged.initBuffer(&possible_names_buffer);
-    possibleProgramNames(tc.driver.raw_target_triple, name, &tool_specific_buf, &possible_names);
+    var possible_name_buf: [2][]const u8 = undefined;
+    const possible_names = possibleProgramNames(tc.driver.raw_target_triple, name, &tool_specific_buf, &possible_name_buf);
 
-    for (possible_names.items) |tool_name| {
+    for (possible_names) |tool_name| {
         for (tc.program_paths.items) |program_path| {
             defer fib.reset();
 
@@ -318,16 +327,6 @@ pub fn addPathFromComponents(tc: *Toolchain, components: []const []const u8, des
     try dest.append(tc.driver.comp.gpa, full_path);
 }
 
-/// Add linker args to `argv`. Does not add path to linker executable as first item; that must be handled separately
-/// Items added to `argv` will be string literals or owned by `tc.driver.comp.arena` so they must not be individually freed
-pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
-    return switch (tc.inner) {
-        .uninitialized => unreachable,
-        .linux => |*linux| linux.buildLinkerArgs(tc, argv),
-        .unknown => @panic("This toolchain does not support linking yet"),
-    };
-}
-
 fn getDefaultRuntimeLibKind(tc: *const Toolchain) RuntimeLibKind {
     if (tc.getTarget().abi.isAndroid()) {
         return .compiler_rt;
@@ -400,7 +399,7 @@ fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
     }
 }
 
-fn addUnwindLibrary(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
+fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
     const unw = try tc.getUnwindLibKind();
     const target = tc.getTarget();
     if ((target.abi.isAndroid() and unw == .libgcc) or
@@ -410,46 +409,49 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.array_list.Managed([]const 
 
     const lgk = tc.getLibGCCKind();
     const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
+
+    try argv.ensureUnusedCapacity(tc.driver.comp.gpa, 3);
     if (as_needed) {
-        try argv.append(getAsNeededOption(target.os.tag == .solaris, true));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, true));
     }
     switch (unw) {
         .none => return,
-        .libgcc => if (lgk == .static) try argv.append("-lgcc_eh") else try argv.append("-lgcc_s"),
+        .libgcc => argv.appendAssumeCapacity(if (lgk == .static) "-lgcc_eh" else "-lgcc_s"),
         .compiler_rt => if (target.os.tag == .aix) {
             if (lgk != .static) {
-                try argv.append("-lunwind");
+                argv.appendAssumeCapacity("-lunwind");
             }
         } else if (lgk == .static) {
-            try argv.append("-l:libunwind.a");
+            argv.appendAssumeCapacity("-l:libunwind.a");
         } else if (lgk == .shared) {
             if (target_util.isCygwinMinGW(target)) {
-                try argv.append("-l:libunwind.dll.a");
+                argv.appendAssumeCapacity("-l:libunwind.dll.a");
             } else {
-                try argv.append("-l:libunwind.so");
+                argv.appendAssumeCapacity("-l:libunwind.so");
             }
         } else {
-            try argv.append("-lunwind");
+            argv.appendAssumeCapacity("-lunwind");
         },
     }
 
     if (as_needed) {
-        try argv.append(getAsNeededOption(target.os.tag == .solaris, false));
+        argv.appendAssumeCapacity(getAsNeededOption(target.os.tag == .solaris, false));
     }
 }
 
-fn addLibGCC(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
+fn addLibGCC(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+    const gpa = tc.driver.comp.gpa;
     const libgcc_kind = tc.getLibGCCKind();
     if (libgcc_kind == .static or libgcc_kind == .unspecified) {
-        try argv.append("-lgcc");
+        try argv.append(gpa, "-lgcc");
     }
     try tc.addUnwindLibrary(argv);
     if (libgcc_kind == .shared) {
-        try argv.append("-lgcc");
+        try argv.append(gpa, "-lgcc");
     }
 }
 
-pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
+pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
     const target = tc.getTarget();
     const rlt = tc.getRuntimeLibKind();
     switch (rlt) {
@@ -469,7 +471,7 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.array_list.Managed([]cons
     }
 
     if (target.abi.isAndroid() and !tc.driver.static and !tc.driver.static_pie) {
-        try argv.append("-ldl");
+        try argv.append(tc.driver.comp.gpa, "-ldl");
     }
 }
 

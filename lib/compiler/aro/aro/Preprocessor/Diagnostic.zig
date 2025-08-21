@@ -10,6 +10,7 @@ fmt: []const u8,
 kind: Diagnostics.Message.Kind,
 opt: ?Diagnostics.Option = null,
 extension: bool = false,
+show_in_system_headers: bool = false,
 
 pub const elif_without_if: Diagnostic = .{
     .fmt = "#elif without #if",
@@ -91,6 +92,7 @@ pub const warning_directive: Diagnostic = .{
     .fmt = "{s}",
     .opt = .@"#warnings",
     .kind = .warning,
+    .show_in_system_headers = true,
 };
 
 pub const macro_name_missing: Diagnostic = .{
@@ -439,4 +441,11 @@ pub const incomplete_ucn: Diagnostic = .{
 pub const invalid_source_epoch: Diagnostic = .{
     .fmt = "environment variable SOURCE_DATE_EPOCH must expand to a non-negative integer less than or equal to 253402300799",
     .kind = .@"error",
+};
+
+pub const date_time: Diagnostic = .{
+    .fmt = "expansion of date or time macro is not reproducible",
+    .kind = .off,
+    .opt = .@"date-time",
+    .show_in_system_headers = true,
 };

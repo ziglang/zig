@@ -45,8 +45,8 @@ const Driver = @This();
 comp: *Compilation,
 diagnostics: *Diagnostics,
 
-inputs: std.ArrayListUnmanaged(Source) = .{},
-link_objects: std.ArrayListUnmanaged([]const u8) = .{},
+inputs: std.ArrayList(Source) = .empty,
+link_objects: std.ArrayList([]const u8) = .empty,
 output_name: ?[]const u8 = null,
 sysroot: ?[]const u8 = null,
 resource_dir: ?[]const u8 = null,
@@ -107,7 +107,6 @@ raw_cpu: ?[]const u8 = null,
 use_assembly_backend: bool = false,
 
 // linker options
-use_linker: ?[]const u8 = null,
 linker_path: ?[]const u8 = null,
 nodefaultlibs: bool = false,
 nolibc: bool = false,
@@ -270,7 +269,7 @@ pub const usage =
 pub fn parseArgs(
     d: *Driver,
     stdout: *std.Io.Writer,
-    macro_buf: *std.ArrayListUnmanaged(u8),
+    macro_buf: *std.ArrayList(u8),
     args: []const []const u8,
 ) (Compilation.Error || std.Io.Writer.Error)!bool {
     var i: usize = 1;
@@ -322,7 +321,7 @@ pub fn parseArgs(
                 }
                 try macro_buf.print(d.comp.gpa, "#undef {s}\n", .{macro});
             } else if (mem.eql(u8, arg, "-O")) {
-                d.comp.code_gen_options.optimization_level = .@"0";
+                d.comp.code_gen_options.optimization_level = .@"1";
             } else if (mem.startsWith(u8, arg, "-O")) {
                 d.comp.code_gen_options.optimization_level = backend.CodeGenOptions.OptimizationLevel.fromString(arg["-O".len..]) orelse {
                     try d.err("invalid optimization level '{s}'", .{arg});
@@ -600,6 +599,10 @@ pub fn parseArgs(
                 d.diagnostics.state.enable_all_warnings = false;
             } else if (mem.eql(u8, arg, "-Weverything")) {
                 d.diagnostics.state.enable_all_warnings = true;
+            } else if (mem.eql(u8, arg, "-Wno-system-headers")) {
+                d.diagnostics.state.suppress_system_headers = true;
+            } else if (mem.eql(u8, arg, "-Wsystem-headers")) {
+                d.diagnostics.state.suppress_system_headers = false;
             } else if (mem.eql(u8, arg, "-Werror")) {
                 d.diagnostics.state.error_warnings = true;
             } else if (mem.eql(u8, arg, "-Wno-error")) {
@@ -644,10 +647,6 @@ pub fn parseArgs(
                 d.comp.langopts.preserve_comments = true;
                 d.comp.langopts.preserve_comments_in_macros = true;
                 comment_arg = arg;
-            } else if (option(arg, "-fuse-ld=")) |linker_name| {
-                d.use_linker = linker_name;
-            } else if (mem.eql(u8, arg, "-fuse-ld=")) {
-                d.use_linker = null;
             } else if (option(arg, "--ld-path=")) |linker_path| {
                 d.linker_path = linker_path;
             } else if (mem.eql(u8, arg, "-r")) {
@@ -917,13 +916,11 @@ pub fn errorDescription(e: anyerror) []const u8 {
     };
 }
 
-var stdout_buffer: [4096]u8 = undefined;
-
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool, asm_gen_fn: ?AsmCodeGenFn) Compilation.Error!void {
     const user_macros = macros: {
-        var macro_buf: std.ArrayListUnmanaged(u8) = .empty;
+        var macro_buf: std.ArrayList(u8) = .empty;
         defer macro_buf.deinit(d.comp.gpa);
 
         var stdout_buf: [256]u8 = undefined;
@@ -1107,7 +1104,7 @@ fn processSource(
 
     var name_buf: [std.fs.max_name_bytes]u8 = undefined;
     var opt_dep_file = try d.initDepFile(source, &name_buf, false);
-    defer if (opt_dep_file) |*dep_file| dep_file.deinit(pp.gpa);
+    defer if (opt_dep_file) |*dep_file| dep_file.deinit(d.comp.gpa);
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 
@@ -1164,14 +1161,11 @@ fn processSource(
         else
             std.fs.File.stdout();
         defer if (d.output_name != null) file.close();
-        var file_buffer: [1024]u8 = undefined;
-        var file_writer = file.writer(&file_buffer);
 
-        pp.prettyPrintTokens(&file_writer.interface, dump_mode) catch |er|
-            return d.fatal("unable to write result: {s}", .{errorDescription(er)});
+        var file_writer = file.writer(&writer_buf);
+        pp.prettyPrintTokens(&file_writer.interface, dump_mode) catch
+            return d.fatal("unable to write result: {s}", .{errorDescription(file_writer.err.?)});
 
-        file_writer.interface.flush() catch |er|
-            return d.fatal("unable to write result: {s}", .{errorDescription(er)});
         if (fast_exit) std.process.exit(0); // Not linking, no need for cleanup.
         return;
     }
@@ -1180,9 +1174,8 @@ fn processSource(
     defer tree.deinit();
 
     if (d.verbose_ast) {
-        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-        tree.dump(d.detectConfig(.stdout()), &stdout_writer.interface) catch {};
-        stdout_writer.interface.flush() catch {};
+        var stdout = std.fs.File.stdout().writer(&writer_buf);
+        tree.dump(d.detectConfig(stdout.file), &stdout.interface) catch {};
     }
 
     d.printDiagnosticsStats();
@@ -1299,12 +1292,13 @@ fn dumpLinkerArgs(w: *std.Io.Writer, items: []const []const u8) !void {
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) Compilation.Error!void {
-    var argv = std.array_list.Managed([]const u8).init(d.comp.gpa);
-    defer argv.deinit();
+    const gpa = d.comp.gpa;
+    var argv: std.ArrayList([]const u8) = .empty;
+    defer argv.deinit(gpa);
 
     var linker_path_buf: [std.fs.max_path_bytes]u8 = undefined;
     const linker_path = try tc.getLinkerPath(&linker_path_buf);
-    try argv.append(linker_path);
+    try argv.append(gpa, linker_path);
 
     try tc.buildLinkerArgs(&argv);
 

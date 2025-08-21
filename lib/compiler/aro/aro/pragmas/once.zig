@@ -17,14 +17,12 @@ pragma: Pragma = .{
     .preprocessorHandler = preprocessorHandler,
     .preserveTokens = preserveTokens,
 },
-pragma_once: std.AutoHashMap(Source.Id, void),
+pragma_once: std.AutoHashMapUnmanaged(Source.Id, void) = .empty,
 preprocess_count: u32 = 0,
 
 pub fn init(allocator: mem.Allocator) !*Pragma {
     var once = try allocator.create(Once);
-    once.* = .{
-        .pragma_once = std.AutoHashMap(Source.Id, void).init(allocator),
-    };
+    once.* = .{};
     return &once.pragma;
 }
 
@@ -35,8 +33,9 @@ fn afterParse(pragma: *Pragma, _: *Compilation) void {
 
 fn deinit(pragma: *Pragma, comp: *Compilation) void {
     var self: *Once = @fieldParentPtr("pragma", pragma);
-    self.pragma_once.deinit();
+    self.pragma_once.deinit(comp.gpa);
     comp.gpa.destroy(self);
+    pragma.* = undefined;
 }
 
 fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) Pragma.Error!void {
@@ -53,7 +52,7 @@ fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex
         }, pp.expansionSlice(start_idx + 1), true);
     }
     const seen = self.preprocess_count == pp.preprocess_count;
-    const prev = try self.pragma_once.fetchPut(name_tok.loc.id, {});
+    const prev = try self.pragma_once.fetchPut(pp.comp.gpa, name_tok.loc.id, {});
     if (prev != null and !seen) {
         return error.StopPreprocessing;
     }

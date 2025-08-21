@@ -312,12 +312,13 @@ pub const Iterator = struct {
 };
 
 test Iterator {
+    const gpa = std.testing.allocator;
     var it = Iterator{};
 
-    var seen = std.StringHashMap(Builtin).init(std.testing.allocator);
-    defer seen.deinit();
+    var seen: std.StringHashMapUnmanaged(Builtin) = .empty;
+    defer seen.deinit(gpa);
 
-    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
@@ -333,7 +334,7 @@ test Iterator {
             std.debug.print("previous data: {}\n", .{seen.get(entry.name).?});
             return error.TestExpectedUniqueEntries;
         }
-        try seen.put(try arena.dupe(u8, entry.name), entry.builtin);
+        try seen.put(gpa, try arena.dupe(u8, entry.name), entry.builtin);
     }
     try std.testing.expectEqual(@as(usize, Builtin.data.len), seen.count());
 }

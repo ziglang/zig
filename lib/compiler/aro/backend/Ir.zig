@@ -11,7 +11,7 @@ decls: std.StringArrayHashMapUnmanaged(Decl),
 
 pub const Decl = struct {
     instructions: std.MultiArrayList(Inst),
-    body: std.ArrayListUnmanaged(Ref),
+    body: std.ArrayList(Ref),
     arena: std.heap.ArenaAllocator.State,
 
     pub fn deinit(decl: *Decl, gpa: Allocator) void {
@@ -26,9 +26,9 @@ pub const Builder = struct {
     arena: std.heap.ArenaAllocator,
     interner: *Interner,
 
-    decls: std.StringArrayHashMapUnmanaged(Decl) = .{},
-    instructions: std.MultiArrayList(Ir.Inst) = .{},
-    body: std.ArrayListUnmanaged(Ref) = .{},
+    decls: std.StringArrayHashMapUnmanaged(Decl) = .empty,
+    instructions: std.MultiArrayList(Ir.Inst) = .empty,
+    body: std.ArrayList(Ref) = .empty,
     alloc_count: u32 = 0,
     arg_count: u32 = 0,
     current_label: Ref = undefined,
@@ -380,7 +380,7 @@ const REF = std.Io.tty.Color.bright_blue;
 const LITERAL = std.Io.tty.Color.bright_green;
 const ATTRIBUTE = std.Io.tty.Color.bright_yellow;
 
-const RefMap = std.AutoArrayHashMap(Ref, void);
+const RefMap = std.AutoArrayHashMapUnmanaged(Ref, void);
 
 pub fn dump(ir: *const Ir, gpa: Allocator, config: std.Io.tty.Config, w: *std.Io.Writer) !void {
     for (ir.decls.keys(), ir.decls.values()) |name, *decl| {
@@ -393,11 +393,11 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
     const tags = decl.instructions.items(.tag);
     const data = decl.instructions.items(.data);
 
-    var ref_map = RefMap.init(gpa);
-    defer ref_map.deinit();
+    var ref_map: RefMap = .empty;
+    defer ref_map.deinit(gpa);
 
-    var label_map = RefMap.init(gpa);
-    defer label_map.deinit();
+    var label_map: RefMap = .empty;
+    defer label_map.deinit(gpa);
 
     const ret_inst = decl.body.items[decl.body.items.len - 1];
     const ret_operand = data[@intFromEnum(ret_inst)].un;
@@ -413,14 +413,14 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
         const ref = decl.body.items[arg_count];
         if (tags[@intFromEnum(ref)] != .arg) break;
         if (arg_count != 0) try w.writeAll(", ");
-        try ref_map.put(ref, {});
+        try ref_map.put(gpa, ref, {});
         try ir.writeRef(decl, &ref_map, ref, config, w);
         try config.setColor(w, .reset);
     }
     try w.writeAll(") {\n");
     for (decl.body.items[arg_count..]) |ref| {
         switch (tags[@intFromEnum(ref)]) {
-            .label => try label_map.put(ref, {}),
+            .label => try label_map.put(gpa, ref, {}),
             else => {},
         }
     }
@@ -461,7 +461,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
             },
             .select => {
                 const br = data[i].branch;
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.writeAll("select ");
                 try ir.writeRef(decl, &ref_map, br.cond, config, w);
                 try config.setColor(w, .reset);
@@ -501,7 +501,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
             },
             .call => {
                 const call = data[i].call;
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.writeAll("call ");
                 try ir.writeRef(decl, &ref_map, call.func, config, w);
                 try config.setColor(w, .reset);
@@ -515,7 +515,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
             },
             .alloc => {
                 const alloc = data[i].alloc;
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.writeAll("alloc ");
                 try config.setColor(w, ATTRIBUTE);
                 try w.writeAll("size ");
@@ -528,7 +528,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
                 try w.writeByte('\n');
             },
             .phi => {
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.writeAll("phi");
                 try config.setColor(w, .reset);
                 try w.writeAll(" {");
@@ -560,7 +560,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
                 try w.writeByte('\n');
             },
             .load => {
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.writeAll("load ");
                 try ir.writeRef(decl, &ref_map, data[i].un, config, w);
                 try w.writeByte('\n');
@@ -583,7 +583,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
             .mod,
             => {
                 const bin = data[i].bin;
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.print("{s} ", .{@tagName(tag)});
                 try ir.writeRef(decl, &ref_map, bin.lhs, config, w);
                 try config.setColor(w, .reset);
@@ -598,7 +598,7 @@ fn dumpDecl(ir: *const Ir, decl: *const Decl, gpa: Allocator, name: []const u8, 
             .sext,
             => {
                 const un = data[i].un;
-                try ir.writeNewRef(decl, &ref_map, ref, config, w);
+                try ir.writeNewRef(gpa, decl, &ref_map, ref, config, w);
                 try w.print("{s} ", .{@tagName(tag)});
                 try ir.writeRef(decl, &ref_map, un, config, w);
                 try w.writeByte('\n');
@@ -679,8 +679,8 @@ fn writeRef(ir: Ir, decl: *const Decl, ref_map: *RefMap, ref: Ref, config: std.I
     try w.print(" %{d}", .{ref_index});
 }
 
-fn writeNewRef(ir: Ir, decl: *const Decl, ref_map: *RefMap, ref: Ref, config: std.Io.tty.Config, w: *std.Io.Writer) !void {
-    try ref_map.put(ref, {});
+fn writeNewRef(ir: Ir, gpa: Allocator, decl: *const Decl, ref_map: *RefMap, ref: Ref, config: std.Io.tty.Config, w: *std.Io.Writer) !void {
+    try ref_map.put(gpa, ref, {});
     try w.writeAll("    ");
     try ir.writeRef(decl, ref_map, ref, config, w);
     try config.setColor(w, .reset);

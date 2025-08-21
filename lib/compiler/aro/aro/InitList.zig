@@ -22,7 +22,7 @@ const Item = struct {
 
 const InitList = @This();
 
-list: std.ArrayListUnmanaged(Item) = .empty,
+list: std.ArrayList(Item) = .empty,
 node: Node.OptIndex = .null,
 tok: TokenIndex = 0,
 

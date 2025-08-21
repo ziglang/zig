@@ -8,14 +8,14 @@ const Limb = std.math.big.Limb;
 
 const Interner = @This();
 
-map: std.AutoArrayHashMapUnmanaged(void, void) = .{},
+map: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 items: std.MultiArrayList(struct {
     tag: Tag,
     data: u32,
-}) = .{},
-extra: std.ArrayListUnmanaged(u32) = .{},
-limbs: std.ArrayListUnmanaged(Limb) = .{},
-strings: std.ArrayListUnmanaged(u8) = .{},
+}) = .empty,
+extra: std.ArrayList(u32) = .empty,
+limbs: std.ArrayList(Limb) = .empty,
+strings: std.ArrayList(u8) = .empty,
 
 const KeyAdapter = struct {
     interner: *const Interner,

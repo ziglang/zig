@@ -38,6 +38,7 @@ pub const ExpandedLocation = struct {
     col: u32,
     width: u32,
     end_with_splice: bool,
+    kind: Kind,
 };
 
 const Source = @This();
@@ -120,6 +121,7 @@ pub fn lineCol(source: Source, loc: Location) ExpandedLocation {
         .col = col,
         .width = width,
         .end_with_splice = end_with_splice,
+        .kind = source.kind,
     };
 }
 

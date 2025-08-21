@@ -40,11 +40,11 @@ tree: *const Tree,
 comp: *Compilation,
 builder: Builder,
 wip_switch: *WipSwitch = undefined,
-symbols: std.ArrayListUnmanaged(Symbol) = .{},
-ret_nodes: std.ArrayListUnmanaged(Ir.Inst.Phi.Input) = .{},
-phi_nodes: std.ArrayListUnmanaged(Ir.Inst.Phi.Input) = .{},
-record_elem_buf: std.ArrayListUnmanaged(Interner.Ref) = .{},
-record_cache: std.AutoHashMapUnmanaged(QualType, Interner.Ref) = .{},
+symbols: std.ArrayList(Symbol) = .empty,
+ret_nodes: std.ArrayList(Ir.Inst.Phi.Input) = .empty,
+phi_nodes: std.ArrayList(Ir.Inst.Phi.Input) = .empty,
+record_elem_buf: std.ArrayList(Interner.Ref) = .empty,
+record_cache: std.AutoHashMapUnmanaged(QualType, Interner.Ref) = .empty,
 cond_dummy_ty: ?Interner.Ref = null,
 bool_invert: bool = false,
 bool_end_label: Ir.Ref = .none,
@@ -56,10 +56,11 @@ compound_assign_dummy: ?Ir.Ref = null,
 
 fn fail(c: *CodeGen, comptime fmt: []const u8, args: anytype) error{ FatalError, OutOfMemory } {
     var sf = std.heap.stackFallback(1024, c.comp.gpa);
-    var buf = std.ArrayList(u8).init(sf.get());
-    defer buf.deinit();
+    const allocator = sf.get();
+    var buf: std.ArrayList(u8) = .empty;
+    defer buf.deinit(allocator);
 
-    try buf.print(fmt, args);
+    try buf.print(allocator, fmt, args);
     try c.comp.diagnostics.add(.{ .text = buf.items, .kind = .@"fatal error", .location = null });
     return error.FatalError;
 }

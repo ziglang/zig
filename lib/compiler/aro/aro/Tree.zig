@@ -42,7 +42,7 @@ pub const TokenWithExpansionLocs = struct {
 
     pub fn addExpansionLocation(tok: *TokenWithExpansionLocs, gpa: std.mem.Allocator, new: []const Source.Location) !void {
         if (new.len == 0 or tok.id == .whitespace or tok.id == .macro_ws or tok.id == .placemarker) return;
-        var list = std.array_list.Managed(Source.Location).init(gpa);
+        var list: std.ArrayList(Source.Location) = .empty;
         defer {
             @memset(list.items.ptr[list.items.len..list.capacity], .{});
             // Add a sentinel to indicate the end of the list since
@@ -65,7 +65,7 @@ pub const TokenWithExpansionLocs = struct {
         const min_len = @max(list.items.len + new.len + 1, 4);
         const wanted_len = std.math.ceilPowerOfTwo(usize, min_len) catch
             return error.OutOfMemory;
-        try list.ensureTotalCapacity(wanted_len);
+        try list.ensureTotalCapacity(gpa, wanted_len);
 
         for (new) |new_loc| {
             if (new_loc.id == .generated) continue;
@@ -119,8 +119,8 @@ tokens: Token.List.Slice,
 
 // Values owned by this Tree
 nodes: std.MultiArrayList(Node.Repr) = .empty,
-extra: std.ArrayListUnmanaged(u32) = .empty,
-root_decls: std.ArrayListUnmanaged(Node.Index) = .empty,
+extra: std.ArrayList(u32) = .empty,
+root_decls: std.ArrayList(Node.Index) = .empty,
 value_map: ValueMap = .empty,
 
 pub const genIr = CodeGen.genIr;

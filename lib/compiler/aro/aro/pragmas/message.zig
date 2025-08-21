@@ -44,7 +44,7 @@ fn preprocessorHandler(_: *Pragma, pp: *Preprocessor, start_idx: TokenIndex) Pra
 
     const diagnostic: Pragma.Diagnostic = .pragma_message;
 
-    var sf = std.heap.stackFallback(1024, pp.gpa);
+    var sf = std.heap.stackFallback(1024, pp.comp.gpa);
     var allocating: std.Io.Writer.Allocating = .init(sf.get());
     defer allocating.deinit();
 

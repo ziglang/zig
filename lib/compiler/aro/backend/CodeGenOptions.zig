@@ -66,6 +66,20 @@ pub const OptimizationLevel = enum {
     pub fn fromString(str: []const u8) ?OptimizationLevel {
         return level_map.get(str);
     }
+
+    pub fn isSizeOptimized(self: OptimizationLevel) bool {
+        return switch (self) {
+            .s, .z => true,
+            .@"0", .@"1", .@"2", .@"3", .fast, .g => false,
+        };
+    }
+
+    pub fn hasAnyOptimizations(self: OptimizationLevel) bool {
+        return switch (self) {
+            .@"0" => false,
+            .@"1", .@"2", .@"3", .s, .fast, .g, .z => true,
+        };
+    }
 };
 
 pub const default: @This() = .{

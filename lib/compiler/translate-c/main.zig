@@ -150,7 +150,7 @@ fn translate(d: *aro.Driver, tc: *aro.Toolchain, args: [][:0]u8) !void {
     // be written to a tmp file then renamed into place, meaning the path will be
     // wrong as soon as the work is done.
     var opt_dep_file = try d.initDepFile(source, &name_buf, true);
-    defer if (opt_dep_file) |*dep_file| dep_file.deinit(pp.gpa);
+    defer if (opt_dep_file) |*dep_file| dep_file.deinit(gpa);
 
     if (opt_dep_file) |*dep_file| pp.dep_file = dep_file;
 

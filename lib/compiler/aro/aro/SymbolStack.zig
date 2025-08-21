@@ -35,14 +35,14 @@ pub const Kind = enum {
     constexpr,
 };
 
-scopes: std.ArrayListUnmanaged(Scope) = .{},
+scopes: std.ArrayList(Scope) = .empty,
 /// allocations from nested scopes are retained after popping; `active_len` is the number
 /// of currently-active items in `scopes`.
 active_len: usize = 0,
 
 const Scope = struct {
-    vars: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
-    tags: std.AutoHashMapUnmanaged(StringId, Symbol) = .{},
+    vars: std.AutoHashMapUnmanaged(StringId, Symbol) = .empty,
+    tags: std.AutoHashMapUnmanaged(StringId, Symbol) = .empty,
 
     fn deinit(self: *Scope, allocator: Allocator) void {
         self.vars.deinit(allocator);
@@ -66,7 +66,7 @@ pub fn deinit(s: *SymbolStack, gpa: Allocator) void {
 
 pub fn pushScope(s: *SymbolStack, p: *Parser) !void {
     if (s.active_len + 1 > s.scopes.items.len) {
-        try s.scopes.append(p.gpa, .{});
+        try s.scopes.append(p.comp.gpa, .{});
         s.active_len = s.scopes.items.len;
     } else {
         s.scopes.items[s.active_len].clearRetainingCapacity();
@@ -195,7 +195,7 @@ pub fn defineTypedef(
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .typedef,
         .name = name,
         .tok = tok,
@@ -245,7 +245,7 @@ pub fn defineSymbol(
         }
     }
 
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = if (constexpr) .constexpr else .def,
         .name = name,
         .tok = tok,
@@ -306,7 +306,7 @@ pub fn declareSymbol(
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .decl,
         .name = name,
         .tok = tok,
@@ -317,7 +317,7 @@ pub fn declareSymbol(
 
     // Declare out of scope symbol for functions declared in functions.
     if (s.active_len > 1 and !p.comp.langopts.standard.atLeast(.c23) and qt.is(p.comp, .func)) {
-        try s.scopes.items[0].vars.put(p.gpa, name, .{
+        try s.scopes.items[0].vars.put(p.comp.gpa, name, .{
             .kind = .decl,
             .name = name,
             .tok = tok,
@@ -352,7 +352,7 @@ pub fn defineParam(
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .def,
         .name = name,
         .tok = tok,
@@ -424,7 +424,7 @@ pub fn defineEnumeration(
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .enumeration,
         .name = name,
         .tok = tok,

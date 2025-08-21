@@ -20,7 +20,7 @@ pragma: Pragma = .{
     .preserveTokens = preserveTokens,
 },
 original_state: Diagnostics.State = .{},
-state_stack: std.ArrayListUnmanaged(Diagnostics.State) = .{},
+state_stack: std.ArrayList(Diagnostics.State) = .empty,
 
 const Directive = enum {
     warning,
@@ -138,7 +138,7 @@ fn preprocessorHandler(pragma: *Pragma, pp: *Preprocessor, start_idx: TokenIndex
                 if (pp.defines.get(str) != null) {
                     try Pragma.err(pp, start_idx + i, .pragma_poison_macro, .{});
                 }
-                try pp.poisoned_identifiers.put(str, {});
+                try pp.poisoned_identifiers.put(pp.comp.gpa, str, {});
             }
             return;
         },

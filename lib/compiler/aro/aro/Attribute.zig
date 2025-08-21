@@ -345,6 +345,7 @@ fn diagnoseField(
 
 pub fn diagnose(attr: Tag, arguments: *Arguments, arg_idx: u32, res: Parser.Result, arg_start: TokenIndex, node: Tree.Node, p: *Parser) !bool {
     switch (attr) {
+        .nonnull => return false,
         inline else => |tag| {
             const decl = @typeInfo(attributes).@"struct".decls[@intFromEnum(tag)];
             const max_arg_count = comptime maxArgCount(tag);
@@ -532,10 +533,7 @@ const attributes = struct {
     pub const @"noinline" = struct {};
     pub const noipa = struct {};
     // TODO: arbitrary number of arguments
-    //    const nonnull = struct {
-    //    //            arg_index: []const u32,
-    //        };
-    //    };
+    pub const nonnull = struct {};
     pub const nonstring = struct {};
     pub const noplt = struct {};
     pub const @"noreturn" = struct {};
@@ -802,8 +800,16 @@ fn ignoredAttrErr(p: *Parser, tok: TokenIndex, attr: Attribute.Tag, context: []c
     try p.errStr(.ignored_attribute, tok, str);
 }
 
-pub const applyParameterAttributes = applyVariableAttributes;
+pub fn applyParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {
+    return applyVariableOrParameterAttributes(p, qt, attr_buf_start, diagnostic, .parameter);
+}
+
 pub fn applyVariableAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {
+    return applyVariableOrParameterAttributes(p, qt, attr_buf_start, diagnostic, .variable);
+}
+
+fn applyVariableOrParameterAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic, context: enum { parameter, variable }) !QualType {
+    const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
@@ -814,27 +820,33 @@ pub fn applyVariableAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, 
         // zig fmt: off
         .alias, .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .weak, .used,
         .noinit, .retain, .persistent, .section, .mode, .asm_label, .nullability, .unaligned,
-         => try p.attr_application_buf.append(p.gpa, attr),
+         => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .common => if (nocommon) {
             try p.err(tok, .ignore_common, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             common = true;
         },
         .nocommon => if (common) {
             try p.err(tok, .ignore_nocommon, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             nocommon = true;
         },
         .vector_size => try attr.applyVectorSize(p, tok, &base_qt),
         .aligned => try attr.applyAligned(p, base_qt, diagnostic),
+        .nonnull => {
+            switch (context) {
+                .parameter => try p.err(tok, .attribute_todo, .{ "nonnull", "parameters" }),
+                .variable => try p.err(tok, .nonnull_not_applicable, .{}),
+            }
+        },
         .nonstring => {
             if (base_qt.get(p.comp, .array)) |array_ty| {
                 if (array_ty.elem.get(p.comp, .int)) |int_ty| switch (int_ty) {
                     .char, .uchar, .schar => {
-                        try p.attr_application_buf.append(p.gpa, attr);
+                        try p.attr_application_buf.append(gpa, attr);
                         continue;
                     },
                     else => {},
@@ -845,12 +857,12 @@ pub fn applyVariableAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, 
         .uninitialized => if (p.func.qt == null) {
             try p.err(tok, .local_variable_attribute, .{"uninitialized"});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
         },
         .cleanup => if (p.func.qt == null) {
             try p.err(tok, .local_variable_attribute, .{"cleanup"});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
         },
         .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
         .alloc_size,
@@ -873,7 +885,7 @@ pub fn applyFieldAttributes(p: *Parser, field_qt: *QualType, attr_buf_start: usi
         // zig fmt: off
         .@"packed", .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned,
         .mode, .warn_unused_result, .nodiscard, .nullability, .unaligned,
-        => try p.attr_application_buf.append(p.gpa, attr),
+        => try p.attr_application_buf.append(p.comp.gpa, attr),
         // zig fmt: on
         .vector_size => try attr.applyVectorSize(p, tok, field_qt),
         .aligned => try attr.applyAligned(p, field_qt.*, null),
@@ -884,6 +896,7 @@ pub fn applyFieldAttributes(p: *Parser, field_qt: *QualType, attr_buf_start: usi
 }
 
 pub fn applyTypeAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diagnostic: ?Parser.Diagnostic) !QualType {
+    const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
@@ -891,13 +904,13 @@ pub fn applyTypeAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diag
     for (attrs, toks) |attr, tok| switch (attr.tag) {
         // zig fmt: off
         .@"packed", .may_alias, .deprecated, .unavailable, .unused, .warn_if_not_aligned, .mode, .nullability, .unaligned,
-         => try p.attr_application_buf.append(p.gpa, attr),
+         => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .transparent_union => try attr.applyTransparentUnion(p, tok, base_qt),
         .vector_size => try attr.applyVectorSize(p, tok, &base_qt),
         .aligned => try attr.applyAligned(p, base_qt, diagnostic),
         .designated_init => if (base_qt.is(p.comp, .@"struct")) {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
         } else {
             try p.err(tok, .designated_init_invalid, .{});
         },
@@ -913,6 +926,7 @@ pub fn applyTypeAttributes(p: *Parser, qt: QualType, attr_buf_start: usize, diag
 }
 
 pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) !QualType {
+    const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
@@ -927,37 +941,37 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .@"const", .warn_unused_result, .section, .returns_nonnull, .returns_twice, .@"error",
         .externally_visible, .retain, .flatten, .gnu_inline, .alias, .asm_label, .nodiscard,
         .reproducible, .unsequenced, .nothrow, .nullability, .unaligned,
-         => try p.attr_application_buf.append(p.gpa, attr),
+         => try p.attr_application_buf.append(gpa, attr),
         // zig fmt: on
         .hot => if (cold) {
             try p.err(tok, .ignore_hot, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             hot = true;
         },
         .cold => if (hot) {
             try p.err(tok, .ignore_cold, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             cold = true;
         },
         .always_inline => if (@"noinline") {
             try p.err(tok, .ignore_always_inline, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             always_inline = true;
         },
         .@"noinline" => if (always_inline) {
             try p.err(tok, .ignore_noinline, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             @"noinline" = true;
         },
         .aligned => try attr.applyAligned(p, base_qt, null),
         .format => try attr.applyFormat(p, base_qt),
         .calling_convention => try applyCallingConvention(attr, p, tok, base_qt),
         .fastcall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .fastcall } },
                 .syntax = attr.syntax,
@@ -966,7 +980,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"fastcall"});
         },
         .stdcall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .stdcall } },
                 .syntax = attr.syntax,
@@ -975,7 +989,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"stdcall"});
         },
         .thiscall => if (p.comp.target.cpu.arch == .x86) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .thiscall } },
                 .syntax = attr.syntax,
@@ -984,7 +998,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"thiscall"});
         },
         .vectorcall => if (p.comp.target.cpu.arch == .x86 or p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .vectorcall } },
                 .syntax = attr.syntax,
@@ -994,7 +1008,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         },
         .cdecl => {},
         .pcs => if (p.comp.target.cpu.arch.isArm()) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = switch (attr.args.pcs.kind) {
                     .aapcs => .arm_aapcs,
@@ -1006,7 +1020,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"pcs"});
         },
         .riscv_vector_cc => if (p.comp.target.cpu.arch.isRISCV()) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .riscv_vector } },
                 .syntax = attr.syntax,
@@ -1015,7 +1029,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"pcs"});
         },
         .aarch64_sve_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .aarch64_sve_pcs } },
                 .syntax = attr.syntax,
@@ -1024,7 +1038,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"pcs"});
         },
         .aarch64_vector_pcs => if (p.comp.target.cpu.arch.isAARCH64()) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .aarch64_vector_pcs } },
                 .syntax = attr.syntax,
@@ -1033,14 +1047,14 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
             try p.err(tok, .callconv_not_supported, .{"pcs"});
         },
         .sysv_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag == .windows) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .x86_64_sysv } },
                 .syntax = attr.syntax,
             });
         },
         .ms_abi => if (p.comp.target.cpu.arch == .x86_64 and p.comp.target.os.tag != .windows) {
-            try p.attr_application_buf.append(p.gpa, .{
+            try p.attr_application_buf.append(gpa, .{
                 .tag = .calling_convention,
                 .args = .{ .calling_convention = .{ .cc = .x86_64_win } },
                 .syntax = attr.syntax,
@@ -1048,7 +1062,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         },
         .malloc => {
             if (base_qt.get(p.comp, .func).?.return_type.isPointer(p.comp)) {
-                try p.attr_application_buf.append(p.gpa, attr);
+                try p.attr_application_buf.append(gpa, attr);
             } else {
                 try ignoredAttrErr(p, tok, attr.tag, "functions that do not return pointers");
             }
@@ -1065,7 +1079,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
                     if (!arg_sk.isInt() or !arg_sk.isReal()) {
                         try p.err(tok, .alloc_align_required_int_param, .{});
                     } else {
-                        try p.attr_application_buf.append(p.gpa, attr);
+                        try p.attr_application_buf.append(gpa, attr);
                     }
                 }
             } else {
@@ -1098,7 +1112,7 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
         .no_stack_protector,
         .noclone,
         .noipa,
-        // .nonnull,
+        .nonnull,
         .noplt,
         // .optimize,
         .patchable_function_entry,
@@ -1118,23 +1132,24 @@ pub fn applyFunctionAttributes(p: *Parser, qt: QualType, attr_buf_start: usize) 
 }
 
 pub fn applyLabelAttributes(p: *Parser, attr_buf_start: usize) !QualType {
+    const gpa = p.comp.gpa;
     const attrs = p.attr_buf.items(.attr)[attr_buf_start..];
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
     var hot = false;
     var cold = false;
     for (attrs, toks) |attr, tok| switch (attr.tag) {
-        .unused => try p.attr_application_buf.append(p.gpa, attr),
+        .unused => try p.attr_application_buf.append(gpa, attr),
         .hot => if (cold) {
             try p.err(tok, .ignore_hot, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             hot = true;
         },
         .cold => if (hot) {
             try p.err(tok, .ignore_cold, .{});
         } else {
-            try p.attr_application_buf.append(p.gpa, attr);
+            try p.attr_application_buf.append(gpa, attr);
             cold = true;
         },
         else => try ignoredAttrErr(p, tok, attr.tag, "labels"),
@@ -1151,7 +1166,7 @@ pub fn applyStatementAttributes(p: *Parser, expr_start: TokenIndex, attr_buf_sta
             for (p.tok_ids[p.tok_i..]) |tok_id| {
                 switch (tok_id) {
                     .keyword_case, .keyword_default, .eof => {
-                        try p.attr_application_buf.append(p.gpa, attr);
+                        try p.attr_application_buf.append(p.comp.gpa, attr);
                         break;
                     },
                     .r_brace => {},
@@ -1172,7 +1187,7 @@ pub fn applyEnumeratorAttributes(p: *Parser, qt: QualType, attr_buf_start: usize
     const toks = p.attr_buf.items(.tok)[attr_buf_start..];
     p.attr_application_buf.items.len = 0;
     for (attrs, toks) |attr, tok| switch (attr.tag) {
-        .deprecated, .unavailable => try p.attr_application_buf.append(p.gpa, attr),
+        .deprecated, .unavailable => try p.attr_application_buf.append(p.comp.gpa, attr),
         else => try ignoredAttrErr(p, tok, attr.tag, "enums"),
     };
     return applySelected(qt, p);
@@ -1193,7 +1208,7 @@ fn applyAligned(attr: Attribute, p: *Parser, qt: QualType, diagnostic: ?Parser.D
             try p.err(align_tok, .minimum_alignment, .{default_align});
         }
     }
-    try p.attr_application_buf.append(p.gpa, attr);
+    try p.attr_application_buf.append(p.comp.gpa, attr);
 }
 
 fn applyTransparentUnion(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualType) !void {
@@ -1214,7 +1229,7 @@ fn applyTransparentUnion(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualT
         return p.err(union_ty.fields[0].name_tok, .transparent_union_size_note, .{first_field_size});
     }
 
-    try p.attr_application_buf.append(p.gpa, attr);
+    try p.attr_application_buf.append(p.comp.gpa, attr);
 }
 
 fn applyVectorSize(attr: Attribute, p: *Parser, tok: TokenIndex, qt: *QualType) !void {
@@ -1245,7 +1260,7 @@ fn applyVectorSize(attr: Attribute, p: *Parser, tok: TokenIndex, qt: *QualType) 
         return p.err(tok, .vec_size_not_multiple, .{});
     }
 
-    qt.* = try p.comp.type_store.put(p.gpa, .{ .vector = .{
+    qt.* = try p.comp.type_store.put(p.comp.gpa, .{ .vector = .{
         .elem = qt.*,
         .len = @intCast(vec_bytes / elem_size),
     } });
@@ -1254,7 +1269,7 @@ fn applyVectorSize(attr: Attribute, p: *Parser, tok: TokenIndex, qt: *QualType) 
 fn applyFormat(attr: Attribute, p: *Parser, qt: QualType) !void {
     // TODO validate
     _ = qt;
-    try p.attr_application_buf.append(p.gpa, attr);
+    try p.attr_application_buf.append(p.comp.gpa, attr);
 }
 
 fn applyCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: QualType) !void {
@@ -1264,11 +1279,11 @@ fn applyCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: Qual
     switch (attr.args.calling_convention.cc) {
         .c => {},
         .stdcall, .thiscall, .fastcall, .regcall => switch (p.comp.target.cpu.arch) {
-            .x86 => try p.attr_application_buf.append(p.gpa, attr),
+            .x86 => try p.attr_application_buf.append(p.comp.gpa, attr),
             else => try p.err(tok, .callconv_not_supported, .{p.tok_ids[tok].symbol()}),
         },
         .vectorcall => switch (p.comp.target.cpu.arch) {
-            .x86, .aarch64, .aarch64_be => try p.attr_application_buf.append(p.gpa, attr),
+            .x86, .aarch64, .aarch64_be => try p.attr_application_buf.append(p.comp.gpa, attr),
             else => try p.err(tok, .callconv_not_supported, .{p.tok_ids[tok].symbol()}),
         },
         .riscv_vector,
@@ -1285,7 +1300,7 @@ fn applyCallingConvention(attr: Attribute, p: *Parser, tok: TokenIndex, qt: Qual
 fn applySelected(qt: QualType, p: *Parser) !QualType {
     if (p.attr_application_buf.items.len == 0) return qt;
     if (qt.isInvalid()) return qt;
-    return (try p.comp.type_store.put(p.gpa, .{ .attributed = .{
+    return (try p.comp.type_store.put(p.comp.gpa, .{ .attributed = .{
         .base = qt,
         .attributes = p.attr_application_buf.items,
     } })).withQualifiers(qt);
