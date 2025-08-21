@@ -1554,7 +1554,7 @@ pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     // Prefer getpwnam when linking against libc, as it looks not only in /etc/passwd,
     // but also in other sources like NIS, LDAP, Directory Services on MacOS, etc.
     // See https://man7.org/linux/man-pages/man3/getpwnam.3.html
-    if (builtin.link_libc) {
+    if (builtin.link_libc and std.c.passwd != void) {
         // Make \0 terminated string.
         // 256 is a safe buffer size to cover all modern systems.
         var name_buf: [256]u8 = undefined;
