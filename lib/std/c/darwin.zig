@@ -19,12 +19,6 @@ comptime {
 
 pub const mach_port_t = c_uint;
 
-pub const THREAD_STATE_NONE = switch (native_arch) {
-    .aarch64 => 5,
-    .x86_64 => 13,
-    else => @compileError("unsupported arch"),
-};
-
 pub const EXC = enum(exception_type_t) {
     NULL = 0,
     /// Could not access memory
@@ -53,6 +47,8 @@ pub const EXC = enum(exception_type_t) {
     GUARD = 12,
     /// Abnormal process exited to corpse state
     CORPSE_NOTIFY = 13,
+
+    _,
 
     pub const TYPES_COUNT = @typeInfo(EXC).@"enum".fields.len;
     pub const SOFT_SIGNAL = 0x10003;
@@ -110,56 +106,244 @@ pub const EXCEPTION = enum(u32) {
     _,
 };
 
-/// Prefer sending a catch_exception_raice_backtrace message, if applicable.
-pub const MACH_EXCEPTION_BACKTRACE_PREFERRED = 0x20000000;
-/// include additional exception specific errors, not used yet.
-pub const MACH_EXCEPTION_ERRORS = 0x40000000;
-/// Send 64-bit code and subcode in the exception header */
-pub const MACH_EXCEPTION_CODES = 0x80000000;
+pub const KEVENT = struct {
+    /// Used as the `flags` arg for `kevent64`.
+    pub const FLAG = packed struct(c_uint) {
+        /// immediate timeout
+        IMMEDIATE: bool = false,
+        /// output events only include change
+        ERROR_EVENTS: bool = false,
+        _: u30 = 0,
 
-pub const MACH_EXCEPTION_MASK = MACH_EXCEPTION_CODES |
-    MACH_EXCEPTION_ERRORS |
-    MACH_EXCEPTION_BACKTRACE_PREFERRED;
+        /// no flag value
+        pub const NONE: KEVENT.FLAG = .{
+            .IMMEDIATE = false,
+            .ERROR_EVENTS = false,
+        };
+    };
+};
 
-pub const TASK_NULL: task_t = 0;
-pub const THREAD_NULL: thread_t = 0;
-pub const MACH_PORT_NULL: mach_port_t = 0;
-pub const MACH_MSG_TIMEOUT_NONE: mach_msg_timeout_t = 0;
+pub const MACH = struct {
+    pub const EXCEPTION = packed struct(exception_mask_t) {
+        _: u29 = 0,
+        /// Prefer sending a catch_exception_raice_backtrace message, if applicable.
+        BACKTRACE_PREFERRED: bool = false,
+        /// include additional exception specific errors, not used yet.
+        ERRORS: bool = false,
+        /// Send 64-bit code and subcode in the exception header */
+        CODES: bool = false,
 
-pub const MACH_MSG_OPTION_NONE = 0x00000000;
+        pub const MASK: exception_mask_t = @bitCast(MACH.EXCEPTION{
+            .BACKTRACE_PREFERRED = true,
+            .ERRORS = true,
+            .CODES = true,
+        });
+    };
 
-pub const MACH_SEND_MSG = 0x00000001;
-pub const MACH_RCV_MSG = 0x00000002;
+    pub const MSG = packed struct(kern_return_t) {
+        _0: u10 = 0,
+        /// Kernel resource shortage handling an IPC capability.
+        VM_KERNEL: bool = false,
+        /// Kernel resource shortage handling out-of-line memory.
+        IPC_KERNEL: bool = false,
+        /// No room in VM address space for out-of-line memory.
+        VM_SPACE: bool = false,
+        /// No room in IPC name space for another capability name.
+        IPC_SPACE: bool = false,
+        _14: u18 = 0,
 
-pub const MACH_RCV_LARGE = 0x00000004;
-pub const MACH_RCV_LARGE_IDENTITY = 0x00000008;
+        pub const MASK: kern_return_t = @bitCast(MACH.MSG{
+            .VM_KERNEL = true,
+            .IPC_KERNEL = true,
+            .VM_SPACE = true,
+            .IPC_SPACE = true,
+        });
 
-pub const MACH_SEND_TIMEOUT = 0x00000010;
-pub const MACH_SEND_OVERRIDE = 0x00000020;
-pub const MACH_SEND_INTERRUPT = 0x00000040;
-pub const MACH_SEND_NOTIFY = 0x00000080;
-pub const MACH_SEND_ALWAYS = 0x00010000;
-pub const MACH_SEND_FILTER_NONFATAL = 0x00010000;
-pub const MACH_SEND_TRAILER = 0x00020000;
-pub const MACH_SEND_NOIMPORTANCE = 0x00040000;
-pub const MACH_SEND_NODENAP = MACH_SEND_NOIMPORTANCE;
-pub const MACH_SEND_IMPORTANCE = 0x00080000;
-pub const MACH_SEND_SYNC_OVERRIDE = 0x00100000;
-pub const MACH_SEND_PROPAGATE_QOS = 0x00200000;
-pub const MACH_SEND_SYNC_USE_THRPRI = MACH_SEND_PROPAGATE_QOS;
-pub const MACH_SEND_KERNEL = 0x00400000;
-pub const MACH_SEND_SYNC_BOOTSTRAP_CHECKIN = 0x00800000;
+        pub const TIMEOUT_NONE: mach_msg_timeout_t = .NONE;
+        pub const OPTION_NONE: mach_msg_option_t = .NONE;
+        pub const STRICT_REPLY = @compileError("use MACH.RCV.STRICT_REPLY and/or MACH.SEND.STRICT_REPLY");
 
-pub const MACH_RCV_TIMEOUT = 0x00000100;
-pub const MACH_RCV_NOTIFY = 0x00000000;
-pub const MACH_RCV_INTERRUPT = 0x00000400;
-pub const MACH_RCV_VOUCHER = 0x00000800;
-pub const MACH_RCV_OVERWRITE = 0x00000000;
-pub const MACH_RCV_GUARDED_DESC = 0x00001000;
-pub const MACH_RCV_SYNC_WAIT = 0x00004000;
-pub const MACH_RCV_SYNC_PEEK = 0x00008000;
+        pub const TYPE = mach_msg_type_name_t;
+    };
 
-pub const MACH_MSG_STRICT_REPLY = 0x00000200;
+    pub const PORT = struct {
+        pub const NULL: mach_port_t = 0;
+        pub const RIGHT = mach_port_right_t;
+    };
+
+    pub const RCV = packed struct(integer_t) {
+        _0: u1 = 0,
+        /// Other flags are only valid if this one is set.
+        MSG: bool = true,
+        LARGE: bool = false,
+        LARGE_IDENTITY: bool = false,
+        _4: u4 = 0,
+        TIMEOUT: bool = false,
+        /// Shared between `RCV` and `SEND`. Used to be `MACH_RCV_NOTIFY`.
+        STRICT_REPLY: bool = false,
+        INTERRUPT: bool = false,
+        VOUCHER: bool = false,
+        GUARDED_DESC: bool = false,
+        _13: u1 = 0,
+        SYNC_WAIT: bool = false,
+        SYNC_PEEK: bool = false,
+        _16: u16 = 0,
+    };
+
+    pub const SEND = packed struct(integer_t) {
+        /// Other flags are only valid if this one is set.
+        MSG: bool = true,
+        _1: u3 = 0,
+        TIMEOUT: bool = false,
+        OVERRIDE: bool = false,
+        INTERRUPT: bool = false,
+        NOTIFY: bool = false,
+        _8: u1 = 0,
+        /// Shared between `RCV` and `SEND`.
+        STRICT_REPLY: bool = false,
+        _10: u6 = 0,
+        /// User-only. If you're the kernel, this bit is `MACH_SEND_ALWAYS`.
+        FILTER_NONFATAL: bool = false,
+        TRAILER: bool = false,
+        /// Synonymous to `MACH_SEND_NODENAP`.
+        NOIMPORTANCE: bool = false,
+        /// Kernel-only.
+        IMPORTANCE: bool = false,
+        SYNC_OVERRIDE: bool = false,
+        /// Synonymous to `MACH_SEND_SYNC_USE_THRPRI`.
+        PROPAGATE_QOS: bool = false,
+        /// Kernel-only.
+        KERNEL: bool = false,
+        SYNC_BOOTSTRAP_CHECKIN: bool = false,
+        _24: u8 = 0,
+    };
+
+    pub const TASK = struct {
+        pub const BASIC = struct {
+            pub const INFO = 20;
+            pub const INFO_COUNT: mach_msg_type_number_t = @sizeOf(mach_task_basic_info) / @sizeOf(natural_t);
+        };
+    };
+};
+
+pub const MACH_MSG_TYPE = @compileError("use MACH.MSG.TYPE");
+pub const MACH_PORT_RIGHT = @compileError("use MACH.PORT.RIGHT");
+pub const MACH_TASK_BASIC_INFO = @compileError("use MACH.TASK.BASIC.INFO");
+pub const MACH_TASK_BASIC_INFO_COUNT = @compileError("use MACH.TASK.BASIC.INFO_COUNT");
+
+pub const MATTR = struct {
+    /// Cachability
+    pub const CACHE: vm_machine_attribute_t = 1;
+    /// Migrability
+    pub const MIGRATE: vm_machine_attribute_t = 2;
+    /// Replicability
+    pub const REPLICATE: vm_machine_attribute_t = 4;
+    /// (Generic) turn attribute off
+    pub const VAL_OFF: vm_machine_attribute_t = 0;
+    /// (Generic) turn attribute on
+    pub const VAL_ON: vm_machine_attribute_t = 1;
+    /// (Generic) return current value
+    pub const VAL_GET: vm_machine_attribute_t = 2;
+    /// Flush from all caches
+    pub const VAL_CACHE_FLUSH: vm_machine_attribute_t = 6;
+    /// Flush from data caches
+    pub const VAL_DCACHE_FLUSH: vm_machine_attribute_t = 7;
+    /// Flush from instruction caches
+    pub const VAL_ICACHE_FLUSH: vm_machine_attribute_t = 8;
+    /// Sync I+D caches
+    pub const VAL_CACHE_SYNC: vm_machine_attribute_t = 9;
+    /// Get page info (stats)
+    pub const VAL_GET_INFO: vm_machine_attribute_t = 10;
+};
+
+pub const OS = struct {
+    pub const LOG_CATEGORY = struct {
+        pub const POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
+        pub const DYNAMIC_TRACING: *const u8 = "DynamicTracing";
+        pub const DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+    };
+};
+
+pub const TASK = struct {
+    pub const NULL: task_t = 0;
+
+    pub const VM = struct {
+        pub const INFO = 22;
+        pub const INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
+    };
+};
+
+pub const TASK_NULL = @compileError("use TASK.NULL");
+pub const TASK_VM_INFO = @compileError("use TASK.VM.INFO");
+pub const TASK_VM_INFO_COUNT = @compileError("use TASK.VM.INFO_COUNT");
+
+pub const THREAD = struct {
+    pub const NULL: thread_t = 0;
+
+    pub const BASIC = struct {
+        pub const INFO = 3;
+        pub const INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
+    };
+
+    pub const IDENTIFIER = struct {
+        pub const INFO = 4;
+        pub const INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_identifier_info) / @sizeOf(natural_t);
+    };
+
+    pub const STATE = struct {
+        pub const NONE = switch (native_arch) {
+            .aarch64 => 5,
+            .x86_64 => 13,
+            else => @compileError("unsupported arch"),
+        };
+    };
+};
+
+pub const THREAD_NULL = @compileError("use THREAD.NULL");
+pub const THREAD_BASIC_INFO = @compileError("use THREAD.BASIC.INFO");
+pub const THREAD_BASIC_INFO_COUNT = @compileError("use THREAD.BASIC.INFO_COUNT");
+pub const THREAD_IDENTIFIER_INFO_COUNT = @compileError("use THREAD.IDENTIFIER.INFO_COUNT");
+pub const THREAD_STATE_NONE = @compileError("use THREAD.STATE.NONE");
+
+pub const VM = struct {
+    pub const INHERIT = struct {
+        pub const SHARE: vm_inherit_t = 0;
+        pub const COPY: vm_inherit_t = 1;
+        pub const NONE: vm_inherit_t = 2;
+        pub const DONATE_COPY: vm_inherit_t = 3;
+        pub const DEFAULT = VM.INHERIT.COPY;
+    };
+
+    pub const BEHAVIOR = struct {
+        pub const DEFAULT: vm_behavior_t = 0;
+        pub const RANDOM: vm_behavior_t = 1;
+        pub const SEQUENTIAL: vm_behavior_t = 2;
+        pub const RSEQNTL: vm_behavior_t = 3;
+        pub const WILLNEED: vm_behavior_t = 4;
+        pub const DONTNEED: vm_behavior_t = 5;
+        pub const FREE: vm_behavior_t = 6;
+        pub const ZERO_WIRED_PAGES: vm_behavior_t = 7;
+        pub const REUSABLE: vm_behavior_t = 8;
+        pub const REUSE: vm_behavior_t = 9;
+        pub const CAN_REUSE: vm_behavior_t = 10;
+        pub const PAGEOUT: vm_behavior_t = 11;
+    };
+
+    pub const REGION = struct {
+        pub const BASIC_INFO_64 = 9;
+        pub const EXTENDED_INFO = 13;
+        pub const TOP_INFO = 12;
+        pub const SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
+        pub const SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
+        pub const BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
+        pub const EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
+        pub const TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
+    };
+
+    pub fn MAKE_TAG(tag: u8) u32 {
+        return @as(u32, tag) << 24;
+    }
+};
 
 pub const exception_type_t = c_int;
 
@@ -293,7 +477,7 @@ pub extern "c" fn kevent64(
     nchanges: c_int,
     eventlist: [*]kevent64_s,
     nevents: c_int,
-    flags: c_uint,
+    flags: KEVENT.FLAG,
     timeout: ?*const timespec,
 ) c_int;
 
@@ -321,11 +505,7 @@ pub const mach_vm_size_t = u64;
 pub const mach_msg_bits_t = c_uint;
 pub const mach_msg_id_t = integer_t;
 pub const mach_msg_type_number_t = natural_t;
-pub const mach_msg_type_name_t = c_uint;
-pub const mach_msg_option_t = integer_t;
 pub const mach_msg_size_t = natural_t;
-pub const mach_msg_timeout_t = natural_t;
-pub const mach_port_right_t = natural_t;
 pub const task_t = mach_port_t;
 pub const thread_port_t = task_t;
 pub const thread_t = thread_port_t;
@@ -342,19 +522,23 @@ pub const thread_state_flavor_t = c_int;
 pub const ipc_space_t = mach_port_t;
 pub const ipc_space_port_t = ipc_space_t;
 
-pub const MACH_PORT_RIGHT = enum(mach_port_right_t) {
-    SEND = 0,
-    RECEIVE = 1,
-    SEND_ONCE = 2,
-    PORT_SET = 3,
-    DEAD_NAME = 4,
-    /// Obsolete right
-    LABELH = 5,
-    /// Right not implemented
-    NUMBER = 6,
+pub const mach_msg_option_t = packed union {
+    RCV: MACH.RCV,
+    SEND: MACH.SEND,
+
+    pub const NONE: mach_msg_option_t = @bitCast(@as(integer_t, 0));
+
+    pub fn sendAndRcv(send: MACH.SEND, rcv: MACH.RCV) mach_msg_option_t {
+        return @bitCast(@as(integer_t, @bitCast(send)) | @as(integer_t, @bitCast(rcv)));
+    }
 };
 
-pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
+pub const mach_msg_timeout_t = enum(natural_t) {
+    NONE = 0,
+    _,
+};
+
+pub const mach_msg_type_name_t = enum(c_uint) {
     /// Must hold receive right
     MOVE_RECEIVE = 16,
     /// Must hold send right(s)
@@ -375,6 +559,22 @@ pub const MACH_MSG_TYPE = enum(mach_msg_type_name_t) {
     DISPOSE_SEND = 25,
     /// Must hold sendonce right
     DISPOSE_SEND_ONCE = 26,
+
+    _,
+};
+
+pub const mach_port_right_t = enum(natural_t) {
+    SEND = 0,
+    RECEIVE = 1,
+    SEND_ONCE = 2,
+    PORT_SET = 3,
+    DEAD_NAME = 4,
+    /// Obsolete right
+    LABELH = 5,
+    /// Right not implemented
+    NUMBER = 6,
+
+    _,
 };
 
 extern "c" var mach_task_self_: mach_port_t;
@@ -390,7 +590,7 @@ pub extern "c" fn mach_msg(
     rcv_name: mach_port_name_t,
     timeout: mach_msg_timeout_t,
     notify: mach_port_name_t,
-) kern_return_t;
+) mach_msg_return_t;
 
 pub const mach_msg_header_t = extern struct {
     msgh_bits: mach_msg_bits_t,
@@ -461,46 +661,6 @@ pub const memory_object_offset_t = u64;
 pub const vm_behavior_t = i32;
 pub const vm32_object_id_t = u32;
 pub const vm_object_id_t = u64;
-
-pub const VM = struct {
-    pub const INHERIT = struct {
-        pub const SHARE: vm_inherit_t = 0;
-        pub const COPY: vm_inherit_t = 1;
-        pub const NONE: vm_inherit_t = 2;
-        pub const DONATE_COPY: vm_inherit_t = 3;
-        pub const DEFAULT = COPY;
-    };
-
-    pub const BEHAVIOR = struct {
-        pub const DEFAULT: vm_behavior_t = 0;
-        pub const RANDOM: vm_behavior_t = 1;
-        pub const SEQUENTIAL: vm_behavior_t = 2;
-        pub const RSEQNTL: vm_behavior_t = 3;
-        pub const WILLNEED: vm_behavior_t = 4;
-        pub const DONTNEED: vm_behavior_t = 5;
-        pub const FREE: vm_behavior_t = 6;
-        pub const ZERO_WIRED_PAGES: vm_behavior_t = 7;
-        pub const REUSABLE: vm_behavior_t = 8;
-        pub const REUSE: vm_behavior_t = 9;
-        pub const CAN_REUSE: vm_behavior_t = 10;
-        pub const PAGEOUT: vm_behavior_t = 11;
-    };
-
-    pub const REGION = struct {
-        pub const BASIC_INFO_64 = 9;
-        pub const EXTENDED_INFO = 13;
-        pub const TOP_INFO = 12;
-        pub const SUBMAP_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_info_64) / @sizeOf(natural_t);
-        pub const SUBMAP_SHORT_INFO_COUNT_64: mach_msg_type_number_t = @sizeOf(vm_region_submap_short_info_64) / @sizeOf(natural_t);
-        pub const BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_basic_info_64) / @sizeOf(c_int);
-        pub const EXTENDED_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_extended_info) / @sizeOf(natural_t);
-        pub const TOP_INFO_COUNT: mach_msg_type_number_t = @sizeOf(vm_region_top_info) / @sizeOf(natural_t);
-    };
-
-    pub fn MAKE_TAG(tag: u8) u32 {
-        return @as(u32, tag) << 24;
-    }
-};
 
 pub const vm_region_basic_info_64 = extern struct {
     protection: vm_prot_t,
@@ -630,12 +790,6 @@ pub extern "c" fn thread_info(
 ) kern_return_t;
 pub extern "c" fn thread_resume(thread: thread_act_t) kern_return_t;
 
-pub const THREAD_BASIC_INFO = 3;
-pub const THREAD_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_basic_info) / @sizeOf(natural_t);
-
-pub const THREAD_IDENTIFIER_INFO = 4;
-pub const THREAD_IDENTIFIER_INFO_COUNT: mach_msg_type_number_t = @sizeOf(thread_identifier_info) / @sizeOf(natural_t);
-
 pub const thread_flavor_t = natural_t;
 pub const thread_info_t = *integer_t;
 pub const time_value_t = time_value;
@@ -677,34 +831,6 @@ pub const thread_identifier_info = extern struct {
     /// libdispatch queue address
     dispatch_qaddr: u64,
 };
-
-pub const MATTR = struct {
-    /// Cachability
-    pub const CACHE = 1;
-    /// Migrability
-    pub const MIGRATE = 2;
-    /// Replicability
-    pub const REPLICATE = 4;
-    /// (Generic) turn attribute off
-    pub const VAL_OFF = 0;
-    /// (Generic) turn attribute on
-    pub const VAL_ON = 1;
-    /// (Generic) return current value
-    pub const VAL_GET = 2;
-    /// Flush from all caches
-    pub const VAL_CACHE_FLUSH = 6;
-    /// Flush from data caches
-    pub const VAL_DCACHE_FLUSH = 7;
-    /// Flush from instruction caches
-    pub const VAL_ICACHE_FLUSH = 8;
-    /// Sync I+D caches
-    pub const VAL_CACHE_SYNC = 9;
-    /// Get page info (stats)
-    pub const VAL_GET_INFO = 10;
-};
-
-pub const TASK_VM_INFO = 22;
-pub const TASK_VM_INFO_COUNT: mach_msg_type_number_t = @sizeOf(task_vm_info_data_t) / @sizeOf(natural_t);
 
 pub const task_vm_info = extern struct {
     // virtual memory size (bytes)
@@ -791,8 +917,8 @@ pub extern "c" fn mach_port_deallocate(task: ipc_space_t, name: mach_port_name_t
 pub extern "c" fn mach_port_insert_right(
     task: ipc_space_t,
     name: mach_port_name_t,
-    poly: mach_port_t,
-    poly_poly: mach_msg_type_name_t,
+    right: mach_port_t,
+    right_type: mach_msg_type_name_t,
 ) kern_return_t;
 
 pub extern "c" fn task_info(
@@ -816,9 +942,6 @@ pub const mach_task_basic_info = extern struct {
     /// Suspend count for task
     suspend_count: mach_vm_size_t,
 };
-
-pub const MACH_TASK_BASIC_INFO = 20;
-pub const MACH_TASK_BASIC_INFO_COUNT: mach_msg_type_number_t = @sizeOf(mach_task_basic_info) / @sizeOf(natural_t);
 
 pub extern "c" fn _host_page_size(task: mach_port_t, size: *vm_size_t) kern_return_t;
 pub extern "c" fn vm_deallocate(target_task: vm_map_t, address: vm_address_t, size: vm_size_t) kern_return_t;
@@ -847,17 +970,19 @@ pub const NSIG = 32;
 
 pub const qos_class_t = enum(c_uint) {
     /// highest priority QOS class for critical tasks
-    QOS_CLASS_USER_INTERACTIVE = 0x21,
+    USER_INTERACTIVE = 0x21,
     /// slightly more moderate priority QOS class
-    QOS_CLASS_USER_INITIATED = 0x19,
+    USER_INITIATED = 0x19,
     /// default QOS class when none is set
-    QOS_CLASS_DEFAULT = 0x15,
+    DEFAULT = 0x15,
     /// more energy efficient QOS class than default
-    QOS_CLASS_UTILITY = 0x11,
+    UTILITY = 0x11,
     /// QOS class more appropriate for background tasks
-    QOS_CLASS_BACKGROUND = 0x09,
+    BACKGROUND = 0x09,
     /// QOS class as a return value
-    QOS_CLASS_UNSPECIFIED = 0x00,
+    UNSPECIFIED = 0x00,
+
+    _,
 };
 
 // Grand Central Dispatch is exposed by libSystem.
@@ -868,13 +993,17 @@ pub extern "c" fn dispatch_semaphore_create(value: isize) ?dispatch_semaphore_t;
 pub extern "c" fn dispatch_semaphore_wait(dsema: dispatch_semaphore_t, timeout: dispatch_time_t) isize;
 pub extern "c" fn dispatch_semaphore_signal(dsema: dispatch_semaphore_t) isize;
 
-pub const dispatch_time_t = u64;
-pub const DISPATCH_TIME_NOW = @as(dispatch_time_t, 0);
-pub const DISPATCH_TIME_FOREVER = ~@as(dispatch_time_t, 0);
+pub const DISPATCH_TIME_NOW = @compileError("use dispatch_time_t.NOW");
+pub const DISPATCH_TIME_FOREVER = @compileError("use dispatch_time_t.FOREVER");
+pub const dispatch_time_t = enum(u64) {
+    NOW = 0,
+    FOREVER = ~0,
+    _,
+};
 pub extern "c" fn dispatch_time(when: dispatch_time_t, delta: i64) dispatch_time_t;
 
-const dispatch_once_t = usize;
-const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
+pub const dispatch_once_t = usize;
+pub const dispatch_function_t = fn (?*anyopaque) callconv(.c) void;
 pub extern fn dispatch_once_f(
     predicate: *dispatch_once_t,
     context: ?*anyopaque,
@@ -905,6 +1034,7 @@ pub const UL = packed struct(u32) {
         UNFAIR_LOCK64_SHARED = 4,
         COMPARE_AND_WAIT64 = 5,
         COMPARE_AND_WAIT64_SHARED = 6,
+        _,
     };
 };
 
@@ -923,29 +1053,28 @@ pub extern "c" fn os_unfair_lock_trylock(o: os_unfair_lock_t) bool;
 pub extern "c" fn os_unfair_lock_assert_owner(o: os_unfair_lock_t) void;
 pub extern "c" fn os_unfair_lock_assert_not_owner(o: os_unfair_lock_t) void;
 
-pub const os_signpost_id_t = u64;
-
-pub const OS_SIGNPOST_ID_NULL: os_signpost_id_t = 0;
-pub const OS_SIGNPOST_ID_INVALID: os_signpost_id_t = !0;
-pub const OS_SIGNPOST_ID_EXCLUSIVE: os_signpost_id_t = 0xeeeeb0b5b2b2eeee;
+pub const os_signpost_id_t = enum(u64) {
+    NULL = 0,
+    INVALID = !0,
+    EXCLUSIVE = 0xeeeeb0b5b2b2eeee,
+    _,
+};
 
 pub const os_log_t = *opaque {};
 pub const os_log_type_t = enum(u8) {
     /// default messages always captures
-    OS_LOG_TYPE_DEFAULT = 0x00,
+    DEFAULT = 0x00,
     /// messages with additional infos
-    OS_LOG_TYPE_INFO = 0x01,
+    INFO = 0x01,
     /// debug messages
-    OS_LOG_TYPE_DEBUG = 0x02,
+    DEBUG = 0x02,
     /// error messages
-    OS_LOG_TYPE_ERROR = 0x10,
+    ERROR = 0x10,
     /// unexpected conditions messages
-    OS_LOG_TYPE_FAULT = 0x11,
-};
+    FAULT = 0x11,
 
-pub const OS_LOG_CATEGORY_POINTS_OF_INTEREST: *const u8 = "PointsOfInterest";
-pub const OS_LOG_CATEGORY_DYNAMIC_TRACING: *const u8 = "DynamicTracing";
-pub const OS_LOG_CATEGORY_DYNAMIC_STACK_TRACING: *const u8 = "DynamicStackTracing";
+    _,
+};
 
 pub extern "c" fn os_log_create(subsystem: [*]const u8, category: [*]const u8) os_log_t;
 pub extern "c" fn os_log_type_enabled(log: os_log_t, tpe: os_log_type_t) bool;
@@ -1012,35 +1141,11 @@ pub const vm_machine_attribute_val_t = isize;
 
 pub const CALENDAR_CLOCK = 1;
 
-/// no flag value
-pub const KEVENT_FLAG_NONE = 0x000;
-/// immediate timeout
-pub const KEVENT_FLAG_IMMEDIATE = 0x001;
-/// output events only include change
-pub const KEVENT_FLAG_ERROR_EVENTS = 0x002;
-
 pub const SYSPROTO_EVENT = 1;
 pub const SYSPROTO_CONTROL = 2;
 
-pub const mach_msg_return_t = kern_return_t;
-
-pub fn getMachMsgError(err: mach_msg_return_t) MachMsgE {
-    return @as(MachMsgE, @enumFromInt(@as(u32, @truncate(@as(usize, @intCast(err))))));
-}
-
-/// All special error code bits defined below.
-pub const MACH_MSG_MASK: u32 = 0x3e00;
-/// No room in IPC name space for another capability name.
-pub const MACH_MSG_IPC_SPACE: u32 = 0x2000;
-/// No room in VM address space for out-of-line memory.
-pub const MACH_MSG_VM_SPACE: u32 = 0x1000;
-/// Kernel resource shortage handling out-of-line memory.
-pub const MACH_MSG_IPC_KERNEL: u32 = 0x800;
-/// Kernel resource shortage handling an IPC capability.
-pub const MACH_MSG_VM_KERNEL: u32 = 0x400;
-
 /// Mach msg return values
-pub const MachMsgE = enum(u32) {
+pub const mach_msg_return_t = enum(kern_return_t) {
     SUCCESS = 0x00000000,
 
     /// Thread is waiting to send.  (Internal use only.)
@@ -1104,9 +1209,9 @@ pub const MachMsgE = enum(u32) {
     RCV_PORT_DIED = 0x10004009,
     ///  compatibility: no longer a returned error
     RCV_IN_SET = 0x1000400a,
-    ///  Error receiving message header.  See special bits.
+    ///  Error receiving message header.  See special bits (use `extractResourceError`).
     RCV_HEADER_ERROR = 0x1000400b,
-    ///  Error receiving message body.  See special bits.
+    ///  Error receiving message body.  See special bits (use `extractResourceError`).
     RCV_BODY_ERROR = 0x1000400c,
     ///  Invalid msg-type specification in scatter list.
     RCV_INVALID_TYPE = 0x1000400d,
@@ -1118,6 +1223,28 @@ pub const MachMsgE = enum(u32) {
     RCV_IN_PROGRESS_TIMED = 0x10004011,
     ///  invalid reply port used in a STRICT_REPLY message
     RCV_INVALID_REPLY = 0x10004012,
+
+    _,
+
+    pub fn extractResourceError(ret: mach_msg_return_t) struct {
+        error_code: mach_msg_return_t,
+        resource_error: ?MACH.MSG,
+    } {
+        const return_code: mach_msg_return_t = @enumFromInt(@intFromEnum(ret) & ~MACH.MSG.MASK);
+        switch (return_code) {
+            .RCV_HEADER_ERROR, .RCV_BODY_ERROR => {
+                const resource_error: MACH.MSG = @bitCast(@intFromEnum(ret) & MACH.MSG.MASK);
+                return .{
+                    .error_code = return_code,
+                    .resource_error = resource_error,
+                };
+            },
+            else => return .{
+                .error_code = ret,
+                .resource_error = null,
+            },
+        }
+    }
 };
 
 pub const FCNTL_FS_SPECIFIC_BASE = 0x00010000;
@@ -1171,48 +1298,53 @@ pub const CPUFAMILY = enum(u32) {
     _,
 };
 
-pub const PT = struct {
-    pub const TRACE_ME = 0;
-    pub const READ_I = 1;
-    pub const READ_D = 2;
-    pub const READ_U = 3;
-    pub const WRITE_I = 4;
-    pub const WRITE_D = 5;
-    pub const WRITE_U = 6;
-    pub const CONTINUE = 7;
-    pub const KILL = 8;
-    pub const STEP = 9;
-    pub const DETACH = 11;
-    pub const SIGEXC = 12;
-    pub const THUPDATE = 13;
-    pub const ATTACHEXC = 14;
-    pub const FORCEQUOTA = 30;
-    pub const DENY_ATTACH = 31;
+pub const PT = enum(c_int) {
+    TRACE_ME = 0,
+    READ_I = 1,
+    READ_D = 2,
+    READ_U = 3,
+    WRITE_I = 4,
+    WRITE_D = 5,
+    WRITE_U = 6,
+    CONTINUE = 7,
+    KILL = 8,
+    STEP = 9,
+    DETACH = 11,
+    SIGEXC = 12,
+    THUPDATE = 13,
+    ATTACHEXC = 14,
+    FORCEQUOTA = 30,
+    DENY_ATTACH = 31,
+    _,
 };
 
 pub const caddr_t = ?[*]u8;
 
-pub extern "c" fn ptrace(request: c_int, pid: pid_t, addr: caddr_t, data: c_int) c_int;
+pub extern "c" fn ptrace(request: PT, pid: pid_t, addr: caddr_t, data: c_int) c_int;
 
-pub const POSIX_SPAWN = struct {
-    pub const RESETIDS = 0x0001;
-    pub const SETPGROUP = 0x0002;
-    pub const SETSIGDEF = 0x0004;
-    pub const SETSIGMASK = 0x0008;
-    pub const SETEXEC = 0x0040;
-    pub const START_SUSPENDED = 0x0080;
-    pub const DISABLE_ASLR = 0x0100;
-    pub const SETSID = 0x0400;
-    pub const RESLIDE = 0x0800;
-    pub const CLOEXEC_DEFAULT = 0x4000;
+pub const POSIX_SPAWN = packed struct(c_short) {
+    RESETIDS: bool = false,
+    SETPGROUP: bool = false,
+    SETSIGDEF: bool = false,
+    SETSIGMASK: bool = false,
+    _4: u2 = 0,
+    SETEXEC: bool = false,
+    START_SUSPENDED: bool = false,
+    DISABLE_ASLR: bool = false,
+    _9: u1 = 0,
+    SETSID: bool = false,
+    RESLIDE: bool = false,
+    _12: u2 = 0,
+    CLOEXEC_DEFAULT: bool = false,
+    _15: u1 = 0,
 };
 
 pub const posix_spawnattr_t = *opaque {};
 pub const posix_spawn_file_actions_t = *opaque {};
 pub extern "c" fn posix_spawnattr_init(attr: *posix_spawnattr_t) c_int;
 pub extern "c" fn posix_spawnattr_destroy(attr: *posix_spawnattr_t) c_int;
-pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: c_short) c_int;
-pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *c_short) c_int;
+pub extern "c" fn posix_spawnattr_setflags(attr: *posix_spawnattr_t, flags: POSIX_SPAWN) c_int;
+pub extern "c" fn posix_spawnattr_getflags(attr: *const posix_spawnattr_t, flags: *POSIX_SPAWN) c_int;
 pub extern "c" fn posix_spawn_file_actions_init(actions: *posix_spawn_file_actions_t) c_int;
 pub extern "c" fn posix_spawn_file_actions_destroy(actions: *posix_spawn_file_actions_t) c_int;
 pub extern "c" fn posix_spawn_file_actions_addclose(actions: *posix_spawn_file_actions_t, filedes: fd_t) c_int;
