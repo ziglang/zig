@@ -253,9 +253,10 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
         switch (request.upgradeRequested()) {
             .websocket => |opt_key| {
                 const key = opt_key orelse return log.err("missing websocket key", .{});
-                var web_socket = request.respondWebSocket(.{ .key = key }) catch {
+                var web_socket = request.respondWebSocket(.{ .key = key, .allocator = ws.gpa }) catch {
                     return log.err("failed to respond web socket: {t}", .{connection_writer.err.?});
                 };
+                defer web_socket.close(0);
                 ws.serveWebSocket(&web_socket) catch |err| {
                     log.err("failed to serve websocket: {t}", .{err});
                     return;
@@ -298,7 +299,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
             .steps_len = @intCast(ws.all_steps.len),
         };
         var bufs: [3][]const u8 = .{ @ptrCast(&hello_header), ws.step_names_trailing, prev_step_status_bits };
-        try sock.writeMessageVec(&bufs, .binary);
+        try sock.writeFrameVec(&bufs, .binary);
     }
 
     var prev_fuzz: Fuzz.Previous = .init;
@@ -323,7 +324,8 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
                 // Temporarily unlock, then re-lock after the message is sent.
                 ws.time_report_mutex.unlock();
                 defer ws.time_report_mutex.lock();
-                try sock.writeMessage(owned_msg, .binary);
+
+                try sock.writeFrame(owned_msg, .binary);
             }
         }
 
@@ -332,7 +334,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
             if (build_status != prev_build_status) {
                 prev_build_status = build_status;
                 const msg: abi.StatusUpdate = .{ .new = build_status };
-                try sock.writeMessage(@ptrCast(&msg), .binary);
+                try sock.writeFrame(@ptrCast(&msg), .binary);
             }
         }
 
@@ -353,7 +355,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
             };
             for (cur, prev, byte_idx * 4..) |cur_status, prev_status, step_idx| {
                 const msg: abi.StepUpdate = .{ .step_idx = @intCast(step_idx), .bits = .{ .status = cur_status } };
-                if (cur_status != prev_status) try sock.writeMessage(@ptrCast(&msg), .binary);
+                if (cur_status != prev_status) try sock.writeFrame(@ptrCast(&msg), .binary);
             }
             prev_byte.* = cur_byte;
         }
@@ -364,7 +366,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
 }
 fn recvWebSocketMessages(ws: *WebServer, sock: *http.Server.WebSocket) void {
     while (true) {
-        const msg = sock.readSmallMessage() catch return;
+        const msg = sock.readMessage() catch return;
         if (msg.opcode != .binary) continue;
         if (msg.data.len == 0) continue;
         const tag: abi.ToServerTag = @enumFromInt(msg.data[0]);
