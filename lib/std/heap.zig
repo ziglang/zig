@@ -20,10 +20,6 @@ pub const WasmAllocator = @import("heap/WasmAllocator.zig");
 pub const DebugAllocatorConfig = @import("heap/debug_allocator.zig").Config;
 pub const DebugAllocator = @import("heap/debug_allocator.zig").DebugAllocator;
 pub const Check = enum { ok, leak };
-/// Deprecated; to be removed after 0.14.0 is tagged.
-pub const GeneralPurposeAllocatorConfig = DebugAllocatorConfig;
-/// Deprecated; to be removed after 0.14.0 is tagged.
-pub const GeneralPurposeAllocator = DebugAllocator;
 
 const memory_pool = @import("heap/memory_pool.zig");
 pub const MemoryPool = memory_pool.MemoryPool;
