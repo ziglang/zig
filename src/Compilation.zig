@@ -6731,6 +6731,7 @@ fn addCommonCCArgs(
     c_frontend: Config.CFrontend,
 ) !void {
     const target = &mod.resolved_target.result;
+    const is_clang = c_frontend == .clang;
 
     if (target_util.supports_fpic(target)) {
         // PIE needs to go before PIC because Clang interprets `-fno-PIE` to imply `-fno-PIC`, which
@@ -6740,7 +6741,7 @@ fn addCommonCCArgs(
     }
 
     switch (target.os.tag) {
-        .ios, .macos, .tvos, .watchos => |os| {
+        .ios, .macos, .tvos, .watchos => |os| if (is_clang) {
             try argv.ensureUnusedCapacity(2);
             // Pass the proper -m<os>-version-min argument for darwin.
             const ver = target.os.version_range.semver.min;
@@ -6911,8 +6912,6 @@ fn addCommonCCArgs(
             }
         }
     }
-
-    const is_clang = c_frontend == .clang;
 
     // Only C-family files support these flags.
     switch (ext) {
