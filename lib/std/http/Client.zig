@@ -1797,9 +1797,10 @@ pub fn fetch(client: *Client, options: FetchOptions) FetchError!FetchResult {
 
     if (options.payload) |payload| {
         req.transfer_encoding = .{ .content_length = payload.len };
-        var body = try req.sendBody(&.{});
+        var body = try req.sendBodyUnflushed(&.{});
         try body.writer.writeAll(payload);
         try body.end();
+        try req.connection.?.flush();
     } else {
         try req.sendBodiless();
     }
