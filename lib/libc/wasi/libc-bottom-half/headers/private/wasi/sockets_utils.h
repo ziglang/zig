@@ -26,6 +26,17 @@ typedef struct {
 	};
 } output_sockaddr_t;
 
+typedef struct {
+	char *s_name;
+	uint16_t port;
+	uint16_t protocol;
+} service_entry_t;
+
+typedef enum {
+	SERVICE_PROTOCOL_TCP = 1,
+	SERVICE_PROTOCOL_UDP = 2
+} service_protocol_e;
+
 network_borrow_network_t __wasi_sockets_utils__borrow_network();
 int __wasi_sockets_utils__map_error(network_error_code_t wasi_error);
 bool __wasi_sockets_utils__parse_address(
@@ -49,5 +60,8 @@ bool __wasi_sockets_utils__stream(udp_socket_t *socket,
 				  udp_socket_streams_t *result,
 				  network_error_code_t *error);
 void __wasi_sockets_utils__drop_streams(udp_socket_streams_t streams);
+int __wasi_sockets_utils__parse_port(const char *port);
+const service_entry_t *__wasi_sockets_utils__get_service_entry_by_name(const char *name);
+const service_entry_t *__wasi_sockets_utils__get_service_entry_by_port(const uint16_t port);
 
 #endif

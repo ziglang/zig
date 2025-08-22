@@ -17,7 +17,8 @@ clock_t times(struct tms *buffer) {
     __wasi_timestamp_t user = __clock();
     *buffer = (struct tms){
         .tms_utime = user,
-        .tms_cutime = user
+        // WASI doesn't provide a way to spawn a new process, so always 0.
+        .tms_cutime = 0
     };
 
     __wasi_timestamp_t realtime = 0;

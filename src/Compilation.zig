@@ -1426,11 +1426,6 @@ pub const MiscTask = enum {
     @"wasi crt1-reactor.o",
     @"wasi crt1-command.o",
     @"wasi libc.a",
-    @"wasi libdl.a",
-    @"libwasi-emulated-process-clocks.a",
-    @"libwasi-emulated-getpid.a",
-    @"libwasi-emulated-mman.a",
-    @"libwasi-emulated-signal.a",
 
     @"glibc Scrt1.o",
     @"glibc libc_nonshared.a",
@@ -6927,6 +6922,11 @@ pub fn addCCArgs(
                 .ReleaseFast, .ReleaseSmall => {
                     try argv.append("-DNDEBUG");
                 },
+            }
+
+            switch (target.os.tag) {
+                .@"3ds" => try argv.append("-D__3DS__"),
+                else => {},
             }
 
             if (comp.config.link_libc) {

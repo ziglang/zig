@@ -1,0 +1,12 @@
+#include "pthread_impl.h"
+
+int __pthread_rwlock_unlock(pthread_rwlock_t *rw)
+{
+	if (rw->_rw_lock == 0x7fffffff)
+		rw->_rw_lock = 0;
+	else
+		rw->_rw_lock--;
+	return 0;
+}
+
+weak_alias(__pthread_rwlock_unlock, pthread_rwlock_unlock);

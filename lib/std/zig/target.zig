@@ -361,6 +361,8 @@ pub fn isLibCLibName(target: *const std.Target, name: []const u8) bool {
             return true;
 
         if (target.os.tag == .wasi) {
+            if (eqlIgnoreCase(ignore_case, name, "setjmp"))
+                return true;
             if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-getpid"))
                 return true;
             if (eqlIgnoreCase(ignore_case, name, "wasi-emulated-mman"))

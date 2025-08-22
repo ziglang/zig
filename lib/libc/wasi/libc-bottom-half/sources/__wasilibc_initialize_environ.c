@@ -1,7 +1,11 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <sysexits.h>
+#ifdef __wasilibc_use_wasip2
+#include <wasi/wasip2.h>
+#else
 #include <wasi/api.h>
+#endif
 #include <wasi/libc.h>
 #include <wasi/libc-environ.h>
 
@@ -26,6 +30,55 @@ static char *empty_environ[1] = { NULL };
 
 // See the comments in libc-environ.h.
 void __wasilibc_initialize_environ(void) {
+#ifdef __wasilibc_use_wasip2
+    // Get the environment
+    wasip2_list_tuple2_string_string_t wasi_environment;
+    environment_get_environment(&wasi_environment);
+
+    size_t environ_count = wasi_environment.len;
+    if (environ_count == 0) {
+        __wasilibc_environ = empty_environ;
+        return;
+    }
+
+    // Add 1 for the NULL pointer to mark the end, and check for overflow.
+    size_t num_ptrs = environ_count + 1;
+    if (num_ptrs == 0) {
+        goto software;
+    }
+
+    // Allocate memory for the array of pointers. This uses `calloc` both to
+    // handle overflow and to initialize the NULL pointer at the end.
+    char **environ_ptrs = calloc(num_ptrs, sizeof(char *));
+
+    // Copy the environment variables
+    for (size_t i = 0; i < environ_count; i++) {
+        wasip2_tuple2_string_string_t pair = wasi_environment.ptr[i];
+        // 1 extra character for the null terminator, 1 for the '=' character
+        environ_ptrs[i] = malloc(pair.f0.len + pair.f1.len + 2);
+        if (!environ_ptrs[i]) {
+            for (size_t j = 0; j < i; j++)
+                free(environ_ptrs[j]);
+            free(environ_ptrs);
+            goto software;
+        }
+        memcpy(environ_ptrs[i], pair.f0.ptr, pair.f0.len);
+        environ_ptrs[i][pair.f0.len] = '=';
+        memcpy(environ_ptrs[i] + pair.f0.len + 1, pair.f1.ptr, pair.f1.len);
+        environ_ptrs[i][pair.f0.len + pair.f1.len + 1] = '\0';
+    }
+
+    // Free the WASI environment list
+    wasip2_list_tuple2_string_string_free(&wasi_environment);
+
+    // Initialize the environment from the created array
+    __wasilibc_environ = environ_ptrs;
+    return;
+software:
+    wasip2_list_tuple2_string_string_free(&wasi_environment);
+    _Exit(EX_SOFTWARE);
+
+#else
     // Get the sizes of the arrays we'll have to create to copy in the environment.
     size_t environ_count;
     size_t environ_buf_size;
@@ -74,6 +127,7 @@ oserr:
     _Exit(EX_OSERR);
 software:
     _Exit(EX_SOFTWARE);
+#endif
 }
 
 // See the comments in libc-environ.h.

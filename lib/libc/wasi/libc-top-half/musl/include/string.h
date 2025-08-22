@@ -92,6 +92,7 @@ char *strsignal(int);
 char *strerror_l (int, locale_t);
 int strcoll_l (const char *, const char *, locale_t);
 size_t strxfrm_l (char *__restrict, const char *__restrict, size_t, locale_t);
+void *memmem(const void *, size_t, const void *, size_t);
 #endif
 
 #if defined(_XOPEN_SOURCE) || defined(_GNU_SOURCE) \
@@ -111,14 +112,8 @@ void explicit_bzero (void *, size_t);
 int strverscmp (const char *, const char *);
 char *strchrnul(const char *, int);
 char *strcasestr(const char *, const char *);
-void *memmem(const void *, size_t, const void *, size_t);
 void *memrchr(const void *, int, size_t);
 void *mempcpy(void *, const void *, size_t);
-#ifdef __wasilibc_unmodified_upstream /* avoid unprototyped decls; use <libgen.h> */
-#ifndef __cplusplus
-char *basename();
-#endif
-#endif
 #endif
 
 #ifdef __cplusplus

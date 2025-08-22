@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 
@@ -118,6 +119,38 @@ int munmap(void *addr, size_t length) {
 
     // Release the memory.
     free(map);
+
+    // Success!
+    return 0;
+}
+
+int mprotect(void *addr, size_t length, int prot) {
+    // Address must be page-aligned.
+    size_t begin = (size_t)addr;
+    if ((begin & (PAGESIZE - 1)) != 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    // Length must not be big enough to wrap around.
+    size_t end;
+    if (__builtin_add_overflow(begin, length, &end)) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    // Range must be in bounds of linear memory.
+    size_t memory_size = __builtin_wasm_memory_size(0) * PAGESIZE;
+    if (end > memory_size) {
+        errno = ENOMEM;
+        return -1;
+    }
+
+    // Can only protect memory as read/write (which is a no-op).
+    if (prot != (PROT_READ | PROT_WRITE)) {
+        errno = ENOTSUP;
+        return -1;
+    }
 
     // Success!
     return 0;

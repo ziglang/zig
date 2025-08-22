@@ -81,7 +81,9 @@ pub const Kevent = system.Kevent;
 pub const MADV = system.MADV;
 pub const MAP = system.MAP;
 pub const MAX_ADDR_LEN = system.MAX_ADDR_LEN;
+pub const MCL = system.MCL;
 pub const MFD = system.MFD;
+pub const MLOCK = system.MLOCK;
 pub const MREMAP = system.MREMAP;
 pub const MSF = system.MSF;
 pub const MSG = system.MSG;
@@ -4745,6 +4747,76 @@ pub fn fanotify_markZ(
     }
 }
 
+pub const MlockError = error{
+    PermissionDenied,
+    LockedMemoryLimitExceeded,
+    SystemResources,
+} || UnexpectedError;
+
+pub fn mlock(memory: []align(page_size_min) const u8) MlockError!void {
+    if (@TypeOf(system.mlock) == void)
+        @compileError("mlock not supported on this OS");
+    return switch (errno(system.mlock(memory.ptr, memory.len))) {
+        .SUCCESS => {},
+        .INVAL => unreachable, // unaligned, negative, runs off end of addrspace
+        .PERM => error.PermissionDenied,
+        .NOMEM => error.LockedMemoryLimitExceeded,
+        .AGAIN => error.SystemResources,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+pub fn mlock2(memory: []align(page_size_min) const u8, flags: MLOCK) MlockError!void {
+    if (@TypeOf(system.mlock2) == void)
+        @compileError("mlock2 not supported on this OS");
+    return switch (errno(system.mlock2(memory.ptr, memory.len, flags))) {
+        .SUCCESS => {},
+        .INVAL => unreachable, // bad memory or bad flags
+        .PERM => error.PermissionDenied,
+        .NOMEM => error.LockedMemoryLimitExceeded,
+        .AGAIN => error.SystemResources,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+pub fn munlock(memory: []align(page_size_min) const u8) MlockError!void {
+    if (@TypeOf(system.munlock) == void)
+        @compileError("munlock not supported on this OS");
+    return switch (errno(system.munlock(memory.ptr, memory.len))) {
+        .SUCCESS => {},
+        .INVAL => unreachable, // unaligned or runs off end of addr space
+        .PERM => return error.PermissionDenied,
+        .NOMEM => return error.LockedMemoryLimitExceeded,
+        .AGAIN => return error.SystemResources,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+pub fn mlockall(flags: MCL) MlockError!void {
+    if (@TypeOf(system.mlockall) == void)
+        @compileError("mlockall not supported on this OS");
+    return switch (errno(system.mlockall(flags))) {
+        .SUCCESS => {},
+        .INVAL => unreachable, // bad flags
+        .PERM => error.PermissionDenied,
+        .NOMEM => error.LockedMemoryLimitExceeded,
+        .AGAIN => error.SystemResources,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
+pub fn munlockall() MlockError!void {
+    if (@TypeOf(system.munlockall) == void)
+        @compileError("munlockall not supported on this OS");
+    return switch (errno(system.munlockall())) {
+        .SUCCESS => {},
+        .PERM => error.PermissionDenied,
+        .NOMEM => error.LockedMemoryLimitExceeded,
+        .AGAIN => error.SystemResources,
+        else => |err| unexpectedErrno(err),
+    };
+}
+
 pub const MProtectError = error{
     /// The memory cannot be given the specified access.  This can happen, for example, if you
     /// mmap(2)  a  file  to  which  you have read-only access, then ask mprotect() to mark it
@@ -5219,13 +5291,19 @@ pub fn sysctl(
     }
 }
 
+pub const SysCtlByNameError = error{
+    PermissionDenied,
+    SystemResources,
+    UnknownName,
+} || UnexpectedError;
+
 pub fn sysctlbynameZ(
     name: [*:0]const u8,
     oldp: ?*anyopaque,
     oldlenp: ?*usize,
     newp: ?*anyopaque,
     newlen: usize,
-) SysCtlError!void {
+) SysCtlByNameError!void {
     if (native_os == .wasi) {
         @compileError("sysctl not supported on WASI");
     }

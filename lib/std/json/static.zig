@@ -567,8 +567,8 @@ pub fn innerParseFromValue(
             switch (source) {
                 .float => |f| {
                     if (@round(f) != f) return error.InvalidNumber;
-                    if (f > std.math.maxInt(T)) return error.Overflow;
-                    if (f < std.math.minInt(T)) return error.Overflow;
+                    if (f > @as(@TypeOf(f), @floatFromInt(std.math.maxInt(T)))) return error.Overflow;
+                    if (f < @as(@TypeOf(f), @floatFromInt(std.math.minInt(T)))) return error.Overflow;
                     return @as(T, @intFromFloat(f));
                 },
                 .integer => |i| {
@@ -770,7 +770,7 @@ fn sliceToInt(comptime T: type, slice: []const u8) !T {
     // Try to coerce a float to an integer.
     const float = try std.fmt.parseFloat(f128, slice);
     if (@round(float) != float) return error.InvalidNumber;
-    if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
+    if (float > @as(f128, @floatFromInt(std.math.maxInt(T))) or float < @as(f128, @floatFromInt(std.math.minInt(T)))) return error.Overflow;
     return @as(T, @intCast(@as(i128, @intFromFloat(float))));
 }
 

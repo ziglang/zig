@@ -16,7 +16,6 @@ extern "C" {
 
 #include <bits/alltypes.h>
 
-#ifdef __wasilibc_unmodified_upstream /* WASI has no CPU scheduling support. */
 struct sched_param {
 	int sched_priority;
 	int __reserved1;
@@ -31,6 +30,7 @@ struct sched_param {
 	int __reserved3;
 };
 
+#ifdef __wasilibc_unmodified_upstream /* WASI has no CPU scheduling support. */
 int    sched_get_priority_max(int);
 int    sched_get_priority_min(int);
 int    sched_getparam(pid_t, struct sched_param *);
@@ -127,7 +127,7 @@ __CPU_op_func_S(XOR, ^)
 #define CPU_ALLOC(n) ((cpu_set_t *)calloc(1,CPU_ALLOC_SIZE(n)))
 #define CPU_FREE(set) free(set)
 
-#define CPU_SETSIZE 128
+#define CPU_SETSIZE 1024
 
 #define CPU_SET(i, set) CPU_SET_S(i,sizeof(cpu_set_t),set)
 #define CPU_CLR(i, set) CPU_CLR_S(i,sizeof(cpu_set_t),set)

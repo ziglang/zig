@@ -48,6 +48,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .gnu },
     .{ .cpu_arch = .arc, .os_tag = .linux, .abi = .none },
 
+    .{ .cpu_arch = .arm, .os_tag = .@"3ds", .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freebsd, .abi = .eabihf },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .arm, .os_tag = .freestanding, .abi = .eabihf },

@@ -64,7 +64,7 @@ hidden char *__gettextdomain(void);
         &libc.current_locale; \
     }))
 
-#define CURRENT_UTF8 (!!libc.global_locale.cat[LC_CTYPE])
+#define CURRENT_UTF8 (!!CURRENT_LOCALE->cat[LC_CTYPE])
 #endif
 
 #undef MB_CUR_MAX

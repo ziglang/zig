@@ -83,14 +83,14 @@ pub fn defaultQueryPageSize() usize {
         .driverkit, .ios, .macos, .tvos, .visionos, .watchos => blk: {
             const task_port = std.c.mach_task_self();
             // mach_task_self may fail "if there are any resource failures or other errors".
-            if (task_port == std.c.TASK_NULL)
+            if (task_port == std.c.TASK.NULL)
                 break :blk 0;
-            var info_count = std.c.TASK_VM_INFO_COUNT;
+            var info_count = std.c.TASK.VM.INFO_COUNT;
             var vm_info: std.c.task_vm_info_data_t = undefined;
             vm_info.page_size = 0;
             _ = std.c.task_info(
                 task_port,
-                std.c.TASK_VM_INFO,
+                std.c.TASK.VM.INFO,
                 @as(std.c.task_info_t, @ptrCast(&vm_info)),
                 &info_count,
             );

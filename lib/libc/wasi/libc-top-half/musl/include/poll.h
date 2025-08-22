@@ -48,7 +48,7 @@ struct pollfd {
 
 int poll (struct pollfd *, nfds_t, int);
 
-#ifdef _GNU_SOURCE
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 #define __NEED_time_t
 #define __NEED_struct_timespec
 #define __NEED_sigset_t
@@ -57,7 +57,7 @@ int ppoll(struct pollfd *, nfds_t, const struct timespec *, const sigset_t *);
 #endif
 
 #if _REDIR_TIME64
-#ifdef _GNU_SOURCE
+#if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)
 __REDIR(ppoll, __ppoll_time64);
 #endif
 #endif

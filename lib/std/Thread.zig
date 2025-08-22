@@ -761,7 +761,7 @@ const PosixThreadImpl = struct {
                 var count_len: usize = @sizeOf(c_int);
                 const name = if (comptime target.os.tag.isDarwin()) "hw.logicalcpu" else "hw.ncpu";
                 posix.sysctlbynameZ(name, &count, &count_len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong, error.UnknownName => unreachable,
+                    error.UnknownName => unreachable,
                     else => |e| return e,
                 };
                 return @as(usize, @intCast(count));

@@ -4490,10 +4490,11 @@ fn runOrTestHotSwap(
 
             // ASLR is probably a good default for better debugging experience/programming
             // with hot-code updates in mind. However, we can also make it work with ASLR on.
-            const flags: u16 = std.c.POSIX_SPAWN.SETSIGDEF |
-                std.c.POSIX_SPAWN.SETSIGMASK |
-                std.c.POSIX_SPAWN.DISABLE_ASLR;
-            try attr.set(flags);
+            try attr.set(.{
+                .SETSIGDEF = true,
+                .SETSIGMASK = true,
+                .DISABLE_ASLR = true,
+            });
 
             var arena_allocator = std.heap.ArenaAllocator.init(gpa);
             defer arena_allocator.deinit();

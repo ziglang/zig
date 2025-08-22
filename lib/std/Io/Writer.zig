@@ -1090,7 +1090,7 @@ pub fn printValue(
                 else => invalidFmtError(fmt, value),
             },
             'X' => switch (@typeInfo(T)) {
-                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .lower)),
+                .float, .comptime_float => return printFloatHexOptions(w, value, options.toNumber(.hex, .upper)),
                 .int, .comptime_int => return printInt(w, value, 16, .upper, options),
                 .@"enum" => return printInt(w, @intFromEnum(value), 16, .upper, options),
                 .@"struct" => return value.formatNumber(w, options.toNumber(.hex, .upper)),

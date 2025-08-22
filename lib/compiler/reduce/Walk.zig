@@ -501,6 +501,10 @@ fn walkExpression(w: *Walk, node: Ast.Node.Index) Error!void {
         .@"asm",
         => return walkAsm(w, ast.fullAsm(node).?),
 
+        .asm_legacy => {
+            return walkAsmLegacy(w, ast.legacyAsm(node).?);
+        },
+
         .enum_literal => {
             return walkIdentifier(w, ast.nodeMainToken(node)); // name
         },
@@ -665,7 +669,7 @@ fn walkStructInit(
 
 fn walkCall(w: *Walk, call: Ast.full.Call) Error!void {
     try walkExpression(w, call.ast.fn_expr);
-    try walkParamList(w, call.ast.params);
+    try walkExpressions(w, call.ast.params);
 }
 
 fn walkSlice(
@@ -830,7 +834,7 @@ fn walkWhile(w: *Walk, node_index: Ast.Node.Index, while_node: Ast.full.While) E
 }
 
 fn walkFor(w: *Walk, for_node: Ast.full.For) Error!void {
-    try walkParamList(w, for_node.ast.inputs);
+    try walkExpressions(w, for_node.ast.inputs);
     try walkExpression(w, for_node.ast.then_expr);
     if (for_node.ast.else_expr.unwrap()) |else_expr| {
         try walkExpression(w, else_expr);
@@ -874,15 +878,12 @@ fn walkIf(w: *Walk, node_index: Ast.Node.Index, if_node: Ast.full.If) Error!void
 
 fn walkAsm(w: *Walk, asm_node: Ast.full.Asm) Error!void {
     try walkExpression(w, asm_node.ast.template);
-    for (asm_node.ast.items) |item| {
-        try walkExpression(w, item);
-    }
+    try walkExpressions(w, asm_node.ast.items);
 }
 
-fn walkParamList(w: *Walk, params: []const Ast.Node.Index) Error!void {
-    for (params) |param_node| {
-        try walkExpression(w, param_node);
-    }
+fn walkAsmLegacy(w: *Walk, asm_node: Ast.full.AsmLegacy) Error!void {
+    try walkExpression(w, asm_node.ast.template);
+    try walkExpressions(w, asm_node.ast.items);
 }
 
 /// Check if it is already gutted (i.e. its body replaced with `@trap()`).
