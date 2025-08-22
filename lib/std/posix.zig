@@ -5836,7 +5836,7 @@ pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
     if (native_os == .windows) {
         @compileError("Windows does not support POSIX; use Windows-specific API or cross-platform std.time API");
     } else if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_time_get(clock_id, 1, &ts)) {
             .SUCCESS => {
                 tp = .{
@@ -5860,7 +5860,7 @@ pub fn clock_gettime(clock_id: clockid_t) ClockGetTimeError!timespec {
 
 pub fn clock_getres(clock_id: clockid_t, res: *timespec) ClockGetTimeError!void {
     if (native_os == .wasi and !builtin.link_libc) {
-        var ts: timestamp_t = undefined;
+        var ts: wasi.timestamp_t = undefined;
         switch (system.clock_res_get(@bitCast(clock_id), &ts)) {
             .SUCCESS => res.* = .{
                 .sec = @intCast(ts / std.time.ns_per_s),
