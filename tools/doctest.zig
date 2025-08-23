@@ -7,7 +7,11 @@ const process = std.process;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
+const resolveTargetQuery = std.zig.system.resolveTargetQuery;
 const Io = std.Io;
+const OptimizeMode = std.builtin.OptimizeMode;
+const LinkMode = std.builtin.LinkMode;
+const print = std.debug.print;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -45,7 +49,7 @@ pub fn main() !void {
     while (args_it.next()) |arg| {
         if (mem.startsWith(u8, arg, "-")) {
             if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                try std.fs.File.stdout().writeAll(usage);
+                try fs.File.stdout().writeAll(usage);
                 process.exit(0);
             } else if (mem.eql(u8, arg, "-i")) {
                 opt_input = args_it.next() orelse fatal("expected parameter after -i", .{});
@@ -96,10 +100,10 @@ pub fn main() !void {
         out,
         code,
         tmp_dir_path,
-        try std.fs.path.relative(arena, tmp_dir_path, zig_path),
-        try std.fs.path.relative(arena, tmp_dir_path, input_path),
+        try fs.path.relative(arena, tmp_dir_path, zig_path),
+        try fs.path.relative(arena, tmp_dir_path, input_path),
         if (opt_zig_lib_dir) |zig_lib_dir|
-            try std.fs.path.relative(arena, tmp_dir_path, zig_lib_dir)
+            try fs.path.relative(arena, tmp_dir_path, zig_lib_dir)
         else
             null,
     );
@@ -123,15 +127,14 @@ fn printOutput(
     var env_map = try process.getEnvMap(arena);
     try env_map.put("CLICOLOR_FORCE", "1");
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try resolveTargetQuery(.{});
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
-    const print = std.debug.print;
 
     var shell_buffer = std.array_list.Managed(u8).init(arena);
     defer shell_buffer.deinit();
     var shell_out = shell_buffer.writer();
 
-    const code_name = std.fs.path.stem(input_path);
+    const code_name = fs.path.stem(input_path);
 
     switch (code.id) {
         .exe => |expected_outcome| code_block: {
@@ -238,7 +241,7 @@ fn printOutput(
             const target_query = try std.Target.Query.parse(.{
                 .arch_os_abi = code.target_str orelse "native",
             });
-            const target = try std.zig.system.resolveTargetQuery(target_query);
+            const target = try resolveTargetQuery(target_query);
 
             const path_to_exe = try std.fmt.allocPrint(arena, "./{s}{s}", .{
                 code_name, target.exeFileExt(),
@@ -313,9 +316,7 @@ fn printOutput(
                 const target_query = try std.Target.Query.parse(.{
                     .arch_os_abi = triple,
                 });
-                const target = try std.zig.system.resolveTargetQuery(
-                    target_query,
-                );
+                const target = try resolveTargetQuery(target_query);
                 switch (getExternalExecutor(&host, &target, .{
                     .link_libc = code.link_libc,
                 })) {
@@ -603,9 +604,9 @@ fn printOutput(
 
 fn dumpArgs(args: []const []const u8) void {
     for (args) |arg|
-        std.debug.print("{s} ", .{arg})
+        print("{s} ", .{arg})
     else
-        std.debug.print("\n", .{});
+        print("\n", .{});
 }
 
 fn printSourceBlock(arena: Allocator, out: *Io.Writer, source_bytes: []const u8, name: []const u8) !void {
@@ -846,11 +847,11 @@ fn tokenizeAndPrint(arena: Allocator, out: *Io.Writer, raw_src: []const u8) !voi
 
 const Code = struct {
     id: Id,
-    mode: std.builtin.OptimizeMode,
+    mode: OptimizeMode,
     link_objects: []const []const u8,
     target_str: ?[]const u8,
     link_libc: bool,
-    link_mode: ?std.builtin.LinkMode,
+    link_mode: ?LinkMode,
     disable_cache: bool,
     verbose_cimport: bool,
     just_check_syntax: bool,
@@ -907,8 +908,8 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     else
         fatal("unrecognized manifest id: '{s}'", .{first_line});
 
-    var mode: std.builtin.OptimizeMode = .Debug;
-    var link_mode: ?std.builtin.LinkMode = null;
+    var mode: OptimizeMode = .Debug;
+    var link_mode: ?LinkMode = null;
     var link_objects: std.ArrayListUnmanaged([]const u8) = .empty;
     var additional_options: std.ArrayListUnmanaged([]const u8) = .empty;
     var target_str: ?[]const u8 = null;
@@ -920,10 +921,10 @@ fn parseManifest(arena: Allocator, source_bytes: []const u8) !Code {
     while (it.next()) |prefixed_line| {
         const line = skipPrefix(prefixed_line);
         if (mem.startsWith(u8, line, "optimize=")) {
-            mode = std.meta.stringToEnum(std.builtin.OptimizeMode, line["optimize=".len..]) orelse
+            mode = std.meta.stringToEnum(OptimizeMode, line["optimize=".len..]) orelse
                 fatal("bad optimization mode line: '{s}'", .{line});
         } else if (mem.startsWith(u8, line, "link_mode=")) {
-            link_mode = std.meta.stringToEnum(std.builtin.LinkMode, line["link_mode=".len..]) orelse
+            link_mode = std.meta.stringToEnum(LinkMode, line["link_mode=".len..]) orelse
                 fatal("bad link mode line: '{s}'", .{line});
         } else if (mem.startsWith(u8, line, "link_object=")) {
             try link_objects.append(arena, line["link_object=".len..]);
@@ -1140,13 +1141,13 @@ fn run(
     switch (result.term) {
         .Exited => |exit_code| {
             if (exit_code != 0) {
-                std.debug.print("{s}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
+                print("{s}\nThe following command exited with code {}:\n", .{ result.stderr, exit_code });
                 dumpArgs(args);
                 return error.ChildExitError;
             }
         },
         else => {
-            std.debug.print("{s}\nThe following command crashed:\n", .{result.stderr});
+            print("{s}\nThe following command crashed:\n", .{result.stderr});
             dumpArgs(args);
             return error.ChildCrashed;
         },
@@ -1158,17 +1159,17 @@ fn printShell(out: *Io.Writer, shell_content: []const u8) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
-    var iter = std.mem.splitScalar(u8, trimmed_shell_content, '\n');
+    var iter = mem.splitScalar(u8, trimmed_shell_content, '\n');
     while (iter.next()) |orig_line| {
         const line = mem.trimEnd(u8, orig_line, " \r");
         if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] != '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimStart(u8, line[1..], " ");
+            const s = mem.trimStart(u8, line[1..], " ");
             try out.writeAll(s);
             try out.writeAll("</kbd>" ++ "\n");
         } else if (!cmd_cont and line.len > 1 and mem.eql(u8, line[0..2], "$ ") and line[line.len - 1] == '\\') {
             try out.writeAll("$ <kbd>");
-            const s = std.mem.trimStart(u8, line[1..], " ");
+            const s = mem.trimStart(u8, line[1..], " ");
             try out.writeAll(s);
             try out.writeAll("\n");
             cmd_cont = true;
