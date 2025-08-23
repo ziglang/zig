@@ -14,7 +14,6 @@ const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
 const Writer = std.io.Writer;
 
-pub const FixedBufferReader = @import("debug/FixedBufferReader.zig");
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
@@ -1773,7 +1772,6 @@ pub inline fn inValgrind() bool {
 
 test {
     _ = &Dwarf;
-    _ = &FixedBufferReader;
     _ = &Pdb;
     _ = &SelfInfo;
     _ = &dumpHex;

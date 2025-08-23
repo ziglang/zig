@@ -1555,26 +1555,24 @@ pub fn unwindFrameDwarf(
     if (!supports_unwinding) return error.UnsupportedCpuArchitecture;
     if (context.pc == 0) return 0;
 
+    const endian = di.endian;
+
     // Find the FDE and CIE
     const cie, const fde = if (explicit_fde_offset) |fde_offset| blk: {
         const dwarf_section: Dwarf.Section.Id = .eh_frame;
         const frame_section = di.section(dwarf_section) orelse return error.MissingFDE;
         if (fde_offset >= frame_section.len) return error.MissingFDE;
 
-        var fbr: std.debug.FixedBufferReader = .{
-            .buf = frame_section,
-            .pos = fde_offset,
-            .endian = di.endian,
-        };
+        var fbr: std.Io.Reader = .fixed(frame_section);
+        fbr.seek = fde_offset;
 
-        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section);
+        const fde_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section, endian);
         if (fde_entry_header.type != .fde) return error.MissingFDE;
 
         const cie_offset = fde_entry_header.type.fde;
-        try fbr.seekTo(cie_offset);
+        fbr.seek = @intCast(cie_offset);
 
-        fbr.endian = native_endian;
-        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section);
+        const cie_entry_header = try Dwarf.EntryHeader.read(&fbr, dwarf_section, endian);
         if (cie_entry_header.type != .cie) return Dwarf.bad();
 
         const cie = try Dwarf.CommonInformationEntry.parse(
@@ -1617,6 +1615,7 @@ pub fn unwindFrameDwarf(
                 context.pc,
                 &cie,
                 &fde,
+                endian,
             ) catch |err| switch (err) {
                 error.MissingDebugInfo => {
                     // `.eh_frame_hdr` appears to be incomplete, so go ahead and populate `cie_map`
