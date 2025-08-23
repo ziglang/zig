@@ -750,14 +750,19 @@ pub const WebSocket = struct {
         }
     };
 
+    pub const CloseMessage = struct {
+        exit_code: u16,
+        data: []const u8 = "",
+    };
+
     pub const WebsocketMessage = struct {
         opcode: Opcode,
         data: []u8,
     };
 
     /// Sends close frame with the exit code and frees any allocated memory
-    pub fn close(ws: *WebSocket, exit_code: u16) void {
-        ws.writeCloseFrame(exit_code) catch {};
+    pub fn close(ws: *WebSocket, options: CloseMessage) void {
+        ws.writeCloseFrame(options) catch {};
         ws.deinit();
     }
 
@@ -787,6 +792,7 @@ pub const WebSocket = struct {
             if (!payload_head.mask)
                 return error.MissingMaskBit;
 
+            // TODO: Remove check here for op_head.rsv1 once compression is readded.
             if (@bitCast(op_head.rsv1) or @bitCast(op_head.rsv2) or @bitCast(op_head.rsv3))
                 return error.UnnegociatedReservedBits;
 
@@ -821,6 +827,9 @@ pub const WebSocket = struct {
                 .binary,
                 => {
                     if (!op_head.fin) {
+                        if (ws.fragment.message_type != null)
+                            return error.UnexpectedFragment;
+
                         try ws.fragment.writeAll(payload);
                         ws.fragment.message_type = op_head.opcode;
 
@@ -843,6 +852,9 @@ pub const WebSocket = struct {
                     const message_type = ws.fragment.message_type orelse return error.FragmentedControl;
 
                     if (!op_head.fin) {
+                        if (ws.fragment.message_type == null)
+                            return error.UnexpectedFragment;
+
                         try ws.fragment.writeAll(payload);
                         continue;
                     }
@@ -880,17 +892,21 @@ pub const WebSocket = struct {
     /// Writes to the server a close frame with a provided `exit_code`.
     ///
     /// For more details please see: https://www.rfc-editor.org/rfc/rfc6455#section-5.5.1
-    pub fn writeCloseFrame(ws: *WebSocket, exit_code: u16) Writer.Error!void {
-        if (exit_code == 0) {
+    pub fn writeCloseFrame(ws: *WebSocket, options: CloseMessage) Writer.Error!void {
+        if (options.exit_code == 0) {
             @branchHint(.likely);
 
-            return ws.writeFrame("", .connection_close);
+            return ws.writeFrame(options.data, .connection_close);
         }
 
         var buffer: [2]u8 = undefined;
-        std.mem.writeInt(u16, buffer[0..2], exit_code, .big);
+        std.mem.writeInt(u16, buffer[0..2], options.exit_code, .big);
 
-        return ws.writeFrame(buffer[0..], .connection_close);
+        var bufs: [2][]const u8 = .{ buffer[0..], options.data };
+        try ws.writeHeaderFrameVecUnflushed(&bufs, .connection_close, true);
+        try ws.writeBodyVecUnflushed(&bufs);
+
+        return ws.flush();
     }
 
     /// Writes a websocket frame directly to the socket.
