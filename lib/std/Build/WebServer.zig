@@ -256,7 +256,7 @@ fn accept(ws: *WebServer, connection: std.net.Server.Connection) void {
                 var web_socket = request.respondWebSocket(.{ .key = key, .allocator = ws.gpa }) catch {
                     return log.err("failed to respond web socket: {t}", .{connection_writer.err.?});
                 };
-                defer web_socket.close(0);
+                defer web_socket.close(.{ .exit_code = 0 });
                 ws.serveWebSocket(&web_socket) catch |err| {
                     log.err("failed to serve websocket: {t}", .{err});
                     return;
