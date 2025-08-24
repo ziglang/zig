@@ -228,7 +228,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value

@@ -50,6 +50,8 @@ pub const Os = struct {
         windows,
         uefi,
 
+        @"3ds",
+
         ps3,
         ps4,
         ps5,
@@ -193,6 +195,8 @@ pub const Os = struct {
                 .solaris,
 
                 .uefi,
+
+                .@"3ds",
 
                 .wasi,
 
@@ -603,7 +607,17 @@ pub const Os = struct {
                         .max = .{ .major = 2, .minor = 11, .patch = 0 },
                     },
                 },
-
+                .@"3ds" => .{
+                    .semver = .{
+                        // These signify release versions (https://www.3dbrew.org/wiki/NCCH/Extended_Header#ARM11_Kernel_Capabilities)
+                        // which are different from user-facing system versions (https://www.3dbrew.org/wiki/Home_Menu#System_Versions_List).
+                        //
+                        // Multiple system versions could refer to the same release version.
+                        // The comment indicates the system version that release version was introduced (for minimum) and the latest (for maximum).
+                        .min = .{ .major = 2, .minor = 27, .patch = 0 }, // 1.0.0-0
+                        .max = .{ .major = 2, .minor = 58, .patch = 0 }, // 11.17.0-50
+                    },
+                },
                 .wasi => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 1, .patch = 0 },
@@ -861,6 +875,7 @@ pub const Abi = enum {
             .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
             .windows => .gnu,
             .uefi => .msvc,
+            .@"3ds" => .eabihf,
             .wasi, .emscripten => .musl,
 
             .contiki,
@@ -1828,7 +1843,11 @@ pub const Cpu = struct {
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx906,
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .arm => switch (os.tag) {
+                    .@"3ds" => &arm.cpu.mpcore,
+                    else => &arm.cpu.baseline,
+                },
+                .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
                     .driverkit, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
@@ -2055,6 +2074,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .vulkan,
         .plan9,
         .other,
+        .@"3ds",
         => false,
     };
 }
@@ -2152,6 +2172,8 @@ pub const DynamicLinker = struct {
 
             .uefi,
             .windows,
+
+            .@"3ds",
 
             .emscripten,
             .wasi,
@@ -2536,6 +2558,8 @@ pub const DynamicLinker = struct {
 
             .uefi,
             .windows,
+
+            .@"3ds",
 
             .emscripten,
             .wasi,
@@ -3042,6 +3066,13 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             // Note: The OpenCL specification does not guarantee a particular size for long double,
             // but clang uses 128 bits.
             .longdouble => return 128,
+        },
+
+        .@"3ds" => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float, .long, .ulong => return 32,
+            .longlong, .ulonglong, .double, .longdouble => return 64,
         },
 
         .ps4, .ps5 => switch (c_type) {

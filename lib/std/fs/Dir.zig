@@ -2583,8 +2583,9 @@ pub fn updateFile(
         error.ReadFailed => return src_reader.err.?,
         error.WriteFailed => return atomic_file.file_writer.err.?,
     };
+    try atomic_file.flush();
     try atomic_file.file_writer.file.updateTimes(src_stat.atime, src_stat.mtime);
-    try atomic_file.finish();
+    try atomic_file.renameIntoPlace();
     return .stale;
 }
 

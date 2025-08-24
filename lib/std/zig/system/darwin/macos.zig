@@ -397,7 +397,6 @@ pub fn detectNativeCpuAndFeatures() ?Target.Cpu {
     var cpu_family: std.c.CPUFAMILY = undefined;
     var len: usize = @sizeOf(std.c.CPUFAMILY);
     std.posix.sysctlbynameZ("hw.cpufamily", &cpu_family, &len, null, 0) catch |err| switch (err) {
-        error.NameTooLong => unreachable, // constant, known good value
         error.PermissionDenied => unreachable, // only when setting values,
         error.SystemResources => unreachable, // memory already on the stack
         error.UnknownName => unreachable, // constant, known good value
