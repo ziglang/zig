@@ -189,7 +189,7 @@ pub fn validateEFlags(
     e_flags: elf.Word,
 ) !void {
     switch (target.cpu.arch) {
-        .riscv64 => {
+        .riscv64, .riscv64be => {
             const flags: riscv.Eflags = @bitCast(e_flags);
             var any_errors: bool = false;
 
@@ -366,7 +366,7 @@ fn initAtoms(
                 const rel_count: u32 = @intCast(relocs.len);
                 self.setAtomFields(atom_ptr, .{ .rel_index = rel_index, .rel_count = rel_count });
                 try self.relocs.appendUnalignedSlice(gpa, relocs);
-                if (target.cpu.arch == .riscv64) {
+                if (target.cpu.arch.isRiscv64()) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
                 }
             }
@@ -445,7 +445,7 @@ fn parseEhFrame(
     // We expect relocations to be sorted by r_offset as per this comment in mold linker:
     // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
     // Except for RISCV and Loongarch which do not seem to be uphold this convention.
-    if (target.cpu.arch == .riscv64) {
+    if (target.cpu.arch.isRiscv64()) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
     const fdes_start = self.fdes.items.len;

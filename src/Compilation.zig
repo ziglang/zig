@@ -7051,7 +7051,7 @@ pub fn addCCArgs(
             // compiler frontend does. Therefore we must hard-code the -m flags for
             // all CPU features here.
             switch (target.cpu.arch) {
-                .riscv32, .riscv64 => {
+                .riscv32, .riscv32be, .riscv64, .riscv64be => {
                     const RvArchFeat = struct { char: u8, feat: std.Target.riscv.Feature };
                     const letters = [_]RvArchFeat{
                         .{ .char = 'm', .feat = .m },

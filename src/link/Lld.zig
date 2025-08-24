@@ -1342,7 +1342,9 @@ fn getLDMOption(target: *const std.Target) ?[]const u8 {
         .powerpc64 => "elf64ppc",
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
+        .riscv32be => "elf32briscv",
         .riscv64 => "elf64lriscv",
+        .riscv64be => "elf64briscv",
         .s390x => "elf64_s390",
         .sparc64 => "elf64_sparc",
         .x86 => switch (target.os.tag) {

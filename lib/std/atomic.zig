@@ -386,7 +386,9 @@ pub inline fn spinLoopHint() void {
         => asm volatile ("pause(#1)"),
 
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         => if (comptime builtin.cpu.has(.riscv, .zihintpause)) {
             asm volatile ("pause");
         },

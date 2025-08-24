@@ -20,7 +20,7 @@ pub fn supportsUnwinding(target: *const std.Target) bool {
 
         // Enabling this causes relocation errors such as:
         // error: invalid relocation type R_RISCV_SUB32 at offset 0x20
-        .riscv64, .riscv32 => false,
+        .riscv64, .riscv64be, .riscv32, .riscv32be => false,
 
         // Conservative guess. Feel free to update this logic with any targets
         // that are known to not support Dwarf unwinding.

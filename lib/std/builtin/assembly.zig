@@ -641,7 +641,7 @@ pub const Clobbers = switch (@import("builtin").cpu.arch) {
         q14: bool = false,
         q15: bool = false,
     },
-    .riscv32, .riscv64 => packed struct {
+    .riscv32, .riscv32be, .riscv64, .riscv64be => packed struct {
         /// Whether the inline assembly code may perform stores to memory
         /// addresses other than those derived from input pointer provenance.
         memory: bool = false,

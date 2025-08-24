@@ -217,6 +217,8 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv32, .os_tag = .rtems, .abi = .none },
     // .{ .cpu_arch = .riscv32, .os_tag = .uefi, .abi = .none },
 
+    // .{ .cpu_arch = .riscv32be, .os_tag = .freestanding, .abi = .none },
+
     .{ .cpu_arch = .riscv64, .os_tag = .freebsd, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .fuchsia, .abi = .none },
@@ -230,6 +232,8 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .riscv64, .os_tag = .rtems, .abi = .none },
     .{ .cpu_arch = .riscv64, .os_tag = .serenity, .abi = .none },
     // .{ .cpu_arch = .riscv64, .os_tag = .uefi, .abi = .none },
+
+    // .{ .cpu_arch = .riscv64, .os_tag = .freestanding, .abi = .none },
 
     .{ .cpu_arch = .s390x, .os_tag = .freestanding, .abi = .none },
     .{ .cpu_arch = .s390x, .os_tag = .linux, .abi = .gnu },

@@ -346,11 +346,11 @@ pub fn scanRelocs(self: Atom, elf_file: *Elf, code: ?[]const u8, undefs: anytype
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .aarch64 => aarch64.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+            .aarch64, .aarch64_be => aarch64.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64 => riscv.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
+            .riscv64, .riscv64be => riscv.scanReloc(self, elf_file, rel, symbol, code, &it) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
@@ -674,7 +674,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .aarch64 => aarch64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+            .aarch64, .aarch64_be => aarch64.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure,
                 error.RelaxFailure,
                 error.UnexpectedRemainder,
@@ -682,7 +682,7 @@ pub fn resolveRelocsAlloc(self: Atom, elf_file: *Elf, code: []u8) RelocError!voi
                 => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64 => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+            .riscv64, .riscv64be => riscv.resolveRelocAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure,
                 error.RelaxFailure,
                 => has_reloc_errors = true,
@@ -870,11 +870,11 @@ pub fn resolveRelocsNonAlloc(self: Atom, elf_file: *Elf, code: []u8, undefs: any
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .aarch64 => aarch64.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+            .aarch64, .aarch64_be => aarch64.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
-            .riscv64 => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
+            .riscv64, .riscv64be => riscv.resolveRelocNonAlloc(self, elf_file, rel, target, args, &it, code, &stream) catch |err| switch (err) {
                 error.RelocFailure => has_reloc_errors = true,
                 else => |e| return e,
             },
