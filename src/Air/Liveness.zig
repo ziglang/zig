@@ -1643,7 +1643,7 @@ fn analyzeInstLoop(
                 .live_set = data.live_set.move(),
             });
             defer {
-                log.debug("[{}] %{f}: popped loop block scop", .{ pass, inst });
+                log.debug("[{}] %{f}: popped loop block scope", .{ pass, inst });
                 var scope = data.block_scopes.fetchRemove(inst).?.value;
                 scope.live_set.deinit(gpa);
             }
