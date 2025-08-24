@@ -184,13 +184,13 @@ const ScalarDouble = struct {
         }
         var t = ScalarDouble{ .x1 = undefined, .x2 = Fe.zero };
         {
-            var b = [_]u8{0} ** encoded_length;
+            var b: [encoded_length]u8 = @splat(0);
             const len = @min(s.len, 32);
             b[0..len].* = s[0..len].*;
             t.x1 = Fe.fromBytes(b, .little) catch unreachable;
         }
         if (s_.len >= 32) {
-            var b = [_]u8{0} ** encoded_length;
+            var b: [encoded_length]u8 = @splat(0);
             const len = @min(s.len - 32, 32);
             b[0..len].* = s[32..][0..len].*;
             t.x2 = Fe.fromBytes(b, .little) catch unreachable;

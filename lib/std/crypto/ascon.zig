@@ -87,7 +87,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 self.st[i / 8] = mem.readInt(u64, bytes[i..][0..8], endian);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] = mem.readInt(u64, padded[0..], endian);
             }
@@ -109,7 +109,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 self.st[i / 8] ^= mem.readInt(u64, bytes[i..][0..8], endian);
             }
             if (i < bytes.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. bytes.len - i], bytes[i..]);
                 self.st[i / 8] ^= mem.readInt(u64, padded[0..], endian);
             }
@@ -122,7 +122,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 mem.writeInt(u64, out[i..][0..8], self.st[i / 8], endian);
             }
             if (i < out.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 mem.writeInt(u64, padded[0..], self.st[i / 8], endian);
                 @memcpy(out[i..], padded[0 .. out.len - i]);
             }
@@ -138,7 +138,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
                 mem.writeInt(u64, out[i..][0..8], x, native_endian);
             }
             if (i < in.len) {
-                var padded = [_]u8{0} ** 8;
+                var padded: [8]u8 = @splat(0);
                 @memcpy(padded[0 .. in.len - i], in[i..]);
                 const x = mem.readInt(u64, &padded, native_endian) ^ mem.nativeTo(u64, self.st[i / 8], endian);
                 mem.writeInt(u64, &padded, x, native_endian);
@@ -216,7 +216,7 @@ pub fn State(comptime endian: std.builtin.Endian) type {
 
 test "ascon" {
     const Ascon = State(.big);
-    const bytes = [_]u8{0x01} ** Ascon.block_bytes;
+    const bytes: [Ascon.block_bytes]u8 = @splat(0x01);
     var st = Ascon.init(bytes);
     var out: [Ascon.block_bytes]u8 = undefined;
     st.permute();

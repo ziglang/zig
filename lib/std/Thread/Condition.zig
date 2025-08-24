@@ -470,8 +470,8 @@ test "multi signal" {
         }
     };
 
-    var paddles = [_]Paddle{.{}} ** num_threads;
-    var threads = [_]std.Thread{undefined} ** num_threads;
+    var paddles: [num_threads]Paddle = @splat(.{});
+    var threads: [num_threads]std.Thread = @splat(undefined);
 
     // Create a circle of paddles which hit each other
     for (&threads, 0..) |*t, i| {

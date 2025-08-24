@@ -177,7 +177,7 @@ pub fn directEnumArrayDefault(
     init_values: EnumFieldStruct(E, Data, default),
 ) [directEnumArrayLen(E, max_unused_slots)]Data {
     const len = comptime directEnumArrayLen(E, max_unused_slots);
-    var result: [len]Data = if (default) |d| [_]Data{d} ** len else undefined;
+    var result: [len]Data = if (default) |d| @splat(d) else undefined;
     inline for (@typeInfo(@TypeOf(init_values)).@"struct".fields) |f| {
         const enum_value = @field(E, f.name);
         const index = @as(usize, @intCast(@intFromEnum(enum_value)));
