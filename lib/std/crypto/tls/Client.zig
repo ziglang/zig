@@ -44,6 +44,8 @@ write_seq: u64,
 received_close_notify: bool,
 allow_truncation_attacks: bool,
 application_cipher: tls.ApplicationCipher,
+/// The negotiated ALPN protocol, if any. Will be null if no ALPN was negotiated.
+negotiated_alpn: ?[]const u8 = null,
 
 /// If non-null, ssl secrets are logged to a stream. Creating such a log file
 /// allows other programs with access to that file to decrypt all traffic over
@@ -111,6 +113,10 @@ pub const Options = struct {
     /// Only the `writer` field is observed during the handshake (`init`).
     /// After that, the other fields are populated.
     ssl_key_log: ?*SslKeyLog = null,
+    /// Application Layer Protocol Negotiation (ALPN) protocols to advertise.
+    /// Common values include "h2" for HTTP/2 and "http/1.1" for HTTP/1.1.
+    /// If null or empty, no ALPN extension is sent.
+    alpn_protocols: ?[]const []const u8 = null,
     /// By default, reaching the end-of-stream when reading from the server will
     /// cause `error.TlsConnectionTruncated` to be returned, unless a close_notify
     /// message has been received. By setting this flag to `true`, instead, the
@@ -247,10 +253,46 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
         .explicit => server_name_extension.len + host_len,
     };
 
+    // Build ALPN extension if protocols are provided
+    var alpn_extension_buf: [256]u8 = undefined;
+    var alpn_extension_len: u16 = 0;
+    if (options.alpn_protocols) |protocols| {
+        if (protocols.len > 0) {
+            // Calculate total length of all protocols
+            var protocols_len: u16 = 0;
+            for (protocols) |protocol| {
+                protocols_len += 1 + @as(u16, @intCast(protocol.len)); // 1 byte for length + protocol
+            }
+            
+            // Build ALPN extension
+            // Extension type (16 = ALPN)
+            alpn_extension_buf[0] = 0x00;
+            alpn_extension_buf[1] = 0x10;
+            // Extension length (2 bytes for protocol list length + protocols)
+            alpn_extension_buf[2] = @intCast((2 + protocols_len) >> 8);
+            alpn_extension_buf[3] = @intCast((2 + protocols_len) & 0xFF);
+            // Protocol list length
+            alpn_extension_buf[4] = @intCast(protocols_len >> 8);
+            alpn_extension_buf[5] = @intCast(protocols_len & 0xFF);
+            
+            // Add each protocol
+            var offset: usize = 6;
+            for (protocols) |protocol| {
+                alpn_extension_buf[offset] = @intCast(protocol.len);
+                offset += 1;
+                @memcpy(alpn_extension_buf[offset..offset + protocol.len], protocol);
+                offset += protocol.len;
+            }
+            
+            alpn_extension_len = @intCast(offset);
+        }
+    }
+
     const extensions_header =
-        int(u16, @intCast(extensions_payload.len + server_name_extension_len)) ++
+        int(u16, @intCast(extensions_payload.len + server_name_extension_len + alpn_extension_len)) ++
         extensions_payload ++
-        server_name_extension;
+        server_name_extension ++
+        alpn_extension_buf[0..alpn_extension_len].*;
 
     const client_hello =
         int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
@@ -320,6 +362,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_state: HandshakeState = .hello;
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
+    var negotiated_alpn: ?[]const u8 = null;
     const now_sec = std.time.timestamp();
 
     var cleartext_fragment_start: usize = 0;
@@ -474,6 +517,19 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                         const key_size = extd.decode(u16);
                                         try extd.ensure(key_size);
                                         try key_share.exchange(named_group, extd.slice(key_size));
+                                    },
+                                    .application_layer_protocol_negotiation => {
+                                        // Parse ALPN response from server
+                                        try extd.ensure(2);
+                                        const protocol_list_len = extd.decode(u16);
+                                        try extd.ensure(protocol_list_len);
+                                        // Server should only send one protocol
+                                        if (protocol_list_len > 0) {
+                                            const protocol_len = extd.decode(u8);
+                                            try extd.ensure(protocol_len);
+                                            // Store the negotiated protocol
+                                            negotiated_alpn = extd.slice(protocol_len);
+                                        }
                                     },
                                     else => {},
                                 }
@@ -899,6 +955,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                             .received_close_notify = false,
                             .allow_truncation_attacks = options.allow_truncation_attacks,
                             .application_cipher = app_cipher,
+                            .negotiated_alpn = negotiated_alpn,
                             .ssl_key_log = options.ssl_key_log,
                         };
                     },
@@ -1273,7 +1330,7 @@ fn readIndirect(c: *Client) Reader.Error!usize {
 fn rebase(r: *Reader, capacity: usize) void {
     if (r.buffer.len - r.end >= capacity) return;
     const data = r.buffer[r.seek..r.end];
-    @memmove(r.buffer[0..data.len], data);
+    @memcpy(r.buffer[0..data.len], data);
     r.seek = 0;
     r.end = data.len;
     assert(r.buffer.len - r.end >= capacity);
