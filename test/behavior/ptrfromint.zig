@@ -1,6 +1,6 @@
 const std = @import("std");
+const expect = std.testing.expect;
 const builtin = @import("builtin");
-const expectEqual = std.testing.expectEqual;
 
 test "casting integer address to function pointer" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
@@ -38,7 +38,7 @@ test "@ptrFromInt creates null pointer" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const ptr = @as(?*u32, @ptrFromInt(0));
-    try expectEqual(@as(?*u32, null), ptr);
+    try expect(@as(?*u32, null) == ptr);
 }
 
 test "@ptrFromInt creates allowzero zero pointer" {
@@ -47,5 +47,5 @@ test "@ptrFromInt creates allowzero zero pointer" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const ptr = @as(*allowzero u32, @ptrFromInt(0));
-    try expectEqual(@as(usize, 0), @intFromPtr(ptr));
+    try expect(@as(usize, 0) == @intFromPtr(ptr));
 }

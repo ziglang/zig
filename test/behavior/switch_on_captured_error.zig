@@ -2,7 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const expectError = std.testing.expectError;
-const expectEqual = std.testing.expectEqual;
 const builtin = @import("builtin");
 
 test "switch on error union catch capture" {
@@ -30,7 +29,7 @@ test "switch on error union catch capture" {
                     error.B => 1,
                     error.C => 2,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -40,7 +39,7 @@ test "switch on error union catch capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -50,7 +49,7 @@ test "switch on error union catch capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -62,7 +61,7 @@ test "switch on error union catch capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -71,7 +70,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -80,7 +79,7 @@ test "switch on error union catch capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -89,7 +88,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -98,7 +97,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -110,7 +109,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -119,7 +118,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -128,7 +127,7 @@ test "switch on error union catch capture" {
                     error.A => 1,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -137,7 +136,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -146,7 +145,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -158,7 +157,7 @@ test "switch on error union catch capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => 0,
                 };
-                try expectEqual(@as(u64, @intFromError(error.A) + 4), b);
+                try expect(@as(u64, @intFromError(error.A) + 4) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -167,7 +166,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -176,7 +175,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -185,7 +184,7 @@ test "switch on error union catch capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -194,7 +193,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -206,7 +205,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -215,7 +214,7 @@ test "switch on error union catch capture" {
                     error.A => |e| @intFromError(e) + 4,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -223,7 +222,7 @@ test "switch on error union catch capture" {
                 const b: u64 = a catch |err| switch (err) {
                     inline else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -232,7 +231,7 @@ test "switch on error union catch capture" {
                     error.A => 0,
                     inline error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -243,7 +242,7 @@ test "switch on error union catch capture" {
                 const b: u64 = a catch |err| switch (err) {
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: error{}!u64 = 0;
@@ -252,7 +251,7 @@ test "switch on error union catch capture" {
                     error.UnknownError => return error.Fail,
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -263,7 +262,7 @@ test "switch on error union catch capture" {
                     else => 3,
                 });
                 comptime assert(@TypeOf(ptr) == *const usize);
-                try expectEqual(ptr, &(a catch unreachable));
+                try expect(ptr == &(a catch unreachable));
             }
             {
                 const a: anyerror!usize = error.A;
@@ -271,7 +270,7 @@ test "switch on error union catch capture" {
                     else => 3,
                 });
                 comptime assert(@TypeOf(ptr) == *const comptime_int);
-                try expectEqual(3, ptr.*);
+                try expect(3 == ptr.*);
             }
             {
                 var a: anyerror!usize = 0;
@@ -281,7 +280,7 @@ test "switch on error union catch capture" {
                 });
                 comptime assert(@TypeOf(ptr) == *usize);
                 ptr.* += 1;
-                try expectEqual(@as(usize, 1), a catch unreachable);
+                try expect(@as(usize, 1) == a catch unreachable);
             }
             {
                 var a: anyerror!usize = error.A;
@@ -331,7 +330,7 @@ test "switch on error union if else capture" {
                     error.B => 1,
                     error.C => 2,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -341,7 +340,7 @@ test "switch on error union if else capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -351,7 +350,7 @@ test "switch on error union if else capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -364,7 +363,7 @@ test "switch on error union if else capture" {
                     error.B => 1,
                     error.C => 2,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -374,7 +373,7 @@ test "switch on error union if else capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -384,7 +383,7 @@ test "switch on error union if else capture" {
                     error.B => @intFromError(err) + 4,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -396,7 +395,7 @@ test "switch on error union if else capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -405,7 +404,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -414,7 +413,7 @@ test "switch on error union if else capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -423,7 +422,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -432,7 +431,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -444,7 +443,7 @@ test "switch on error union if else capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -453,7 +452,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -462,7 +461,7 @@ test "switch on error union if else capture" {
                     error.A, error.B => 0,
                     error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -471,7 +470,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -480,7 +479,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -492,7 +491,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -501,7 +500,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -510,7 +509,7 @@ test "switch on error union if else capture" {
                     error.A => 1,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -519,7 +518,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -528,7 +527,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -540,7 +539,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = 3;
@@ -549,7 +548,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 3), b);
+                try expect(@as(u64, 3) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -558,7 +557,7 @@ test "switch on error union if else capture" {
                     error.A => 1,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -567,7 +566,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => 1,
                 };
-                try expectEqual(@as(u64, 1), b);
+                try expect(@as(u64, 1) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -576,7 +575,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -588,7 +587,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => 0,
                 };
-                try expectEqual(@as(u64, @intFromError(error.A) + 4), b);
+                try expect(@as(u64, @intFromError(error.A) + 4) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -597,7 +596,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -606,7 +605,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -615,7 +614,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -624,7 +623,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -636,7 +635,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => 0,
                 };
-                try expectEqual(@as(u64, @intFromError(error.A) + 4), b);
+                try expect(@as(u64, @intFromError(error.A) + 4) == b);
             }
             {
                 var a: Error!u64 = error.A;
@@ -645,7 +644,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -654,7 +653,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -663,7 +662,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -672,7 +671,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -684,7 +683,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -693,7 +692,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -701,7 +700,7 @@ test "switch on error union if else capture" {
                 const b: u64 = if (a) |x| x else |err| switch (err) {
                     inline else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -710,7 +709,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     inline error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -722,7 +721,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -731,7 +730,7 @@ test "switch on error union if else capture" {
                     error.A => |e| @intFromError(e) + 4,
                     inline else => @intFromError(err) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -739,7 +738,7 @@ test "switch on error union if else capture" {
                 const b: u64 = if (a) |*x| x.* else |err| switch (err) {
                     inline else => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
             {
                 var a: Error!u64 = error.B;
@@ -748,7 +747,7 @@ test "switch on error union if else capture" {
                     error.A => 0,
                     inline error.B, error.C => |e| @intFromError(e) + 4,
                 };
-                try expectEqual(@as(u64, @intFromError(error.B) + 4), b);
+                try expect(@as(u64, @intFromError(error.B) + 4) == b);
             }
         }
 
@@ -759,7 +758,7 @@ test "switch on error union if else capture" {
                 const b: u64 = if (a) |x| x else |err| switch (err) {
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: error{}!u64 = 0;
@@ -768,7 +767,7 @@ test "switch on error union if else capture" {
                     error.UnknownError => return error.Fail,
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -779,7 +778,7 @@ test "switch on error union if else capture" {
                 const b: u64 = if (a) |*x| x.* else |err| switch (err) {
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
             {
                 var a: error{}!u64 = 0;
@@ -788,7 +787,7 @@ test "switch on error union if else capture" {
                     error.UnknownError => return error.Fail,
                     else => |e| return e,
                 };
-                try expectEqual(@as(u64, 0), b);
+                try expect(@as(u64, 0) == b);
             }
         }
 
@@ -799,7 +798,7 @@ test "switch on error union if else capture" {
                     else => 3,
                 });
                 comptime assert(@TypeOf(ptr) == *const usize);
-                try expectEqual(ptr, &(a catch unreachable));
+                try expect(ptr == &(a catch unreachable));
             }
             {
                 const a: anyerror!usize = error.A;
@@ -807,7 +806,7 @@ test "switch on error union if else capture" {
                     else => 3,
                 });
                 comptime assert(@TypeOf(ptr) == *const comptime_int);
-                try expectEqual(3, ptr.*);
+                try expect(3 == ptr.*);
             }
             {
                 var a: anyerror!usize = 0;
@@ -817,7 +816,7 @@ test "switch on error union if else capture" {
                 });
                 comptime assert(@TypeOf(ptr) == *usize);
                 ptr.* += 1;
-                try expectEqual(@as(usize, 1), a catch unreachable);
+                try expect(@as(usize, 1) == a catch unreachable);
             }
             {
                 var a: anyerror!usize = error.A;

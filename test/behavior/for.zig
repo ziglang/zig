@@ -1,8 +1,8 @@
-const builtin = @import("builtin");
 const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 const mem = std.mem;
+const builtin = @import("builtin");
 
 test "continue in for loop" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
@@ -465,11 +465,11 @@ test "ref counter that starts at zero" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     for ([_]usize{ 0, 1, 2 }, 0..) |i, j| {
-        try expectEqual(i, j);
+        try expect(i == j);
         try expectEqual((&i).*, (&j).*);
     }
     inline for (.{ 0, 1, 2 }, 0..) |i, j| {
-        try expectEqual(i, j);
+        try expect(i == j);
         try expectEqual((&i).*, (&j).*);
     }
 }
@@ -484,7 +484,7 @@ test "inferred alloc ptr of for loop" {
         const opt = for (0..1) |_| {
             if (cond) break cond;
         } else null;
-        try expectEqual(@as(?bool, null), opt);
+        try expect(@as(?bool, null) == opt);
     }
     {
         var cond = true;
@@ -492,7 +492,7 @@ test "inferred alloc ptr of for loop" {
         const opt = for (0..1) |_| {
             if (cond) break cond;
         } else null;
-        try expectEqual(@as(?bool, true), opt);
+        try expect(@as(?bool, true) == opt);
     }
 }
 
