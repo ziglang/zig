@@ -58,18 +58,21 @@ export fn testOpt() void {
     _ = f;
 }
 
+const E = enum(u8) { _ };
 export fn testNonExhaustiveEnum() void {
-    const f: enum(u8) { _ } = @import("zon/neg_inf.zon");
+    const f: E = @import("zon/neg_inf.zon");
     _ = f;
 }
 
+const U = union { foo: void };
 export fn testUntaggedUnion() void {
-    const f: union { foo: void } = @import("zon/neg_inf.zon");
+    const f: U = @import("zon/neg_inf.zon");
     _ = f;
 }
 
+const EU = union(enum) { foo: void };
 export fn testTaggedUnionVoid() void {
-    const f: union(enum) { foo: void } = @import("zon/neg_inf.zon");
+    const f: EU = @import("zon/neg_inf.zon");
     _ = f;
 }
 
@@ -109,17 +112,17 @@ export fn testMutablePointer() void {
 // tmp.zig:47:36: note: ZON does not allow nested optionals
 // tmp.zig:52:50: error: type '?*const ?*const u8' is not available in ZON
 // tmp.zig:52:50: note: ZON does not allow nested optionals
-// tmp.zig:82:26: error: type '??f32' is not available in ZON
-// tmp.zig:82:26: note: ZON does not allow nested optionals
-// tmp.zig:87:29: error: type '*i32' is not available in ZON
-// tmp.zig:87:29: note: ZON does not allow mutable pointers
+// tmp.zig:85:26: error: type '??f32' is not available in ZON
+// tmp.zig:85:26: note: ZON does not allow nested optionals
+// tmp.zig:90:29: error: type '*i32' is not available in ZON
+// tmp.zig:90:29: note: ZON does not allow mutable pointers
 // neg_inf.zon:1:1: error: expected type '@Type(.enum_literal)'
 // tmp.zig:37:38: note: imported here
 // neg_inf.zon:1:1: error: expected type '?u8'
 // tmp.zig:57:28: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testNonExhaustiveEnum__enum_492'
-// tmp.zig:62:39: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testUntaggedUnion__union_494'
-// tmp.zig:67:44: note: imported here
-// neg_inf.zon:1:1: error: expected type 'tmp.testTaggedUnionVoid__union_497'
-// tmp.zig:72:50: note: imported here
+// neg_inf.zon:1:1: error: expected type 'tmp.E'
+// tmp.zig:63:26: note: imported here
+// neg_inf.zon:1:1: error: expected type 'tmp.U'
+// tmp.zig:69:26: note: imported here
+// neg_inf.zon:1:1: error: expected type 'tmp.EU'
+// tmp.zig:75:27: note: imported here

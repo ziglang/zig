@@ -8,6 +8,6 @@
 
 void IN6_SET_ADDR_LOOPBACK(struct in6_addr *a)
 {
-	memset(a->s6_bytes, 0, sizeof(struct in6_addr));
+	*a = (struct in6_addr){0};
 	a->s6_bytes[15] = 1;
 }

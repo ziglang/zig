@@ -10,12 +10,12 @@ resolved_target: ?std.Build.ResolvedTarget = null,
 optimize: ?std.builtin.OptimizeMode = null,
 dwarf_format: ?std.dwarf.Format,
 
-c_macros: std.ArrayListUnmanaged([]const u8),
-include_dirs: std.ArrayListUnmanaged(IncludeDir),
-lib_paths: std.ArrayListUnmanaged(LazyPath),
-rpaths: std.ArrayListUnmanaged(RPath),
+c_macros: ArrayList([]const u8),
+include_dirs: ArrayList(IncludeDir),
+lib_paths: ArrayList(LazyPath),
+rpaths: ArrayList(RPath),
 frameworks: std.StringArrayHashMapUnmanaged(LinkFrameworkOptions),
-link_objects: std.ArrayListUnmanaged(LinkObject),
+link_objects: ArrayList(LinkObject),
 
 strip: ?bool,
 unwind_tables: ?std.builtin.UnwindTables,
@@ -170,42 +170,28 @@ pub const IncludeDir = union(enum) {
     pub fn appendZigProcessFlags(
         include_dir: IncludeDir,
         b: *std.Build,
-        zig_args: *std.ArrayList([]const u8),
+        zig_args: *std.array_list.Managed([]const u8),
         asking_step: ?*Step,
     ) !void {
-        switch (include_dir) {
-            .path => |include_path| {
-                try zig_args.appendSlice(&.{ "-I", include_path.getPath2(b, asking_step) });
+        const flag: []const u8, const lazy_path: LazyPath = switch (include_dir) {
+            // zig fmt: off
+            .path                  => |lp|   .{ "-I",          lp },
+            .path_system           => |lp|   .{ "-isystem",    lp },
+            .path_after            => |lp|   .{ "-idirafter",  lp },
+            .framework_path        => |lp|   .{ "-F",          lp },
+            .framework_path_system => |lp|   .{ "-iframework", lp },
+            .config_header_step    => |ch|   .{ "-I",          ch.getOutputDir() },
+            .other_step            => |comp| .{ "-I",          comp.installed_headers_include_tree.?.getDirectory() },
+            // zig fmt: on
+            .embed_path => |lazy_path| {
+                // Special case: this is a single arg.
+                const resolved = lazy_path.getPath3(b, asking_step);
+                const arg = b.fmt("--embed-dir={f}", .{resolved});
+                return zig_args.append(arg);
             },
-            .path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-isystem", include_path.getPath2(b, asking_step) });
-            },
-            .path_after => |include_path| {
-                try zig_args.appendSlice(&.{ "-idirafter", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path => |include_path| {
-                try zig_args.appendSlice(&.{ "-F", include_path.getPath2(b, asking_step) });
-            },
-            .framework_path_system => |include_path| {
-                try zig_args.appendSlice(&.{ "-iframework", include_path.getPath2(b, asking_step) });
-            },
-            .other_step => |other| {
-                if (other.generated_h) |header| {
-                    try zig_args.appendSlice(&.{ "-isystem", std.fs.path.dirname(header.getPath()).? });
-                }
-                if (other.installed_headers_include_tree) |include_tree| {
-                    try zig_args.appendSlice(&.{ "-I", include_tree.generated_directory.getPath() });
-                }
-            },
-            .config_header_step => |config_header| {
-                const full_file_path = config_header.output_file.getPath();
-                const header_dir_path = full_file_path[0 .. full_file_path.len - config_header.include_path.len];
-                try zig_args.appendSlice(&.{ "-I", header_dir_path });
-            },
-            .embed_path => |embed_path| {
-                try zig_args.append(try std.mem.concat(b.allocator, u8, &.{ "--embed-dir=", embed_path.getPath2(b, asking_step) }));
-            },
-        }
+        };
+        const resolved_str = try lazy_path.getPath3(b, asking_step).toString(b.graph.arena);
+        return zig_args.appendSlice(&.{ flag, resolved_str });
     }
 };
 
@@ -551,7 +537,7 @@ pub fn addCMacro(m: *Module, name: []const u8, value: []const u8) void {
 
 pub fn appendZigProcessFlags(
     m: *Module,
-    zig_args: *std.ArrayList([]const u8),
+    zig_args: *std.array_list.Managed([]const u8),
     asking_step: ?*Step,
 ) !void {
     const b = m.owner;
@@ -586,7 +572,7 @@ pub fn appendZigProcessFlags(
         try zig_args.append(switch (unwind_tables) {
             .none => "-fno-unwind-tables",
             .sync => "-funwind-tables",
-            .@"async" => "-fasync-unwind-tables",
+            .async => "-fasync-unwind-tables",
         });
     }
 
@@ -648,7 +634,7 @@ pub fn appendZigProcessFlags(
 }
 
 fn addFlag(
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     opt: ?bool,
     then_name: []const u8,
     else_name: []const u8,
@@ -669,10 +655,10 @@ fn linkLibraryOrObject(m: *Module, other: *Step.Compile) void {
     m.include_dirs.append(allocator, .{ .other_step = other }) catch @panic("OOM");
 }
 
-fn requireKnownTarget(m: *Module) std.Target {
-    const resolved_target = m.resolved_target orelse
-        @panic("this API requires the Module to be created with a known 'target' field");
-    return resolved_target.result;
+fn requireKnownTarget(m: *Module) *const std.Target {
+    const resolved_target = &(m.resolved_target orelse
+        @panic("this API requires the Module to be created with a known 'target' field"));
+    return &resolved_target.result;
 }
 
 /// Elements of `modules` and `names` are matched one-to-one.
@@ -720,3 +706,4 @@ const std = @import("std");
 const assert = std.debug.assert;
 const LazyPath = std.Build.LazyPath;
 const Step = std.Build.Step;
+const ArrayList = std.ArrayList;

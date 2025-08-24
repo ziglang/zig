@@ -14,7 +14,8 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
 #expect_stdout="a\n"
@@ -31,7 +32,8 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 comptime {
     // These can't be true at the same time; analysis should stop as soon as it sees `Foo`
@@ -53,7 +55,8 @@ const Foo = enum(Tag) {
 pub fn main() !void {
     var val: Foo = undefined;
     val = .a;
-    try std.io.getStdOut().writer().print("{s}\n", .{@tagName(val)});
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print("{s}\n", .{@tagName(val)});
 }
 const std = @import("std");
 #expect_stdout="a\n"

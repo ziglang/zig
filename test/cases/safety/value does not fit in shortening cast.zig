@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub fn panic(message: []const u8, stack_trace: ?*std.builtin.StackTrace, _: ?usize) noreturn {
     _ = stack_trace;
-    if (std.mem.eql(u8, message, "integer cast truncated bits")) {
+    if (std.mem.eql(u8, message, "integer does not fit in destination type")) {
         std.process.exit(0);
     }
     std.process.exit(1);
@@ -18,4 +18,4 @@ fn shorten_cast(x: i32) i8 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

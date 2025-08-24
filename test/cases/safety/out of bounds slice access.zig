@@ -18,4 +18,4 @@ fn bar(a: []const i32) i32 {
 fn baz(_: i32) void {}
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

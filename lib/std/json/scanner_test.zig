@@ -1,13 +1,11 @@
 const std = @import("std");
-const JsonScanner = @import("./scanner.zig").Scanner;
-const jsonReader = @import("./scanner.zig").reader;
-const JsonReader = @import("./scanner.zig").Reader;
-const Token = @import("./scanner.zig").Token;
-const TokenType = @import("./scanner.zig").TokenType;
-const Diagnostics = @import("./scanner.zig").Diagnostics;
-const Error = @import("./scanner.zig").Error;
-const validate = @import("./scanner.zig").validate;
-const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const Scanner = @import("Scanner.zig");
+const Token = Scanner.Token;
+const TokenType = Scanner.TokenType;
+const Diagnostics = Scanner.Diagnostics;
+const Error = Scanner.Error;
+const validate = Scanner.validate;
+const isNumberFormattedLikeAnInteger = Scanner.isNumberFormattedLikeAnInteger;
 
 const example_document_str =
     \\{
@@ -36,7 +34,7 @@ fn expectPeekNext(scanner_or_reader: anytype, expected_token_type: TokenType, ex
 }
 
 test "token" {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, example_document_str);
     defer scanner.deinit();
 
     try expectNext(&scanner, .object_begin);
@@ -138,23 +136,25 @@ fn testAllTypes(source: anytype, large_buffer: bool) !void {
 }
 
 test "peek all types" {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, all_types_test_case);
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, all_types_test_case);
     defer scanner.deinit();
     try testAllTypes(&scanner, true);
 
-    var stream = std.io.fixedBufferStream(all_types_test_case);
-    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    var stream: std.Io.Reader = .fixed(all_types_test_case);
+    var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
     defer json_reader.deinit();
     try testAllTypes(&json_reader, true);
 
-    var tiny_stream = std.io.fixedBufferStream(all_types_test_case);
-    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
+    var tiny_buffer: [1]u8 = undefined;
+    var tiny_stream: std.testing.Reader = .init(&tiny_buffer, &.{.{ .buffer = all_types_test_case }});
+    tiny_stream.artificial_limit = .limited(1);
+    var tiny_json_reader: Scanner.Reader = .init(std.testing.allocator, &tiny_stream.interface);
     defer tiny_json_reader.deinit();
     try testAllTypes(&tiny_json_reader, false);
 }
 
 test "token mismatched close" {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "[102, 111, 111 }");
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, "[102, 111, 111 }");
     defer scanner.deinit();
     try expectNext(&scanner, .array_begin);
     try expectNext(&scanner, Token{ .number = "102" });
@@ -164,15 +164,15 @@ test "token mismatched close" {
 }
 
 test "token premature object close" {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, "{ \"key\": }");
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, "{ \"key\": }");
     defer scanner.deinit();
     try expectNext(&scanner, .object_begin);
     try expectNext(&scanner, Token{ .string = "key" });
     try std.testing.expectError(error.SyntaxError, scanner.next());
 }
 
-test "JsonScanner basic" {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, example_document_str);
+test "Scanner basic" {
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, example_document_str);
     defer scanner.deinit();
 
     while (true) {
@@ -181,10 +181,10 @@ test "JsonScanner basic" {
     }
 }
 
-test "JsonReader basic" {
-    var stream = std.io.fixedBufferStream(example_document_str);
+test "Scanner.Reader basic" {
+    var stream: std.Io.Reader = .fixed(example_document_str);
 
-    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
     defer json_reader.deinit();
 
     while (true) {
@@ -215,7 +215,7 @@ const number_test_items = blk: {
 
 test "numbers" {
     for (number_test_items) |number_str| {
-        var scanner = JsonScanner.initCompleteInput(std.testing.allocator, number_str);
+        var scanner = Scanner.initCompleteInput(std.testing.allocator, number_str);
         defer scanner.deinit();
 
         const token = try scanner.next();
@@ -243,10 +243,10 @@ const string_test_cases = .{
 
 test "strings" {
     inline for (string_test_cases) |tuple| {
-        var stream = std.io.fixedBufferStream("\"" ++ tuple[0] ++ "\"");
+        var stream: std.Io.Reader = .fixed("\"" ++ tuple[0] ++ "\"");
         var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
         defer arena.deinit();
-        var json_reader = jsonReader(std.testing.allocator, stream.reader());
+        var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
         defer json_reader.deinit();
 
         const token = try json_reader.nextAlloc(arena.allocator(), .alloc_if_needed);
@@ -289,7 +289,7 @@ test "nesting" {
 }
 
 fn expectMaybeError(document_str: []const u8, maybe_error: ?Error) !void {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, document_str);
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, document_str);
     defer scanner.deinit();
 
     while (true) {
@@ -352,12 +352,12 @@ fn expectEqualTokens(expected_token: Token, actual_token: Token) !void {
 }
 
 fn testTinyBufferSize(document_str: []const u8) !void {
-    var tiny_stream = std.io.fixedBufferStream(document_str);
-    var normal_stream = std.io.fixedBufferStream(document_str);
+    var tiny_stream: std.Io.Reader = .fixed(document_str);
+    var normal_stream: std.Io.Reader = .fixed(document_str);
 
-    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
+    var tiny_json_reader: Scanner.Reader = .init(std.testing.allocator, &tiny_stream);
     defer tiny_json_reader.deinit();
-    var normal_json_reader = JsonReader(0x1000, @TypeOf(normal_stream.reader())).init(std.testing.allocator, normal_stream.reader());
+    var normal_json_reader: Scanner.Reader = .init(std.testing.allocator, &normal_stream);
     defer normal_json_reader.deinit();
 
     expectEqualStreamOfTokens(&normal_json_reader, &tiny_json_reader) catch |err| {
@@ -397,13 +397,13 @@ test "validate" {
 }
 
 fn testSkipValue(s: []const u8) !void {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, s);
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, s);
     defer scanner.deinit();
     try scanner.skipValue();
     try expectEqualTokens(.end_of_document, try scanner.next());
 
-    var stream = std.io.fixedBufferStream(s);
-    var json_reader = jsonReader(std.testing.allocator, stream.reader());
+    var stream: std.Io.Reader = .fixed(s);
+    var json_reader: Scanner.Reader = .init(std.testing.allocator, &stream);
     defer json_reader.deinit();
     try json_reader.skipValue();
     try expectEqualTokens(.end_of_document, try json_reader.next());
@@ -441,7 +441,7 @@ fn testEnsureStackCapacity(do_ensure: bool) !void {
     try input_string.appendNTimes(std.testing.allocator, ']', nestings);
     defer input_string.deinit(std.testing.allocator);
 
-    var scanner = JsonScanner.initCompleteInput(failing_allocator, input_string.items);
+    var scanner = Scanner.initCompleteInput(failing_allocator, input_string.items);
     defer scanner.deinit();
 
     if (do_ensure) {
@@ -473,17 +473,17 @@ fn testDiagnosticsFromSource(expected_error: ?anyerror, line: u64, col: u64, byt
     try std.testing.expectEqual(byte_offset, diagnostics.getByteOffset());
 }
 fn testDiagnostics(expected_error: ?anyerror, line: u64, col: u64, byte_offset: u64, s: []const u8) !void {
-    var scanner = JsonScanner.initCompleteInput(std.testing.allocator, s);
+    var scanner = Scanner.initCompleteInput(std.testing.allocator, s);
     defer scanner.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &scanner);
 
-    var tiny_stream = std.io.fixedBufferStream(s);
-    var tiny_json_reader = JsonReader(1, @TypeOf(tiny_stream.reader())).init(std.testing.allocator, tiny_stream.reader());
+    var tiny_stream: std.Io.Reader = .fixed(s);
+    var tiny_json_reader: Scanner.Reader = .init(std.testing.allocator, &tiny_stream);
     defer tiny_json_reader.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &tiny_json_reader);
 
-    var medium_stream = std.io.fixedBufferStream(s);
-    var medium_json_reader = JsonReader(5, @TypeOf(medium_stream.reader())).init(std.testing.allocator, medium_stream.reader());
+    var medium_stream: std.Io.Reader = .fixed(s);
+    var medium_json_reader: Scanner.Reader = .init(std.testing.allocator, &medium_stream);
     defer medium_json_reader.deinit();
     try testDiagnosticsFromSource(expected_error, line, col, byte_offset, &medium_json_reader);
 }

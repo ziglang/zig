@@ -6,7 +6,7 @@ const c = @cImport({
 });
 
 test "c_char signedness" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try expectEqual(@as(c_char, c.CHAR_MIN), std.math.minInt(c_char));
     try expectEqual(@as(c_char, c.CHAR_MAX), std.math.maxInt(c_char));

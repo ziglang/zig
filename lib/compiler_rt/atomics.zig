@@ -19,7 +19,7 @@ const supports_atomic_ops = switch (arch) {
     // operations (unless we're targeting Linux, the kernel provides a way to
     // perform CAS operations).
     // XXX: The Linux code path is not implemented yet.
-    !std.Target.arm.featureSetHas(builtin.cpu.features, .has_v6m),
+    !builtin.cpu.has(.arm, .has_v6m),
     else => true,
 };
 
@@ -30,7 +30,7 @@ const largest_atomic_size = switch (arch) {
     // On SPARC systems that lacks CAS and/or swap instructions, the only
     // available atomic operation is a test-and-set (`ldstub`), so we force
     // every atomic memory access to go through the lock.
-    .sparc => if (std.Target.sparc.featureSetHas(builtin.cpu.features, .hasleoncasa)) @sizeOf(usize) else 0,
+    .sparc => if (builtin.cpu.has(.sparc, .hasleoncasa)) @sizeOf(usize) else 0,
 
     // XXX: On x86/x86_64 we could check the presence of cmpxchg8b/cmpxchg16b
     // and set this parameter accordingly.
@@ -71,8 +71,7 @@ const SpinlockTable = struct {
                     break :flag asm volatile ("ldstub [%[addr]], %[flag]"
                         : [flag] "=r" (-> @TypeOf(self.v)),
                         : [addr] "r" (&self.v),
-                        : "memory"
-                    );
+                        : .{ .memory = true });
                 } else flag: {
                     break :flag @atomicRmw(@TypeOf(self.v), &self.v, .Xchg, .Locked, .acquire);
                 };
@@ -88,8 +87,7 @@ const SpinlockTable = struct {
                 _ = asm volatile ("clrb [%[addr]]"
                     :
                     : [addr] "r" (&self.v),
-                    : "memory"
-                );
+                    : .{ .memory = true });
             } else {
                 @atomicStore(@TypeOf(self.v), &self.v, .Unlocked, .release);
             }

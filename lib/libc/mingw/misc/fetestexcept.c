@@ -15,26 +15,7 @@
    exception macros corresponding to the currently set exceptions
    included in excepts. */
 
-int fetestexcept (int excepts)
+int fetestexcept(int flags)
 {
-#if defined(_ARM_) || defined(__arm__)
-  fenv_t _env;
-  __asm__ volatile ("fmrx %0, FPSCR" : "=r" (_env));
-  return _env.__cw & excepts & FE_ALL_EXCEPT;
-#elif defined(_ARM64_) || defined(__aarch64__)
-  unsigned __int64 fpcr;
-  __asm__ volatile ("mrs %0, fpcr" : "=r" (fpcr));
-  return fpcr & excepts & FE_ALL_EXCEPT;
-#else
-  unsigned short _sw;
-  __asm__ __volatile__ ("fnstsw %%ax" : "=a" (_sw));
-
-  if (__mingw_has_sse ())
-    {
-      int sse_sw;
-      __asm__ __volatile__ ("stmxcsr %0;" : "=m" (sse_sw));
-      _sw |= sse_sw;
-    }
-  return _sw & excepts & FE_ALL_EXCEPT;
-#endif /* defined(_ARM_) || defined(__arm__) || defined(_ARM64_) || defined(__aarch64__) */
+    return __mingw_statusfp() & flags;
 }

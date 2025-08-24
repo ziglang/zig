@@ -204,6 +204,29 @@ pub const passwd = switch (native_os) {
         shell: ?[*:0]const u8, // default shell
         expire: time_t, // account expiration
     },
+    .dragonfly, .freebsd => extern struct {
+        name: ?[*:0]const u8, // user name
+        passwd: ?[*:0]const u8, // encrypted password
+        uid: uid_t, // user uid
+        gid: gid_t, // user gid
+        change: time_t, // password change time
+        class: ?[*:0]const u8, // user access class
+        gecos: ?[*:0]const u8, // Honeywell login info
+        dir: ?[*:0]const u8, // home directory
+        shell: ?[*:0]const u8, // default shell
+        expire: time_t, // account expiration
+        fields: c_int, // internal
+    },
+    else => void,
+};
+
+pub const group = switch (native_os) {
+    .linux, .freebsd, .openbsd, .dragonfly, .netbsd, .macos => extern struct {
+        name: ?[*:0]const u8,
+        passwd: ?[*:0]const u8,
+        gid: gid_t,
+        mem: [*:null]?[*:0]const u8,
+    },
     else => void,
 };
 
@@ -1576,6 +1599,25 @@ pub const MADV = switch (native_os) {
     },
     else => void,
 };
+pub const MCL = switch (native_os) {
+    .linux => linux.MCL,
+    // https://github.com/freebsd/freebsd-src/blob/39fea5c8dc598021e900c4feaf0e18111fda57b2/sys/sys/mman.h#L133
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/088552723935447397400336f5ddb7aa5f5de660/sys/sys/mman.h#L118
+    // https://github.com/NetBSD/src/blob/fd2741deca927c18e3ba15acdf78b8b14b2abe36/sys/sys/mman.h#L179
+    // https://github.com/openbsd/src/blob/39404228f6d36c0ca4be5f04ab5385568ebd6aa3/sys/sys/mman.h#L129
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/mman.h#L379
+    // https://github.com/illumos/illumos-gate/blob/5280477614f83fea20fc938729df6adb3e44340d/usr/src/uts/common/sys/mman.h#L343
+    .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => packed struct(c_int) {
+        CURRENT: bool = 0,
+        FUTURE: bool = 0,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 2) = 0,
+    },
+    else => void,
+};
+pub const MLOCK = switch (native_os) {
+    .linux => linux.MLOCK,
+    else => void,
+};
 pub const MSF = switch (native_os) {
     .linux => linux.MSF,
     .emscripten => emscripten.MSF,
@@ -1840,15 +1882,36 @@ pub const REG = switch (native_os) {
         pub const RSP = 20;
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => struct {
+        .aarch64, .aarch64_be => struct {
             pub const FP = 29;
             pub const SP = 31;
             pub const PC = 32;
         },
-        .arm => struct {
+        .arm, .armeb => struct {
             pub const FP = 11;
             pub const SP = 13;
             pub const PC = 15;
+        },
+        .x86 => struct {
+            pub const GS = 0;
+            pub const FS = 1;
+            pub const ES = 2;
+            pub const DS = 3;
+            pub const EDI = 4;
+            pub const ESI = 5;
+            pub const EBP = 6;
+            pub const ESP = 7;
+            pub const EBX = 8;
+            pub const EDX = 9;
+            pub const ECX = 10;
+            pub const EAX = 11;
+            pub const TRAPNO = 12;
+            pub const ERR = 13;
+            pub const EIP = 14;
+            pub const CS = 15;
+            pub const EFL = 16;
+            pub const UESP = 17;
+            pub const SS = 18;
         },
         .x86_64 => struct {
             pub const RDI = 0;
@@ -3270,8 +3333,8 @@ pub const T = switch (native_os) {
     .macos, .ios, .tvos, .watchos, .visionos => struct {
         pub const IOCGWINSZ = ior(0x40000000, 't', 104, @sizeOf(winsize));
 
-        fn ior(inout: u32, group: usize, num: usize, len: usize) usize {
-            return (inout | ((len & IOCPARM_MASK) << 16) | ((group) << 8) | (num));
+        fn ior(inout: u32, group_arg: usize, num: usize, len: usize) usize {
+            return (inout | ((len & IOCPARM_MASK) << 16) | ((group_arg) << 8) | (num));
         }
     },
     .freebsd => struct {
@@ -4089,7 +4152,7 @@ pub const msghdr_const = switch (native_os) {
         /// scatter/gather array
         iov: [*]const iovec_const,
         /// # elements in iov
-        iovlen: i32,
+        iovlen: u32,
         /// ancillary data
         control: ?*const anyopaque,
         /// ancillary data buffer len
@@ -4100,8 +4163,8 @@ pub const msghdr_const = switch (native_os) {
     .serenity => extern struct {
         name: ?*const anyopaque,
         namelen: socklen_t,
-        iov: [*]const iovec,
-        iovlen: c_int,
+        iov: [*]const iovec_const,
+        iovlen: c_uint,
         control: ?*const anyopaque,
         controllen: socklen_t,
         flags: c_int,
@@ -5577,6 +5640,7 @@ pub const MSG = switch (native_os) {
     .linux => linux.MSG,
     .emscripten => emscripten.MSG,
     .windows => ws2_32.MSG,
+    .driverkit, .macos, .ios, .tvos, .watchos, .visionos => darwin.MSG,
     .haiku => struct {
         pub const OOB = 0x0001;
         pub const PEEK = 0x0002;
@@ -5602,6 +5666,43 @@ pub const MSG = switch (native_os) {
         pub const DONTWAIT = 0x40;
         pub const NOSIGNAL = 0x80;
         pub const EOR = 0x100;
+    },
+    .freebsd => struct {
+        pub const OOB = 0x00000001;
+        pub const PEEK = 0x00000002;
+        pub const DONTROUTE = 0x00000004;
+        pub const EOR = 0x00000008;
+        pub const TRUNC = 0x00000010;
+        pub const CTRUNC = 0x00000020;
+        pub const WAITALL = 0x00000040;
+        pub const DONTWAIT = 0x00000080;
+        pub const EOF = 0x00000100;
+        pub const NOTIFICATION = 0x00002000;
+        pub const NBIO = 0x00004000;
+        pub const COMPAT = 0x00008000;
+        pub const SOCALLBCK = 0x00010000;
+        pub const NOSIGNAL = 0x00020000;
+        pub const CMSG_CLOEXEC = 0x00040000;
+        pub const WAITFORONE = 0x00080000;
+        pub const MORETOCOME = 0x00100000;
+        pub const TLSAPPDATA = 0x00200000;
+    },
+    .netbsd => struct {
+        pub const OOB = 0x0001;
+        pub const PEEK = 0x0002;
+        pub const DONTROUTE = 0x0004;
+        pub const EOR = 0x0008;
+        pub const TRUNC = 0x0010;
+        pub const CTRUNC = 0x0020;
+        pub const WAITALL = 0x0040;
+        pub const DONTWAIT = 0x0080;
+        pub const BCAST = 0x0100;
+        pub const MCAST = 0x0200;
+        pub const NOSIGNAL = 0x0400;
+        pub const CMSG_CLOEXEC = 0x0800;
+        pub const NBIO = 0x1000;
+        pub const WAITFORONE = 0x2000;
+        pub const NOTIFICATION = 0x4000;
     },
     else => void,
 };
@@ -5682,6 +5783,9 @@ pub const SOCK = switch (native_os) {
         pub const RAW = 3;
         pub const SEQPACKET = 5;
         pub const MISC = 255;
+
+        pub const NONBLOCK = 0x40000;
+        pub const CLOEXEC = 0x80000;
     },
     .openbsd => struct {
         pub const STREAM = 1;
@@ -6806,10 +6910,15 @@ pub const mcontext_t = switch (native_os) {
         fpregs: solaris.fpregset_t,
     },
     .netbsd => switch (builtin.cpu.arch) {
-        .aarch64 => extern struct {
+        .aarch64, .aarch64_be => extern struct {
             gregs: [35]u64,
             fregs: [528]u8 align(16),
             spare: [8]u64,
+        },
+        .x86 => extern struct {
+            gregs: [19]u32,
+            fpregs: [161]u32,
+            mc_tlsbase: u32,
         },
         .x86_64 => extern struct {
             gregs: [26]u64,
@@ -6880,11 +6989,11 @@ pub const utsname = switch (native_os) {
         domainname: [256:0]u8,
     },
     .macos => extern struct {
-        sysname: [256:0]u8,
-        nodename: [256:0]u8,
-        release: [256:0]u8,
-        version: [256:0]u8,
-        machine: [256:0]u8,
+        sysname: [255:0]u8,
+        nodename: [255:0]u8,
+        release: [255:0]u8,
+        version: [255:0]u8,
+        machine: [255:0]u8,
     },
     // https://github.com/SerenityOS/serenity/blob/d794ed1de7a46482272683f8dc4c858806390f29/Kernel/API/POSIX/sys/utsname.h#L17-L23
     .serenity => extern struct {
@@ -6894,7 +7003,7 @@ pub const utsname = switch (native_os) {
         version: [UTSNAME_ENTRY_LEN:0]u8,
         machine: [UTSNAME_ENTRY_LEN:0]u8,
 
-        const UTSNAME_ENTRY_LEN = 65;
+        const UTSNAME_ENTRY_LEN = 64;
     },
     else => void,
 };
@@ -7080,7 +7189,7 @@ pub const dirent = switch (native_os) {
         off: off_t,
         reclen: c_ushort,
         type: u8,
-        name: [256:0]u8,
+        name: [255:0]u8,
     },
     else => void,
 };
@@ -7979,8 +8088,9 @@ pub const pthread_rwlock_t = switch (native_os) {
     .netbsd => extern struct {
         magic: c_uint = 0x99990009,
         interlock: switch (builtin.cpu.arch) {
-            .aarch64, .sparc, .x86_64, .x86 => u8,
-            .arm, .powerpc => c_int,
+            .aarch64, .aarch64_be, .m68k, .sparc, .sparc64, .x86, .x86_64 => u8,
+            .arm, .armeb, .powerpc => c_int,
+            .mips, .mipsel, .mips64, .mips64el => c_uint,
             else => unreachable,
         } = 0,
         rblocked_first: ?*u8 = null,
@@ -8536,7 +8646,7 @@ pub const O = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/2808b0376406a40e31293bb3bcb9170374e90506/Kernel/API/POSIX/fcntl.h#L28-L43
     .serenity => packed struct(c_int) {
-        ACCMODE: std.posix.ACCMODE = .RDONLY,
+        ACCMODE: std.posix.ACCMODE = .NONE,
         EXEC: bool = false,
         CREAT: bool = false,
         EXCL: bool = false,
@@ -8692,10 +8802,10 @@ pub const MAP = switch (native_os) {
     },
     // https://github.com/SerenityOS/serenity/blob/6d59d4d3d9e76e39112842ec487840828f1c9bfe/Kernel/API/POSIX/sys/mman.h#L16-L26
     .serenity => packed struct(c_int) {
-        FILE: bool = false,
-        SHARED: bool = false,
-        PRIVATE: bool = false,
-        _3: u2 = 0,
+        TYPE: enum(u4) {
+            SHARED = 0x01,
+            PRIVATE = 0x02,
+        },
         FIXED: bool = false,
         ANONYMOUS: bool = false,
         STACK: bool = false,
@@ -8703,7 +8813,7 @@ pub const MAP = switch (native_os) {
         RANDOMIZED: bool = false,
         PURGEABLE: bool = false,
         FIXED_NOREPLACE: bool = false,
-        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 12) = 0,
+        _: std.meta.Int(.unsigned, @bitSizeOf(c_int) - 11) = 0,
     },
     else => void,
 };
@@ -9901,7 +10011,9 @@ pub const EVFILT = switch (native_os) {
         pub const PROC = -5;
         pub const SIGNAL = -6;
         pub const TIMER = -7;
+        pub const DEVICE = -8;
         pub const EXCEPT = -9;
+        pub const USER = -10;
     },
     else => void,
 };
@@ -10129,6 +10241,14 @@ pub const NOTE = switch (native_os) {
         pub const CHILD = 0x00000004;
         // data/hint flags for EVFILT.DEVICE
         pub const CHANGE = 0x00000001;
+        // data/hint flags for EVFILT_USER
+        pub const FFNOP = 0x00000000;
+        pub const FFAND = 0x40000000;
+        pub const FFOR = 0x80000000;
+        pub const FFCOPY = 0xc0000000;
+        pub const FFCTRLMASK = 0xc0000000;
+        pub const FFLAGSMASK = 0x00ffffff;
+        pub const TRIGGER = 0x01000000;
     },
     else => void,
 };
@@ -10183,9 +10303,20 @@ pub const fstatat = switch (native_os) {
     },
     else => private.fstatat,
 };
-
+pub extern "c" fn getpwent() ?*passwd;
+pub extern "c" fn endpwent() void;
+pub extern "c" fn setpwent() void;
 pub extern "c" fn getpwnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getpwnam_r(name: [*:0]const u8, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
 pub extern "c" fn getpwuid(uid: uid_t) ?*passwd;
+pub extern "c" fn getpwuid_r(uid: uid_t, pwd: *passwd, buf: [*]u8, buflen: usize, result: *?*passwd) c_int;
+pub extern "c" fn getgrent() ?*group;
+pub extern "c" fn setgrent() void;
+pub extern "c" fn endgrent() void;
+pub extern "c" fn getgrnam(name: [*:0]const u8) ?*passwd;
+pub extern "c" fn getgrnam_r(name: [*:0]const u8, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
+pub extern "c" fn getgrgid(gid: gid_t) ?*group;
+pub extern "c" fn getgrgid_r(gid: gid_t, grp: *group, buf: [*]u8, buflen: usize, result: *?*group) c_int;
 pub extern "c" fn getrlimit64(resource: rlimit_resource, rlim: *rlimit) c_int;
 pub extern "c" fn lseek64(fd: fd_t, offset: i64, whence: c_int) i64;
 pub extern "c" fn mmap64(addr: ?*align(page_size) anyopaque, len: usize, prot: c_uint, flags: c_uint, fd: fd_t, offset: i64) *anyopaque;
@@ -10313,6 +10444,31 @@ pub const gettimeofday = switch (native_os) {
     else => private.gettimeofday,
 };
 
+pub const mlock = switch (native_os) {
+    .windows, .wasi => {},
+    else => private.mlock,
+};
+
+pub const mlock2 = switch (native_os) {
+    linux => private.mlock2,
+    else => {},
+};
+
+pub const munlock = switch (native_os) {
+    .windows, .wasi => {},
+    else => private.munlock,
+};
+
+pub const mlockall = switch (native_os) {
+    .linux, .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => private.mlockall,
+    else => {},
+};
+
+pub const munlockall = switch (native_os) {
+    .linux, .freebsd, .dragonfly, .netbsd, .openbsd, .solaris, .illumos => private.munlockall,
+    else => {},
+};
+
 pub const msync = switch (native_os) {
     .netbsd => private.__msync13,
     else => private.msync,
@@ -10349,12 +10505,20 @@ pub const sigaction = switch (native_os) {
 
 /// Zig's version of SIGRTMIN.  Actually a function.
 pub fn sigrtmin() u8 {
-    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin())));
+    return switch (native_os) {
+        .freebsd => 65,
+        .netbsd => 33,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmin()))),
+    };
 }
 
 /// Zig's version of SIGRTMAX.  Actually a function.
 pub fn sigrtmax() u8 {
-    return @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax())));
+    return switch (native_os) {
+        .freebsd => 126,
+        .netbsd => 63,
+        else => @truncate(@as(c_uint, @bitCast(private.__libc_current_sigrtmax()))),
+    };
 }
 
 pub const sigfillset = switch (native_os) {
@@ -10363,7 +10527,10 @@ pub const sigfillset = switch (native_os) {
 };
 
 pub const sigaddset = private.sigaddset;
-pub const sigemptyset = private.sigemptyset;
+pub const sigemptyset = switch (native_os) {
+    .netbsd => private.__sigemptyset14,
+    else => private.sigemptyset,
+};
 pub const sigdelset = private.sigdelset;
 pub const sigismember = private.sigismember;
 
@@ -10408,9 +10575,9 @@ pub const sysconf = switch (native_os) {
 
 pub const sf_hdtr = switch (native_os) {
     .freebsd, .macos, .ios, .tvos, .watchos, .visionos => extern struct {
-        headers: [*]const iovec_const,
+        headers: ?[*]const iovec_const,
         hdr_cnt: c_int,
-        trailers: [*]const iovec_const,
+        trailers: ?[*]const iovec_const,
         trl_cnt: c_int,
     },
     else => void,
@@ -10756,6 +10923,7 @@ pub extern "c" fn if_nametoindex([*:0]const u8) c_int;
 
 pub extern "c" fn getpid() pid_t;
 pub extern "c" fn getppid() pid_t;
+pub extern "c" fn setsid() pid_t;
 
 /// These are implementation defined but share identical values in at least musl and glibc:
 /// - https://git.musl-libc.org/cgit/musl/tree/include/locale.h?id=ab31e9d6a0fa7c5c408856c89df2dfb12c344039#n18
@@ -10779,8 +10947,8 @@ pub const LC = enum(c_int) {
 
 pub extern "c" fn setlocale(category: LC, locale: ?[*:0]const u8) ?[*:0]const u8;
 
-pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd)
-{} // android bionic and openbsd libc does not implement getcontext
+pub const getcontext = if (builtin.target.abi.isAndroid() or builtin.target.os.tag == .openbsd or builtin.target.os.tag == .haiku)
+{} // libc does not implement getcontext
     else if (native_os == .linux and builtin.target.abi.isMusl())
         linux.getcontext
     else
@@ -10795,6 +10963,9 @@ else
         a: c_longlong,
         b: c_longdouble,
     };
+
+pub const intmax_t = i64;
+pub const uintmax_t = u64;
 
 pub extern "c" fn pthread_getthreadid_np() c_int;
 pub extern "c" fn pthread_set_name_np(thread: pthread_t, name: [*:0]const u8) void;
@@ -10899,11 +11070,7 @@ pub const bcrypt = openbsd.bcrypt;
 pub const bcrypt_checkpass = openbsd.bcrypt_checkpass;
 pub const bcrypt_gensalt = openbsd.bcrypt_gensalt;
 pub const bcrypt_newhash = openbsd.bcrypt_newhash;
-pub const endpwent = openbsd.endpwent;
-pub const getpwent = openbsd.getpwent;
-pub const getpwnam_r = openbsd.getpwnam_r;
 pub const getpwnam_shadow = openbsd.getpwnam_shadow;
-pub const getpwuid_r = openbsd.getpwuid_r;
 pub const getpwuid_shadow = openbsd.getpwuid_shadow;
 pub const getthrid = openbsd.getthrid;
 pub const login_cap_t = openbsd.login_cap_t;
@@ -10920,7 +11087,6 @@ pub const pthread_spinlock_t = openbsd.pthread_spinlock_t;
 pub const pw_dup = openbsd.pw_dup;
 pub const setclasscontext = openbsd.setclasscontext;
 pub const setpassent = openbsd.setpassent;
-pub const setpwent = openbsd.setpwent;
 pub const setusercontext = openbsd.setusercontext;
 pub const uid_from_user = openbsd.uid_from_user;
 pub const unveil = openbsd.unveil;
@@ -10940,11 +11106,15 @@ pub const fsfilcnt_t = freebsd.fsfilcnt_t;
 pub const kinfo_file = freebsd.kinfo_file;
 pub const kinfo_getfile = freebsd.kinfo_getfile;
 
+pub const CALENDAR_CLOCK = darwin.CALENDAR_CLOCK;
 pub const COPYFILE = darwin.COPYFILE;
 pub const CPUFAMILY = darwin.CPUFAMILY;
+pub const PT = darwin.PT;
 pub const DB_RECORDTYPE = darwin.DB_RECORDTYPE;
 pub const EXC = darwin.EXC;
 pub const EXCEPTION = darwin.EXCEPTION;
+pub const KEVENT = darwin.KEVENT;
+pub const MACH = darwin.MACH;
 pub const MACH_MSG_TYPE = darwin.MACH_MSG_TYPE;
 pub const MACH_PORT_RIGHT = darwin.MACH_PORT_RIGHT;
 pub const MACH_TASK_BASIC_INFO = darwin.MACH_TASK_BASIC_INFO;
@@ -10952,10 +11122,15 @@ pub const MACH_TASK_BASIC_INFO_COUNT = darwin.MACH_TASK_BASIC_INFO_COUNT;
 pub const MATTR = darwin.MATTR;
 pub const NSVersionOfRunTimeLibrary = darwin.NSVersionOfRunTimeLibrary;
 pub const OPEN_MAX = darwin.OPEN_MAX;
+pub const OS = darwin.OS;
 pub const POSIX_SPAWN = darwin.POSIX_SPAWN;
+pub const SYSPROTO_EVENT = darwin.SYSPROTO_EVENT;
+pub const SYSPROTO_CONTROL = darwin.SYSPROTO_CONTROL;
+pub const TASK = darwin.TASK;
 pub const TASK_NULL = darwin.TASK_NULL;
 pub const TASK_VM_INFO = darwin.TASK_VM_INFO;
 pub const TASK_VM_INFO_COUNT = darwin.TASK_VM_INFO_COUNT;
+pub const THREAD = darwin.THREAD;
 pub const THREAD_BASIC_INFO = darwin.THREAD_BASIC_INFO;
 pub const THREAD_BASIC_INFO_COUNT = darwin.THREAD_BASIC_INFO_COUNT;
 pub const THREAD_IDENTIFIER_INFO_COUNT = darwin.THREAD_IDENTIFIER_INFO_COUNT;
@@ -10973,15 +11148,24 @@ pub const _dyld_get_image_name = darwin._dyld_get_image_name;
 pub const _dyld_get_image_vmaddr_slide = darwin._dyld_get_image_vmaddr_slide;
 pub const _dyld_image_count = darwin._dyld_image_count;
 pub const _host_page_size = darwin._host_page_size;
+pub const boolean_t = darwin.boolean_t;
 pub const clock_get_time = darwin.clock_get_time;
+pub const clock_serv_t = darwin.clock_serv_t;
+pub const clock_res_t = darwin.clock_res_t;
 pub const @"close$NOCANCEL" = darwin.@"close$NOCANCEL";
+pub const dispatch_function_t = darwin.dispatch_function_t;
+pub const dispatch_once_f = darwin.dispatch_once_f;
+pub const dispatch_once_t = darwin.dispatch_once_t;
 pub const dispatch_release = darwin.dispatch_release;
 pub const dispatch_semaphore_create = darwin.dispatch_semaphore_create;
 pub const dispatch_semaphore_signal = darwin.dispatch_semaphore_signal;
+pub const dispatch_semaphore_t = darwin.dispatch_semaphore_t;
 pub const dispatch_semaphore_wait = darwin.dispatch_semaphore_wait;
 pub const dispatch_time = darwin.dispatch_time;
+pub const dispatch_time_t = darwin.dispatch_time_t;
 pub const fcopyfile = darwin.fcopyfile;
 pub const host_t = darwin.host_t;
+pub const integer_t = darwin.integer_t;
 pub const ipc_space_t = darwin.ipc_space_t;
 pub const ipc_space_port_t = darwin.ipc_space_port_t;
 pub const kern_return_t = darwin.kern_return_t;
@@ -10993,6 +11177,7 @@ pub const mach_continuous_time = darwin.mach_continuous_time;
 pub const mach_hdr = darwin.mach_hdr;
 pub const mach_host_self = darwin.mach_host_self;
 pub const mach_msg = darwin.mach_msg;
+pub const mach_msg_return_t = darwin.mach_msg_return_t;
 pub const mach_msg_type_number_t = darwin.mach_msg_type_number_t;
 pub const mach_port_allocate = darwin.mach_port_allocate;
 pub const mach_port_array_t = darwin.mach_port_array_t;
@@ -11004,6 +11189,7 @@ pub const mach_task_basic_info = darwin.mach_task_basic_info;
 pub const mach_task_self = darwin.mach_task_self;
 pub const mach_timebase_info = darwin.mach_timebase_info;
 pub const mach_timebase_info_data = darwin.mach_timebase_info_data;
+pub const mach_timespec_t = darwin.mach_timespec_t;
 pub const mach_vm_address_t = darwin.mach_vm_address_t;
 pub const mach_vm_protect = darwin.mach_vm_protect;
 pub const mach_vm_read = darwin.mach_vm_read;
@@ -11013,16 +11199,20 @@ pub const mach_vm_size_t = darwin.mach_vm_size_t;
 pub const mach_vm_write = darwin.mach_vm_write;
 pub const natural_t = darwin.natural_t;
 pub const os_log_create = darwin.os_log_create;
+pub const os_log_t = darwin.os_log_t;
 pub const os_log_type_enabled = darwin.os_log_type_enabled;
+pub const os_log_type_t = darwin.os_log_type_t;
 pub const os_signpost_enabled = darwin.os_signpost_enabled;
 pub const os_signpost_id_generate = darwin.os_signpost_id_generate;
 pub const os_signpost_id_make_with_pointer = darwin.os_signpost_id_make_with_pointer;
+pub const os_signpost_id_t = darwin.os_signpost_id_t;
 pub const os_signpost_interval_begin = darwin.os_signpost_interval_begin;
 pub const os_signpost_interval_end = darwin.os_signpost_interval_end;
 pub const os_unfair_lock = darwin.os_unfair_lock;
 pub const os_unfair_lock_assert_not_owner = darwin.os_unfair_lock_assert_not_owner;
 pub const os_unfair_lock_assert_owner = darwin.os_unfair_lock_assert_owner;
 pub const os_unfair_lock_lock = darwin.os_unfair_lock_lock;
+pub const os_unfair_lock_t = darwin.os_unfair_lock_t;
 pub const os_unfair_lock_trylock = darwin.os_unfair_lock_trylock;
 pub const os_unfair_lock_unlock = darwin.os_unfair_lock_unlock;
 pub const pid_for_task = darwin.pid_for_task;
@@ -11047,10 +11237,13 @@ pub const pthread_attr_set_qos_class_np = darwin.pthread_attr_set_qos_class_np;
 pub const pthread_get_qos_class_np = darwin.pthread_get_qos_class_np;
 pub const pthread_set_qos_class_self_np = darwin.pthread_set_qos_class_self_np;
 pub const ptrace = darwin.ptrace;
+pub const qos_class_t = darwin.qos_class_t;
+pub const task_flavor_t = darwin.task_flavor_t;
 pub const task_for_pid = darwin.task_for_pid;
 pub const task_get_exception_ports = darwin.task_get_exception_ports;
 pub const task_info = darwin.task_info;
 pub const task_info_t = darwin.task_info_t;
+pub const task_name_t = darwin.task_name_t;
 pub const task_resume = darwin.task_resume;
 pub const task_set_exception_ports = darwin.task_set_exception_ports;
 pub const task_suspend = darwin.task_suspend;
@@ -11063,8 +11256,10 @@ pub const thread_info = darwin.thread_info;
 pub const thread_info_t = darwin.thread_info_t;
 pub const thread_resume = darwin.thread_resume;
 pub const thread_set_state = darwin.thread_set_state;
+pub const vm_address_t = darwin.vm_address_t;
 pub const vm_deallocate = darwin.vm_deallocate;
 pub const vm_machine_attribute = darwin.vm_machine_attribute;
+pub const vm_machine_attribute_t = darwin.vm_machine_attribute_t;
 pub const vm_machine_attribute_val_t = darwin.vm_machine_attribute_val_t;
 pub const vm_map_t = darwin.vm_map_t;
 pub const vm_offset_t = darwin.vm_offset_t;
@@ -11089,10 +11284,12 @@ pub const exception_mask_array_t = darwin.exception_mask_array_t;
 pub const exception_mask_t = darwin.exception_mask_t;
 pub const exception_port_array_t = darwin.exception_port_array_t;
 pub const exception_port_t = darwin.exception_port_t;
+pub const exception_type_t = darwin.exception_type_t;
 pub const mach_exception_data_t = darwin.mach_exception_data_t;
 pub const mach_exception_data_type_t = darwin.mach_exception_data_type_t;
 pub const mach_msg_bits_t = darwin.mach_msg_bits_t;
 pub const mach_msg_id_t = darwin.mach_msg_id_t;
+pub const mach_msg_header_t = darwin.mach_msg_header_t;
 pub const mach_msg_option_t = darwin.mach_msg_option_t;
 pub const mach_msg_size_t = darwin.mach_msg_size_t;
 pub const mach_msg_timeout_t = darwin.mach_msg_timeout_t;
@@ -11102,6 +11299,7 @@ pub const memory_object_offset_t = darwin.memory_object_offset_t;
 pub const policy_t = darwin.policy_t;
 pub const task_policy_flavor_t = darwin.task_policy_flavor_t;
 pub const task_policy_t = darwin.task_policy_t;
+pub const task_read_t = darwin.task_read_t;
 pub const task_t = darwin.task_t;
 pub const thread_act_t = darwin.thread_act_t;
 pub const thread_flavor_t = darwin.thread_flavor_t;
@@ -11141,7 +11339,6 @@ pub const serenity_readlink = serenity.serenity_readlink;
 pub const serenity_open = serenity.serenity_open;
 pub const getkeymap = serenity.getkeymap;
 pub const setkeymap = serenity.setkeymap;
-pub const internet_checksum = serenity.internet_checksum;
 
 /// External definitions shared by two or more operating systems.
 const private = struct {
@@ -11187,10 +11384,16 @@ const private = struct {
     extern "c" fn getentropy(buffer: [*]u8, size: usize) c_int;
     extern "c" fn arc4random_buf(buf: [*]u8, len: usize) void;
 
-    extern "c" fn _msize(memblock: ?*anyopaque) usize;
+    extern "c" fn _msize(?*const anyopaque) usize;
     extern "c" fn malloc_size(?*const anyopaque) usize;
     extern "c" fn malloc_usable_size(?*const anyopaque) usize;
     extern "c" fn posix_memalign(memptr: *?*anyopaque, alignment: usize, size: usize) c_int;
+
+    extern "c" fn mlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
+    extern "c" fn mlock2(addr: *align(page_size) const anyopaque, len: usize, flags: MLOCK) c_int;
+    extern "c" fn munlock(addr: *align(page_size) const anyopaque, len: usize) c_int;
+    extern "c" fn mlockall(flags: MCL) c_int;
+    extern "c" fn munlockall() c_int;
 
     /// macos modernized symbols.
     /// x86_64 links to $INODE64 suffix for 64-bit support.
@@ -11216,7 +11419,8 @@ const private = struct {
     extern "c" fn __msync13(addr: *align(page_size) const anyopaque, len: usize, flags: c_int) c_int;
     extern "c" fn __nanosleep50(rqtp: *const timespec, rmtp: ?*timespec) c_int;
     extern "c" fn __sigaction14(sig: c_int, noalias act: ?*const Sigaction, noalias oact: ?*Sigaction) c_int;
-    extern "c" fn __sigfillset14(set: ?*sigset_t) void;
+    extern "c" fn __sigemptyset14(set: ?*sigset_t) c_int;
+    extern "c" fn __sigfillset14(set: ?*sigset_t) c_int;
     extern "c" fn __sigprocmask14(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn __socket30(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
     extern "c" fn __stat50(path: [*:0]const u8, buf: *Stat) c_int;

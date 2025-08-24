@@ -155,7 +155,7 @@
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name))) \
     __attribute_copy__ (name);
 
-/* Zig patch.  weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
+/* zig patch: weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
    needs it for the v2.32 and earlier {f,l,}stat wrappers, so only include
    in this header for 2.32 and earlier. */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ <= 32) || __GLIBC__ < 2
@@ -220,7 +220,7 @@
 #define __make_section_unallocated(section_string)	\
   asm (".section " section_string "\n\t.previous");
 
-/* Tacking on "\n\t#" to the section name makes gcc put it's bogus
+/* Tacking on "\n\t#" to the section name makes gcc put its bogus
    section attributes on what looks like a comment to the assembler.  */
 #ifdef HAVE_SECTION_QUOTES
 # define __sec_comment "\"\n\t#\""
@@ -280,7 +280,7 @@ for linking")
 
 
 /*
-
+
 */
 
 #ifdef HAVE_GNU_RETAIN
@@ -807,7 +807,7 @@ for linking")
 #define libm_ifunc_init()
 #define libm_ifunc(name, expr)				\
   __ifunc (name, name, expr, void, libm_ifunc_init)
-
+
 /* These macros facilitate sharing source files with gnulib.
 
    They are here instead of sys/cdefs.h because they should not be

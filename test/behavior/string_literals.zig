@@ -6,9 +6,8 @@ const tag_name = @tagName(TestEnum.TestEnumValue);
 const ptr_tag_name: [*:0]const u8 = tag_name;
 
 test "@tagName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try std.testing.expect(*const [13:0]u8 == @TypeOf(tag_name));
     try std.testing.expect(std.mem.eql(u8, "TestEnumValue", tag_name));
@@ -20,9 +19,8 @@ const error_name = @errorName(TestError.TestErrorCode);
 const ptr_error_name: [*:0]const u8 = error_name;
 
 test "@errorName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try std.testing.expect(*const [13:0]u8 == @TypeOf(error_name));
     try std.testing.expect(std.mem.eql(u8, "TestErrorCode", error_name));
@@ -34,9 +32,8 @@ const type_name = @typeName(TestType);
 const ptr_type_name: [*:0]const u8 = type_name;
 
 test "@typeName() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try std.testing.expect(*const [type_name.len:0]u8 == @TypeOf(type_name));
     try std.testing.expect(std.mem.eql(u8, "behavior.string_literals.TestType", type_name));
@@ -48,10 +45,9 @@ const ptr_actual_contents: [*:0]const u8 = actual_contents;
 const expected_contents = "hello zig\n";
 
 test "@embedFile() returns a string literal" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try std.testing.expect(*const [expected_contents.len:0]u8 == @TypeOf(actual_contents));
     try std.testing.expect(std.mem.eql(u8, expected_contents, actual_contents));
@@ -64,9 +60,9 @@ fn testFnForSrc() std.builtin.SourceLocation {
 }
 
 test "@src() returns a struct containing 0-terminated string slices" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const src = testFnForSrc();
     try std.testing.expect([:0]const u8 == @TypeOf(src.file));
@@ -104,7 +100,7 @@ test "Peer type resolution with string literals and unknown length u8 pointers" 
 }
 
 test "including the sentinel when dereferencing a string literal" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var var_str = "abc";
     const var_derefed = var_str[0 .. var_str.len + 1].*;

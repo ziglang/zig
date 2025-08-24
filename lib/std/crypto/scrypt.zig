@@ -311,9 +311,10 @@ const crypt_format = struct {
 
     /// Compute the number of bytes required to serialize `params`
     pub fn calcSize(params: anytype) usize {
-        var buf = io.countingWriter(io.null_writer);
-        serializeTo(params, buf.writer()) catch unreachable;
-        return @as(usize, @intCast(buf.bytes_written));
+        var trash: [128]u8 = undefined;
+        var d: std.Io.Writer.Discarding = .init(&trash);
+        serializeTo(params, &d) catch unreachable;
+        return @intCast(d.fullCount());
     }
 
     fn serializeTo(params: anytype, out: anytype) !void {

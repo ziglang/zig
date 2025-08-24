@@ -133,7 +133,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
     for (info.records.items) |ref| {
         const rec = ref.getUnwindRecord(macho_file);
         const atom = rec.getAtom(macho_file);
-        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {}", .{
+        log.debug("@{x}-{x} : {s} : rec({d}) : object({d}) : {f}", .{
             rec.getAtomAddress(macho_file),
             rec.getAtomAddress(macho_file) + rec.length,
             atom.getName(macho_file),
@@ -202,7 +202,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
             if (i >= max_common_encodings) break;
             if (slice[i].count < 2) continue;
             info.appendCommonEncoding(slice[i].enc);
-            log.debug("adding common encoding: {d} => {}", .{ i, slice[i].enc });
+            log.debug("adding common encoding: {d} => {f}", .{ i, slice[i].enc });
         }
     }
 
@@ -255,7 +255,7 @@ pub fn generate(info: *UnwindInfo, macho_file: *MachO) !void {
                 page.kind = .compressed;
             }
 
-            log.debug("{}", .{page.fmt(info.*)});
+            log.debug("{f}", .{page.fmt(info.*)});
 
             try info.pages.append(gpa, page);
         }
@@ -455,15 +455,8 @@ pub const Encoding = extern struct {
         return enc.enc == other.enc;
     }
 
-    pub fn format(
-        enc: Encoding,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.print("0x{x:0>8}", .{enc.enc});
+    pub fn format(enc: Encoding, w: *Writer) Writer.Error!void {
+        try w.print("0x{x:0>8}", .{enc.enc});
     }
 };
 
@@ -517,48 +510,28 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn format(
-        rec: Record,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = rec;
-        _ = unused_fmt_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format UnwindInfo.Records directly");
-    }
-
-    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .rec = rec,
             .macho_file = macho_file,
         } };
     }
 
-    const FormatContext = struct {
+    const Format = struct {
         rec: Record,
         macho_file: *MachO,
-    };
 
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const rec = ctx.rec;
-        const macho_file = ctx.macho_file;
-        try writer.print("{x} : len({x})", .{
-            rec.enc.enc, rec.length,
-        });
-        if (rec.enc.isDwarf(macho_file)) try writer.print(" : fde({d})", .{rec.fde});
-        try writer.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
-        if (!rec.alive) try writer.writeAll(" : [*]");
-    }
+        fn default(f: Format, w: *Writer) Writer.Error!void {
+            const rec = f.rec;
+            const macho_file = f.macho_file;
+            try w.print("{x} : len({x})", .{
+                rec.enc.enc, rec.length,
+            });
+            if (rec.enc.isDwarf(macho_file)) try w.print(" : fde({d})", .{rec.fde});
+            try w.print(" : {s}", .{rec.getAtom(macho_file).getName(macho_file)});
+            if (!rec.alive) try w.writeAll(" : [*]");
+        }
+    };
 
     pub const Index = u32;
 
@@ -613,45 +586,25 @@ const Page = struct {
         return null;
     }
 
-    fn format(
-        page: *const Page,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = page;
-        _ = unused_format_string;
-        _ = options;
-        _ = writer;
-        @compileError("do not format Page directly; use page.fmt()");
-    }
-
-    const FormatPageContext = struct {
+    const Format = struct {
         page: Page,
         info: UnwindInfo,
+
+        fn default(f: Format, w: *Writer) Writer.Error!void {
+            try w.writeAll("Page:\n");
+            try w.print("  kind: {s}\n", .{@tagName(f.page.kind)});
+            try w.print("  entries: {d} - {d}\n", .{
+                f.page.start,
+                f.page.start + f.page.count,
+            });
+            try w.print("  encodings (count = {d})\n", .{f.page.page_encodings_count});
+            for (f.page.page_encodings[0..f.page.page_encodings_count], 0..) |enc, i| {
+                try w.print("    {d}: {f}\n", .{ f.info.common_encodings_count + i, enc });
+            }
+        }
     };
 
-    fn format2(
-        ctx: FormatPageContext,
-        comptime unused_format_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = options;
-        _ = unused_format_string;
-        try writer.writeAll("Page:\n");
-        try writer.print("  kind: {s}\n", .{@tagName(ctx.page.kind)});
-        try writer.print("  entries: {d} - {d}\n", .{
-            ctx.page.start,
-            ctx.page.start + ctx.page.count,
-        });
-        try writer.print("  encodings (count = {d})\n", .{ctx.page.page_encodings_count});
-        for (ctx.page.page_encodings[0..ctx.page.page_encodings_count], 0..) |enc, i| {
-            try writer.print("    {d}: {}\n", .{ ctx.info.common_encodings_count + i, enc });
-        }
-    }
-
-    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(format2) {
+    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(Format, Format.default) {
         return .{ .data = .{
             .page = page,
             .info = info,
@@ -720,6 +673,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = mem.Allocator;
 const Atom = @import("Atom.zig");

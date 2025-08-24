@@ -4815,7 +4815,11 @@ static inline SIMD_CFUNC char simd_reduce_add(simd_char8 x) {
 }
 
 static inline SIMD_CFUNC char simd_reduce_add(simd_char16 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s8(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC char simd_reduce_add(simd_char32 x) {
@@ -4843,7 +4847,11 @@ static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar8 x) {
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar16 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u8(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned char simd_reduce_add(simd_uchar32 x) {
@@ -4867,7 +4875,11 @@ static inline SIMD_CFUNC short simd_reduce_add(simd_short4 x) {
 }
 
 static inline SIMD_CFUNC short simd_reduce_add(simd_short8 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s16(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC short simd_reduce_add(simd_short16 x) {
@@ -4891,7 +4903,11 @@ static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort4 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort8 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u16(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort16 x) {
@@ -4899,30 +4915,6 @@ static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort16 x) {
 }
 
 static inline SIMD_CFUNC unsigned short simd_reduce_add(simd_ushort32 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half2 x) {
-  return x.x + x.y;
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half3 x) {
-  return x.x + x.y + x.z;
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half4 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half8 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half16 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half32 x) {
   return simd_reduce_add(x.lo + x.hi);
 }
 
@@ -4935,7 +4927,11 @@ static inline SIMD_CFUNC int simd_reduce_add(simd_int3 x) {
 }
 
 static inline SIMD_CFUNC int simd_reduce_add(simd_int4 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_s32(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC int simd_reduce_add(simd_int8 x) {
@@ -4955,7 +4951,11 @@ static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint3 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint4 x) {
+#if defined __arm64__ || defined __aarch64__
+  return vaddvq_u32(x);
+#else
   return simd_reduce_add(x.lo + x.hi);
+#endif
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint8 x) {
@@ -4963,26 +4963,6 @@ static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint8 x) {
 }
 
 static inline SIMD_CFUNC unsigned int simd_reduce_add(simd_uint16 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float2 x) {
-  return x.x + x.y;
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float3 x) {
-  return x.x + x.y + x.z;
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float4 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float8 x) {
-  return simd_reduce_add(x.lo + x.hi);
-}
-
-static inline SIMD_CFUNC float simd_reduce_add(simd_float16 x) {
   return simd_reduce_add(x.lo + x.hi);
 }
 
@@ -5015,6 +4995,50 @@ static inline SIMD_CFUNC simd_ulong1 simd_reduce_add(simd_ulong4 x) {
 }
 
 static inline SIMD_CFUNC simd_ulong1 simd_reduce_add(simd_ulong8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half2 x) {
+  return x.x + x.y;
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half3 x) {
+  return x.x + x.y + x.z;
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half4 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half16 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC _Float16 simd_reduce_add(simd_half32 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float2 x) {
+  return x.x + x.y;
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float3 x) {
+  return x.x + x.y + x.z;
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float4 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float8 x) {
+  return simd_reduce_add(x.lo + x.hi);
+}
+
+static inline SIMD_CFUNC float simd_reduce_add(simd_float16 x) {
   return simd_reduce_add(x.lo + x.hi);
 }
 

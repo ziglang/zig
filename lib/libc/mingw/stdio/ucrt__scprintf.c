@@ -18,4 +18,3 @@ int __cdecl _scprintf(const char * __restrict__ _Format, ...)
   va_end(_ArgList);
   return ret;
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(_scprintf))(const char *__restrict__, ...) = _scprintf;

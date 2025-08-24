@@ -25,7 +25,7 @@ pub fn updateSize(rebase: *Rebase, macho_file: *MachO) !void {
 
     const gpa = macho_file.base.comp.gpa;
 
-    var objects = try std.ArrayList(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
+    var objects = try std.array_list.Managed(File.Index).initCapacity(gpa, macho_file.objects.items.len + 2);
     defer objects.deinit();
     objects.appendSliceAssumeCapacity(macho_file.objects.items);
     if (macho_file.getZigObject()) |obj| objects.appendAssumeCapacity(obj.index);
@@ -654,9 +654,10 @@ const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
-const trace = @import("../../../tracy.zig").trace;
-
 const Allocator = mem.Allocator;
+const Writer = std.io.Writer;
+
+const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;
 const MachO = @import("../../MachO.zig");
 const Rebase = @This();

@@ -19,7 +19,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
             &elf_file.sections,
             elf_file.shstrtab.items,
             elf_file.merge_sections.items,
-            elf_file.comdat_group_sections.items,
+            elf_file.group_sections.items,
             elf_file.zigObjectPtr(),
             elf_file.files,
         );
@@ -31,7 +31,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         try elf_file.allocateNonAllocSections();
 
         if (build_options.enable_logging) {
-            state_log.debug("{}", .{elf_file.dumpState()});
+            state_log.debug("{f}", .{elf_file.dumpState()});
         }
 
         try elf_file.writeMergeSections();
@@ -44,7 +44,7 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
         try zig_object.readFileContents(elf_file);
     }
 
-    var files = std.ArrayList(File.Index).init(gpa);
+    var files = std.array_list.Managed(File.Index).init(gpa);
     defer files.deinit();
     try files.ensureTotalCapacityPrecise(elf_file.objects.items.len + 1);
     if (elf_file.zigObjectPtr()) |zig_object| files.appendAssumeCapacity(zig_object.index);
@@ -96,11 +96,11 @@ pub fn flushStaticLib(elf_file: *Elf, comp: *Compilation) !void {
     };
 
     if (build_options.enable_logging) {
-        state_log.debug("ar_symtab\n{}\n", .{ar_symtab.fmt(elf_file)});
-        state_log.debug("ar_strtab\n{}\n", .{ar_strtab});
+        state_log.debug("ar_symtab\n{f}\n", .{ar_symtab.fmt(elf_file)});
+        state_log.debug("ar_strtab\n{f}\n", .{ar_strtab});
     }
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
     try buffer.ensureTotalCapacityPrecise(total_size);
 
@@ -152,7 +152,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
         &elf_file.sections,
         elf_file.shstrtab.items,
         elf_file.merge_sections.items,
-        elf_file.comdat_group_sections.items,
+        elf_file.group_sections.items,
         elf_file.zigObjectPtr(),
         elf_file.files,
     );
@@ -170,7 +170,7 @@ pub fn flushObject(elf_file: *Elf, comp: *Compilation) !void {
     try elf_file.allocateNonAllocSections();
 
     if (build_options.enable_logging) {
-        state_log.debug("{}", .{elf_file.dumpState()});
+        state_log.debug("{f}", .{elf_file.dumpState()});
     }
 
     try writeAtoms(elf_file);
@@ -233,19 +233,19 @@ fn initSections(elf_file: *Elf) !void {
             );
     }
 
-    try initComdatGroups(elf_file);
+    try initGroups(elf_file);
     try elf_file.initSymtab();
     try elf_file.initShStrtab();
 }
 
-fn initComdatGroups(elf_file: *Elf) !void {
+fn initGroups(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
     for (elf_file.objects.items) |index| {
         const object = elf_file.file(index).?.object;
-        for (object.comdat_groups.items, 0..) |cg, cg_index| {
+        for (object.groups.items, 0..) |cg, cg_index| {
             if (!cg.alive) continue;
-            const cg_sec = try elf_file.comdat_group_sections.addOne(gpa);
+            const cg_sec = try elf_file.group_sections.addOne(gpa);
             cg_sec.* = .{
                 .shndx = try elf_file.addSection(.{
                     .name = try elf_file.insertShString(".group"),
@@ -292,12 +292,12 @@ fn updateSectionSizes(elf_file: *Elf) !void {
     }
 
     try elf_file.updateSymtabSize();
-    updateComdatGroupsSizes(elf_file);
+    updateGroupsSizes(elf_file);
     elf_file.updateShStrtabSize();
 }
 
-fn updateComdatGroupsSizes(elf_file: *Elf) void {
-    for (elf_file.comdat_group_sections.items) |cg| {
+fn updateGroupsSizes(elf_file: *Elf) void {
+    for (elf_file.group_sections.items) |cg| {
         const shdr = &elf_file.sections.items(.shdr)[cg.shndx];
         shdr.sh_size = cg.size(elf_file);
         shdr.sh_link = elf_file.section_indexes.symtab.?;
@@ -347,7 +347,7 @@ fn allocateAllocSections(elf_file: *Elf) !void {
 fn writeAtoms(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     const slice = elf_file.sections.slice();
@@ -377,7 +377,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
 
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
-        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
 
         for (atom_list.items) |ref| {
@@ -407,7 +407,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
         try eh_frame.writeEhFrameRelocatable(elf_file, buffer.writer());
         log.debug("writing .eh_frame from 0x{x} to 0x{x}", .{
@@ -421,7 +421,7 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         const shdr = slice.items(.shdr)[shndx];
         const num_relocs = math.cast(usize, @divExact(shdr.sh_size, shdr.sh_entsize)) orelse
             return error.Overflow;
-        var relocs = try std.ArrayList(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
+        var relocs = try std.array_list.Managed(elf.Elf64_Rela).initCapacity(gpa, num_relocs);
         defer relocs.deinit();
         try eh_frame.writeEhFrameRelocs(elf_file, &relocs);
         assert(relocs.items.len == num_relocs);
@@ -436,21 +436,21 @@ fn writeSyntheticSections(elf_file: *Elf) !void {
         try elf_file.base.file.?.pwriteAll(mem.sliceAsBytes(relocs.items), shdr.sh_offset);
     }
 
-    try writeComdatGroups(elf_file);
+    try writeGroups(elf_file);
     try elf_file.writeSymtab();
     try elf_file.writeShStrtab();
 }
 
-fn writeComdatGroups(elf_file: *Elf) !void {
+fn writeGroups(elf_file: *Elf) !void {
     const gpa = elf_file.base.comp.gpa;
-    for (elf_file.comdat_group_sections.items) |cgs| {
+    for (elf_file.group_sections.items) |cgs| {
         const shdr = elf_file.sections.items(.shdr)[cgs.shndx];
         const sh_size = math.cast(usize, shdr.sh_size) orelse return error.Overflow;
-        var buffer = try std.ArrayList(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, sh_size);
         defer buffer.deinit();
         try cgs.write(elf_file, buffer.writer());
         assert(buffer.items.len == sh_size);
-        log.debug("writing COMDAT group from 0x{x} to 0x{x}", .{
+        log.debug("writing group from 0x{x} to 0x{x}", .{
             shdr.sh_offset,
             shdr.sh_offset + shdr.sh_size,
         });

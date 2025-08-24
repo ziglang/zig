@@ -35,7 +35,7 @@ typedef enum _AssemblyFlags {
   afCleanModules = 0x00000002,
   afNoRefHash = 0x00000004,
   afNoDupTypeCheck = 0x00000008,
-  afDupeCheckTypeFwds = 0x00000010,
+  afDupeCheckTypeFwds = 0x00000010
 } AssemblyFlags;
 
 EXTERN_GUID (CLSID_AssemblyLinker, 0xf7e02368, 0xa7f4, 0x471f, 0x8c, 0x5e, 0x98, 0x39, 0xed, 0x57, 0xcb, 0x5e);

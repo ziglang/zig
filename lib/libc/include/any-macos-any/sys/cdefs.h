@@ -965,6 +965,11 @@
 #if __has_include(<ptrcheck.h>)
 #include <ptrcheck.h>
 #else
+#if __has_feature(bounds_safety)
+#error -fbounds-safety is enabled, but <ptrcheck.h> is missing. \
+        This will lead to difficult-to-diagnose compilation errors.
+#endif /* __has_feature(bounds_safety) */
+
 /*
  * We intentionally define to nothing pointer attributes which do not have an
  * impact on the ABI. __indexable and __bidi_indexable are not defined because
@@ -1107,5 +1112,6 @@
 # define __xnu_data_size
 # define __xnu_returns_data_pointer
 #endif
+
 
 #endif /* !_CDEFS_H_ */

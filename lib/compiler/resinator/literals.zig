@@ -469,7 +469,7 @@ pub fn parseQuotedString(
     const T = if (literal_type == .ascii) u8 else u16;
     std.debug.assert(bytes.slice.len >= 2); // must at least have 2 double quote chars
 
-    var buf = try std.ArrayList(T).initCapacity(allocator, bytes.slice.len);
+    var buf = try std.array_list.Managed(T).initCapacity(allocator, bytes.slice.len);
     errdefer buf.deinit();
 
     var iterative_parser = IterativeStringParser.init(bytes, options);
@@ -564,7 +564,7 @@ pub fn parseQuotedStringAsWideString(allocator: std.mem.Allocator, bytes: Source
     // Note: We're only handling the case of parsing an ASCII string into a wide string from here on out.
     // TODO: The logic below is similar to that in AcceleratorKeyCodepointTranslator, might be worth merging the two
 
-    var buf = try std.ArrayList(u16).initCapacity(allocator, bytes.slice.len);
+    var buf = try std.array_list.Managed(u16).initCapacity(allocator, bytes.slice.len);
     errdefer buf.deinit();
 
     var iterative_parser = IterativeStringParser.init(bytes, options);

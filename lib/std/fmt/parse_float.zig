@@ -159,6 +159,9 @@ test "hex.special" {
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "iNf")));
     try testing.expect(math.isPositiveInf(try parseFloat(f32, "+Inf")));
     try testing.expect(math.isNegativeInf(try parseFloat(f32, "-iNf")));
+
+    try testing.expect(math.isPositiveInf(try parseFloat(f32, "0x9999p9999")));
+    try testing.expect(math.isNegativeInf(try parseFloat(f32, "-0x9999p9999")));
 }
 
 test "hex.zero" {

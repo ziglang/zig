@@ -45,6 +45,7 @@
 # define cfi_adjust_cfa_offset(off)	.cfi_adjust_cfa_offset off
 # define cfi_offset(reg, off)		.cfi_offset reg, off
 # define cfi_rel_offset(reg, off)	.cfi_rel_offset reg, off
+# define cfi_val_offset(reg, off)	.cfi_val_offset reg, off
 # define cfi_register(r1, r2)		.cfi_register r1, r2
 # define cfi_return_column(reg)	.cfi_return_column reg
 # define cfi_restore(reg)		.cfi_restore reg
@@ -74,6 +75,8 @@
    ".cfi_offset " CFI_STRINGIFY(reg) "," CFI_STRINGIFY(off)
 # define CFI_REL_OFFSET(reg, off) \
    ".cfi_rel_offset " CFI_STRINGIFY(reg) "," CFI_STRINGIFY(off)
+# define CFI_VAL_OFFSET(reg, off) \
+   ".cfi_val_offset " CFI_STRINGIFY(reg) "," CFI_STRINGIFY(off)
 # define CFI_REGISTER(r1, r2) \
    ".cfi_register " CFI_STRINGIFY(r1) "," CFI_STRINGIFY(r2)
 # define CFI_RETURN_COLUMN(reg) \

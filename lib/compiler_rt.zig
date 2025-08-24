@@ -27,6 +27,11 @@ comptime {
     _ = @import("compiler_rt/absvti2.zig");
     _ = @import("compiler_rt/negv.zig");
 
+    _ = @import("compiler_rt/addvsi3.zig");
+    _ = @import("compiler_rt/subvsi3.zig");
+    _ = @import("compiler_rt/subvdi3.zig");
+    _ = @import("compiler_rt/mulvsi3.zig");
+
     _ = @import("compiler_rt/addo.zig");
     _ = @import("compiler_rt/subo.zig");
     _ = @import("compiler_rt/mulo.zig");
@@ -244,12 +249,12 @@ comptime {
     _ = @import("compiler_rt/hexagon.zig");
 
     if (@import("builtin").object_format != .c) {
-        _ = @import("compiler_rt/atomics.zig");
+        if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/atomics.zig");
         _ = @import("compiler_rt/stack_probe.zig");
 
         // macOS has these functions inside libSystem.
         if (builtin.cpu.arch.isAARCH64() and !builtin.os.tag.isDarwin()) {
-            _ = @import("compiler_rt/aarch64_outline_atomics.zig");
+            if (builtin.zig_backend != .stage2_aarch64) _ = @import("compiler_rt/aarch64_outline_atomics.zig");
         }
 
         _ = @import("compiler_rt/memcpy.zig");
@@ -260,7 +265,8 @@ comptime {
         _ = @import("compiler_rt/ssp.zig");
     }
 
-    if (!builtin.link_libc and builtin.abi == .msvc) {
+    // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.
+    if (!builtin.link_libc and (builtin.os.tag == .windows or builtin.os.tag == .uefi) and (builtin.abi == .none or builtin.abi == .msvc)) {
         @export(&_fltused, .{ .name = "_fltused", .linkage = common.linkage, .visibility = common.visibility });
     }
 }

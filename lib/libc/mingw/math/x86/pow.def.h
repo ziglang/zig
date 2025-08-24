@@ -69,11 +69,8 @@
 #include "../complex/complex_internal.h"
 #include <errno.h>
 #include <limits.h>
-#include <fenv.h>
 #include <math.h>
 #include <errno.h>
-#define FE_ROUNDING_MASK \
-  (FE_TONEAREST | FE_DOWNWARD | FE_UPWARD | FE_TOWARDZERO)
 
 static __FLT_TYPE
 internal_modf (__FLT_TYPE value, __FLT_TYPE *iptr)

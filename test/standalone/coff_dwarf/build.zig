@@ -3,6 +3,14 @@ const builtin = @import("builtin");
 
 /// This tests the path where DWARF information is embedded in a COFF binary
 pub fn build(b: *std.Build) void {
+    switch (builtin.cpu.arch) {
+        .aarch64,
+        .x86,
+        .x86_64,
+        => {},
+        else => return,
+    }
+
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 

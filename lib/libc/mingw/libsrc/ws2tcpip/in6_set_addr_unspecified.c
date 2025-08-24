@@ -8,5 +8,5 @@
 
 void IN6_SET_ADDR_UNSPECIFIED(struct in6_addr *a)
 {
-	memset(a->s6_bytes, 0, sizeof(struct in6_addr));
+	*a = (struct in6_addr){0};
 }

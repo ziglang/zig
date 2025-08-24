@@ -101,6 +101,11 @@ extern char *inet_nsap_ntoa (int __len, const unsigned char *__cp,
 			     char *__buf) __THROW;
 #endif
 
+#if __USE_FORTIFY_LEVEL > 0 && defined __fortify_function
+/* Include functions with security checks.  */
+#  include <bits/inet-fortified.h>
+#endif
+
 __END_DECLS
 
 #endif /* arpa/inet.h */

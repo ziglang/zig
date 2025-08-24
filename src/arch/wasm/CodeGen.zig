@@ -3,7 +3,6 @@ const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const testing = std.testing;
-const leb = std.leb;
 const mem = std.mem;
 const log = std.log.scoped(.codegen);
 
@@ -17,20 +16,28 @@ const Value = @import("../../Value.zig");
 const Compilation = @import("../../Compilation.zig");
 const link = @import("../../link.zig");
 const Air = @import("../../Air.zig");
-const Liveness = @import("../../Liveness.zig");
 const Mir = @import("Mir.zig");
-const Emit = @import("Emit.zig");
-const abi = @import("abi.zig");
+const abi = @import("../../codegen/wasm/abi.zig");
 const Alignment = InternPool.Alignment;
 const errUnionPayloadOffset = codegen.errUnionPayloadOffset;
 const errUnionErrorOffset = codegen.errUnionErrorOffset;
-const Wasm = link.File.Wasm;
 
 const target_util = @import("../../target.zig");
 const libcFloatPrefix = target_util.libcFloatPrefix;
 const libcFloatSuffix = target_util.libcFloatSuffix;
 const compilerRtFloatAbbrev = target_util.compilerRtFloatAbbrev;
 const compilerRtIntAbbrev = target_util.compilerRtIntAbbrev;
+
+pub fn legalizeFeatures(_: *const std.Target) *const Air.Legalize.Features {
+    return comptime &.initMany(&.{
+        .expand_intcast_safe,
+        .expand_int_from_float_safe,
+        .expand_int_from_float_optimized_safe,
+        .expand_add_safe,
+        .expand_sub_safe,
+        .expand_mul_safe,
+    });
+}
 
 /// Reference to the function declaration the code
 /// section belongs to
@@ -39,7 +46,7 @@ owner_nav: InternPool.Nav.Index,
 /// and block
 block_depth: u32 = 0,
 air: Air,
-liveness: Liveness,
+liveness: Air.Liveness,
 gpa: mem.Allocator,
 func_index: InternPool.Index,
 /// Contains a list of current branches.
@@ -70,17 +77,24 @@ simd_immediates: std.ArrayListUnmanaged([16]u8) = .empty,
 /// The Target we're emitting (used to call intInfo)
 target: *const std.Target,
 ptr_size: enum { wasm32, wasm64 },
-wasm: *link.File.Wasm,
 pt: Zcu.PerThread,
 /// List of MIR Instructions
-mir_instructions: *std.MultiArrayList(Mir.Inst),
+mir_instructions: std.MultiArrayList(Mir.Inst),
 /// Contains extra data for MIR
-mir_extra: *std.ArrayListUnmanaged(u32),
-start_mir_extra_off: u32,
-start_locals_off: u32,
+mir_extra: std.ArrayListUnmanaged(u32),
 /// List of all locals' types generated throughout this declaration
 /// used to emit locals count at start of 'code' section.
-locals: *std.ArrayListUnmanaged(std.wasm.Valtype),
+mir_locals: std.ArrayListUnmanaged(std.wasm.Valtype),
+/// Set of all UAVs referenced by this function. Key is the UAV value, value is the alignment.
+/// `.none` means naturally aligned. An explicit alignment is never less than the natural alignment.
+mir_uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+/// Set of all functions whose address this function has taken and which therefore might be called
+/// via a `call_indirect` function.
+mir_indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+/// Set of all function types used by this function. These must be interned by the linker.
+mir_func_tys: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+/// The number of `error_name_table_ref` instructions emitted.
+error_name_table_ref_count: u32,
 /// When a function is executing, we store the the current stack pointer's value within this local.
 /// This value is then used to restore the stack pointer to the original value at the return of the function.
 initial_stack_value: WValue = .none,
@@ -211,7 +225,7 @@ const WValue = union(enum) {
         if (local_value < reserved + 2) return; // reserved locals may never be re-used. Also accounts for 2 stack locals.
 
         const index = local_value - reserved;
-        const valtype = gen.locals.items[gen.start_locals_off + index];
+        const valtype = gen.mir_locals.items[index];
         switch (valtype) {
             .i32 => gen.free_locals_i32.append(gen.gpa, local_value) catch return, // It's ok to fail any of those, a new local can be allocated instead
             .i64 => gen.free_locals_i64.append(gen.gpa, local_value) catch return,
@@ -708,6 +722,12 @@ pub fn deinit(cg: *CodeGen) void {
     cg.free_locals_f32.deinit(gpa);
     cg.free_locals_f64.deinit(gpa);
     cg.free_locals_v128.deinit(gpa);
+    cg.mir_instructions.deinit(gpa);
+    cg.mir_extra.deinit(gpa);
+    cg.mir_locals.deinit(gpa);
+    cg.mir_uavs.deinit(gpa);
+    cg.mir_indirect_function_set.deinit(gpa);
+    cg.mir_func_tys.deinit(gpa);
     cg.* = undefined;
 }
 
@@ -771,7 +791,7 @@ fn resolveValue(cg: *CodeGen, val: Value) InnerError!WValue {
 
 /// NOTE: if result == .stack, it will be stored in .local
 fn finishAir(cg: *CodeGen, inst: Air.Inst.Index, result: WValue, operands: []const Air.Inst.Ref) InnerError!void {
-    assert(operands.len <= Liveness.bpi - 1);
+    assert(operands.len <= Air.Liveness.bpi - 1);
     var tomb_bits = cg.liveness.getTombBits(inst);
     for (operands) |operand| {
         const dies = @as(u1, @truncate(tomb_bits)) != 0;
@@ -811,7 +831,7 @@ inline fn currentBranch(cg: *CodeGen) *Branch {
 const BigTomb = struct {
     gen: *CodeGen,
     inst: Air.Inst.Index,
-    lbt: Liveness.BigTomb,
+    lbt: Air.Liveness.BigTomb,
 
     fn feed(bt: *BigTomb, op_ref: Air.Inst.Ref) void {
         const dies = bt.lbt.feed();
@@ -868,7 +888,7 @@ fn addTag(cg: *CodeGen, tag: Mir.Inst.Tag) error{OutOfMemory}!void {
 }
 
 fn addExtended(cg: *CodeGen, opcode: std.wasm.MiscOpcode) error{OutOfMemory}!void {
-    const extra_index = cg.extraLen();
+    const extra_index: u32 = @intCast(cg.mir_extra.items.len);
     try cg.mir_extra.append(cg.gpa, @intFromEnum(opcode));
     try cg.addInst(.{ .tag = .misc_prefix, .data = .{ .payload = extra_index } });
 }
@@ -879,10 +899,6 @@ fn addLabel(cg: *CodeGen, tag: Mir.Inst.Tag, label: u32) error{OutOfMemory}!void
 
 fn addLocal(cg: *CodeGen, tag: Mir.Inst.Tag, local: u32) error{OutOfMemory}!void {
     try cg.addInst(.{ .tag = tag, .data = .{ .local = local } });
-}
-
-fn addFuncTy(cg: *CodeGen, tag: Mir.Inst.Tag, i: Wasm.FunctionType.Index) error{OutOfMemory}!void {
-    try cg.addInst(.{ .tag = tag, .data = .{ .func_ty = i } });
 }
 
 /// Accepts an unsigned 32bit integer rather than a signed integer to
@@ -903,7 +919,7 @@ fn addImm64(cg: *CodeGen, imm: u64) error{OutOfMemory}!void {
 /// Accepts the index into the list of 128bit-immediates
 fn addImm128(cg: *CodeGen, index: u32) error{OutOfMemory}!void {
     const simd_values = cg.simd_immediates.items[index];
-    const extra_index = cg.extraLen();
+    const extra_index: u32 = @intCast(cg.mir_extra.items.len);
     // tag + 128bit value
     try cg.mir_extra.ensureUnusedCapacity(cg.gpa, 5);
     cg.mir_extra.appendAssumeCapacity(@intFromEnum(std.wasm.SimdOpcode.v128_const));
@@ -948,15 +964,13 @@ fn addExtra(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 /// Returns the index into `mir_extra`
 fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
     const fields = std.meta.fields(@TypeOf(extra));
-    const result = cg.extraLen();
+    const result: u32 = @intCast(cg.mir_extra.items.len);
     inline for (fields) |field| {
         cg.mir_extra.appendAssumeCapacity(switch (field.type) {
             u32 => @field(extra, field.name),
             i32 => @bitCast(@field(extra, field.name)),
             InternPool.Index,
             InternPool.Nav.Index,
-            Wasm.UavsObjIndex,
-            Wasm.UavsExeIndex,
             => @intFromEnum(@field(extra, field.name)),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         });
@@ -968,7 +982,7 @@ fn addExtraAssumeCapacity(cg: *CodeGen, extra: anytype) error{OutOfMemory}!u32 {
 pub fn typeToValtype(ty: Type, zcu: *const Zcu, target: *const std.Target) std.wasm.Valtype {
     const ip = &zcu.intern_pool;
     return switch (ty.zigTypeTag(zcu)) {
-        .float => switch (ty.floatBits(target.*)) {
+        .float => switch (ty.floatBits(target)) {
             16 => .i32, // stored/loaded as u16
             32 => .f32,
             64 => .f64,
@@ -1026,18 +1040,12 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
         .float32 => |val| try cg.addInst(.{ .tag = .f32_const, .data = .{ .float32 = val } }),
         .float64 => |val| try cg.addFloat64(val),
         .nav_ref => |nav_ref| {
-            const wasm = cg.wasm;
-            const comp = wasm.base.comp;
-            const zcu = comp.zcu.?;
+            const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
             if (ip.getNav(nav_ref.nav_index).isFn(ip)) {
                 assert(nav_ref.offset == 0);
-                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, nav_ref.nav_index);
-                if (!gop.found_existing) gop.value_ptr.* = {};
-                try cg.addInst(.{
-                    .tag = .func_ref,
-                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
-                });
+                try cg.mir_indirect_function_set.put(cg.gpa, nav_ref.nav_index, {});
+                try cg.addInst(.{ .tag = .func_ref, .data = .{ .nav_index = nav_ref.nav_index } });
             } else if (nav_ref.offset == 0) {
                 try cg.addInst(.{ .tag = .nav_ref, .data = .{ .nav_index = nav_ref.nav_index } });
             } else {
@@ -1053,41 +1061,37 @@ fn emitWValue(cg: *CodeGen, value: WValue) InnerError!void {
             }
         },
         .uav_ref => |uav| {
-            const wasm = cg.wasm;
-            const comp = wasm.base.comp;
-            const is_obj = comp.config.output_mode == .Obj;
-            const zcu = comp.zcu.?;
+            const zcu = cg.pt.zcu;
             const ip = &zcu.intern_pool;
-            if (ip.isFunctionType(ip.typeOf(uav.ip_index))) {
-                assert(uav.offset == 0);
-                const owner_nav = ip.toFunc(uav.ip_index).owner_nav;
-                const gop = try wasm.zcu_indirect_function_set.getOrPut(comp.gpa, owner_nav);
-                if (!gop.found_existing) gop.value_ptr.* = {};
-                try cg.addInst(.{
-                    .tag = .func_ref,
-                    .data = .{ .indirect_function_table_index = @enumFromInt(gop.index) },
-                });
-            } else if (uav.offset == 0) {
+            assert(!ip.isFunctionType(ip.typeOf(uav.ip_index)));
+            const gop = try cg.mir_uavs.getOrPut(cg.gpa, uav.ip_index);
+            const this_align: Alignment = a: {
+                if (uav.orig_ptr_ty == .none) break :a .none;
+                const ptr_type = ip.indexToKey(uav.orig_ptr_ty).ptr_type;
+                const this_align = ptr_type.flags.alignment;
+                if (this_align == .none) break :a .none;
+                const abi_align = Type.fromInterned(ptr_type.child).abiAlignment(zcu);
+                if (this_align.compare(.lte, abi_align)) break :a .none;
+                break :a this_align;
+            };
+            if (!gop.found_existing or
+                gop.value_ptr.* == .none or
+                (this_align != .none and this_align.compare(.gt, gop.value_ptr.*)))
+            {
+                gop.value_ptr.* = this_align;
+            }
+            if (uav.offset == 0) {
                 try cg.addInst(.{
                     .tag = .uav_ref,
-                    .data = if (is_obj) .{
-                        .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
-                    } else .{
-                        .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
-                    },
+                    .data = .{ .ip_index = uav.ip_index },
                 });
             } else {
                 try cg.addInst(.{
                     .tag = .uav_ref_off,
-                    .data = .{
-                        .payload = if (is_obj) try cg.addExtra(Mir.UavRefOffObj{
-                            .uav_obj = try wasm.refUavObj(uav.ip_index, uav.orig_ptr_ty),
-                            .offset = uav.offset,
-                        }) else try cg.addExtra(Mir.UavRefOffExe{
-                            .uav_exe = try wasm.refUavExe(uav.ip_index, uav.orig_ptr_ty),
-                            .offset = uav.offset,
-                        }),
-                    },
+                    .data = .{ .payload = try cg.addExtra(@as(Mir.UavRefOff, .{
+                        .value = uav.ip_index,
+                        .offset = uav.offset,
+                    })) },
                 });
             }
         },
@@ -1149,105 +1153,11 @@ fn allocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
 /// to use a zero-initialized local.
 fn ensureAllocLocal(cg: *CodeGen, ty: Type) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    try cg.locals.append(cg.gpa, typeToValtype(ty, zcu, cg.target));
+    try cg.mir_locals.append(cg.gpa, typeToValtype(ty, zcu, cg.target));
     const initial_index = cg.local_index;
     cg.local_index += 1;
     return .{ .local = .{ .value = initial_index, .references = 1 } };
 }
-
-pub const Function = extern struct {
-    /// Index into `Wasm.mir_instructions`.
-    mir_off: u32,
-    /// This is unused except for as a safety slice bound and could be removed.
-    mir_len: u32,
-    /// Index into `Wasm.mir_extra`.
-    mir_extra_off: u32,
-    /// This is unused except for as a safety slice bound and could be removed.
-    mir_extra_len: u32,
-    locals_off: u32,
-    locals_len: u32,
-    prologue: Prologue,
-
-    pub const Prologue = extern struct {
-        flags: Flags,
-        sp_local: u32,
-        stack_size: u32,
-        bottom_stack_local: u32,
-
-        pub const Flags = packed struct(u32) {
-            stack_alignment: Alignment,
-            padding: u26 = 0,
-        };
-
-        pub const none: Prologue = .{
-            .sp_local = 0,
-            .flags = .{ .stack_alignment = .none },
-            .stack_size = 0,
-            .bottom_stack_local = 0,
-        };
-
-        pub fn isNone(p: *const Prologue) bool {
-            return p.flags.stack_alignment != .none;
-        }
-    };
-
-    pub fn lower(f: *Function, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
-        const gpa = wasm.base.comp.gpa;
-
-        // Write the locals in the prologue of the function body.
-        const locals = wasm.all_zcu_locals.items[f.locals_off..][0..f.locals_len];
-        try code.ensureUnusedCapacity(gpa, 5 + locals.len * 6 + 38);
-
-        std.leb.writeUleb128(code.fixedWriter(), @as(u32, @intCast(locals.len))) catch unreachable;
-        for (locals) |local| {
-            std.leb.writeUleb128(code.fixedWriter(), @as(u32, 1)) catch unreachable;
-            code.appendAssumeCapacity(@intFromEnum(local));
-        }
-
-        // Stack management section of function prologue.
-        const stack_alignment = f.prologue.flags.stack_alignment;
-        if (stack_alignment.toByteUnits()) |align_bytes| {
-            const sp_global: Wasm.GlobalIndex = .stack_pointer;
-            // load stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_get));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
-            // store stack pointer so we can restore it when we return from the function
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.sp_local) catch unreachable;
-            // get the total stack size
-            const aligned_stack: i32 = @intCast(stack_alignment.forward(f.prologue.stack_size));
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), aligned_stack) catch unreachable;
-            // subtract it from the current stack pointer
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_sub));
-            // Get negative stack alignment
-            const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_const));
-            leb.writeIleb128(code.fixedWriter(), neg_stack_align) catch unreachable;
-            // Bitwise-and the value to get the new stack pointer to ensure the
-            // pointers are aligned with the abi alignment.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.i32_and));
-            // The bottom will be used to calculate all stack pointer offsets.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.local_tee));
-            leb.writeUleb128(code.fixedWriter(), f.prologue.bottom_stack_local) catch unreachable;
-            // Store the current stack pointer value into the global stack pointer so other function calls will
-            // start from this value instead and not overwrite the current stack.
-            code.appendAssumeCapacity(@intFromEnum(std.wasm.Opcode.global_set));
-            std.leb.writeULEB128(code.fixedWriter(), @intFromEnum(sp_global)) catch unreachable;
-        }
-
-        var emit: Emit = .{
-            .mir = .{
-                .instruction_tags = wasm.mir_instructions.items(.tag)[f.mir_off..][0..f.mir_len],
-                .instruction_datas = wasm.mir_instructions.items(.data)[f.mir_off..][0..f.mir_len],
-                .extra = wasm.mir_extra.items[f.mir_extra_off..][0..f.mir_extra_len],
-            },
-            .wasm = wasm,
-            .code = code,
-        };
-        try emit.lowerToCode();
-    }
-};
 
 pub const Error = error{
     OutOfMemory,
@@ -1257,24 +1167,25 @@ pub const Error = error{
     CodegenFail,
 };
 
-pub fn function(
-    wasm: *Wasm,
+pub fn generate(
+    bin_file: *link.File,
     pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Liveness,
-) Error!Function {
+    air: *const Air,
+    liveness: *const ?Air.Liveness,
+) Error!Mir {
+    _ = src_loc;
+    _ = bin_file;
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const cg = zcu.funcInfo(func_index);
     const file_scope = zcu.navFileScope(cg.owner_nav);
-    const target = &file_scope.mod.resolved_target.result;
+    const target = &file_scope.mod.?.resolved_target.result;
     const fn_ty = zcu.navValue(cg.owner_nav).typeOf(zcu);
     const fn_info = zcu.typeToFunc(fn_ty).?;
-    const ip = &zcu.intern_pool;
-    const fn_ty_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), target);
-    const returns = fn_ty_index.ptr(wasm).returns.slice(wasm);
-    const any_returns = returns.len != 0;
+    const ret_ty: Type = .fromInterned(fn_info.return_type);
+    const any_returns = !firstParamSRet(fn_info.cc, ret_ty, zcu, target) and ret_ty.hasRuntimeBitsIgnoreComptime(zcu);
 
     var cc_result = try resolveCallingConventionValues(zcu, fn_ty, target);
     defer cc_result.deinit(gpa);
@@ -1282,8 +1193,8 @@ pub fn function(
     var code_gen: CodeGen = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*.?,
         .owner_nav = cg.owner_nav,
         .target = target,
         .ptr_size = switch (target.cpu.arch) {
@@ -1291,31 +1202,33 @@ pub fn function(
             .wasm64 => .wasm64,
             else => unreachable,
         },
-        .wasm = wasm,
         .func_index = func_index,
         .args = cc_result.args,
         .return_value = cc_result.return_value,
         .local_index = cc_result.local_index,
-        .mir_instructions = &wasm.mir_instructions,
-        .mir_extra = &wasm.mir_extra,
-        .locals = &wasm.all_zcu_locals,
-        .start_mir_extra_off = @intCast(wasm.mir_extra.items.len),
-        .start_locals_off = @intCast(wasm.all_zcu_locals.items.len),
+        .mir_instructions = .empty,
+        .mir_extra = .empty,
+        .mir_locals = .empty,
+        .mir_uavs = .empty,
+        .mir_indirect_function_set = .empty,
+        .mir_func_tys = .empty,
+        .error_name_table_ref_count = 0,
     };
     defer code_gen.deinit();
 
-    return functionInner(&code_gen, any_returns) catch |err| switch (err) {
-        error.CodegenFail => return error.CodegenFail,
+    try code_gen.mir_func_tys.putNoClobber(gpa, fn_ty.toIntern(), {});
+
+    return generateInner(&code_gen, any_returns) catch |err| switch (err) {
+        error.CodegenFail,
+        error.OutOfMemory,
+        error.Overflow,
+        => |e| return e,
         else => |e| return code_gen.fail("failed to generate function: {s}", .{@errorName(e)}),
     };
 }
 
-fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
-    const wasm = cg.wasm;
+fn generateInner(cg: *CodeGen, any_returns: bool) InnerError!Mir {
     const zcu = cg.pt.zcu;
-
-    const start_mir_off: u32 = @intCast(wasm.mir_instructions.len);
-
     try cg.branches.append(cg.gpa, .{});
     // clean up outer branch
     defer {
@@ -1339,20 +1252,25 @@ fn functionInner(cg: *CodeGen, any_returns: bool) InnerError!Function {
     try cg.addTag(.end);
     try cg.addTag(.dbg_epilogue_begin);
 
-    return .{
-        .mir_off = start_mir_off,
-        .mir_len = @intCast(wasm.mir_instructions.len - start_mir_off),
-        .mir_extra_off = cg.start_mir_extra_off,
-        .mir_extra_len = cg.extraLen(),
-        .locals_off = cg.start_locals_off,
-        .locals_len = @intCast(wasm.all_zcu_locals.items.len - cg.start_locals_off),
+    var mir: Mir = .{
+        .instructions = cg.mir_instructions.toOwnedSlice(),
+        .extra = &.{}, // fallible so assigned after errdefer
+        .locals = &.{}, // fallible so assigned after errdefer
         .prologue = if (cg.initial_stack_value == .none) .none else .{
             .sp_local = cg.initial_stack_value.local.value,
             .flags = .{ .stack_alignment = cg.stack_alignment },
             .stack_size = cg.stack_size,
             .bottom_stack_local = cg.bottom_stack_value.local.value,
         },
+        .uavs = cg.mir_uavs.move(),
+        .indirect_function_set = cg.mir_indirect_function_set.move(),
+        .func_tys = cg.mir_func_tys.move(),
+        .error_name_table_ref_count = cg.error_name_table_ref_count,
     };
+    errdefer mir.deinit(cg.gpa);
+    mir.extra = try cg.mir_extra.toOwnedSlice(cg.gpa);
+    mir.locals = try cg.mir_locals.toOwnedSlice(cg.gpa);
+    return mir;
 }
 
 const CallWValues = struct {
@@ -1383,7 +1301,7 @@ fn resolveCallingConventionValues(
     };
     if (cc == .naked) return result;
 
-    var args = std.ArrayList(WValue).init(gpa);
+    var args = std.array_list.Managed(WValue).init(gpa);
     defer args.deinit();
 
     // Check if we store the result as a pointer to the stack rather than
@@ -1545,7 +1463,7 @@ fn allocStack(cg: *CodeGen, ty: Type) !WValue {
     }
 
     const abi_size = std.math.cast(u32, ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             ty.fmt(pt), ty.abiSize(zcu),
         });
     };
@@ -1579,7 +1497,7 @@ fn allocStackPtr(cg: *CodeGen, inst: Air.Inst.Index) !WValue {
 
     const abi_alignment = ptr_ty.ptrAlignment(zcu);
     const abi_size = std.math.cast(u32, pointee_ty.abiSize(zcu)) orelse {
-        return cg.fail("Type {} with ABI size of {d} exceeds stack frame size", .{
+        return cg.fail("Type {f} with ABI size of {d} exceeds stack frame size", .{
             pointee_ty.fmt(pt), pointee_ty.abiSize(zcu),
         });
     };
@@ -1608,8 +1526,8 @@ fn memcpy(cg: *CodeGen, dst: WValue, src: WValue, len: WValue) !void {
     };
     // When bulk_memory is enabled, we lower it to wasm's memcpy instruction.
     // If not, we lower it ourselves manually
-    if (std.Target.wasm.featureSetHas(cg.target.cpu.features, .bulk_memory)) {
-        const len0_ok = std.Target.wasm.featureSetHas(cg.target.cpu.features, .nontrapping_bulk_memory_len0);
+    if (cg.target.cpu.has(.wasm, .bulk_memory)) {
+        const len0_ok = cg.target.cpu.has(.wasm, .nontrapping_bulk_memory_len0);
         const emit_check = !(len0_ok or len_known_neq_0);
 
         if (emit_check) {
@@ -1797,7 +1715,7 @@ fn isByRef(ty: Type, zcu: *const Zcu, target: *const std.Target) bool {
         .vector => return determineSimdStoreStrategy(ty, zcu, target) == .unrolled,
         .int => return ty.intInfo(zcu).bits > 64,
         .@"enum" => return ty.intInfo(zcu).bits > 64,
-        .float => return ty.floatBits(target.*) > 64,
+        .float => return ty.floatBits(target) > 64,
         .error_union => {
             const pl_ty = ty.errorUnionPayload(zcu);
             if (!pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
@@ -1831,9 +1749,7 @@ const SimdStoreStrategy = enum {
 pub fn determineSimdStoreStrategy(ty: Type, zcu: *const Zcu, target: *const std.Target) SimdStoreStrategy {
     assert(ty.zigTypeTag(zcu) == .vector);
     if (ty.bitSize(zcu) != 128) return .unrolled;
-    const hasFeature = std.Target.wasm.featureSetHas;
-    const features = target.cpu.features;
-    if (hasFeature(features, .relaxed_simd) or hasFeature(features, .simd128)) {
+    if (target.cpu.has(.wasm, .relaxed_simd) or target.cpu.has(.wasm, .simd128)) {
         return .direct;
     }
     return .unrolled;
@@ -1963,15 +1879,17 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .dbg_inline_block => cg.airDbgInlineBlock(inst),
         .dbg_var_ptr => cg.airDbgVar(inst, .local_var, true),
         .dbg_var_val => cg.airDbgVar(inst, .local_var, false),
-        .dbg_arg_inline => cg.airDbgVar(inst, .local_arg, false),
+        .dbg_arg_inline => cg.airDbgVar(inst, .arg, false),
 
         .call => cg.airCall(inst, .auto),
         .call_always_tail => cg.airCall(inst, .always_tail),
         .call_never_tail => cg.airCall(inst, .never_tail),
         .call_never_inline => cg.airCall(inst, .never_inline),
 
-        .is_err => cg.airIsErr(inst, .i32_ne),
-        .is_non_err => cg.airIsErr(inst, .i32_eq),
+        .is_err => cg.airIsErr(inst, .i32_ne, .value),
+        .is_non_err => cg.airIsErr(inst, .i32_eq, .value),
+        .is_err_ptr => cg.airIsErr(inst, .i32_ne, .ptr),
+        .is_non_err_ptr => cg.airIsErr(inst, .i32_eq, .ptr),
 
         .is_null => cg.airIsNull(inst, .i32_eq, .value),
         .is_non_null => cg.airIsNull(inst, .i32_ne, .value),
@@ -1996,7 +1914,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .ret_load => cg.airRetLoad(inst),
         .splat => cg.airSplat(inst),
         .select => cg.airSelect(inst),
-        .shuffle => cg.airShuffle(inst),
+        .shuffle_one => cg.airShuffleOne(inst),
+        .shuffle_two => cg.airShuffleTwo(inst),
         .reduce => cg.airReduce(inst),
         .aggregate_init => cg.airAggregateInit(inst),
         .union_init => cg.airUnionInit(inst),
@@ -2042,7 +1961,7 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .wasm_memory_size => cg.airWasmMemorySize(inst),
         .wasm_memory_grow => cg.airWasmMemoryGrow(inst),
 
-        .memcpy => cg.airMemcpy(inst),
+        .memcpy, .memmove => cg.airMemcpy(inst),
 
         .ret_addr => cg.airRetAddr(inst),
         .tag_name => cg.airTagName(inst),
@@ -2050,9 +1969,9 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .error_set_has_value => cg.airErrorSetHasValue(inst),
         .frame_addr => cg.airFrameAddress(inst),
 
+        .runtime_nav_ptr => cg.airRuntimeNavPtr(inst),
+
         .assembly,
-        .is_err_ptr,
-        .is_non_err_ptr,
 
         .err_return_trace,
         .set_err_return_trace,
@@ -2064,7 +1983,6 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .c_va_copy,
         .c_va_end,
         .c_va_start,
-        .memmove,
         => |tag| return cg.fail("TODO: Implement wasm inst: {s}", .{@tagName(tag)}),
 
         .atomic_load => cg.airAtomicLoad(inst),
@@ -2103,6 +2021,8 @@ fn genInst(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .sub_safe,
         .mul_safe,
         .intcast_safe,
+        .int_from_float_safe,
+        .int_from_float_optimized_safe,
         => return cg.fail("TODO implement safety_checked_instructions", .{}),
 
         .work_item_id,
@@ -2121,11 +2041,11 @@ fn genBody(cg: *CodeGen, body: []const Air.Inst.Index) InnerError!void {
             continue;
         }
         const old_bookkeeping_value = cg.air_bookkeeping;
-        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, Liveness.bpi);
+        try cg.currentBranch().values.ensureUnusedCapacity(cg.gpa, Air.Liveness.bpi);
         try cg.genInst(inst);
 
         if (std.debug.runtime_safety and cg.air_bookkeeping < old_bookkeeping_value + 1) {
-            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{}')", .{
+            std.debug.panic("Missing call to `finishAir` in AIR instruction %{d} ('{t}')", .{
                 inst,
                 cg.air.instructions.items(.tag)[@intFromEnum(inst)],
             });
@@ -2211,11 +2131,10 @@ fn airRetLoad(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifier) InnerError!void {
-    const wasm = cg.wasm;
     if (modifier == .always_tail) return cg.fail("TODO implement tail calls for wasm", .{});
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const extra = cg.air.extraData(Air.Call, pl_op.payload);
-    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra[extra.end..][0..extra.data.args_len]);
+    const args: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.args_len]);
     const ty = cg.typeOf(pl_op.operand);
 
     const pt = cg.pt;
@@ -2268,8 +2187,11 @@ fn airCall(cg: *CodeGen, inst: Air.Inst.Index, modifier: std.builtin.CallModifie
         const operand = try cg.resolveInst(pl_op.operand);
         try cg.emitWValue(operand);
 
-        const fn_type_index = try wasm.internFunctionType(fn_info.cc, fn_info.param_types.get(ip), .fromInterned(fn_info.return_type), cg.target);
-        try cg.addFuncTy(.call_indirect, fn_type_index);
+        try cg.mir_func_tys.put(cg.gpa, fn_ty.toIntern(), {});
+        try cg.addInst(.{
+            .tag = .call_indirect,
+            .data = .{ .ip_index = fn_ty.toIntern() },
+        });
     }
 
     const result_value = result_value: {
@@ -2440,7 +2362,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
                 try cg.emitWValue(lhs);
                 try cg.lowerToStack(rhs);
                 // TODO: Add helper functions for simd opcodes
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     @intFromEnum(std.wasm.SimdOpcode.v128_store),
@@ -2481,10 +2403,7 @@ fn store(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, offset: u32) InnerErr
             try cg.memcpy(lhs, rhs, .{ .imm32 = @as(u32, @intCast(ty.abiSize(zcu))) });
         },
         else => if (abi_size > 8) {
-            return cg.fail("TODO: `store` for type `{}` with abisize `{d}`", .{
-                ty.fmt(pt),
-                abi_size,
-            });
+            return cg.fail("TODO: `store` for type `{f}` with abisize `{d}`", .{ ty.fmt(pt), abi_size });
         },
     }
     try cg.emitWValue(lhs);
@@ -2565,7 +2484,7 @@ fn load(cg: *CodeGen, operand: WValue, ty: Type, offset: u32) InnerError!WValue 
 
     if (ty.zigTypeTag(zcu) == .vector) {
         // TODO: Add helper functions for simd opcodes
-        const extra_index = cg.extraLen();
+        const extra_index: u32 = @intCast(cg.mir_extra.items.len);
         // stores as := opcode, offset, alignment (opcode::memarg)
         try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
             @intFromEnum(std.wasm.SimdOpcode.v128_load),
@@ -2637,6 +2556,10 @@ fn airBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     // For big integers we can ignore this as we will call into compiler-rt which handles this.
     const result = switch (op) {
         .shr, .shl => result: {
+            if (lhs_ty.isVector(zcu) and !rhs_ty.isVector(zcu)) {
+                return cg.fail("TODO: implement vector '{s}' with scalar rhs", .{@tagName(op)});
+            }
+
             const lhs_wasm_bits = toWasmBits(@intCast(lhs_ty.bitSize(zcu))) orelse {
                 return cg.fail("TODO: implement '{s}' for types larger than 128 bits", .{@tagName(op)});
             };
@@ -2669,10 +2592,7 @@ fn binOp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: Op) InnerError!WV
         if (ty.zigTypeTag(zcu) == .int) {
             return cg.binOpBigInt(lhs, rhs, ty, op);
         } else {
-            return cg.fail(
-                "TODO: Implement binary operation for type: {}",
-                .{ty.fmt(pt)},
-            );
+            return cg.fail("TODO: Implement binary operation for type: {f}", .{ty.fmt(pt)});
         }
     }
 
@@ -2890,7 +2810,7 @@ fn airAbs(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     switch (scalar_ty.zigTypeTag(zcu)) {
         .int => if (ty.zigTypeTag(zcu) == .vector) {
-            return cg.fail("TODO implement airAbs for {}", .{ty.fmt(pt)});
+            return cg.fail("TODO implement airAbs for {f}", .{ty.fmt(pt)});
         } else {
             const int_bits = ty.intInfo(zcu).bits;
             const wasm_bits = toWasmBits(int_bits) orelse {
@@ -2977,7 +2897,7 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
         return cg.fail("TODO: Implement floatOps for vectors", .{});
     }
 
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
 
     if (float_op == .neg) {
         return cg.floatNeg(ty, args[0]);
@@ -3004,7 +2924,7 @@ fn floatOp(cg: *CodeGen, float_op: FloatOp, ty: Type, args: []const WValue) Inne
 
 /// NOTE: The result value remains on top of the stack.
 fn floatNeg(cg: *CodeGen, ty: Type, arg: WValue) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
     switch (float_bits) {
         16 => {
             try cg.emitWValue(arg);
@@ -3054,8 +2974,12 @@ fn airWrapBinOp(cg: *CodeGen, inst: Air.Inst.Index, op: Op) InnerError!void {
     const lhs_ty = cg.typeOf(bin_op.lhs);
     const rhs_ty = cg.typeOf(bin_op.rhs);
 
-    if (lhs_ty.zigTypeTag(zcu) == .vector or rhs_ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement wrapping arithmetic for vectors", .{});
+    if (lhs_ty.isVector(zcu)) {
+        if ((op == .shr or op == .shl) and !rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement wrapping vector '{s}' with scalar rhs", .{@tagName(op)});
+        } else {
+            return cg.fail("TODO: implement wrapping '{s}' for vectors", .{@tagName(op)});
+        }
     }
 
     // For certain operations, such as shifting, the types are different.
@@ -3207,7 +3131,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
     const zcu = pt.zcu;
     assert(!isByRef(ty, zcu, cg.target));
     const ip = &zcu.intern_pool;
-    if (val.isUndefDeep(zcu)) return cg.emitUndefined(ty);
+    if (val.isUndef(zcu)) return cg.emitUndefined(ty);
 
     switch (ip.indexToKey(val.ip_index)) {
         .int_type,
@@ -3313,7 +3237,7 @@ fn lowerConstant(cg: *CodeGen, val: Value, ty: Type) InnerError!WValue {
             return .{ .imm32 = @intFromBool(!val.isNull(zcu)) };
         },
         .aggregate => switch (ip.indexToKey(ty.ip_index)) {
-            .array_type => return cg.fail("Wasm TODO: LowerConstant for {}", .{ty.fmt(pt)}),
+            .array_type => return cg.fail("Wasm TODO: LowerConstant for {f}", .{ty.fmt(pt)}),
             .vector_type => {
                 assert(determineSimdStoreStrategy(ty, zcu, cg.target) == .direct);
                 var buf: [16]u8 = undefined;
@@ -3369,7 +3293,7 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             33...64 => return .{ .imm64 = 0xaaaaaaaaaaaaaaaa },
             else => unreachable,
         },
-        .float => switch (ty.floatBits(cg.target.*)) {
+        .float => switch (ty.floatBits(cg.target)) {
             16 => return .{ .imm32 = 0xaaaaaaaa },
             32 => return .{ .float32 = @as(f32, @bitCast(@as(u32, 0xaaaaaaaa))) },
             64 => return .{ .float64 = @as(f64, @bitCast(@as(u64, 0xaaaaaaaaaaaaaaaa))) },
@@ -3401,14 +3325,14 @@ fn emitUndefined(cg: *CodeGen, ty: Type) InnerError!WValue {
             },
             else => unreachable,
         },
-        else => return cg.fail("Wasm TODO: emitUndefined for type: {}\n", .{ty.zigTypeTag(zcu)}),
+        else => return cg.fail("Wasm TODO: emitUndefined for type: {t}\n", .{ty.zigTypeTag(zcu)}),
     }
 }
 
 fn airBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.Block, ty_pl.payload);
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]));
+    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn lowerBlock(cg: *CodeGen, inst: Air.Inst.Index, block_ty: Type, body: []const Air.Inst.Index) InnerError!void {
@@ -3454,7 +3378,7 @@ fn endBlock(cg: *CodeGen) !void {
 fn airLoop(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const loop = cg.air.extraData(Air.Block, ty_pl.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[loop.end..][0..loop.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[loop.end..][0..loop.data.body_len]);
 
     // result type of loop is always 'noreturn', meaning we can always
     // emit the wasm type 'block_empty'.
@@ -3473,8 +3397,8 @@ fn airCondBr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const condition = try cg.resolveInst(pl_op.operand);
     const extra = cg.air.extraData(Air.CondBr, pl_op.payload);
-    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.then_body_len]);
-    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end + then_body.len ..][0..extra.data.else_body_len]);
+    const then_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.then_body_len]);
+    const else_body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end + then_body.len ..][0..extra.data.else_body_len]);
     const liveness_condbr = cg.liveness.getCondBr(inst);
 
     // result type is always noreturn, so use `block_empty` as type.
@@ -3576,7 +3500,7 @@ fn cmp(cg: *CodeGen, lhs: WValue, rhs: WValue, ty: Type, op: std.math.CompareOpe
 /// Compares two floats.
 /// NOTE: Leaves the result of the comparison on top of the stack.
 fn cmpFloat(cg: *CodeGen, ty: Type, lhs: WValue, rhs: WValue, cmp_op: std.math.CompareOperator) InnerError!WValue {
-    const float_bits = ty.floatBits(cg.target.*);
+    const float_bits = ty.floatBits(cg.target);
 
     const op: Op = switch (cmp_op) {
         .lt => .lt,
@@ -3677,7 +3601,7 @@ fn airNot(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         } else {
             const int_info = operand_ty.intInfo(zcu);
             const wasm_bits = toWasmBits(int_info.bits) orelse {
-                return cg.fail("TODO: Implement binary NOT for {}", .{operand_ty.fmt(pt)});
+                return cg.fail("TODO: Implement binary NOT for {f}", .{operand_ty.fmt(pt)});
             };
 
             switch (wasm_bits) {
@@ -3852,7 +3776,7 @@ fn structFieldPtr(
                     break :offset @as(u32, 0);
                 }
                 const struct_type = zcu.typeToStruct(struct_ty).?;
-                break :offset @divExact(pt.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
+                break :offset @divExact(zcu.structPackedFieldBitOffset(struct_type, index) + struct_ptr_ty_info.packed_offset.bit_offset, 8);
             },
             .@"union" => 0,
             else => unreachable,
@@ -3888,7 +3812,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .@"packed" => switch (struct_ty.zigTypeTag(zcu)) {
             .@"struct" => result: {
                 const packed_struct = zcu.typeToPackedStruct(struct_ty).?;
-                const offset = pt.structPackedFieldBitOffset(packed_struct, field_index);
+                const offset = zcu.structPackedFieldBitOffset(packed_struct, field_index);
                 const backing_ty = Type.fromInterned(packed_struct.backingIntTypeUnordered(ip));
                 const host_bits = backing_ty.intInfo(zcu).bits;
 
@@ -3943,7 +3867,7 @@ fn airStructFieldVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         else => result: {
             const offset = std.math.cast(u32, struct_ty.structFieldOffset(field_index, zcu)) orelse {
-                return cg.fail("Field type '{}' too big to fit into stack frame", .{field_ty.fmt(pt)});
+                return cg.fail("Field type '{f}' too big to fit into stack frame", .{field_ty.fmt(pt)});
             };
             if (isByRef(field_ty, zcu, cg.target)) {
                 switch (operand) {
@@ -4050,7 +3974,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
         var width_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
         width_bigint.sub(max_bigint, min_bigint);
         width_bigint.addScalar(width_bigint.toConst(), 1);
-        break :width width_bigint.toConst().to(u32) catch null;
+        break :width width_bigint.toConst().toInt(u32) catch null;
     };
 
     try cg.startBlock(.block, .empty); // whole switch block start
@@ -4091,7 +4015,7 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const val_bigint = val.toBigInt(&val_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(val_bigint, min_bigint);
-                branch_list[index_bigint.toConst().to(u32) catch unreachable] = case.idx;
+                branch_list[index_bigint.toConst().toInt(u32) catch unreachable] = case.idx;
             }
             for (case.ranges) |range| {
                 var low_space: Value.BigIntSpace = undefined;
@@ -4100,9 +4024,9 @@ fn airSwitchBr(cg: *CodeGen, inst: Air.Inst.Index, is_dispatch_loop: bool) Inner
                 const high_bigint = Value.fromInterned(range[1].toInterned().?).toBigInt(&high_space, zcu);
                 var index_bigint: std.math.big.int.Mutable = .{ .limbs = limbs, .positive = undefined, .len = undefined };
                 index_bigint.sub(low_bigint, min_bigint);
-                const start = index_bigint.toConst().to(u32) catch unreachable;
+                const start = index_bigint.toConst().toInt(u32) catch unreachable;
                 index_bigint.sub(high_bigint, min_bigint);
-                const end = (index_bigint.toConst().to(u32) catch unreachable) + 1;
+                const end = (index_bigint.toConst().toInt(u32) catch unreachable) + 1;
                 @memset(branch_list[start..end], case.idx);
             }
         }
@@ -4181,7 +4105,7 @@ fn airSwitchDispatch(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .none, &.{br.operand});
 }
 
-fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerError!void {
+fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode, op_kind: enum { value, ptr }) InnerError!void {
     const zcu = cg.pt.zcu;
     const un_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].un_op;
     const operand = try cg.resolveInst(un_op);
@@ -4198,7 +4122,7 @@ fn airIsErr(cg: *CodeGen, inst: Air.Inst.Index, opcode: std.wasm.Opcode) InnerEr
         }
 
         try cg.emitWValue(operand);
-        if (pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
+        if (op_kind == .ptr or pl_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             try cg.addMemArg(.i32_load16_u, .{
                 .offset = operand.offset() + @as(u32, @intCast(errUnionErrorOffset(pl_ty, zcu))),
                 .alignment = @intCast(Type.anyerror.abiAlignment(zcu).toByteUnits().?),
@@ -4429,7 +4353,7 @@ fn isNull(cg: *CodeGen, operand: WValue, optional_ty: Type, opcode: std.wasm.Opc
         // a pointer to the stack value
         if (payload_ty.hasRuntimeBitsIgnoreComptime(zcu)) {
             const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-                return cg.fail("Optional type {} too big to fit into stack frame", .{optional_ty.fmt(pt)});
+                return cg.fail("Optional type {f} too big to fit into stack frame", .{optional_ty.fmt(pt)});
             };
             try cg.addMemArg(.i32_load8_u, .{ .offset = operand.offset() + offset, .alignment = 1 });
         }
@@ -4499,7 +4423,7 @@ fn airOptionalPayloadPtrSet(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void 
     }
 
     const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-        return cg.fail("Optional type {} too big to fit into stack frame", .{opt_ty.fmt(pt)});
+        return cg.fail("Optional type {f} too big to fit into stack frame", .{opt_ty.fmt(pt)});
     };
 
     try cg.emitWValue(operand);
@@ -4531,7 +4455,7 @@ fn airWrapOptional(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             break :result cg.reuseOperand(ty_op.operand, operand);
         }
         const offset = std.math.cast(u32, payload_ty.abiSize(zcu)) orelse {
-            return cg.fail("Optional type {} too big to fit into stack frame", .{op_ty.fmt(pt)});
+            return cg.fail("Optional type {f} too big to fit into stack frame", .{op_ty.fmt(pt)});
         };
 
         // Create optional type, set the non-null bit, and store the operand inside the optional type
@@ -4819,8 +4743,8 @@ fn memset(cg: *CodeGen, elem_ty: Type, ptr: WValue, len: WValue, value: WValue) 
 
     // When bulk_memory is enabled, we lower it to wasm's memset instruction.
     // If not, we lower it ourselves.
-    if (std.Target.wasm.featureSetHas(cg.target.cpu.features, .bulk_memory) and abi_size == 1) {
-        const len0_ok = std.Target.wasm.featureSetHas(cg.target.cpu.features, .nontrapping_bulk_memory_len0);
+    if (cg.target.cpu.has(.wasm, .bulk_memory) and abi_size == 1) {
+        const len0_ok = cg.target.cpu.has(.wasm, .nontrapping_bulk_memory_len0);
 
         if (!len0_ok) {
             try cg.startBlock(.block, .empty);
@@ -4954,7 +4878,7 @@ fn airArrayElemVal(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
                 try cg.emitWValue(array);
 
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 try cg.mir_extra.appendSlice(cg.gpa, &operands);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
 
@@ -4988,7 +4912,7 @@ fn airIntFromFloat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const operand = try cg.resolveInst(ty_op.operand);
     const op_ty = cg.typeOf(ty_op.operand);
-    const op_bits = op_ty.floatBits(cg.target.*);
+    const op_bits = op_ty.floatBits(cg.target);
 
     const dest_ty = cg.typeOfIndex(inst);
     const dest_info = dest_ty.intInfo(zcu);
@@ -5042,7 +4966,7 @@ fn airFloatFromInt(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const op_info = op_ty.intInfo(zcu);
 
     const dest_ty = cg.typeOfIndex(inst);
-    const dest_bits = dest_ty.floatBits(cg.target.*);
+    const dest_bits = dest_ty.floatBits(cg.target);
 
     if (op_info.bits > 128) {
         return cg.fail("TODO: floatFromInt for integers/floats with bitsize {d} bits", .{op_info.bits});
@@ -5106,7 +5030,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index: u32 = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 // stores as := opcode, offset, alignment (opcode::memarg)
                 try cg.mir_extra.appendSlice(cg.gpa, &[_]u32{
                     opcode,
@@ -5125,7 +5049,7 @@ fn airSplat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
                     else => break :blk, // Cannot make use of simd-instructions
                 };
                 try cg.emitWValue(operand);
-                const extra_index = cg.extraLen();
+                const extra_index: u32 = @intCast(cg.mir_extra.items.len);
                 try cg.mir_extra.append(cg.gpa, opcode);
                 try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
                 return cg.finishAir(inst, .stack, &.{ty_op.operand});
@@ -5159,66 +5083,105 @@ fn airSelect(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.fail("TODO: Implement wasm airSelect", .{});
 }
 
-fn airShuffle(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+fn airShuffleOne(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pt = cg.pt;
     const zcu = pt.zcu;
-    const inst_ty = cg.typeOfIndex(inst);
-    const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
-    const extra = cg.air.extraData(Air.Shuffle, ty_pl.payload).data;
 
-    const a = try cg.resolveInst(extra.a);
-    const b = try cg.resolveInst(extra.b);
-    const mask = Value.fromInterned(extra.mask);
-    const mask_len = extra.mask_len;
+    const unwrapped = cg.air.unwrapShuffleOne(zcu, inst);
+    const result_ty = unwrapped.result_ty;
+    const mask = unwrapped.mask;
+    const operand = try cg.resolveInst(unwrapped.operand);
 
-    const child_ty = inst_ty.childType(zcu);
-    const elem_size = child_ty.abiSize(zcu);
+    const elem_ty = result_ty.childType(zcu);
+    const elem_size = elem_ty.abiSize(zcu);
 
-    // TODO: One of them could be by ref; handle in loop
-    if (isByRef(cg.typeOf(extra.a), zcu, cg.target) or isByRef(inst_ty, zcu, cg.target)) {
-        const result = try cg.allocStack(inst_ty);
+    // TODO: this function could have an `i8x16_shuffle` fast path like `airShuffleTwo` if we were
+    // to lower the comptime-known operands to a non-by-ref vector value.
 
-        for (0..mask_len) |index| {
-            const value = (try mask.elemValue(pt, index)).toSignedInt(zcu);
+    // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
+    // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(cg.typeOf(unwrapped.operand), zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
 
-            try cg.emitWValue(result);
+    const dest_alloc = try cg.allocStack(result_ty);
+    for (mask, 0..) |mask_elem, out_idx| {
+        try cg.emitWValue(dest_alloc);
+        const elem_val = switch (mask_elem.unwrap()) {
+            .elem => |idx| try cg.load(operand, elem_ty, @intCast(elem_size * idx)),
+            .value => |val| try cg.lowerConstant(.fromInterned(val), elem_ty),
+        };
+        try cg.store(.stack, elem_val, elem_ty, @intCast(dest_alloc.offset() + elem_size * out_idx));
+    }
+    return cg.finishAir(inst, dest_alloc, &.{unwrapped.operand});
+}
 
-            const loaded = if (value >= 0)
-                try cg.load(a, child_ty, @as(u32, @intCast(@as(i64, @intCast(elem_size)) * value)))
-            else
-                try cg.load(b, child_ty, @as(u32, @intCast(@as(i64, @intCast(elem_size)) * ~value)));
+fn airShuffleTwo(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const pt = cg.pt;
+    const zcu = pt.zcu;
 
-            try cg.store(.stack, loaded, child_ty, result.stack_offset.value + @as(u32, @intCast(elem_size)) * @as(u32, @intCast(index)));
-        }
+    const unwrapped = cg.air.unwrapShuffleTwo(zcu, inst);
+    const result_ty = unwrapped.result_ty;
+    const mask = unwrapped.mask;
+    const operand_a = try cg.resolveInst(unwrapped.operand_a);
+    const operand_b = try cg.resolveInst(unwrapped.operand_b);
 
-        return cg.finishAir(inst, result, &.{ extra.a, extra.b });
-    } else {
-        var operands = [_]u32{
-            @intFromEnum(std.wasm.SimdOpcode.i8x16_shuffle),
-        } ++ [1]u32{undefined} ** 4;
+    const a_ty = cg.typeOf(unwrapped.operand_a);
+    const b_ty = cg.typeOf(unwrapped.operand_b);
+    const elem_ty = result_ty.childType(zcu);
+    const elem_size = elem_ty.abiSize(zcu);
 
-        var lanes = mem.asBytes(operands[1..]);
-        for (0..@as(usize, @intCast(mask_len))) |index| {
-            const mask_elem = (try mask.elemValue(pt, index)).toSignedInt(zcu);
-            const base_index = if (mask_elem >= 0)
-                @as(u8, @intCast(@as(i64, @intCast(elem_size)) * mask_elem))
-            else
-                16 + @as(u8, @intCast(@as(i64, @intCast(elem_size)) * ~mask_elem));
-
-            for (0..@as(usize, @intCast(elem_size))) |byte_offset| {
-                lanes[index * @as(usize, @intCast(elem_size)) + byte_offset] = base_index + @as(u8, @intCast(byte_offset));
+    // WASM has `i8x16_shuffle`, which we can apply if the element type bit size is a multiple of 8
+    // and the input and output vectors have a bit size of 128 (and are hence not by-ref). Otherwise,
+    // we fall back to a naive loop lowering.
+    if (!isByRef(a_ty, zcu, cg.target) and
+        !isByRef(b_ty, zcu, cg.target) and
+        !isByRef(result_ty, zcu, cg.target) and
+        elem_ty.bitSize(zcu) % 8 == 0)
+    {
+        var lane_map: [16]u8 align(4) = undefined;
+        const lanes_per_elem: usize = @intCast(elem_ty.bitSize(zcu) / 8);
+        for (mask, 0..) |mask_elem, out_idx| {
+            const out_first_lane = out_idx * lanes_per_elem;
+            const in_first_lane = switch (mask_elem.unwrap()) {
+                .a_elem => |i| i * lanes_per_elem,
+                .b_elem => |i| i * lanes_per_elem + 16,
+                .undef => 0, // doesn't matter
+            };
+            for (lane_map[out_first_lane..][0..lanes_per_elem], in_first_lane..) |*out, in| {
+                out.* = @intCast(in);
             }
         }
-
-        try cg.emitWValue(a);
-        try cg.emitWValue(b);
-
-        const extra_index = cg.extraLen();
-        try cg.mir_extra.appendSlice(cg.gpa, &operands);
+        try cg.emitWValue(operand_a);
+        try cg.emitWValue(operand_b);
+        const extra_index: u32 = @intCast(cg.mir_extra.items.len);
+        try cg.mir_extra.appendSlice(cg.gpa, &.{
+            @intFromEnum(std.wasm.SimdOpcode.i8x16_shuffle),
+            @bitCast(lane_map[0..4].*),
+            @bitCast(lane_map[4..8].*),
+            @bitCast(lane_map[8..12].*),
+            @bitCast(lane_map[12..].*),
+        });
         try cg.addInst(.{ .tag = .simd_prefix, .data = .{ .payload = extra_index } });
-
-        return cg.finishAir(inst, .stack, &.{ extra.a, extra.b });
+        return cg.finishAir(inst, .stack, &.{ unwrapped.operand_a, unwrapped.operand_b });
     }
+
+    // TODO: this is incorrect if either operand or the result is *not* by-ref, which is possible.
+    // I tried to fix it, but I couldn't make much sense of how this backend handles memory.
+    if (!isByRef(result_ty, zcu, cg.target) or
+        !isByRef(a_ty, zcu, cg.target) or
+        !isByRef(b_ty, zcu, cg.target)) return cg.fail("TODO: handle mixed by-ref shuffle", .{});
+
+    const dest_alloc = try cg.allocStack(result_ty);
+    for (mask, 0..) |mask_elem, out_idx| {
+        try cg.emitWValue(dest_alloc);
+        const elem_val = switch (mask_elem.unwrap()) {
+            .a_elem => |idx| try cg.load(operand_a, elem_ty, @intCast(elem_size * idx)),
+            .b_elem => |idx| try cg.load(operand_b, elem_ty, @intCast(elem_size * idx)),
+            .undef => try cg.emitUndefined(elem_ty),
+        };
+        try cg.store(.stack, elem_val, elem_ty, @intCast(dest_alloc.offset() + elem_size * out_idx));
+    }
+    return cg.finishAir(inst, dest_alloc, &.{ unwrapped.operand_a, unwrapped.operand_b });
 }
 
 fn airReduce(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -5236,7 +5199,7 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const result_ty = cg.typeOfIndex(inst);
     const len = @as(usize, @intCast(result_ty.arrayLen(zcu)));
-    const elements = @as([]const Air.Inst.Ref, @ptrCast(cg.air.extra[ty_pl.payload..][0..len]));
+    const elements: []const Air.Inst.Ref = @ptrCast(cg.air.extra.items[ty_pl.payload..][0..len]);
 
     const result: WValue = result_value: {
         switch (result_ty.zigTypeTag(zcu)) {
@@ -5350,8 +5313,8 @@ fn airAggregateInit(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         }
     };
 
-    if (elements.len <= Liveness.bpi - 1) {
-        var buf = [1]Air.Inst.Ref{.none} ** (Liveness.bpi - 1);
+    if (elements.len <= Air.Liveness.bpi - 1) {
+        var buf = [1]Air.Inst.Ref{.none} ** (Air.Liveness.bpi - 1);
         @memcpy(buf[0..elements.len], elements);
         return cg.finishAir(inst, result, &buf);
     }
@@ -5597,8 +5560,8 @@ fn airFpext(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Extends a float from a given `Type` to a larger wanted `Type`, leaving the
 /// result on the stack.
 fn fpext(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target.*);
-    const wanted_bits = wanted.floatBits(cg.target.*);
+    const given_bits = given.floatBits(cg.target);
+    const wanted_bits = wanted.floatBits(cg.target);
 
     const intrinsic: Mir.Intrinsic = switch (given_bits) {
         16 => switch (wanted_bits) {
@@ -5651,8 +5614,8 @@ fn airFptrunc(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 /// Truncates a float from a given `Type` to its wanted `Type`, leaving the
 /// result on the stack.
 fn fptrunc(cg: *CodeGen, operand: WValue, given: Type, wanted: Type) InnerError!WValue {
-    const given_bits = given.floatBits(cg.target.*);
-    const wanted_bits = wanted.floatBits(cg.target.*);
+    const given_bits = given.floatBits(cg.target);
+    const wanted_bits = wanted.floatBits(cg.target);
 
     const intrinsic: Mir.Intrinsic = switch (given_bits) {
         32 => switch (wanted_bits) {
@@ -5733,7 +5696,7 @@ fn airFieldParentPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         .auto, .@"extern" => parent_ty.structFieldOffset(field_index, zcu),
         .@"packed" => offset: {
             const parent_ptr_offset = parent_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
-            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| pt.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
+            const field_offset = if (zcu.typeToStruct(parent_ty)) |loaded_struct| zcu.structPackedFieldBitOffset(loaded_struct, field_index) else 0;
             const field_ptr_offset = field_ptr_ty.ptrInfo(zcu).packed_offset.bit_offset;
             break :offset @divExact(parent_ptr_offset + field_offset - field_ptr_offset, 8);
         },
@@ -5960,9 +5923,8 @@ fn airErrorName(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const name_ty = Type.slice_const_u8_sentinel_0;
     const abi_size = name_ty.abiSize(pt.zcu);
 
-    cg.wasm.error_name_table_ref_count += 1;
-
     // Lowers to a i32.const or i64.const with the error table memory address.
+    cg.error_name_table_ref_count += 1;
     try cg.addTag(.error_name_table_ref);
     try cg.emitWValue(operand);
     switch (cg.ptr_size) {
@@ -5990,7 +5952,7 @@ fn airPtrSliceFieldPtr(cg: *CodeGen, inst: Air.Inst.Index, offset: u32) InnerErr
 
 /// NOTE: Allocates place for result on virtual stack, when integer size > 64 bits
 fn intZeroValue(cg: *CodeGen, ty: Type) InnerError!WValue {
-    const zcu = cg.wasm.base.comp.zcu.?;
+    const zcu = cg.pt.zcu;
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
         return cg.fail("TODO: Implement intZeroValue for integer bitsize: {d}", .{int_info.bits});
@@ -6066,13 +6028,17 @@ fn airShlWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty = cg.typeOf(extra.lhs);
     const rhs_ty = cg.typeOf(extra.rhs);
 
-    if (ty.zigTypeTag(zcu) == .vector) {
-        return cg.fail("TODO: Implement overflow arithmetic for vectors", .{});
+    if (ty.isVector(zcu)) {
+        if (!rhs_ty.isVector(zcu)) {
+            return cg.fail("TODO: implement vector 'shl_with_overflow' with scalar rhs", .{});
+        } else {
+            return cg.fail("TODO: implement vector 'shl_with_overflow'", .{});
+        }
     }
 
     const int_info = ty.intInfo(zcu);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: Implement shl_with_overflow for integer bitsize: {d}", .{int_info.bits});
+        return cg.fail("TODO: implement 'shl_with_overflow' for integer bitsize: {d}", .{int_info.bits});
     };
 
     // Ensure rhs is coerced to lhs as they must have the same WebAssembly types
@@ -6223,7 +6189,7 @@ fn airMulWithOverflow(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         _ = try cg.load(overflow_ret, Type.i32, 0);
         try cg.addLocal(.local_set, overflow_bit.local.value);
         break :blk res;
-    } else return cg.fail("TODO: @mulWithOverflow for {}", .{ty.fmt(pt)});
+    } else return cg.fail("TODO: @mulWithOverflow for {f}", .{ty.fmt(pt)});
     var bin_op_local = try mul.toLocal(cg, ty);
     defer bin_op_local.free(cg);
 
@@ -6258,7 +6224,7 @@ fn airMaxMin(
 
     if (ty.zigTypeTag(zcu) == .float) {
         const intrinsic = switch (op) {
-            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target.*)) {
+            inline .fmin, .fmax => |ct_op| switch (ty.floatBits(cg.target)) {
                 inline 16, 32, 64, 80, 128 => |bits| @field(
                     Mir.Intrinsic,
                     libcFloatPrefix(bits) ++ @tagName(ct_op) ++ libcFloatSuffix(bits),
@@ -6295,7 +6261,7 @@ fn airMulAdd(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
 
-    const result = if (ty.floatBits(cg.target.*) == 16) fl_result: {
+    const result = if (ty.floatBits(cg.target) == 16) fl_result: {
         const rhs_ext = try cg.fpext(rhs, ty, Type.f32);
         const lhs_ext = try cg.fpext(lhs, ty, Type.f32);
         const addend_ext = try cg.fpext(addend, ty, Type.f32);
@@ -6452,13 +6418,13 @@ fn airDbgInlineBlock(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.DbgInlineBlock, ty_pl.payload);
     // TODO
-    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]));
+    try cg.lowerBlock(inst, ty_pl.ty.toType(), @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]));
 }
 
 fn airDbgVar(
     cg: *CodeGen,
     inst: Air.Inst.Index,
-    local_tag: link.File.Dwarf.WipNav.LocalTag,
+    local_tag: link.File.Dwarf.WipNav.LocalVarTag,
     is_ptr: bool,
 ) InnerError!void {
     _ = is_ptr;
@@ -6470,7 +6436,7 @@ fn airTry(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const pl_op = cg.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
     const err_union = try cg.resolveInst(pl_op.operand);
     const extra = cg.air.extraData(Air.Try, pl_op.payload);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
     const err_union_ty = cg.typeOf(pl_op.operand);
     const result = try lowerTry(cg, inst, err_union, body, err_union_ty, false);
     return cg.finishAir(inst, result, &.{pl_op.operand});
@@ -6481,7 +6447,7 @@ fn airTryPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const ty_pl = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = cg.air.extraData(Air.TryPtr, ty_pl.payload);
     const err_union_ptr = try cg.resolveInst(extra.data.ptr);
-    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra[extra.end..][0..extra.data.body_len]);
+    const body: []const Air.Inst.Index = @ptrCast(cg.air.extra.items[extra.end..][0..extra.data.body_len]);
     const err_union_ty = cg.typeOf(extra.data.ptr).childType(zcu);
     const result = try lowerTry(cg, inst, err_union_ptr, body, err_union_ty, true);
     return cg.finishAir(inst, result, &.{extra.data.ptr});
@@ -6496,9 +6462,6 @@ fn lowerTry(
     operand_is_ptr: bool,
 ) InnerError!WValue {
     const zcu = cg.pt.zcu;
-    if (operand_is_ptr) {
-        return cg.fail("TODO: lowerTry for pointers", .{});
-    }
 
     const pl_ty = err_union_ty.errorUnionPayload(zcu);
     const pl_has_bits = pl_ty.hasRuntimeBitsIgnoreComptime(zcu);
@@ -6509,7 +6472,7 @@ fn lowerTry(
 
         // check if the error tag is set for the error union.
         try cg.emitWValue(err_union);
-        if (pl_has_bits) {
+        if (pl_has_bits or operand_is_ptr) {
             const err_offset: u32 = @intCast(errUnionErrorOffset(pl_ty, zcu));
             try cg.addMemArg(.i32_load16_u, .{
                 .offset = err_union.offset() + err_offset,
@@ -6531,12 +6494,12 @@ fn lowerTry(
     }
 
     // if we reach here it means error was not set, and we want the payload
-    if (!pl_has_bits) {
+    if (!pl_has_bits and !operand_is_ptr) {
         return .none;
     }
 
     const pl_offset: u32 = @intCast(errUnionPayloadOffset(pl_ty, zcu));
-    if (isByRef(pl_ty, zcu, cg.target)) {
+    if (operand_is_ptr or isByRef(pl_ty, zcu, cg.target)) {
         return buildPointerOffset(cg, err_union, pl_offset, .new);
     }
     const payload = try cg.load(err_union, pl_ty, pl_offset);
@@ -6694,7 +6657,7 @@ fn airDivFloor(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             _ = try cg.wrapOperand(.stack, ty);
         }
     } else {
-        const float_bits = ty.floatBits(cg.target.*);
+        const float_bits = ty.floatBits(cg.target);
         if (float_bits > 64) {
             return cg.fail("TODO: `@divFloor` for floats with bitsize: {d}", .{float_bits});
         }
@@ -6776,7 +6739,7 @@ fn airMod(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
             const add = try cg.binOp(rem, rhs, ty, .add);
             break :result try cg.binOp(add, rhs, ty, .rem);
         }
-        return cg.fail("TODO: @mod for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: @mod for {f}", .{ty.fmt(pt)});
     };
 
     return cg.finishAir(inst, result, &.{ bin_op.lhs, bin_op.rhs });
@@ -6794,7 +6757,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const lhs = try cg.resolveInst(bin_op.lhs);
     const rhs = try cg.resolveInst(bin_op.rhs);
     const wasm_bits = toWasmBits(int_info.bits) orelse {
-        return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+        return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
     };
 
     switch (wasm_bits) {
@@ -6831,7 +6794,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         64 => {
             if (!(int_info.bits == 64 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             _ = try cg.callIntrinsic(
@@ -6849,7 +6812,7 @@ fn airSatMul(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
         },
         128 => {
             if (!(int_info.bits == 128 and int_info.signedness == .signed)) {
-                return cg.fail("TODO: mul_sat for {}", .{ty.fmt(pt)});
+                return cg.fail("TODO: mul_sat for {f}", .{ty.fmt(pt)});
             }
             const overflow_ret = try cg.allocStack(Type.i32);
             const ret = try cg.callIntrinsic(
@@ -6993,6 +6956,11 @@ fn airShlSat(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 
     const pt = cg.pt;
     const zcu = pt.zcu;
+
+    if (cg.typeOf(bin_op.lhs).isVector(zcu) and !cg.typeOf(bin_op.rhs).isVector(zcu)) {
+        return cg.fail("TODO: implement vector 'shl_sat' with scalar rhs", .{});
+    }
+
     const ty = cg.typeOfIndex(inst);
     const int_info = ty.intInfo(zcu);
     const is_signed = int_info.signedness == .signed;
@@ -7164,7 +7132,7 @@ fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     const result = try cg.allocLocal(Type.bool);
 
     const names = error_set_ty.errorSetNames(zcu);
-    var values = try std.ArrayList(u32).initCapacity(cg.gpa, names.len);
+    var values = try std.array_list.Managed(u32).initCapacity(cg.gpa, names.len);
     defer values.deinit();
 
     var lowest: ?u32 = null;
@@ -7237,7 +7205,7 @@ fn airErrorSetHasValue(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
 }
 
 inline fn useAtomicFeature(cg: *const CodeGen) bool {
-    return std.Target.wasm.featureSetHas(cg.target.cpu.features, .atomics);
+    return cg.target.cpu.has(.wasm, .atomics);
 }
 
 fn airCmpxchg(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
@@ -7551,6 +7519,19 @@ fn airFrameAddress(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
     return cg.finishAir(inst, .stack, &.{});
 }
 
+fn airRuntimeNavPtr(cg: *CodeGen, inst: Air.Inst.Index) InnerError!void {
+    const ty_nav = cg.air.instructions.items(.data)[@intFromEnum(inst)].ty_nav;
+    const mod = cg.pt.zcu.navFileScope(cg.owner_nav).mod.?;
+    if (mod.single_threaded) {
+        const result: WValue = .{ .nav_ref = .{
+            .nav_index = ty_nav.nav,
+            .offset = 0,
+        } };
+        return cg.finishAir(inst, result, &.{});
+    }
+    return cg.fail("TODO: thread-local variables", .{});
+}
+
 fn typeOf(cg: *CodeGen, inst: Air.Inst.Ref) Type {
     const zcu = cg.pt.zcu;
     return cg.air.typeOf(inst, &zcu.intern_pool);
@@ -7594,8 +7575,4 @@ fn floatCmpIntrinsic(op: std.math.CompareOperator, bits: u16) Mir.Intrinsic {
             else => unreachable,
         },
     };
-}
-
-fn extraLen(cg: *const CodeGen) u32 {
-    return @intCast(cg.mir_extra.items.len - cg.start_mir_extra_off);
 }

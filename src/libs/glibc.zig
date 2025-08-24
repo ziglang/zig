@@ -162,7 +162,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -172,7 +172,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const target_ver = target.os.versionRange().gnuLibCVersion().?;
     const nonshared_stat = target_ver.order(.{ .major = 2, .minor = 32, .patch = 0 }) != .gt;
     const start_old_init_fini = target_ver.order(.{ .major = 2, .minor = 33, .patch = 0 }) != .gt;
@@ -186,7 +186,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     switch (crt_file) {
         .scrt1_o => {
             const start_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try add_include_dirs(comp, arena, &args);
                 try args.appendSlice(&[_][]const u8{
                     "-D_LIBC_REENTRANT",
@@ -210,7 +210,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 };
             };
             const abi_note_o: Compilation.CSourceFile = blk: {
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-I",
                     try lib_path(comp, arena, lib_libc_glibc ++ "csu"),
@@ -306,7 +306,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             for (deps) |dep| {
                 if (!dep.include) continue;
 
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try args.appendSlice(&[_][]const u8{
                     "-std=gnu11",
                     "-fgnu89-inline",
@@ -364,8 +364,8 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
 
     const s = path.sep_str;
 
-    var result = std.ArrayList(u8).init(arena);
-    try result.appendSlice(comp.zig_lib_directory.path.?);
+    var result = std.array_list.Managed(u8).init(arena);
+    try result.appendSlice(comp.dirs.zig_lib.path orelse ".");
     try result.appendSlice(s ++ "libc" ++ s ++ "glibc" ++ s ++ "sysdeps" ++ s);
     if (is_sparc) {
         if (is_64) {
@@ -408,7 +408,7 @@ fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![
     return result.items;
 }
 
-fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.array_list.Managed([]const u8)) error{OutOfMemory}!void {
     const target = comp.getTarget();
     const opt_nptl: ?[]const u8 = if (target.os.tag == .linux) "nptl" else "htl";
 
@@ -439,7 +439,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     }
     if (opt_nptl) |nptl| {
         try args.append("-I");
-        try args.append(try path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, lib_libc_glibc ++ "sysdeps", nptl }));
+        try args.append(try path.join(arena, &.{ comp.dirs.zig_lib.path orelse ".", lib_libc_glibc ++ "sysdeps", nptl }));
     }
 
     try args.append("-I");
@@ -459,11 +459,14 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     try args.append(try lib_path(comp, arena, lib_libc_glibc ++ "sysdeps" ++ s ++ "generic"));
 
     try args.append("-I");
-    try args.append(try path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, lib_libc ++ "glibc" }));
+    try args.append(try path.join(arena, &[_][]const u8{ comp.dirs.zig_lib.path orelse ".", lib_libc ++ "glibc" }));
 
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-{s}-{s}", .{
-        comp.zig_lib_directory.path.?, @tagName(target.cpu.arch), @tagName(target.os.tag), @tagName(target.abi),
+        comp.dirs.zig_lib.path orelse ".",
+        std.zig.target.glibcArchNameHeaders(target.cpu.arch),
+        @tagName(target.os.tag),
+        std.zig.target.glibcAbiNameHeaders(target.abi),
     }));
 
     try args.append("-I");
@@ -472,7 +475,7 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
     const arch_name = std.zig.target.osArchName(target);
     try args.append("-I");
     try args.append(try std.fmt.allocPrint(arena, "{s}" ++ s ++ "libc" ++ s ++ "include" ++ s ++ "{s}-linux-any", .{
-        comp.zig_lib_directory.path.?, arch_name,
+        comp.dirs.zig_lib.path orelse ".", arch_name,
     }));
 
     try args.append("-I");
@@ -481,8 +484,8 @@ fn add_include_dirs(comp: *Compilation, arena: Allocator, args: *std.ArrayList([
 
 fn add_include_dirs_arch(
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
-    target: std.Target,
+    args: *std.array_list.Managed([]const u8),
+    target: *const std.Target,
     opt_nptl: ?[]const u8,
     dir: []const u8,
 ) error{OutOfMemory}!void {
@@ -626,15 +629,11 @@ fn add_include_dirs_arch(
     }
 }
 
-fn path_from_lib(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
-    return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
-}
-
 const lib_libc = "libc" ++ path.sep_str;
 const lib_libc_glibc = lib_libc ++ "glibc" ++ path.sep_str;
 
 fn lib_path(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const u8 {
-    return path.join(arena, &[_][]const u8{ comp.zig_lib_directory.path.?, sub_path });
+    return path.join(arena, &.{ comp.dirs.zig_lib.path orelse ".", sub_path });
 }
 
 pub const BuiltSharedObjects = struct {
@@ -650,14 +649,14 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     const tracy = trace(@src());
     defer tracy.end();
@@ -678,11 +677,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
-        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
+        .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = fs.cwd() });
-    cache.addPrefix(comp.zig_lib_directory);
-    cache.addPrefix(comp.global_cache_directory);
+    cache.addPrefix(comp.dirs.zig_lib);
+    cache.addPrefix(comp.dirs.global_cache);
     defer cache.manifest_dir.close();
 
     var man = cache.obtain();
@@ -692,7 +691,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     man.hash.add(target.abi);
     man.hash.add(target_version);
 
-    const full_abilists_path = try comp.zig_lib_directory.join(arena, &.{abilists_path});
+    const full_abilists_path = try comp.dirs.zig_lib.join(arena, &.{abilists_path});
     const abilists_index = try man.addFile(full_abilists_path, abilists_max_size);
 
     if (try man.hit()) {
@@ -701,7 +700,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         return queueSharedObjects(comp, .{
             .lock = man.toOwnedLock(),
             .dir_path = .{
-                .root_dir = comp.global_cache_directory,
+                .root_dir = comp.dirs.global_cache,
                 .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
             },
         });
@@ -710,9 +709,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     const digest = man.final();
     const o_sub_path = try path.join(arena, &[_][]const u8{ "o", &digest });
 
-    var o_directory: Compilation.Directory = .{
-        .handle = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{}),
-        .path = try comp.global_cache_directory.join(arena, &.{o_sub_path}),
+    var o_directory: Cache.Directory = .{
+        .handle = try comp.dirs.global_cache.handle.makeOpenPath(o_sub_path, .{}),
+        .path = try comp.dirs.global_cache.join(arena, &.{o_sub_path}),
     };
     defer o_directory.handle.close();
 
@@ -737,20 +736,20 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target glibc version: {}", .{target_version});
+                log.warn("invalid target glibc version: {f}", .{target_version});
                 return error.InvalidTargetGLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
-        log.warn("zig cannot build new glibc version {}; providing instead {}", .{
+        log.warn("zig cannot build new glibc version {f}; providing instead {f}", .{
             target_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             if (ver.patch == 0) {
                 try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
@@ -762,7 +761,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         map_contents.deinit(); // The most recent allocation of an arena can be freed :)
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
@@ -774,7 +773,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf = std.array_list.Managed(u8).init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
@@ -966,6 +965,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         const obj_inclusions_len = try inc_reader.readInt(u16, .little);
 
+        var sizes = try arena.alloc(u16, metadata.all_versions.len);
+
         sym_i = 0;
         opt_symbol_name = null;
         versions_buffer = undefined;
@@ -1003,6 +1004,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
                     versions_buffer[versions_len] = ver_i;
                     versions_len += 1;
+                    sizes[ver_i] = size;
                 }
                 if (last) break;
             }
@@ -1066,14 +1068,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                             sym_plus_ver,
                             sym_name,
                             at_sign_str,
                             ver.major,
                             ver.minor,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                         });
                     } else {
                         const sym_plus_ver = try std.fmt.allocPrint(
@@ -1094,7 +1096,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             sym_plus_ver,
                             sym_plus_ver,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                             sym_plus_ver,
                             sym_name,
                             at_sign_str,
@@ -1102,7 +1104,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             ver.minor,
                             ver.patch,
                             sym_plus_ver,
-                            size,
+                            sizes[ver_index],
                         });
                     }
                 }
@@ -1112,7 +1114,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var lib_name_buf: [32]u8 = undefined; // Larger than each of the names "c", "pthread", etc.
         const asm_file_basename = std.fmt.bufPrint(&lib_name_buf, "{s}.s", .{lib.name}) catch unreachable;
         try o_directory.handle.writeFile(.{ .sub_path = asm_file_basename, .data = stubs_asm.items });
-        try buildSharedLib(comp, arena, comp.global_cache_directory, o_directory, asm_file_basename, lib, prog_node);
+        try buildSharedLib(comp, arena, o_directory, asm_file_basename, lib, prog_node);
     }
 
     man.writeManifest() catch |err| {
@@ -1122,22 +1124,10 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     return queueSharedObjects(comp, .{
         .lock = man.toOwnedLock(),
         .dir_path = .{
-            .root_dir = comp.global_cache_directory,
+            .root_dir = comp.dirs.global_cache,
             .sub_path = try gpa.dupe(u8, "o" ++ fs.path.sep_str ++ digest),
         },
     });
-}
-
-pub fn sharedObjectsCount(target: *const std.Target) u8 {
-    const target_version = target.os.versionRange().gnuLibCVersion() orelse return 0;
-    var count: u8 = 0;
-    for (libs) |lib| {
-        if (lib.removed_in) |rem_in| {
-            if (target_version.order(rem_in) != .lt) continue;
-        }
-        count += 1;
-    }
-    return count;
 }
 
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
@@ -1146,7 +1136,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.glibc_so_files == null);
     comp.glibc_so_files = so_files;
 
-    var task_buffer: [libs.len]link.Task = undefined;
+    var task_buffer: [libs.len]link.PrelinkTask = undefined;
     var task_buffer_i: usize = 0;
 
     {
@@ -1168,14 +1158,13 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         }
     }
 
-    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
+    comp.queuePrelinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(
     comp: *Compilation,
     arena: Allocator,
-    zig_cache_directory: Compilation.Directory,
-    bin_directory: Compilation.Directory,
+    bin_directory: Cache.Directory,
     asm_file_basename: []const u8,
     lib: Lib,
     prog_node: std.Progress.Node,
@@ -1184,10 +1173,6 @@ fn buildSharedLib(
     defer tracy.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = bin_directory,
-        .basename = basename,
-    };
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
@@ -1208,9 +1193,8 @@ fn buildSharedLib(
     });
 
     const root_mod = try Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -1230,8 +1214,6 @@ fn buildSharedLib(
         .global = config,
         .cc_argv = &.{},
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     });
 
     const c_source_files = [1]Compilation.CSourceFile{
@@ -1241,19 +1223,21 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = zig_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+    const misc_task: Compilation.MiscTask = .@"glibc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+        .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .incremental,
+        // Because we manually cache the whole set of objects, we don't cache the individual objects
+        // within it. In fact, we *can't* do that, because we need `emit_bin` to specify the path.
+        .cache_mode = .none,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .{ .yes_path = try bin_directory.join(arena, &.{basename}) },
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
@@ -1267,10 +1251,16 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"glibc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }
 
 pub fn needsCrt0(output_mode: std.builtin.OutputMode) ?CrtFile {

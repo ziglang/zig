@@ -126,9 +126,10 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    _ = @import("foo.zig");
             \\}
         , &[_][]const u8{
-            ":1:1: error: file exists in multiple modules",
-            ":1:1: note: root of module foo",
-            ":3:17: note: imported from module root",
+            ":1:1: error: file exists in modules 'foo' and 'root'",
+            ":1:1: note: files must belong to only one module",
+            ":1:1: note: file is the root of module 'foo'",
+            ":3:17: note: file is imported here by the root of module 'root'",
         });
         case.addSourceFile("foo.zig",
             \\const dummy = 0;

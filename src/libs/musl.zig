@@ -17,7 +17,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -29,12 +29,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
 
     switch (in_crt_file) {
         .crt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "crt1.c",
                     }),
                     .extra_flags = args.items,
@@ -49,12 +49,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             });
         },
         .rcrt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "rcrt1.c",
                     }),
                     .extra_flags = args.items,
@@ -70,12 +70,12 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
             });
         },
         .scrt1_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCcArgs(comp, arena, &args, false);
             try args.append("-DCRT");
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "musl", "crt", "Scrt1.c",
                     }),
                     .extra_flags = args.items,
@@ -112,10 +112,10 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 }
             }
 
-            var c_source_files = std.ArrayList(Compilation.CSourceFile).init(comp.gpa);
+            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(comp.gpa);
             defer c_source_files.deinit();
 
-            var override_path = std.ArrayList(u8).init(comp.gpa);
+            var override_path = std.array_list.Managed(u8).init(comp.gpa);
             defer override_path.deinit();
 
             const s = path.sep_str;
@@ -161,11 +161,11 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                         continue;
                 }
 
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCcArgs(comp, arena, &args, ext == .o3);
                 const c_source_file = try c_source_files.addOne();
                 c_source_file.* = .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", src_file }),
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libc", src_file }),
                     .extra_flags = args.items,
                     .owner = undefined,
                 };
@@ -193,7 +193,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .link_libc = false,
             });
 
-            const target = comp.root_mod.resolved_target.result;
+            const target = &comp.root_mod.resolved_target.result;
             const arch_name = std.zig.target.muslArchName(target.cpu.arch, target.abi);
             const time32 = for (time32_compat_arch_list) |time32_compat_arch| {
                 if (mem.eql(u8, arch_name, time32_compat_arch)) break true;
@@ -220,9 +220,8 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 &.{ arch_define, family_define };
 
             const root_mod = try Module.create(arena, .{
-                .global_cache_directory = comp.global_cache_directory,
                 .paths = .{
-                    .root = .{ .root_dir = comp.zig_lib_directory },
+                    .root = .zig_lib_root,
                     .root_src_path = "",
                 },
                 .fully_qualified_name = "root",
@@ -242,14 +241,13 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .global = config,
                 .cc_argv = cc_argv,
                 .parent = null,
-                .builtin_mod = null,
-                .builtin_modules = null, // there is only one module in this compilation
             });
 
-            const sub_compilation = try Compilation.create(comp.gpa, arena, .{
-                .local_cache_directory = comp.global_cache_directory,
-                .global_cache_directory = comp.global_cache_directory,
-                .zig_lib_directory = comp.zig_lib_directory,
+            const misc_task: Compilation.MiscTask = .@"musl libc.so";
+
+            var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+            const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+                .dirs = comp.dirs.withoutLocalCache(),
                 .self_exe_path = comp.self_exe_path,
                 .cache_mode = .whole,
                 .config = config,
@@ -257,8 +255,7 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .thread_pool = comp.thread_pool,
                 .root_name = "c",
                 .libc_installation = comp.libc_installation,
-                .emit_bin = .{ .directory = null, .basename = "libc.so" },
-                .emit_h = null,
+                .emit_bin = .yes_cache,
                 .verbose_cc = comp.verbose_cc,
                 .verbose_link = comp.verbose_link,
                 .verbose_air = comp.verbose_air,
@@ -266,24 +263,30 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 .verbose_cimport = comp.verbose_cimport,
                 .verbose_llvm_cpu_features = comp.verbose_llvm_cpu_features,
                 .clang_passthrough_mode = comp.clang_passthrough_mode,
-                .c_source_files = &[_]Compilation.CSourceFile{
+                .c_source_files = &.{
                     .{
-                        .src_path = try comp.zig_lib_directory.join(arena, &.{ "libc", "musl", "libc.S" }),
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "libc.S" }),
                         .owner = root_mod,
                     },
                 },
                 .skip_linker_dependencies = true,
                 .soname = "libc.so",
-            });
+            }) catch |err| switch (err) {
+                error.CreateFail => {
+                    comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+                    return error.AlreadyReported;
+                },
+                else => |e| return e,
+            };
             defer sub_compilation.destroy();
 
-            try comp.updateSubCompilation(sub_compilation, .@"musl libc.so", prog_node);
+            try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 
             const basename = try comp.gpa.dupe(u8, "libc.so");
             errdefer comp.gpa.free(basename);
 
             const crt_file = try sub_compilation.toCrtFile();
-            comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+            comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
             {
                 comp.mutex.lock();
                 defer comp.mutex.unlock();
@@ -387,7 +390,7 @@ fn addSrcFile(arena: Allocator, source_table: *std.StringArrayHashMap(Ext), file
 fn addCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     want_O3: bool,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
@@ -411,25 +414,25 @@ fn addCcArgs(
         "-D_XOPEN_SOURCE=700",
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "arch", arch_name }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "arch", arch_name }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "arch", "generic" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "arch", "generic" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "src", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "src", "include" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "src", "internal" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "src", "internal" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "musl", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "musl", "include" }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", triple }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "generic-musl" }),
 
         o_arg,
 
@@ -444,7 +447,7 @@ fn addCcArgs(
 
 fn start_asm_path(comp: *Compilation, arena: Allocator, basename: []const u8) ![]const u8 {
     const target = comp.getTarget();
-    return comp.zig_lib_directory.join(arena, &[_][]const u8{
+    return comp.dirs.zig_lib.join(arena, &.{
         "libc", "musl", "crt", std.zig.target.muslArchName(target.cpu.arch, target.abi), basename,
     });
 }
@@ -830,10 +833,6 @@ const src_files = [_][]const u8{
     "musl/src/malloc/replaced.c",
     "musl/src/math/aarch64/ceil.c",
     "musl/src/math/aarch64/ceilf.c",
-    "musl/src/math/aarch64/fabs.c",
-    "musl/src/math/aarch64/fabsf.c",
-    "musl/src/math/aarch64/floor.c",
-    "musl/src/math/aarch64/floorf.c",
     "musl/src/math/aarch64/fma.c",
     "musl/src/math/aarch64/fmaf.c",
     "musl/src/math/aarch64/fmax.c",
@@ -864,8 +863,6 @@ const src_files = [_][]const u8{
     "musl/src/math/acoshf.c",
     "musl/src/math/acoshl.c",
     "musl/src/math/acosl.c",
-    "musl/src/math/arm/fabs.c",
-    "musl/src/math/arm/fabsf.c",
     "musl/src/math/arm/fma.c",
     "musl/src/math/arm/fmaf.c",
     "musl/src/math/arm/sqrt.c",
@@ -895,9 +892,7 @@ const src_files = [_][]const u8{
     "musl/src/math/copysignf.c",
     "musl/src/math/copysignl.c",
     "musl/src/math/__cos.c",
-    "musl/src/math/cos.c",
     "musl/src/math/__cosdf.c",
-    "musl/src/math/cosf.c",
     "musl/src/math/cosh.c",
     "musl/src/math/coshf.c",
     "musl/src/math/coshl.c",
@@ -922,17 +917,11 @@ const src_files = [_][]const u8{
     "musl/src/math/expm1l.c",
     "musl/src/math/__expo2.c",
     "musl/src/math/__expo2f.c",
-    "musl/src/math/fabs.c",
-    "musl/src/math/fabsf.c",
-    "musl/src/math/fabsl.c",
     "musl/src/math/fdim.c",
     "musl/src/math/fdimf.c",
     "musl/src/math/fdiml.c",
     "musl/src/math/finite.c",
     "musl/src/math/finitef.c",
-    "musl/src/math/floor.c",
-    "musl/src/math/floorf.c",
-    "musl/src/math/floorl.c",
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmal.c",
@@ -973,11 +962,6 @@ const src_files = [_][]const u8{
     "musl/src/math/i386/exp_ld.s",
     "musl/src/math/i386/expl.s",
     "musl/src/math/i386/expm1l.s",
-    "musl/src/math/i386/fabs.c",
-    "musl/src/math/i386/fabsf.c",
-    "musl/src/math/i386/fabsl.c",
-    "musl/src/math/i386/floorf.s",
-    "musl/src/math/i386/floorl.s",
     "musl/src/math/i386/floor.s",
     "musl/src/math/i386/fmod.c",
     "musl/src/math/i386/fmodf.c",
@@ -1088,8 +1072,6 @@ const src_files = [_][]const u8{
     "musl/src/math/__math_uflowf.c",
     "musl/src/math/__math_xflow.c",
     "musl/src/math/__math_xflowf.c",
-    "musl/src/math/mips/fabs.c",
-    "musl/src/math/mips/fabsf.c",
     "musl/src/math/mips/sqrt.c",
     "musl/src/math/mips/sqrtf.c",
     "musl/src/math/modf.c",
@@ -1112,10 +1094,6 @@ const src_files = [_][]const u8{
     "musl/src/math/pow_data.c",
     "musl/src/math/powerpc64/ceil.c",
     "musl/src/math/powerpc64/ceilf.c",
-    "musl/src/math/powerpc64/fabs.c",
-    "musl/src/math/powerpc64/fabsf.c",
-    "musl/src/math/powerpc64/floor.c",
-    "musl/src/math/powerpc64/floorf.c",
     "musl/src/math/powerpc64/fma.c",
     "musl/src/math/powerpc64/fmaf.c",
     "musl/src/math/powerpc64/fmax.c",
@@ -1132,8 +1110,6 @@ const src_files = [_][]const u8{
     "musl/src/math/powerpc64/sqrtf.c",
     "musl/src/math/powerpc64/trunc.c",
     "musl/src/math/powerpc64/truncf.c",
-    "musl/src/math/powerpc/fabs.c",
-    "musl/src/math/powerpc/fabsf.c",
     "musl/src/math/powerpc/fma.c",
     "musl/src/math/powerpc/fmaf.c",
     "musl/src/math/powerpc/sqrt.c",
@@ -1156,8 +1132,6 @@ const src_files = [_][]const u8{
     "musl/src/math/rintl.c",
     "musl/src/math/riscv32/copysign.c",
     "musl/src/math/riscv32/copysignf.c",
-    "musl/src/math/riscv32/fabs.c",
-    "musl/src/math/riscv32/fabsf.c",
     "musl/src/math/riscv32/fma.c",
     "musl/src/math/riscv32/fmaf.c",
     "musl/src/math/riscv32/fmax.c",
@@ -1168,8 +1142,6 @@ const src_files = [_][]const u8{
     "musl/src/math/riscv32/sqrtf.c",
     "musl/src/math/riscv64/copysign.c",
     "musl/src/math/riscv64/copysignf.c",
-    "musl/src/math/riscv64/fabs.c",
-    "musl/src/math/riscv64/fabsf.c",
     "musl/src/math/riscv64/fma.c",
     "musl/src/math/riscv64/fmaf.c",
     "musl/src/math/riscv64/fmax.c",
@@ -1184,12 +1156,6 @@ const src_files = [_][]const u8{
     "musl/src/math/s390x/ceil.c",
     "musl/src/math/s390x/ceilf.c",
     "musl/src/math/s390x/ceill.c",
-    "musl/src/math/s390x/fabs.c",
-    "musl/src/math/s390x/fabsf.c",
-    "musl/src/math/s390x/fabsl.c",
-    "musl/src/math/s390x/floor.c",
-    "musl/src/math/s390x/floorf.c",
-    "musl/src/math/s390x/floorl.c",
     "musl/src/math/s390x/fma.c",
     "musl/src/math/s390x/fmaf.c",
     "musl/src/math/s390x/nearbyint.c",
@@ -1222,12 +1188,8 @@ const src_files = [_][]const u8{
     "musl/src/math/significand.c",
     "musl/src/math/significandf.c",
     "musl/src/math/__sin.c",
-    "musl/src/math/sin.c",
-    "musl/src/math/sincos.c",
-    "musl/src/math/sincosf.c",
     "musl/src/math/sincosl.c",
     "musl/src/math/__sindf.c",
-    "musl/src/math/sinf.c",
     "musl/src/math/sinh.c",
     "musl/src/math/sinhf.c",
     "musl/src/math/sinhl.c",
@@ -1238,9 +1200,7 @@ const src_files = [_][]const u8{
     "musl/src/math/sqrtf.c",
     "musl/src/math/sqrtl.c",
     "musl/src/math/__tan.c",
-    "musl/src/math/tan.c",
     "musl/src/math/__tandf.c",
-    "musl/src/math/tanf.c",
     "musl/src/math/tanh.c",
     "musl/src/math/tanhf.c",
     "musl/src/math/tanhl.c",
@@ -1260,9 +1220,6 @@ const src_files = [_][]const u8{
     "musl/src/math/x32/exp2l.s",
     "musl/src/math/x32/expl.s",
     "musl/src/math/x32/expm1l.s",
-    "musl/src/math/x32/fabsf.s",
-    "musl/src/math/x32/fabsl.s",
-    "musl/src/math/x32/fabs.s",
     "musl/src/math/x32/floorl.s",
     "musl/src/math/x32/fma.c",
     "musl/src/math/x32/fmaf.c",
@@ -1292,9 +1249,6 @@ const src_files = [_][]const u8{
     "musl/src/math/x86_64/exp2l.s",
     "musl/src/math/x86_64/expl.s",
     "musl/src/math/x86_64/expm1l.s",
-    "musl/src/math/x86_64/fabs.c",
-    "musl/src/math/x86_64/fabsf.c",
-    "musl/src/math/x86_64/fabsl.c",
     "musl/src/math/x86_64/floorl.s",
     "musl/src/math/x86_64/fma.c",
     "musl/src/math/x86_64/fmaf.c",
@@ -1814,7 +1768,6 @@ const src_files = [_][]const u8{
     "musl/src/stdio/vwscanf.c",
     "musl/src/stdio/wprintf.c",
     "musl/src/stdio/wscanf.c",
-    "musl/src/stdlib/abs.c",
     "musl/src/stdlib/atof.c",
     "musl/src/stdlib/atoi.c",
     "musl/src/stdlib/atol.c",
@@ -1824,11 +1777,8 @@ const src_files = [_][]const u8{
     "musl/src/stdlib/ecvt.c",
     "musl/src/stdlib/fcvt.c",
     "musl/src/stdlib/gcvt.c",
-    "musl/src/stdlib/imaxabs.c",
     "musl/src/stdlib/imaxdiv.c",
-    "musl/src/stdlib/labs.c",
     "musl/src/stdlib/ldiv.c",
-    "musl/src/stdlib/llabs.c",
     "musl/src/stdlib/lldiv.c",
     "musl/src/stdlib/qsort.c",
     "musl/src/stdlib/qsort_nr.c",

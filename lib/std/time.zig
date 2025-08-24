@@ -8,9 +8,6 @@ const posix = std.posix;
 
 pub const epoch = @import("time/epoch.zig");
 
-/// Deprecated: moved to std.Thread.sleep
-pub const sleep = std.Thread.sleep;
-
 /// Get a calendar timestamp, in seconds, relative to UTC 1970-01-01.
 /// Precision of timing depends on the hardware and operating system.
 /// The return value is signed because it is possible to have a date that is
@@ -59,9 +56,7 @@ pub fn nanoTimestamp() i128 {
             return ns;
         },
         .uefi => {
-            var value: std.os.uefi.Time = undefined;
-            const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-            assert(status == .success);
+            const value, _ = std.os.uefi.system_table.runtime_services.getTime() catch return 0;
             return value.toEpoch();
         },
         else => {
@@ -144,9 +139,7 @@ pub const Instant = struct {
                 return .{ .timestamp = ns };
             },
             .uefi => {
-                var value: std.os.uefi.Time = undefined;
-                const status = std.os.uefi.system_table.runtime_services.getTime(&value, null);
-                if (status != .success) return error.Unsupported;
+                const value, _ = std.os.uefi.system_table.runtime_services.getTime() catch return error.Unsupported;
                 return .{ .timestamp = value.toEpoch() };
             },
             // On darwin, use UPTIME_RAW instead of MONOTONIC as it ticks while

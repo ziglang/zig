@@ -1,0 +1,43 @@
+:host > details {
+  padding: 0.5em 1em;
+  background: #f2f2f2;
+  margin-bottom: 1.0em;
+  overflow-x: scroll;
+}
+:host > details.pending {
+  pointer-events: none;
+  background: #fafafa;
+  color: #666;
+}
+:host > details > div {
+  margin: 1em 2em;
+  overflow: scroll; /* we'll try to avoid overflow, but if it does happen, this makes sense */
+}
+.stats {
+  font-size: 1.2em;
+}
+details.section {
+  margin: 1.0em 0 0 0;
+}
+details.section > summary {
+  font-weight: bold;
+}
+details.section > :not(summary) {
+  margin-left: 2em;
+}
+:host > details.no-llvm .llvm-only {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  :host > details {
+    background: #222;
+  }
+  :host > details.pending {
+    background: #181818;
+    color: #888;
+  }
+}
+th {
+  max-width: 20em; /* don't let the 'file' column get crazy long */
+  overflow-wrap: anywhere; /* avoid overflow where possible */
+}

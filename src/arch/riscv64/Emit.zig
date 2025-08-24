@@ -50,8 +50,8 @@ pub fn emitMir(emit: *Emit) Error!void {
                     const atom_ptr = zo.symbol(symbol.atom_index).atom(elf_file).?;
                     const sym = zo.symbol(symbol.sym_index);
 
-                    if (sym.flags.is_extern_ptr and emit.lower.pic) {
-                        return emit.fail("emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
+                    if (emit.lower.pic) {
+                        return emit.fail("know when to emit GOT relocation for symbol '{s}'", .{sym.name(elf_file)});
                     }
 
                     const hi_r_type: u32 = @intFromEnum(std.elf.R_RISCV.HI20);
@@ -125,7 +125,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
                         },
-                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -142,7 +141,6 @@ pub fn emitMir(emit: *Emit) Error!void {
                             });
                             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
                         },
-                        .plan9 => {},
                         .none => {},
                     }
                 },
@@ -172,7 +170,7 @@ const Reloc = struct {
 
 fn fixupRelocs(emit: *Emit) Error!void {
     for (emit.relocs.items) |reloc| {
-        log.debug("target inst: {}", .{emit.lower.mir.instructions.get(reloc.target)});
+        log.debug("target inst: {f}", .{emit.lower.mir.instructions.get(reloc.target)});
         const target = emit.code_offset_mapping.get(reloc.target) orelse
             return emit.fail("relocation target not found!", .{});
 
@@ -200,7 +198,6 @@ fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) Error!void {
             emit.prev_di_column = column;
             emit.prev_di_pc = emit.code.items.len;
         },
-        .plan9 => {},
         .none => {},
     }
 }

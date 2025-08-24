@@ -395,11 +395,27 @@ test "fstatat" {
     // now repeat but using `fstatat` instead
     const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
 
-    // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
-    // result, comparing the two structures is doomed to fail.
-    if (builtin.cpu.arch == .s390x and builtin.os.tag == .linux) return error.SkipZigTest;
+    try expectEqual(stat.dev, statat.dev);
+    try expectEqual(stat.ino, statat.ino);
+    try expectEqual(stat.nlink, statat.nlink);
+    try expectEqual(stat.mode, statat.mode);
+    try expectEqual(stat.uid, statat.uid);
+    try expectEqual(stat.gid, statat.gid);
+    try expectEqual(stat.rdev, statat.rdev);
+    try expectEqual(stat.size, statat.size);
+    try expectEqual(stat.blksize, statat.blksize);
 
-    try expectEqual(stat, statat);
+    // The stat.blocks/statat.blocks count is managed by the filesystem and may
+    // change if the file is stored in a journal or "inline".
+    // try expectEqual(stat.blocks, statat.blocks);
+
+    // s390x-linux does not have nanosecond precision for fstat(), but it does for
+    // fstatat(). As a result, comparing the timestamps isn't worth the effort
+    if (!(builtin.cpu.arch == .s390x and builtin.os.tag == .linux)) {
+        try expectEqual(stat.atime(), statat.atime());
+        try expectEqual(stat.mtime(), statat.mtime());
+        try expectEqual(stat.ctime(), statat.ctime());
+    }
 }
 
 test "readlinkat" {
@@ -667,7 +683,7 @@ test "mmap" {
         const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
-        const stream = file.writer();
+        const stream = file.deprecatedWriter();
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
@@ -889,10 +905,10 @@ test "sigset empty/full" {
 // Some signals (i.e., 32 - 34 on glibc/musl) are not allowed to be added to a
 // sigset by the C library, so avoid testing them.
 fn reserved_signo(i: usize) bool {
-    if (native_os == .macos) {
-        return false;
-    }
-    return builtin.link_libc and (i >= 32 and i < posix.sigrtmin());
+    if (native_os == .macos) return false;
+    if (!builtin.link_libc) return false;
+    const max = if (native_os == .netbsd) 32 else 31;
+    return i > max and i < posix.sigrtmin();
 }
 
 test "sigset add/del" {
@@ -1000,6 +1016,11 @@ test "sigaction" {
 test "sigset_t bits" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
+
+    if (true) {
+        // https://github.com/ziglang/zig/issues/24380
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         var expected_sig: i32 = undefined;
@@ -1161,7 +1182,7 @@ test "POSIX file locking with fcntl" {
         posix.exit(0);
     } else {
         // parent waits for child to get shared lock:
-        std.time.sleep(1 * std.time.ns_per_ms);
+        std.Thread.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = posix.F.WRLCK;

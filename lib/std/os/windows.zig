@@ -146,7 +146,7 @@ pub fn OpenFile(sub_path_w: []const u16, options: OpenFileOptions) OpenError!HAN
                 // call has failed. There is not really a sane way to handle
                 // this other than retrying the creation after the OS finishes
                 // the deletion.
-                std.time.sleep(std.time.ns_per_ms);
+                std.Thread.sleep(std.time.ns_per_ms);
                 continue;
             },
             .VIRUS_INFECTED, .VIRUS_DELETED => return error.AntivirusInterference,
@@ -202,7 +202,7 @@ pub fn CreatePipe(rd: *HANDLE, wr: *HANDLE, sattr: *const SECURITY_ATTRIBUTES) C
         const name = UNICODE_STRING{
             .Length = len,
             .MaximumLength = len,
-            .Buffer = @constCast(@ptrCast(str)),
+            .Buffer = @ptrCast(@constCast(str)),
         };
         const attrs = OBJECT_ATTRIBUTES{
             .ObjectName = @constCast(&name),
@@ -408,7 +408,12 @@ pub fn SetHandleInformation(h: HANDLE, mask: DWORD, flags: DWORD) SetHandleInfor
     }
 }
 
-pub const RtlGenRandomError = error{Unexpected};
+pub const RtlGenRandomError = error{
+    /// `RtlGenRandom` has been known to fail in situations where the system is under heavy load.
+    /// Unfortunately, it does not call `SetLastError`, so it is not possible to get more specific
+    /// error information; it could actually be due to an out-of-memory condition, for example.
+    SystemResources,
+};
 
 /// Call RtlGenRandom() instead of CryptGetRandom() on Windows
 /// https://github.com/rust-lang-nursery/rand/issues/111
@@ -422,7 +427,7 @@ pub fn RtlGenRandom(output: []u8) RtlGenRandomError!void {
         const to_read: ULONG = @min(buff.len, max_read_size);
 
         if (advapi32.RtlGenRandom(buff.ptr, to_read) == 0) {
-            return unexpectedError(GetLastError());
+            return error.SystemResources;
         }
 
         total_read += to_read;
@@ -1332,7 +1337,7 @@ pub fn GetFinalPathNameByHandle(
             // dropping the \Device\Mup\ and making sure the path begins with \\
             if (mem.eql(u16, device_name_u16, std.unicode.utf8ToUtf16LeStringLiteral("Mup"))) {
                 out_buffer[0] = '\\';
-                mem.copyForwards(u16, out_buffer[1..][0..file_name_u16.len], file_name_u16);
+                @memmove(out_buffer[1..][0..file_name_u16.len], file_name_u16);
                 return out_buffer[0 .. 1 + file_name_u16.len];
             }
 
@@ -1400,7 +1405,7 @@ pub fn GetFinalPathNameByHandle(
                     if (out_buffer.len < drive_letter.len + file_name_u16.len) return error.NameTooLong;
 
                     @memcpy(out_buffer[0..drive_letter.len], drive_letter);
-                    mem.copyForwards(u16, out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
+                    @memmove(out_buffer[drive_letter.len..][0..file_name_u16.len], file_name_u16);
                     const total_len = drive_letter.len + file_name_u16.len;
 
                     // Validate that DOS does not contain any spurious nul bytes.
@@ -1449,12 +1454,7 @@ pub fn GetFinalPathNameByHandle(
                     // to copy backwards. We also need to do this before copying the volume path because
                     // it could overwrite the file_name_u16 memory.
                     const file_name_dest = out_buffer[volume_path.len..][0..file_name_u16.len];
-                    const file_name_byte_offset = @intFromPtr(file_name_u16.ptr) - @intFromPtr(out_buffer.ptr);
-                    const file_name_index = file_name_byte_offset / @sizeOf(u16);
-                    if (volume_path.len > file_name_index)
-                        mem.copyBackwards(u16, file_name_dest, file_name_u16)
-                    else
-                        mem.copyForwards(u16, file_name_dest, file_name_u16);
+                    @memmove(file_name_dest, file_name_u16);
                     @memcpy(out_buffer[0..volume_path.len], volume_path);
                     const total_len = volume_path.len + file_name_u16.len;
 
@@ -1903,32 +1903,6 @@ pub fn SetFileCompletionNotificationModes(handle: HANDLE, flags: UCHAR) !void {
             else => |err| unexpectedError(err),
         };
     }
-}
-
-pub const GetEnvironmentStringsError = error{OutOfMemory};
-
-pub fn GetEnvironmentStringsW() GetEnvironmentStringsError![*:0]u16 {
-    return kernel32.GetEnvironmentStringsW() orelse return error.OutOfMemory;
-}
-
-pub fn FreeEnvironmentStringsW(penv: [*:0]u16) void {
-    assert(kernel32.FreeEnvironmentStringsW(penv) != 0);
-}
-
-pub const GetEnvironmentVariableError = error{
-    EnvironmentVariableNotFound,
-    Unexpected,
-};
-
-pub fn GetEnvironmentVariableW(lpName: LPWSTR, lpBuffer: [*]u16, nSize: DWORD) GetEnvironmentVariableError!DWORD {
-    const rc = kernel32.GetEnvironmentVariableW(lpName, lpBuffer, nSize);
-    if (rc == 0) {
-        switch (GetLastError()) {
-            .ENVVAR_NOT_FOUND => return error.EnvironmentVariableNotFound,
-            else => |err| return unexpectedError(err),
-        }
-    }
-    return rc;
 }
 
 pub const CreateProcessError = error{
@@ -2872,9 +2846,8 @@ pub fn unexpectedError(err: Win32Error) UnexpectedError {
             buf_wstr.len,
             null,
         );
-        std.debug.print("error.Unexpected: GetLastError({}): {}\n", .{
-            @intFromEnum(err),
-            std.unicode.fmtUtf16Le(buf_wstr[0..len]),
+        std.debug.print("error.Unexpected: GetLastError({d}): {f}\n", .{
+            err, std.unicode.fmtUtf16Le(buf_wstr[0..len]),
         });
         std.debug.dumpCurrentStackTrace(@returnAddress());
     }
@@ -2908,9 +2881,6 @@ pub const STD_OUTPUT_HANDLE = maxInt(DWORD) - 11 + 1;
 
 /// The standard error device. Initially, this is the active console screen buffer, CONOUT$.
 pub const STD_ERROR_HANDLE = maxInt(DWORD) - 12 + 1;
-
-/// Deprecated; use `std.builtin.CallingConvention.winapi` instead.
-pub const WINAPI: std.builtin.CallingConvention = .winapi;
 
 pub const BOOL = c_int;
 pub const BOOLEAN = BYTE;

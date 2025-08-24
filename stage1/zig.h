@@ -272,6 +272,15 @@
 #define zig_linksection_fn zig_linksection
 #endif
 
+#if zig_has_attribute(visibility)
+#define zig_visibility(name) __attribute__((visibility(#name)))
+#else
+#define zig_visibility(name) zig_visibility_##name
+#define zig_visibility_default
+#define zig_visibility_hidden zig_visibility_hidden_unavailable
+#define zig_visibility_protected zig_visibility_protected_unavailable
+#endif
+
 #if zig_has_builtin(unreachable) || defined(zig_gcc) || defined(zig_tinyc)
 #define zig_unreachable() __builtin_unreachable()
 #elif defined(zig_msvc)
@@ -481,6 +490,7 @@
 
 zig_extern void *memcpy (void *zig_restrict, void const *zig_restrict, size_t);
 zig_extern void *memset (void *, int, size_t);
+zig_extern void *memmove (void *, void const *, size_t);
 
 /* ================ Bool and 8/16/32/64-bit Integer Support ================= */
 
@@ -1114,14 +1124,15 @@ static inline bool zig_mulo_i16(int16_t *res, int16_t lhs, int16_t rhs, uint8_t 
 \
     static inline uint##w##_t zig_shls_u##w(uint##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
         uint##w##_t res; \
-        if (rhs >= bits) return lhs != UINT##w##_C(0) ? zig_maxInt_u(w, bits) : lhs; \
-        return zig_shlo_u##w(&res, lhs, (uint8_t)rhs, bits) ? zig_maxInt_u(w, bits) : res; \
+        if (rhs < bits && !zig_shlo_u##w(&res, lhs, rhs, bits)) return res; \
+        return lhs == INT##w##_C(0) ? INT##w##_C(0) : zig_maxInt_u(w, bits); \
     } \
 \
-    static inline int##w##_t zig_shls_i##w(int##w##_t lhs, int##w##_t rhs, uint8_t bits) { \
+    static inline int##w##_t zig_shls_i##w(int##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
         int##w##_t res; \
-        if ((uint##w##_t)rhs < (uint##w##_t)bits && !zig_shlo_i##w(&res, lhs, (uint8_t)rhs, bits)) return res; \
-        return lhs < INT##w##_C(0) ? zig_minInt_i(w, bits) : zig_maxInt_i(w, bits); \
+        if (rhs < bits && !zig_shlo_i##w(&res, lhs, rhs, bits)) return res; \
+        return lhs == INT##w##_C(0) ? INT##w##_C(0) : \
+            lhs < INT##w##_C(0) ? zig_minInt_i(w, bits) : zig_maxInt_i(w, bits); \
     } \
 \
     static inline uint##w##_t zig_adds_u##w(uint##w##_t lhs, uint##w##_t rhs, uint8_t bits) { \
@@ -1850,15 +1861,23 @@ static inline bool zig_shlo_i128(zig_i128 *res, zig_i128 lhs, uint8_t rhs, uint8
 
 static inline zig_u128 zig_shls_u128(zig_u128 lhs, zig_u128 rhs, uint8_t bits) {
     zig_u128 res;
-    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) >= INT32_C(0))
-        return zig_cmp_u128(lhs, zig_make_u128(0, 0)) != INT32_C(0) ? zig_maxInt_u(128, bits) : lhs;
-    return zig_shlo_u128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits) ? zig_maxInt_u(128, bits) : res;
+    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_u128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits)) return res;
+    switch (zig_cmp_u128(lhs, zig_make_u128(0, 0))) {
+        case 0: return zig_make_u128(0, 0);
+        case 1: return zig_maxInt_u(128, bits);
+        default: zig_unreachable();
+    }
 }
 
-static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_i128 rhs, uint8_t bits) {
+static inline zig_i128 zig_shls_i128(zig_i128 lhs, zig_u128 rhs, uint8_t bits) {
     zig_i128 res;
-    if (zig_cmp_u128(zig_bitCast_u128(rhs), zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_i128(&res, lhs, (uint8_t)zig_lo_i128(rhs), bits)) return res;
-    return zig_cmp_i128(lhs, zig_make_i128(0, 0)) < INT32_C(0) ? zig_minInt_i(128, bits) : zig_maxInt_i(128, bits);
+    if (zig_cmp_u128(rhs, zig_make_u128(0, bits)) < INT32_C(0) && !zig_shlo_i128(&res, lhs, (uint8_t)zig_lo_u128(rhs), bits)) return res;
+    switch (zig_cmp_i128(lhs, zig_make_i128(0, 0))) {
+        case -1: return zig_minInt_i(128, bits);
+        case  0: return zig_make_i128(0, 0);
+        case  1: return zig_maxInt_i(128, bits);
+        default: zig_unreachable();
+    }
 }
 
 static inline zig_u128 zig_adds_u128(zig_u128 lhs, zig_u128 rhs, uint8_t bits) {

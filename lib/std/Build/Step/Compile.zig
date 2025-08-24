@@ -4,7 +4,6 @@ const mem = std.mem;
 const fs = std.fs;
 const assert = std.debug.assert;
 const panic = std.debug.panic;
-const ArrayList = std.ArrayList;
 const StringHashMap = std.StringHashMap;
 const Sha256 = std.crypto.hash.sha2.Sha256;
 const Allocator = mem.Allocator;
@@ -60,7 +59,7 @@ filters: []const []const u8,
 test_runner: ?TestRunner,
 wasi_exec_model: ?std.builtin.WasiExecModel = null,
 
-installed_headers: ArrayList(HeaderInstallation),
+installed_headers: std.array_list.Managed(HeaderInstallation),
 
 /// This step is used to create an include tree that dependent modules can add to their include
 /// search paths. Installed headers are copied to this step.
@@ -292,6 +291,13 @@ pub const Kind = enum {
     obj,
     @"test",
     test_obj,
+
+    pub fn isTest(kind: Kind) bool {
+        return switch (kind) {
+            .exe, .lib, .obj => false,
+            .@"test", .test_obj => true,
+        };
+    }
 };
 
 pub const HeaderInstallation = union(enum) {
@@ -368,25 +374,16 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         panic("invalid name: '{s}'. It looks like a file path, but it is supposed to be the library or application name.", .{name});
     }
 
-    // Avoid the common case of the step name looking like "zig test test".
-    const name_adjusted = if ((options.kind == .@"test" or options.kind == .test_obj) and mem.eql(u8, name, "test"))
-        ""
-    else
-        owner.fmt("{s} ", .{name});
-
     const resolved_target = options.root_module.resolved_target orelse
         @panic("the root Module of a Compile step must be created with a known 'target' field");
-    const target = resolved_target.result;
+    const target = &resolved_target.result;
 
-    const step_name = owner.fmt("{s} {s}{s} {s}", .{
-        switch (options.kind) {
-            .exe => "zig build-exe",
-            .lib => "zig build-lib",
-            .obj => "zig build-obj",
-            .@"test" => "zig test",
-            .test_obj => "zig test-obj",
-        },
-        name_adjusted,
+    const step_name = owner.fmt("compile {s} {s} {s}", .{
+        // Avoid the common case of the step name looking like "compile test test".
+        if (options.kind.isTest() and mem.eql(u8, name, "test"))
+            @tagName(options.kind)
+        else
+            owner.fmt("{s} {s}", .{ @tagName(options.kind), name }),
         @tagName(options.root_module.optimize orelse .Debug),
         resolved_target.query.zigTriple(owner.allocator) catch @panic("OOM"),
     });
@@ -411,7 +408,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .linkage = options.linkage,
         .kind = options.kind,
         .name = name,
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = step_name,
             .owner = owner,
@@ -423,7 +420,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
         .out_lib_filename = undefined,
         .major_only_filename = null,
         .name_only_filename = null,
-        .installed_headers = ArrayList(HeaderInstallation).init(owner.allocator),
+        .installed_headers = std.array_list.Managed(HeaderInstallation).init(owner.allocator),
         .zig_lib_dir = null,
         .exec_cmd_args = null,
         .filters = options.filters,
@@ -670,6 +667,7 @@ pub fn producesPdbFile(compile: *Compile) bool {
         else => return false,
     }
     if (target.ofmt == .c) return false;
+    if (compile.use_llvm == false) return false;
     if (compile.root_module.strip == true or
         (compile.root_module.strip == null and compile.root_module.optimize == .ReleaseSmall))
     {
@@ -682,10 +680,14 @@ pub fn producesImplib(compile: *Compile) bool {
     return compile.isDll();
 }
 
+/// Deprecated; use `compile.root_module.link_libc = true` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkLibC(compile: *Compile) void {
     compile.root_module.link_libc = true;
 }
 
+/// Deprecated; use `compile.root_module.link_libcpp = true` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkLibCpp(compile: *Compile) void {
     compile.root_module.link_libcpp = true;
 }
@@ -763,9 +765,9 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
         else => return err,
     };
 
-    var zig_cflags = ArrayList([]const u8).init(b.allocator);
+    var zig_cflags = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_cflags.deinit();
-    var zig_libs = ArrayList([]const u8).init(b.allocator);
+    var zig_libs = std.array_list.Managed([]const u8).init(b.allocator);
     defer zig_libs.deinit();
 
     var arg_it = mem.tokenizeAny(u8, stdout, " \r\n\t");
@@ -803,10 +805,14 @@ fn runPkgConfig(compile: *Compile, lib_name: []const u8) !PkgConfigResult {
     };
 }
 
+/// Deprecated; use `compile.root_module.linkSystemLibrary(name, .{})` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkSystemLibrary(compile: *Compile, name: []const u8) void {
     return compile.root_module.linkSystemLibrary(name, .{});
 }
 
+/// Deprecated; use `compile.root_module.linkSystemLibrary(name, options)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkSystemLibrary2(
     compile: *Compile,
     name: []const u8,
@@ -815,22 +821,26 @@ pub fn linkSystemLibrary2(
     return compile.root_module.linkSystemLibrary(name, options);
 }
 
+/// Deprecated; use `c.root_module.linkFramework(name, .{})` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkFramework(c: *Compile, name: []const u8) void {
     c.root_module.linkFramework(name, .{});
 }
 
-/// Handy when you have many C/C++ source files and want them all to have the same flags.
+/// Deprecated; use `compile.root_module.addCSourceFiles(options)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addCSourceFiles(compile: *Compile, options: Module.AddCSourceFilesOptions) void {
     compile.root_module.addCSourceFiles(options);
 }
 
+/// Deprecated; use `compile.root_module.addCSourceFile(source)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addCSourceFile(compile: *Compile, source: Module.CSourceFile) void {
     compile.root_module.addCSourceFile(source);
 }
 
-/// Resource files must have the extension `.rc`.
-/// Can be called regardless of target. The .rc file will be ignored
-/// if the target object format does not support embedded resources.
+/// Deprecated; use `compile.root_module.addWin32ResourceFile(source)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addWin32ResourceFile(compile: *Compile, source: Module.RcSourceFile) void {
     compile.root_module.addWin32ResourceFile(source);
 }
@@ -916,54 +926,80 @@ pub fn getEmittedLlvmBc(compile: *Compile) LazyPath {
     return compile.getEmittedFileGeneric(&compile.generated_llvm_bc);
 }
 
+/// Deprecated; use `compile.root_module.addAssemblyFile(source)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addAssemblyFile(compile: *Compile, source: LazyPath) void {
     compile.root_module.addAssemblyFile(source);
 }
 
+/// Deprecated; use `compile.root_module.addObjectFile(source)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addObjectFile(compile: *Compile, source: LazyPath) void {
     compile.root_module.addObjectFile(source);
 }
 
+/// Deprecated; use `compile.root_module.addObject(object)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addObject(compile: *Compile, object: *Compile) void {
     compile.root_module.addObject(object);
 }
 
+/// Deprecated; use `compile.root_module.linkLibrary(library)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn linkLibrary(compile: *Compile, library: *Compile) void {
     compile.root_module.linkLibrary(library);
 }
 
+/// Deprecated; use `compile.root_module.addAfterIncludePath(lazy_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addAfterIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addAfterIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addSystemIncludePath(lazy_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addSystemIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addSystemIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addIncludePath(lazy_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addIncludePath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addIncludePath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addConfigHeader(config_header)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addConfigHeader(compile: *Compile, config_header: *Step.ConfigHeader) void {
     compile.root_module.addConfigHeader(config_header);
 }
 
+/// Deprecated; use `compile.root_module.addEmbedPath(lazy_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addEmbedPath(compile: *Compile, lazy_path: LazyPath) void {
     compile.root_module.addEmbedPath(lazy_path);
 }
 
+/// Deprecated; use `compile.root_module.addLibraryPath(directory_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addLibraryPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addLibraryPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addRPath(directory_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addRPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addRPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addSystemFrameworkPath(directory_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addSystemFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addSystemFrameworkPath(directory_path);
 }
 
+/// Deprecated; use `compile.root_module.addFrameworkPath(directory_path)` instead.
+/// To be removed after 0.15.0 is tagged.
 pub fn addFrameworkPath(compile: *Compile, directory_path: LazyPath) void {
     compile.root_module.addFrameworkPath(directory_path);
 }
@@ -1018,20 +1054,16 @@ fn getGeneratedFilePath(compile: *Compile, comptime tag_name: []const u8, asking
     const maybe_path: ?*GeneratedFile = @field(compile, tag_name);
 
     const generated_file = maybe_path orelse {
-        std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic("missing emit option for " ++ tag_name);
     };
 
     const path = generated_file.path orelse {
-        std.debug.lockStdErr();
-        const stderr = std.io.getStdErr();
-
-        std.Build.dumpBadGetPathHelp(&compile.step, stderr, compile.step.owner, asking_step) catch {};
-
+        const w = std.debug.lockStderrWriter(&.{});
+        std.Build.dumpBadGetPathHelp(&compile.step, w, .detect(.stderr()), compile.step.owner, asking_step) catch {};
+        std.debug.unlockStderrWriter();
         @panic(tag_name ++ " is null. Is there a missing step dependency?");
     };
 
@@ -1043,7 +1075,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const b = step.owner;
     const arena = b.allocator;
 
-    var zig_args = ArrayList([]const u8).init(arena);
+    var zig_args = std.array_list.Managed([]const u8).init(arena);
     defer zig_args.deinit();
 
     try zig_args.append(b.graph.zig_exe);
@@ -1447,6 +1479,10 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try zig_args.append("--debug-compile-errors");
     }
 
+    if (b.debug_incremental) {
+        try zig_args.append("--debug-incremental");
+    }
+
     if (b.verbose_cimport) try zig_args.append("--verbose-cimport");
     if (b.verbose_air) try zig_args.append("--verbose-air");
     if (b.verbose_llvm_ir) |path| try zig_args.append(b.fmt("--verbose-llvm-ir={s}", .{path}));
@@ -1454,6 +1490,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (b.verbose_link or compile.verbose_link) try zig_args.append("--verbose-link");
     if (b.verbose_cc or compile.verbose_cc) try zig_args.append("--verbose-cc");
     if (b.verbose_llvm_cpu_features) try zig_args.append("--verbose-llvm-cpu-features");
+    if (b.graph.time_report) try zig_args.append("--time-report");
 
     if (compile.generated_asm != null) try zig_args.append("-femit-asm");
     if (compile.generated_bin == null) try zig_args.append("-fno-emit-bin");
@@ -1539,7 +1576,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic) {
         if (compile.version) |version| {
             try zig_args.append("--version");
-            try zig_args.append(b.fmt("{}", .{version}));
+            try zig_args.append(b.fmt("{f}", .{version}));
         }
 
         if (compile.rootModuleTarget().os.tag.isDarwin()) {
@@ -1693,9 +1730,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     if (compile.build_id orelse b.build_id) |build_id| {
         try zig_args.append(switch (build_id) {
-            .hexstring => |hs| b.fmt("--build-id=0x{s}", .{
-                std.fmt.fmtSliceHexLower(hs.toSlice()),
-            }),
+            .hexstring => |hs| b.fmt("--build-id=0x{x}", .{hs.toSlice()}),
             .none, .fast, .uuid, .sha1, .md5 => b.fmt("--build-id={s}", .{@tagName(build_id)}),
         });
     }
@@ -1703,7 +1738,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     const opt_zig_lib_dir = if (compile.zig_lib_dir) |dir|
         dir.getPath2(b, step)
     else if (b.graph.zig_lib_directory.path) |_|
-        b.fmt("{}", .{b.graph.zig_lib_directory})
+        b.fmt("{f}", .{b.graph.zig_lib_directory})
     else
         null;
 
@@ -1743,8 +1778,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
     }
 
     if (compile.error_limit) |err_limit| try zig_args.appendSlice(&.{
-        "--error-limit",
-        b.fmt("{}", .{err_limit}),
+        "--error-limit", b.fmt("{d}", .{err_limit}),
     });
 
     try addFlag(&zig_args, "incremental", b.graph.incremental);
@@ -1763,17 +1797,17 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         try b.cache_root.handle.makePath("args");
 
         const args_to_escape = zig_args.items[2..];
-        var escaped_args = try ArrayList([]const u8).initCapacity(arena, args_to_escape.len);
+        var escaped_args = try std.array_list.Managed([]const u8).initCapacity(arena, args_to_escape.len);
         arg_blk: for (args_to_escape) |arg| {
             for (arg, 0..) |c, arg_idx| {
                 if (c == '\\' or c == '"') {
                     // Slow path for arguments that need to be escaped. We'll need to allocate and copy
-                    var escaped = try ArrayList(u8).initCapacity(arena, arg.len + 1);
-                    const writer = escaped.writer();
-                    try writer.writeAll(arg[0..arg_idx]);
+                    var escaped: std.ArrayListUnmanaged(u8) = .empty;
+                    try escaped.ensureTotalCapacityPrecise(arena, arg.len + 1);
+                    try escaped.appendSlice(arena, arg[0..arg_idx]);
                     for (arg[arg_idx..]) |to_escape| {
-                        if (to_escape == '\\' or to_escape == '"') try writer.writeByte('\\');
-                        try writer.writeByte(to_escape);
+                        if (to_escape == '\\' or to_escape == '"') try escaped.append(arena, '\\');
+                        try escaped.append(arena, to_escape);
                     }
                     escaped_args.appendAssumeCapacity(escaped.items);
                     continue :arg_blk;
@@ -1790,11 +1824,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
         var args_hash: [Sha256.digest_length]u8 = undefined;
         Sha256.hash(args, &args_hash, .{});
         var args_hex_hash: [Sha256.digest_length * 2]u8 = undefined;
-        _ = try std.fmt.bufPrint(
-            &args_hex_hash,
-            "{s}",
-            .{std.fmt.fmtSliceHexLower(&args_hash)},
-        );
+        _ = try std.fmt.bufPrint(&args_hex_hash, "{x}", .{&args_hash});
 
         const args_file = "args" ++ fs.path.sep_str ++ args_hex_hash;
         try b.cache_root.handle.writeFile(.{ .sub_path = args_file, .data = args });
@@ -1820,7 +1850,9 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const maybe_output_dir = step.evalZigProcess(
         zig_args,
         options.progress_node,
-        (b.graph.incremental == true) and options.watch,
+        (b.graph.incremental == true) and (options.watch or options.web_server != null),
+        options.web_server,
+        options.gpa,
     ) catch |err| switch (err) {
         error.NeedCompileErrorCheck => {
             assert(compile.expect_errors != null);
@@ -1833,50 +1865,19 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     // Update generated files
     if (maybe_output_dir) |output_dir| {
         if (compile.emit_directory) |lp| {
-            lp.path = b.fmt("{}", .{output_dir});
+            lp.path = b.fmt("{f}", .{output_dir});
         }
 
-        // -femit-bin[=path]         (default) Output machine code
-        if (compile.generated_bin) |bin| {
-            bin.path = output_dir.joinString(b.allocator, compile.out_filename) catch @panic("OOM");
-        }
-
-        const sep = std.fs.path.sep_str;
-
-        // output PDB if someone requested it
-        if (compile.generated_pdb) |pdb| {
-            pdb.path = b.fmt("{}" ++ sep ++ "{s}.pdb", .{ output_dir, compile.name });
-        }
-
-        // -femit-implib[=path]      (default) Produce an import .lib when building a Windows DLL
-        if (compile.generated_implib) |implib| {
-            implib.path = b.fmt("{}" ++ sep ++ "{s}.lib", .{ output_dir, compile.name });
-        }
-
-        // -femit-h[=path]           Generate a C header file (.h)
-        if (compile.generated_h) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.h", .{ output_dir, compile.name });
-        }
-
-        // -femit-docs[=path]        Create a docs/ dir with html documentation
-        if (compile.generated_docs) |generated_docs| {
-            generated_docs.path = output_dir.joinString(b.allocator, "docs") catch @panic("OOM");
-        }
-
-        // -femit-asm[=path]         Output .s (assembly code)
-        if (compile.generated_asm) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.s", .{ output_dir, compile.name });
-        }
-
-        // -femit-llvm-ir[=path]     Produce a .ll file with optimized LLVM IR (requires LLVM extensions)
-        if (compile.generated_llvm_ir) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.ll", .{ output_dir, compile.name });
-        }
-
-        // -femit-llvm-bc[=path]     Produce an optimized LLVM module as a .bc file (requires LLVM extensions)
-        if (compile.generated_llvm_bc) |lp| {
-            lp.path = b.fmt("{}" ++ sep ++ "{s}.bc", .{ output_dir, compile.name });
-        }
+        // zig fmt: off
+        if (compile.generated_bin)     |lp| lp.path = compile.outputPath(output_dir, .bin);
+        if (compile.generated_pdb)     |lp| lp.path = compile.outputPath(output_dir, .pdb);
+        if (compile.generated_implib)  |lp| lp.path = compile.outputPath(output_dir, .implib);
+        if (compile.generated_h)       |lp| lp.path = compile.outputPath(output_dir, .h);
+        if (compile.generated_docs)    |lp| lp.path = compile.outputPath(output_dir, .docs);
+        if (compile.generated_asm)     |lp| lp.path = compile.outputPath(output_dir, .@"asm");
+        if (compile.generated_llvm_ir) |lp| lp.path = compile.outputPath(output_dir, .llvm_ir);
+        if (compile.generated_llvm_bc) |lp| lp.path = compile.outputPath(output_dir, .llvm_bc);
+        // zig fmt: on
     }
 
     if (compile.kind == .lib and compile.linkage != null and compile.linkage.? == .dynamic and
@@ -1890,10 +1891,23 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
         );
     }
 }
+fn outputPath(c: *Compile, out_dir: std.Build.Cache.Path, ea: std.zig.EmitArtifact) []const u8 {
+    const arena = c.step.owner.graph.arena;
+    const name = ea.cacheName(arena, .{
+        .root_name = c.name,
+        .target = &c.root_module.resolved_target.?.result,
+        .output_mode = switch (c.kind) {
+            .lib => .Lib,
+            .obj, .test_obj => .Obj,
+            .exe, .@"test" => .Exe,
+        },
+        .link_mode = c.linkage,
+        .version = c.version,
+    }) catch @panic("OOM");
+    return out_dir.joinString(arena, name) catch @panic("OOM");
+}
 
-pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
-    const gpa = c.step.owner.allocator;
-
+pub fn rebuildInFuzzMode(c: *Compile, gpa: Allocator, progress_node: std.Progress.Node) !Path {
     c.step.result_error_msgs.clearRetainingCapacity();
     c.step.result_stderr = "";
 
@@ -1901,7 +1915,7 @@ pub fn rebuildInFuzzMode(c: *Compile, progress_node: std.Progress.Node) !Path {
     c.step.result_error_bundle = std.zig.ErrorBundle.empty;
 
     const zig_args = try getZigArgs(c, true);
-    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false);
+    const maybe_output_bin_path = try c.step.evalZigProcess(zig_args, progress_node, false, null, gpa);
     return maybe_output_bin_path.?;
 }
 
@@ -1933,7 +1947,7 @@ pub fn doAtomicSymLinks(
 fn execPkgConfigList(b: *std.Build, out_code: *u8) (PkgConfigError || RunError)![]const PkgConfigPkg {
     const pkg_config_exe = b.graph.env_map.get("PKG_CONFIG") orelse "pkg-config";
     const stdout = try b.runAllowFail(&[_][]const u8{ pkg_config_exe, "--list-all" }, out_code, .Ignore);
-    var list = ArrayList(PkgConfigPkg).init(b.allocator);
+    var list = std.array_list.Managed(PkgConfigPkg).init(b.allocator);
     errdefer list.deinit();
     var line_it = mem.tokenizeAny(u8, stdout, "\r\n");
     while (line_it.next()) |line| {
@@ -1970,7 +1984,7 @@ fn getPkgConfigList(b: *std.Build) ![]const PkgConfigPkg {
     }
 }
 
-fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) !void {
+fn addFlag(args: *std.array_list.Managed([]const u8), comptime name: []const u8, opt: ?bool) !void {
     const cond = opt orelse return;
     try args.ensureUnusedCapacity(1);
     if (cond) {
@@ -1983,20 +1997,23 @@ fn addFlag(args: *ArrayList([]const u8), comptime name: []const u8, opt: ?bool) 
 fn checkCompileErrors(compile: *Compile) !void {
     // Clear this field so that it does not get printed by the build runner.
     const actual_eb = compile.step.result_error_bundle;
-    compile.step.result_error_bundle = std.zig.ErrorBundle.empty;
+    compile.step.result_error_bundle = .empty;
 
     const arena = compile.step.owner.allocator;
 
-    var actual_errors_list = std.ArrayList(u8).init(arena);
-    try actual_eb.renderToWriter(.{
-        .ttyconf = .no_color,
-        .include_reference_trace = false,
-        .include_source_line = false,
-    }, actual_errors_list.writer());
-    const actual_errors = try actual_errors_list.toOwnedSlice();
+    const actual_errors = ae: {
+        var aw: std.io.Writer.Allocating = .init(arena);
+        defer aw.deinit();
+        try actual_eb.renderToWriter(.{
+            .ttyconf = .no_color,
+            .include_reference_trace = false,
+            .include_source_line = false,
+        }, &aw.writer);
+        break :ae try aw.toOwnedSlice();
+    };
 
     // Render the expected lines into a string that we can compare verbatim.
-    var expected_generated = std.ArrayList(u8).init(arena);
+    var expected_generated: std.ArrayListUnmanaged(u8) = .empty;
     const expect_errors = compile.expect_errors.?;
 
     var actual_line_it = mem.splitScalar(u8, actual_errors, '\n');
@@ -2055,17 +2072,17 @@ fn checkCompileErrors(compile: *Compile) !void {
         .exact => |expect_lines| {
             for (expect_lines) |expect_line| {
                 const actual_line = actual_line_it.next() orelse {
-                    try expected_generated.appendSlice(expect_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, expect_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 };
                 if (matchCompileError(actual_line, expect_line)) {
-                    try expected_generated.appendSlice(actual_line);
-                    try expected_generated.append('\n');
+                    try expected_generated.appendSlice(arena, actual_line);
+                    try expected_generated.append(arena, '\n');
                     continue;
                 }
-                try expected_generated.appendSlice(expect_line);
-                try expected_generated.append('\n');
+                try expected_generated.appendSlice(arena, expect_line);
+                try expected_generated.append(arena, '\n');
             }
 
             if (mem.eql(u8, expected_generated.items, actual_errors)) return;

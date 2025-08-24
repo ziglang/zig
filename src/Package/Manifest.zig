@@ -401,7 +401,7 @@ const Parse = struct {
                 return fail(p, main_token, "name must be a valid bare zig identifier (hint: switch from string to enum literal)", .{});
 
             if (name.len > max_name_len)
-                return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+                return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
                     std.zig.fmtId(name), max_name_len,
                 });
 
@@ -416,7 +416,7 @@ const Parse = struct {
             return fail(p, main_token, "name must be a valid bare zig identifier", .{});
 
         if (ident_name.len > max_name_len)
-            return fail(p, main_token, "name '{}' exceeds max length of {d}", .{
+            return fail(p, main_token, "name '{f}' exceeds max length of {d}", .{
                 std.zig.fmtId(ident_name), max_name_len,
             });
 
@@ -471,10 +471,14 @@ const Parse = struct {
         offset: u32,
     ) InnerError!void {
         const raw_string = bytes[offset..];
-        var buf_managed = buf.toManaged(p.gpa);
-        const result = std.zig.string_literal.parseWrite(buf_managed.writer(), raw_string);
-        buf.* = buf_managed.moveToUnmanaged();
-        switch (try result) {
+        const result = r: {
+            var aw: std.io.Writer.Allocating = .fromArrayList(p.gpa, buf);
+            defer buf.* = aw.toArrayList();
+            break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+        };
+        switch (result) {
             .success => {},
             .failure => |err| try p.appendStrLitError(err, token, bytes, offset),
         }

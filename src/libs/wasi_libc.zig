@@ -10,42 +10,7 @@ pub const CrtFile = enum {
     crt1_reactor_o,
     crt1_command_o,
     libc_a,
-    libdl_a,
-    libwasi_emulated_process_clocks_a,
-    libwasi_emulated_getpid_a,
-    libwasi_emulated_mman_a,
-    libwasi_emulated_signal_a,
 };
-
-pub fn getEmulatedLibCrtFile(lib_name: []const u8) ?CrtFile {
-    if (mem.eql(u8, lib_name, "dl")) {
-        return .libdl_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-process-clocks")) {
-        return .libwasi_emulated_process_clocks_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-getpid")) {
-        return .libwasi_emulated_getpid_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-mman")) {
-        return .libwasi_emulated_mman_a;
-    }
-    if (mem.eql(u8, lib_name, "wasi-emulated-signal")) {
-        return .libwasi_emulated_signal_a;
-    }
-    return null;
-}
-
-pub fn emulatedLibCRFileLibName(crt_file: CrtFile) []const u8 {
-    return switch (crt_file) {
-        .libdl_a => "libdl.a",
-        .libwasi_emulated_process_clocks_a => "libwasi-emulated-process-clocks.a",
-        .libwasi_emulated_getpid_a => "libwasi-emulated-getpid.a",
-        .libwasi_emulated_mman_a => "libwasi-emulated-mman.a",
-        .libwasi_emulated_signal_a => "libwasi-emulated-signal.a",
-        else => unreachable,
-    };
-}
 
 pub fn execModelCrtFile(wasi_exec_model: std.builtin.WasiExecModel) CrtFile {
     return switch (wasi_exec_model) {
@@ -63,7 +28,7 @@ pub fn execModelCrtFileFullName(wasi_exec_model: std.builtin.WasiExecModel) []co
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -76,45 +41,50 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .crt1_reactor_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
+
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, crt1_reactor_src_file),
                     }),
                     .extra_flags = args.items,
                     .owner = undefined,
                 },
             };
+
             return comp.build_crt_file("crt1-reactor", .Obj, .@"wasi crt1-reactor.o", prog_node, &files, .{});
         },
         .crt1_command_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCCArgs(comp, arena, &args, .{});
             try addLibcBottomHalfIncludes(comp, arena, &args);
+
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", try sanitize(arena, crt1_command_src_file),
                     }),
                     .extra_flags = args.items,
                     .owner = undefined,
                 },
             };
+
             return comp.build_crt_file("crt1-command", .Obj, .@"wasi crt1-command.o", prog_node, &files, .{});
         },
         .libc_a => {
-            var libc_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
+            var libc_sources = std.array_list.Managed(Compilation.CSourceFile).init(arena);
 
             {
                 // Compile emmalloc.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true, .no_strict_aliasing = true });
+
                 for (emmalloc_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -125,13 +95,13 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libc-bottom-half.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcBottomHalfIncludes(comp, arena, &args);
 
                 for (libc_bottom_half_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
@@ -142,129 +112,159 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
             {
                 // Compile libc-top-half.
-                var args = std.ArrayList([]const u8).init(arena);
+                var args = std.array_list.Managed([]const u8).init(arena);
                 try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
                 try addLibcTopHalfIncludes(comp, arena, &args);
 
                 for (libc_top_half_src_files) |file_path| {
                     try libc_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", try sanitize(arena, file_path),
                         }),
                         .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile musl-fts.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try args.appendSlice(&[_][]const u8{
+                    "-I",
+                    try comp.dirs.zig_lib.join(arena, &.{
+                        "libc",
+                        "wasi",
+                        "fts",
+                    }),
+                });
+
+                for (fts_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            if (comp.getTarget().cpu.has(.wasm, .exception_handling)) {
+                // Compile libsetjmp.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try addLibcTopHalfIncludes(comp, arena, &args);
+
+                for (setjmp_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libdl.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+                try addLibcTopHalfIncludes(comp, arena, &args);
+
+                for (emulated_dl_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-process-clocks.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+
+                for (emulated_process_clocks_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-getpid.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+
+                for (emulated_getpid_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-mman.
+                var args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
+
+                for (emulated_mman_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = args.items,
+                        .owner = undefined,
+                    });
+                }
+            }
+
+            {
+                // Compile libwasi-emulated-signal.
+                var bottom_args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &bottom_args, .{ .want_O3 = true });
+
+                for (emulated_signal_bottom_half_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = bottom_args.items,
+                        .owner = undefined,
+                    });
+                }
+
+                var top_args = std.array_list.Managed([]const u8).init(arena);
+                try addCCArgs(comp, arena, &top_args, .{ .want_O3 = true });
+                try addLibcTopHalfIncludes(comp, arena, &top_args);
+                try top_args.append("-D_WASI_EMULATED_SIGNAL");
+
+                for (emulated_signal_top_half_src_files) |file_path| {
+                    try libc_sources.append(.{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
+                            "libc", try sanitize(arena, file_path),
+                        }),
+                        .extra_flags = top_args.items,
                         .owner = undefined,
                     });
                 }
             }
 
             try comp.build_crt_file("c", .Lib, .@"wasi libc.a", prog_node, libc_sources.items, .{});
-        },
-
-        .libdl_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_dl_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_dl_src_files) |file_path| {
-                try emu_dl_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("dl", .Lib, .@"wasi libdl.a", prog_node, emu_dl_sources.items, .{});
-        },
-
-        .libwasi_emulated_process_clocks_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_clocks_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_process_clocks_src_files) |file_path| {
-                try emu_clocks_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-process-clocks", .Lib, .@"libwasi-emulated-process-clocks.a", prog_node, emu_clocks_sources.items, .{});
-        },
-        .libwasi_emulated_getpid_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_getpid_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_getpid_src_files) |file_path| {
-                try emu_getpid_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-getpid", .Lib, .@"libwasi-emulated-getpid.a", prog_node, emu_getpid_sources.items, .{});
-        },
-        .libwasi_emulated_mman_a => {
-            var args = std.ArrayList([]const u8).init(arena);
-            try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-            try addLibcBottomHalfIncludes(comp, arena, &args);
-
-            var emu_mman_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-            for (emulated_mman_src_files) |file_path| {
-                try emu_mman_sources.append(.{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                        "libc", try sanitize(arena, file_path),
-                    }),
-                    .extra_flags = args.items,
-                    .owner = undefined,
-                });
-            }
-            try comp.build_crt_file("wasi-emulated-mman", .Lib, .@"libwasi-emulated-mman.a", prog_node, emu_mman_sources.items, .{});
-        },
-        .libwasi_emulated_signal_a => {
-            var emu_signal_sources = std.ArrayList(Compilation.CSourceFile).init(arena);
-
-            {
-                var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-
-                for (emulated_signal_bottom_half_src_files) |file_path| {
-                    try emu_signal_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            {
-                var args = std.ArrayList([]const u8).init(arena);
-                try addCCArgs(comp, arena, &args, .{ .want_O3 = true });
-                try addLibcTopHalfIncludes(comp, arena, &args);
-                try args.append("-D_WASI_EMULATED_SIGNAL");
-
-                for (emulated_signal_top_half_src_files) |file_path| {
-                    try emu_signal_sources.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
-                            "libc", try sanitize(arena, file_path),
-                        }),
-                        .extra_flags = args.items,
-                        .owner = undefined,
-                    });
-                }
-            }
-
-            try comp.build_crt_file("wasi-emulated-signal", .Lib, .@"libwasi-emulated-signal.a", prog_node, emu_signal_sources.items, .{});
         },
     }
 }
@@ -293,7 +293,7 @@ const CCOptions = struct {
 fn addCCArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
     options: CCOptions,
 ) error{OutOfMemory}!void {
     const target = comp.getTarget();
@@ -312,14 +312,19 @@ fn addCCArgs(
         "-mthread-model",
         "single",
 
-        "-isysroot",
-        "/",
+        "-I",
+        try comp.dirs.zig_lib.join(arena, &.{
+            "libc",
+            "wasi",
+            "libc-bottom-half",
+            "cloudlibc",
+            "src",
+        }),
 
-        "-iwithsysroot",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", triple }),
-
-        "-iwithsysroot",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "generic-musl" }),
+        "-isystem",
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", triple }),
+        "-isystem",
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "generic-musl" }),
 
         "-DBULK_MEMORY_THRESHOLD=32",
     });
@@ -332,11 +337,11 @@ fn addCCArgs(
 fn addLibcBottomHalfIncludes(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -345,7 +350,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -355,7 +360,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-bottom-half",
@@ -364,7 +369,7 @@ fn addLibcBottomHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -372,17 +377,16 @@ fn addLibcBottomHalfIncludes(
             "src",
             "include",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
             "include",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -390,9 +394,8 @@ fn addLibcBottomHalfIncludes(
             "src",
             "internal",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -404,11 +407,11 @@ fn addLibcBottomHalfIncludes(
 fn addLibcTopHalfIncludes(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -416,9 +419,8 @@ fn addLibcTopHalfIncludes(
             "src",
             "include",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -426,7 +428,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -434,9 +436,8 @@ fn addLibcTopHalfIncludes(
             "src",
             "internal",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "src",
@@ -444,7 +445,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -452,9 +453,8 @@ fn addLibcTopHalfIncludes(
             "arch",
             "wasm32",
         }),
-
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "musl",
             "arch",
@@ -462,7 +462,7 @@ fn addLibcTopHalfIncludes(
         }),
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{
+        try comp.dirs.zig_lib.join(arena, &.{
             "libc",
             "wasi",
             "libc-top-half",
@@ -503,8 +503,8 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/socket/recv.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/socket/send.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/socket/shutdown.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/fstat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/fstatat.c",
+    "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/fstat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/futimens.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/mkdirat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/stat/utimensat.c",
@@ -513,11 +513,11 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/uio/pwritev.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/uio/readv.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/sys/uio/writev.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/time/CLOCK_MONOTONIC.c",
-    "wasi/libc-bottom-half/cloudlibc/src/libc/time/CLOCK_REALTIME.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/clock_getres.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/clock_gettime.c",
+    "wasi/libc-bottom-half/cloudlibc/src/libc/time/CLOCK_MONOTONIC.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/clock_nanosleep.c",
+    "wasi/libc-bottom-half/cloudlibc/src/libc/time/CLOCK_REALTIME.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/nanosleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/time/time.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/faccessat.c",
@@ -535,25 +535,18 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/unlinkat.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/usleep.c",
     "wasi/libc-bottom-half/cloudlibc/src/libc/unistd/write.c",
-    "wasi/libc-bottom-half/sources/__errno_location.c",
-    "wasi/libc-bottom-half/sources/__main_void.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_dt.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_environ.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_fd_renumber.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_initialize_environ.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_real.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_rmdirat.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_tell.c",
-    "wasi/libc-bottom-half/sources/__wasilibc_unlinkat.c",
     "wasi/libc-bottom-half/sources/abort.c",
     "wasi/libc-bottom-half/sources/accept-wasip1.c",
     "wasi/libc-bottom-half/sources/at_fdcwd.c",
+    "wasi/libc-bottom-half/sources/chdir.c",
     "wasi/libc-bottom-half/sources/complex-builtins.c",
     "wasi/libc-bottom-half/sources/environ.c",
     "wasi/libc-bottom-half/sources/errno.c",
+    "wasi/libc-bottom-half/sources/__errno_location.c",
     "wasi/libc-bottom-half/sources/getcwd.c",
     "wasi/libc-bottom-half/sources/getentropy.c",
     "wasi/libc-bottom-half/sources/isatty.c",
+    "wasi/libc-bottom-half/sources/__main_void.c",
     "wasi/libc-bottom-half/sources/math/fmin-fmax.c",
     "wasi/libc-bottom-half/sources/math/math-builtins.c",
     "wasi/libc-bottom-half/sources/posix.c",
@@ -561,7 +554,15 @@ const libc_bottom_half_src_files = [_][]const u8{
     "wasi/libc-bottom-half/sources/reallocarray.c",
     "wasi/libc-bottom-half/sources/sbrk.c",
     "wasi/libc-bottom-half/sources/truncate.c",
-    "wasi/libc-bottom-half/sources/chdir.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_dt.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_environ.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_fd_renumber.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_initialize_environ.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_random.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_real.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_rmdirat.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_tell.c",
+    "wasi/libc-bottom-half/sources/__wasilibc_unlinkat.c",
 };
 
 const libc_top_half_src_files = [_][]const u8{
@@ -627,6 +628,7 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/complex/ctanhf.c",
     "musl/src/complex/ctanhl.c",
     "musl/src/complex/ctanl.c",
+    "musl/src/conf/confstr.c",
     "musl/src/conf/legacy.c",
     "musl/src/conf/pathconf.c",
     "musl/src/crypt/crypt_blowfish.c",
@@ -728,9 +730,7 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/ceill.c",
     "musl/src/math/copysignl.c",
     "musl/src/math/__cos.c",
-    "musl/src/math/cos.c",
     "musl/src/math/__cosdf.c",
-    "musl/src/math/cosf.c",
     "musl/src/math/coshl.c",
     "musl/src/math/__cosl.c",
     "musl/src/math/cosl.c",
@@ -751,13 +751,11 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/expm1.c",
     "musl/src/math/expm1f.c",
     "musl/src/math/expm1l.c",
-    "musl/src/math/fabsl.c",
     "musl/src/math/fdim.c",
     "musl/src/math/fdimf.c",
     "musl/src/math/fdiml.c",
     "musl/src/math/finite.c",
     "musl/src/math/finitef.c",
-    "musl/src/math/floorl.c",
     "musl/src/math/fma.c",
     "musl/src/math/fmaf.c",
     "musl/src/math/fmaxl.c",
@@ -872,21 +870,15 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/significand.c",
     "musl/src/math/significandf.c",
     "musl/src/math/__sin.c",
-    "musl/src/math/sin.c",
-    "musl/src/math/sincos.c",
-    "musl/src/math/sincosf.c",
     "musl/src/math/sincosl.c",
     "musl/src/math/__sindf.c",
-    "musl/src/math/sinf.c",
     "musl/src/math/sinhl.c",
     "musl/src/math/__sinl.c",
     "musl/src/math/sinl.c",
     "musl/src/math/sqrt_data.c",
     "musl/src/math/sqrtl.c",
     "musl/src/math/__tan.c",
-    "musl/src/math/tan.c",
     "musl/src/math/__tandf.c",
-    "musl/src/math/tanf.c",
     "musl/src/math/tanh.c",
     "musl/src/math/tanhf.c",
     "musl/src/math/tanhl.c",
@@ -1015,8 +1007,10 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdio/__toread.c",
     "musl/src/stdio/__towrite.c",
     "musl/src/stdio/__uflow.c",
+    "musl/src/stdio/ungetc.c",
     "musl/src/stdio/ungetwc.c",
     "musl/src/stdio/vasprintf.c",
+    "musl/src/stdio/vfwscanf.c",
     "musl/src/stdio/vprintf.c",
     "musl/src/stdio/vscanf.c",
     "musl/src/stdio/vsprintf.c",
@@ -1024,7 +1018,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdio/vwscanf.c",
     "musl/src/stdio/wprintf.c",
     "musl/src/stdio/wscanf.c",
-    "musl/src/stdlib/abs.c",
     "musl/src/stdlib/atof.c",
     "musl/src/stdlib/atoi.c",
     "musl/src/stdlib/atol.c",
@@ -1034,31 +1027,25 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/stdlib/ecvt.c",
     "musl/src/stdlib/fcvt.c",
     "musl/src/stdlib/gcvt.c",
-    "musl/src/stdlib/imaxabs.c",
     "musl/src/stdlib/imaxdiv.c",
-    "musl/src/stdlib/labs.c",
     "musl/src/stdlib/ldiv.c",
-    "musl/src/stdlib/llabs.c",
     "musl/src/stdlib/lldiv.c",
     "musl/src/stdlib/qsort.c",
     "musl/src/stdlib/qsort_nr.c",
+    "musl/src/stdlib/strtol.c",
     "musl/src/string/bcmp.c",
     "musl/src/string/bcopy.c",
     "musl/src/string/explicit_bzero.c",
     "musl/src/string/index.c",
     "musl/src/string/memccpy.c",
-    "musl/src/string/memchr.c",
-    "musl/src/string/memcmp.c",
     "musl/src/string/memmem.c",
     "musl/src/string/mempcpy.c",
-    "musl/src/string/memrchr.c",
     "musl/src/string/rindex.c",
     "musl/src/string/stpcpy.c",
     "musl/src/string/stpncpy.c",
     "musl/src/string/strcasestr.c",
     "musl/src/string/strcat.c",
     "musl/src/string/strchr.c",
-    "musl/src/string/strchrnul.c",
     "musl/src/string/strcpy.c",
     "musl/src/string/strcspn.c",
     "musl/src/string/strdup.c",
@@ -1106,6 +1093,37 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/string/wmemcpy.c",
     "musl/src/string/wmemmove.c",
     "musl/src/string/wmemset.c",
+    "musl/src/thread/default_attr.c",
+    "musl/src/thread/pthread_attr_destroy.c",
+    "musl/src/thread/pthread_attr_init.c",
+    "musl/src/thread/pthread_attr_setdetachstate.c",
+    "musl/src/thread/pthread_attr_setstack.c",
+    "musl/src/thread/pthread_attr_setstacksize.c",
+    "musl/src/thread/pthread_barrierattr_destroy.c",
+    "musl/src/thread/pthread_barrierattr_init.c",
+    "musl/src/thread/pthread_barrierattr_setpshared.c",
+    "musl/src/thread/pthread_cleanup_push.c",
+    "musl/src/thread/pthread_condattr_destroy.c",
+    "musl/src/thread/pthread_condattr_init.c",
+    "musl/src/thread/pthread_condattr_setpshared.c",
+    "musl/src/thread/pthread_equal.c",
+    "musl/src/thread/pthread_getspecific.c",
+    "musl/src/thread/pthread_mutexattr_destroy.c",
+    "musl/src/thread/pthread_mutexattr_init.c",
+    "musl/src/thread/pthread_mutexattr_setpshared.c",
+    "musl/src/thread/pthread_mutexattr_settype.c",
+    "musl/src/thread/pthread_mutex_init.c",
+    "musl/src/thread/pthread_rwlockattr_destroy.c",
+    "musl/src/thread/pthread_rwlockattr_init.c",
+    "musl/src/thread/pthread_rwlockattr_setpshared.c",
+    "musl/src/thread/pthread_rwlock_destroy.c",
+    "musl/src/thread/pthread_rwlock_init.c",
+    "musl/src/thread/pthread_setcancelstate.c",
+    "musl/src/thread/pthread_setcanceltype.c",
+    "musl/src/thread/pthread_setspecific.c",
+    "musl/src/thread/pthread_spin_destroy.c",
+    "musl/src/thread/pthread_spin_init.c",
+    "musl/src/thread/pthread_testcancel.c",
     "musl/src/thread/thrd_sleep.c",
     "musl/src/time/asctime.c",
     "musl/src/time/asctime_r.c",
@@ -1119,7 +1137,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/time/__year_to_secs.c",
     "musl/src/unistd/posix_close.c",
 
-    "wasi/libc-top-half/musl/src/conf/confstr.c",
     "wasi/libc-top-half/musl/src/conf/fpathconf.c",
     "wasi/libc-top-half/musl/src/conf/sysconf.c",
     "wasi/libc-top-half/musl/src/dirent/alphasort.c",
@@ -1160,9 +1177,9 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/misc/nftw.c",
     "wasi/libc-top-half/musl/src/misc/uname.c",
     "wasi/libc-top-half/musl/src/prng/random.c",
+    "wasi/libc-top-half/musl/src/regex/glob.c",
     "wasi/libc-top-half/musl/src/regex/regcomp.c",
     "wasi/libc-top-half/musl/src/regex/regexec.c",
-    "wasi/libc-top-half/musl/src/regex/glob.c",
     "wasi/libc-top-half/musl/src/regex/tre-mem.c",
     "wasi/libc-top-half/musl/src/stat/futimesat.c",
     "wasi/libc-top-half/musl/src/stdio/__fdopen.c",
@@ -1192,21 +1209,32 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/stdio/__stdio_write.c",
     "wasi/libc-top-half/musl/src/stdio/stdout.c",
     "wasi/libc-top-half/musl/src/stdio/__stdout_write.c",
-    "wasi/libc-top-half/musl/src/stdio/ungetc.c",
     "wasi/libc-top-half/musl/src/stdio/vdprintf.c",
     "wasi/libc-top-half/musl/src/stdio/vfprintf.c",
     "wasi/libc-top-half/musl/src/stdio/vfscanf.c",
     "wasi/libc-top-half/musl/src/stdio/vfwprintf.c",
-    "wasi/libc-top-half/musl/src/stdio/vfwscanf.c",
     "wasi/libc-top-half/musl/src/stdio/vsnprintf.c",
     "wasi/libc-top-half/musl/src/stdio/vsscanf.c",
     "wasi/libc-top-half/musl/src/stdio/vswprintf.c",
     "wasi/libc-top-half/musl/src/stdio/vswscanf.c",
     "wasi/libc-top-half/musl/src/stdlib/strtod.c",
-    "wasi/libc-top-half/musl/src/stdlib/strtol.c",
     "wasi/libc-top-half/musl/src/stdlib/wcstod.c",
     "wasi/libc-top-half/musl/src/stdlib/wcstol.c",
+    "wasi/libc-top-half/musl/src/string/memchr.c",
+    "wasi/libc-top-half/musl/src/string/memcmp.c",
+    "wasi/libc-top-half/musl/src/string/memrchr.c",
     "wasi/libc-top-half/musl/src/string/memset.c",
+    "wasi/libc-top-half/musl/src/string/strchrnul.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_attr_get.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_attr_setguardsize.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_attr_setschedparam.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_cancel.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_condattr_setclock.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_key_create.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_mutexattr_setprotocol.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_mutexattr_setrobust.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_mutex_destroy.c",
+    "wasi/libc-top-half/musl/src/thread/pthread_self.c",
     "wasi/libc-top-half/musl/src/time/getdate.c",
     "wasi/libc-top-half/musl/src/time/gmtime.c",
     "wasi/libc-top-half/musl/src/time/gmtime_r.c",
@@ -1221,10 +1249,49 @@ const libc_top_half_src_files = [_][]const u8{
     "wasi/libc-top-half/musl/src/time/wcsftime.c",
 
     "wasi/libc-top-half/sources/arc4random.c",
+
+    "wasi/thread-stub/pthread_barrier_destroy.c",
+    "wasi/thread-stub/pthread_barrier_init.c",
+    "wasi/thread-stub/pthread_barrier_wait.c",
+    "wasi/thread-stub/pthread_cond_broadcast.c",
+    "wasi/thread-stub/pthread_cond_destroy.c",
+    "wasi/thread-stub/pthread_cond_init.c",
+    "wasi/thread-stub/pthread_cond_signal.c",
+    "wasi/thread-stub/pthread_cond_timedwait.c",
+    "wasi/thread-stub/pthread_cond_wait.c",
+    "wasi/thread-stub/pthread_create.c",
+    "wasi/thread-stub/pthread_detach.c",
+    "wasi/thread-stub/pthread_getattr_np.c",
+    "wasi/thread-stub/pthread_join.c",
+    "wasi/thread-stub/pthread_mutex_consistent.c",
+    "wasi/thread-stub/pthread_mutex_getprioceiling.c",
+    "wasi/thread-stub/pthread_mutex_lock.c",
+    "wasi/thread-stub/pthread_mutex_timedlock.c",
+    "wasi/thread-stub/pthread_mutex_trylock.c",
+    "wasi/thread-stub/pthread_mutex_unlock.c",
+    "wasi/thread-stub/pthread_once.c",
+    "wasi/thread-stub/pthread_rwlock_rdlock.c",
+    "wasi/thread-stub/pthread_rwlock_timedrdlock.c",
+    "wasi/thread-stub/pthread_rwlock_timedwrlock.c",
+    "wasi/thread-stub/pthread_rwlock_tryrdlock.c",
+    "wasi/thread-stub/pthread_rwlock_trywrlock.c",
+    "wasi/thread-stub/pthread_rwlock_unlock.c",
+    "wasi/thread-stub/pthread_rwlock_wrlock.c",
+    "wasi/thread-stub/pthread_spin_lock.c",
+    "wasi/thread-stub/pthread_spin_trylock.c",
+    "wasi/thread-stub/pthread_spin_unlock.c",
 };
 
 const crt1_command_src_file = "wasi/libc-bottom-half/crt/crt1-command.c";
 const crt1_reactor_src_file = "wasi/libc-bottom-half/crt/crt1-reactor.c";
+
+const fts_src_files = &[_][]const u8{
+    "wasi/fts/musl-fts/fts.c",
+};
+
+const setjmp_src_files = &[_][]const u8{
+    "wasi/libc-top-half/musl/src/setjmp/wasm32/rt.c",
+};
 
 const emulated_dl_src_files = &[_][]const u8{
     "wasi/libc-top-half/musl/src/misc/dl.c",

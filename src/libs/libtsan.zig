@@ -8,7 +8,7 @@ const Module = @import("../Package/Module.zig");
 
 pub const BuildError = error{
     OutOfMemory,
-    SubCompilationFailed,
+    AlreadyReported,
     ZigCompilerNotBuiltWithLLVMExtensions,
     TSANUnsupportedCPUArchitecture,
 };
@@ -45,15 +45,10 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .link_mode = link_mode,
     });
 
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
-
     const optimize_mode = comp.compilerRtOptMode();
     const strip = comp.compilerRtStrip();
     const unwind_tables: std.builtin.UnwindTables =
-        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const link_libcpp = target.os.tag.isDarwin();
 
     const config = Compilation.Config.resolve(.{
@@ -71,12 +66,12 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         // LLVM disables LTO for its libtsan.
         .lto = .none,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libtsan,
             "unable to build thread sanitizer runtime: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const common_flags = [_][]const u8{
@@ -84,9 +79,8 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     };
 
     const root_mod = Module.create(arena, .{
-        .global_cache_directory = comp.global_cache_directory,
         .paths = .{
-            .root = .{ .root_dir = comp.zig_lib_directory },
+            .root = .zig_lib_root,
             .root_src_path = "",
         },
         .fully_qualified_name = "root",
@@ -110,23 +104,21 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .global = config,
         .cc_argv = &common_flags,
         .parent = null,
-        .builtin_mod = null,
-        .builtin_modules = null, // there is only one module in this compilation
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libtsan,
             "unable to build thread sanitizer runtime: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
-    var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+    var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(arena);
     try c_source_files.ensureUnusedCapacity(tsan_sources.len);
 
-    const tsan_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{"libtsan"});
+    const tsan_include_path = try comp.dirs.zig_lib.join(arena, &.{"libtsan"});
     for (tsan_sources) |tsan_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -134,7 +126,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &.{ "libtsan", tsan_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -147,7 +139,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     };
     try c_source_files.ensureUnusedCapacity(platform_tsan_sources.len);
     for (platform_tsan_sources) |tsan_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -155,7 +147,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", tsan_src }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", tsan_src }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
@@ -171,7 +163,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
             .x86_64 => "tsan_rtl_amd64.S",
             else => return error.TSANUnsupportedCPUArchitecture,
         };
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -179,18 +171,18 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try cflags.append("-DNDEBUG");
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libtsan", asm_source }),
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{ "libtsan", asm_source }),
             .extra_flags = cflags.items,
             .owner = root_mod,
         });
     }
 
     try c_source_files.ensureUnusedCapacity(sanitizer_common_sources.len);
-    const sanitizer_common_include_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+    const sanitizer_common_include_path = try comp.dirs.zig_lib.join(arena, &.{
         "libtsan", "sanitizer_common",
     });
     for (sanitizer_common_sources) |common_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
@@ -200,7 +192,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", common_src,
             }),
             .extra_flags = cflags.items,
@@ -214,7 +206,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         &sanitizer_nolibc_sources;
     try c_source_files.ensureUnusedCapacity(to_c_or_not_to_c_sources.len);
     for (to_c_or_not_to_c_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(sanitizer_common_include_path);
@@ -224,7 +216,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
@@ -234,7 +226,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
 
     try c_source_files.ensureUnusedCapacity(sanitizer_symbolizer_sources.len);
     for (sanitizer_symbolizer_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(tsan_include_path);
@@ -242,7 +234,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "sanitizer_common", c_src,
             }),
             .extra_flags = cflags.items,
@@ -250,14 +242,11 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         });
     }
 
-    const interception_include_path = try comp.zig_lib_directory.join(
-        arena,
-        &[_][]const u8{"interception"},
-    );
+    const interception_include_path = try comp.dirs.zig_lib.join(arena, &.{"interception"});
 
     try c_source_files.ensureUnusedCapacity(interception_sources.len);
     for (interception_sources) |c_src| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         try cflags.append("-I");
         try cflags.append(interception_include_path);
@@ -268,7 +257,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         try addCcArgs(target, &cflags);
 
         c_source_files.appendAssumeCapacity(.{
-            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                 "libtsan", "interception", c_src,
             }),
             .extra_flags = cflags.items,
@@ -279,15 +268,17 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
     const skip_linker_dependencies = !target.os.tag.isDarwin();
     const linker_allow_shlib_undefined = target.os.tag.isDarwin();
     const install_name = if (target.os.tag.isDarwin())
-        try std.fmt.allocPrintZ(arena, "@rpath/{s}", .{basename})
+        try std.fmt.allocPrintSentinel(arena, "@rpath/{s}", .{basename}, 0)
     else
         null;
     // Workaround for https://github.com/llvm/llvm-project/issues/97627
     const headerpad_size: ?u32 = if (target.os.tag.isDarwin()) 32 else null;
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
-        .local_cache_directory = comp.global_cache_directory,
-        .global_cache_directory = comp.global_cache_directory,
-        .zig_lib_directory = comp.zig_lib_directory,
+
+    const misc_task: Compilation.MiscTask = .libtsan;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
+        .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
         .cache_mode = .whole,
@@ -295,8 +286,7 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .root_mod = root_mod,
         .root_name = root_name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .yes_cache,
         .c_source_files = c_source_files.items,
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
@@ -311,34 +301,29 @@ pub fn buildTsan(comp: *Compilation, prog_node: std.Progress.Node) BuildError!vo
         .install_name = install_name,
         .headerpad_size = headerpad_size,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libtsan,
-            "unable to build thread sanitizer runtime: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {t}", .{ misc_task, err }),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {f}", .{ misc_task, sub_create_diag }),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libtsan, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
-                .libtsan,
-                "unable to build thread sanitizer runtime: compilation failed: {s}",
-                .{@errorName(e)},
-            );
-            return error.SubCompilationFailed;
+            comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: compilation failed: {s}", .{ misc_task, @errorName(e) });
+            return error.AlreadyReported;
         },
     };
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, output_mode);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
     assert(comp.tsan_lib == null);
     comp.tsan_lib = crt_file;
 }
 
-fn addCcArgs(target: std.Target, args: *std.ArrayList([]const u8)) error{OutOfMemory}!void {
+fn addCcArgs(target: *const std.Target, args: *std.array_list.Managed([]const u8)) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-nostdinc++",
         "-fvisibility=hidden",

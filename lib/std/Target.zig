@@ -50,6 +50,8 @@ pub const Os = struct {
         windows,
         uefi,
 
+        @"3ds",
+
         ps3,
         ps4,
         ps5,
@@ -194,6 +196,8 @@ pub const Os = struct {
 
                 .uefi,
 
+                .@"3ds",
+
                 .wasi,
 
                 .amdhsa,
@@ -301,29 +305,13 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(
-            ver: WindowsVersion,
-            comptime fmt_str: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            const maybe_name = std.enums.tagName(WindowsVersion, ver);
-            if (comptime std.mem.eql(u8, fmt_str, "s")) {
-                if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
-                else
-                    try writer.print(".{d}", .{@intFromEnum(ver)});
-            } else if (comptime std.mem.eql(u8, fmt_str, "c")) {
-                if (maybe_name) |name|
-                    try writer.print(".{s}", .{name})
-                else
-                    try writer.print("@enumFromInt(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else if (fmt_str.len == 0) {
-                if (maybe_name) |name|
-                    try writer.print("WindowsVersion.{s}", .{name})
-                else
-                    try writer.print("WindowsVersion(0x{X:0>8})", .{@intFromEnum(ver)});
-            } else std.fmt.invalidFmtError(fmt_str, ver);
+        pub fn format(wv: WindowsVersion, w: *std.io.Writer) std.io.Writer.Error!void {
+            if (std.enums.tagName(WindowsVersion, wv)) |name| {
+                var vecs: [2][]const u8 = .{ ".", name };
+                return w.writeVecAll(&vecs);
+            } else {
+                return w.print("@enumFromInt(0x{X:0>8})", .{wv});
+            }
         }
     };
 
@@ -421,7 +409,7 @@ pub const Os = struct {
                 .fuchsia => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 26, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 27, .minor = 0, .patch = 0 },
                     },
                 },
                 .hermit => .{
@@ -462,7 +450,7 @@ pub const Os = struct {
 
                                 break :blk default_min;
                             },
-                            .max = .{ .major = 6, .minor = 13, .patch = 4 },
+                            .max = .{ .major = 6, .minor = 16, .patch = 0 },
                         },
                         .glibc = blk: {
                             // For 32-bit targets that traditionally used 32-bit time, we require
@@ -498,7 +486,7 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .android = 24,
+                        .android = 29,
                     },
                 },
                 .rtems => .{
@@ -523,7 +511,7 @@ pub const Os = struct {
                 .freebsd => .{
                     .semver = .{
                         .min = blk: {
-                            const default_min: std.SemanticVersion = .{ .major = 13, .minor = 4, .patch = 0 };
+                            const default_min: std.SemanticVersion = .{ .major = 14, .minor = 0, .patch = 0 };
 
                             for (std.zig.target.available_libcs) |libc| {
                                 if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
@@ -535,12 +523,24 @@ pub const Os = struct {
 
                             break :blk default_min;
                         },
-                        .max = .{ .major = 14, .minor = 2, .patch = 0 },
+                        .max = .{ .major = 14, .minor = 3, .patch = 0 },
                     },
                 },
                 .netbsd => .{
                     .semver = .{
-                        .min = .{ .major = 9, .minor = 4, .patch = 0 },
+                        .min = blk: {
+                            const default_min: std.SemanticVersion = .{ .major = 10, .minor = 1, .patch = 0 };
+
+                            for (std.zig.target.available_libcs) |libc| {
+                                if (libc.arch != arch or libc.os != tag or libc.abi != abi) continue;
+
+                                if (libc.os_ver) |min| {
+                                    if (min.order(default_min) == .gt) break :blk min;
+                                }
+                            }
+
+                            break :blk default_min;
+                        },
                         .max = .{ .major = 10, .minor = 1, .patch = 0 },
                     },
                 },
@@ -553,38 +553,38 @@ pub const Os = struct {
 
                 .driverkit => .{
                     .semver = .{
-                        .min = .{ .major = 19, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 24, .minor = 4, .patch = 0 },
+                        .min = .{ .major = 20, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 25, .minor = 0, .patch = 0 },
                     },
                 },
                 .macos => .{
                     .semver = .{
                         .min = .{ .major = 13, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 15, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 15, .minor = 6, .patch = 0 },
                     },
                 },
                 .ios => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 6, .patch = 0 },
                     },
                 },
                 .tvos => .{
                     .semver = .{
                         .min = .{ .major = 15, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 18, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 18, .minor = 5, .patch = 0 },
                     },
                 },
                 .visionos => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 2, .minor = 4, .patch = 1 },
+                        .max = .{ .major = 2, .minor = 5, .patch = 0 },
                     },
                 },
                 .watchos => .{
                     .semver = .{
-                        .min = .{ .major = 7, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 11, .minor = 4, .patch = 0 },
+                        .min = .{ .major = 8, .minor = 0, .patch = 0 },
+                        .max = .{ .major = 11, .minor = 6, .patch = 0 },
                     },
                 },
 
@@ -607,7 +607,17 @@ pub const Os = struct {
                         .max = .{ .major = 2, .minor = 11, .patch = 0 },
                     },
                 },
-
+                .@"3ds" => .{
+                    .semver = .{
+                        // These signify release versions (https://www.3dbrew.org/wiki/NCCH/Extended_Header#ARM11_Kernel_Capabilities)
+                        // which are different from user-facing system versions (https://www.3dbrew.org/wiki/Home_Menu#System_Versions_List).
+                        //
+                        // Multiple system versions could refer to the same release version.
+                        // The comment indicates the system version that release version was introduced (for minimum) and the latest (for maximum).
+                        .min = .{ .major = 2, .minor = 27, .patch = 0 }, // 1.0.0-0
+                        .max = .{ .major = 2, .minor = 58, .patch = 0 }, // 11.17.0-50
+                    },
+                },
                 .wasi => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 1, .patch = 0 },
@@ -618,7 +628,7 @@ pub const Os = struct {
                 .amdhsa => .{
                     .semver = .{
                         .min = .{ .major = 5, .minor = 0, .patch = 0 },
-                        .max = .{ .major = 6, .minor = 4, .patch = 0 },
+                        .max = .{ .major = 6, .minor = 4, .patch = 2 },
                     },
                 },
                 .amdpal => .{
@@ -630,7 +640,7 @@ pub const Os = struct {
                 .cuda => .{
                     .semver = .{
                         .min = .{ .major = 11, .minor = 0, .patch = 1 },
-                        .max = .{ .major = 12, .minor = 9, .patch = 0 },
+                        .max = .{ .major = 12, .minor = 9, .patch = 1 },
                     },
                 },
                 .nvcl,
@@ -650,7 +660,7 @@ pub const Os = struct {
                 .vulkan => .{
                     .semver = .{
                         .min = .{ .major = 1, .minor = 2, .patch = 0 },
-                        .max = .{ .major = 1, .minor = 4, .patch = 313 },
+                        .max = .{ .major = 1, .minor = 4, .patch = 321 },
                     },
                 },
             };
@@ -701,79 +711,30 @@ pub const Os = struct {
             => |field| @field(os.version_range, @tagName(field)).isAtLeast(ver),
         };
     }
-
-    /// On Darwin, we always link libSystem which contains libc.
-    /// Similarly on FreeBSD and NetBSD we always link system libc
-    /// since this is the stable syscall interface.
-    pub fn requiresLibC(os: Os) bool {
-        return switch (os.tag) {
-            .aix,
-            .netbsd,
-            .driverkit,
-            .macos,
-            .ios,
-            .tvos,
-            .watchos,
-            .visionos,
-            .dragonfly,
-            .openbsd,
-            .haiku,
-            .solaris,
-            .illumos,
-            .serenity,
-            => true,
-
-            .linux,
-            .windows,
-            .freebsd,
-            .freestanding,
-            .fuchsia,
-            .ps3,
-            .zos,
-            .rtems,
-            .cuda,
-            .nvcl,
-            .amdhsa,
-            .ps4,
-            .ps5,
-            .mesa3d,
-            .contiki,
-            .amdpal,
-            .hermit,
-            .hurd,
-            .wasi,
-            .emscripten,
-            .uefi,
-            .opencl,
-            .opengl,
-            .vulkan,
-            .plan9,
-            .other,
-            => false,
-        };
-    }
 };
 
 pub const aarch64 = @import("Target/aarch64.zig");
-pub const arc = @import("Target/arc.zig");
 pub const amdgcn = @import("Target/amdgcn.zig");
+pub const arc = @import("Target/arc.zig");
 pub const arm = @import("Target/arm.zig");
 pub const avr = @import("Target/avr.zig");
 pub const bpf = @import("Target/bpf.zig");
 pub const csky = @import("Target/csky.zig");
 pub const hexagon = @import("Target/hexagon.zig");
+pub const kalimba = @import("Target/generic.zig");
 pub const lanai = @import("Target/lanai.zig");
 pub const loongarch = @import("Target/loongarch.zig");
 pub const m68k = @import("Target/m68k.zig");
 pub const mips = @import("Target/mips.zig");
 pub const msp430 = @import("Target/msp430.zig");
 pub const nvptx = @import("Target/nvptx.zig");
+pub const or1k = @import("Target/generic.zig");
 pub const powerpc = @import("Target/powerpc.zig");
 pub const propeller = @import("Target/propeller.zig");
 pub const riscv = @import("Target/riscv.zig");
+pub const s390x = @import("Target/s390x.zig");
 pub const sparc = @import("Target/sparc.zig");
 pub const spirv = @import("Target/spirv.zig");
-pub const s390x = @import("Target/s390x.zig");
 pub const ve = @import("Target/ve.zig");
 pub const wasm = @import("Target/wasm.zig");
 pub const x86 = @import("Target/x86.zig");
@@ -914,6 +875,7 @@ pub const Abi = enum {
             .tvos, .visionos, .watchos => if (arch == .x86_64) .simulator else .none,
             .windows => .gnu,
             .uefi => .msvc,
+            .@"3ds" => .eabihf,
             .wasi, .emscripten => .musl,
 
             .contiki,
@@ -1052,7 +1014,7 @@ pub const ObjectFormat = enum {
             .uefi, .windows => .coff,
             .zos => .goff,
             else => switch (arch) {
-                .spirv, .spirv32, .spirv64 => .spirv,
+                .spirv32, .spirv64 => .spirv,
                 .wasm32, .wasm64 => .wasm,
                 else => .elf,
             },
@@ -1060,7 +1022,7 @@ pub const ObjectFormat = enum {
     }
 };
 
-pub fn toElfMachine(target: Target) std.elf.EM {
+pub fn toElfMachine(target: *const Target) std.elf.EM {
     return switch (target.cpu.arch) {
         .amdgcn => .AMDGPU,
         .arc => .ARC_COMPACT,
@@ -1082,7 +1044,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
         .propeller => .PROPELLER,
         .riscv32, .riscv64 => .RISCV,
         .s390x => .S390,
-        .sparc => if (Target.sparc.featureSetHas(target.cpu.features, .v9)) .SPARC32PLUS else .SPARC,
+        .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
         .ve => .VE,
         .x86 => .@"386",
@@ -1092,7 +1054,6 @@ pub fn toElfMachine(target: Target) std.elf.EM {
 
         .nvptx,
         .nvptx64,
-        .spirv,
         .spirv32,
         .spirv64,
         .wasm32,
@@ -1101,7 +1062,7 @@ pub fn toElfMachine(target: Target) std.elf.EM {
     };
 }
 
-pub fn toCoffMachine(target: Target) std.coff.MachineType {
+pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
     return switch (target.cpu.arch) {
         .arm => .ARM,
         .thumb => .ARMNT,
@@ -1141,7 +1102,6 @@ pub fn toCoffMachine(target: Target) std.coff.MachineType {
         .s390x,
         .sparc,
         .sparc64,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -1234,11 +1194,7 @@ pub const Cpu = struct {
 
             /// Adds the specified feature set but not its dependencies.
             pub fn addFeatureSet(set: *Set, other_set: Set) void {
-                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
-                    for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* |= other_set_int;
-                } else {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
-                }
+                set.ints = @as(@Vector(usize_count, usize), set.ints) | @as(@Vector(usize_count, usize), other_set.ints);
             }
 
             /// Removes the specified feature but not its dependents.
@@ -1250,11 +1206,7 @@ pub const Cpu = struct {
 
             /// Removes the specified feature but not its dependents.
             pub fn removeFeatureSet(set: *Set, other_set: Set) void {
-                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
-                    for (&set.ints, other_set.ints) |*set_int, other_set_int| set_int.* &= ~other_set_int;
-                } else {
-                    set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
-                }
+                set.ints = @as(@Vector(usize_count, usize), set.ints) & ~@as(@Vector(usize_count, usize), other_set.ints);
             }
 
             pub fn populateDependencies(set: *Set, all_features_list: []const Cpu.Feature) void {
@@ -1283,17 +1235,10 @@ pub const Cpu = struct {
             }
 
             pub fn isSuperSetOf(set: Set, other_set: Set) bool {
-                if (builtin.zig_backend == .stage2_x86_64 and builtin.object_format == .coff) {
-                    var result = true;
-                    for (&set.ints, other_set.ints) |*set_int, other_set_int|
-                        result = result and (set_int.* & other_set_int) == other_set_int;
-                    return result;
-                } else {
-                    const V = @Vector(usize_count, usize);
-                    const set_v: V = set.ints;
-                    const other_v: V = other_set.ints;
-                    return @reduce(.And, (set_v & other_v) == other_v);
-                }
+                const V = @Vector(usize_count, usize);
+                const set_v: V = set.ints;
+                const other_v: V = other_set.ints;
+                return @reduce(.And, (set_v & other_v) == other_v);
             }
         };
 
@@ -1369,7 +1314,6 @@ pub const Cpu = struct {
         s390x,
         sparc,
         sparc64,
-        spirv,
         spirv32,
         spirv64,
         ve,
@@ -1398,6 +1342,71 @@ pub const Cpu = struct {
         // - spir64
         // - tce
         // - tcele
+
+        /// An architecture family can encompass multiple architectures as represented by `Arch`.
+        /// For a given family tag, it is guaranteed that an `std.Target.<tag>` namespace exists
+        /// containing CPU model and feature data.
+        pub const Family = enum {
+            amdgcn,
+            arc,
+            arm,
+            aarch64,
+            avr,
+            bpf,
+            csky,
+            hexagon,
+            kalimba,
+            lanai,
+            loongarch,
+            m68k,
+            mips,
+            msp430,
+            nvptx,
+            or1k,
+            powerpc,
+            propeller,
+            riscv,
+            s390x,
+            sparc,
+            spirv,
+            ve,
+            wasm,
+            x86,
+            xcore,
+            xtensa,
+        };
+
+        pub inline fn family(arch: Arch) Family {
+            return switch (arch) {
+                .amdgcn => .amdgcn,
+                .arc => .arc,
+                .arm, .armeb, .thumb, .thumbeb => .arm,
+                .aarch64, .aarch64_be => .aarch64,
+                .avr => .avr,
+                .bpfel, .bpfeb => .bpf,
+                .csky => .csky,
+                .hexagon => .hexagon,
+                .kalimba => .kalimba,
+                .lanai => .lanai,
+                .loongarch32, .loongarch64 => .loongarch,
+                .m68k => .m68k,
+                .mips, .mipsel, .mips64, .mips64el => .mips,
+                .msp430 => .msp430,
+                .or1k => .or1k,
+                .nvptx, .nvptx64 => .nvptx,
+                .powerpc, .powerpcle, .powerpc64, .powerpc64le => .powerpc,
+                .propeller => .propeller,
+                .riscv32, .riscv64 => .riscv,
+                .s390x => .s390x,
+                .sparc, .sparc64 => .sparc,
+                .spirv32, .spirv64 => .spirv,
+                .ve => .ve,
+                .wasm32, .wasm64 => .wasm,
+                .x86, .x86_64 => .x86,
+                .xcore => .xcore,
+                .xtensa => .xtensa,
+            };
+        }
 
         pub inline fn isX86(arch: Arch) bool {
             return switch (arch) {
@@ -1494,7 +1503,7 @@ pub const Cpu = struct {
 
         pub inline fn isSpirV(arch: Arch) bool {
             return switch (arch) {
-                .spirv, .spirv32, .spirv64 => true,
+                .spirv32, .spirv64 => true,
                 else => false,
             };
         }
@@ -1550,7 +1559,6 @@ pub const Cpu = struct {
                 .thumb,
                 .ve,
                 // GPU bitness is opaque. For now, assume little endian.
-                .spirv,
                 .spirv32,
                 .spirv64,
                 .loongarch32,
@@ -1577,88 +1585,17 @@ pub const Cpu = struct {
             };
         }
 
-        /// Returns a name that matches the lib/std/target/* source file name.
-        pub fn genericName(arch: Arch) [:0]const u8 {
-            return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => "arm",
-                .aarch64, .aarch64_be => "aarch64",
-                .bpfel, .bpfeb => "bpf",
-                .loongarch32, .loongarch64 => "loongarch",
-                .mips, .mipsel, .mips64, .mips64el => "mips",
-                .powerpc, .powerpcle, .powerpc64, .powerpc64le => "powerpc",
-                .propeller => "propeller",
-                .riscv32, .riscv64 => "riscv",
-                .sparc, .sparc64 => "sparc",
-                .s390x => "s390x",
-                .x86, .x86_64 => "x86",
-                .nvptx, .nvptx64 => "nvptx",
-                .wasm32, .wasm64 => "wasm",
-                .spirv, .spirv32, .spirv64 => "spirv",
-                else => @tagName(arch),
-            };
-        }
-
         /// All CPU features Zig is aware of, sorted lexicographically by name.
         pub fn allFeaturesList(arch: Arch) []const Cpu.Feature {
-            return switch (arch) {
-                .arm, .armeb, .thumb, .thumbeb => &arm.all_features,
-                .aarch64, .aarch64_be => &aarch64.all_features,
-                .arc => &arc.all_features,
-                .avr => &avr.all_features,
-                .bpfel, .bpfeb => &bpf.all_features,
-                .csky => &csky.all_features,
-                .hexagon => &hexagon.all_features,
-                .lanai => &lanai.all_features,
-                .loongarch32, .loongarch64 => &loongarch.all_features,
-                .m68k => &m68k.all_features,
-                .mips, .mipsel, .mips64, .mips64el => &mips.all_features,
-                .msp430 => &msp430.all_features,
-                .powerpc, .powerpcle, .powerpc64, .powerpc64le => &powerpc.all_features,
-                .amdgcn => &amdgcn.all_features,
-                .riscv32, .riscv64 => &riscv.all_features,
-                .sparc, .sparc64 => &sparc.all_features,
-                .spirv, .spirv32, .spirv64 => &spirv.all_features,
-                .s390x => &s390x.all_features,
-                .x86, .x86_64 => &x86.all_features,
-                .xcore => &xcore.all_features,
-                .xtensa => &xtensa.all_features,
-                .nvptx, .nvptx64 => &nvptx.all_features,
-                .ve => &ve.all_features,
-                .wasm32, .wasm64 => &wasm.all_features,
-
-                else => &[0]Cpu.Feature{},
+            return switch (arch.family()) {
+                inline else => |f| &@field(Target, @tagName(f)).all_features,
             };
         }
 
         /// All processors Zig is aware of, sorted lexicographically by name.
         pub fn allCpuModels(arch: Arch) []const *const Cpu.Model {
-            return switch (arch) {
-                .arc => comptime allCpusFromDecls(arc.cpu),
-                .arm, .armeb, .thumb, .thumbeb => comptime allCpusFromDecls(arm.cpu),
-                .aarch64, .aarch64_be => comptime allCpusFromDecls(aarch64.cpu),
-                .avr => comptime allCpusFromDecls(avr.cpu),
-                .bpfel, .bpfeb => comptime allCpusFromDecls(bpf.cpu),
-                .csky => comptime allCpusFromDecls(csky.cpu),
-                .hexagon => comptime allCpusFromDecls(hexagon.cpu),
-                .lanai => comptime allCpusFromDecls(lanai.cpu),
-                .loongarch32, .loongarch64 => comptime allCpusFromDecls(loongarch.cpu),
-                .m68k => comptime allCpusFromDecls(m68k.cpu),
-                .mips, .mipsel, .mips64, .mips64el => comptime allCpusFromDecls(mips.cpu),
-                .msp430 => comptime allCpusFromDecls(msp430.cpu),
-                .powerpc, .powerpcle, .powerpc64, .powerpc64le => comptime allCpusFromDecls(powerpc.cpu),
-                .amdgcn => comptime allCpusFromDecls(amdgcn.cpu),
-                .riscv32, .riscv64 => comptime allCpusFromDecls(riscv.cpu),
-                .sparc, .sparc64 => comptime allCpusFromDecls(sparc.cpu),
-                .spirv, .spirv32, .spirv64 => comptime allCpusFromDecls(spirv.cpu),
-                .s390x => comptime allCpusFromDecls(s390x.cpu),
-                .x86, .x86_64 => comptime allCpusFromDecls(x86.cpu),
-                .xcore => comptime allCpusFromDecls(xcore.cpu),
-                .xtensa => comptime allCpusFromDecls(xtensa.cpu),
-                .nvptx, .nvptx64 => comptime allCpusFromDecls(nvptx.cpu),
-                .ve => comptime allCpusFromDecls(ve.cpu),
-                .wasm32, .wasm64 => comptime allCpusFromDecls(wasm.cpu),
-
-                else => &[0]*const Model{},
+            return switch (arch.family()) {
+                inline else => |f| comptime allCpusFromDecls(@field(Target, @tagName(f)).cpu),
             };
         }
 
@@ -1702,7 +1639,7 @@ pub const Cpu = struct {
         pub fn fromCallingConvention(cc: std.builtin.CallingConvention.Tag) []const Arch {
             return switch (cc) {
                 .auto,
-                .@"async",
+                .async,
                 .naked,
                 .@"inline",
                 => unreachable,
@@ -1850,7 +1787,7 @@ pub const Cpu = struct {
                 .spirv_kernel,
                 .spirv_fragment,
                 .spirv_vertex,
-                => &.{ .spirv, .spirv32, .spirv64 },
+                => &.{ .spirv32, .spirv64 },
             };
         }
     };
@@ -1874,49 +1811,24 @@ pub const Cpu = struct {
         /// can return CPU models that are understood by LLVM, but *not* understood by Clang. If
         /// Clang compatibility is important, consider using `baseline` instead.
         pub fn generic(arch: Arch) *const Model {
-            const S = struct {
-                const generic_model = Model{
-                    .name = "generic",
-                    .llvm_name = null,
-                    .features = Cpu.Feature.Set.empty,
-                };
-            };
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx600,
-                .arc => &arc.cpu.generic,
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.generic,
-                .aarch64, .aarch64_be => &aarch64.cpu.generic,
                 .avr => &avr.cpu.avr1,
-                .bpfel, .bpfeb => &bpf.cpu.generic,
-                .csky => &csky.cpu.generic,
-                .hexagon => &hexagon.cpu.generic,
-                .lanai => &lanai.cpu.generic,
                 .loongarch32 => &loongarch.cpu.generic_la32,
                 .loongarch64 => &loongarch.cpu.generic_la64,
-                .m68k => &m68k.cpu.generic,
                 .mips, .mipsel => &mips.cpu.mips32,
                 .mips64, .mips64el => &mips.cpu.mips64,
-                .msp430 => &msp430.cpu.generic,
+                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
                 .powerpc, .powerpcle => &powerpc.cpu.ppc,
                 .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
                 .propeller => &propeller.cpu.p1,
                 .riscv32 => &riscv.cpu.generic_rv32,
                 .riscv64 => &riscv.cpu.generic_rv64,
-                .spirv, .spirv32, .spirv64 => &spirv.cpu.generic,
-                .sparc => &sparc.cpu.generic,
-                .sparc64 => &sparc.cpu.v9, // 64-bit SPARC needs v9 as the baseline
-                .s390x => &s390x.cpu.generic,
+                .sparc64 => &sparc.cpu.v9, // SPARC can only be 64-bit from v9 and up.
+                .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .x86 => &x86.cpu.i386,
                 .x86_64 => &x86.cpu.x86_64,
-                .nvptx, .nvptx64 => &nvptx.cpu.sm_20,
-                .ve => &ve.cpu.generic,
-                .wasm32, .wasm64 => &wasm.cpu.mvp,
-                .xcore => &xcore.cpu.generic,
-                .xtensa => &xtensa.cpu.generic,
-
-                .kalimba,
-                .or1k,
-                => &S.generic_model,
+                inline else => |a| &@field(Target, @tagName(a.family())).cpu.generic,
             };
         }
 
@@ -1931,7 +1843,11 @@ pub const Cpu = struct {
         pub fn baseline(arch: Arch, os: Os) *const Model {
             return switch (arch) {
                 .amdgcn => &amdgcn.cpu.gfx906,
-                .arm, .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .arm => switch (os.tag) {
+                    .@"3ds" => &arm.cpu.mpcore,
+                    else => &arm.cpu.baseline,
+                },
+                .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
                     .driverkit, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
@@ -1997,17 +1913,41 @@ pub const Cpu = struct {
             .fs, .gs, .ss => (arch == .x86_64 or arch == .x86) and (context == null or context == .pointer),
             .flash, .flash1, .flash2, .flash3, .flash4, .flash5 => arch == .avr, // TODO this should also check how many flash banks the cpu has
             .cog, .hub => arch == .propeller,
-            .lut => arch == .propeller and std.Target.propeller.featureSetHas(cpu.features, .p2),
+            .lut => arch == .propeller and cpu.has(.propeller, .p2),
 
             .global, .local, .shared => is_gpu,
             .constant => is_gpu and (context == null or context == .constant),
             .param => is_nvptx,
-            .input, .output, .uniform, .push_constant, .storage_buffer => is_spirv,
+            .input, .output, .uniform, .push_constant, .storage_buffer, .physical_storage_buffer => is_spirv,
         };
+    }
+
+    /// Returns true if `feature` is enabled.
+    pub fn has(cpu: Cpu, comptime family: Arch.Family, feature: @field(Target, @tagName(family)).Feature) bool {
+        if (family != cpu.arch.family()) return false;
+        return cpu.features.isEnabled(@intFromEnum(feature));
+    }
+
+    /// Returns true if any feature in `features` is enabled.
+    pub fn hasAny(cpu: Cpu, comptime family: Arch.Family, features: []const @field(Target, @tagName(family)).Feature) bool {
+        if (family != cpu.arch.family()) return false;
+        for (features) |feature| {
+            if (cpu.features.isEnabled(@intFromEnum(feature))) return true;
+        }
+        return false;
+    }
+
+    /// Returns true if all features in `features` are enabled.
+    pub fn hasAll(cpu: Cpu, comptime family: Arch.Family, features: []const @field(Target, @tagName(family)).Feature) bool {
+        if (family != cpu.arch.family()) return false;
+        for (features) |feature| {
+            if (!cpu.features.isEnabled(@intFromEnum(feature))) return false;
+        }
+        return true;
     }
 };
 
-pub fn zigTriple(target: Target, allocator: Allocator) Allocator.Error![]u8 {
+pub fn zigTriple(target: *const Target, allocator: Allocator) Allocator.Error![]u8 {
     return Query.fromTarget(target).zigTriple(allocator);
 }
 
@@ -2015,7 +1955,7 @@ pub fn hurdTupleSimple(allocator: Allocator, arch: Cpu.Arch, abi: Abi) ![]u8 {
     return std.fmt.allocPrint(allocator, "{s}-{s}", .{ @tagName(arch), @tagName(abi) });
 }
 
-pub fn hurdTuple(target: Target, allocator: Allocator) ![]u8 {
+pub fn hurdTuple(target: *const Target, allocator: Allocator) ![]u8 {
     return hurdTupleSimple(allocator, target.cpu.arch, target.abi);
 }
 
@@ -2023,57 +1963,120 @@ pub fn linuxTripleSimple(allocator: Allocator, arch: Cpu.Arch, os_tag: Os.Tag, a
     return std.fmt.allocPrint(allocator, "{s}-{s}-{s}", .{ @tagName(arch), @tagName(os_tag), @tagName(abi) });
 }
 
-pub fn linuxTriple(target: Target, allocator: Allocator) ![]u8 {
+pub fn linuxTriple(target: *const Target, allocator: Allocator) ![]u8 {
     return linuxTripleSimple(allocator, target.cpu.arch, target.os.tag, target.abi);
 }
 
-pub fn exeFileExt(target: Target) [:0]const u8 {
+pub fn exeFileExt(target: *const Target) [:0]const u8 {
     return target.os.tag.exeFileExt(target.cpu.arch);
 }
 
-pub fn staticLibSuffix(target: Target) [:0]const u8 {
+pub fn staticLibSuffix(target: *const Target) [:0]const u8 {
     return target.os.tag.staticLibSuffix(target.abi);
 }
 
-pub fn dynamicLibSuffix(target: Target) [:0]const u8 {
+pub fn dynamicLibSuffix(target: *const Target) [:0]const u8 {
     return target.os.tag.dynamicLibSuffix();
 }
 
-pub fn libPrefix(target: Target) [:0]const u8 {
+pub fn libPrefix(target: *const Target) [:0]const u8 {
     return target.os.tag.libPrefix(target.abi);
 }
 
-pub inline fn isMinGW(target: Target) bool {
+pub inline fn isMinGW(target: *const Target) bool {
     return target.os.tag == .windows and target.abi.isGnu();
 }
 
-pub inline fn isGnuLibC(target: Target) bool {
+pub inline fn isGnuLibC(target: *const Target) bool {
     return switch (target.os.tag) {
         .hurd, .linux => target.abi.isGnu(),
         else => false,
     };
 }
 
-pub inline fn isMuslLibC(target: Target) bool {
+pub inline fn isMuslLibC(target: *const Target) bool {
     return target.os.tag == .linux and target.abi.isMusl();
 }
 
-pub inline fn isDarwinLibC(target: Target) bool {
+pub inline fn isDarwinLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .macabi, .simulator => target.os.tag.isDarwin(),
         else => false,
     };
 }
 
-pub inline fn isFreeBSDLibC(target: Target) bool {
+pub inline fn isFreeBSDLibC(target: *const Target) bool {
     return switch (target.abi) {
         .none, .eabihf => target.os.tag == .freebsd,
         else => false,
     };
 }
 
-pub inline fn isWasiLibC(target: Target) bool {
+pub inline fn isNetBSDLibC(target: *const Target) bool {
+    return switch (target.abi) {
+        .none, .eabi, .eabihf => target.os.tag == .netbsd,
+        else => false,
+    };
+}
+
+pub inline fn isWasiLibC(target: *const Target) bool {
     return target.os.tag == .wasi and target.abi.isMusl();
+}
+
+/// Does this target require linking libc? This may be the case if the target has an unstable
+/// syscall interface, for example.
+pub fn requiresLibC(target: *const Target) bool {
+    return switch (target.os.tag) {
+        .aix,
+        .driverkit,
+        .macos,
+        .ios,
+        .tvos,
+        .watchos,
+        .visionos,
+        .dragonfly,
+        .openbsd,
+        .haiku,
+        .solaris,
+        .illumos,
+        .serenity,
+        => true,
+
+        // Android API levels prior to 29 did not have native TLS support. For these API levels, TLS
+        // is implemented through calls to `__emutls_get_address`. We provide this function in
+        // compiler-rt, but it's implemented by way of `pthread_key_create` et al, so linking libc
+        // is required.
+        .linux => target.abi.isAndroid() and target.os.version_range.linux.android < 29,
+
+        .windows,
+        .freebsd,
+        .netbsd,
+        .freestanding,
+        .fuchsia,
+        .ps3,
+        .zos,
+        .rtems,
+        .cuda,
+        .nvcl,
+        .amdhsa,
+        .ps4,
+        .ps5,
+        .mesa3d,
+        .contiki,
+        .amdpal,
+        .hermit,
+        .hurd,
+        .wasi,
+        .emscripten,
+        .uefi,
+        .opencl,
+        .opengl,
+        .vulkan,
+        .plan9,
+        .other,
+        .@"3ds",
+        => false,
+    };
 }
 
 pub const DynamicLinker = struct {
@@ -2169,6 +2172,8 @@ pub const DynamicLinker = struct {
 
             .uefi,
             .windows,
+
+            .@"3ds",
 
             .emscripten,
             .wasi,
@@ -2291,7 +2296,7 @@ pub const DynamicLinker = struct {
                     .mips,
                     .mipsel,
                     => |arch| initFmt("/lib/ld-musl-mips{s}{s}{s}.so.1", .{
-                        if (mips.featureSetHas(cpu.features, .mips32r6)) "r6" else "",
+                        if (cpu.has(.mips, .mips32r6)) "r6" else "",
                         if (arch == .mipsel) "el" else "",
                         switch (abi) {
                             .musleabi => "-sf",
@@ -2308,7 +2313,7 @@ pub const DynamicLinker = struct {
                             .muslabin32 => "n32",
                             else => return none,
                         },
-                        if (mips.featureSetHas(cpu.features, .mips64r6)) "r6" else "",
+                        if (cpu.has(.mips, .mips64r6)) "r6" else "",
                         if (arch == .mips64el) "el" else "",
                     }),
 
@@ -2322,9 +2327,9 @@ pub const DynamicLinker = struct {
                     .riscv64,
                     => |arch| if (abi == .musl) initFmt("/lib/ld-musl-{s}{s}.so.1", .{
                         @tagName(arch),
-                        if (riscv.featureSetHas(cpu.features, .d))
+                        if (cpu.has(.riscv, .d))
                             ""
-                        else if (riscv.featureSetHas(cpu.features, .f))
+                        else if (cpu.has(.riscv, .f))
                             "-sp"
                         else
                             "-sf",
@@ -2381,7 +2386,7 @@ pub const DynamicLinker = struct {
                         .gnueabi,
                         .gnueabihf,
                         => initFmt("/lib/ld{s}.so.1", .{
-                            if (mips.featureSetHas(cpu.features, .nan2008)) "-linux-mipsn8" else "",
+                            if (cpu.has(.mips, .nan2008)) "-linux-mipsn8" else "",
                         }),
                         else => none,
                     },
@@ -2394,7 +2399,7 @@ pub const DynamicLinker = struct {
                             .gnuabin32 => "32",
                             else => return none,
                         },
-                        if (mips.featureSetHas(cpu.features, .nan2008)) "-linux-mipsn8" else "",
+                        if (cpu.has(.mips, .nan2008)) "-linux-mipsn8" else "",
                     }),
 
                     .powerpc => switch (abi) {
@@ -2415,9 +2420,9 @@ pub const DynamicLinker = struct {
                             .riscv64 => "riscv64-lp64",
                             else => unreachable,
                         },
-                        if (riscv.featureSetHas(cpu.features, .d))
+                        if (cpu.has(.riscv, .d))
                             "d"
-                        else if (riscv.featureSetHas(cpu.features, .f))
+                        else if (cpu.has(.riscv, .f))
                             "f"
                         else
                             "",
@@ -2486,9 +2491,6 @@ pub const DynamicLinker = struct {
                 .mips64,
                 .mips64el,
                 .powerpc,
-                .powerpc64,
-                .riscv32,
-                .riscv64,
                 .sparc,
                 .sparc64,
                 .x86,
@@ -2557,6 +2559,8 @@ pub const DynamicLinker = struct {
             .uefi,
             .windows,
 
+            .@"3ds",
+
             .emscripten,
             .wasi,
 
@@ -2580,17 +2584,21 @@ pub const DynamicLinker = struct {
     }
 };
 
-pub fn standardDynamicLinkerPath(target: Target) DynamicLinker {
+pub fn standardDynamicLinkerPath(target: *const Target) DynamicLinker {
     return DynamicLinker.standard(target.cpu, target.os, target.abi);
 }
 
 pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
+    return ptrBitWidth_arch_abi(cpu.arch, abi);
+}
+
+pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
     switch (abi) {
         .gnux32, .muslx32, .gnuabin32, .muslabin32, .ilp32 => return 32,
         .gnuabi64, .muslabi64 => return 64,
         else => {},
     }
-    return switch (cpu.arch) {
+    return switch (cpu_arch) {
         .avr,
         .msp430,
         => 16,
@@ -2638,18 +2646,17 @@ pub fn ptrBitWidth_cpu_abi(cpu: Cpu, abi: Abi) u16 {
         .sparc64,
         .s390x,
         .ve,
-        .spirv,
         .spirv64,
         .loongarch64,
         => 64,
     };
 }
 
-pub fn ptrBitWidth(target: Target) u16 {
+pub fn ptrBitWidth(target: *const Target) u16 {
     return ptrBitWidth_cpu_abi(target.cpu, target.abi);
 }
 
-pub fn stackAlignment(target: Target) u16 {
+pub fn stackAlignment(target: *const Target) u16 {
     // Overrides for when the stack alignment is not equal to the pointer width.
     switch (target.cpu.arch) {
         .m68k,
@@ -2685,7 +2692,7 @@ pub fn stackAlignment(target: Target) u16 {
         => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
         .riscv32,
         .riscv64,
-        => if (!Target.riscv.featureSetHas(target.cpu.features, .e)) return 16,
+        => if (!target.cpu.has(.riscv, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
         .x86_64 => return 16,
         else => {},
@@ -2697,7 +2704,7 @@ pub fn stackAlignment(target: Target) u16 {
 /// Default signedness of `char` for the native C compiler for this target
 /// Note that char signedness is implementation-defined and many compilers provide
 /// an option to override the default signedness e.g. GCC's -funsigned-char / -fsigned-char
-pub fn cCharSignedness(target: Target) std.builtin.Signedness {
+pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
     if (target.os.tag.isDarwin() or target.os.tag == .windows or target.os.tag == .uefi) return .signed;
 
     return switch (target.cpu.arch) {
@@ -2740,7 +2747,7 @@ pub const CType = enum {
     longdouble,
 };
 
-pub fn cTypeByteSize(t: Target, c_type: CType) u16 {
+pub fn cTypeByteSize(t: *const Target, c_type: CType) u16 {
     return switch (c_type) {
         .char,
         .short,
@@ -2766,7 +2773,7 @@ pub fn cTypeByteSize(t: Target, c_type: CType) u16 {
     };
 }
 
-pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
+pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
     switch (target.os.tag) {
         .freestanding, .other => switch (target.cpu.arch) {
             .msp430 => switch (c_type) {
@@ -3061,6 +3068,13 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
             .longdouble => return 128,
         },
 
+        .@"3ds" => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float, .long, .ulong => return 32,
+            .longlong, .ulonglong, .double, .longdouble => return 64,
+        },
+
         .ps4, .ps5 => switch (c_type) {
             .char => return 8,
             .short, .ushort => return 16,
@@ -3077,7 +3091,7 @@ pub fn cTypeBitSize(target: Target, c_type: CType) u16 {
     }
 }
 
-pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
+pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .avr => return 1,
@@ -3157,7 +3171,6 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3172,7 +3185,7 @@ pub fn cTypeAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
+pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
     // Overrides for unusual alignments
     switch (target.cpu.arch) {
         .arc => switch (c_type) {
@@ -3250,7 +3263,6 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
             .riscv32,
             .riscv64,
             .sparc64,
-            .spirv,
             .spirv32,
             .spirv64,
             .x86_64,
@@ -3265,7 +3277,7 @@ pub fn cTypePreferredAlignment(target: Target, c_type: CType) u16 {
     );
 }
 
-pub fn cMaxIntAlignment(target: std.Target) u16 {
+pub fn cMaxIntAlignment(target: *const Target) u16 {
     return switch (target.cpu.arch) {
         .avr => 1,
 
@@ -3319,7 +3331,6 @@ pub fn cMaxIntAlignment(target: std.Target) u16 {
         .loongarch32,
         .loongarch64,
         .m68k,
-        .spirv,
         .spirv32,
         .spirv64,
         .ve,
@@ -3328,7 +3339,7 @@ pub fn cMaxIntAlignment(target: std.Target) u16 {
     };
 }
 
-pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
+pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.os.tag) {
             .windows, .uefi => .{ .x86_64_win = .{} },
@@ -3389,7 +3400,7 @@ pub fn cCallingConvention(target: Target) ?std.builtin.CallingConvention {
         .xtensa => .{ .xtensa_call0 = .{} },
         .amdgcn => .{ .amdgcn_device = .{} },
         .nvptx, .nvptx64 => .nvptx_device,
-        .spirv, .spirv32, .spirv64 => .spirv_device,
+        .spirv32, .spirv64 => .spirv_device,
     };
 }
 
@@ -3397,6 +3408,7 @@ const Target = @This();
 const std = @import("std.zig");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
 
 test {
     std.testing.refAllDecls(Cpu.Arch);

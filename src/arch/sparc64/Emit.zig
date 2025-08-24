@@ -7,7 +7,6 @@ const assert = std.debug.assert;
 const link = @import("../../link.zig");
 const Zcu = @import("../../Zcu.zig");
 const ErrorMsg = Zcu.ErrorMsg;
-const Liveness = @import("../../Liveness.zig");
 const log = std.log.scoped(.sparcv9_emit);
 
 const Emit = @This();
@@ -180,7 +179,6 @@ fn mirDebugPrologueEnd(emit: *Emit) !void {
             try dbg_out.setPrologueEnd();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
-        .plan9 => {},
         .none => {},
     }
 }
@@ -191,7 +189,6 @@ fn mirDebugEpilogueBegin(emit: *Emit) !void {
             try dbg_out.setEpilogueBegin();
             try emit.dbgAdvancePCAndLine(emit.prev_di_line, emit.prev_di_column);
         },
-        .plan9 => {},
         .none => {},
     }
 }

@@ -253,7 +253,7 @@ pub inline fn allocAdvancedWithRetAddr(
     n: usize,
     return_address: usize,
 ) Error![]align(if (alignment) |a| a.toByteUnits() else @alignOf(T)) T {
-    const a = comptime (alignment orelse Alignment.fromByteUnits(@alignOf(T)));
+    const a = comptime (alignment orelse Alignment.of(T));
     const ptr: [*]align(a.toByteUnits()) T = @ptrCast(try self.allocWithSizeAndAlignment(@sizeOf(T), a, n, return_address));
     return ptr[0..n];
 }

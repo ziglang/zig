@@ -68,7 +68,7 @@ pub fn main() !void {
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
+                    const stdout = std.fs.File.stdout().deprecatedWriter();
                     try stdout.writeAll(usage);
                     return std.process.cleanExit();
                 } else if (mem.eql(u8, arg, "--")) {
@@ -114,10 +114,10 @@ pub fn main() !void {
     interestingness_argv.appendAssumeCapacity(checker_path);
     interestingness_argv.appendSliceAssumeCapacity(argv);
 
-    var rendered = std.ArrayList(u8).init(gpa);
+    var rendered: std.Io.Writer.Allocating = .init(gpa);
     defer rendered.deinit();
 
-    var astgen_input = std.ArrayList(u8).init(gpa);
+    var astgen_input: std.Io.Writer.Allocating = .init(gpa);
     defer astgen_input.deinit();
 
     var tree = try parse(gpa, root_source_file_path);
@@ -138,10 +138,10 @@ pub fn main() !void {
         }
     }
 
-    var fixups: Ast.Fixups = .{};
+    var fixups: Ast.Render.Fixups = .{};
     defer fixups.deinit(gpa);
 
-    var more_fixups: Ast.Fixups = .{};
+    var more_fixups: Ast.Render.Fixups = .{};
     defer more_fixups.deinit(gpa);
 
     var rng = std.Random.DefaultPrng.init(seed);
@@ -161,7 +161,7 @@ pub fn main() !void {
     // result, restart the whole process, reparsing the AST and re-generating the list
     // of all possible transformations and shuffling it again.
 
-    var transformations = std.ArrayList(Walk.Transformation).init(gpa);
+    var transformations = std.array_list.Managed(Walk.Transformation).init(gpa);
     defer transformations.deinit();
     try Walk.findTransformations(arena, &tree, &transformations);
     sortTransformations(transformations.items, rng.random());
@@ -188,15 +188,14 @@ pub fn main() !void {
             try transformationsToFixups(gpa, arena, root_source_file_path, this_set, &fixups);
 
             rendered.clearRetainingCapacity();
-            try tree.renderToArrayList(&rendered, fixups);
+            try tree.render(gpa, &rendered.writer, fixups);
 
             // The transformations we applied may have resulted in unused locals,
             // in which case we would like to add the respective discards.
             {
-                try astgen_input.resize(rendered.items.len);
-                @memcpy(astgen_input.items, rendered.items);
-                try astgen_input.append(0);
-                const source_with_null = astgen_input.items[0 .. astgen_input.items.len - 1 :0];
+                try astgen_input.writer.writeAll(rendered.written());
+                try astgen_input.writer.writeByte(0);
+                const source_with_null = astgen_input.written()[0..(astgen_input.written().len - 1) :0];
                 var astgen_tree = try Ast.parse(gpa, source_with_null, .zig);
                 defer astgen_tree.deinit(gpa);
                 if (astgen_tree.errors.len != 0) {
@@ -228,12 +227,12 @@ pub fn main() !void {
                     }
                     if (more_fixups.count() != 0) {
                         rendered.clearRetainingCapacity();
-                        try astgen_tree.renderToArrayList(&rendered, more_fixups);
+                        try astgen_tree.render(gpa, &rendered.writer, more_fixups);
                     }
                 }
             }
 
-            try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
+            try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.written() });
             // std.debug.print("trying this code:\n{s}\n", .{rendered.items});
 
             const interestingness = try runCheck(arena, interestingness_argv.items);
@@ -273,8 +272,8 @@ pub fn main() !void {
         // Revert the source back to not be transformed.
         fixups.clearRetainingCapacity();
         rendered.clearRetainingCapacity();
-        try tree.renderToArrayList(&rendered, fixups);
-        try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.items });
+        try tree.render(gpa, &rendered.writer, fixups);
+        try std.fs.cwd().writeFile(.{ .sub_path = root_source_file_path, .data = rendered.written() });
 
         return std.process.cleanExit();
     }
@@ -318,7 +317,7 @@ fn transformationsToFixups(
     arena: Allocator,
     root_source_file_path: []const u8,
     transforms: []const Walk.Transformation,
-    fixups: *Ast.Fixups,
+    fixups: *Ast.Render.Fixups,
 ) !void {
     fixups.clearRetainingCapacity();
 
@@ -359,7 +358,7 @@ fn transformationsToFixups(
                 other_file_ast.deinit(gpa);
             }
 
-            var inlined_fixups: Ast.Fixups = .{};
+            var inlined_fixups: Ast.Render.Fixups = .{};
             defer inlined_fixups.deinit(gpa);
             if (std.fs.path.dirname(inline_imported_file.imported_string)) |dirname| {
                 inlined_fixups.rebase_imported_paths = dirname;
@@ -382,16 +381,16 @@ fn transformationsToFixups(
                 }
             }
 
-            var other_source = std.ArrayList(u8).init(gpa);
+            var other_source: std.io.Writer.Allocating = .init(gpa);
             defer other_source.deinit();
-            try other_source.appendSlice("struct {\n");
-            try other_file_ast.renderToArrayList(&other_source, inlined_fixups);
-            try other_source.appendSlice("}");
+            try other_source.writer.writeAll("struct {\n");
+            try other_file_ast.render(gpa, &other_source.writer, inlined_fixups);
+            try other_source.writer.writeAll("}");
 
             try fixups.replace_nodes_with_string.put(
                 gpa,
                 inline_imported_file.builtin_call_node,
-                try arena.dupe(u8, other_source.items),
+                try arena.dupe(u8, other_source.written()),
             );
         },
     };

@@ -18,7 +18,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -29,18 +29,18 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const target = comp.getTarget();
 
     // The old 32-bit x86 variant of SEH doesn't use tables.
-    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .@"async" else .none;
+    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
 
     switch (crt_file) {
         .crt2_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCrtCcArgs(comp, arena, &args);
             if (comp.mingw_unicode_entry_point) {
                 try args.appendSlice(&.{ "-DUNICODE", "-D_UNICODE" });
             }
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "mingw", "crt", "crtexe.c",
                     }),
                     .extra_flags = args.items,
@@ -53,11 +53,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
         },
 
         .dllcrt2_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCrtCcArgs(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
                 .{
-                    .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                    .src_path = try comp.dirs.zig_lib.join(arena, &.{
                         "libc", "mingw", "crt", "crtdll.c",
                     }),
                     .extra_flags = args.items,
@@ -70,15 +70,15 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
         },
 
         .libmingw32_lib => {
-            var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(arena);
 
             {
-                var crt_args = std.ArrayList([]const u8).init(arena);
+                var crt_args = std.array_list.Managed([]const u8).init(arena);
                 try addCrtCcArgs(comp, arena, &crt_args);
 
                 for (mingw32_generic_src) |dep| {
                     try c_source_files.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = crt_args.items,
@@ -88,7 +88,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 if (target.cpu.arch.isX86()) {
                     for (mingw32_x86_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -98,7 +98,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     if (target.cpu.arch == .x86) {
                         for (mingw32_x86_32_src) |dep| {
                             try c_source_files.append(.{
-                                .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                                .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                     "libc", "mingw", dep,
                                 }),
                                 .extra_flags = crt_args.items,
@@ -109,7 +109,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 } else if (target.cpu.arch == .thumb) {
                     for (mingw32_arm_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -118,7 +118,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     }
                     for (mingw32_arm32_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -128,7 +128,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 } else if (target.cpu.arch == .aarch64) {
                     for (mingw32_arm_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -137,7 +137,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                     }
                     for (mingw32_arm64_src) |dep| {
                         try c_source_files.append(.{
-                            .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                            .src_path = try comp.dirs.zig_lib.join(arena, &.{
                                 "libc", "mingw", dep,
                             }),
                             .extra_flags = crt_args.items,
@@ -150,11 +150,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             }
 
             {
-                var winpthreads_args = std.ArrayList([]const u8).init(arena);
+                var winpthreads_args = std.array_list.Managed([]const u8).init(arena);
                 try addCcArgs(comp, arena, &winpthreads_args);
                 try winpthreads_args.appendSlice(&[_][]const u8{
                     "-DIN_WINPTHREAD",
-                    "-DWIN32_LEAN_AND_MEAN",
+                    // winpthreads incorrectly assumes that Clang has `-Wprio-ctor-dtor`.
+                    "-Wno-unknown-warning-option",
                 });
 
                 switch (comp.compilerRtOptMode()) {
@@ -164,7 +165,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
                 for (mingw32_winpthreads_src) |dep| {
                     try c_source_files.append(.{
-                        .src_path = try comp.zig_lib_directory.join(arena, &[_][]const u8{
+                        .src_path = try comp.dirs.zig_lib.join(arena, &.{
                             "libc", "mingw", dep,
                         }),
                         .extra_flags = winpthreads_args.items,
@@ -185,21 +186,21 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 fn addCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-std=gnu11",
         "-D__USE_MINGW_ANSI_STDIO=0",
 
         "-isystem",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "include", "any-windows-any" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "include", "any-windows-any" }),
     });
 }
 
 fn addCrtCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try addCcArgs(comp, arena, args);
 
@@ -219,7 +220,7 @@ fn addCrtCcArgs(
         "-DHAVE_CONFIG_H",
 
         "-I",
-        try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "include" }),
+        try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "include" }),
     });
 }
 
@@ -232,7 +233,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const def_file_path = findDef(arena, comp.getTarget(), comp.zig_lib_directory, lib_name) catch |err| switch (err) {
+    const def_file_path = findDef(arena, comp.getTarget(), comp.dirs.zig_lib, lib_name) catch |err| switch (err) {
         error.FileNotFound => {
             log.debug("no {s}.def file available to make a DLL import {s}.lib", .{ lib_name, lib_name });
             // In this case we will end up putting foo.lib onto the linker line and letting the linker
@@ -247,15 +248,15 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     // Use the global cache directory.
     var cache: Cache = .{
         .gpa = gpa,
-        .manifest_dir = try comp.global_cache_directory.handle.makeOpenPath("h", .{}),
+        .manifest_dir = try comp.dirs.global_cache.handle.makeOpenPath("h", .{}),
     };
     cache.addPrefix(.{ .path = null, .handle = std.fs.cwd() });
-    cache.addPrefix(comp.zig_lib_directory);
-    cache.addPrefix(comp.global_cache_directory);
+    cache.addPrefix(comp.dirs.zig_lib);
+    cache.addPrefix(comp.dirs.global_cache);
     defer cache.manifest_dir.close();
 
     cache.hash.addBytes(build_options.version);
-    cache.hash.addOptionalBytes(comp.zig_lib_directory.path);
+    cache.hash.addOptionalBytes(comp.dirs.zig_lib.path);
     cache.hash.add(target.cpu.arch);
 
     var man = cache.obtain();
@@ -276,7 +277,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         try comp.crt_files.ensureUnusedCapacity(gpa, 1);
         comp.crt_files.putAssumeCapacityNoClobber(final_lib_basename, .{
             .full_object_path = .{
-                .root_dir = comp.global_cache_directory,
+                .root_dir = comp.dirs.global_cache,
                 .sub_path = sub_path,
             },
             .lock = man.toOwnedLock(),
@@ -286,32 +287,26 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
     const digest = man.final();
     const o_sub_path = try std.fs.path.join(arena, &[_][]const u8{ "o", &digest });
-    var o_dir = try comp.global_cache_directory.handle.makeOpenPath(o_sub_path, .{});
+    var o_dir = try comp.dirs.global_cache.handle.makeOpenPath(o_sub_path, .{});
     defer o_dir.close();
 
     const final_def_basename = try std.fmt.allocPrint(arena, "{s}.def", .{lib_name});
-    const def_final_path = try comp.global_cache_directory.join(arena, &[_][]const u8{
+    const def_final_path = try comp.dirs.global_cache.join(arena, &[_][]const u8{
         "o", &digest, final_def_basename,
     });
-
-    const target_defines = switch (target.cpu.arch) {
-        .thumb => "#define DEF_ARM32\n",
-        .aarch64 => "#define DEF_ARM64\n",
-        .x86 => "#define DEF_I386\n",
-        .x86_64 => "#define DEF_X64\n",
-        else => unreachable,
-    };
 
     const aro = @import("aro");
     var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
-    const include_dir = try comp.zig_lib_directory.join(arena, &[_][]const u8{ "libc", "mingw", "def-include" });
+    aro_comp.target = target.*;
+
+    const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
         std.debug.lockStdErr();
         defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.fs.File.stderr().deprecatedWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
@@ -320,7 +315,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     try aro_comp.include_dirs.append(gpa, include_dir);
 
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
     var pp = aro.Preprocessor.init(&aro_comp);
@@ -328,11 +322,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
-    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
+    try pp.preprocessSources(&.{ def_file_source, builtin_macros });
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
+            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.fs.File.stderr()));
             return error.AroPreprocessorFailed;
         }
     }
@@ -341,7 +335,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
+        try pp.prettyPrintTokens(def_final_file.deprecatedWriter(), .result_only);
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
@@ -350,7 +344,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
     const llvm_bindings = @import("../codegen/llvm/bindings.zig");
     const def_final_path_z = try arena.dupeZ(u8, def_final_path);
-    const lib_final_path_z = try comp.global_cache_directory.joinZ(arena, &.{lib_final_path});
+    const lib_final_path_z = try comp.dirs.global_cache.joinZ(arena, &.{lib_final_path});
     if (llvm_bindings.WriteImportLibrary(
         def_final_path_z.ptr,
         @intFromEnum(target.toCoffMachine()),
@@ -370,7 +364,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     defer comp.mutex.unlock();
     try comp.crt_files.putNoClobber(gpa, final_lib_basename, .{
         .full_object_path = .{
-            .root_dir = comp.global_cache_directory,
+            .root_dir = comp.dirs.global_cache,
             .sub_path = lib_final_path,
         },
         .lock = man.toOwnedLock(),
@@ -379,7 +373,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
 pub fn libExists(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) !bool {
@@ -395,7 +389,7 @@ pub fn libExists(
 /// see if a .def file exists.
 fn findDef(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) ![]u8 {
@@ -407,7 +401,7 @@ fn findDef(
         else => unreachable,
     };
 
-    var override_path = std.ArrayList(u8).init(allocator);
+    var override_path = std.array_list.Managed(u8).init(allocator);
     defer override_path.deinit();
 
     const s = path.sep_str;
@@ -485,7 +479,6 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "pesect.c",
     "crt" ++ path.sep_str ++ "udllargc.c",
     "crt" ++ path.sep_str ++ "xthdloc.c",
-    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     "crt" ++ path.sep_str ++ "mingw_helpers.c",
     "crt" ++ path.sep_str ++ "pseudo-reloc.c",
     "crt" ++ path.sep_str ++ "udll_argv.c",
@@ -574,7 +567,6 @@ const mingw32_generic_src = [_][]const u8{
     "gdtoa" ++ path.sep_str ++ "sum.c",
     "gdtoa" ++ path.sep_str ++ "ulp.c",
     "math" ++ path.sep_str ++ "coshl.c",
-    "math" ++ path.sep_str ++ "fabsl.c",
     "math" ++ path.sep_str ++ "fp_consts.c",
     "math" ++ path.sep_str ++ "fp_constsf.c",
     "math" ++ path.sep_str ++ "fp_constsl.c",
@@ -610,7 +602,6 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "delayimp.c",
     "misc" ++ path.sep_str ++ "dirent.c",
     "misc" ++ path.sep_str ++ "dirname.c",
-    "misc" ++ path.sep_str ++ "dllentrypoint.c",
     "misc" ++ path.sep_str ++ "dllmain.c",
     "misc" ++ path.sep_str ++ "feclearexcept.c",
     "misc" ++ path.sep_str ++ "fegetenv.c",
@@ -622,10 +613,14 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "fesetexceptflag.c",
     "misc" ++ path.sep_str ++ "fesetround.c",
     "misc" ++ path.sep_str ++ "fetestexcept.c",
+    "misc" ++ path.sep_str ++ "mingw_controlfp.c",
+    "misc" ++ path.sep_str ++ "mingw_setfp.c",
     "misc" ++ path.sep_str ++ "feupdateenv.c",
     "misc" ++ path.sep_str ++ "ftruncate.c",
-    "misc" ++ path.sep_str ++ "ftw.c",
+    "misc" ++ path.sep_str ++ "ftw32.c",
+    "misc" ++ path.sep_str ++ "ftw32i64.c",
     "misc" ++ path.sep_str ++ "ftw64.c",
+    "misc" ++ path.sep_str ++ "ftw64i32.c",
     "misc" ++ path.sep_str ++ "fwide.c",
     "misc" ++ path.sep_str ++ "getlogin.c",
     "misc" ++ path.sep_str ++ "getopt.c",
@@ -670,12 +665,12 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "_findfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_findnext64i32.c",
     "stdio" ++ path.sep_str ++ "_fstat64i32.c",
-    "stdio" ++ path.sep_str ++ "_stat.c",
     "stdio" ++ path.sep_str ++ "_stat64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindnext64i32.c",
-    "stdio" ++ path.sep_str ++ "_wstat.c",
     "stdio" ++ path.sep_str ++ "_wstat64i32.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_stat_path.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_wstat_path.c",
     "stdio" ++ path.sep_str ++ "asprintf.c",
     "stdio" ++ path.sep_str ++ "fopen64.c",
     "stdio" ++ path.sep_str ++ "fseeko32.c",
@@ -750,23 +745,36 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "ucrt__vscprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_printf_options.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_scanf_options.c",
     "stdio" ++ path.sep_str ++ "ucrt_fprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fwprintf.c",
-    "stdio" ++ path.sep_str ++ "ucrt_ms_fprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fwscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_ms_fwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_printf.c",
     "stdio" ++ path.sep_str ++ "ucrt_scanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_snprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_snwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsnprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsnwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vswprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wprintf.c",
     "string" ++ path.sep_str ++ "ucrt__wcstok.c",
     // uuid
     "libsrc" ++ path.sep_str ++ "ativscp-uuid.c",
@@ -884,13 +892,14 @@ const mingw32_generic_src = [_][]const u8{
     "libsrc" ++ path.sep_str ++ "sensorsapi.c",
     "libsrc" ++ path.sep_str ++ "portabledeviceguids.c",
     "libsrc" ++ path.sep_str ++ "taskschd.c",
-    "libsrc" ++ path.sep_str ++ "scrnsave.c",
     "libsrc" ++ path.sep_str ++ "strmiids.c",
     "libsrc" ++ path.sep_str ++ "gdiplus.c",
     "libsrc" ++ path.sep_str ++ "activeds-uuid.c",
 };
 
 const mingw32_x86_src = [_][]const u8{
+    // mingw32
+    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     // mingwex
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
@@ -918,12 +927,10 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "copysignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl_internal.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossin.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cossinl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "exp2l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expm1l.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fucom.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ilogbl.S",
@@ -946,7 +953,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinl_internal.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanl.S",
     // ucrtbase
-    "math" ++ path.sep_str ++ "fabsf.c",
     "math" ++ path.sep_str ++ "nextafterl.c",
     "math" ++ path.sep_str ++ "nexttoward.c",
     "math" ++ path.sep_str ++ "nexttowardf.c",
@@ -968,34 +974,27 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "sinf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "tanf.c",
 };
 
 const mingw32_arm_src = [_][]const u8{
     // mingwex
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "sincosl.c",
 };
 
 const mingw32_arm32_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rintf.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_arm64_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincos.S",
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincosf.S",
 };
 
 const mingw32_winpthreads_src = [_][]const u8{
@@ -1006,7 +1005,6 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "misc.c",
     "winpthreads" ++ path.sep_str ++ "mutex.c",
     "winpthreads" ++ path.sep_str ++ "nanosleep.c",
-    "winpthreads" ++ path.sep_str ++ "ref.c",
     "winpthreads" ++ path.sep_str ++ "rwlock.c",
     "winpthreads" ++ path.sep_str ++ "sched.c",
     "winpthreads" ++ path.sep_str ++ "sem.c",

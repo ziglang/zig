@@ -125,6 +125,8 @@
 #define O_CREAT         0x00000200      /* create if nonexistant */
 #define O_TRUNC         0x00000400      /* truncate to zero length */
 #define O_EXCL          0x00000800      /* error if already exists */
+#define O_RESOLVE_BENEATH 0x00001000    /* only for open(2), same value as FMARK */
+
 
 #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
 #define O_EVTONLY       0x00008000      /* descriptor requested for event notifications only */

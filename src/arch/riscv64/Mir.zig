@@ -92,13 +92,7 @@ pub const Inst = struct {
         },
     };
 
-    pub fn format(
-        inst: Inst,
-        comptime fmt: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        assert(fmt.len == 0);
+    pub fn format(inst: Inst, writer: *std.io.Writer) std.io.Writer.Error!void {
         try writer.print("Tag: {s}, Data: {s}", .{ @tagName(inst.tag), @tagName(inst.data) });
     }
 };
@@ -107,6 +101,48 @@ pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
     mir.instructions.deinit(gpa);
     mir.frame_locs.deinit(gpa);
     mir.* = undefined;
+}
+
+pub fn emit(
+    mir: Mir,
+    lf: *link.File,
+    pt: Zcu.PerThread,
+    src_loc: Zcu.LazySrcLoc,
+    func_index: InternPool.Index,
+    code: *std.ArrayListUnmanaged(u8),
+    debug_output: link.File.DebugInfoOutput,
+) codegen.CodeGenError!void {
+    const zcu = pt.zcu;
+    const comp = zcu.comp;
+    const gpa = comp.gpa;
+    const func = zcu.funcInfo(func_index);
+    const fn_info = zcu.typeToFunc(.fromInterned(func.ty)).?;
+    const nav = func.owner_nav;
+    const mod = zcu.navFileScope(nav).mod.?;
+    var e: Emit = .{
+        .lower = .{
+            .pt = pt,
+            .allocator = gpa,
+            .mir = mir,
+            .cc = fn_info.cc,
+            .src_loc = src_loc,
+            .output_mode = comp.config.output_mode,
+            .link_mode = comp.config.link_mode,
+            .pic = mod.pic,
+        },
+        .bin_file = lf,
+        .debug_output = debug_output,
+        .code = code,
+        .prev_di_pc = 0,
+        .prev_di_line = func.lbrace_line,
+        .prev_di_column = func.lbrace_column,
+    };
+    defer e.deinit();
+    e.emitMir() catch |err| switch (err) {
+        error.LowerFail, error.EmitFail => return zcu.codegenFailMsg(nav, e.lower.err_msg.?),
+        error.InvalidInstruction => return zcu.codegenFail(nav, "emit MIR failed: {s} (Zig compiler bug)", .{@errorName(err)}),
+        else => |err1| return err1,
+    };
 }
 
 pub const FrameLoc = struct {
@@ -202,3 +238,9 @@ const FrameIndex = bits.FrameIndex;
 const FrameAddr = @import("CodeGen.zig").FrameAddr;
 const IntegerBitSet = std.bit_set.IntegerBitSet;
 const Mnemonic = @import("mnem.zig").Mnemonic;
+
+const InternPool = @import("../../InternPool.zig");
+const Emit = @import("Emit.zig");
+const codegen = @import("../../codegen.zig");
+const link = @import("../../link.zig");
+const Zcu = @import("../../Zcu.zig");

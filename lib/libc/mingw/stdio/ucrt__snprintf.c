@@ -18,4 +18,3 @@ int __cdecl _snprintf(char * __restrict__ _Dest, size_t _Count, const char * __r
   va_end(_Args);
   return ret;
 }
-int __cdecl (*__MINGW_IMP_SYMBOL(_snprintf))(char *__restrict__, size_t, const char *__restrict__, ...) = _snprintf;

@@ -14,8 +14,9 @@ pub fn read(allocator: std.mem.Allocator, reader: anytype, max_size: u64) ReadEr
     // Some Reader implementations have an empty ReadError error set which would
     // cause 'unreachable else' if we tried to use an else in the switch, so we
     // need to detect this case and not try to translate to ReadError
+    const anyerror_reader_errorset = @TypeOf(reader).Error == anyerror;
     const empty_reader_errorset = @typeInfo(@TypeOf(reader).Error).error_set == null or @typeInfo(@TypeOf(reader).Error).error_set.?.len == 0;
-    if (empty_reader_errorset) {
+    if (empty_reader_errorset and !anyerror_reader_errorset) {
         return readAnyError(allocator, reader, max_size) catch |err| switch (err) {
             error.EndOfStream => error.UnexpectedEOF,
             else => |e| return e,
@@ -55,7 +56,7 @@ pub fn readAnyError(allocator: std.mem.Allocator, reader: anytype, max_size: u64
     // entries than it actually does, we use an ArrayList with a conservatively
     // limited initial capacity instead of allocating the entire slice at once.
     const initial_capacity = @min(num_images, 8);
-    var entries = try std.ArrayList(Entry).initCapacity(allocator, initial_capacity);
+    var entries = try std.array_list.Managed(Entry).initCapacity(allocator, initial_capacity);
     errdefer entries.deinit();
 
     var i: usize = 0;

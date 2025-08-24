@@ -7,7 +7,8 @@ test "flags in packed union" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     try testFlagsInPackedUnion();
     try comptime testFlagsInPackedUnion();
@@ -49,7 +50,8 @@ test "flags in packed union at offset" {
     if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest; // TODO
 
     try testFlagsInPackedUnionAtOffset();
     try comptime testFlagsInPackedUnionAtOffset();
@@ -97,11 +99,11 @@ fn testFlagsInPackedUnionAtOffset() !void {
     try expectEqual(false, test_bits.adv_flags.adv.flags.enable_2);
 }
 
+// Originally reported at https://github.com/ziglang/zig/issues/16581
 test "packed union in packed struct" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-
-    // Originally reported at https://github.com/ziglang/zig/issues/16581
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try testPackedUnionInPackedStruct();
     try comptime testPackedUnionInPackedStruct();
@@ -134,10 +136,11 @@ fn testPackedUnionInPackedStruct() !void {
 }
 
 test "packed union initialized with a runtime value" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const Fields = packed struct {
         timestamp: u50,

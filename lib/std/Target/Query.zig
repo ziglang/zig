@@ -3,6 +3,15 @@
 //! provide meaningful and unsurprising defaults. This struct does reference
 //! any resources and it is copyable.
 
+const Query = @This();
+const std = @import("../std.zig");
+const builtin = @import("builtin");
+const assert = std.debug.assert;
+const Target = std.Target;
+const mem = std.mem;
+const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
+
 /// `null` means native.
 cpu_arch: ?Target.Cpu.Arch = null,
 
@@ -94,7 +103,7 @@ pub const OsVersion = union(enum) {
 
 pub const SemanticVersion = std.SemanticVersion;
 
-pub fn fromTarget(target: Target) Query {
+pub fn fromTarget(target: *const Target) Query {
     var result: Query = .{
         .cpu_arch = target.cpu.arch,
         .cpu_model = .{ .explicit = target.cpu.model },
@@ -394,25 +403,24 @@ pub fn canDetectLibC(self: Query) bool {
 
 /// Formats a version with the patch component omitted if it is zero,
 /// unlike SemanticVersion.format which formats all its version components regardless.
-fn formatVersion(version: SemanticVersion, writer: anytype) !void {
+fn formatVersion(version: SemanticVersion, gpa: Allocator, list: *ArrayList(u8)) !void {
     if (version.patch == 0) {
-        try writer.print("{d}.{d}", .{ version.major, version.minor });
+        try list.print(gpa, "{d}.{d}", .{ version.major, version.minor });
     } else {
-        try writer.print("{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
+        try list.print(gpa, "{d}.{d}.{d}", .{ version.major, version.minor, version.patch });
     }
 }
 
-pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
-    if (self.isNativeTriple())
-        return allocator.dupe(u8, "native");
+pub fn zigTriple(self: Query, gpa: Allocator) Allocator.Error![]u8 {
+    if (self.isNativeTriple()) return gpa.dupe(u8, "native");
 
     const arch_name = if (self.cpu_arch) |arch| @tagName(arch) else "native";
     const os_name = if (self.os_tag) |os_tag| @tagName(os_tag) else "native";
 
-    var result = std.ArrayList(u8).init(allocator);
-    defer result.deinit();
+    var result: ArrayList(u8) = .empty;
+    defer result.deinit(gpa);
 
-    try result.writer().print("{s}-{s}", .{ arch_name, os_name });
+    try result.print(gpa, "{s}-{s}", .{ arch_name, os_name });
 
     // The zig target syntax does not allow specifying a max os version with no min, so
     // if either are present, we need the min.
@@ -420,11 +428,11 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
         switch (min) {
             .none => {},
             .semver => |v| {
-                try result.writer().writeAll(".");
-                try formatVersion(v, result.writer());
+                try result.appendSlice(gpa, ".");
+                try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
-                try result.writer().print("{s}", .{v});
+                try result.print(gpa, "{f}", .{v});
             },
         }
     }
@@ -432,45 +440,45 @@ pub fn zigTriple(self: Query, allocator: Allocator) Allocator.Error![]u8 {
         switch (max) {
             .none => {},
             .semver => |v| {
-                try result.writer().writeAll("...");
-                try formatVersion(v, result.writer());
+                try result.appendSlice(gpa, "...");
+                try formatVersion(v, gpa, &result);
             },
             .windows => |v| {
                 // This is counting on a custom format() function defined on `WindowsVersion`
                 // to add a prefix '.' and make there be a total of three dots.
-                try result.writer().print("..{s}", .{v});
+                try result.print(gpa, "..{f}", .{v});
             },
         }
     }
 
     if (self.glibc_version) |v| {
         const name = if (self.abi) |abi| @tagName(abi) else "gnu";
-        try result.ensureUnusedCapacity(name.len + 2);
+        try result.ensureUnusedCapacity(gpa, name.len + 2);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
         result.appendAssumeCapacity('.');
-        try formatVersion(v, result.writer());
+        try formatVersion(v, gpa, &result);
     } else if (self.android_api_level) |lvl| {
         const name = if (self.abi) |abi| @tagName(abi) else "android";
-        try result.ensureUnusedCapacity(name.len + 2);
+        try result.ensureUnusedCapacity(gpa, name.len + 2);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
         result.appendAssumeCapacity('.');
-        try result.writer().print("{d}", .{lvl});
+        try result.print(gpa, "{d}", .{lvl});
     } else if (self.abi) |abi| {
         const name = @tagName(abi);
-        try result.ensureUnusedCapacity(name.len + 1);
+        try result.ensureUnusedCapacity(gpa, name.len + 1);
         result.appendAssumeCapacity('-');
         result.appendSliceAssumeCapacity(name);
     }
 
-    return result.toOwnedSlice();
+    return result.toOwnedSlice(gpa);
 }
 
 /// Renders the query into a textual representation that can be parsed via the
 /// `-mcpu` flag passed to the Zig compiler.
 /// Appends the result to `buffer`.
-pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
+pub fn serializeCpu(q: Query, buffer: *std.array_list.Managed(u8)) Allocator.Error!void {
     try buffer.ensureUnusedCapacity(8);
     switch (q.cpu_model) {
         .native => {
@@ -513,7 +521,7 @@ pub fn serializeCpu(q: Query, buffer: *std.ArrayList(u8)) Allocator.Error!void {
 }
 
 pub fn serializeCpuAlloc(q: Query, ally: Allocator) Allocator.Error![]u8 {
-    var buffer = std.ArrayList(u8).init(ally);
+    var buffer = std.array_list.Managed(u8).init(ally);
     try serializeCpu(q, &buffer);
     return buffer.toOwnedSlice();
 }
@@ -597,14 +605,6 @@ fn versionEqualOpt(a: ?SemanticVersion, b: ?SemanticVersion) bool {
     return SemanticVersion.order(a.?, b.?) == .eq;
 }
 
-const Query = @This();
-const std = @import("../std.zig");
-const builtin = @import("builtin");
-const assert = std.debug.assert;
-const Target = std.Target;
-const mem = std.mem;
-const Allocator = std.mem.Allocator;
-
 test parse {
     if (builtin.target.isGnuLibC()) {
         var query = try Query.parse(.{});
@@ -653,16 +653,16 @@ test parse {
         try std.testing.expect(target.os.tag == .linux);
         try std.testing.expect(target.abi == .gnu);
         try std.testing.expect(target.cpu.arch == .x86_64);
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .sse));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .avx));
-        try std.testing.expect(!Target.x86.featureSetHas(target.cpu.features, .cx8));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .cmov));
-        try std.testing.expect(Target.x86.featureSetHas(target.cpu.features, .fxsr));
+        try std.testing.expect(!target.cpu.has(.x86, .sse));
+        try std.testing.expect(!target.cpu.has(.x86, .avx));
+        try std.testing.expect(!target.cpu.has(.x86, .cx8));
+        try std.testing.expect(target.cpu.has(.x86, .cmov));
+        try std.testing.expect(target.cpu.has(.x86, .fxsr));
 
-        try std.testing.expect(Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx, .cmov }));
-        try std.testing.expect(!Target.x86.featureSetHasAny(target.cpu.features, .{ .sse, .avx }));
-        try std.testing.expect(Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87 }));
-        try std.testing.expect(!Target.x86.featureSetHasAll(target.cpu.features, .{ .mmx, .x87, .sse }));
+        try std.testing.expect(target.cpu.hasAny(.x86, &.{ .sse, .avx, .cmov }));
+        try std.testing.expect(!target.cpu.hasAny(.x86, &.{ .sse, .avx }));
+        try std.testing.expect(target.cpu.hasAll(.x86, &.{ .mmx, .x87 }));
+        try std.testing.expect(!target.cpu.hasAll(.x86, &.{ .mmx, .x87, .sse }));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
@@ -679,7 +679,7 @@ test parse {
         try std.testing.expect(target.abi == .musleabihf);
         try std.testing.expect(target.cpu.arch == .arm);
         try std.testing.expect(target.cpu.model == &Target.arm.cpu.generic);
-        try std.testing.expect(Target.arm.featureSetHas(target.cpu.features, .v8a));
+        try std.testing.expect(target.cpu.has(.arm, .v8a));
 
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
@@ -729,5 +729,21 @@ test parse {
         const text = try query.zigTriple(std.testing.allocator);
         defer std.testing.allocator.free(text);
         try std.testing.expectEqualSlices(u8, "aarch64-linux.3.10...4.4.1-android.30", text);
+    }
+    {
+        const query = try Query.parse(.{
+            .arch_os_abi = "x86-windows.xp...win8-msvc",
+        });
+        const target = try std.zig.system.resolveTargetQuery(query);
+
+        try std.testing.expect(target.cpu.arch == .x86);
+        try std.testing.expect(target.os.tag == .windows);
+        try std.testing.expect(target.os.version_range.windows.min == .xp);
+        try std.testing.expect(target.os.version_range.windows.max == .win8);
+        try std.testing.expect(target.abi == .msvc);
+
+        const text = try query.zigTriple(std.testing.allocator);
+        defer std.testing.allocator.free(text);
+        try std.testing.expectEqualSlices(u8, "x86-windows.xp...win8-msvc", text);
     }
 }

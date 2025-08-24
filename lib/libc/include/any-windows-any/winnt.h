@@ -2454,6 +2454,21 @@ extern "C" {
 #define UNW_FLAG_EHANDLER   0x1
 #define UNW_FLAG_UHANDLER   0x2
 
+#define NONVOL_INT_NUMREG_ARM64 (11)
+#define NONVOL_FP_NUMREG_ARM64 (8)
+
+#define NONVOL_INT_SIZE_ARM64 (NONVOL_INT_NUMREG_ARM64 * sizeof(DWORD64))
+#define NONVOL_FP_SIZE_ARM64 (NONVOL_FP_NUMREG_ARM64 * sizeof(double))
+
+  typedef union _DISPATCHER_CONTEXT_NONVOLREG_ARM64 {
+    BYTE Buffer[NONVOL_INT_SIZE_ARM64 + NONVOL_FP_SIZE_ARM64];
+
+    __C89_NAMELESS struct {
+        DWORD64 GpNvRegs[NONVOL_INT_NUMREG_ARM64];
+        double FpNvRegs[NONVOL_FP_NUMREG_ARM64];
+    } DUMMYSTRUCTNAME;
+  } DISPATCHER_CONTEXT_NONVOLREG_ARM64;
+
   typedef struct _DISPATCHER_CONTEXT_ARM64 {
     ULONG_PTR ControlPc;
     ULONG_PTR ImageBase;
@@ -5401,7 +5416,7 @@ DEFINE_ENUM_FLAG_OPERATORS(JOB_OBJECT_IO_RATE_CONTROL_FLAGS)
       SERVERSILO_STARTED,
       SERVERSILO_SHUTTING_DOWN,
       SERVERSILO_TERMINATING,
-      SERVERSILO_TERMINATED,
+      SERVERSILO_TERMINATED
     } SERVERSILO_STATE, *PSERVERSILO_STATE;
 
     typedef struct _SERVERSILO_BASIC_INFORMATION {
@@ -8805,14 +8820,14 @@ DEFINE_ENUM_FLAG_OPERATORS(JOB_OBJECT_IO_RATE_CONTROL_FLAGS)
     typedef enum ARM64_FNPDATA_FLAGS {
       PdataRefToFullXdata = 0,
       PdataPackedUnwindFunction = 1,
-      PdataPackedUnwindFragment = 2,
+      PdataPackedUnwindFragment = 2
     } ARM64_FNPDATA_FLAGS;
 
     typedef enum ARM64_FNPDATA_CR {
       PdataCrUnchained = 0,
       PdataCrUnchainedSavedLr = 1,
       PdataCrChainedWithPac = 2,
-      PdataCrChained = 3,
+      PdataCrChained = 3
     } ARM64_FNPDATA_CR;
 
     typedef struct _IMAGE_ARM64_RUNTIME_FUNCTION_ENTRY {
@@ -9125,27 +9140,27 @@ DEFINE_ENUM_FLAG_OPERATORS(JOB_OBJECT_IO_RATE_CONTROL_FLAGS)
 #endif
 
 #if WINAPI_FAMILY_PARTITION (WINAPI_PARTITION_APP)
-    NTSYSAPI VOID NTAPI RtlUnwind (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue);
+    NTSYSAPI VOID NTAPI __MINGW_ATTRIB_NORETURN RtlUnwind (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue);
     NTSYSAPI PVOID NTAPI RtlPcToFileHeader (PVOID PcValue, PVOID *BaseOfImage);
 #if defined (__x86_64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (DWORD64 ControlPc, PDWORD64 ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
-    NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI VOID NTAPI __MINGW_ATTRIB_NORETURN RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD64 ImageBase, DWORD64 ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD64 EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
     NTSYSAPI BOOLEAN NTAPI RtlIsEcCode(DWORD64 CodePointer);
 #endif
 #if defined (__arm__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONG_PTR ControlPc, PDWORD ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
-    NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI VOID NTAPI __MINGW_ATTRIB_NORETURN RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, DWORD ImageBase, DWORD ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PDWORD EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__aarch64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONG_PTR ControlPc, PULONG_PTR ImageBase, PUNWIND_HISTORY_TABLE HistoryTable);
-    NTSYSAPI VOID NTAPI RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI VOID NTAPI __MINGW_ATTRIB_NORETURN RtlUnwindEx (PVOID TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI PEXCEPTION_ROUTINE NTAPI RtlVirtualUnwind (DWORD HandlerType, ULONG_PTR ImageBase, ULONG_PTR ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PVOID *HandlerData, PULONG_PTR EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #if defined (__ia64__)
     NTSYSAPI PRUNTIME_FUNCTION NTAPI RtlLookupFunctionEntry (ULONGLONG ControlPc, PULONGLONG ImageBase, PULONGLONG TargetGp);
-    NTSYSAPI VOID NTAPI RtlUnwindEx (FRAME_POINTERS TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
+    NTSYSAPI VOID NTAPI __MINGW_ATTRIB_NORETURN RtlUnwindEx (FRAME_POINTERS TargetFrame, PVOID TargetIp, PEXCEPTION_RECORD ExceptionRecord, PVOID ReturnValue, PCONTEXT ContextRecord, PUNWIND_HISTORY_TABLE HistoryTable);
     NTSYSAPI ULONGLONG NTAPI RtlVirtualUnwind (ULONGLONG ImageBase, ULONGLONG ControlPc, PRUNTIME_FUNCTION FunctionEntry, PCONTEXT ContextRecord, PBOOLEAN InFunction, PFRAME_POINTERS EstablisherFrame, PKNONVOLATILE_CONTEXT_POINTERS ContextPointers);
 #endif
 #endif
@@ -9470,7 +9485,7 @@ typedef DWORD (WINAPI *PRTL_RUN_ONCE_INIT_FN)(PRTL_RUN_ONCE, PVOID, PVOID *);
     typedef enum _RTL_UMS_SCHEDULER_REASON {
       UmsSchedulerStartup = 0,
       UmsSchedulerThreadBlocked,
-      UmsSchedulerThreadYield,
+      UmsSchedulerThreadYield
     } RTL_UMS_SCHEDULER_REASON,*PRTL_UMS_SCHEDULER_REASON;
 
     typedef VOID NTAPI RTL_UMS_SCHEDULER_ENTRY_POINT (RTL_UMS_SCHEDULER_REASON Reason, ULONG_PTR ActivationPayload, PVOID SchedulerParam);
@@ -10457,13 +10472,13 @@ typedef DWORD (WINAPI *PRTL_RUN_ONCE_INIT_FN)(PRTL_RUN_ONCE, PVOID, PVOID *);
       typedef enum _TRANSACTION_OUTCOME {
 	TransactionOutcomeUndetermined = 1,
 	TransactionOutcomeCommitted,
-	TransactionOutcomeAborted,
+	TransactionOutcomeAborted
       } TRANSACTION_OUTCOME;
 
       typedef enum _TRANSACTION_STATE {
 	TransactionStateNormal = 1,
 	TransactionStateIndoubt,
-	TransactionStateCommittedNotify,
+	TransactionStateCommittedNotify
       } TRANSACTION_STATE;
 
       typedef struct _TRANSACTION_BASIC_INFORMATION {

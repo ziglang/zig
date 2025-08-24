@@ -24,9 +24,9 @@ const UT = DW.UT;
 const assert = std.debug.assert;
 const cast = std.math.cast;
 const maxInt = std.math.maxInt;
-const MemoryAccessor = std.debug.MemoryAccessor;
 const Path = std.Build.Cache.Path;
 const FixedBufferReader = std.debug.FixedBufferReader;
+const ArrayList = std.ArrayList;
 
 const Dwarf = @This();
 
@@ -42,11 +42,11 @@ sections: SectionArray = null_section_array,
 is_macho: bool,
 
 /// Filled later by the initializer
-abbrev_table_list: std.ArrayListUnmanaged(Abbrev.Table) = .empty,
+abbrev_table_list: ArrayList(Abbrev.Table) = .empty,
 /// Filled later by the initializer
-compile_unit_list: std.ArrayListUnmanaged(CompileUnit) = .empty,
+compile_unit_list: ArrayList(CompileUnit) = .empty,
 /// Filled later by the initializer
-func_list: std.ArrayListUnmanaged(Func) = .empty,
+func_list: ArrayList(Func) = .empty,
 
 /// Starts out non-`null` if the `.eh_frame_hdr` section is present. May become `null` later if we
 /// find that `.eh_frame_hdr` is incomplete.
@@ -54,10 +54,10 @@ eh_frame_hdr: ?ExceptionFrameHeader = null,
 /// These lookup tables are only used if `eh_frame_hdr` is null
 cie_map: std.AutoArrayHashMapUnmanaged(u64, CommonInformationEntry) = .empty,
 /// Sorted by start_pc
-fde_list: std.ArrayListUnmanaged(FrameDescriptionEntry) = .empty,
+fde_list: ArrayList(FrameDescriptionEntry) = .empty,
 
 /// Populated by `populateRanges`.
-ranges: std.ArrayListUnmanaged(Range) = .empty,
+ranges: ArrayList(Range) = .empty,
 
 pub const Range = struct {
     start: u64,
@@ -348,29 +348,9 @@ pub const ExceptionFrameHeader = struct {
         };
     }
 
-    fn isValidPtr(
-        self: ExceptionFrameHeader,
-        comptime T: type,
-        ptr: usize,
-        ma: *MemoryAccessor,
-        eh_frame_len: ?usize,
-    ) bool {
-        if (eh_frame_len) |len| {
-            return ptr >= self.eh_frame_ptr and ptr <= self.eh_frame_ptr + len - @sizeOf(T);
-        } else {
-            return ma.load(T, ptr) != null;
-        }
-    }
-
-    /// Find an entry by binary searching the eh_frame_hdr section.
-    ///
-    /// Since the length of the eh_frame section (`eh_frame_len`) may not be known by the caller,
-    /// MemoryAccessor will be used to verify readability of the header entries.
-    /// If `eh_frame_len` is provided, then these checks can be skipped.
     pub fn findEntry(
         self: ExceptionFrameHeader,
-        ma: *MemoryAccessor,
-        eh_frame_len: ?usize,
+        eh_frame_len: usize,
         eh_frame_hdr_ptr: usize,
         pc: usize,
         cie: *CommonInformationEntry,
@@ -402,7 +382,7 @@ pub const ExceptionFrameHeader = struct {
             }
         }
 
-        if (len == 0) return bad();
+        if (len == 0) return missing();
         fbr.pos = left * entry_size;
 
         // Read past the pc_begin field of the entry
@@ -420,8 +400,7 @@ pub const ExceptionFrameHeader = struct {
 
         if (fde_ptr < self.eh_frame_ptr) return bad();
 
-        // Even if eh_frame_len is not specified, all ranges accssed are checked via MemoryAccessor
-        const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0 .. eh_frame_len orelse maxInt(u32)];
+        const eh_frame = @as([*]const u8, @ptrFromInt(self.eh_frame_ptr))[0..eh_frame_len];
 
         const fde_offset = fde_ptr - self.eh_frame_ptr;
         var eh_frame_fbr: FixedBufferReader = .{
@@ -430,15 +409,13 @@ pub const ExceptionFrameHeader = struct {
             .endian = native_endian,
         };
 
-        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (fde_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&fde_entry_header.entry_bytes[fde_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        const fde_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
         if (fde_entry_header.type != .fde) return bad();
 
         // CIEs always come before FDEs (the offset is a subtraction), so we can assume this memory is readable
         const cie_offset = fde_entry_header.type.fde;
         try eh_frame_fbr.seekTo(cie_offset);
-        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, if (eh_frame_len == null) ma else null, .eh_frame);
-        if (cie_entry_header.entry_bytes.len > 0 and !self.isValidPtr(u8, @intFromPtr(&cie_entry_header.entry_bytes[cie_entry_header.entry_bytes.len - 1]), ma, eh_frame_len)) return bad();
+        const cie_entry_header = try EntryHeader.read(&eh_frame_fbr, .eh_frame);
         if (cie_entry_header.type != .cie) return bad();
 
         cie.* = try CommonInformationEntry.parse(
@@ -460,6 +437,8 @@ pub const ExceptionFrameHeader = struct {
             @sizeOf(usize),
             native_endian,
         );
+
+        if (pc < fde.pc_begin or pc >= fde.pc_begin + fde.pc_range) return missing();
     }
 };
 
@@ -483,15 +462,11 @@ pub const EntryHeader = struct {
 
     /// Reads a header for either an FDE or a CIE, then advances the fbr to the position after the trailing structure.
     /// `fbr` must be a FixedBufferReader backed by either the .eh_frame or .debug_frame sections.
-    pub fn read(
-        fbr: *FixedBufferReader,
-        opt_ma: ?*MemoryAccessor,
-        dwarf_section: Section.Id,
-    ) !EntryHeader {
+    pub fn read(fbr: *FixedBufferReader, dwarf_section: Section.Id) !EntryHeader {
         assert(dwarf_section == .eh_frame or dwarf_section == .debug_frame);
 
         const length_offset = fbr.pos;
-        const unit_header = try readUnitHeader(fbr, opt_ma);
+        const unit_header = try readUnitHeader(fbr);
         const unit_length = cast(usize, unit_header.unit_length) orelse return bad();
         if (unit_length == 0) return .{
             .length_offset = length_offset,
@@ -503,10 +478,7 @@ pub const EntryHeader = struct {
         const end_offset = start_offset + unit_length;
         defer fbr.pos = end_offset;
 
-        const id = try if (opt_ma) |ma|
-            fbr.readAddressChecked(unit_header.format, ma)
-        else
-            fbr.readAddress(unit_header.format);
+        const id = try fbr.readAddress(unit_header.format);
         const entry_bytes = fbr.buf[fbr.pos..end_offset];
         const cie_id: u64 = switch (dwarf_section) {
             .eh_frame => CommonInformationEntry.eh_id,
@@ -853,7 +825,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator) ScanError!void {
     while (this_unit_offset < fbr.buf.len) {
         try fbr.seekTo(this_unit_offset);
 
-        const unit_header = try readUnitHeader(&fbr, null);
+        const unit_header = try readUnitHeader(&fbr);
         if (unit_header.unit_length == 0) return;
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1036,13 +1008,13 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator) ScanError!void {
     var fbr: FixedBufferReader = .{ .buf = di.section(.debug_info).?, .endian = di.endian };
     var this_unit_offset: u64 = 0;
 
-    var attrs_buf = std.ArrayList(Die.Attr).init(allocator);
+    var attrs_buf = std.array_list.Managed(Die.Attr).init(allocator);
     defer attrs_buf.deinit();
 
     while (this_unit_offset < fbr.buf.len) {
         try fbr.seekTo(this_unit_offset);
 
-        const unit_header = try readUnitHeader(&fbr, null);
+        const unit_header = try readUnitHeader(&fbr);
         if (unit_header.unit_length == 0) return;
         const next_offset = unit_header.header_length + unit_header.unit_length;
 
@@ -1341,7 +1313,7 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
         .endian = di.endian,
     };
 
-    var abbrevs = std.ArrayList(Abbrev).init(allocator);
+    var abbrevs = std.array_list.Managed(Abbrev).init(allocator);
     defer {
         for (abbrevs.items) |*abbrev| {
             abbrev.deinit(allocator);
@@ -1349,7 +1321,7 @@ fn parseAbbrevTable(di: *Dwarf, allocator: Allocator, offset: u64) !Abbrev.Table
         abbrevs.deinit();
     }
 
-    var attrs = std.ArrayList(Abbrev.Attr).init(allocator);
+    var attrs = std.array_list.Managed(Abbrev.Attr).init(allocator);
     defer attrs.deinit();
 
     while (true) {
@@ -1424,7 +1396,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
     };
     try fbr.seekTo(line_info_offset);
 
-    const unit_header = try readUnitHeader(&fbr, null);
+    const unit_header = try readUnitHeader(&fbr);
     if (unit_header.unit_length == 0) return missing();
 
     const next_offset = unit_header.header_length + unit_header.unit_length;
@@ -1466,9 +1438,9 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, compile_unit: *CompileUnit) !
 
     const standard_opcode_lengths = try fbr.readBytes(opcode_base - 1);
 
-    var directories: std.ArrayListUnmanaged(FileEntry) = .empty;
+    var directories: ArrayList(FileEntry) = .empty;
     defer directories.deinit(gpa);
-    var file_entries: std.ArrayListUnmanaged(FileEntry) = .empty;
+    var file_entries: ArrayList(FileEntry) = .empty;
     defer file_entries.deinit(gpa);
 
     if (version < 5) {
@@ -1812,7 +1784,7 @@ pub fn scanCieFdeInfo(di: *Dwarf, allocator: Allocator, base_address: usize) !vo
         if (di.section(frame_section)) |section_data| {
             var fbr: FixedBufferReader = .{ .buf = section_data, .endian = di.endian };
             while (fbr.pos < fbr.buf.len) {
-                const entry_header = try EntryHeader.read(&fbr, null, frame_section);
+                const entry_header = try EntryHeader.read(&fbr, frame_section);
                 switch (entry_header.type) {
                     .cie => {
                         const cie = try CommonInformationEntry.parse(
@@ -1985,8 +1957,8 @@ const UnitHeader = struct {
     unit_length: u64,
 };
 
-fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!UnitHeader {
-    return switch (try if (opt_ma) |ma| fbr.readIntChecked(u32, ma) else fbr.readInt(u32)) {
+fn readUnitHeader(fbr: *FixedBufferReader) ScanError!UnitHeader {
+    return switch (try fbr.readInt(u32)) {
         0...0xfffffff0 - 1 => |unit_length| .{
             .format = .@"32",
             .header_length = 4,
@@ -1996,7 +1968,7 @@ fn readUnitHeader(fbr: *FixedBufferReader, opt_ma: ?*MemoryAccessor) ScanError!U
         0xffffffff => .{
             .format = .@"64",
             .header_length = 12,
-            .unit_length = try if (opt_ma) |ma| fbr.readIntChecked(u64, ma) else fbr.readInt(u64),
+            .unit_length = try fbr.readInt(u64),
         },
     };
 }
@@ -2017,8 +1989,12 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
 /// This function is to make it handy to comment out the return and make it
 /// into a crash when working on this file.
 pub fn bad() error{InvalidDebugInfo} {
-    if (debug_debug_mode) @panic("bad dwarf");
+    invalidDebugInfoDetected();
     return error.InvalidDebugInfo;
+}
+
+fn invalidDebugInfoDetected() void {
+    if (debug_debug_mode) @panic("bad dwarf");
 }
 
 fn missing() error{MissingDebugInfo} {
@@ -2233,21 +2209,23 @@ pub const ElfModule = struct {
 
             const section_bytes = try chopSlice(mapped_mem, shdr.sh_offset, shdr.sh_size);
             sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-                var section_stream = std.io.fixedBufferStream(section_bytes);
-                const section_reader = section_stream.reader();
-                const chdr = section_reader.readStruct(elf.Chdr) catch continue;
+                var section_reader: std.Io.Reader = .fixed(section_bytes);
+                const chdr = section_reader.takeStruct(elf.Chdr, endian) catch continue;
                 if (chdr.ch_type != .ZLIB) continue;
 
-                var zlib_stream = std.compress.zlib.decompressor(section_reader);
-
-                const decompressed_section = try gpa.alloc(u8, chdr.ch_size);
-                errdefer gpa.free(decompressed_section);
-
-                const read = zlib_stream.reader().readAll(decompressed_section) catch continue;
-                assert(read == decompressed_section.len);
-
+                var decompress: std.compress.flate.Decompress = .init(&section_reader, .zlib, &.{});
+                var decompressed_section: ArrayList(u8) = .empty;
+                defer decompressed_section.deinit(gpa);
+                decompress.reader.appendRemainingUnlimited(gpa, &decompressed_section) catch {
+                    invalidDebugInfoDetected();
+                    continue;
+                };
+                if (chdr.ch_size != decompressed_section.items.len) {
+                    invalidDebugInfoDetected();
+                    continue;
+                }
                 break :blk .{
-                    .data = decompressed_section,
+                    .data = try decompressed_section.toOwnedSlice(gpa),
                     .virtual_address = shdr.sh_addr,
                     .owned = true,
                 };
@@ -2300,11 +2278,7 @@ pub const ElfModule = struct {
                 };
                 defer debuginfod_dir.close();
 
-                const filename = std.fmt.allocPrint(
-                    gpa,
-                    "{s}/debuginfo",
-                    .{std.fmt.fmtSliceHexLower(id)},
-                ) catch break :blk;
+                const filename = std.fmt.allocPrint(gpa, "{x}/debuginfo", .{id}) catch break :blk;
                 defer gpa.free(filename);
 
                 const path: Path = .{
@@ -2328,12 +2302,8 @@ pub const ElfModule = struct {
                 var id_prefix_buf: [2]u8 = undefined;
                 var filename_buf: [38 + extension.len]u8 = undefined;
 
-                _ = std.fmt.bufPrint(&id_prefix_buf, "{s}", .{std.fmt.fmtSliceHexLower(id[0..1])}) catch unreachable;
-                const filename = std.fmt.bufPrint(
-                    &filename_buf,
-                    "{s}" ++ extension,
-                    .{std.fmt.fmtSliceHexLower(id[1..])},
-                ) catch break :blk;
+                _ = std.fmt.bufPrint(&id_prefix_buf, "{x}", .{id[0..1]}) catch unreachable;
+                const filename = std.fmt.bufPrint(&filename_buf, "{x}" ++ extension, .{id[1..]}) catch break :blk;
 
                 for (global_debug_directories) |global_directory| {
                     const path: Path = .{

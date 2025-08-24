@@ -26,7 +26,7 @@
 #define COM_NO_WINDOWS_H
 #include <objbase.h>
 #include <mmsystem.h>
-#include <pshpack8.h>
+#pragma pack(push,8)
 
 #ifdef __cplusplus
 extern "C" {
@@ -903,6 +903,6 @@ struct _DSOUND_IO_DXDMO_DATA {
 }
 #endif
 
-#include <poppack.h>
+#pragma pack(pop)
 
 #endif /* __WINE_DMUSIC_FILEFORMATS_H */

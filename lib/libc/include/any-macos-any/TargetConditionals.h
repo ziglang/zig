@@ -175,7 +175,7 @@
 
 
     /* "-target=arm64e-apple-xros1.0[-simulator]" */
-    #if __is_target_vendor(apple) && __is_target_os(xros)
+    #if __is_target_vendor(apple) && __is_target_os(xros) && (!__is_target_environment(exclavekit) && !__is_target_environment(exclavecore))
         #define TARGET_OS_MAC               1
         #define TARGET_OS_IPHONE            1
 

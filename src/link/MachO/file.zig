@@ -10,23 +10,16 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
         return .{ .data = file };
     }
 
-    fn formatPath(
-        file: File,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPath(file: File, w: *Writer) Writer.Error!void {
         switch (file) {
-            .zig_object => |zo| try writer.writeAll(zo.basename),
-            .internal => try writer.writeAll("internal"),
-            .object => |x| try writer.print("{}", .{x.fmtPath()}),
-            .dylib => |dl| try writer.print("{}", .{@as(Path, dl.path)}),
+            .zig_object => |zo| try w.writeAll(zo.basename),
+            .internal => try w.writeAll("internal"),
+            .object => |x| try w.print("{f}", .{x.fmtPath()}),
+            .dylib => |dl| try w.print("{f}", .{@as(Path, dl.path)}),
         }
     }
 
@@ -371,6 +364,7 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.io.Writer;
 
 const trace = @import("../../tracy.zig").trace;
 const Archive = @import("Archive.zig");

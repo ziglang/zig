@@ -1,5 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
+const info = std.log.info;
+const fatal = std.process.fatal;
 
 const Allocator = std.mem.Allocator;
 
@@ -13,19 +15,6 @@ const usage =
     \\-h, --help                    Print this help and exit
 ;
 
-fn info(comptime format: []const u8, args: anytype) void {
-    const msg = std.fmt.allocPrint(gpa, "info: " ++ format ++ "\n", args) catch return;
-    std.io.getStdOut().writeAll(msg) catch {};
-}
-
-fn fatal(comptime format: []const u8, args: anytype) noreturn {
-    ret: {
-        const msg = std.fmt.allocPrint(gpa, "fatal: " ++ format ++ "\n", args) catch break :ret;
-        std.io.getStdErr().writeAll(msg) catch {};
-    }
-    std.process.exit(1);
-}
-
 pub fn main() anyerror!void {
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
@@ -34,7 +23,7 @@ pub fn main() anyerror!void {
     const args = try std.process.argsAlloc(arena);
     if (args.len == 1) fatal("no command or option specified", .{});
 
-    var positionals = std.ArrayList([]const u8).init(arena);
+    var positionals = std.array_list.Managed([]const u8).init(arena);
 
     for (args[1..]) |arg| {
         if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
@@ -46,7 +35,7 @@ pub fn main() anyerror!void {
 
     var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .no_follow = true });
     defer dir.close();
-    var paths = std.ArrayList([]const u8).init(arena);
+    var paths = std.array_list.Managed([]const u8).init(arena);
     try findHeaders(arena, dir, "", &paths);
 
     const SortFn = struct {
@@ -58,23 +47,26 @@ pub fn main() anyerror!void {
 
     std.mem.sort([]const u8, paths.items, {}, SortFn.lessThan);
 
-    const stdout = std.io.getStdOut().writer();
-    try stdout.writeAll("#define _XOPEN_SOURCE\n");
+    var buffer: [2000]u8 = undefined;
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&buffer);
+    const w = &stdout_writer.interface;
+    try w.writeAll("#define _XOPEN_SOURCE\n");
     for (paths.items) |path| {
-        try stdout.print("#include <{s}>\n", .{path});
+        try w.print("#include <{s}>\n", .{path});
     }
-    try stdout.writeAll(
+    try w.writeAll(
         \\int main(int argc, char **argv) {
         \\    return 0;
         \\}
     );
+    try w.flush();
 }
 
 fn findHeaders(
     arena: Allocator,
     dir: std.fs.Dir,
     prefix: []const u8,
-    paths: *std.ArrayList([]const u8),
+    paths: *std.array_list.Managed([]const u8),
 ) anyerror!void {
     var it = dir.iterate();
     while (try it.next()) |entry| {

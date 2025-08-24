@@ -22,7 +22,7 @@ pub fn classifyType(ty: Type, zcu: *Zcu) Class {
                 return .byval;
             }
 
-            if (std.Target.riscv.featureSetHas(target.cpu.features, .d)) fields: {
+            if (target.cpu.has(.riscv, .d)) fields: {
                 var any_fp = false;
                 var field_count: usize = 0;
                 for (0..ty.structFieldCount(zcu)) |field_index| {
@@ -141,10 +141,9 @@ pub fn classifySystem(ty: Type, zcu: *Zcu) [8]SystemClass {
         },
         .float => {
             const target = zcu.getTarget();
-            const features = target.cpu.features;
 
-            const float_bits = ty.floatBits(zcu.getTarget());
-            const float_reg_size: u32 = if (std.Target.riscv.featureSetHas(features, .d)) 64 else 32;
+            const float_bits = ty.floatBits(target);
+            const float_reg_size: u32 = if (target.cpu.has(.riscv, .d)) 64 else 32;
             if (float_bits <= float_reg_size) {
                 result[0] = .float;
                 return result;

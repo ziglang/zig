@@ -273,9 +273,13 @@ pub const Inst = struct {
         /// element type. Emits a compile error if the type is not an indexable pointer.
         /// Uses the `un_node` field.
         indexable_ptr_elem_type,
-        /// Given a vector or array type, returns its element type.
+        /// Given a vector or array type, strips off any error unions or
+        /// optionals layered on top and returns its element type.
+        ///
+        /// `!?[N]T` -> `T`
+        ///
         /// Uses the `un_node` field.
-        vec_arr_elem_type,
+        splat_op_result_ty,
         /// Given a pointer to an indexable object, returns the len property. This is
         /// used by for loops. This instruction also emits a for-loop specific compile
         /// error if the indexable object is not indexable.
@@ -899,8 +903,6 @@ pub const Inst = struct {
         type_name,
         /// Implement builtin `@Frame`. Uses `un_node`.
         frame_type,
-        /// Implement builtin `@frameSize`. Uses `un_node`.
-        frame_size,
 
         /// Implements the `@intFromFloat` builtin.
         /// Uses `pl_node` with payload `Bin`. `lhs` is dest type, `rhs` is operand.
@@ -1044,7 +1046,6 @@ pub const Inst = struct {
 
         /// Implements `resume` syntax. Uses `un_node` field.
         @"resume",
-        @"await",
 
         /// A defer statement.
         /// Uses the `defer` union field.
@@ -1101,7 +1102,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1241,7 +1242,6 @@ pub const Inst = struct {
                 .tag_name,
                 .type_name,
                 .frame_type,
-                .frame_size,
                 .int_from_float,
                 .float_from_int,
                 .ptr_from_int,
@@ -1279,7 +1279,6 @@ pub const Inst = struct {
                 .min,
                 .c_import,
                 .@"resume",
-                .@"await",
                 .ret_err_value_code,
                 .extended,
                 .ret_ptr,
@@ -1400,7 +1399,7 @@ pub const Inst = struct {
                 .vector_type,
                 .elem_type,
                 .indexable_ptr_elem_type,
-                .vec_arr_elem_type,
+                .splat_op_result_ty,
                 .indexable_ptr_len,
                 .anyframe_type,
                 .as_node,
@@ -1526,7 +1525,6 @@ pub const Inst = struct {
                 .tag_name,
                 .type_name,
                 .frame_type,
-                .frame_size,
                 .int_from_float,
                 .float_from_int,
                 .ptr_from_int,
@@ -1560,7 +1558,6 @@ pub const Inst = struct {
                 .min,
                 .c_import,
                 .@"resume",
-                .@"await",
                 .ret_err_value_code,
                 .@"break",
                 .break_inline,
@@ -1637,7 +1634,7 @@ pub const Inst = struct {
                 .vector_type = .pl_node,
                 .elem_type = .un_node,
                 .indexable_ptr_elem_type = .un_node,
-                .vec_arr_elem_type = .un_node,
+                .splat_op_result_ty = .un_node,
                 .indexable_ptr_len = .un_node,
                 .anyframe_type = .un_node,
                 .as_node = .pl_node,
@@ -1791,7 +1788,6 @@ pub const Inst = struct {
                 .tag_name = .un_node,
                 .type_name = .un_node,
                 .frame_type = .un_node,
-                .frame_size = .un_node,
 
                 .int_from_float = .pl_node,
                 .float_from_int = .pl_node,
@@ -1852,7 +1848,6 @@ pub const Inst = struct {
                 .make_ptr_const = .un_node,
 
                 .@"resume" = .un_node,
-                .@"await" = .un_node,
 
                 .@"defer" = .@"defer",
                 .defer_err_code = .defer_err_code,
@@ -1948,11 +1943,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `BinNode`.
         builtin_extern,
         /// Inline assembly.
-        /// `small`:
-        ///  * 0b00000000_000XXXXX - `outputs_len`.
-        ///  * 0b000000XX_XXX00000 - `inputs_len`.
-        ///  * 0b0XXXXX00_00000000 - `clobbers_len`.
-        ///  * 0bX0000000_00000000 - is volatile
         /// `operand` is payload index to `Asm`.
         @"asm",
         /// Same as `asm` except the assembly template is not a string literal but a comptime
@@ -2016,8 +2006,6 @@ pub const Inst = struct {
         /// Implements the `@errorCast` builtin.
         /// `operand` is payload index to `BinNode`. `lhs` is dest type, `rhs` is operand.
         error_cast,
-        /// `operand` is payload index to `UnNode`.
-        await_nosuspend,
         /// Implements `@breakpoint`.
         /// `operand` is `src_node: Ast.Node.Offset`.
         breakpoint,
@@ -2038,9 +2026,6 @@ pub const Inst = struct {
         /// `operand` is payload index to `Reify`.
         /// `small` contains `NameStrategy`.
         reify,
-        /// Implements the `@asyncCall` builtin.
-        /// `operand` is payload index to `AsyncCall`.
-        builtin_async_call,
         /// Implements the `@cmpxchgStrong` and `@cmpxchgWeak` builtins.
         /// `small` 0=>weak 1=>strong
         /// `operand` is payload index to `Cmpxchg`.
@@ -2142,7 +2127,7 @@ pub const Inst = struct {
         ref_start_index = static_len,
         _,
 
-        pub const static_len = 97;
+        pub const static_len = 124;
 
         pub fn toRef(i: Index) Inst.Ref {
             return @enumFromInt(@intFromEnum(Index.ref_start_index) + @intFromEnum(i));
@@ -2190,6 +2175,7 @@ pub const Inst = struct {
         u80_type,
         u128_type,
         i128_type,
+        u256_type,
         usize_type,
         isize_type,
         c_char_type,
@@ -2219,50 +2205,76 @@ pub const Inst = struct {
         null_type,
         undefined_type,
         enum_literal_type,
+        ptr_usize_type,
+        ptr_const_comptime_int_type,
         manyptr_u8_type,
         manyptr_const_u8_type,
         manyptr_const_u8_sentinel_0_type,
-        single_const_pointer_to_comptime_int_type,
         slice_const_u8_type,
         slice_const_u8_sentinel_0_type,
+        vector_8_i8_type,
         vector_16_i8_type,
         vector_32_i8_type,
+        vector_64_i8_type,
         vector_1_u8_type,
         vector_2_u8_type,
         vector_4_u8_type,
         vector_8_u8_type,
         vector_16_u8_type,
         vector_32_u8_type,
+        vector_64_u8_type,
+        vector_2_i16_type,
+        vector_4_i16_type,
         vector_8_i16_type,
         vector_16_i16_type,
+        vector_32_i16_type,
+        vector_4_u16_type,
         vector_8_u16_type,
         vector_16_u16_type,
+        vector_32_u16_type,
+        vector_2_i32_type,
         vector_4_i32_type,
         vector_8_i32_type,
+        vector_16_i32_type,
         vector_4_u32_type,
         vector_8_u32_type,
+        vector_16_u32_type,
         vector_2_i64_type,
         vector_4_i64_type,
+        vector_8_i64_type,
         vector_2_u64_type,
         vector_4_u64_type,
+        vector_8_u64_type,
+        vector_1_u128_type,
+        vector_2_u128_type,
+        vector_1_u256_type,
         vector_4_f16_type,
         vector_8_f16_type,
+        vector_16_f16_type,
+        vector_32_f16_type,
         vector_2_f32_type,
         vector_4_f32_type,
         vector_8_f32_type,
+        vector_16_f32_type,
         vector_2_f64_type,
         vector_4_f64_type,
+        vector_8_f64_type,
         optional_noreturn_type,
         anyerror_void_error_union_type,
         adhoc_inferred_error_set_type,
         generic_poison_type,
         empty_tuple_type,
         undef,
+        undef_bool,
+        undef_usize,
+        undef_u1,
         zero,
         zero_usize,
+        zero_u1,
         zero_u8,
         one,
         one_usize,
+        one_u1,
         one_u8,
         four_u8,
         negative_one,
@@ -2482,7 +2494,6 @@ pub const Inst = struct {
     /// Trailing:
     /// 0. Output for every outputs_len
     /// 1. Input for every inputs_len
-    /// 2. clobber: NullTerminatedString // index into string_bytes (null terminated) for every clobbers_len.
     pub const Asm = struct {
         src_node: Ast.Node.Offset,
         // null-terminated string index
@@ -2492,6 +2503,13 @@ pub const Inst = struct {
         ///   0b1 - operand is a type; asm expression has the output as the result.
         /// 0b0X is the first output, 0bX0 is the second, etc.
         output_type_bits: u32,
+        clobbers: Ref,
+
+        pub const Small = packed struct(u16) {
+            is_volatile: bool,
+            outputs_len: u7,
+            inputs_len: u8,
+        };
 
         pub const Output = struct {
             /// index into string_bytes (null terminated)
@@ -2662,7 +2680,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-                @"usingnamespace",
                 @"const",
                 @"var",
             };
@@ -2679,7 +2696,7 @@ pub const Inst = struct {
             src_column: u32,
 
             kind: Kind,
-            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`, `.@"usingnamespace"`.
+            /// Always `.empty` for `kind` of `unnamed_test`, `.@"comptime"`
             name: NullTerminatedString,
             /// Always `false` for `kind` of `unnamed_test`, `.@"test"`, `.decltest`, `.@"comptime"`.
             is_pub: bool,
@@ -2709,9 +2726,6 @@ pub const Inst = struct {
                 @"test",
                 decltest,
                 @"comptime",
-
-                @"usingnamespace",
-                pub_usingnamespace,
 
                 const_simple,
                 const_typed,
@@ -2749,8 +2763,6 @@ pub const Inst = struct {
                     return switch (id) {
                         .unnamed_test,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false,
                         else => true,
                     };
@@ -2775,8 +2787,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .pub_const_simple,
@@ -2808,8 +2818,6 @@ pub const Inst = struct {
                         .@"test",
                         .decltest,
                         .@"comptime",
-                        .@"usingnamespace",
-                        .pub_usingnamespace,
                         => false, // these constructs are untyped
                         .const_simple,
                         .const_typed,
@@ -2852,7 +2860,6 @@ pub const Inst = struct {
                         .@"test" => .@"test",
                         .decltest => .decltest,
                         .@"comptime" => .@"comptime",
-                        .@"usingnamespace", .pub_usingnamespace => .@"usingnamespace",
                         .const_simple,
                         .const_typed,
                         .@"const",
@@ -2886,7 +2893,6 @@ pub const Inst = struct {
 
                 pub fn isPub(id: Id) bool {
                     return switch (id) {
-                        .pub_usingnamespace,
                         .pub_const_simple,
                         .pub_const_typed,
                         .pub_const,
@@ -2922,8 +2928,7 @@ pub const Inst = struct {
 
         pub const Name = enum(u32) {
             @"comptime" = std.math.maxInt(u32),
-            @"usingnamespace" = std.math.maxInt(u32) - 1,
-            unnamed_test = std.math.maxInt(u32) - 2,
+            unnamed_test = std.math.maxInt(u32) - 1,
             /// Other values are `NullTerminatedString` values, i.e. index into
             /// `string_bytes`. If the byte referenced is 0, the decl is a named
             /// test, and the actual name begins at the following byte.
@@ -2931,13 +2936,13 @@ pub const Inst = struct {
 
             pub fn isNamedTest(name: Name, zir: Zir) bool {
                 return switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => false,
+                    .@"comptime", .unnamed_test => false,
                     _ => zir.string_bytes[@intFromEnum(name)] == 0,
                 };
             }
             pub fn toString(name: Name, zir: Zir) ?NullTerminatedString {
                 switch (name) {
-                    .@"comptime", .@"usingnamespace", .unnamed_test => return null,
+                    .@"comptime", .unnamed_test => return null,
                     _ => {},
                 }
                 const idx: u32 = @intFromEnum(name);
@@ -3225,20 +3230,32 @@ pub const Inst = struct {
 
     /// 0. multi_cases_len: u32 // If has_multi_cases is set.
     /// 1. tag_capture_inst: u32 // If any_has_tag_capture is set. Index of instruction prongs use to refer to the inline tag capture.
-    /// 2. else_body { // If has_else or has_under is set.
+    /// 2. else_body { // If special_prong.hasElse() is set.
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 3. scalar_cases: { // for every scalar_cases_len
+    /// 3. under_body { // If special_prong.hasUnder() is set.
+    ///        item: Ref, // If special_prong.hasOneAdditionalItem() is set.
+    ///        items_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        ranges_len: u32, // If special_prong.hasManyAdditionalItems() is set.
+    ///        info: ProngInfo,
+    ///        item: Ref, // for every items_len
+    ///        ranges: { // for every ranges_len
+    ///            item_first: Ref,
+    ///            item_last: Ref,
+    ///        }
+    ///        body member Index for every info.body_len
+    ///     }
+    /// 4. scalar_cases: { // for every scalar_cases_len
     ///        item: Ref,
     ///        info: ProngInfo,
     ///        body member Index for every info.body_len
     ///     }
-    /// 4. multi_cases: { // for every multi_cases_len
+    /// 5. multi_cases: { // for every multi_cases_len
     ///        items_len: u32,
     ///        ranges_len: u32,
     ///        info: ProngInfo,
-    ///        item: Ref // for every items_len
+    ///        item: Ref, // for every items_len
     ///        ranges: { // for every ranges_len
     ///            item_first: Ref,
     ///            item_last: Ref,
@@ -3274,30 +3291,18 @@ pub const Inst = struct {
         pub const Bits = packed struct(u32) {
             /// If true, one or more prongs have multiple items.
             has_multi_cases: bool,
-            /// If true, there is an else prong. This is mutually exclusive with `has_under`.
-            has_else: bool,
-            /// If true, there is an underscore prong. This is mutually exclusive with `has_else`.
-            has_under: bool,
+            /// Information about the special prong.
+            special_prongs: SpecialProngs,
             /// If true, at least one prong has an inline tag capture.
             any_has_tag_capture: bool,
             /// If true, at least one prong has a capture which may not
             /// be comptime-known via `inline`.
             any_non_inline_capture: bool,
+            /// If true, at least one prong contains a `continue`.
             has_continue: bool,
             scalar_cases_len: ScalarCasesLen,
 
-            pub const ScalarCasesLen = u26;
-
-            pub fn specialProng(bits: Bits) SpecialProng {
-                const has_else: u2 = @intFromBool(bits.has_else);
-                const has_under: u2 = @intFromBool(bits.has_under);
-                return switch ((has_else << 1) | has_under) {
-                    0b00 => .none,
-                    0b01 => .under,
-                    0b10 => .@"else",
-                    0b11 => unreachable,
-                };
-            }
+            pub const ScalarCasesLen = u25;
         };
 
         pub const MultiProng = struct {
@@ -3482,6 +3487,7 @@ pub const Inst = struct {
         extern_options,
         type_info,
         branch_hint,
+        clobbers,
         // Values
         calling_convention_c,
         calling_convention_inline,
@@ -3744,14 +3750,6 @@ pub const Inst = struct {
         b: Ref,
     };
 
-    pub const AsyncCall = struct {
-        node: Ast.Node.Offset,
-        frame_buffer: Ref,
-        result_ptr: Ref,
-        fn_ptr: Ref,
-        args: Ref,
-    };
-
     /// Trailing: inst: Index // for every body_len
     pub const Param = struct {
         /// Null-terminated string index.
@@ -3880,7 +3878,68 @@ pub const Inst = struct {
     };
 };
 
-pub const SpecialProng = enum { none, @"else", under };
+pub const SpecialProngs = enum(u3) {
+    none = 0b000,
+    /// Simple `else` prong.
+    /// `else => {},`
+    @"else" = 0b001,
+    /// Simple `_` prong.
+    /// `_ => {},`
+    under = 0b010,
+    /// Both an `else` and a `_` prong.
+    /// `else => {},`
+    /// `_ => {},`
+    under_and_else = 0b011,
+    /// `_` prong with 1 additional item.
+    /// `a, _ => {},`
+    under_one_item = 0b100,
+    /// Both an `else` and a `_` prong with 1 additional item.
+    /// `else => {},`
+    /// `a, _ => {},`
+    under_one_item_and_else = 0b101,
+    /// `_` prong with >1 additional items.
+    /// `a, _, b => {},`
+    under_many_items = 0b110,
+    /// Both an `else` and a `_` prong with >1 additional items.
+    /// `else => {},`
+    /// `a, _, b => {},`
+    under_many_items_and_else = 0b111,
+
+    pub const AdditionalItems = enum(u3) {
+        none = @intFromEnum(SpecialProngs.under),
+        one = @intFromEnum(SpecialProngs.under_one_item),
+        many = @intFromEnum(SpecialProngs.under_many_items),
+    };
+
+    pub fn init(has_else: bool, has_under: bool, additional_items: AdditionalItems) SpecialProngs {
+        const else_bit: u3 = @intFromBool(has_else);
+        const under_bits: u3 = if (has_under)
+            @intFromEnum(additional_items)
+        else
+            @intFromEnum(SpecialProngs.none);
+        return @enumFromInt(else_bit | under_bits);
+    }
+
+    pub fn hasElse(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b001) != 0;
+    }
+
+    pub fn hasUnder(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) != 0;
+    }
+
+    pub fn hasAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b100) != 0;
+    }
+
+    pub fn hasOneAdditionalItem(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_one_item);
+    }
+
+    pub fn hasManyAdditionalItems(special_prongs: SpecialProngs) bool {
+        return (@intFromEnum(special_prongs) & 0b110) == @intFromEnum(SpecialProngs.under_many_items);
+    }
+};
 
 pub const DeclIterator = struct {
     extra_index: u32,
@@ -4118,7 +4177,7 @@ fn findTrackableInner(
         .vector_type,
         .elem_type,
         .indexable_ptr_elem_type,
-        .vec_arr_elem_type,
+        .splat_op_result_ty,
         .indexable_ptr_len,
         .anyframe_type,
         .as_node,
@@ -4270,7 +4329,6 @@ fn findTrackableInner(
         .tag_name,
         .type_name,
         .frame_type,
-        .frame_size,
         .int_from_float,
         .float_from_int,
         .ptr_from_int,
@@ -4310,7 +4368,6 @@ fn findTrackableInner(
         .resolve_inferred_alloc,
         .make_ptr_const,
         .@"resume",
-        .@"await",
         .save_err_ret_index,
         .restore_err_ret_index_unconditional,
         .restore_err_ret_index_fn_entry,
@@ -4353,14 +4410,12 @@ fn findTrackableInner(
                 .prefetch,
                 .set_float_mode,
                 .error_cast,
-                .await_nosuspend,
                 .breakpoint,
                 .disable_instrumentation,
                 .disable_intrinsics,
                 .select,
                 .int_from_error,
                 .error_from_int,
-                .builtin_async_call,
                 .cmpxchg,
                 .c_va_arg,
                 .c_va_copy,
@@ -4728,7 +4783,7 @@ fn findTrackableSwitch(
     }
 
     const has_special = switch (kind) {
-        .normal => extra.data.bits.specialProng() != .none,
+        .normal => extra.data.bits.special_prongs != .none,
         .err_union => has_special: {
             // Handle `non_err_body` first.
             const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
@@ -4743,12 +4798,40 @@ fn findTrackableSwitch(
     };
 
     if (has_special) {
-        const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
-        extra_index += 1;
-        const body = zir.bodySlice(extra_index, prong_info.body_len);
-        extra_index += body.len;
+        const has_else = if (kind == .normal)
+            extra.data.bits.special_prongs.hasElse()
+        else
+            true;
+        if (has_else) {
+            const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+            extra_index += 1;
+            const body = zir.bodySlice(extra_index, prong_info.body_len);
+            extra_index += body.len;
 
-        try zir.findTrackableBody(gpa, contents, defers, body);
+            try zir.findTrackableBody(gpa, contents, defers, body);
+        }
+        if (kind == .normal) {
+            const special_prongs = extra.data.bits.special_prongs;
+
+            if (special_prongs.hasUnder()) {
+                var trailing_items_len: u32 = 0;
+                if (special_prongs.hasOneAdditionalItem()) {
+                    extra_index += 1;
+                } else if (special_prongs.hasManyAdditionalItems()) {
+                    const items_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    const ranges_len = zir.extra[extra_index];
+                    extra_index += 1;
+                    trailing_items_len = items_len + ranges_len * 2;
+                }
+                const prong_info: Inst.SwitchBlock.ProngInfo = @bitCast(zir.extra[extra_index]);
+                extra_index += 1 + trailing_items_len;
+                const body = zir.bodySlice(extra_index, prong_info.body_len);
+                extra_index += body.len;
+
+                try zir.findTrackableBody(gpa, contents, defers, body);
+            }
+        }
     }
 
     {
@@ -4832,6 +4915,15 @@ pub fn getParamBody(zir: Zir, fn_inst: Inst.Index) []const Zir.Inst.Index {
         },
         else => unreachable,
     }
+}
+
+pub fn getParamName(zir: Zir, param_inst: Inst.Index) ?NullTerminatedString {
+    const inst = zir.instructions.get(@intFromEnum(param_inst));
+    return switch (inst.tag) {
+        .param, .param_comptime => zir.extraData(Inst.Param, inst.data.pl_tok.payload_index).data.name,
+        .param_anytype, .param_anytype_comptime => inst.data.str_tok.start,
+        else => null,
+    };
 }
 
 pub fn getFnInfo(zir: Zir, fn_inst: Inst.Index) FnInfo {

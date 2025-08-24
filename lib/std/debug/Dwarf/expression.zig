@@ -15,8 +15,6 @@ const assert = std.debug.assert;
 pub const Context = struct {
     /// The dwarf format of the section this expression is in
     format: std.dwarf.Format = .@"32",
-    /// If specified, any addresses will pass through before being accessed
-    memory_accessor: ?*std.debug.MemoryAccessor = null,
     /// The compilation unit this expression relates to, if any
     compile_unit: ?*const std.debug.Dwarf.CompileUnit = null,
     /// When evaluating a user-presented expression, this is the address of the object being evaluated
@@ -464,16 +462,6 @@ pub fn StackMachine(comptime options: Options) type {
                         => operand.?.deref_type.size,
                         else => unreachable,
                     };
-
-                    if (context.memory_accessor) |memory_accessor| {
-                        if (!switch (size) {
-                            1 => memory_accessor.load(u8, addr) != null,
-                            2 => memory_accessor.load(u16, addr) != null,
-                            4 => memory_accessor.load(u32, addr) != null,
-                            8 => memory_accessor.load(u64, addr) != null,
-                            else => return error.InvalidExpression,
-                        }) return error.InvalidExpression;
-                    }
 
                     const value: addr_type = std.math.cast(addr_type, @as(u64, switch (size) {
                         1 => @as(*const u8, @ptrFromInt(addr)).*,
@@ -1064,7 +1052,7 @@ test "DWARF expressions" {
 
     const b = Builder(options);
 
-    var program = std.ArrayList(u8).init(allocator);
+    var program = std.array_list.Managed(u8).init(allocator);
     defer program.deinit();
 
     const writer = program.writer();
@@ -1120,7 +1108,7 @@ test "DWARF expressions" {
         var mock_compile_unit: std.debug.Dwarf.CompileUnit = undefined;
         mock_compile_unit.addr_base = 1;
 
-        var mock_debug_addr = std.ArrayList(u8).init(allocator);
+        var mock_debug_addr = std.array_list.Managed(u8).init(allocator);
         defer mock_debug_addr.deinit();
 
         try mock_debug_addr.writer().writeInt(u16, 0, native_endian);
@@ -1590,7 +1578,7 @@ test "DWARF expressions" {
 
         // Sub-expression
         {
-            var sub_program = std.ArrayList(u8).init(allocator);
+            var sub_program = std.array_list.Managed(u8).init(allocator);
             defer sub_program.deinit();
             const sub_writer = sub_program.writer();
             try b.writeLiteral(sub_writer, 3);
@@ -1617,7 +1605,7 @@ test "DWARF expressions" {
         if (abi.regBytes(&thread_context, 0, reg_context)) |reg_bytes| {
             mem.writeInt(usize, reg_bytes[0..@sizeOf(usize)], 0xee, native_endian);
 
-            var sub_program = std.ArrayList(u8).init(allocator);
+            var sub_program = std.array_list.Managed(u8).init(allocator);
             defer sub_program.deinit();
             const sub_writer = sub_program.writer();
             try b.writeReg(sub_writer, 0);

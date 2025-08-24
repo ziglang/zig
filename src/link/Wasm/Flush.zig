@@ -9,6 +9,7 @@ const Alignment = Wasm.Alignment;
 const String = Wasm.String;
 const Relocation = Wasm.Relocation;
 const InternPool = @import("../../InternPool.zig");
+const Mir = @import("../../arch/wasm/Mir.zig");
 
 const build_options = @import("build_options");
 
@@ -145,7 +146,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     const int_tag_ty = Zcu.Type.fromInterned(data.ip_index).intTagType(zcu);
                     gop.value_ptr.* = .{ .tag_name = .{
                         .symbol_name = try wasm.internStringFmt("__zig_tag_name_{d}", .{@intFromEnum(data.ip_index)}),
-                        .type_index = try wasm.internFunctionType(.Unspecified, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
+                        .type_index = try wasm.internFunctionType(.auto, &.{int_tag_ty.ip_index}, .slice_const_u8_sentinel_0, target),
                         .table_index = @intCast(wasm.tag_name_offs.items.len),
                     } };
                     try wasm.functions.put(gpa, .fromZcuFunc(wasm, @enumFromInt(gop.index)), {});
@@ -533,7 +534,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
         wasm.memories.limits.max = @intCast(max_memory / page_size);
         wasm.memories.limits.flags.has_max = true;
         if (shared_memory) wasm.memories.limits.flags.is_shared = true;
-        log.debug("maximum memory pages: {?d}", .{wasm.memories.limits.max});
+        log.debug("maximum memory pages: {d}", .{wasm.memories.limits.max});
     }
     f.memory_layout_finished = true;
 
@@ -868,7 +869,21 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                     .enum_type => {
                         try emitTagNameFunction(wasm, binary_bytes, f.data_segments.get(.__zig_tag_name_table).?, i.value(wasm).tag_name.table_index, ip_index);
                     },
-                    else => try i.value(wasm).function.lower(wasm, binary_bytes),
+                    else => {
+                        const func = i.value(wasm).function;
+                        const mir: Mir = .{
+                            .instructions = wasm.mir_instructions.slice().subslice(func.instructions_off, func.instructions_len),
+                            .extra = wasm.mir_extra.items[func.extra_off..][0..func.extra_len],
+                            .locals = wasm.mir_locals.items[func.locals_off..][0..func.locals_len],
+                            .prologue = func.prologue,
+                            // These fields are unused by `lower`.
+                            .uavs = undefined,
+                            .indirect_function_set = undefined,
+                            .func_tys = undefined,
+                            .error_name_table_ref_count = undefined,
+                        };
+                        try mir.lower(wasm, binary_bytes);
+                    },
                 }
             },
         };
@@ -1020,20 +1035,14 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
                 var id: [16]u8 = undefined;
                 std.crypto.hash.sha3.TurboShake128(null).hash(binary_bytes.items, &id, .{});
                 var uuid: [36]u8 = undefined;
-                _ = try std.fmt.bufPrint(&uuid, "{s}-{s}-{s}-{s}-{s}", .{
-                    std.fmt.fmtSliceHexLower(id[0..4]),
-                    std.fmt.fmtSliceHexLower(id[4..6]),
-                    std.fmt.fmtSliceHexLower(id[6..8]),
-                    std.fmt.fmtSliceHexLower(id[8..10]),
-                    std.fmt.fmtSliceHexLower(id[10..]),
+                _ = try std.fmt.bufPrint(&uuid, "{x}-{x}-{x}-{x}-{x}", .{
+                    id[0..4], id[4..6], id[6..8], id[8..10], id[10..],
                 });
                 try emitBuildIdSection(gpa, binary_bytes, &uuid);
             },
             .hexstring => |hs| {
                 var buffer: [32 * 2]u8 = undefined;
-                const str = std.fmt.bufPrint(&buffer, "{s}", .{
-                    std.fmt.fmtSliceHexLower(hs.toSlice()),
-                }) catch unreachable;
+                const str = std.fmt.bufPrint(&buffer, "{x}", .{hs.toSlice()}) catch unreachable;
                 try emitBuildIdSection(gpa, binary_bytes, str);
             },
             else => |mode| {
@@ -1042,7 +1051,7 @@ pub fn finish(f: *Flush, wasm: *Wasm) !void {
             },
         }
 
-        var debug_bytes = std.ArrayList(u8).init(gpa);
+        var debug_bytes = std.array_list.Managed(u8).init(gpa);
         defer debug_bytes.deinit();
 
         try emitProducerSection(gpa, binary_bytes);
@@ -1159,7 +1168,7 @@ fn emitFeaturesSection(
 
     var safety_count = feature_count;
     for (target.cpu.arch.allFeaturesList(), 0..) |*feature, i| {
-        if (!std.Target.wasm.featureSetHas(target.cpu.features, @enumFromInt(i))) continue;
+        if (!target.cpu.has(.wasm, @as(std.Target.wasm.Feature, @enumFromInt(i)))) continue;
         safety_count -= 1;
 
         try leb.writeUleb128(writer, @as(u32, '+'));
@@ -1387,7 +1396,7 @@ pub fn emitExpr(wasm: *const Wasm, binary_bytes: *std.ArrayListUnmanaged(u8), ex
     try binary_bytes.appendSlice(gpa, slice[0 .. slice.len + 1]); // +1 to include end opcode
 }
 
-fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.ArrayList(u8)) !void {
+fn emitSegmentInfo(wasm: *Wasm, binary_bytes: *std.array_list.Managed(u8)) !void {
     const gpa = wasm.base.comp.gpa;
     const writer = binary_bytes.writer(gpa);
     try leb.writeUleb128(writer, @intFromEnum(Wasm.SubsectionType.segment_info));

@@ -133,6 +133,9 @@
  *
  *  If you do not define DEBUG_ASSERT_PRODUCTION_CODE, the default value 1 will be used
  *  (production code = no assertion code and no messages).
+ *
+ *  If you are building with modules modules this must be defined via a commandline
+ *  flag (i.e. -DDEBUG_ASSERT_PRODUCTION_CODE=1) in order to work correctly.
  */
 #ifndef DEBUG_ASSERT_PRODUCTION_CODE
    #define DEBUG_ASSERT_PRODUCTION_CODE !DEBUG

@@ -54,8 +54,8 @@ export fn ptr_to_underaligned_ptr() void {
 
 // error
 //
-// :16:33: error: expected type '*error{Foo,Bar}', found '*error{Foo}'
-// :16:33: note: pointer type child 'error{Foo}' cannot cast into pointer type child 'error{Foo,Bar}'
+// :16:33: error: expected type '*error{Bar,Foo}', found '*error{Foo}'
+// :16:33: note: pointer type child 'error{Foo}' cannot cast into pointer type child 'error{Bar,Foo}'
 // :16:33: note: 'error.Bar' not a member of destination error set
 // :22:24: error: expected type '*anyerror', found '*error{Foo}'
 // :22:24: note: pointer type child 'error{Foo}' cannot cast into pointer type child 'anyerror'

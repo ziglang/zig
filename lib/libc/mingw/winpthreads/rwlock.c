@@ -20,14 +20,25 @@
    DEALINGS IN THE SOFTWARE.
 */
 
-#include <windows.h>
-#include <stdio.h>
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
+#include <assert.h>
 #include <malloc.h>
+#include <stdio.h>
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+
+#define WINPTHREAD_RWLOCK_DECL WINPTHREAD_API
+
+/* public header files */
 #include "pthread.h"
-#include "thread.h"
-#include "ref.h"
-#include "rwlock.h"
+/* internal header files */
 #include "misc.h"
+#include "rwlock.h"
+#include "thread.h"
 
 static pthread_spinlock_t rwl_global = PTHREAD_SPINLOCK_INITIALIZER;
 
@@ -36,9 +47,7 @@ static WINPTHREADS_ATTRIBUTE((noinline)) int rwlock_static_init(pthread_rwlock_t
 static WINPTHREADS_ATTRIBUTE((noinline)) int rwl_unref(volatile pthread_rwlock_t *rwl, int res)
 {
     pthread_spin_lock(&rwl_global);
-#ifdef WINPTHREAD_DBG
     assert((((rwlock_t *)*rwl)->valid == LIFE_RWLOCK) && (((rwlock_t *)*rwl)->busy > 0));
-#endif
      ((rwlock_t *)*rwl)->busy--;
     pthread_spin_unlock(&rwl_global);
     return res;
@@ -87,7 +96,7 @@ static WINPTHREADS_ATTRIBUTE((noinline)) int rwl_ref_destroy(pthread_rwlock_t *r
 
     *rDestroy = (pthread_rwlock_t)NULL;
     pthread_spin_lock(&rwl_global);
-    
+
     if (!rwl || !*rwl) r = EINVAL;
     else {
         rwlock_t *r_ = (rwlock_t *)*rwl;
@@ -128,30 +137,6 @@ static int rwlock_free_both_locks(rwlock_t *rwlock, int last_fail)
   return ret;
 }
 
-#ifdef WINPTHREAD_DBG
-static int print_state = 0;
-void rwl_print_set(int state)
-{
-    print_state = state;
-}
-
-void rwl_print(volatile pthread_rwlock_t *rwl, char *txt)
-{
-    if (!print_state) return;
-    rwlock_t *r = (rwlock_t *)*rwl;
-    if (r == NULL) {
-        printf("RWL%p %lu %s\n",(void *)*rwl,GetCurrentThreadId(),txt);
-    } else {
-        printf("RWL%p %lu V=%0X B=%d r=%ld w=%ld L=%p %s\n",
-            (void *)*rwl,
-            GetCurrentThreadId(),
-            (int)r->valid, 
-            (int)r->busy,
-            0L,0L,NULL,txt);
-    }
-}
-#endif
-
 static pthread_spinlock_t cond_locked = PTHREAD_SPINLOCK_INITIALIZER;
 
 static WINPTHREADS_ATTRIBUTE((noinline)) int rwlock_static_init(pthread_rwlock_t *rw)
@@ -165,7 +150,7 @@ static WINPTHREADS_ATTRIBUTE((noinline)) int rwlock_static_init(pthread_rwlock_t
   }
   r = pthread_rwlock_init (rw, NULL);
   pthread_spin_unlock(&cond_locked);
-  
+
   return r;
 }
 
@@ -178,7 +163,7 @@ int pthread_rwlock_init (pthread_rwlock_t *rwlock_, const pthread_rwlockattr_t *
       return EINVAL;
     *rwlock_ = (pthread_rwlock_t)NULL;
     if ((rwlock = calloc(1, sizeof(*rwlock))) == NULL)
-      return ENOMEM; 
+      return ENOMEM;
     rwlock->valid = DEAD_RWLOCK;
 
     rwlock->nex_count = rwlock->nsh_count = rwlock->ncomplete = 0;
@@ -203,18 +188,18 @@ int pthread_rwlock_init (pthread_rwlock_t *rwlock_, const pthread_rwlockattr_t *
     rwlock->valid = LIFE_RWLOCK;
     *rwlock_ = (pthread_rwlock_t)rwlock;
     return r;
-} 
+}
 
 int pthread_rwlock_destroy (pthread_rwlock_t *rwlock_)
 {
     rwlock_t *rwlock;
     pthread_rwlock_t rDestroy;
     int r, r2;
-    
+
     pthread_spin_lock(&cond_locked);
     r = rwl_ref_destroy(rwlock_,&rDestroy);
     pthread_spin_unlock(&cond_locked);
-    
+
     if(r) return r;
     if(!rDestroy) return 0; /* destroyed a (still) static initialized rwl */
 
@@ -245,7 +230,7 @@ int pthread_rwlock_destroy (pthread_rwlock_t *rwlock_)
     rwlock->valid  = DEAD_RWLOCK;
     free((void *)rDestroy);
     return 0;
-} 
+}
 
 int pthread_rwlock_rdlock (pthread_rwlock_t *rwlock_)
 {
@@ -279,7 +264,8 @@ int pthread_rwlock_rdlock (pthread_rwlock_t *rwlock_)
   return rwl_unref(rwlock_, ret);
 }
 
-int pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock_, const struct timespec *ts)
+/* Internal version which always uses `struct _timespec64`. */
+static int __pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock_, const struct _timespec64 *ts)
 {
   rwlock_t *rwlock;
   int ret;
@@ -290,12 +276,12 @@ int pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock_, const struct timespec
   if(ret != 0) return ret;
 
   rwlock = (rwlock_t *)*rwlock_;
-  if ((ret = pthread_mutex_timedlock (&rwlock->mex, ts)) != 0)
+  if ((ret = pthread_mutex_timedlock64 (&rwlock->mex, ts)) != 0)
       return rwl_unref(rwlock_, ret);
   InterlockedIncrement(&rwlock->nsh_count);
   if (rwlock->nsh_count == INT_MAX)
   {
-    ret = pthread_mutex_timedlock(&rwlock->mcomplete, ts);
+    ret = pthread_mutex_timedlock64(&rwlock->mcomplete, ts);
     if (ret != 0)
     {
       if (ret == ETIMEDOUT)
@@ -310,6 +296,17 @@ int pthread_rwlock_timedrdlock (pthread_rwlock_t *rwlock_, const struct timespec
   }
   ret = pthread_mutex_unlock(&rwlock->mex);
   return rwl_unref(rwlock_, ret);
+}
+
+int pthread_rwlock_timedrdlock64(pthread_rwlock_t *l, const struct _timespec64 *ts)
+{
+  return __pthread_rwlock_timedrdlock (l, ts);
+}
+
+int pthread_rwlock_timedrdlock32(pthread_rwlock_t *l, const struct _timespec32 *ts)
+{
+  struct _timespec64 ts64 = {.tv_sec = ts->tv_sec, .tv_nsec = ts->tv_nsec};
+  return __pthread_rwlock_timedrdlock (l, &ts64);
 }
 
 int pthread_rwlock_tryrdlock (pthread_rwlock_t *rwlock_)
@@ -340,7 +337,7 @@ int pthread_rwlock_tryrdlock (pthread_rwlock_t *rwlock_)
   }
   ret = pthread_mutex_unlock(&rwlock->mex);
   return rwl_unref(rwlock_,ret);
-} 
+}
 
 int pthread_rwlock_trywrlock (pthread_rwlock_t *rwlock_)
 {
@@ -378,7 +375,7 @@ int pthread_rwlock_trywrlock (pthread_rwlock_t *rwlock_)
   }
   rwlock->nex_count = 1;
   return rwl_unref(rwlock_, 0);
-} 
+}
 
 int pthread_rwlock_unlock (pthread_rwlock_t *rwlock_)
 {
@@ -409,7 +406,7 @@ int pthread_rwlock_unlock (pthread_rwlock_t *rwlock_)
     ret = rwlock_free_both_locks(rwlock, 0);
   }
   return rwl_unref(rwlock_, ret);
-} 
+}
 
 static void st_cancelwrite (void *arg)
 {
@@ -459,7 +456,8 @@ int pthread_rwlock_wrlock (pthread_rwlock_t *rwlock_)
   return rwl_unref(rwlock_,ret);
 }
 
-int pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock_, const struct timespec *ts)
+/* Internal version which always uses `struct _timespec64`. */
+static int __pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock_, const struct _timespec64 *ts)
 {
   int ret;
   rwlock_t *rwlock;
@@ -471,10 +469,10 @@ int pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock_, const struct timespec
     return ret;
   rwlock = (rwlock_t *)*rwlock_;
 
-  ret = pthread_mutex_timedlock(&rwlock->mex, ts);
+  ret = pthread_mutex_timedlock64(&rwlock->mex, ts);
   if (ret != 0)
     return rwl_unref(rwlock_,ret);
-  ret = pthread_mutex_timedlock (&rwlock->mcomplete, ts);
+  ret = pthread_mutex_timedlock64(&rwlock->mcomplete, ts);
   if (ret != 0)
   {
     pthread_mutex_unlock(&rwlock->mex);
@@ -492,7 +490,7 @@ int pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock_, const struct timespec
       rwlock->ncomplete = -rwlock->nsh_count;
       pthread_cleanup_push(st_cancelwrite, (void *) rwlock);
       do {
-	ret = pthread_cond_timedwait(&rwlock->ccomplete, &rwlock->mcomplete, ts);
+	ret = pthread_cond_timedwait64(&rwlock->ccomplete, &rwlock->mcomplete, ts);
       } while (rwlock->ncomplete < 0 && !ret);
       pthread_cleanup_pop(!ret ? 0 : 1);
 
@@ -503,6 +501,17 @@ int pthread_rwlock_timedwrlock (pthread_rwlock_t *rwlock_, const struct timespec
   if(!ret)
     InterlockedIncrement((long*)&rwlock->nex_count);
   return rwl_unref(rwlock_,ret);
+}
+
+int pthread_rwlock_timedwrlock64(pthread_rwlock_t *rwlock, const struct _timespec64 *ts)
+{
+  return __pthread_rwlock_timedwrlock (rwlock, ts);
+}
+
+int pthread_rwlock_timedwrlock32(pthread_rwlock_t *rwlock, const struct _timespec32 *ts)
+{
+  struct _timespec64 ts64 = {.tv_sec = ts->tv_sec, .tv_nsec = ts->tv_nsec};
+  return __pthread_rwlock_timedwrlock (rwlock, &ts64);
 }
 
 int pthread_rwlockattr_destroy(pthread_rwlockattr_t *a)

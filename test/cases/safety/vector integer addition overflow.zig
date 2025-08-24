@@ -18,5 +18,5 @@ fn add(a: @Vector(4, i32), b: @Vector(4, i32)) @Vector(4, i32) {
     return a + b;
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux

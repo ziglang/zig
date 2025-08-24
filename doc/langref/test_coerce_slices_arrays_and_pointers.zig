@@ -67,4 +67,11 @@ test "*T to *[1]T" {
     try expect(z[0] == 1234);
 }
 
+// Sentinel-terminated slices can be coerced into sentinel-terminated pointers
+test "[:x]T to [*:x]T" {
+    const buf: [:0]const u8 = "hello";
+    const buf2: [*:0]const u8 = buf;
+    try expect(buf2[4] == 'o');
+}
+
 // test

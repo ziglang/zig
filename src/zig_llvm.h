@@ -66,11 +66,15 @@ enum ZigLLVMThinOrFullLTOPhase {
 struct ZigLLVMEmitOptions {
     bool is_debug;
     bool is_small;
-    bool time_report;
+    // If not null, and `ZigLLVMTargetMachineEmitToFile` returns `false` indicating success, this
+    // `char *` will be populated with a `malloc`-allocated string containing the serialized (as
+    // JSON) time report data. The caller is responsible for freeing that memory.
+    char **time_report_out;
     bool tsan;
     bool sancov;
     ZigLLVMThinOrFullLTOPhase lto;
     bool allow_fast_isel;
+    bool allow_machine_outliner;
     const char *asm_filename;
     const char *bin_filename;
     const char *llvm_ir_filename;
@@ -104,7 +108,7 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
 ZIG_EXTERN_C LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMFloatABI float_abi,
-    const char *abi_name);
+    const char *abi_name, bool emulated_tls);
 
 ZIG_EXTERN_C void ZigLLVMSetOptBisectLimit(LLVMContextRef context_ref, int limit);
 

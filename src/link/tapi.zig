@@ -83,7 +83,7 @@ pub const Tbd = union(enum) {
 
     /// Caller owns memory.
     pub fn targets(self: Tbd, gpa: Allocator) error{OutOfMemory}![]const []const u8 {
-        var out = std.ArrayList([]const u8).init(gpa);
+        var out = std.array_list.Managed([]const u8).init(gpa);
         defer out.deinit();
 
         switch (self) {
