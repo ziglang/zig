@@ -30,7 +30,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .m68k => R_68K_RELATIVE,
     .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
-    .riscv32, .riscv64 => R_RISCV_RELATIVE,
+    .riscv32, .riscv32be, .riscv64, .riscv64be => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
     .sparc, .sparc64 => R_SPARC_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
@@ -163,7 +163,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
                 : .{ .lr = true, .r4 = true }),
-            .riscv32, .riscv64 => asm volatile (
+            .riscv32, .riscv32be, .riscv64, .riscv64be => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ lla %[ret], _DYNAMIC

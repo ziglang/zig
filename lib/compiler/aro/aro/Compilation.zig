@@ -927,7 +927,7 @@ fn generateVaListType(comp: *Compilation) !Type {
             .ios, .macos, .tvos, .watchos => .char_ptr,
             else => .aarch64_va_list,
         },
-        .sparc, .wasm32, .wasm64, .bpfel, .bpfeb, .riscv32, .riscv64, .avr, .spirv32, .spirv64 => .void_ptr,
+        .sparc, .wasm32, .wasm64, .bpfel, .bpfeb, .riscv32, .riscv32be, .riscv64, .riscv64be, .avr, .spirv32, .spirv64 => .void_ptr,
         .powerpc => switch (comp.target.os.tag) {
             .ios, .macos, .tvos, .watchos, .aix => @as(Kind, .char_ptr),
             else => return Type{ .specifier = .void }, // unknown

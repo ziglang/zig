@@ -82,7 +82,9 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .powerpc64le => "powerpc64le",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
+        .riscv32be => "riscv32be",
         .riscv64 => "riscv64",
+        .riscv64be => "riscv64be",
         .sparc => "sparc",
         .sparc64 => "sparc64",
         .s390x => "s390x",
@@ -397,10 +399,18 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
             "e-m:e-p:32:32-i64:64-n32-S128",
+        .riscv32be => if (target.cpu.has(.riscv, .e))
+            "E-m:e-p:32:32-i64:64-n32-S32"
+        else
+            "E-m:e-p:32:32-i64:64-n32-S128",
         .riscv64 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
         else
             "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+        .riscv64be => if (target.cpu.has(.riscv, .e))
+            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S64"
+        else
+            "E-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
         .sparc => "E-m:e-p:32:32-i64:64-i128:128-f128:64-n32-S64",
         .sparc64 => "E-m:e-i64:64-i128:128-n32:64-S128",
         .s390x => if (target.os.tag == .zos)
@@ -12224,8 +12234,8 @@ fn lowerFnRetTy(o: *Object, pt: Zcu.PerThread, fn_info: InternPool.Key.FuncType)
             .integer => return o.builder.intType(@intCast(return_type.bitSize(zcu))),
             .double_integer => {
                 const integer: Builder.Type = switch (zcu.getTarget().cpu.arch) {
-                    .riscv64 => .i64,
-                    .riscv32 => .i32,
+                    .riscv64, .riscv64be => .i64,
+                    .riscv32, .riscv32be => .i32,
                     else => unreachable,
                 };
                 return o.builder.structType(.normal, &.{ integer, integer });
@@ -12685,7 +12695,7 @@ fn ccAbiPromoteInt(
             else => null,
         },
         else => switch (target.cpu.arch) {
-            .loongarch64, .riscv64 => switch (int_info.bits) {
+            .loongarch64, .riscv64, .riscv64be => switch (int_info.bits) {
                 0...16 => int_info.signedness,
                 32 => .signed, // LLVM always signextends 32 bit ints, unsure if bug.
                 17...31, 33...63 => int_info.signedness,
@@ -13079,7 +13089,7 @@ pub fn initializeLLVMTarget(arch: std.Target.Cpu.Arch) void {
             llvm.LLVMInitializePowerPCAsmPrinter();
             llvm.LLVMInitializePowerPCAsmParser();
         },
-        .riscv32, .riscv64 => {
+        .riscv32, .riscv32be, .riscv64, .riscv64be => {
             llvm.LLVMInitializeRISCVTarget();
             llvm.LLVMInitializeRISCVTargetInfo();
             llvm.LLVMInitializeRISCVTargetMC();

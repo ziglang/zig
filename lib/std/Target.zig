@@ -1042,7 +1042,7 @@ pub fn toElfMachine(target: *const Target) std.elf.EM {
         .powerpc, .powerpcle => .PPC,
         .powerpc64, .powerpc64le => .PPC64,
         .propeller => .PROPELLER,
-        .riscv32, .riscv64 => .RISCV,
+        .riscv32, .riscv32be, .riscv64, .riscv64be => .RISCV,
         .s390x => .S390,
         .sparc => if (target.cpu.has(.sparc, .v9)) .SPARC32PLUS else .SPARC,
         .sparc64 => .SPARCV9,
@@ -1099,6 +1099,8 @@ pub fn toCoffMachine(target: *const Target) std.coff.MachineType {
         .powerpcle,
         .powerpc64,
         .powerpc64le,
+        .riscv32be,
+        .riscv64be,
         .s390x,
         .sparc,
         .sparc64,
@@ -1310,7 +1312,9 @@ pub const Cpu = struct {
         powerpc64le,
         propeller,
         riscv32,
+        riscv32be,
         riscv64,
+        riscv64be,
         s390x,
         sparc,
         sparc64,
@@ -1340,6 +1344,7 @@ pub const Cpu = struct {
         // - sparcel
         // - spir
         // - spir64
+        // - spirv
         // - tce
         // - tcele
 
@@ -1396,7 +1401,7 @@ pub const Cpu = struct {
                 .nvptx, .nvptx64 => .nvptx,
                 .powerpc, .powerpcle, .powerpc64, .powerpc64le => .powerpc,
                 .propeller => .propeller,
-                .riscv32, .riscv64 => .riscv,
+                .riscv32, .riscv32be, .riscv64, .riscv64be => .riscv,
                 .s390x => .s390x,
                 .sparc, .sparc64 => .sparc,
                 .spirv32, .spirv64 => .spirv,
@@ -1452,8 +1457,19 @@ pub const Cpu = struct {
         }
 
         pub inline fn isRISCV(arch: Arch) bool {
+            return arch.isRiscv32() or arch.isRiscv64();
+        }
+
+        pub inline fn isRiscv32(arch: Arch) bool {
             return switch (arch) {
-                .riscv32, .riscv64 => true,
+                .riscv32, .riscv32be => true,
+                else => false,
+            };
+        }
+
+        pub inline fn isRiscv64(arch: Arch) bool {
+            return switch (arch) {
+                .riscv64, .riscv64be => true,
                 else => false,
             };
         }
@@ -1576,6 +1592,8 @@ pub const Cpu = struct {
                 .or1k,
                 .powerpc,
                 .powerpc64,
+                .riscv32be,
+                .riscv64be,
                 .thumbeb,
                 .sparc,
                 .sparc64,
@@ -1688,12 +1706,12 @@ pub const Cpu = struct {
                 .riscv64_lp64,
                 .riscv64_lp64_v,
                 .riscv64_interrupt,
-                => &.{.riscv64},
+                => &.{ .riscv64, .riscv64be },
 
                 .riscv32_ilp32,
                 .riscv32_ilp32_v,
                 .riscv32_interrupt,
-                => &.{.riscv32},
+                => &.{ .riscv32, .riscv32be },
 
                 .sparc64_sysv,
                 => &.{.sparc64},
@@ -1822,8 +1840,8 @@ pub const Cpu = struct {
                 .powerpc, .powerpcle => &powerpc.cpu.ppc,
                 .powerpc64, .powerpc64le => &powerpc.cpu.ppc64,
                 .propeller => &propeller.cpu.p1,
-                .riscv32 => &riscv.cpu.generic_rv32,
-                .riscv64 => &riscv.cpu.generic_rv64,
+                .riscv32, .riscv32be => &riscv.cpu.generic_rv32,
+                .riscv64, .riscv64be => &riscv.cpu.generic_rv64,
                 .sparc64 => &sparc.cpu.v9, // SPARC can only be 64-bit from v9 and up.
                 .wasm32, .wasm64 => &wasm.cpu.mvp,
                 .x86 => &x86.cpu.i386,
@@ -1867,8 +1885,8 @@ pub const Cpu = struct {
                 .msp430 => &msp430.cpu.msp430,
                 .nvptx, .nvptx64 => &nvptx.cpu.sm_52,
                 .powerpc64le => &powerpc.cpu.ppc64le,
-                .riscv32 => &riscv.cpu.baseline_rv32,
-                .riscv64 => &riscv.cpu.baseline_rv64,
+                .riscv32, .riscv32be => &riscv.cpu.baseline_rv32,
+                .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
                 .x86 => &x86.cpu.pentium4,
@@ -2615,6 +2633,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .powerpc,
         .powerpcle,
         .riscv32,
+        .riscv32be,
         .thumb,
         .thumbeb,
         .x86,
@@ -2637,6 +2656,7 @@ pub fn ptrBitWidth_arch_abi(cpu_arch: Cpu.Arch, abi: Abi) u16 {
         .powerpc64,
         .powerpc64le,
         .riscv64,
+        .riscv64be,
         .x86_64,
         .nvptx64,
         .wasm64,
@@ -2691,7 +2711,9 @@ pub fn stackAlignment(target: *const Target) u16 {
         .powerpc64le,
         => if (target.os.tag == .linux or target.os.tag == .aix) return 16,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         => if (!target.cpu.has(.riscv, .e)) return 16,
         .x86 => if (target.os.tag != .windows and target.os.tag != .uefi) return 16,
         .x86_64 => return 16,
@@ -2724,7 +2746,9 @@ pub fn cCharSignedness(target: *const Target) std.builtin.Signedness {
         .powerpc64le,
         .s390x,
         .riscv32,
+        .riscv32be,
         .riscv64,
+        .riscv64be,
         .xcore,
         .xtensa,
         => .unsigned,
@@ -2838,7 +2862,9 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                     },
 
                     .riscv32,
+                    .riscv32be,
                     .riscv64,
+                    .riscv64be,
                     .aarch64,
                     .aarch64_be,
                     .s390x,
@@ -2957,7 +2983,9 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
                     },
 
                     .riscv32,
+                    .riscv32be,
                     .riscv64,
+                    .riscv64be,
                     .aarch64,
                     .aarch64_be,
                     .s390x,
@@ -3169,7 +3197,9 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
             .powerpc64,
             .powerpc64le,
             .riscv32,
+            .riscv32be,
             .riscv64,
+            .riscv64be,
             .sparc64,
             .spirv32,
             .spirv64,
@@ -3261,7 +3291,9 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
             .powerpc64,
             .powerpc64le,
             .riscv32,
+            .riscv32be,
             .riscv64,
+            .riscv64be,
             .sparc64,
             .spirv32,
             .spirv64,
@@ -3300,6 +3332,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .powerpc,
         .powerpcle,
         .riscv32,
+        .riscv32be,
         .s390x,
         => 8,
 
@@ -3315,6 +3348,7 @@ pub fn cMaxIntAlignment(target: *const Target) u16 {
         .powerpc64,
         .powerpc64le,
         .riscv64,
+        .riscv64be,
         .sparc,
         .sparc64,
         .wasm32,
@@ -3364,8 +3398,8 @@ pub fn cCallingConvention(target: *const Target) ?std.builtin.CallingConvention 
             else => .{ .mips64_n64 = .{} },
         },
         .mips, .mipsel => .{ .mips_o32 = .{} },
-        .riscv64 => .{ .riscv64_lp64 = .{} },
-        .riscv32 => .{ .riscv32_ilp32 = .{} },
+        .riscv64, .riscv64be => .{ .riscv64_lp64 = .{} },
+        .riscv32, .riscv32be => .{ .riscv32_ilp32 = .{} },
         .sparc64 => .{ .sparc64_sysv = .{} },
         .sparc => .{ .sparc_sysv = .{} },
         .powerpc64 => if (target.abi.isMusl())
