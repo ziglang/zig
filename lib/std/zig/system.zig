@@ -109,7 +109,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v9))
+                .qemu = if (candidate.cpu.has(.sparc, .v8plus))
                     "qemu-sparc32plus"
                 else
                     "qemu-sparc",
