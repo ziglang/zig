@@ -792,7 +792,8 @@ pub const WebSocket = struct {
             if (!payload_head.mask)
                 return error.MissingMaskBit;
 
-            // TODO: Remove check here for op_head.rsv1 once compression is readded.
+            // TODO: Remove check here for op_head.rsv1 if compression
+            // is added in the future
             if (@bitCast(op_head.rsv1) or @bitCast(op_head.rsv2) or @bitCast(op_head.rsv3))
                 return error.UnnegociatedReservedBits;
 
@@ -804,14 +805,15 @@ pub const WebSocket = struct {
 
             const mask: u32 = @bitCast((try in.takeArray(4)).*);
             const payload = blk: {
-                if (total < in.buffered().len)
-                    break :blk try in.take(total);
+                if (total > in.buffer.len) {
+                    try ws.storage.ensureUnusedCapacity(total);
+                    try in.streamExact(&ws.storage.writer, total);
+                    defer ws.storage.shrinkRetainingCapacity(0);
 
-                try ws.storage.ensureUnusedCapacity(total);
-                try in.streamExact(&ws.storage.writer, total);
-                defer ws.storage.shrinkRetainingCapacity(0);
+                    break :blk ws.storage.written();
+                }
 
-                break :blk ws.storage.written();
+                break :blk try in.take(total);
             };
 
             // The last item may contain a partial word of unused data.
@@ -827,9 +829,6 @@ pub const WebSocket = struct {
                 .binary,
                 => {
                     if (!op_head.fin) {
-                        if (ws.fragment.message_type != null)
-                            return error.UnexpectedFragment;
-
                         try ws.fragment.writeAll(payload);
                         ws.fragment.message_type = op_head.opcode;
 
@@ -852,9 +851,6 @@ pub const WebSocket = struct {
                     const message_type = ws.fragment.message_type orelse return error.FragmentedControl;
 
                     if (!op_head.fin) {
-                        if (ws.fragment.message_type == null)
-                            return error.UnexpectedFragment;
-
                         try ws.fragment.writeAll(payload);
                         continue;
                     }
