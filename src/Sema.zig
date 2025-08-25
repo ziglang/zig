@@ -1468,6 +1468,7 @@ fn analyzeBodyInner(
                         continue;
                     },
                     .astgen_error => return error.AnalysisFail,
+                    .float_op_result_ty => try sema.zirFloatOpResultType(block, extended),
                 };
             },
 
@@ -25920,6 +25921,28 @@ fn zirBranchHint(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstDat
     if (sema.branch_hint == null) {
         sema.branch_hint = try sema.interpretBuiltinType(block, operand_src, hint_val, std.builtin.BranchHint);
     }
+}
+
+fn zirFloatOpResultType(sema: *Sema, block: *Block, extended: Zir.Inst.Extended.InstData) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const extra = sema.code.extraData(Zir.Inst.UnNode, extended.operand).data;
+    const operand_src = block.builtinCallArgSrc(extra.node, 0);
+
+    const raw_ty = try sema.resolveTypeOrPoison(block, operand_src, extra.operand) orelse return .generic_poison_type;
+    const float_ty = raw_ty.optEuBaseType(zcu);
+
+    switch (float_ty.scalarType(zcu).zigTypeTag(zcu)) {
+        .float, .comptime_float => {},
+        else => return sema.fail(
+            block,
+            operand_src,
+            "expected vector of floats or float type, found '{f}'",
+            .{float_ty.fmt(sema.pt)},
+        ),
+    }
+
+    return .fromType(float_ty);
 }
 
 fn requireRuntimeBlock(sema: *Sema, block: *Block, src: LazySrcLoc, runtime_src: ?LazySrcLoc) !void {
