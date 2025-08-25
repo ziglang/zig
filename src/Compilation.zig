@@ -6838,10 +6838,6 @@ pub fn addCCArgs(
         try argv.append("-municode");
     }
 
-    if (mod.code_model != .default) {
-        try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
-    }
-
     try argv.ensureUnusedCapacity(2);
     switch (comp.config.debug_format) {
         .strip => {},
@@ -7136,6 +7132,10 @@ pub fn addCCArgs(
         .ll,
         .bc,
         => {
+            if (mod.code_model != .default) {
+                try argv.append(try std.fmt.allocPrint(arena, "-mcmodel={s}", .{@tagName(mod.code_model)}));
+            }
+
             if (target_util.clangSupportsTargetCpuArg(target)) {
                 if (target.cpu.model.llvm_name) |llvm_name| {
                     try argv.appendSlice(&[_][]const u8{
