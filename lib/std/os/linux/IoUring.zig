@@ -449,7 +449,7 @@ pub fn read_fixed(
     self: *IoUring,
     user_data: u64,
     fd: posix.fd_t,
-    buffer: *posix.iovec,
+    buffer: []u8,
     offset: u64,
     buffer_index: u16,
 ) !*linux.io_uring_sqe {
@@ -485,7 +485,7 @@ pub fn write_fixed(
     self: *IoUring,
     user_data: u64,
     fd: posix.fd_t,
-    buffer: *posix.iovec,
+    buffer: []const u8,
     offset: u64,
     buffer_index: u16,
 ) !*linux.io_uring_sqe {
@@ -2183,7 +2183,7 @@ test "write_fixed/read_fixed" {
     @memset(&raw_buffers[0], 'z');
     raw_buffers[0][0.."foobar".len].* = "foobar".*;
 
-    var buffers = [2]posix.iovec{
+    const buffers = [2]posix.iovec{
         .{ .base = &raw_buffers[0], .len = raw_buffers[0].len },
         .{ .base = &raw_buffers[1], .len = raw_buffers[1].len },
     };
@@ -2195,12 +2195,12 @@ test "write_fixed/read_fixed" {
         else => |e| return e,
     };
 
-    const sqe_write = try ring.write_fixed(0x45454545, fd, &buffers[0], 3, 0);
+    const sqe_write = try ring.write_fixed(0x45454545, fd, &raw_buffers[0], 3, 0);
     try testing.expectEqual(linux.IORING_OP.WRITE_FIXED, sqe_write.opcode);
     try testing.expectEqual(@as(u64, 3), sqe_write.off);
     sqe_write.flags |= linux.IOSQE_IO_LINK;
 
-    const sqe_read = try ring.read_fixed(0x12121212, fd, &buffers[1], 0, 1);
+    const sqe_read = try ring.read_fixed(0x12121212, fd, &raw_buffers[1], 0, 1);
     try testing.expectEqual(linux.IORING_OP.READ_FIXED, sqe_read.opcode);
     try testing.expectEqual(@as(u64, 0), sqe_read.off);
 
