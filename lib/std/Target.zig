@@ -55,6 +55,7 @@ pub const Os = struct {
         ps3,
         ps4,
         ps5,
+        vita,
 
         emscripten,
         wasi,
@@ -197,6 +198,8 @@ pub const Os = struct {
                 .uefi,
 
                 .@"3ds",
+
+                .vita,
 
                 .wasi,
 
@@ -607,6 +610,7 @@ pub const Os = struct {
                         .max = .{ .major = 2, .minor = 11, .patch = 0 },
                     },
                 },
+
                 .@"3ds" => .{
                     .semver = .{
                         // These signify release versions (https://www.3dbrew.org/wiki/NCCH/Extended_Header#ARM11_Kernel_Capabilities)
@@ -618,6 +622,15 @@ pub const Os = struct {
                         .max = .{ .major = 2, .minor = 58, .patch = 0 }, // 11.17.0-50
                     },
                 },
+
+                .vita => .{
+                    .semver = .{
+                        // 1.3 is the first public release
+                        .min = .{ .major = 1, .minor = 3, .patch = 0 },
+                        .max = .{ .major = 3, .minor = 60, .patch = 0 },
+                    },
+                },
+
                 .wasi => .{
                     .semver = .{
                         .min = .{ .major = 0, .minor = 1, .patch = 0 },
@@ -876,6 +889,7 @@ pub const Abi = enum {
             .windows => .gnu,
             .uefi => .msvc,
             .@"3ds" => .eabihf,
+            .vita => .eabihf,
             .wasi, .emscripten => .musl,
 
             .contiki,
@@ -1863,9 +1877,14 @@ pub const Cpu = struct {
                 .amdgcn => &amdgcn.cpu.gfx906,
                 .arm => switch (os.tag) {
                     .@"3ds" => &arm.cpu.mpcore,
+                    .vita => &arm.cpu.cortex_a9,
                     else => &arm.cpu.baseline,
                 },
-                .armeb, .thumb, .thumbeb => &arm.cpu.baseline,
+                .thumb => switch (os.tag) {
+                    .vita => &arm.cpu.cortex_a9,
+                    else => &arm.cpu.baseline,
+                },
+                .armeb, .thumbeb => &arm.cpu.baseline,
                 .aarch64 => switch (os.tag) {
                     .driverkit, .macos => &aarch64.cpu.apple_m1,
                     .ios, .tvos => &aarch64.cpu.apple_a7,
@@ -2079,6 +2098,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .amdhsa,
         .ps4,
         .ps5,
+        .vita,
         .mesa3d,
         .contiki,
         .amdpal,
@@ -2208,6 +2228,7 @@ pub const DynamicLinker = struct {
             .ps3,
             .ps4,
             .ps5,
+            .vita,
             => .none,
         };
     }
@@ -2578,6 +2599,8 @@ pub const DynamicLinker = struct {
             .windows,
 
             .@"3ds",
+
+            .vita,
 
             .emscripten,
             .wasi,
@@ -3110,6 +3133,13 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
             .long, .ulong => return 64,
             .longlong, .ulonglong, .double => return 64,
             .longdouble => return 80,
+        },
+        .vita => switch (c_type) {
+            .char => return 8,
+            .short, .ushort => return 16,
+            .int, .uint, .float => return 32,
+            .long, .ulong => return 64,
+            .longlong, .ulonglong, .double, .longdouble => return 64,
         },
 
         .ps3,

@@ -200,7 +200,6 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .freebsd => "freebsd",
         .fuchsia => "fuchsia",
         .linux => "linux",
-        .ps3 => "lv2",
         .netbsd => "netbsd",
         .openbsd => "openbsd",
         .solaris, .illumos => "solaris",
@@ -213,8 +212,10 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .nvcl => "nvcl",
         .amdhsa => "amdhsa",
         .opencl => "unknown", // https://llvm.org/docs/SPIRVUsage.html#target-triples
+        .ps3 => "lv2",
         .ps4 => "ps4",
         .ps5 => "ps5",
+        .vita => "unknown", // LLVM doesn't know about this target
         .mesa3d => "mesa3d",
         .amdpal => "amdpal",
         .hermit => "hermit",

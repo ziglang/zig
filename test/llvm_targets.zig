@@ -70,6 +70,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .arm, .os_tag = .rtems, .abi = .eabihf },
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabi },
     // .{ .cpu_arch = .arm, .os_tag = .uefi, .abi = .eabihf },
+    .{ .cpu_arch = .arm, .os_tag = .vita, .abi = .eabihf },
 
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabi },
     .{ .cpu_arch = .armeb, .os_tag = .freestanding, .abi = .eabihf },
@@ -263,6 +264,7 @@ const targets = [_]std.Target.Query{
     .{ .cpu_arch = .thumb, .os_tag = .linux, .abi = .musleabihf },
     .{ .cpu_arch = .thumb, .os_tag = .rtems, .abi = .eabi },
     .{ .cpu_arch = .thumb, .os_tag = .rtems, .abi = .eabihf },
+    .{ .cpu_arch = .thumb, .os_tag = .vita, .abi = .eabihf },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .gnu },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .itanium },
     .{ .cpu_arch = .thumb, .os_tag = .windows, .abi = .msvc },
