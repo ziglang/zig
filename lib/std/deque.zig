@@ -143,7 +143,7 @@ pub fn Deque(comptime T: type) type {
             deque.len += 1;
         }
 
-        /// Add one item to the front of the deque.
+        /// Add one item to the back of the deque.
         ///
         /// Invalidates element pointers if additional memory is needed.
         pub fn pushBack(deque: *Self, gpa: Allocator, item: T) error{OutOfMemory}!void {
