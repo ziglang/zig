@@ -161,22 +161,20 @@ fn discardIndirect(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
 fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
     _ = data;
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
-    return streamIndirectInner(d);
+    const reader = &d.reader;
+    var w: Writer = .{
+        .buffer = reader.buffer,
+        .end = reader.end,
+        .vtable = &.{ .drain = Writer.unreachableDrain },
+    };
+    return streamIndirectInner(d, &w);
 }
 
-fn streamIndirectInner(d: *Decompress) Reader.Error!usize {
+fn streamIndirectInner(d: *Decompress, w: *Writer) Reader.Error!usize {
     const r = &d.reader;
     if (r.buffer.len - r.end < flate.history_len) rebase(r, flate.history_len);
-    var writer: Writer = .{
-        .buffer = r.buffer,
-        .end = r.end,
-        .vtable = &.{
-            .drain = Writer.unreachableDrain,
-            .rebase = Writer.unreachableRebase,
-        },
-    };
-    defer r.end = writer.end;
-    _ = streamFallible(d, &writer, .limited(writer.buffer.len - writer.end)) catch |err| switch (err) {
+    defer r.end = w.end;
+    _ = streamFallible(d, w, .limited(w.buffer.len - w.end)) catch |err| switch (err) {
         error.WriteFailed => unreachable,
         else => |e| return e,
     };
@@ -248,8 +246,7 @@ fn streamDirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!
 fn streamIndirect(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
     const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
     _ = limit;
-    _ = w;
-    return streamIndirectInner(d);
+    return streamIndirectInner(d, w);
 }
 
 fn streamFallible(d: *Decompress, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
