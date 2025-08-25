@@ -7,10 +7,10 @@ const meta = std.meta;
 const clang = @import("clang.zig");
 const aro = @import("aro");
 const CToken = aro.Tokenizer.Token;
-const Node = ast.Node;
-const Tag = Node.Tag;
 const common = @import("aro_translate_c");
 const ast = common.ast;
+const Node = ast.Node;
+const Tag = Node.Tag;
 const Error = common.Error;
 const MacroProcessingError = common.MacroProcessingError;
 const TypeError = common.TypeError;
@@ -5985,10 +5985,11 @@ fn parseCCondExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
     }
     _ = m.next();
 
+    const cond_body = try macroIntToBool(c, node);
     const then_body = try parseCOrExpr(c, m, scope);
     try m.skip(c, .colon);
     const else_body = try parseCCondExpr(c, m, scope);
-    return Tag.@"if".create(c.arena, .{ .cond = node, .then = then_body, .@"else" = else_body });
+    return Tag.@"if".create(c.arena, .{ .cond = cond_body, .then = then_body, .@"else" = else_body });
 }
 
 fn parseCOrExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
