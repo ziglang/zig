@@ -73,7 +73,7 @@ test "parse and render IPv6 addresses" {
         "2001:db8::",
         "::1234:5678",
         "2001:db8::1234:5678",
-        "ff01::fb",
+        "ff01::fb%1234",
         "::ffff:123.5.123.5",
     };
     for (ips, 0..) |ip, i| {
