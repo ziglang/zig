@@ -320,6 +320,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
     var handshake_state: HandshakeState = .hello;
     var handshake_cipher: tls.HandshakeCipher = undefined;
     var main_cert_pub_key: CertificatePublicKey = undefined;
+    var tls12_negotiated_group: ?tls.NamedGroup = null;
     const now_sec = std.time.timestamp();
 
     var cleartext_fragment_start: usize = 0;
@@ -679,6 +680,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         const curve_type = hsd.decode(u8);
                         if (curve_type != 0x03) return error.TlsIllegalParameter; // named_curve
                         const named_group = hsd.decode(tls.NamedGroup);
+                        tls12_negotiated_group = named_group;
                         const key_size = hsd.decode(u8);
                         try hsd.ensure(key_size);
                         const server_pub_key = hsd.slice(key_size);
@@ -691,10 +693,34 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                         if (cipher_state != .cleartext) return error.TlsUnexpectedMessage;
                         if (handshake_state != .server_hello_done) return error.TlsUnexpectedMessage;
 
-                        const client_key_exchange_msg = .{@intFromEnum(tls.ContentType.handshake)} ++
-                            int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
-                            array(u16, u8, .{@intFromEnum(tls.HandshakeType.client_key_exchange)} ++
-                                array(u24, u8, array(u8, u8, key_share.secp256r1_kp.public_key.toUncompressedSec1())));
+                        var client_key_exchange_msg_buf: [256]u8 = undefined;
+                        var client_key_exchange_msg_len: usize = 0;
+
+                        // Build the message header
+                        client_key_exchange_msg_buf[0] = @intFromEnum(tls.ContentType.handshake);
+                        std.mem.writeInt(u16, client_key_exchange_msg_buf[1..3], @intFromEnum(tls.ProtocolVersion.tls_1_2), .big);
+                        client_key_exchange_msg_buf[5] = @intFromEnum(tls.HandshakeType.client_key_exchange);
+
+                        // Add the public key based on negotiated group
+                        const public_key_start = 9;
+                        const public_key_bytes = switch (tls12_negotiated_group orelse .secp256r1) {
+                            .secp256r1 => &key_share.secp256r1_kp.public_key.toUncompressedSec1(),
+                            .secp384r1 => &key_share.secp384r1_kp.public_key.toUncompressedSec1(),
+                            .x25519 => &key_share.x25519_kp.public_key,
+                            else => return error.TlsIllegalParameter,
+                        };
+                        client_key_exchange_msg_buf[public_key_start] = @intCast(public_key_bytes.len);
+                        @memcpy(client_key_exchange_msg_buf[public_key_start + 1 ..][0..public_key_bytes.len], public_key_bytes);
+                        const public_key_len = public_key_bytes.len + 1;
+
+                        // Set handshake message length
+                        std.mem.writeInt(u24, client_key_exchange_msg_buf[6..9], @intCast(public_key_len), .big);
+                        // Set record length
+                        const handshake_payload_len = 4 + public_key_len;
+                        std.mem.writeInt(u16, client_key_exchange_msg_buf[3..5], @intCast(handshake_payload_len), .big);
+                        client_key_exchange_msg_len = 5 + handshake_payload_len;
+
+                        const client_key_exchange_msg = client_key_exchange_msg_buf[0..client_key_exchange_msg_len];
                         const client_change_cipher_spec_msg = .{@intFromEnum(tls.ContentType.change_cipher_spec)} ++
                             int(u16, @intFromEnum(tls.ProtocolVersion.tls_1_2)) ++
                             array(u16, tls.ChangeCipherSpecType, .{.change_cipher_spec});
@@ -758,7 +784,7 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
                                     pv.app_cipher.client_write_key,
                                 );
                                 var all_msgs_vec: [3][]const u8 = .{
-                                    &client_key_exchange_msg,
+                                    client_key_exchange_msg,
                                     &client_change_cipher_spec_msg,
                                     &client_verify_msg,
                                 };
