@@ -41,19 +41,19 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn init(gpa: Allocator) Self {
+        pub fn init(allocator: Allocator) Self {
             return Self{
                 .items = &[_]T{},
                 .capacity = 0,
-                .allocator = gpa,
+                .allocator = allocator,
             };
         }
 
         /// Initialize with capacity to hold `num` elements.
         /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn initCapacity(gpa: Allocator, num: usize) Allocator.Error!Self {
-            var self = Self.init(gpa);
+        pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
+            var self = Self.init(allocator);
             try self.ensureTotalCapacityPrecise(num);
             return self;
         }
@@ -66,24 +66,24 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
-        /// allocated with `gpa`.
+        /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn fromOwnedSlice(gpa: Allocator, slice: Slice) Self {
+        pub fn fromOwnedSlice(allocator: Allocator, slice: Slice) Self {
             return Self{
                 .items = slice,
                 .capacity = slice.len,
-                .allocator = gpa,
+                .allocator = allocator,
             };
         }
 
         /// ArrayList takes ownership of the passed in slice. The slice must have been
-        /// allocated with `gpa`.
+        /// allocated with `allocator`.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn fromOwnedSliceSentinel(gpa: Allocator, comptime sentinel: T, slice: [:sentinel]T) Self {
+        pub fn fromOwnedSliceSentinel(allocator: Allocator, comptime sentinel: T, slice: [:sentinel]T) Self {
             return Self{
                 .items = slice,
                 .capacity = slice.len + 1,
-                .allocator = gpa,
+                .allocator = allocator,
             };
         }
 
@@ -330,10 +330,10 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
         }
 
         pub fn print(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
-            const gpa = self.allocator;
+            const allocator = self.allocator;
             var unmanaged = self.moveToUnmanaged();
-            defer self.* = unmanaged.toManaged(gpa);
-            try unmanaged.print(gpa, fmt, args);
+            defer self.* = unmanaged.toManaged(allocator);
+            try unmanaged.print(allocator, fmt, args);
         }
 
         pub const Writer = if (T != u8) void else std.io.GenericWriter(*Self, Allocator.Error, appendWrite);
@@ -632,9 +632,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Initialize with capacity to hold `num` elements.
         /// The resulting capacity will equal `num` exactly.
         /// Deinitialize with `deinit` or use `toOwnedSlice`.
-        pub fn initCapacity(gpa: Allocator, num: usize) Allocator.Error!Self {
+        pub fn initCapacity(allocator: Allocator, num: usize) Allocator.Error!Self {
             var self = Self{};
-            try self.ensureTotalCapacityPrecise(gpa, num);
+            try self.ensureTotalCapacityPrecise(allocator, num);
             return self;
         }
 
@@ -651,15 +651,15 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Release all allocated memory.
-        pub fn deinit(self: *Self, gpa: Allocator) void {
-            gpa.free(self.allocatedSlice());
+        pub fn deinit(self: *Self, allocator: Allocator) void {
+            allocator.free(self.allocatedSlice());
             self.* = undefined;
         }
 
         /// Convert this list into an analogous memory-managed one.
         /// The returned list has ownership of the underlying memory.
-        pub fn toManaged(self: *Self, gpa: Allocator) AlignedManaged(T, alignment) {
-            return .{ .items = self.items, .capacity = self.capacity, .allocator = gpa };
+        pub fn toManaged(self: *Self, allocator: Allocator) AlignedManaged(T, alignment) {
+            return .{ .items = self.items, .capacity = self.capacity, .allocator = allocator };
         }
 
         /// ArrayList takes ownership of the passed in slice.
@@ -682,31 +682,31 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// The caller owns the returned memory. Empties this ArrayList.
         /// Its capacity is cleared, making deinit() safe but unnecessary to call.
-        pub fn toOwnedSlice(self: *Self, gpa: Allocator) Allocator.Error!Slice {
+        pub fn toOwnedSlice(self: *Self, allocator: Allocator) Allocator.Error!Slice {
             const old_memory = self.allocatedSlice();
-            if (gpa.remap(old_memory, self.items.len)) |new_items| {
+            if (allocator.remap(old_memory, self.items.len)) |new_items| {
                 self.* = .empty;
                 return new_items;
             }
 
-            const new_memory = try gpa.alignedAlloc(T, alignment, self.items.len);
+            const new_memory = try allocator.alignedAlloc(T, alignment, self.items.len);
             @memcpy(new_memory, self.items);
-            self.clearAndFree(gpa);
+            self.clearAndFree(allocator);
             return new_memory;
         }
 
         /// The caller owns the returned memory. ArrayList becomes empty.
-        pub fn toOwnedSliceSentinel(self: *Self, gpa: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
+        pub fn toOwnedSliceSentinel(self: *Self, allocator: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
             // This addition can never overflow because `self.items` can never occupy the whole address space
-            try self.ensureTotalCapacityPrecise(gpa, self.items.len + 1);
+            try self.ensureTotalCapacityPrecise(allocator, self.items.len + 1);
             self.appendAssumeCapacity(sentinel);
-            const result = try self.toOwnedSlice(gpa);
+            const result = try self.toOwnedSlice(allocator);
             return result[0 .. result.len - 1 :sentinel];
         }
 
         /// Creates a copy of this ArrayList.
-        pub fn clone(self: Self, gpa: Allocator) Allocator.Error!Self {
-            var cloned = try Self.initCapacity(gpa, self.capacity);
+        pub fn clone(self: Self, allocator: Allocator) Allocator.Error!Self {
+            var cloned = try Self.initCapacity(allocator, self.capacity);
             cloned.appendSliceAssumeCapacity(self.items);
             return cloned;
         }
@@ -716,8 +716,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// This operation is O(N).
         /// Invalidates element pointers if additional memory is needed.
         /// Asserts that the index is in bounds or equal to the length.
-        pub fn insert(self: *Self, gpa: Allocator, i: usize, item: T) Allocator.Error!void {
-            const dst = try self.addManyAt(gpa, i, 1);
+        pub fn insert(self: *Self, allocator: Allocator, i: usize, item: T) Allocator.Error!void {
+            const dst = try self.addManyAt(allocator, i, 1);
             dst[0] = item;
         }
 
@@ -763,11 +763,11 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Asserts that the index is in bounds or equal to the length.
         pub fn addManyAt(
             self: *Self,
-            gpa: Allocator,
+            allocator: Allocator,
             index: usize,
             count: usize,
         ) Allocator.Error![]T {
-            var managed = self.toManaged(gpa);
+            var managed = self.toManaged(allocator);
             defer self.* = managed.moveToUnmanaged();
             return managed.addManyAt(index, count);
         }
@@ -816,12 +816,12 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Asserts that the index is in bounds or equal to the length.
         pub fn insertSlice(
             self: *Self,
-            gpa: Allocator,
+            allocator: Allocator,
             index: usize,
             items: []const T,
         ) Allocator.Error!void {
             const dst = try self.addManyAt(
-                gpa,
+                allocator,
                 index,
                 items.len,
             );
@@ -833,7 +833,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Asserts that the range is in bounds.
         pub fn replaceRange(
             self: *Self,
-            gpa: Allocator,
+            allocator: Allocator,
             start: usize,
             len: usize,
             new_items: []const T,
@@ -844,7 +844,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
                 const first = new_items[0..range.len];
                 const rest = new_items[range.len..];
                 @memcpy(range[0..first.len], first);
-                try self.insertSlice(gpa, after_range, rest);
+                try self.insertSlice(allocator, after_range, rest);
             } else {
                 self.replaceRangeAssumeCapacity(start, len, new_items);
             }
@@ -890,8 +890,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Extend the list by 1 element. Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn append(self: *Self, gpa: Allocator, item: T) Allocator.Error!void {
-            const new_item_ptr = try self.addOne(gpa);
+        pub fn append(self: *Self, allocator: Allocator, item: T) Allocator.Error!void {
+            const new_item_ptr = try self.addOne(allocator);
             new_item_ptr.* = item;
         }
 
@@ -971,8 +971,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Append the slice of items to the list. Allocates more
         /// memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn appendSlice(self: *Self, gpa: Allocator, items: []const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(gpa, items.len);
+        pub fn appendSlice(self: *Self, allocator: Allocator, items: []const T) Allocator.Error!void {
+            try self.ensureUnusedCapacity(allocator, items.len);
             self.appendSliceAssumeCapacity(items);
         }
 
@@ -999,8 +999,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// memory as necessary. Only call this function if a call to `appendSlice` instead would
         /// be a compile error.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn appendUnalignedSlice(self: *Self, gpa: Allocator, items: []align(1) const T) Allocator.Error!void {
-            try self.ensureUnusedCapacity(gpa, items.len);
+        pub fn appendUnalignedSlice(self: *Self, allocator: Allocator, items: []align(1) const T) Allocator.Error!void {
+            try self.ensureUnusedCapacity(allocator, items.len);
             self.appendUnalignedSliceAssumeCapacity(items);
         }
 
@@ -1030,10 +1030,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             return appendUnalignedSliceAssumeCapacity(self, items);
         }
 
-        pub fn print(self: *Self, gpa: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
+        pub fn print(self: *Self, allocator: Allocator, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
-            try self.ensureUnusedCapacity(gpa, fmt.len);
-            var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, self);
+            try self.ensureUnusedCapacity(allocator, fmt.len);
+            var aw: std.Io.Writer.Allocating = .fromArrayList(allocator, self);
             defer self.* = aw.toArrayList();
             return aw.writer.print(fmt, args) catch |err| switch (err) {
                 error.WriteFailed => return error.OutOfMemory,
@@ -1068,8 +1068,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             std.io.GenericWriter(WriterContext, Allocator.Error, appendWrite);
 
         /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub fn writer(self: *Self, gpa: Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = gpa } };
+        pub fn writer(self: *Self, allocator: Allocator) Writer {
+            return .{ .context = .{ .self = self, .allocator = allocator } };
         }
 
         /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
@@ -1101,9 +1101,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Invalidates element pointers if additional memory is needed.
         /// The function is inline so that a comptime-known `value` parameter will
         /// have a more optimal memset codegen in case it has a repeated byte pattern.
-        pub inline fn appendNTimes(self: *Self, gpa: Allocator, value: T, n: usize) Allocator.Error!void {
+        pub inline fn appendNTimes(self: *Self, allocator: Allocator, value: T, n: usize) Allocator.Error!void {
             const old_len = self.items.len;
-            try self.resize(gpa, try addOrOom(old_len, n));
+            try self.resize(allocator, try addOrOom(old_len, n));
             @memset(self.items[old_len..self.items.len], value);
         }
 
@@ -1141,15 +1141,15 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Adjust the list length to `new_len`.
         /// Additional elements contain the value `undefined`.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn resize(self: *Self, gpa: Allocator, new_len: usize) Allocator.Error!void {
-            try self.ensureTotalCapacity(gpa, new_len);
+        pub fn resize(self: *Self, allocator: Allocator, new_len: usize) Allocator.Error!void {
+            try self.ensureTotalCapacity(allocator, new_len);
             self.items.len = new_len;
         }
 
         /// Reduce allocated capacity to `new_len`.
         /// May invalidate element pointers.
         /// Asserts that the new length is less than or equal to the previous length.
-        pub fn shrinkAndFree(self: *Self, gpa: Allocator, new_len: usize) void {
+        pub fn shrinkAndFree(self: *Self, allocator: Allocator, new_len: usize) void {
             assert(new_len <= self.items.len);
 
             if (@sizeOf(T) == 0) {
@@ -1158,13 +1158,13 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             }
 
             const old_memory = self.allocatedSlice();
-            if (gpa.remap(old_memory, new_len)) |new_items| {
+            if (allocator.remap(old_memory, new_len)) |new_items| {
                 self.capacity = new_items.len;
                 self.items = new_items;
                 return;
             }
 
-            const new_memory = gpa.alignedAlloc(T, alignment, new_len) catch |e| switch (e) {
+            const new_memory = allocator.alignedAlloc(T, alignment, new_len) catch |e| switch (e) {
                 error.OutOfMemory => {
                     // No problem, capacity is still correct then.
                     self.items.len = new_len;
@@ -1173,7 +1173,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             };
 
             @memcpy(new_memory, self.items[0..new_len]);
-            gpa.free(old_memory);
+            allocator.free(old_memory);
             self.items = new_memory;
             self.capacity = new_memory.len;
         }
@@ -1193,8 +1193,8 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         }
 
         /// Invalidates all element pointers.
-        pub fn clearAndFree(self: *Self, gpa: Allocator) void {
-            gpa.free(self.allocatedSlice());
+        pub fn clearAndFree(self: *Self, allocator: Allocator) void {
+            allocator.free(self.allocatedSlice());
             self.items.len = 0;
             self.capacity = 0;
         }
@@ -1202,15 +1202,15 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Modify the array so that it can hold at least `new_capacity` items.
         /// Implements super-linear growth to achieve amortized O(1) append operations.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacity(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn ensureTotalCapacity(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (self.capacity >= new_capacity) return;
-            return self.ensureTotalCapacityPrecise(gpa, growCapacity(self.capacity, new_capacity));
+            return self.ensureTotalCapacityPrecise(allocator, growCapacity(self.capacity, new_capacity));
         }
 
         /// If the current capacity is less than `new_capacity`, this function will
         /// modify the array so that it can hold exactly `new_capacity` items.
         /// Invalidates element pointers if additional memory is needed.
-        pub fn ensureTotalCapacityPrecise(self: *Self, gpa: Allocator, new_capacity: usize) Allocator.Error!void {
+        pub fn ensureTotalCapacityPrecise(self: *Self, allocator: Allocator, new_capacity: usize) Allocator.Error!void {
             if (@sizeOf(T) == 0) {
                 self.capacity = math.maxInt(usize);
                 return;
@@ -1224,13 +1224,13 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             // the allocator implementation would pointlessly copy our
             // extra capacity.
             const old_memory = self.allocatedSlice();
-            if (gpa.remap(old_memory, new_capacity)) |new_memory| {
+            if (allocator.remap(old_memory, new_capacity)) |new_memory| {
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;
             } else {
-                const new_memory = try gpa.alignedAlloc(T, alignment, new_capacity);
+                const new_memory = try allocator.alignedAlloc(T, alignment, new_capacity);
                 @memcpy(new_memory[0..self.items.len], self.items);
-                gpa.free(old_memory);
+                allocator.free(old_memory);
                 self.items.ptr = new_memory.ptr;
                 self.capacity = new_memory.len;
             }
@@ -1240,10 +1240,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Invalidates element pointers if additional memory is needed.
         pub fn ensureUnusedCapacity(
             self: *Self,
-            gpa: Allocator,
+            allocator: Allocator,
             additional_count: usize,
         ) Allocator.Error!void {
-            return self.ensureTotalCapacity(gpa, try addOrOom(self.items.len, additional_count));
+            return self.ensureTotalCapacity(allocator, try addOrOom(self.items.len, additional_count));
         }
 
         /// Increases the array's length to match the full capacity that is already allocated.
@@ -1255,10 +1255,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Increase length by 1, returning pointer to the new item.
         /// The returned element pointer becomes invalid when the list is resized.
-        pub fn addOne(self: *Self, gpa: Allocator) Allocator.Error!*T {
+        pub fn addOne(self: *Self, allocator: Allocator) Allocator.Error!*T {
             // This can never overflow because `self.items` can never occupy the whole address space
             const newlen = self.items.len + 1;
-            try self.ensureTotalCapacity(gpa, newlen);
+            try self.ensureTotalCapacity(allocator, newlen);
             return self.addOneAssumeCapacity();
         }
 
@@ -1291,9 +1291,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// Resize the array, adding `n` new elements, which have `undefined` values.
         /// The return value is an array pointing to the newly allocated elements.
         /// The returned pointer becomes invalid when the list is resized.
-        pub fn addManyAsArray(self: *Self, gpa: Allocator, comptime n: usize) Allocator.Error!*[n]T {
+        pub fn addManyAsArray(self: *Self, allocator: Allocator, comptime n: usize) Allocator.Error!*[n]T {
             const prev_len = self.items.len;
-            try self.resize(gpa, try addOrOom(self.items.len, n));
+            try self.resize(allocator, try addOrOom(self.items.len, n));
             return self.items[prev_len..][0..n];
         }
 
@@ -1332,9 +1332,9 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
         /// The return value is a slice pointing to the newly allocated elements.
         /// The returned pointer becomes invalid when the list is resized.
         /// Resizes list if `self.capacity` is not large enough.
-        pub fn addManyAsSlice(self: *Self, gpa: Allocator, n: usize) Allocator.Error![]T {
+        pub fn addManyAsSlice(self: *Self, allocator: Allocator, n: usize) Allocator.Error![]T {
             const prev_len = self.items.len;
-            try self.resize(gpa, try addOrOom(self.items.len, n));
+            try self.resize(allocator, try addOrOom(self.items.len, n));
             return self.items[prev_len..][0..n];
         }
 
@@ -2438,13 +2438,13 @@ test "return OutOfMemory when capacity would exceed maximum usize integer value"
 }
 
 test "orderedRemoveMany" {
-    const gpa = testing.allocator;
+    const allocator = testing.allocator;
 
     var list: Aligned(usize, null) = .empty;
-    defer list.deinit(gpa);
+    defer list.deinit(allocator);
 
     for (0..10) |n| {
-        try list.append(gpa, n);
+        try list.append(allocator, n);
     }
 
     list.orderedRemoveMany(&.{ 1, 5, 5, 7, 9 });
