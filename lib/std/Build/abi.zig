@@ -138,6 +138,26 @@ pub const Rebuild = extern struct {
 
 /// ABI bits specifically relating to the fuzzer interface.
 pub const fuzz = struct {
+    pub const TestOne = *const fn (Slice) callconv(.c) void;
+    pub extern fn fuzzer_init(cache_dir_path: Slice) void;
+    pub extern fn fuzzer_coverage_id() u64;
+    pub extern fn fuzzer_init_test(test_one: TestOne, unit_test_name: Slice) void;
+    pub extern fn fuzzer_new_input(bytes: Slice) void;
+    pub extern fn fuzzer_main() void;
+
+    pub const Slice = extern struct {
+        ptr: [*]const u8,
+        len: usize,
+
+        pub fn toSlice(s: Slice) []const u8 {
+            return s.ptr[0..s.len];
+        }
+
+        pub fn fromSlice(s: []const u8) Slice {
+            return .{ .ptr = s.ptr, .len = s.len };
+        }
+    };
+
     /// libfuzzer uses this and its usize is the one that counts. To match the ABI,
     /// make the ints be the size of the target used with libfuzzer.
     ///
