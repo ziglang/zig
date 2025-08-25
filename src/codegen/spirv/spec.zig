@@ -874,6 +874,7 @@ pub const OperandKind = enum {
                 .{ .name = "HostAccessINTEL", .value = 6188, .parameters = &.{ .host_access_qualifier, .literal_string } },
                 .{ .name = "InitModeINTEL", .value = 6190, .parameters = &.{.initialization_mode_qualifier} },
                 .{ .name = "ImplementInRegisterMapINTEL", .value = 6191, .parameters = &.{.literal_integer} },
+                .{ .name = "ConditionalINTEL", .value = 6247, .parameters = &.{.id_ref} },
                 .{ .name = "CacheControlLoadINTEL", .value = 6442, .parameters = &.{ .literal_integer, .load_cache_control } },
                 .{ .name = "CacheControlStoreINTEL", .value = 6443, .parameters = &.{ .literal_integer, .store_cache_control } },
             },
@@ -1144,6 +1145,7 @@ pub const OperandKind = enum {
                 .{ .name = "TextureBoxFilterQCOM", .value = 4485, .parameters = &.{} },
                 .{ .name = "TextureBlockMatchQCOM", .value = 4486, .parameters = &.{} },
                 .{ .name = "TileShadingQCOM", .value = 4495, .parameters = &.{} },
+                .{ .name = "CooperativeMatrixConversionQCOM", .value = 4496, .parameters = &.{} },
                 .{ .name = "TextureBlockMatch2QCOM", .value = 4498, .parameters = &.{} },
                 .{ .name = "Float16ImageAMD", .value = 5008, .parameters = &.{} },
                 .{ .name = "ImageGatherBiasLodAMD", .value = 5009, .parameters = &.{} },
@@ -1293,6 +1295,8 @@ pub const OperandKind = enum {
                 .{ .name = "Subgroup2DBlockTransposeINTEL", .value = 6230, .parameters = &.{} },
                 .{ .name = "SubgroupMatrixMultiplyAccumulateINTEL", .value = 6236, .parameters = &.{} },
                 .{ .name = "TernaryBitwiseFunctionINTEL", .value = 6241, .parameters = &.{} },
+                .{ .name = "SpecConditionalINTEL", .value = 6245, .parameters = &.{} },
+                .{ .name = "FunctionVariantsINTEL", .value = 6246, .parameters = &.{} },
                 .{ .name = "GroupUniformArithmeticKHR", .value = 6400, .parameters = &.{} },
                 .{ .name = "TensorFloat32RoundingINTEL", .value = 6425, .parameters = &.{} },
                 .{ .name = "MaskedGatherScatterINTEL", .value = 6427, .parameters = &.{} },
@@ -1817,6 +1821,7 @@ pub const Opcode = enum(u16) {
     OpGroupNonUniformRotateKHR = 4431,
     OpSubgroupReadInvocationKHR = 4432,
     OpExtInstWithForwardRefsKHR = 4433,
+    OpUntypedGroupAsyncCopyKHR = 4434,
     OpTraceRayKHR = 4445,
     OpExecuteCallableKHR = 4446,
     OpConvertUToAccelerationStructureKHR = 4447,
@@ -1847,10 +1852,14 @@ pub const Opcode = enum(u16) {
     OpImageBoxFilterQCOM = 4481,
     OpImageBlockMatchSSDQCOM = 4482,
     OpImageBlockMatchSADQCOM = 4483,
+    OpBitCastArrayQCOM = 4497,
     OpImageBlockMatchWindowSSDQCOM = 4500,
     OpImageBlockMatchWindowSADQCOM = 4501,
     OpImageBlockMatchGatherSSDQCOM = 4502,
     OpImageBlockMatchGatherSADQCOM = 4503,
+    OpCompositeConstructCoopMatQCOM = 4540,
+    OpCompositeExtractCoopMatQCOM = 4541,
+    OpExtractSubArrayQCOM = 4542,
     OpGroupIAddNonUniformAMD = 5000,
     OpGroupFAddNonUniformAMD = 5001,
     OpGroupFMinNonUniformAMD = 5002,
@@ -2053,6 +2062,13 @@ pub const Opcode = enum(u16) {
     OpSubgroup2DBlockStoreINTEL = 6235,
     OpSubgroupMatrixMultiplyAccumulateINTEL = 6237,
     OpBitwiseFunctionINTEL = 6242,
+    OpConditionalExtensionINTEL = 6248,
+    OpConditionalEntryPointINTEL = 6249,
+    OpConditionalCapabilityINTEL = 6250,
+    OpSpecConstantTargetINTEL = 6251,
+    OpSpecConstantArchitectureINTEL = 6252,
+    OpSpecConstantCapabilitiesINTEL = 6253,
+    OpConditionalCopyObjectINTEL = 6254,
     OpGroupIMulKHR = 6401,
     OpGroupFMulKHR = 6402,
     OpGroupBitwiseAndKHR = 6403,
@@ -2380,7 +2396,7 @@ pub const Opcode = enum(u16) {
             .OpGroupNonUniformAll => struct { id_result_type: Id, id_result: Id, execution: Id, predicate: Id },
             .OpGroupNonUniformAny => struct { id_result_type: Id, id_result: Id, execution: Id, predicate: Id },
             .OpGroupNonUniformAllEqual => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id },
-            .OpGroupNonUniformBroadcast => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, id: Id },
+            .OpGroupNonUniformBroadcast => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, invocation_id: Id },
             .OpGroupNonUniformBroadcastFirst => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id },
             .OpGroupNonUniformBallot => struct { id_result_type: Id, id_result: Id, execution: Id, predicate: Id },
             .OpGroupNonUniformInverseBallot => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id },
@@ -2388,7 +2404,7 @@ pub const Opcode = enum(u16) {
             .OpGroupNonUniformBallotBitCount => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, value: Id },
             .OpGroupNonUniformBallotFindLSB => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id },
             .OpGroupNonUniformBallotFindMSB => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id },
-            .OpGroupNonUniformShuffle => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, id: Id },
+            .OpGroupNonUniformShuffle => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, invocation_id: Id },
             .OpGroupNonUniformShuffleXor => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, mask: Id },
             .OpGroupNonUniformShuffleUp => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, delta: Id },
             .OpGroupNonUniformShuffleDown => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, delta: Id },
@@ -2445,6 +2461,7 @@ pub const Opcode = enum(u16) {
             .OpGroupNonUniformRotateKHR => struct { id_result_type: Id, id_result: Id, execution: Id, value: Id, delta: Id, cluster_size: ?Id = null },
             .OpSubgroupReadInvocationKHR => struct { id_result_type: Id, id_result: Id, value: Id, index: Id },
             .OpExtInstWithForwardRefsKHR => struct { id_result_type: Id, id_result: Id, set: Id, instruction: LiteralExtInstInteger, id_ref_4: []const Id = &.{} },
+            .OpUntypedGroupAsyncCopyKHR => struct { id_result_type: Id, id_result: Id, execution: Id, destination: Id, source: Id, element_num_bytes: Id, num_elements: Id, stride: Id, event: Id, destination_memory_operands: ?MemoryAccess.Extended = null, source_memory_operands: ?MemoryAccess.Extended = null },
             .OpTraceRayKHR => struct { accel: Id, ray_flags: Id, cull_mask: Id, sbt_offset: Id, sbt_stride: Id, miss_index: Id, ray_origin: Id, ray_tmin: Id, ray_direction: Id, ray_tmax: Id, payload: Id },
             .OpExecuteCallableKHR => struct { sbt_index: Id, callable_data: Id },
             .OpConvertUToAccelerationStructureKHR => struct { id_result_type: Id, id_result: Id, accel: Id },
@@ -2475,10 +2492,14 @@ pub const Opcode = enum(u16) {
             .OpImageBoxFilterQCOM => struct { id_result_type: Id, id_result: Id, texture: Id, coordinates: Id, box_size: Id },
             .OpImageBlockMatchSSDQCOM => struct { id_result_type: Id, id_result: Id, target: Id, target_coordinates: Id, reference: Id, reference_coordinates: Id, block_size: Id },
             .OpImageBlockMatchSADQCOM => struct { id_result_type: Id, id_result: Id, target: Id, target_coordinates: Id, reference: Id, reference_coordinates: Id, block_size: Id },
+            .OpBitCastArrayQCOM => struct { id_result_type: Id, id_result: Id, source_array: Id },
             .OpImageBlockMatchWindowSSDQCOM => struct { id_result_type: Id, id_result: Id, target_sampled_image: Id, target_coordinates: Id, reference_sampled_image: Id, reference_coordinates: Id, block_size: Id },
             .OpImageBlockMatchWindowSADQCOM => struct { id_result_type: Id, id_result: Id, target_sampled_image: Id, target_coordinates: Id, reference_sampled_image: Id, reference_coordinates: Id, block_size: Id },
             .OpImageBlockMatchGatherSSDQCOM => struct { id_result_type: Id, id_result: Id, target_sampled_image: Id, target_coordinates: Id, reference_sampled_image: Id, reference_coordinates: Id, block_size: Id },
             .OpImageBlockMatchGatherSADQCOM => struct { id_result_type: Id, id_result: Id, target_sampled_image: Id, target_coordinates: Id, reference_sampled_image: Id, reference_coordinates: Id, block_size: Id },
+            .OpCompositeConstructCoopMatQCOM => struct { id_result_type: Id, id_result: Id, source_array: Id },
+            .OpCompositeExtractCoopMatQCOM => struct { id_result_type: Id, id_result: Id, source_cooperative_matrix: Id },
+            .OpExtractSubArrayQCOM => struct { id_result_type: Id, id_result: Id, source_array: Id, index: Id },
             .OpGroupIAddNonUniformAMD => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
             .OpGroupFAddNonUniformAMD => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
             .OpGroupFMinNonUniformAMD => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
@@ -2681,6 +2702,13 @@ pub const Opcode = enum(u16) {
             .OpSubgroup2DBlockStoreINTEL => struct { element_size: Id, block_width: Id, block_height: Id, block_count: Id, src_pointer: Id, dst_base_pointer: Id, memory_width: Id, memory_height: Id, memory_pitch: Id, coordinate: Id },
             .OpSubgroupMatrixMultiplyAccumulateINTEL => struct { id_result_type: Id, id_result: Id, k_dim: Id, matrix_a: Id, matrix_b: Id, matrix_c: Id, matrix_multiply_accumulate_operands: ?MatrixMultiplyAccumulateOperands = null },
             .OpBitwiseFunctionINTEL => struct { id_result_type: Id, id_result: Id, a: Id, b: Id, c: Id, lut_index: Id },
+            .OpConditionalExtensionINTEL => struct { condition: Id, name: LiteralString },
+            .OpConditionalEntryPointINTEL => struct { condition: Id, execution_model: ExecutionModel, entry_point: Id, name: LiteralString, interface: []const Id = &.{} },
+            .OpConditionalCapabilityINTEL => struct { condition: Id, capability: Capability },
+            .OpSpecConstantTargetINTEL => struct { id_result_type: Id, id_result: Id, target: LiteralInteger, features: []const LiteralInteger = &.{} },
+            .OpSpecConstantArchitectureINTEL => struct { id_result_type: Id, id_result: Id, category: LiteralInteger, family: LiteralInteger, opcode: LiteralInteger, architecture: LiteralInteger },
+            .OpSpecConstantCapabilitiesINTEL => struct { id_result_type: Id, id_result: Id, capabilities: []const Capability = &.{} },
+            .OpConditionalCopyObjectINTEL => struct { id_result_type: Id, id_result: Id, id_ref: []const Id = &.{} },
             .OpGroupIMulKHR => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
             .OpGroupFMulKHR => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
             .OpGroupBitwiseAndKHR => struct { id_result_type: Id, id_result: Id, execution: Id, operation: GroupOperation, x: Id },
@@ -3074,6 +3102,7 @@ pub const Opcode = enum(u16) {
             .OpGroupNonUniformRotateKHR => .group,
             .OpSubgroupReadInvocationKHR => .group,
             .OpExtInstWithForwardRefsKHR => .extension,
+            .OpUntypedGroupAsyncCopyKHR => .group,
             .OpTraceRayKHR => .reserved,
             .OpExecuteCallableKHR => .reserved,
             .OpConvertUToAccelerationStructureKHR => .reserved,
@@ -3104,10 +3133,14 @@ pub const Opcode = enum(u16) {
             .OpImageBoxFilterQCOM => .image,
             .OpImageBlockMatchSSDQCOM => .image,
             .OpImageBlockMatchSADQCOM => .image,
+            .OpBitCastArrayQCOM => .conversion,
             .OpImageBlockMatchWindowSSDQCOM => .image,
             .OpImageBlockMatchWindowSADQCOM => .image,
             .OpImageBlockMatchGatherSSDQCOM => .image,
             .OpImageBlockMatchGatherSADQCOM => .image,
+            .OpCompositeConstructCoopMatQCOM => .composite,
+            .OpCompositeExtractCoopMatQCOM => .composite,
+            .OpExtractSubArrayQCOM => .composite,
             .OpGroupIAddNonUniformAMD => .group,
             .OpGroupFAddNonUniformAMD => .group,
             .OpGroupFMinNonUniformAMD => .group,
@@ -3310,6 +3343,13 @@ pub const Opcode = enum(u16) {
             .OpSubgroup2DBlockStoreINTEL => .group,
             .OpSubgroupMatrixMultiplyAccumulateINTEL => .group,
             .OpBitwiseFunctionINTEL => .bit,
+            .OpConditionalExtensionINTEL => .extension,
+            .OpConditionalEntryPointINTEL => .mode_setting,
+            .OpConditionalCapabilityINTEL => .mode_setting,
+            .OpSpecConstantTargetINTEL => .constant_creation,
+            .OpSpecConstantArchitectureINTEL => .constant_creation,
+            .OpSpecConstantCapabilitiesINTEL => .constant_creation,
+            .OpConditionalCopyObjectINTEL => .composite,
             .OpGroupIMulKHR => .group,
             .OpGroupFMulKHR => .group,
             .OpGroupBitwiseAndKHR => .group,
@@ -4647,6 +4687,7 @@ pub const Decoration = enum(u32) {
     host_access_intel = 6188,
     init_mode_intel = 6190,
     implement_in_register_map_intel = 6191,
+    conditional_intel = 6247,
     cache_control_load_intel = 6442,
     cache_control_store_intel = 6443,
 
@@ -4792,6 +4833,7 @@ pub const Decoration = enum(u32) {
         host_access_intel: struct { access: HostAccessQualifier, name: LiteralString },
         init_mode_intel: struct { trigger: InitializationModeQualifier },
         implement_in_register_map_intel: struct { value: LiteralInteger },
+        conditional_intel: struct { condition: Id },
         cache_control_load_intel: struct { cache_level: LiteralInteger, cache_control: LoadCacheControl },
         cache_control_store_intel: struct { cache_level: LiteralInteger, cache_control: StoreCacheControl },
     };
@@ -5063,6 +5105,7 @@ pub const Capability = enum(u32) {
     texture_box_filter_qcom = 4485,
     texture_block_match_qcom = 4486,
     tile_shading_qcom = 4495,
+    cooperative_matrix_conversion_qcom = 4496,
     texture_block_match2qcom = 4498,
     float16image_amd = 5008,
     image_gather_bias_lod_amd = 5009,
@@ -5212,12 +5255,1050 @@ pub const Capability = enum(u32) {
     subgroup2d_block_transpose_intel = 6230,
     subgroup_matrix_multiply_accumulate_intel = 6236,
     ternary_bitwise_function_intel = 6241,
+    spec_conditional_intel = 6245,
+    function_variants_intel = 6246,
     group_uniform_arithmetic_khr = 6400,
     tensor_float32rounding_intel = 6425,
     masked_gather_scatter_intel = 6427,
     cache_controls_intel = 6441,
     register_limits_intel = 6460,
     bindless_images_intel = 6528,
+
+    pub fn dependencies(self: Capability) []const Extension {
+        return switch (self) {
+            .matrix => &.{
+                .v1_0,
+            },
+            .shader => &.{
+                .v1_0,
+            },
+            .geometry => &.{
+                .v1_0,
+            },
+            .tessellation => &.{
+                .v1_0,
+            },
+            .addresses => &.{
+                .v1_0,
+            },
+            .linkage => &.{
+                .v1_0,
+            },
+            .kernel => &.{
+                .v1_0,
+            },
+            .vector16 => &.{
+                .v1_0,
+            },
+            .float16buffer => &.{
+                .v1_0,
+            },
+            .float16 => &.{
+                .v1_0,
+            },
+            .float64 => &.{
+                .v1_0,
+            },
+            .int64 => &.{
+                .v1_0,
+            },
+            .int64atomics => &.{
+                .v1_0,
+            },
+            .image_basic => &.{
+                .v1_0,
+            },
+            .image_read_write => &.{
+                .v1_0,
+            },
+            .image_mipmap => &.{
+                .v1_0,
+            },
+            .pipes => &.{
+                .v1_0,
+            },
+            .groups => &.{
+                .v1_0,
+                .SPV_AMD_shader_ballot,
+            },
+            .device_enqueue => &.{
+                .v1_0,
+            },
+            .literal_sampler => &.{
+                .v1_0,
+            },
+            .atomic_storage => &.{
+                .v1_0,
+            },
+            .int16 => &.{
+                .v1_0,
+            },
+            .tessellation_point_size => &.{
+                .v1_0,
+            },
+            .geometry_point_size => &.{
+                .v1_0,
+            },
+            .image_gather_extended => &.{
+                .v1_0,
+            },
+            .storage_image_multisample => &.{
+                .v1_0,
+            },
+            .uniform_buffer_array_dynamic_indexing => &.{
+                .v1_0,
+            },
+            .sampled_image_array_dynamic_indexing => &.{
+                .v1_0,
+            },
+            .storage_buffer_array_dynamic_indexing => &.{
+                .v1_0,
+            },
+            .storage_image_array_dynamic_indexing => &.{
+                .v1_0,
+            },
+            .clip_distance => &.{
+                .v1_0,
+            },
+            .cull_distance => &.{
+                .v1_0,
+            },
+            .image_cube_array => &.{
+                .v1_0,
+            },
+            .sample_rate_shading => &.{
+                .v1_0,
+            },
+            .image_rect => &.{
+                .v1_0,
+            },
+            .sampled_rect => &.{
+                .v1_0,
+            },
+            .generic_pointer => &.{
+                .v1_0,
+            },
+            .int8 => &.{
+                .v1_0,
+            },
+            .input_attachment => &.{
+                .v1_0,
+            },
+            .sparse_residency => &.{
+                .v1_0,
+            },
+            .min_lod => &.{
+                .v1_0,
+            },
+            .sampled1d => &.{
+                .v1_0,
+            },
+            .image1d => &.{
+                .v1_0,
+            },
+            .sampled_cube_array => &.{
+                .v1_0,
+            },
+            .sampled_buffer => &.{
+                .v1_0,
+            },
+            .image_buffer => &.{
+                .v1_0,
+            },
+            .image_ms_array => &.{
+                .v1_0,
+            },
+            .storage_image_extended_formats => &.{
+                .v1_0,
+            },
+            .image_query => &.{
+                .v1_0,
+            },
+            .derivative_control => &.{
+                .v1_0,
+            },
+            .interpolation_function => &.{
+                .v1_0,
+            },
+            .transform_feedback => &.{
+                .v1_0,
+            },
+            .geometry_streams => &.{
+                .v1_0,
+            },
+            .storage_image_read_without_format => &.{
+                .v1_0,
+            },
+            .storage_image_write_without_format => &.{
+                .v1_0,
+            },
+            .multi_viewport => &.{
+                .v1_0,
+            },
+            .subgroup_dispatch => &.{
+                .v1_1,
+            },
+            .named_barrier => &.{
+                .v1_1,
+            },
+            .pipe_storage => &.{
+                .v1_1,
+            },
+            .group_non_uniform => &.{
+                .v1_3,
+            },
+            .group_non_uniform_vote => &.{
+                .v1_3,
+            },
+            .group_non_uniform_arithmetic => &.{
+                .v1_3,
+            },
+            .group_non_uniform_ballot => &.{
+                .v1_3,
+            },
+            .group_non_uniform_shuffle => &.{
+                .v1_3,
+            },
+            .group_non_uniform_shuffle_relative => &.{
+                .v1_3,
+            },
+            .group_non_uniform_clustered => &.{
+                .v1_3,
+            },
+            .group_non_uniform_quad => &.{
+                .v1_3,
+            },
+            .shader_layer => &.{
+                .v1_5,
+            },
+            .shader_viewport_index => &.{
+                .v1_5,
+            },
+            .uniform_decoration => &.{
+                .v1_6,
+            },
+            .core_builtins_arm => &.{
+                .v1_0,
+                .SPV_ARM_core_builtins,
+            },
+            .tile_image_color_read_access_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_tile_image,
+            },
+            .tile_image_depth_read_access_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_tile_image,
+            },
+            .tile_image_stencil_read_access_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_tile_image,
+            },
+            .tensors_arm => &.{
+                .v1_0,
+                .SPV_ARM_tensors,
+            },
+            .storage_tensor_array_dynamic_indexing_arm => &.{
+                .v1_0,
+                .SPV_ARM_tensors,
+            },
+            .storage_tensor_array_non_uniform_indexing_arm => &.{
+                .v1_0,
+                .SPV_ARM_tensors,
+            },
+            .graph_arm => &.{
+                .v1_0,
+                .SPV_ARM_graph,
+            },
+            .cooperative_matrix_layouts_arm => &.{
+                .v1_0,
+                .SPV_ARM_cooperative_matrix_layouts,
+            },
+            .float8ext => &.{
+                .v1_0,
+                .SPV_EXT_float8,
+            },
+            .float8cooperative_matrix_ext => &.{
+                .v1_0,
+                .SPV_EXT_float8,
+            },
+            .fragment_shading_rate_khr => &.{
+                .v1_0,
+                .SPV_KHR_fragment_shading_rate,
+            },
+            .subgroup_ballot_khr => &.{
+                .v1_0,
+                .SPV_KHR_shader_ballot,
+            },
+            .draw_parameters => &.{
+                .v1_3,
+                .SPV_KHR_shader_draw_parameters,
+            },
+            .workgroup_memory_explicit_layout_khr => &.{
+                .v1_0,
+                .SPV_KHR_workgroup_memory_explicit_layout,
+            },
+            .workgroup_memory_explicit_layout8bit_access_khr => &.{
+                .v1_0,
+                .SPV_KHR_workgroup_memory_explicit_layout,
+            },
+            .workgroup_memory_explicit_layout16bit_access_khr => &.{
+                .v1_0,
+                .SPV_KHR_workgroup_memory_explicit_layout,
+            },
+            .subgroup_vote_khr => &.{
+                .v1_0,
+                .SPV_KHR_subgroup_vote,
+            },
+            .storage_buffer16bit_access => &.{
+                .v1_3,
+                .SPV_KHR_16bit_storage,
+            },
+            .uniform_and_storage_buffer16bit_access => &.{
+                .v1_3,
+                .SPV_KHR_16bit_storage,
+            },
+            .storage_push_constant16 => &.{
+                .v1_3,
+                .SPV_KHR_16bit_storage,
+            },
+            .storage_input_output16 => &.{
+                .v1_3,
+                .SPV_KHR_16bit_storage,
+            },
+            .device_group => &.{
+                .v1_3,
+                .SPV_KHR_device_group,
+            },
+            .multi_view => &.{
+                .v1_3,
+                .SPV_KHR_multiview,
+            },
+            .variable_pointers_storage_buffer => &.{
+                .v1_3,
+                .SPV_KHR_variable_pointers,
+            },
+            .variable_pointers => &.{
+                .v1_3,
+                .SPV_KHR_variable_pointers,
+            },
+            .atomic_storage_ops => &.{
+                .v1_0,
+                .SPV_KHR_shader_atomic_counter_ops,
+            },
+            .sample_mask_post_depth_coverage => &.{
+                .v1_0,
+                .SPV_KHR_post_depth_coverage,
+            },
+            .storage_buffer8bit_access => &.{
+                .v1_5,
+                .SPV_KHR_8bit_storage,
+            },
+            .uniform_and_storage_buffer8bit_access => &.{
+                .v1_5,
+                .SPV_KHR_8bit_storage,
+            },
+            .storage_push_constant8 => &.{
+                .v1_5,
+                .SPV_KHR_8bit_storage,
+            },
+            .denorm_preserve => &.{
+                .v1_4,
+                .SPV_KHR_float_controls,
+            },
+            .denorm_flush_to_zero => &.{
+                .v1_4,
+                .SPV_KHR_float_controls,
+            },
+            .signed_zero_inf_nan_preserve => &.{
+                .v1_4,
+                .SPV_KHR_float_controls,
+            },
+            .rounding_mode_rte => &.{
+                .v1_4,
+                .SPV_KHR_float_controls,
+            },
+            .rounding_mode_rtz => &.{
+                .v1_4,
+                .SPV_KHR_float_controls,
+            },
+            .ray_query_provisional_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_query,
+            },
+            .ray_query_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_query,
+            },
+            .untyped_pointers_khr => &.{
+                .v1_0,
+                .SPV_KHR_untyped_pointers,
+            },
+            .ray_traversal_primitive_culling_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_query,
+                .SPV_KHR_ray_tracing,
+            },
+            .ray_tracing_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_tracing,
+            },
+            .texture_sample_weighted_qcom => &.{
+                .v1_0,
+                .SPV_QCOM_image_processing,
+            },
+            .texture_box_filter_qcom => &.{
+                .v1_0,
+                .SPV_QCOM_image_processing,
+            },
+            .texture_block_match_qcom => &.{
+                .v1_0,
+                .SPV_QCOM_image_processing,
+            },
+            .tile_shading_qcom => &.{
+                .v1_0,
+                .SPV_QCOM_tile_shading,
+            },
+            .cooperative_matrix_conversion_qcom => &.{
+                .v1_0,
+                .SPV_QCOM_cooperative_matrix_conversion,
+            },
+            .texture_block_match2qcom => &.{
+                .v1_0,
+                .SPV_QCOM_image_processing2,
+            },
+            .float16image_amd => &.{
+                .v1_0,
+                .SPV_AMD_gpu_shader_half_float_fetch,
+            },
+            .image_gather_bias_lod_amd => &.{
+                .v1_0,
+                .SPV_AMD_texture_gather_bias_lod,
+            },
+            .fragment_mask_amd => &.{
+                .v1_0,
+                .SPV_AMD_shader_fragment_mask,
+            },
+            .stencil_export_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_stencil_export,
+            },
+            .image_read_write_lod_amd => &.{
+                .v1_0,
+                .SPV_AMD_shader_image_load_store_lod,
+            },
+            .int64image_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_image_int64,
+            },
+            .shader_clock_khr => &.{
+                .v1_0,
+                .SPV_KHR_shader_clock,
+            },
+            .shader_enqueue_amdx => &.{
+                .v1_0,
+                .SPV_AMDX_shader_enqueue,
+            },
+            .quad_control_khr => &.{
+                .v1_0,
+                .SPV_KHR_quad_control,
+            },
+            .int4type_intel => &.{
+                .v1_0,
+                .SPV_INTEL_int4,
+            },
+            .int4cooperative_matrix_intel => &.{
+                .v1_0,
+                .SPV_INTEL_int4,
+            },
+            .b_float16type_khr => &.{
+                .v1_0,
+                .SPV_KHR_bfloat16,
+            },
+            .b_float16dot_product_khr => &.{
+                .v1_0,
+                .SPV_KHR_bfloat16,
+            },
+            .b_float16cooperative_matrix_khr => &.{
+                .v1_0,
+                .SPV_KHR_bfloat16,
+            },
+            .sample_mask_override_coverage_nv => &.{
+                .v1_0,
+                .SPV_NV_sample_mask_override_coverage,
+            },
+            .geometry_shader_passthrough_nv => &.{
+                .v1_0,
+                .SPV_NV_geometry_shader_passthrough,
+            },
+            .shader_viewport_index_layer_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_viewport_index_layer,
+                .SPV_NV_viewport_array2,
+            },
+            .shader_viewport_mask_nv => &.{
+                .v1_0,
+                .SPV_NV_viewport_array2,
+            },
+            .shader_stereo_view_nv => &.{
+                .v1_0,
+                .SPV_NV_stereo_view_rendering,
+            },
+            .per_view_attributes_nv => &.{
+                .v1_0,
+                .SPV_NVX_multiview_per_view_attributes,
+            },
+            .fragment_fully_covered_ext => &.{
+                .v1_0,
+                .SPV_EXT_fragment_fully_covered,
+            },
+            .mesh_shading_nv => &.{
+                .v1_0,
+                .SPV_NV_mesh_shader,
+            },
+            .image_footprint_nv => &.{
+                .v1_0,
+                .SPV_NV_shader_image_footprint,
+            },
+            .mesh_shading_ext => &.{
+                .v1_0,
+                .SPV_EXT_mesh_shader,
+            },
+            .fragment_barycentric_khr => &.{
+                .v1_0,
+                .SPV_NV_fragment_shader_barycentric,
+                .SPV_KHR_fragment_shader_barycentric,
+            },
+            .compute_derivative_group_quads_khr => &.{
+                .v1_0,
+                .SPV_NV_compute_shader_derivatives,
+                .SPV_KHR_compute_shader_derivatives,
+            },
+            .fragment_density_ext => &.{
+                .v1_0,
+                .SPV_EXT_fragment_invocation_density,
+                .SPV_NV_shading_rate,
+            },
+            .group_non_uniform_partitioned_nv => &.{
+                .v1_0,
+                .SPV_NV_shader_subgroup_partitioned,
+            },
+            .shader_non_uniform => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .runtime_descriptor_array => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .input_attachment_array_dynamic_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .uniform_texel_buffer_array_dynamic_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .storage_texel_buffer_array_dynamic_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .uniform_buffer_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .sampled_image_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .storage_buffer_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .storage_image_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .input_attachment_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .uniform_texel_buffer_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .storage_texel_buffer_array_non_uniform_indexing => &.{
+                .v1_5,
+                .SPV_EXT_descriptor_indexing,
+            },
+            .ray_tracing_position_fetch_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_tracing_position_fetch,
+            },
+            .ray_tracing_nv => &.{
+                .v1_0,
+                .SPV_NV_ray_tracing,
+            },
+            .ray_tracing_motion_blur_nv => &.{
+                .v1_0,
+                .SPV_NV_ray_tracing_motion_blur,
+            },
+            .vulkan_memory_model => &.{
+                .v1_5,
+                .SPV_KHR_vulkan_memory_model,
+            },
+            .vulkan_memory_model_device_scope => &.{
+                .v1_5,
+                .SPV_KHR_vulkan_memory_model,
+            },
+            .physical_storage_buffer_addresses => &.{
+                .v1_5,
+                .SPV_EXT_physical_storage_buffer,
+                .SPV_KHR_physical_storage_buffer,
+            },
+            .compute_derivative_group_linear_khr => &.{
+                .v1_0,
+                .SPV_NV_compute_shader_derivatives,
+                .SPV_KHR_compute_shader_derivatives,
+            },
+            .ray_tracing_provisional_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_tracing,
+            },
+            .cooperative_matrix_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix,
+            },
+            .fragment_shader_sample_interlock_ext => &.{
+                .v1_0,
+                .SPV_EXT_fragment_shader_interlock,
+            },
+            .fragment_shader_shading_rate_interlock_ext => &.{
+                .v1_0,
+                .SPV_EXT_fragment_shader_interlock,
+            },
+            .shader_sm_builtins_nv => &.{
+                .v1_0,
+                .SPV_NV_shader_sm_builtins,
+            },
+            .fragment_shader_pixel_interlock_ext => &.{
+                .v1_0,
+                .SPV_EXT_fragment_shader_interlock,
+            },
+            .demote_to_helper_invocation => &.{
+                .v1_6,
+                .SPV_EXT_demote_to_helper_invocation,
+            },
+            .displacement_micromap_nv => &.{
+                .v1_0,
+                .SPV_NV_displacement_micromap,
+            },
+            .ray_tracing_opacity_micromap_ext => &.{
+                .v1_0,
+                .SPV_EXT_opacity_micromap,
+            },
+            .shader_invocation_reorder_nv => &.{
+                .v1_0,
+                .SPV_NV_shader_invocation_reorder,
+            },
+            .bindless_texture_nv => &.{
+                .v1_0,
+                .SPV_NV_bindless_texture,
+            },
+            .ray_query_position_fetch_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_tracing_position_fetch,
+            },
+            .cooperative_vector_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_vector,
+            },
+            .atomic_float16vector_nv => &.{
+                .v1_0,
+                .SPV_NV_shader_atomic_fp16_vector,
+            },
+            .ray_tracing_displacement_micromap_nv => &.{
+                .v1_0,
+                .SPV_NV_displacement_micromap,
+            },
+            .raw_access_chains_nv => &.{
+                .v1_0,
+                .SPV_NV_raw_access_chains,
+            },
+            .ray_tracing_spheres_geometry_nv => &.{
+                .v1_0,
+                .SPV_NV_linear_swept_spheres,
+            },
+            .ray_tracing_linear_swept_spheres_geometry_nv => &.{
+                .v1_0,
+                .SPV_NV_linear_swept_spheres,
+            },
+            .cooperative_matrix_reductions_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix2,
+            },
+            .cooperative_matrix_conversions_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix2,
+            },
+            .cooperative_matrix_per_element_operations_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix2,
+            },
+            .cooperative_matrix_tensor_addressing_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix2,
+            },
+            .cooperative_matrix_block_loads_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_matrix2,
+            },
+            .cooperative_vector_training_nv => &.{
+                .v1_0,
+                .SPV_NV_cooperative_vector,
+            },
+            .ray_tracing_cluster_acceleration_structure_nv => &.{
+                .v1_0,
+                .SPV_NV_cluster_acceleration_structure,
+            },
+            .tensor_addressing_nv => &.{
+                .v1_0,
+                .SPV_NV_tensor_addressing,
+            },
+            .subgroup_shuffle_intel => &.{
+                .v1_0,
+                .SPV_INTEL_subgroups,
+            },
+            .subgroup_buffer_block_iointel => &.{
+                .v1_0,
+                .SPV_INTEL_subgroups,
+            },
+            .subgroup_image_block_iointel => &.{
+                .v1_0,
+                .SPV_INTEL_subgroups,
+            },
+            .subgroup_image_media_block_iointel => &.{
+                .v1_0,
+                .SPV_INTEL_media_block_io,
+            },
+            .round_to_infinity_intel => &.{
+                .v1_0,
+                .SPV_INTEL_float_controls2,
+            },
+            .floating_point_mode_intel => &.{
+                .v1_0,
+                .SPV_INTEL_float_controls2,
+            },
+            .integer_functions2intel => &.{
+                .v1_0,
+                .SPV_INTEL_shader_integer_functions2,
+            },
+            .function_pointers_intel => &.{
+                .v1_0,
+                .SPV_INTEL_function_pointers,
+            },
+            .indirect_references_intel => &.{
+                .v1_0,
+                .SPV_INTEL_function_pointers,
+            },
+            .asm_intel => &.{
+                .v1_0,
+                .SPV_INTEL_inline_assembly,
+            },
+            .atomic_float32min_max_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float_min_max,
+            },
+            .atomic_float64min_max_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float_min_max,
+            },
+            .atomic_float16min_max_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float_min_max,
+            },
+            .vector_compute_intel => &.{
+                .v1_0,
+                .SPV_INTEL_vector_compute,
+            },
+            .vector_any_intel => &.{
+                .v1_0,
+                .SPV_INTEL_vector_compute,
+            },
+            .expect_assume_khr => &.{
+                .v1_0,
+                .SPV_KHR_expect_assume,
+            },
+            .subgroup_avc_motion_estimation_intel => &.{
+                .v1_0,
+                .SPV_INTEL_device_side_avc_motion_estimation,
+            },
+            .subgroup_avc_motion_estimation_intra_intel => &.{
+                .v1_0,
+                .SPV_INTEL_device_side_avc_motion_estimation,
+            },
+            .subgroup_avc_motion_estimation_chroma_intel => &.{
+                .v1_0,
+                .SPV_INTEL_device_side_avc_motion_estimation,
+            },
+            .variable_length_array_intel => &.{
+                .v1_0,
+                .SPV_INTEL_variable_length_array,
+            },
+            .function_float_control_intel => &.{
+                .v1_0,
+                .SPV_INTEL_float_controls2,
+            },
+            .fpga_memory_attributes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_memory_attributes,
+            },
+            .fp_fast_math_mode_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fp_fast_math_mode,
+            },
+            .arbitrary_precision_integers_intel => &.{
+                .v1_0,
+                .SPV_INTEL_arbitrary_precision_integers,
+            },
+            .arbitrary_precision_floating_point_intel => &.{
+                .v1_0,
+                .SPV_INTEL_arbitrary_precision_floating_point,
+            },
+            .unstructured_loop_controls_intel => &.{
+                .v1_0,
+                .SPV_INTEL_unstructured_loop_controls,
+            },
+            .fpga_loop_controls_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_loop_controls,
+            },
+            .kernel_attributes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_kernel_attributes,
+            },
+            .fpga_kernel_attributes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_kernel_attributes,
+            },
+            .fpga_memory_accesses_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_memory_accesses,
+            },
+            .fpga_cluster_attributes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_cluster_attributes,
+            },
+            .loop_fuse_intel => &.{
+                .v1_0,
+                .SPV_INTEL_loop_fuse,
+            },
+            .fpgadsp_control_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_dsp_control,
+            },
+            .memory_access_aliasing_intel => &.{
+                .v1_0,
+                .SPV_INTEL_memory_access_aliasing,
+            },
+            .fpga_invocation_pipelining_attributes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_invocation_pipelining_attributes,
+            },
+            .fpga_buffer_location_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_buffer_location,
+            },
+            .arbitrary_precision_fixed_point_intel => &.{
+                .v1_0,
+                .SPV_INTEL_arbitrary_precision_fixed_point,
+            },
+            .usm_storage_classes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_usm_storage_classes,
+            },
+            .runtime_aligned_attribute_intel => &.{
+                .v1_0,
+                .SPV_INTEL_runtime_aligned,
+            },
+            .io_pipes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_io_pipes,
+            },
+            .blocking_pipes_intel => &.{
+                .v1_0,
+                .SPV_INTEL_blocking_pipes,
+            },
+            .fpga_reg_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_reg,
+            },
+            .dot_product_input_all => &.{
+                .v1_6,
+                .SPV_KHR_integer_dot_product,
+            },
+            .dot_product_input4x8bit => &.{
+                .v1_6,
+                .SPV_KHR_integer_dot_product,
+            },
+            .dot_product_input4x8bit_packed => &.{
+                .v1_6,
+                .SPV_KHR_integer_dot_product,
+            },
+            .dot_product => &.{
+                .v1_6,
+                .SPV_KHR_integer_dot_product,
+            },
+            .ray_cull_mask_khr => &.{
+                .v1_0,
+                .SPV_KHR_ray_cull_mask,
+            },
+            .cooperative_matrix_khr => &.{
+                .v1_0,
+                .SPV_KHR_cooperative_matrix,
+            },
+            .replicated_composites_ext => &.{
+                .v1_0,
+                .SPV_EXT_replicated_composites,
+            },
+            .bit_instructions => &.{
+                .v1_0,
+                .SPV_KHR_bit_instructions,
+            },
+            .group_non_uniform_rotate_khr => &.{
+                .v1_0,
+                .SPV_KHR_subgroup_rotate,
+            },
+            .float_controls2 => &.{
+                .v1_0,
+                .SPV_KHR_float_controls2,
+            },
+            .atomic_float32add_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float_add,
+            },
+            .atomic_float64add_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float_add,
+            },
+            .long_composites_intel => &.{
+                .v1_0,
+                .SPV_INTEL_long_composites,
+            },
+            .opt_none_ext => &.{
+                .v1_0,
+                .SPV_EXT_optnone,
+                .SPV_INTEL_optnone,
+            },
+            .atomic_float16add_ext => &.{
+                .v1_0,
+                .SPV_EXT_shader_atomic_float16_add,
+            },
+            .debug_info_module_intel => &.{
+                .v1_0,
+                .SPV_INTEL_debug_module,
+            },
+            .b_float16conversion_intel => &.{
+                .v1_0,
+                .SPV_INTEL_bfloat16_conversion,
+            },
+            .split_barrier_intel => &.{
+                .v1_0,
+                .SPV_INTEL_split_barrier,
+            },
+            .arithmetic_fence_ext => &.{
+                .v1_0,
+                .SPV_EXT_arithmetic_fence,
+            },
+            .fpga_cluster_attributes_v2intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_cluster_attributes,
+            },
+            .fpga_kernel_attributesv2intel => &.{
+                .v1_0,
+                .SPV_INTEL_kernel_attributes,
+            },
+            .task_sequence_intel => &.{
+                .v1_0,
+                .SPV_INTEL_task_sequence,
+            },
+            .fp_max_error_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fp_max_error,
+            },
+            .fpga_latency_control_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_latency_control,
+            },
+            .fpga_argument_interfaces_intel => &.{
+                .v1_0,
+                .SPV_INTEL_fpga_argument_interfaces,
+            },
+            .global_variable_host_access_intel => &.{
+                .v1_0,
+                .SPV_INTEL_global_variable_host_access,
+            },
+            .global_variable_fpga_decorations_intel => &.{
+                .v1_0,
+                .SPV_INTEL_global_variable_fpga_decorations,
+            },
+            .subgroup_buffer_prefetch_intel => &.{
+                .v1_0,
+                .SPV_INTEL_subgroup_buffer_prefetch,
+            },
+            .subgroup2d_block_iointel => &.{
+                .v1_0,
+                .SPV_INTEL_2d_block_io,
+            },
+            .subgroup2d_block_transform_intel => &.{
+                .v1_0,
+                .SPV_INTEL_2d_block_io,
+            },
+            .subgroup2d_block_transpose_intel => &.{
+                .v1_0,
+                .SPV_INTEL_2d_block_io,
+            },
+            .subgroup_matrix_multiply_accumulate_intel => &.{
+                .v1_0,
+                .SPV_INTEL_subgroup_matrix_multiply_accumulate,
+            },
+            .ternary_bitwise_function_intel => &.{
+                .v1_0,
+                .SPV_INTEL_ternary_bitwise_function,
+            },
+            .spec_conditional_intel => &.{
+                .v1_0,
+                .SPV_INTEL_function_variants,
+            },
+            .function_variants_intel => &.{
+                .v1_0,
+                .SPV_INTEL_function_variants,
+            },
+            .group_uniform_arithmetic_khr => &.{
+                .v1_0,
+                .SPV_KHR_uniform_group_instructions,
+            },
+            .tensor_float32rounding_intel => &.{
+                .v1_0,
+                .SPV_INTEL_tensor_float32_conversion,
+            },
+            .masked_gather_scatter_intel => &.{
+                .v1_0,
+                .SPV_INTEL_masked_gather_scatter,
+            },
+            .cache_controls_intel => &.{
+                .v1_0,
+                .SPV_INTEL_cache_controls,
+            },
+            .register_limits_intel => &.{
+                .v1_0,
+                .SPV_INTEL_maximum_registers,
+            },
+            .bindless_images_intel => &.{
+                .v1_0,
+                .SPV_INTEL_bindless_images,
+            },
+        };
+    }
 };
 pub const RayQueryIntersection = enum(u32) {
     ray_query_candidate_intersection_khr = 0,
@@ -9239,6 +10320,23 @@ pub const InstructionSet = enum {
                     },
                 },
                 .{
+                    .name = "OpUntypedGroupAsyncCopyKHR",
+                    .opcode = 4434,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .memory_access, .quantifier = .optional },
+                        .{ .kind = .memory_access, .quantifier = .optional },
+                    },
+                },
+                .{
                     .name = "OpTraceRayKHR",
                     .opcode = 4445,
                     .operands = &.{
@@ -9545,6 +10643,15 @@ pub const InstructionSet = enum {
                     },
                 },
                 .{
+                    .name = "OpBitCastArrayQCOM",
+                    .opcode = 4497,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                    },
+                },
+                .{
                     .name = "OpImageBlockMatchWindowSSDQCOM",
                     .opcode = 4500,
                     .operands = &.{
@@ -9592,6 +10699,34 @@ pub const InstructionSet = enum {
                         .{ .kind = .id_ref, .quantifier = .required },
                         .{ .kind = .id_ref, .quantifier = .required },
                         .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpCompositeConstructCoopMatQCOM",
+                    .opcode = 4540,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpCompositeExtractCoopMatQCOM",
+                    .opcode = 4541,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpExtractSubArrayQCOM",
+                    .opcode = 4542,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
                         .{ .kind = .id_ref, .quantifier = .required },
                         .{ .kind = .id_ref, .quantifier = .required },
                     },
@@ -13664,6 +14799,73 @@ pub const InstructionSet = enum {
                     },
                 },
                 .{
+                    .name = "OpConditionalExtensionINTEL",
+                    .opcode = 6248,
+                    .operands = &.{
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .literal_string, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpConditionalEntryPointINTEL",
+                    .opcode = 6249,
+                    .operands = &.{
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .execution_model, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .literal_string, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .variadic },
+                    },
+                },
+                .{
+                    .name = "OpConditionalCapabilityINTEL",
+                    .opcode = 6250,
+                    .operands = &.{
+                        .{ .kind = .id_ref, .quantifier = .required },
+                        .{ .kind = .capability, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpSpecConstantTargetINTEL",
+                    .opcode = 6251,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .variadic },
+                    },
+                },
+                .{
+                    .name = "OpSpecConstantArchitectureINTEL",
+                    .opcode = 6252,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .required },
+                        .{ .kind = .literal_integer, .quantifier = .required },
+                    },
+                },
+                .{
+                    .name = "OpSpecConstantCapabilitiesINTEL",
+                    .opcode = 6253,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .capability, .quantifier = .variadic },
+                    },
+                },
+                .{
+                    .name = "OpConditionalCopyObjectINTEL",
+                    .opcode = 6254,
+                    .operands = &.{
+                        .{ .kind = .id_result_type, .quantifier = .required },
+                        .{ .kind = .id_result, .quantifier = .required },
+                        .{ .kind = .id_ref, .quantifier = .variadic },
+                    },
+                },
+                .{
                     .name = "OpGroupIMulKHR",
                     .opcode = 6401,
                     .operands = &.{
@@ -15679,4 +16881,154 @@ pub const InstructionSet = enum {
             },
         };
     }
+};
+pub const Extension = enum {
+    v1_0,
+    v1_1,
+    v1_2,
+    v1_3,
+    v1_4,
+    v1_5,
+    v1_6,
+    SPV_AMD_shader_ballot,
+    SPV_ARM_core_builtins,
+    SPV_EXT_shader_tile_image,
+    SPV_ARM_tensors,
+    SPV_ARM_graph,
+    SPV_ARM_cooperative_matrix_layouts,
+    SPV_EXT_float8,
+    SPV_KHR_fragment_shading_rate,
+    SPV_KHR_shader_ballot,
+    SPV_KHR_shader_draw_parameters,
+    SPV_KHR_workgroup_memory_explicit_layout,
+    SPV_KHR_subgroup_vote,
+    SPV_KHR_16bit_storage,
+    SPV_KHR_device_group,
+    SPV_KHR_multiview,
+    SPV_KHR_variable_pointers,
+    SPV_KHR_shader_atomic_counter_ops,
+    SPV_KHR_post_depth_coverage,
+    SPV_KHR_8bit_storage,
+    SPV_KHR_float_controls,
+    SPV_KHR_ray_query,
+    SPV_KHR_untyped_pointers,
+    SPV_KHR_ray_tracing,
+    SPV_QCOM_image_processing,
+    SPV_QCOM_tile_shading,
+    SPV_QCOM_cooperative_matrix_conversion,
+    SPV_QCOM_image_processing2,
+    SPV_AMD_gpu_shader_half_float_fetch,
+    SPV_AMD_texture_gather_bias_lod,
+    SPV_AMD_shader_fragment_mask,
+    SPV_EXT_shader_stencil_export,
+    SPV_AMD_shader_image_load_store_lod,
+    SPV_EXT_shader_image_int64,
+    SPV_KHR_shader_clock,
+    SPV_AMDX_shader_enqueue,
+    SPV_KHR_quad_control,
+    SPV_INTEL_int4,
+    SPV_KHR_bfloat16,
+    SPV_NV_sample_mask_override_coverage,
+    SPV_NV_geometry_shader_passthrough,
+    SPV_EXT_shader_viewport_index_layer,
+    SPV_NV_viewport_array2,
+    SPV_NV_stereo_view_rendering,
+    SPV_NVX_multiview_per_view_attributes,
+    SPV_EXT_fragment_fully_covered,
+    SPV_NV_mesh_shader,
+    SPV_NV_shader_image_footprint,
+    SPV_EXT_mesh_shader,
+    SPV_NV_fragment_shader_barycentric,
+    SPV_KHR_fragment_shader_barycentric,
+    SPV_NV_compute_shader_derivatives,
+    SPV_KHR_compute_shader_derivatives,
+    SPV_EXT_fragment_invocation_density,
+    SPV_NV_shading_rate,
+    SPV_NV_shader_subgroup_partitioned,
+    SPV_EXT_descriptor_indexing,
+    SPV_KHR_ray_tracing_position_fetch,
+    SPV_NV_ray_tracing,
+    SPV_NV_ray_tracing_motion_blur,
+    SPV_KHR_vulkan_memory_model,
+    SPV_EXT_physical_storage_buffer,
+    SPV_KHR_physical_storage_buffer,
+    SPV_NV_cooperative_matrix,
+    SPV_EXT_fragment_shader_interlock,
+    SPV_NV_shader_sm_builtins,
+    SPV_EXT_demote_to_helper_invocation,
+    SPV_NV_displacement_micromap,
+    SPV_EXT_opacity_micromap,
+    SPV_NV_shader_invocation_reorder,
+    SPV_NV_bindless_texture,
+    SPV_NV_cooperative_vector,
+    SPV_NV_shader_atomic_fp16_vector,
+    SPV_NV_raw_access_chains,
+    SPV_NV_linear_swept_spheres,
+    SPV_NV_cooperative_matrix2,
+    SPV_NV_cluster_acceleration_structure,
+    SPV_NV_tensor_addressing,
+    SPV_INTEL_subgroups,
+    SPV_INTEL_media_block_io,
+    SPV_INTEL_float_controls2,
+    SPV_INTEL_shader_integer_functions2,
+    SPV_INTEL_function_pointers,
+    SPV_INTEL_inline_assembly,
+    SPV_EXT_shader_atomic_float_min_max,
+    SPV_INTEL_vector_compute,
+    SPV_KHR_expect_assume,
+    SPV_INTEL_device_side_avc_motion_estimation,
+    SPV_INTEL_variable_length_array,
+    SPV_INTEL_fpga_memory_attributes,
+    SPV_INTEL_fp_fast_math_mode,
+    SPV_INTEL_arbitrary_precision_integers,
+    SPV_INTEL_arbitrary_precision_floating_point,
+    SPV_INTEL_unstructured_loop_controls,
+    SPV_INTEL_fpga_loop_controls,
+    SPV_INTEL_kernel_attributes,
+    SPV_INTEL_fpga_memory_accesses,
+    SPV_INTEL_fpga_cluster_attributes,
+    SPV_INTEL_loop_fuse,
+    SPV_INTEL_fpga_dsp_control,
+    SPV_INTEL_memory_access_aliasing,
+    SPV_INTEL_fpga_invocation_pipelining_attributes,
+    SPV_INTEL_fpga_buffer_location,
+    SPV_INTEL_arbitrary_precision_fixed_point,
+    SPV_INTEL_usm_storage_classes,
+    SPV_INTEL_runtime_aligned,
+    SPV_INTEL_io_pipes,
+    SPV_INTEL_blocking_pipes,
+    SPV_INTEL_fpga_reg,
+    SPV_KHR_integer_dot_product,
+    SPV_KHR_ray_cull_mask,
+    SPV_KHR_cooperative_matrix,
+    SPV_EXT_replicated_composites,
+    SPV_KHR_bit_instructions,
+    SPV_KHR_subgroup_rotate,
+    SPV_KHR_float_controls2,
+    SPV_EXT_shader_atomic_float_add,
+    SPV_INTEL_long_composites,
+    SPV_EXT_optnone,
+    SPV_INTEL_optnone,
+    SPV_EXT_shader_atomic_float16_add,
+    SPV_INTEL_debug_module,
+    SPV_INTEL_bfloat16_conversion,
+    SPV_INTEL_split_barrier,
+    SPV_EXT_arithmetic_fence,
+    SPV_INTEL_task_sequence,
+    SPV_INTEL_fp_max_error,
+    SPV_INTEL_fpga_latency_control,
+    SPV_INTEL_fpga_argument_interfaces,
+    SPV_INTEL_global_variable_host_access,
+    SPV_INTEL_global_variable_fpga_decorations,
+    SPV_INTEL_subgroup_buffer_prefetch,
+    SPV_INTEL_2d_block_io,
+    SPV_INTEL_subgroup_matrix_multiply_accumulate,
+    SPV_INTEL_ternary_bitwise_function,
+    SPV_INTEL_function_variants,
+    SPV_KHR_uniform_group_instructions,
+    SPV_INTEL_tensor_float32_conversion,
+    SPV_INTEL_masked_gather_scatter,
+    SPV_INTEL_cache_controls,
+    SPV_INTEL_maximum_registers,
+    SPV_INTEL_bindless_images,
 };

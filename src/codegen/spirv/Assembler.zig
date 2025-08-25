@@ -168,14 +168,10 @@ fn processInstruction(ass: *Assembler) !void {
             return ass.fail(ass.currentToken().start, "cannot set execution mode in assembly", .{});
         },
         .OpCapability => {
-            try module.addCapability(@enumFromInt(ass.inst.operands.items[0].value));
-            return;
+            return ass.fail(ass.currentToken().start, "cannot set capability in assembly", .{});
         },
         .OpExtension => {
-            const ext_name_offset = ass.inst.operands.items[0].string;
-            const ext_name = std.mem.sliceTo(ass.inst.string_bytes.items[ext_name_offset..], 0);
-            try module.addExtension(ext_name);
-            return;
+            return ass.fail(ass.currentToken().start, "cannot set extension in assembly", .{});
         },
         .OpExtInstImport => blk: {
             const set_name_offset = ass.inst.operands.items[1].string;
