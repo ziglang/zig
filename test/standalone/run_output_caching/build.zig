@@ -28,8 +28,8 @@ pub fn build(b: *std.Build) void {
         // ensure that "second" runs after "first"
         run_random_with_sideeffects_second.step.dependOn(&run_random_with_sideeffects_first.step);
 
-        const first_output = run_random_with_sideeffects_first.addOutputFileArg("a.txt");
-        const second_output = run_random_with_sideeffects_second.addOutputFileArg("a.txt");
+        const first_output = run_random_with_sideeffects_first.addOutputFileArg(.{ .basename = "a.txt" });
+        const second_output = run_random_with_sideeffects_second.addOutputFileArg(.{ .basename = "a.txt" });
 
         const expect_uncached_dependencies = CheckOutputCaching.init(b, false, &.{ first_output, second_output });
         test_step.dependOn(&expect_uncached_dependencies.step);
@@ -52,8 +52,8 @@ pub fn build(b: *std.Build) void {
 
         run_random_without_sideeffects_2.step.dependOn(&run_random_without_sideeffects_1.step);
 
-        const first_output = run_random_without_sideeffects_1.addOutputFileArg("a.txt");
-        const second_output = run_random_without_sideeffects_2.addOutputFileArg("a.txt");
+        const first_output = run_random_without_sideeffects_1.addOutputFileArg(.{ .basename = "a.txt" });
+        const second_output = run_random_without_sideeffects_2.addOutputFileArg(.{ .basename = "a.txt" });
 
         const expect_cached_dependencies = CheckOutputCaching.init(b, true, &.{second_output});
         test_step.dependOn(&expect_cached_dependencies.step);
