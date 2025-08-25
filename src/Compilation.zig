@@ -45,8 +45,6 @@ const Builtin = @import("Builtin.zig");
 const LlvmObject = @import("codegen/llvm.zig").Object;
 const dev = @import("dev.zig");
 
-const DeprecatedLinearFifo = @import("deprecated.zig").LinearFifo;
-
 pub const Config = @import("Compilation/Config.zig");
 
 /// General-purpose allocator. Used for both temporary and long-term storage.
@@ -124,20 +122,21 @@ work_queues: [
         }
         break :len len;
     }
-]DeprecatedLinearFifo(Job),
+]std.Deque(Job),
 
 /// These jobs are to invoke the Clang compiler to create an object file, which
 /// gets linked with the Compilation.
-c_object_work_queue: DeprecatedLinearFifo(*CObject),
+c_object_work_queue: std.Deque(*CObject),
 
 /// These jobs are to invoke the RC compiler to create a compiled resource file (.res), which
 /// gets linked with the Compilation.
-win32_resource_work_queue: if (dev.env.supports(.win32_resource)) DeprecatedLinearFifo(*Win32Resource) else struct {
-    pub fn ensureUnusedCapacity(_: @This(), _: u0) error{}!void {}
-    pub fn readItem(_: @This()) ?noreturn {
+win32_resource_work_queue: if (dev.env.supports(.win32_resource)) std.Deque(*Win32Resource) else struct {
+    pub const empty: @This() = .{};
+    pub fn ensureUnusedCapacity(_: @This(), _: Allocator, _: u0) error{}!void {}
+    pub fn popFront(_: @This()) ?noreturn {
         return null;
     }
-    pub fn deinit(_: @This()) void {}
+    pub fn deinit(_: @This(), _: Allocator) void {}
 },
 
 /// The ErrorMsg memory is owned by the `CObject`, using Compilation's general purpose allocator.
@@ -2236,9 +2235,9 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             .root_mod = options.root_mod,
             .config = options.config,
             .dirs = options.dirs,
-            .work_queues = @splat(.init(gpa)),
-            .c_object_work_queue = .init(gpa),
-            .win32_resource_work_queue = if (dev.env.supports(.win32_resource)) .init(gpa) else .{},
+            .work_queues = @splat(.empty),
+            .c_object_work_queue = .empty,
+            .win32_resource_work_queue = .empty,
             .c_source_files = options.c_source_files,
             .rc_source_files = options.rc_source_files,
             .cache_parent = cache,
@@ -2702,9 +2701,9 @@ pub fn destroy(comp: *Compilation) void {
     if (comp.zcu) |zcu| zcu.deinit();
     comp.cache_use.deinit();
 
-    for (&comp.work_queues) |*work_queue| work_queue.deinit();
-    comp.c_object_work_queue.deinit();
-    comp.win32_resource_work_queue.deinit();
+    for (&comp.work_queues) |*work_queue| work_queue.deinit(gpa);
+    comp.c_object_work_queue.deinit(gpa);
+    comp.win32_resource_work_queue.deinit(gpa);
 
     for (comp.windows_libs.keys()) |windows_lib| gpa.free(windows_lib);
     comp.windows_libs.deinit(gpa);
@@ -3019,17 +3018,17 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
 
     // For compiling C objects, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each C object.
-    try comp.c_object_work_queue.ensureUnusedCapacity(comp.c_object_table.count());
+    try comp.c_object_work_queue.ensureUnusedCapacity(gpa, comp.c_object_table.count());
     for (comp.c_object_table.keys()) |c_object| {
-        comp.c_object_work_queue.writeItemAssumeCapacity(c_object);
+        comp.c_object_work_queue.pushBackAssumeCapacity(c_object);
         try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{c_object.src.src_path}));
     }
 
     // For compiling Win32 resources, we rely on the cache hash system to avoid duplicating work.
     // Add a Job for each Win32 resource file.
-    try comp.win32_resource_work_queue.ensureUnusedCapacity(comp.win32_resource_table.count());
+    try comp.win32_resource_work_queue.ensureUnusedCapacity(gpa, comp.win32_resource_table.count());
     for (comp.win32_resource_table.keys()) |win32_resource| {
-        comp.win32_resource_work_queue.writeItemAssumeCapacity(win32_resource);
+        comp.win32_resource_work_queue.pushBackAssumeCapacity(win32_resource);
         switch (win32_resource.src) {
             .rc => |f| {
                 try comp.appendFileSystemInput(try .fromUnresolved(arena, comp.dirs, &.{f.src_path}));
@@ -4871,14 +4870,14 @@ fn performAllTheWork(
             }
         }
 
-        while (comp.c_object_work_queue.readItem()) |c_object| {
+        while (comp.c_object_work_queue.popFront()) |c_object| {
             comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateCObject, .{
                 comp, c_object, main_progress_node,
             });
         }
 
-        while (comp.win32_resource_work_queue.readItem()) |win32_resource| {
+        while (comp.win32_resource_work_queue.popFront()) |win32_resource| {
             comp.link_task_queue.startPrelinkItem();
             comp.thread_pool.spawnWg(&comp.link_task_wait_group, workerUpdateWin32Resource, .{
                 comp, win32_resource, main_progress_node,
@@ -4998,7 +4997,7 @@ fn performAllTheWork(
     }
 
     work: while (true) {
-        for (&comp.work_queues) |*work_queue| if (work_queue.readItem()) |job| {
+        for (&comp.work_queues) |*work_queue| if (work_queue.popFront()) |job| {
             try processOneJob(@intFromEnum(Zcu.PerThread.Id.main), comp, job);
             continue :work;
         };
@@ -5027,7 +5026,7 @@ fn performAllTheWork(
 const JobError = Allocator.Error;
 
 pub fn queueJob(comp: *Compilation, job: Job) !void {
-    try comp.work_queues[Job.stage(job)].writeItem(job);
+    try comp.work_queues[Job.stage(job)].pushBack(comp.gpa, job);
 }
 
 pub fn queueJobs(comp: *Compilation, jobs: []const Job) !void {
