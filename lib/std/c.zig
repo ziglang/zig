@@ -6683,7 +6683,12 @@ pub const SOMAXCONN = switch (native_os) {
     .windows => ws2_32.SOMAXCONN,
     // https://github.com/SerenityOS/serenity/blob/ac44ec5ebc707f9dd0c3d4759a1e17e91db5d74f/Kernel/API/POSIX/sys/socket.h#L128
     .solaris, .illumos, .serenity => 128,
-    .openbsd => 28,
+    // https://github.com/freebsd/freebsd-src/blob/9ab31f821ad1c6bad474510447387c50bef2c24c/sys/sys/socket.h#L434
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/fd3d1949d526ffa646e57037770acd6f2f3bb617/sys/sys/socket.h#L393
+    // https://github.com/NetBSD/src/blob/a673fb3f8487e974c669216064f7588207229fea/sys/sys/socket.h#L472
+    // https://github.com/openbsd/src/blob/8ba9cd88f10123fef7af805b8e5ccc2463ad8fa4/sys/sys/socket.h#L483
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L815
+    .freebsd, .dragonfly, .netbsd, .openbsd, .driverkit, .macos, .ios, .tvos, .watchos, .visionos => 128,
     else => void,
 };
 pub const IFNAMESIZE = switch (native_os) {
