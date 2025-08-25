@@ -2,22 +2,24 @@ const std = @import("std");
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+
+const Parser = @import("Parser.zig");
+const StringId = @import("StringInterner.zig").StringId;
 const Tree = @import("Tree.zig");
 const Token = Tree.Token;
 const TokenIndex = Tree.TokenIndex;
-const NodeIndex = Tree.NodeIndex;
-const Type = @import("Type.zig");
-const Parser = @import("Parser.zig");
+const Node = Tree.Node;
+const QualType = @import("TypeStore.zig").QualType;
 const Value = @import("Value.zig");
-const StringId = @import("StringInterner.zig").StringId;
 
 const SymbolStack = @This();
 
 pub const Symbol = struct {
     name: StringId,
-    ty: Type,
+    qt: QualType,
     tok: TokenIndex,
-    node: NodeIndex = .none,
+    node: Node.OptIndex = .null,
+    out_of_scope: bool = false,
     kind: Kind,
     val: Value,
 };
@@ -33,7 +35,7 @@ pub const Kind = enum {
     constexpr,
 };
 
-scopes: std.ArrayListUnmanaged(Scope) = .empty,
+scopes: std.ArrayList(Scope) = .empty,
 /// allocations from nested scopes are retained after popping; `active_len` is the number
 /// of currently-active items in `scopes`.
 active_len: usize = 0,
@@ -64,7 +66,7 @@ pub fn deinit(s: *SymbolStack, gpa: Allocator) void {
 
 pub fn pushScope(s: *SymbolStack, p: *Parser) !void {
     if (s.active_len + 1 > s.scopes.items.len) {
-        try s.scopes.append(p.gpa, .{});
+        try s.scopes.append(p.comp.gpa, .{});
         s.active_len = s.scopes.items.len;
     } else {
         s.scopes.items[s.active_len].clearRetainingCapacity();
@@ -82,17 +84,17 @@ pub fn findTypedef(s: *SymbolStack, p: *Parser, name: StringId, name_tok: TokenI
         .typedef => return prev,
         .@"struct" => {
             if (no_type_yet) return null;
-            try p.errStr(.must_use_struct, name_tok, p.tokSlice(name_tok));
+            try p.err(name_tok, .must_use_struct, .{p.tokSlice(name_tok)});
             return prev;
         },
         .@"union" => {
             if (no_type_yet) return null;
-            try p.errStr(.must_use_union, name_tok, p.tokSlice(name_tok));
+            try p.err(name_tok, .must_use_union, .{p.tokSlice(name_tok)});
             return prev;
         },
         .@"enum" => {
             if (no_type_yet) return null;
-            try p.errStr(.must_use_enum, name_tok, p.tokSlice(name_tok));
+            try p.err(name_tok, .must_use_enum, .{p.tokSlice(name_tok)});
             return prev;
         },
         else => return null,
@@ -120,8 +122,8 @@ pub fn findTag(
         else => unreachable,
     }
     if (s.get(name, .tags) == null) return null;
-    try p.errStr(.wrong_tag, name_tok, p.tokSlice(name_tok));
-    try p.errTok(.previous_definition, prev.tok);
+    try p.err(name_tok, .wrong_tag, .{p.tokSlice(name_tok)});
+    try p.err(prev.tok, .previous_definition, .{});
     return null;
 }
 
@@ -171,38 +173,34 @@ pub fn defineTypedef(
     s: *SymbolStack,
     p: *Parser,
     name: StringId,
-    ty: Type,
+    qt: QualType,
     tok: TokenIndex,
-    node: NodeIndex,
+    node: Node.Index,
 ) !void {
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
             .typedef => {
-                if (!prev.ty.is(.invalid)) {
-                    if (!ty.eql(prev.ty, p.comp, true)) {
-                        try p.errStr(.redefinition_of_typedef, tok, try p.typePairStrExtra(ty, " vs ", prev.ty));
-                        if (prev.tok != 0) try p.errTok(.previous_definition, prev.tok);
-                    }
+                if (!prev.qt.isInvalid() and !qt.eqlQualified(prev.qt, p.comp)) {
+                    if (qt.isInvalid()) return;
+                    const non_typedef_qt = qt.type(p.comp).typedef.base;
+                    const non_typedef_prev_qt = prev.qt.type(p.comp).typedef.base;
+                    try p.err(tok, .redefinition_of_typedef, .{ non_typedef_qt, non_typedef_prev_qt });
+                    if (prev.tok != 0) try p.err(prev.tok, .previous_definition, .{});
                 }
             },
             .enumeration, .decl, .def, .constexpr => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .typedef,
         .name = name,
         .tok = tok,
-        .ty = .{
-            .name = name,
-            .specifier = ty.specifier,
-            .qual = ty.qual,
-            .data = ty.data,
-        },
-        .node = node,
+        .qt = qt,
+        .node = .pack(node),
         .val = .{},
     });
 }
@@ -211,42 +209,48 @@ pub fn defineSymbol(
     s: *SymbolStack,
     p: *Parser,
     name: StringId,
-    ty: Type,
+    qt: QualType,
     tok: TokenIndex,
-    node: NodeIndex,
+    node: Node.Index,
     val: Value,
     constexpr: bool,
 ) !void {
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
             .enumeration => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             .decl => {
-                if (!ty.eql(prev.ty, p.comp, true)) {
-                    try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, prev.tok);
+                if (!prev.qt.isInvalid() and !qt.eqlQualified(prev.qt, p.comp)) {
+                    if (qt.isInvalid()) return;
+                    try p.err(tok, .redefinition_incompatible, .{p.tokSlice(tok)});
+                    try p.err(prev.tok, .previous_definition, .{});
+                } else {
+                    if (prev.node.unpack()) |some| p.setTentativeDeclDefinition(some, node);
                 }
             },
-            .def, .constexpr => {
-                try p.errStr(.redefinition, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+            .def, .constexpr => if (!prev.qt.isInvalid()) {
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             .typedef => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             else => unreachable,
         }
     }
 
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = if (constexpr) .constexpr else .def,
         .name = name,
         .tok = tok,
-        .ty = ty,
-        .node = node,
+        .qt = qt,
+        .node = .pack(node),
         .val = val,
     });
 }
@@ -264,69 +268,96 @@ pub fn declareSymbol(
     s: *SymbolStack,
     p: *Parser,
     name: StringId,
-    ty: Type,
+    qt: QualType,
     tok: TokenIndex,
-    node: NodeIndex,
+    node: Node.Index,
 ) !void {
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
             .enumeration => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             .decl => {
-                if (!ty.eql(prev.ty, p.comp, true)) {
-                    try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, prev.tok);
+                if (!prev.qt.isInvalid() and !qt.eqlQualified(prev.qt, p.comp)) {
+                    if (qt.isInvalid()) return;
+                    try p.err(tok, .redefinition_incompatible, .{p.tokSlice(tok)});
+                    try p.err(prev.tok, .previous_definition, .{});
+                } else {
+                    if (prev.node.unpack()) |some| p.setTentativeDeclDefinition(node, some);
                 }
             },
             .def, .constexpr => {
-                if (!ty.eql(prev.ty, p.comp, true)) {
-                    try p.errStr(.redefinition_incompatible, tok, p.tokSlice(tok));
-                    try p.errTok(.previous_definition, prev.tok);
+                if (!prev.qt.isInvalid() and !qt.eqlQualified(prev.qt, p.comp)) {
+                    if (qt.isInvalid()) return;
+                    try p.err(tok, .redefinition_incompatible, .{p.tokSlice(tok)});
+                    try p.err(prev.tok, .previous_definition, .{});
                 } else {
+                    if (prev.node.unpack()) |some| p.setTentativeDeclDefinition(node, some);
                     return;
                 }
             },
             .typedef => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .decl,
         .name = name,
         .tok = tok,
-        .ty = ty,
-        .node = node,
+        .qt = qt,
+        .node = .pack(node),
         .val = .{},
     });
+
+    // Declare out of scope symbol for functions declared in functions.
+    if (s.active_len > 1 and !p.comp.langopts.standard.atLeast(.c23) and qt.is(p.comp, .func)) {
+        try s.scopes.items[0].vars.put(p.comp.gpa, name, .{
+            .kind = .decl,
+            .name = name,
+            .tok = tok,
+            .qt = qt,
+            .node = .pack(node),
+            .val = .{},
+            .out_of_scope = true,
+        });
+    }
 }
 
-pub fn defineParam(s: *SymbolStack, p: *Parser, name: StringId, ty: Type, tok: TokenIndex) !void {
+pub fn defineParam(
+    s: *SymbolStack,
+    p: *Parser,
+    name: StringId,
+    qt: QualType,
+    tok: TokenIndex,
+    node: ?Node.Index,
+) !void {
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
-            .enumeration, .decl, .def, .constexpr => {
-                try p.errStr(.redefinition_of_parameter, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+            .enumeration, .decl, .def, .constexpr => if (!prev.qt.isInvalid()) {
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_of_parameter, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             .typedef => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             else => unreachable,
         }
     }
-    if (ty.is(.fp16) and !p.comp.hasHalfPrecisionFloatABI()) {
-        try p.errStr(.suggest_pointer_for_invalid_fp16, tok, "parameters");
-    }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .def,
         .name = name,
         .tok = tok,
-        .ty = ty,
+        .qt = qt,
+        .node = .packOpt(node),
         .val = .{},
     });
 }
@@ -342,20 +373,20 @@ pub fn defineTag(
     switch (prev.kind) {
         .@"enum" => {
             if (kind == .keyword_enum) return prev;
-            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-            try p.errTok(.previous_definition, prev.tok);
+            try p.err(tok, .wrong_tag, .{p.tokSlice(tok)});
+            try p.err(prev.tok, .previous_definition, .{});
             return null;
         },
         .@"struct" => {
             if (kind == .keyword_struct) return prev;
-            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-            try p.errTok(.previous_definition, prev.tok);
+            try p.err(tok, .wrong_tag, .{p.tokSlice(tok)});
+            try p.err(prev.tok, .previous_definition, .{});
             return null;
         },
         .@"union" => {
             if (kind == .keyword_union) return prev;
-            try p.errStr(.wrong_tag, tok, p.tokSlice(tok));
-            try p.errTok(.previous_definition, prev.tok);
+            try p.err(tok, .wrong_tag, .{p.tokSlice(tok)});
+            try p.err(prev.tok, .previous_definition, .{});
             return null;
         },
         else => unreachable,
@@ -366,34 +397,39 @@ pub fn defineEnumeration(
     s: *SymbolStack,
     p: *Parser,
     name: StringId,
-    ty: Type,
+    qt: QualType,
     tok: TokenIndex,
     val: Value,
+    node: Node.Index,
 ) !void {
     if (s.get(name, .vars)) |prev| {
         switch (prev.kind) {
-            .enumeration => {
-                try p.errStr(.redefinition, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+            .enumeration => if (!prev.qt.isInvalid()) {
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
                 return;
             },
             .decl, .def, .constexpr => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
                 return;
             },
             .typedef => {
-                try p.errStr(.redefinition_different_sym, tok, p.tokSlice(tok));
-                try p.errTok(.previous_definition, prev.tok);
+                if (qt.isInvalid()) return;
+                try p.err(tok, .redefinition_different_sym, .{p.tokSlice(tok)});
+                try p.err(prev.tok, .previous_definition, .{});
             },
             else => unreachable,
         }
     }
-    try s.define(p.gpa, .{
+    try s.define(p.comp.gpa, .{
         .kind = .enumeration,
         .name = name,
         .tok = tok,
-        .ty = ty,
+        .qt = qt,
         .val = val,
+        .node = .pack(node),
     });
 }

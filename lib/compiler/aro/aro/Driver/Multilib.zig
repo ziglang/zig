@@ -1,47 +1,50 @@
 const std = @import("std");
 const Filesystem = @import("Filesystem.zig").Filesystem;
 
-pub const Flags = std.BoundedArray([]const u8, 6);
-
 /// Large enough for GCCDetector for Linux; may need to be increased to support other toolchains.
 const max_multilibs = 4;
 
-const MultilibArray = std.BoundedArray(Multilib, max_multilibs);
-
 pub const Detected = struct {
-    multilibs: MultilibArray = .{},
+    multilib_buf: [max_multilibs]Multilib = undefined,
+    multilib_count: u8 = 0,
     selected: Multilib = .{},
     biarch_sibling: ?Multilib = null,
 
-    pub fn filter(self: *Detected, multilib_filter: Filter, fs: Filesystem) void {
-        var found_count: usize = 0;
-        for (self.multilibs.constSlice()) |multilib| {
+    pub fn filter(d: *Detected, multilib_filter: Filter, fs: Filesystem) void {
+        var found_count: u8 = 0;
+        for (d.multilibs()) |multilib| {
             if (multilib_filter.exists(multilib, fs)) {
-                self.multilibs.set(found_count, multilib);
+                d.multilib_buf[found_count] = multilib;
                 found_count += 1;
             }
         }
-        self.multilibs.resize(found_count) catch unreachable;
+        d.multilib_count = found_count;
     }
 
-    pub fn select(self: *Detected, flags: Flags) !bool {
-        var filtered: MultilibArray = .{};
-        for (self.multilibs.constSlice()) |multilib| {
-            for (multilib.flags.constSlice()) |multilib_flag| {
-                const matched = for (flags.constSlice()) |arg_flag| {
+    pub fn select(d: *Detected, check_flags: []const []const u8) !bool {
+        var selected: ?Multilib = null;
+
+        for (d.multilibs()) |multilib| {
+            for (multilib.flags()) |multilib_flag| {
+                const matched = for (check_flags) |arg_flag| {
                     if (std.mem.eql(u8, arg_flag[1..], multilib_flag[1..])) break arg_flag;
                 } else multilib_flag;
                 if (matched[0] != multilib_flag[0]) break;
+            } else if (selected != null) {
+                return error.TooManyMultilibs;
             } else {
-                filtered.appendAssumeCapacity(multilib);
+                selected = multilib;
             }
         }
-        if (filtered.len == 0) return false;
-        if (filtered.len == 1) {
-            self.selected = filtered.get(0);
+        if (selected) |multilib| {
+            d.selected = multilib;
             return true;
         }
-        return error.TooManyMultilibs;
+        return false;
+    }
+
+    pub fn multilibs(d: *const Detected) []const Multilib {
+        return d.multilib_buf[0..d.multilib_count];
     }
 };
 
@@ -58,14 +61,20 @@ const Multilib = @This();
 gcc_suffix: []const u8 = "",
 os_suffix: []const u8 = "",
 include_suffix: []const u8 = "",
-flags: Flags = .{},
+flag_buf: [6][]const u8 = undefined,
+flag_count: u8 = 0,
 priority: u32 = 0,
 
-pub fn init(gcc_suffix: []const u8, os_suffix: []const u8, flags: []const []const u8) Multilib {
+pub fn init(gcc_suffix: []const u8, os_suffix: []const u8, init_flags: []const []const u8) Multilib {
     var self: Multilib = .{
         .gcc_suffix = gcc_suffix,
         .os_suffix = os_suffix,
+        .flag_count = @intCast(init_flags.len),
     };
-    self.flags.appendSliceAssumeCapacity(flags);
+    @memcpy(self.flag_buf[0..init_flags.len], init_flags);
     return self;
+}
+
+pub fn flags(m: *const Multilib) []const []const u8 {
+    return m.flag_buf[0..m.flag_count];
 }

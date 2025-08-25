@@ -57,13 +57,13 @@ pub fn hasExtension(comp: *Compilation, ext: []const u8) bool {
         // C11 features
         .c_alignas = true,
         .c_alignof = true,
-        .c_atomic = false, // TODO
+        .c_atomic = true,
         .c_generic_selections = true,
         .c_static_assert = true,
         .c_thread_local = target_util.isTlsSupported(comp.target),
         // misc
         .overloadable_unmarked = false, // TODO
-        .statement_attributes_with_gnu_syntax = false, // TODO
+        .statement_attributes_with_gnu_syntax = true,
         .gnu_asm = true,
         .gnu_asm_goto_with_outputs = true,
         .matrix_types = false, // TODO

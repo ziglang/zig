@@ -12,10 +12,10 @@ map: std.AutoArrayHashMapUnmanaged(void, void) = .empty,
 items: std.MultiArrayList(struct {
     tag: Tag,
     data: u32,
-}) = .{},
-extra: std.ArrayListUnmanaged(u32) = .empty,
-limbs: std.ArrayListUnmanaged(Limb) = .empty,
-strings: std.ArrayListUnmanaged(u8) = .empty,
+}) = .empty,
+extra: std.ArrayList(u32) = .empty,
+limbs: std.ArrayList(Limb) = .empty,
+strings: std.ArrayList(u8) = .empty,
 
 const KeyAdapter = struct {
     interner: *const Interner,
@@ -65,6 +65,7 @@ pub const Key = union(enum) {
     float: Float,
     complex: Complex,
     bytes: []const u8,
+    pointer: Pointer,
 
     pub const Float = union(enum) {
         f16: f16,
@@ -79,6 +80,12 @@ pub const Key = union(enum) {
         cf64: [2]f64,
         cf80: [2]f80,
         cf128: [2]f128,
+    };
+    pub const Pointer = struct {
+        /// NodeIndex of decl or compound literal whose address we are offsetting from
+        node: u32,
+        /// Offset in bytes
+        offset: Ref,
     };
 
     pub fn hash(key: Key) u32 {
@@ -199,6 +206,10 @@ pub const Key = union(enum) {
         }
         return null;
     }
+
+    pub fn toBigInt(key: Key, space: *Tag.Int.BigIntSpace) BigIntConst {
+        return key.int.toBigInt(space);
+    }
 };
 
 pub const Ref = enum(u32) {
@@ -303,6 +314,8 @@ pub const Tag = enum(u8) {
     bytes,
     /// `data` is `Record`
     record_ty,
+    /// `data` is Pointer
+    pointer,
 
     pub const Array = struct {
         len0: u32,
@@ -320,6 +333,11 @@ pub const Tag = enum(u8) {
     pub const Vector = struct {
         len: u32,
         child: Ref,
+    };
+
+    pub const Pointer = struct {
+        node: u32,
+        offset: Ref,
     };
 
     pub const Int = struct {
@@ -606,6 +624,15 @@ pub fn put(i: *Interner, gpa: Allocator, key: Key) !Ref {
                 }),
             });
         },
+        .pointer => |info| {
+            i.items.appendAssumeCapacity(.{
+                .tag = .pointer,
+                .data = try i.addExtra(gpa, Tag.Pointer{
+                    .node = info.node,
+                    .offset = info.offset,
+                }),
+            });
+        },
         .int => |repr| int: {
             var space: Tag.Int.BigIntSpace = undefined;
             const big = repr.toBigInt(&space);
@@ -790,6 +817,13 @@ pub fn get(i: *const Interner, ref: Ref) Key {
             return .{ .vector_ty = .{
                 .len = vector_ty.len,
                 .child = vector_ty.child,
+            } };
+        },
+        .pointer => {
+            const pointer = i.extraData(Tag.Pointer, data);
+            return .{ .pointer = .{
+                .node = pointer.node,
+                .offset = pointer.offset,
             } };
         },
         .u32 => .{ .int = .{ .u64 = data } },

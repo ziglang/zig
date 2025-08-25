@@ -4,26 +4,29 @@ const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
 const aro = @import("aro");
 
-const PreprocessError = error{ ArgError, GeneratedSourceError, PreprocessError, StreamTooLong, OutOfMemory };
+const PreprocessError = error{ ArgError, GeneratedSourceError, PreprocessError, FileTooBig, OutOfMemory, WriteFailed };
 
 pub fn preprocess(
     comp: *aro.Compilation,
-    writer: anytype,
+    writer: *std.Io.Writer,
     /// Expects argv[0] to be the command name
     argv: []const []const u8,
     maybe_dependencies_list: ?*std.array_list.Managed([]const u8),
 ) PreprocessError!void {
     try comp.addDefaultPragmaHandlers();
 
-    var driver: aro.Driver = .{ .comp = comp, .aro_name = "arocc" };
+    var driver: aro.Driver = .{ .comp = comp, .diagnostics = comp.diagnostics, .aro_name = "arocc" };
     defer driver.deinit();
 
-    var macro_buf = std.array_list.Managed(u8).init(comp.gpa);
-    defer macro_buf.deinit();
+    var macro_buf: std.ArrayListUnmanaged(u8) = .empty;
+    defer macro_buf.deinit(comp.gpa);
 
-    _ = driver.parseArgs(std.io.null_writer, macro_buf.writer(), argv) catch |err| switch (err) {
+    var discard_buffer: [64]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&discard_buffer);
+    _ = driver.parseArgs(&discarding.writer, &macro_buf, argv) catch |err| switch (err) {
         error.FatalError => return error.ArgError,
         error.OutOfMemory => |e| return e,
+        error.WriteFailed => unreachable,
     };
 
     if (hasAnyErrors(comp)) return error.ArgError;
@@ -42,7 +45,10 @@ pub fn preprocess(
     if (hasAnyErrors(comp)) return error.GeneratedSourceError;
 
     comp.generated_buf.items.len = 0;
-    var pp = try aro.Preprocessor.initDefault(comp);
+    var pp = aro.Preprocessor.initDefault(comp) catch |err| switch (err) {
+        error.FatalError => return error.GeneratedSourceError,
+        error.OutOfMemory => |e| return e,
+    };
     defer pp.deinit();
 
     if (comp.langopts.ms_extensions) {
@@ -73,16 +79,7 @@ pub fn preprocess(
 }
 
 fn hasAnyErrors(comp: *aro.Compilation) bool {
-    // In theory we could just check Diagnostics.errors != 0, but that only
-    // gets set during rendering of the error messages, see:
-    // https://github.com/Vexu/arocc/issues/603
-    for (comp.diagnostics.list.items) |msg| {
-        switch (msg.kind) {
-            .@"fatal error", .@"error" => return true,
-            else => {},
-        }
-    }
-    return false;
+    return comp.diagnostics.errors != 0;
 }
 
 /// `arena` is used for temporary -D argument strings and the INCLUDE environment variable.
