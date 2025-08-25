@@ -2491,3 +2491,22 @@ test "orderedRemoveMany" {
     list.orderedRemoveMany(&.{0});
     try testing.expectEqualSlices(usize, &.{}, list.items);
 }
+
+test "insertSlice*" {
+    var buf: [10]u8 = undefined;
+    var list: ArrayList(u8) = .initBuffer(&buf);
+
+    list.appendSliceAssumeCapacity("abcd");
+
+    list.insertSliceAssumeCapacity(2, "ef");
+    try testing.expectEqualStrings("abefcd", list.items);
+
+    try list.insertSliceBounded(4, "gh");
+    try testing.expectEqualStrings("abefghcd", list.items);
+
+    try testing.expectError(error.OutOfMemory, list.insertSliceBounded(6, "ijkl"));
+    try testing.expectEqualStrings("abefghcd", list.items); // ensure no elements were changed before the return of error.OutOfMemory
+
+    list.insertSliceAssumeCapacity(6, "ij");
+    try testing.expectEqualStrings("abefghijcd", list.items);
+}
