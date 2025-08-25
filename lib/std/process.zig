@@ -1764,7 +1764,8 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             };
             return @as(u64, @intCast(physmem));
         },
-        .macos => {
+        // whole Darwin family
+        .driverkit, .ios, .macos, .tvos, .visionos, .watchos => {
             // "hw.memsize" returns uint64_t
             var physmem: u64 = undefined;
             var len: usize = @sizeOf(u64);
