@@ -2048,7 +2048,14 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                     break :s .none; // only LLD can handle ubsan-rt for this target
                 } else true,
             };
-            if (have_zcu and (!need_llvm or use_llvm)) break :s .zcu;
+            if (have_zcu and (!need_llvm or use_llvm)) {
+                // ubsan-rt's exports use hidden visibility. If we're building a Windows DLL and
+                // exported functions are going to be dllexported, LLVM will complain that
+                // dllexported functions must use default or protected visibility. So we can't use
+                // the ZCU strategy in this case.
+                if (options.config.dll_export_fns) break :s .lib;
+                break :s .zcu;
+            }
             if (need_llvm and !build_options.have_llvm) break :s .none; // impossible to build without llvm
             if (is_exe_or_dyn_lib) break :s .lib;
             break :s .obj;
