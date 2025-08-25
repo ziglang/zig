@@ -703,27 +703,15 @@ pub fn init(input: *Reader, output: *Writer, options: Options) InitError!Client 
 
                         // Add the public key based on negotiated group
                         const public_key_start = 9;
-                        const public_key_len: usize = switch (tls12_negotiated_group orelse .secp256r1) {
-                            .secp256r1 => blk: {
-                                const pk = key_share.secp256r1_kp.public_key.toUncompressedSec1();
-                                client_key_exchange_msg_buf[public_key_start] = @intCast(pk.len);
-                                @memcpy(client_key_exchange_msg_buf[public_key_start + 1 ..][0..pk.len], &pk);
-                                break :blk pk.len + 1;
-                            },
-                            .secp384r1 => blk: {
-                                const pk = key_share.secp384r1_kp.public_key.toUncompressedSec1();
-                                client_key_exchange_msg_buf[public_key_start] = @intCast(pk.len);
-                                @memcpy(client_key_exchange_msg_buf[public_key_start + 1 ..][0..pk.len], &pk);
-                                break :blk pk.len + 1;
-                            },
-                            .x25519 => blk: {
-                                const pk = key_share.x25519_kp.public_key;
-                                client_key_exchange_msg_buf[public_key_start] = @intCast(pk.len);
-                                @memcpy(client_key_exchange_msg_buf[public_key_start + 1 ..][0..pk.len], &pk);
-                                break :blk pk.len + 1;
-                            },
+                        const public_key_bytes = switch (tls12_negotiated_group orelse .secp256r1) {
+                            .secp256r1 => &key_share.secp256r1_kp.public_key.toUncompressedSec1(),
+                            .secp384r1 => &key_share.secp384r1_kp.public_key.toUncompressedSec1(),
+                            .x25519 => &key_share.x25519_kp.public_key,
                             else => return error.TlsIllegalParameter,
                         };
+                        client_key_exchange_msg_buf[public_key_start] = @intCast(public_key_bytes.len);
+                        @memcpy(client_key_exchange_msg_buf[public_key_start + 1 ..][0..public_key_bytes.len], public_key_bytes);
+                        const public_key_len = public_key_bytes.len + 1;
 
                         // Set handshake message length
                         std.mem.writeInt(u24, client_key_exchange_msg_buf[6..9], @intCast(public_key_len), .big);
