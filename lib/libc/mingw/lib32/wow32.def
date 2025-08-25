@@ -1,0 +1,19 @@
+LIBRARY WOW32.DLL
+EXPORTS
+WOWCallback16@8
+WOWCallback16Ex@20
+WOWDirectedYield16@4
+WOWGetDescriptor@8
+WOWGetVDMPointer@12
+WOWGetVDMPointerFix@12
+WOWGetVDMPointerUnfix@4
+WOWGlobalAlloc16@8
+WOWGlobalAllocLock16@12
+WOWGlobalFree16@4
+WOWGlobalLock16@4
+WOWGlobalLockSize16@8
+WOWGlobalUnlock16@4
+WOWGlobalUnlockFree16@4
+WOWHandle16@8
+WOWHandle32@8
+WOWYield16@0

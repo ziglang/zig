@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-eventing-classicprovider-l1-1-0
+
+EXPORTS
+
+GetTraceEnableFlags
+GetTraceEnableLevel
+GetTraceLoggerHandle
+RegisterTraceGuidsW
+TraceMessage
+UnregisterTraceGuids

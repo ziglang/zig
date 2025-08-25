@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-security-provider-l1-1-0
+
+EXPORTS
+
+GetExplicitEntriesFromAclW
+GetNamedSecurityInfoW
+GetSecurityInfo
+SetEntriesInAclW
+SetNamedSecurityInfoW
+SetSecurityInfo

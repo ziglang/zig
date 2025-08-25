@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-job-l2-1-0
+
+EXPORTS
+
+AssignProcessToJobObject
+CreateJobObjectW
+SetInformationJobObject

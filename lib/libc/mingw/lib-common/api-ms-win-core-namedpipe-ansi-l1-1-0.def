@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-namedpipe-ansi-l1-1-0
+
+EXPORTS
+
+GetNamedPipeClientComputerNameA
+GetNamedPipeHandleStateA
+WaitNamedPipeA

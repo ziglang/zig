@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-shell-shdirectory-l1-1-0
+
+EXPORTS
+
+SHCreateDirectory@8
+SHCreateDirectoryExA@12
+SHCreateDirectoryExW@12

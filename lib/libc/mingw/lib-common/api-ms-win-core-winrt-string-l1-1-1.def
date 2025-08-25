@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-winrt-string-l1-1-1
+
+EXPORTS
+
+WindowsInspectString2

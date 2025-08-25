@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-file-ansi-l1-1-0
+
+EXPORTS
+
+DeleteVolumeMountPointA
+FindFirstVolumeA
+FindNextVolumeA
+GetLogicalDriveStringsA
+GetVolumePathNameA

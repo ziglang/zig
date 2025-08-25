@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-job-l2-1-1
+
+EXPORTS
+
+FreeMemoryJobObject
+QueryIoRateControlInformationJobObject
+SetIoRateControlInformationJobObject

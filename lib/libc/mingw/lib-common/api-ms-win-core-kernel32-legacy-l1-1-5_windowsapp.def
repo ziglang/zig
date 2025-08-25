@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-kernel32-legacy-l1-1-5
+
+EXPORTS
+
+SetThreadExecutionState

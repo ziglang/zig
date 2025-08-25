@@ -1,0 +1,63 @@
+#include "func.def.in"
+
+LIBRARY CLBCatQ.DLL
+EXPORTS
+ActivatorUpdateForIsRouterChanges
+; void __cdecl ClearList(class CStructArray * __ptr64)
+F_X64(?ClearList@@YAXPEAVCStructArray@@@Z)
+CoRegCleanup
+; long __cdecl CreateComponentLibraryTS(unsigned short const * __ptr64,long,struct IComponentRecords * __ptr64 * __ptr64)
+F_X64(?CreateComponentLibraryTS@@YAJPEBGJPEAPEAUIComponentRecords@@@Z)
+; long __cdecl DataConvert(unsigned short,unsigned short,unsigned long,unsigned long * __ptr64,void * __ptr64,void * __ptr64,unsigned long,unsigned long,unsigned long * __ptr64,unsigned char,unsigned char,unsigned long)
+F_X64(?DataConvert@@YAJGGKPEAKPEAX1KK0EEK@Z)
+DeleteAllActivatorsForClsid
+; void __cdecl DestroyStgDatabase(class StgDatabase * __ptr64)
+F_X64(?DestroyStgDatabase@@YAXPEAVStgDatabase@@@Z)
+DowngradeAPL
+; long __cdecl GetDataConversion(struct IDataConvert * __ptr64 * __ptr64)
+F_X64(?GetDataConversion@@YAJPEAPEAUIDataConvert@@@Z)
+; class CGetDataConversion * __ptr64 __cdecl GetDataConvertObject(void)
+F_X64(?GetDataConvertObject@@YAPEAVCGetDataConversion@@XZ)
+GetGlobalBabyJITEnabled
+; long __cdecl GetPropValue(unsigned short,long * __ptr64,void * __ptr64,int,int * __ptr64,struct tagDBPROP & __ptr64)
+F_X64(?GetPropValue@@YAJGPEAJPEAXHPEAHAEAUtagDBPROP@@@Z)
+; long __cdecl GetStgDatabase(class StgDatabase * __ptr64 * __ptr64)
+F_X64(?GetStgDatabase@@YAJPEAPEAVStgDatabase@@@Z)
+; void __cdecl InitErrors(unsigned long * __ptr64)
+F_X64(?InitErrors@@YAXPEAK@Z)
+; long __cdecl OpenComponentLibrarySharedTS(unsigned short const * __ptr64,unsigned short const * __ptr64,unsigned long,struct _SECURITY_ATTRIBUTES * __ptr64,long,struct IComponentRecords * __ptr64 * __ptr64)
+F_X64(?OpenComponentLibrarySharedTS@@YAJPEBG0KPEAU_SECURITY_ATTRIBUTES@@JPEAPEAUIComponentRecords@@@Z)
+; long __cdecl OpenComponentLibraryTS(unsigned short const * __ptr64,long,struct IComponentRecords * __ptr64 * __ptr64)
+F_X64(?OpenComponentLibraryTS@@YAJPEBGJPEAPEAUIComponentRecords@@@Z)
+; long __cdecl PostError(long,...)
+F_X64(?PostError@@YAJJZZ)
+; void __cdecl ShutDownDataConversion(void)
+F_X64(?ShutDownDataConversion@@YAXXZ)
+UpdateFromAppChange
+UpdateFromComponentChange
+CLSIDFromStringByBitness
+CheckMemoryGates
+ComPlusEnablePartitions
+ComPlusEnableRemoteAccess
+ComPlusMigrate
+ComPlusPartitionsEnabled
+ComPlusRemoteAccessEnabled
+CreateComponentLibraryEx
+DllCanUnloadNow
+DllGetClassObject
+DllRegisterServer
+DllUnregisterServer
+GetCatalogObject
+GetCatalogObject2
+GetComputerObject
+GetSimpleTableDispenser
+InprocServer32FromString
+OpenComponentLibraryEx
+OpenComponentLibraryOnMemEx
+OpenComponentLibraryOnStreamEx
+OpenComponentLibrarySharedEx
+ServerGetApplicationType
+SetSetupOpen
+SetSetupSave
+SetupOpen
+SetupSave

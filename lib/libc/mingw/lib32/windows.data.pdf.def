@@ -1,0 +1,3 @@
+LIBRARY "Windows.Data.Pdf.dll"
+EXPORTS
+PdfCreateRenderer@8

@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-eventlog-legacy-l1-1-0
+
+EXPORTS
+
+DeregisterEventSource
+RegisterEventSourceW
+ReportEventW

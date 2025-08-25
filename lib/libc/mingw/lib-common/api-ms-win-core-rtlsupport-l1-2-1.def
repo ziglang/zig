@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-rtlsupport-l1-2-1
+
+EXPORTS
+
+RtlCaptureContext2

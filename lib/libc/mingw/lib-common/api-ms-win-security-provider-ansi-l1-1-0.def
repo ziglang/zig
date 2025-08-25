@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-security-provider-ansi-l1-1-0
+
+EXPORTS
+
+GetExplicitEntriesFromAclA
+GetNamedSecurityInfoA
+SetEntriesInAclA
+SetNamedSecurityInfoA

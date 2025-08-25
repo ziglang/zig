@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-file-l1-2-2
+
+EXPORTS
+
+AreFileApisANSI
+GetTempFileNameA
+GetTempPathA
+GetVolumeInformationA

@@ -1,0 +1,18 @@
+LIBRARY api-ms-win-core-processthreads-l1-1-1
+
+EXPORTS
+
+FlushInstructionCache
+GetCurrentProcessorNumber
+GetCurrentProcessorNumberEx
+GetCurrentThreadStackLimits
+GetProcessHandleCount
+GetProcessMitigationPolicy
+GetThreadContext
+GetThreadIdealProcessorEx
+GetThreadTimes
+IsProcessorFeaturePresent
+OpenProcess
+SetProcessMitigationPolicy
+SetThreadContext
+SetThreadIdealProcessorEx

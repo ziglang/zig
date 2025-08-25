@@ -1,0 +1,36 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_CISO646
+#define _LIBCPP_CISO646
+
+/*
+    ciso646 synopsis
+
+*/
+
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/ciso646>
+#else
+#  include <__config>
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+
+#  if _LIBCPP_STD_VER >= 20
+
+using __standard_header_ciso646
+    _LIBCPP_DEPRECATED_("removed in C++20. Include <version> instead.") _LIBCPP_NODEBUG = void;
+using __use_standard_header_ciso646 _LIBCPP_NODEBUG                                     = __standard_header_ciso646;
+
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+
+#endif // _LIBCPP_CISO646

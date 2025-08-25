@@ -1,0 +1,10 @@
+LIBRARY api-ms-win-core-console-l2-2-0
+
+EXPORTS
+
+GetConsoleOriginalTitleA@8
+GetConsoleOriginalTitleW@8
+GetConsoleTitleA@8
+GetConsoleTitleW@8
+SetConsoleTitleA@4
+SetConsoleTitleW@4

@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-timezone-l1-1-1
+
+EXPORTS
+
+LocalFileTimeToLocalSystemTime
+LocalSystemTimeToLocalFileTime

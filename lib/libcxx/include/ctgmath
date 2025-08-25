@@ -1,0 +1,46 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP_CTGMATH
+#define _LIBCPP_CTGMATH
+
+/*
+    ctgmath synopsis
+
+#include <ccomplex>
+#include <cmath>
+
+*/
+
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/ctgmath>
+#else
+#  include <cmath>
+#  include <complex>
+
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
+
+#  if _LIBCPP_STD_VER >= 20
+
+using __standard_header_ctgmath
+    _LIBCPP_DEPRECATED_("removed in C++20. Include <cmath> and <complex> instead.") _LIBCPP_NODEBUG = void;
+using __use_standard_header_ctgmath _LIBCPP_NODEBUG = __standard_header_ctgmath;
+
+#  elif _LIBCPP_STD_VER >= 17
+
+using __standard_header_ctgmath _LIBCPP_DEPRECATED_("Include <cmath> and <complex> instead.") _LIBCPP_NODEBUG = void;
+using __use_standard_header_ctgmath _LIBCPP_NODEBUG = __standard_header_ctgmath;
+
+#  endif
+
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+
+#endif // _LIBCPP_CTGMATH

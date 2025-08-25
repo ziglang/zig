@@ -1,0 +1,48 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+//#target=wasm32-wasi-selfhosted
+#update=initial version
+#file=main.zig
+const std = @import("std");
+const message: []const u8 = @import("message.zon");
+pub fn main() !void {
+    try std.fs.File.stdout().writeAll(message);
+}
+#file=message.zon
+"Hello, World!\n"
+#expect_stdout="Hello, World!\n"
+
+#update=change ZON file contents
+#file=message.zon
+"Hello again, World!\n"
+#expect_stdout="Hello again, World!\n"
+
+#update=delete file
+#rm_file=message.zon
+#expect_error=message.zon:1:1: error: unable to load 'message.zon': FileNotFound
+#expect_error=main.zig:2:37: note: file imported here
+
+#update=remove reference to ZON file
+#file=main.zig
+const std = @import("std");
+const message: []const u8 = @import("message.zon");
+pub fn main() !void {
+    try std.fs.File.stdout().writeAll("a hardcoded string\n");
+}
+#expect_error=message.zon:1:1: error: unable to load 'message.zon': FileNotFound
+#expect_error=main.zig:2:37: note: file imported here
+
+#update=recreate ZON file
+#file=message.zon
+"We're back, World!\n"
+#expect_stdout="a hardcoded string\n"
+
+#update=re-introduce reference to ZON file
+#file=main.zig
+const std = @import("std");
+const message: []const u8 = @import("message.zon");
+pub fn main() !void {
+    try std.fs.File.stdout().writeAll(message);
+}
+#expect_stdout="We're back, World!\n"

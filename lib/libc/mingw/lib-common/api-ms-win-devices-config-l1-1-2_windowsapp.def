@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-devices-config-l1-1-2
+
+EXPORTS
+
+CM_Get_Device_Interface_List_SizeA
+CM_Get_Device_Interface_ListA

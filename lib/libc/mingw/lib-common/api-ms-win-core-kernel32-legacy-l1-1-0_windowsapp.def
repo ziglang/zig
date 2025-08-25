@@ -1,0 +1,23 @@
+LIBRARY api-ms-win-core-kernel32-legacy-l1-1-0
+
+EXPORTS
+
+CopyFileA
+CreateFileMappingA
+CreateNamedPipeA
+DosDateTimeToFileTime
+FileTimeToDosDateTime
+FindResourceA
+GetComputerNameA
+GetComputerNameW
+GetShortPathNameA
+GetStartupInfoA
+GetSystemPowerStatus
+GlobalMemoryStatus
+MoveFileA
+MoveFileExA
+MoveFileW
+RegisterWaitForSingleObject
+SetFileCompletionNotificationModes
+SetVolumeLabelW
+UnregisterWait

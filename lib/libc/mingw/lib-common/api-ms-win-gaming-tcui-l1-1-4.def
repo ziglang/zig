@@ -1,0 +1,12 @@
+LIBRARY api-ms-win-gaming-tcui-l1-1-4
+
+EXPORTS
+
+ShowCustomizeUserProfileUI
+ShowCustomizeUserProfileUIForUser
+ShowFindFriendsUI
+ShowFindFriendsUIForUser
+ShowGameInfoUI
+ShowGameInfoUIForUser
+ShowUserSettingsUI
+ShowUserSettingsUIForUser

@@ -1,0 +1,12 @@
+LIBRARY "ucrtbase.dll"
+EXPORTS
+
+#include "func.def.in"
+
+; Include common ucrtbase symbols for non-debug build ucrtbase.dll
+#undef DEF_DEBUG
+#include "ucrtbase-common.def.in"
+
+; Include symbol aliases for compatibility with msvcrt.dll
+#define UCRTBASE
+#include "crt-aliases.def.in"

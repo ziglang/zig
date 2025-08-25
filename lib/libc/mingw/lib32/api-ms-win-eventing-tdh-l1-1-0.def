@@ -1,0 +1,16 @@
+LIBRARY api-ms-win-eventing-tdh-l1-1-0
+
+EXPORTS
+
+TdhEnumerateManifestProviderEvents@12
+TdhEnumerateProviderFieldInformation@16
+TdhEnumerateProviders@8
+TdhFormatProperty@44
+TdhGetEventInformation@20
+TdhGetEventMapInformation@16
+TdhGetManifestEventInformation@16
+TdhGetProperty@28
+TdhGetPropertySize@24
+TdhLoadManifest@4
+TdhQueryProviderFieldInformation@24
+TdhUnloadManifest@4

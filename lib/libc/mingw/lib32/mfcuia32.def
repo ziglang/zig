@@ -1,0 +1,12 @@
+LIBRARY MFCUIA32.DLL
+EXPORTS
+OleUIAddVerbMenu@36
+OleUIBusy@4
+OleUICanConvertOrActivateAs@12
+OleUIChangeIcon@4
+OleUIConvert@4
+OleUIEditLinks@4
+OleUIInsertObject@4
+OleUIPasteSpecial@4
+OleUIPromptUser
+OleUIUpdateLinks@16

@@ -1,0 +1,13 @@
+LIBRARY api-ms-win-core-winrt-l1-1-0
+
+EXPORTS
+
+RoActivateInstance
+RoGetActivationFactory
+RoGetApartmentIdentifier
+RoInitialize
+RoRegisterActivationFactories
+RoRegisterForApartmentShutdown
+RoRevokeActivationFactories
+RoUninitialize
+RoUnregisterForApartmentShutdown

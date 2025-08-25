@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-power-base-l1-1-0
+
+EXPORTS
+
+CallNtPowerInformation@20
+GetPwrCapabilities@4
+PowerDeterminePlatformRoleEx@4
+PowerRegisterSuspendResumeNotification@12
+PowerUnregisterSuspendResumeNotification@4

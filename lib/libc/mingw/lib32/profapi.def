@@ -1,0 +1,21 @@
+LIBRARY profapi
+
+EXPORTS
+
+CreateAppContainerEnumerator@8
+CreateEnvBlock@12
+DeleteAppContainerEnumerator@4
+DestroyEnvBlock@4
+ExpandEnvStringForUser@16
+GetAppContainerPath@12
+GetAppContainerPathFromSidString@16
+GetAppContainerRegistryHandle@8
+GetAppContainerRegistryHandleFromName@20
+GetAppContainerRegistryPath@8
+GetAppContainerSpecificSubPath@16
+GetBasicProfileFolderPath@16
+GetBasicProfileFolderPathAlloc@12
+GetBasicProfileFolderPathEx@20
+GetNextAppContainerSid@8
+LoadProfileBasic@8
+UnloadProfileBasic@8

@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-stringansi-l1-1-0
+
+EXPORTS
+
+CharLowerA
+CharNextA
+CharNextExA

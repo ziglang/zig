@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-featurestaging-l1-1-1
+
+EXPORTS
+
+GetFeatureVariant

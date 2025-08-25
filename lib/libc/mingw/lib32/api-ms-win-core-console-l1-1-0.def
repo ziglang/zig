@@ -1,0 +1,17 @@
+LIBRARY api-ms-win-core-console-l1-1-0
+
+EXPORTS
+
+AllocConsole@0
+GetConsoleCP@0
+GetConsoleMode@8
+GetConsoleOutputCP@0
+GetNumberOfConsoleInputEvents@8
+ReadConsoleA@20
+ReadConsoleInputA@16
+ReadConsoleInputW@16
+ReadConsoleW@20
+SetConsoleCtrlHandler@8
+SetConsoleMode@8
+WriteConsoleA@20
+WriteConsoleW@20

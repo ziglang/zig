@@ -1,0 +1,822 @@
+//! To support incremental compilation, errors are stored in various places
+//! so that they can be created and destroyed appropriately. This structure
+//! is used to collect all the errors from the various places into one
+//! convenient place for API users to consume.
+//!
+//! There is one special encoding for this data structure. If both arrays are
+//! empty, it means there are no errors. This special encoding exists so that
+//! heap allocation is not needed in the common case of no errors.
+
+const std = @import("std");
+const ErrorBundle = @This();
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const Writer = std.io.Writer;
+
+string_bytes: []const u8,
+/// The first thing in this array is an `ErrorMessageList`.
+extra: []const u32,
+
+/// Index into `string_bytes`.
+pub const String = u32;
+/// Index into `string_bytes`, or null.
+pub const OptionalString = u32;
+
+/// Special encoding when there are no errors.
+pub const empty: ErrorBundle = .{
+    .string_bytes = &.{},
+    .extra = &.{},
+};
+
+// An index into `extra` pointing at an `ErrorMessage`.
+pub const MessageIndex = enum(u32) {
+    _,
+};
+
+// An index into `extra` pointing at an `SourceLocation`.
+pub const SourceLocationIndex = enum(u32) {
+    none = 0,
+    _,
+};
+
+/// There will be a MessageIndex for each len at start.
+pub const ErrorMessageList = struct {
+    len: u32,
+    start: u32,
+    /// null-terminated string index. 0 means no compile log text.
+    compile_log_text: OptionalString,
+};
+
+/// Trailing:
+/// * ReferenceTrace for each reference_trace_len
+pub const SourceLocation = struct {
+    src_path: String,
+    line: u32,
+    column: u32,
+    /// byte offset of starting token
+    span_start: u32,
+    /// byte offset of main error location
+    span_main: u32,
+    /// byte offset of end of last token
+    span_end: u32,
+    /// Does not include the trailing newline.
+    source_line: OptionalString = 0,
+    reference_trace_len: u32 = 0,
+};
+
+/// Trailing:
+/// * MessageIndex for each notes_len.
+pub const ErrorMessage = struct {
+    msg: String,
+    /// Usually one, but incremented for redundant messages.
+    count: u32 = 1,
+    src_loc: SourceLocationIndex = .none,
+    notes_len: u32 = 0,
+};
+
+pub const ReferenceTrace = struct {
+    /// null terminated string index
+    /// Except for the sentinel ReferenceTrace element, in which case:
+    /// * 0 means remaining references hidden
+    /// * >0 means N references hidden
+    decl_name: String,
+    /// Index into extra of a SourceLocation
+    /// If this is 0, this is the sentinel ReferenceTrace element.
+    src_loc: SourceLocationIndex,
+};
+
+pub fn deinit(eb: *ErrorBundle, gpa: Allocator) void {
+    gpa.free(eb.string_bytes);
+    gpa.free(eb.extra);
+    eb.* = undefined;
+}
+
+pub fn errorMessageCount(eb: ErrorBundle) u32 {
+    if (eb.extra.len == 0) return 0;
+    return eb.getErrorMessageList().len;
+}
+
+pub fn getErrorMessageList(eb: ErrorBundle) ErrorMessageList {
+    return eb.extraData(ErrorMessageList, 0).data;
+}
+
+pub fn getMessages(eb: ErrorBundle) []const MessageIndex {
+    const list = eb.getErrorMessageList();
+    return @as([]const MessageIndex, @ptrCast(eb.extra[list.start..][0..list.len]));
+}
+
+pub fn getErrorMessage(eb: ErrorBundle, index: MessageIndex) ErrorMessage {
+    return eb.extraData(ErrorMessage, @intFromEnum(index)).data;
+}
+
+pub fn getSourceLocation(eb: ErrorBundle, index: SourceLocationIndex) SourceLocation {
+    assert(index != .none);
+    return eb.extraData(SourceLocation, @intFromEnum(index)).data;
+}
+
+pub fn getNotes(eb: ErrorBundle, index: MessageIndex) []const MessageIndex {
+    const notes_len = eb.getErrorMessage(index).notes_len;
+    const start = @intFromEnum(index) + @typeInfo(ErrorMessage).@"struct".fields.len;
+    return @as([]const MessageIndex, @ptrCast(eb.extra[start..][0..notes_len]));
+}
+
+pub fn getCompileLogOutput(eb: ErrorBundle) [:0]const u8 {
+    return nullTerminatedString(eb, getErrorMessageList(eb).compile_log_text);
+}
+
+/// Returns the requested data, as well as the new index which is at the start of the
+/// trailers for the object.
+fn extraData(eb: ErrorBundle, comptime T: type, index: usize) struct { data: T, end: usize } {
+    const fields = @typeInfo(T).@"struct".fields;
+    var i: usize = index;
+    var result: T = undefined;
+    inline for (fields) |field| {
+        @field(result, field.name) = switch (field.type) {
+            u32 => eb.extra[i],
+            MessageIndex => @as(MessageIndex, @enumFromInt(eb.extra[i])),
+            SourceLocationIndex => @as(SourceLocationIndex, @enumFromInt(eb.extra[i])),
+            else => @compileError("bad field type"),
+        };
+        i += 1;
+    }
+    return .{
+        .data = result,
+        .end = i,
+    };
+}
+
+/// Given an index into `string_bytes` returns the null-terminated string found there.
+pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
+    const string_bytes = eb.string_bytes;
+    var end: usize = index;
+    while (string_bytes[end] != 0) {
+        end += 1;
+    }
+    return string_bytes[index..end :0];
+}
+
+pub const RenderOptions = struct {
+    ttyconf: std.io.tty.Config,
+    include_reference_trace: bool = true,
+    include_source_line: bool = true,
+    include_log_text: bool = true,
+};
+
+pub fn renderToStdErr(eb: ErrorBundle, options: RenderOptions) void {
+    var buffer: [256]u8 = undefined;
+    const w = std.debug.lockStderrWriter(&buffer);
+    defer std.debug.unlockStderrWriter();
+    renderToWriter(eb, options, w) catch return;
+}
+
+pub fn renderToWriter(eb: ErrorBundle, options: RenderOptions, w: *Writer) (Writer.Error || std.posix.UnexpectedError)!void {
+    if (eb.extra.len == 0) return;
+    for (eb.getMessages()) |err_msg| {
+        try renderErrorMessageToWriter(eb, options, err_msg, w, "error", .red, 0);
+    }
+
+    if (options.include_log_text) {
+        const log_text = eb.getCompileLogOutput();
+        if (log_text.len != 0) {
+            try w.writeAll("\nCompile Log Output:\n");
+            try w.writeAll(log_text);
+        }
+    }
+}
+
+fn renderErrorMessageToWriter(
+    eb: ErrorBundle,
+    options: RenderOptions,
+    err_msg_index: MessageIndex,
+    w: *Writer,
+    kind: []const u8,
+    color: std.io.tty.Color,
+    indent: usize,
+) (Writer.Error || std.posix.UnexpectedError)!void {
+    const ttyconf = options.ttyconf;
+    const err_msg = eb.getErrorMessage(err_msg_index);
+    if (err_msg.src_loc != .none) {
+        const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
+        var prefix: std.io.Writer.Discarding = .init(&.{});
+        try w.splatByteAll(' ', indent);
+        prefix.count += indent;
+        try ttyconf.setColor(w, .bold);
+        try w.print("{s}:{d}:{d}: ", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
+        try prefix.writer.print("{s}:{d}:{d}: ", .{
+            eb.nullTerminatedString(src.data.src_path),
+            src.data.line + 1,
+            src.data.column + 1,
+        });
+        try ttyconf.setColor(w, color);
+        try w.writeAll(kind);
+        prefix.count += kind.len;
+        try w.writeAll(": ");
+        prefix.count += 2;
+        // This is the length of the part before the error message:
+        // e.g. "file.zig:4:5: error: "
+        const prefix_len: usize = @intCast(prefix.count);
+        try ttyconf.setColor(w, .reset);
+        try ttyconf.setColor(w, .bold);
+        if (err_msg.count == 1) {
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try w.writeByte('\n');
+        } else {
+            try writeMsg(eb, err_msg, w, prefix_len);
+            try ttyconf.setColor(w, .dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
+        }
+        try ttyconf.setColor(w, .reset);
+        if (src.data.source_line != 0 and options.include_source_line) {
+            const line = eb.nullTerminatedString(src.data.source_line);
+            for (line) |b| switch (b) {
+                '\t' => try w.writeByte(' '),
+                else => try w.writeByte(b),
+            };
+            try w.writeByte('\n');
+            // TODO basic unicode code point monospace width
+            const before_caret = src.data.span_main - src.data.span_start;
+            // -1 since span.main includes the caret
+            const after_caret = src.data.span_end -| src.data.span_main -| 1;
+            try w.splatByteAll(' ', src.data.column - before_caret);
+            try ttyconf.setColor(w, .green);
+            try w.splatByteAll('~', before_caret);
+            try w.writeByte('^');
+            try w.splatByteAll('~', after_caret);
+            try w.writeByte('\n');
+            try ttyconf.setColor(w, .reset);
+        }
+        for (eb.getNotes(err_msg_index)) |note| {
+            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent);
+        }
+        if (src.data.reference_trace_len > 0 and options.include_reference_trace) {
+            try ttyconf.setColor(w, .reset);
+            try ttyconf.setColor(w, .dim);
+            try w.print("referenced by:\n", .{});
+            var ref_index = src.end;
+            for (0..src.data.reference_trace_len) |_| {
+                const ref_trace = eb.extraData(ReferenceTrace, ref_index);
+                ref_index = ref_trace.end;
+                if (ref_trace.data.src_loc != .none) {
+                    const ref_src = eb.getSourceLocation(ref_trace.data.src_loc);
+                    try w.print("    {s}: {s}:{d}:{d}\n", .{
+                        eb.nullTerminatedString(ref_trace.data.decl_name),
+                        eb.nullTerminatedString(ref_src.src_path),
+                        ref_src.line + 1,
+                        ref_src.column + 1,
+                    });
+                } else if (ref_trace.data.decl_name != 0) {
+                    const count = ref_trace.data.decl_name;
+                    try w.print(
+                        "    {d} reference(s) hidden; use '-freference-trace={d}' to see all references\n",
+                        .{ count, count + src.data.reference_trace_len - 1 },
+                    );
+                } else {
+                    try w.print(
+                        "    remaining reference traces hidden; use '-freference-trace' to see all reference traces\n",
+                        .{},
+                    );
+                }
+            }
+            try ttyconf.setColor(w, .reset);
+        }
+    } else {
+        try ttyconf.setColor(w, color);
+        try w.splatByteAll(' ', indent);
+        try w.writeAll(kind);
+        try w.writeAll(": ");
+        try ttyconf.setColor(w, .reset);
+        const msg = eb.nullTerminatedString(err_msg.msg);
+        if (err_msg.count == 1) {
+            try w.print("{s}\n", .{msg});
+        } else {
+            try w.print("{s}", .{msg});
+            try ttyconf.setColor(w, .dim);
+            try w.print(" ({d} times)\n", .{err_msg.count});
+        }
+        try ttyconf.setColor(w, .reset);
+        for (eb.getNotes(err_msg_index)) |note| {
+            try renderErrorMessageToWriter(eb, options, note, w, "note", .cyan, indent + 4);
+        }
+    }
+}
+
+/// Splits the error message up into lines to properly indent them
+/// to allow for long, good-looking error messages.
+///
+/// This is used to split the message in `@compileError("hello\nworld")` for example.
+fn writeMsg(eb: ErrorBundle, err_msg: ErrorMessage, w: *Writer, indent: usize) !void {
+    var lines = std.mem.splitScalar(u8, eb.nullTerminatedString(err_msg.msg), '\n');
+    while (lines.next()) |line| {
+        try w.writeAll(line);
+        if (lines.index == null) break;
+        try w.writeByte('\n');
+        try w.splatByteAll(' ', indent);
+    }
+}
+
+pub const Wip = struct {
+    gpa: Allocator,
+    string_bytes: std.ArrayListUnmanaged(u8),
+    /// The first thing in this array is a ErrorMessageList.
+    extra: std.ArrayListUnmanaged(u32),
+    root_list: std.ArrayListUnmanaged(MessageIndex),
+
+    pub fn init(wip: *Wip, gpa: Allocator) !void {
+        wip.* = .{
+            .gpa = gpa,
+            .string_bytes = .{},
+            .extra = .{},
+            .root_list = .{},
+        };
+
+        // So that 0 can be used to indicate a null string.
+        try wip.string_bytes.append(gpa, 0);
+
+        assert(0 == try addExtra(wip, ErrorMessageList{
+            .len = 0,
+            .start = 0,
+            .compile_log_text = 0,
+        }));
+    }
+
+    pub fn deinit(wip: *Wip) void {
+        const gpa = wip.gpa;
+        wip.root_list.deinit(gpa);
+        wip.string_bytes.deinit(gpa);
+        wip.extra.deinit(gpa);
+        wip.* = undefined;
+    }
+
+    pub fn toOwnedBundle(wip: *Wip, compile_log_text: []const u8) !ErrorBundle {
+        const gpa = wip.gpa;
+        if (wip.root_list.items.len == 0) {
+            assert(compile_log_text.len == 0);
+            // Special encoding when there are no errors.
+            wip.deinit();
+            wip.* = .{
+                .gpa = gpa,
+                .string_bytes = .{},
+                .extra = .{},
+                .root_list = .{},
+            };
+            return empty;
+        }
+
+        const compile_log_str_index = if (compile_log_text.len == 0) 0 else str: {
+            const str: u32 = @intCast(wip.string_bytes.items.len);
+            try wip.string_bytes.ensureUnusedCapacity(gpa, compile_log_text.len + 1);
+            wip.string_bytes.appendSliceAssumeCapacity(compile_log_text);
+            wip.string_bytes.appendAssumeCapacity(0);
+            break :str str;
+        };
+
+        wip.setExtra(0, ErrorMessageList{
+            .len = @intCast(wip.root_list.items.len),
+            .start = @intCast(wip.extra.items.len),
+            .compile_log_text = compile_log_str_index,
+        });
+        try wip.extra.appendSlice(gpa, @as([]const u32, @ptrCast(wip.root_list.items)));
+        wip.root_list.clearAndFree(gpa);
+        return .{
+            .string_bytes = try wip.string_bytes.toOwnedSlice(gpa),
+            .extra = try wip.extra.toOwnedSlice(gpa),
+        };
+    }
+
+    pub fn tmpBundle(wip: Wip) ErrorBundle {
+        return .{
+            .string_bytes = wip.string_bytes.items,
+            .extra = wip.extra.items,
+        };
+    }
+
+    pub fn addString(wip: *Wip, s: []const u8) Allocator.Error!String {
+        const gpa = wip.gpa;
+        const index: String = @intCast(wip.string_bytes.items.len);
+        try wip.string_bytes.ensureUnusedCapacity(gpa, s.len + 1);
+        wip.string_bytes.appendSliceAssumeCapacity(s);
+        wip.string_bytes.appendAssumeCapacity(0);
+        return index;
+    }
+
+    pub fn printString(wip: *Wip, comptime fmt: []const u8, args: anytype) Allocator.Error!String {
+        const gpa = wip.gpa;
+        const index: String = @intCast(wip.string_bytes.items.len);
+        try wip.string_bytes.print(gpa, fmt, args);
+        try wip.string_bytes.append(gpa, 0);
+        return index;
+    }
+
+    pub fn addRootErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!void {
+        try wip.root_list.ensureUnusedCapacity(wip.gpa, 1);
+        wip.root_list.appendAssumeCapacity(try addErrorMessage(wip, em));
+    }
+
+    pub fn addErrorMessage(wip: *Wip, em: ErrorMessage) Allocator.Error!MessageIndex {
+        return @enumFromInt(try addExtra(wip, em));
+    }
+
+    pub fn addErrorMessageAssumeCapacity(wip: *Wip, em: ErrorMessage) MessageIndex {
+        return @enumFromInt(addExtraAssumeCapacity(wip, em));
+    }
+
+    pub fn addSourceLocation(wip: *Wip, sl: SourceLocation) Allocator.Error!SourceLocationIndex {
+        return @enumFromInt(try addExtra(wip, sl));
+    }
+
+    pub fn addReferenceTrace(wip: *Wip, rt: ReferenceTrace) Allocator.Error!void {
+        _ = try addExtra(wip, rt);
+    }
+
+    pub fn addBundleAsNotes(wip: *Wip, other: ErrorBundle) Allocator.Error!void {
+        const gpa = wip.gpa;
+
+        try wip.string_bytes.ensureUnusedCapacity(gpa, other.string_bytes.len);
+        try wip.extra.ensureUnusedCapacity(gpa, other.extra.len);
+
+        const other_list = other.getMessages();
+
+        // The ensureUnusedCapacity call above guarantees this.
+        const notes_start = wip.reserveNotes(@intCast(other_list.len)) catch unreachable;
+        for (notes_start.., other_list) |note, message| {
+            // This line can cause `wip.extra.items` to be resized.
+            const note_index = @intFromEnum(wip.addOtherMessage(other, message) catch unreachable);
+            wip.extra.items[note] = note_index;
+        }
+    }
+
+    pub fn addBundleAsRoots(wip: *Wip, other: ErrorBundle) !void {
+        const gpa = wip.gpa;
+
+        try wip.string_bytes.ensureUnusedCapacity(gpa, other.string_bytes.len);
+        try wip.extra.ensureUnusedCapacity(gpa, other.extra.len);
+
+        const other_list = other.getMessages();
+
+        try wip.root_list.ensureUnusedCapacity(gpa, other_list.len);
+        for (other_list) |other_msg| {
+            // The ensureUnusedCapacity calls above guarantees this.
+            wip.root_list.appendAssumeCapacity(wip.addOtherMessage(other, other_msg) catch unreachable);
+        }
+    }
+
+    pub fn reserveNotes(wip: *Wip, notes_len: u32) !u32 {
+        try wip.extra.ensureUnusedCapacity(wip.gpa, notes_len +
+            notes_len * @typeInfo(ErrorBundle.ErrorMessage).@"struct".fields.len);
+        wip.extra.items.len += notes_len;
+        return @intCast(wip.extra.items.len - notes_len);
+    }
+
+    pub fn addZirErrorMessages(
+        eb: *ErrorBundle.Wip,
+        zir: std.zig.Zir,
+        tree: std.zig.Ast,
+        source: [:0]const u8,
+        src_path: []const u8,
+    ) !void {
+        const Zir = std.zig.Zir;
+        const payload_index = zir.extra[@intFromEnum(Zir.ExtraIndex.compile_errors)];
+        assert(payload_index != 0);
+
+        const header = zir.extraData(Zir.Inst.CompileErrors, payload_index);
+        const items_len = header.data.items_len;
+        var extra_index = header.end;
+        for (0..items_len) |_| {
+            const item = zir.extraData(Zir.Inst.CompileErrors.Item, extra_index);
+            extra_index = item.end;
+            const err_span = blk: {
+                if (item.data.node.unwrap()) |node| {
+                    break :blk tree.nodeToSpan(node);
+                } else if (item.data.token.unwrap()) |token| {
+                    const start = tree.tokenStart(token) + item.data.byte_offset;
+                    const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                    break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                } else unreachable;
+            };
+            const err_loc = std.zig.findLineColumn(source, err_span.main);
+
+            {
+                const msg = zir.nullTerminatedString(item.data.msg);
+                try eb.addRootErrorMessage(.{
+                    .msg = try eb.addString(msg),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = err_span.start,
+                        .span_main = err_span.main,
+                        .span_end = err_span.end,
+                        .line = @intCast(err_loc.line),
+                        .column = @intCast(err_loc.column),
+                        .source_line = try eb.addString(err_loc.source_line),
+                    }),
+                    .notes_len = item.data.notesLen(zir),
+                });
+            }
+
+            if (item.data.notes != 0) {
+                const notes_start = try eb.reserveNotes(item.data.notesLen(zir));
+                const block = zir.extraData(Zir.Inst.Block, item.data.notes);
+                const body = zir.extra[block.end..][0..block.data.body_len];
+                for (notes_start.., body) |note_i, body_elem| {
+                    const note_item = zir.extraData(Zir.Inst.CompileErrors.Item, body_elem);
+                    const msg = zir.nullTerminatedString(note_item.data.msg);
+                    const span = blk: {
+                        if (note_item.data.node.unwrap()) |node| {
+                            break :blk tree.nodeToSpan(node);
+                        } else if (note_item.data.token.unwrap()) |token| {
+                            const start = tree.tokenStart(token) + note_item.data.byte_offset;
+                            const end = start + @as(u32, @intCast(tree.tokenSlice(token).len)) - item.data.byte_offset;
+                            break :blk std.zig.Ast.Span{ .start = start, .end = end, .main = start };
+                        } else unreachable;
+                    };
+                    const loc = std.zig.findLineColumn(source, span.main);
+
+                    // This line can cause `wip.extra.items` to be resized.
+                    const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                        .msg = try eb.addString(msg),
+                        .src_loc = try eb.addSourceLocation(.{
+                            .src_path = try eb.addString(src_path),
+                            .span_start = span.start,
+                            .span_main = span.main,
+                            .span_end = span.end,
+                            .line = @intCast(loc.line),
+                            .column = @intCast(loc.column),
+                            .source_line = if (loc.eql(err_loc))
+                                0
+                            else
+                                try eb.addString(loc.source_line),
+                        }),
+                        .notes_len = 0, // TODO rework this function to be recursive
+                    }));
+                    eb.extra.items[note_i] = note_index;
+                }
+            }
+        }
+    }
+
+    pub fn addZoirErrorMessages(
+        eb: *ErrorBundle.Wip,
+        zoir: std.zig.Zoir,
+        tree: std.zig.Ast,
+        source: [:0]const u8,
+        src_path: []const u8,
+    ) !void {
+        assert(zoir.hasCompileErrors());
+
+        for (zoir.compile_errors) |err| {
+            const err_span: std.zig.Ast.Span = span: {
+                if (err.token.unwrap()) |token| {
+                    const token_start = tree.tokenStart(token);
+                    const start = token_start + err.node_or_offset;
+                    const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                    break :span .{ .start = start, .end = end, .main = start };
+                } else {
+                    break :span tree.nodeToSpan(@enumFromInt(err.node_or_offset));
+                }
+            };
+            const err_loc = std.zig.findLineColumn(source, err_span.main);
+
+            try eb.addRootErrorMessage(.{
+                .msg = try eb.addString(err.msg.get(zoir)),
+                .src_loc = try eb.addSourceLocation(.{
+                    .src_path = try eb.addString(src_path),
+                    .span_start = err_span.start,
+                    .span_main = err_span.main,
+                    .span_end = err_span.end,
+                    .line = @intCast(err_loc.line),
+                    .column = @intCast(err_loc.column),
+                    .source_line = try eb.addString(err_loc.source_line),
+                }),
+                .notes_len = err.note_count,
+            });
+
+            const notes_start = try eb.reserveNotes(err.note_count);
+            for (notes_start.., err.first_note.., 0..err.note_count) |eb_note_idx, zoir_note_idx, _| {
+                const note = zoir.error_notes[zoir_note_idx];
+                const note_span: std.zig.Ast.Span = span: {
+                    if (note.token.unwrap()) |token| {
+                        const token_start = tree.tokenStart(token);
+                        const start = token_start + note.node_or_offset;
+                        const end = token_start + @as(u32, @intCast(tree.tokenSlice(token).len));
+                        break :span .{ .start = start, .end = end, .main = start };
+                    } else {
+                        break :span tree.nodeToSpan(@enumFromInt(note.node_or_offset));
+                    }
+                };
+                const note_loc = std.zig.findLineColumn(source, note_span.main);
+
+                // This line can cause `wip.extra.items` to be resized.
+                const note_index = @intFromEnum(try eb.addErrorMessage(.{
+                    .msg = try eb.addString(note.msg.get(zoir)),
+                    .src_loc = try eb.addSourceLocation(.{
+                        .src_path = try eb.addString(src_path),
+                        .span_start = note_span.start,
+                        .span_main = note_span.main,
+                        .span_end = note_span.end,
+                        .line = @intCast(note_loc.line),
+                        .column = @intCast(note_loc.column),
+                        .source_line = if (note_loc.eql(err_loc))
+                            0
+                        else
+                            try eb.addString(note_loc.source_line),
+                    }),
+                    .notes_len = 0,
+                }));
+                eb.extra.items[eb_note_idx] = note_index;
+            }
+        }
+    }
+
+    fn addOtherMessage(wip: *Wip, other: ErrorBundle, msg_index: MessageIndex) !MessageIndex {
+        const other_msg = other.getErrorMessage(msg_index);
+        const src_loc = try wip.addOtherSourceLocation(other, other_msg.src_loc);
+        const msg = try wip.addErrorMessage(.{
+            .msg = try wip.addString(other.nullTerminatedString(other_msg.msg)),
+            .count = other_msg.count,
+            .src_loc = src_loc,
+            .notes_len = other_msg.notes_len,
+        });
+        const notes_start = try wip.reserveNotes(other_msg.notes_len);
+        for (notes_start.., other.getNotes(msg_index)) |note, other_note| {
+            wip.extra.items[note] = @intFromEnum(try wip.addOtherMessage(other, other_note));
+        }
+        return msg;
+    }
+
+    fn addOtherSourceLocation(
+        wip: *Wip,
+        other: ErrorBundle,
+        index: SourceLocationIndex,
+    ) !SourceLocationIndex {
+        if (index == .none) return .none;
+        const other_sl = other.getSourceLocation(index);
+
+        var ref_traces: std.ArrayListUnmanaged(ReferenceTrace) = .empty;
+        defer ref_traces.deinit(wip.gpa);
+
+        if (other_sl.reference_trace_len > 0) {
+            var ref_index = other.extraData(SourceLocation, @intFromEnum(index)).end;
+            for (0..other_sl.reference_trace_len) |_| {
+                const other_ref_trace_ed = other.extraData(ReferenceTrace, ref_index);
+                const other_ref_trace = other_ref_trace_ed.data;
+                ref_index = other_ref_trace_ed.end;
+
+                const ref_trace: ReferenceTrace = if (other_ref_trace.src_loc == .none) .{
+                    // sentinel ReferenceTrace does not store a string index in decl_name
+                    .decl_name = other_ref_trace.decl_name,
+                    .src_loc = .none,
+                } else .{
+                    .decl_name = try wip.addString(other.nullTerminatedString(other_ref_trace.decl_name)),
+                    .src_loc = try wip.addOtherSourceLocation(other, other_ref_trace.src_loc),
+                };
+                try ref_traces.append(wip.gpa, ref_trace);
+            }
+        }
+
+        const src_loc = try wip.addSourceLocation(.{
+            .src_path = try wip.addString(other.nullTerminatedString(other_sl.src_path)),
+            .line = other_sl.line,
+            .column = other_sl.column,
+            .span_start = other_sl.span_start,
+            .span_main = other_sl.span_main,
+            .span_end = other_sl.span_end,
+            .source_line = if (other_sl.source_line != 0)
+                try wip.addString(other.nullTerminatedString(other_sl.source_line))
+            else
+                0,
+            .reference_trace_len = other_sl.reference_trace_len,
+        });
+
+        for (ref_traces.items) |ref_trace| {
+            try wip.addReferenceTrace(ref_trace);
+        }
+
+        return src_loc;
+    }
+
+    fn addExtra(wip: *Wip, extra: anytype) Allocator.Error!u32 {
+        const gpa = wip.gpa;
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        try wip.extra.ensureUnusedCapacity(gpa, fields.len);
+        return addExtraAssumeCapacity(wip, extra);
+    }
+
+    fn addExtraAssumeCapacity(wip: *Wip, extra: anytype) u32 {
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        const result: u32 = @intCast(wip.extra.items.len);
+        wip.extra.items.len += fields.len;
+        setExtra(wip, result, extra);
+        return result;
+    }
+
+    fn setExtra(wip: *Wip, index: usize, extra: anytype) void {
+        const fields = @typeInfo(@TypeOf(extra)).@"struct".fields;
+        var i = index;
+        inline for (fields) |field| {
+            wip.extra.items[i] = switch (field.type) {
+                u32 => @field(extra, field.name),
+                MessageIndex => @intFromEnum(@field(extra, field.name)),
+                SourceLocationIndex => @intFromEnum(@field(extra, field.name)),
+                else => @compileError("bad field type"),
+            };
+            i += 1;
+        }
+    }
+
+    test addBundleAsRoots {
+        var bundle = bundle: {
+            var wip: ErrorBundle.Wip = undefined;
+            try wip.init(std.testing.allocator);
+            errdefer wip.deinit();
+
+            var ref_traces: [3]ReferenceTrace = undefined;
+            for (&ref_traces, 0..) |*ref_trace, i| {
+                if (i == ref_traces.len - 1) {
+                    // sentinel reference trace
+                    ref_trace.* = .{
+                        .decl_name = 3, // signifies 3 hidden references
+                        .src_loc = .none,
+                    };
+                } else {
+                    ref_trace.* = .{
+                        .decl_name = try wip.addString("foo"),
+                        .src_loc = try wip.addSourceLocation(.{
+                            .src_path = try wip.addString("foo"),
+                            .line = 1,
+                            .column = 2,
+                            .span_start = 3,
+                            .span_main = 4,
+                            .span_end = 5,
+                            .source_line = 0,
+                        }),
+                    };
+                }
+            }
+
+            const src_loc = try wip.addSourceLocation(.{
+                .src_path = try wip.addString("foo"),
+                .line = 1,
+                .column = 2,
+                .span_start = 3,
+                .span_main = 4,
+                .span_end = 5,
+                .source_line = try wip.addString("some source code"),
+                .reference_trace_len = ref_traces.len,
+            });
+            for (&ref_traces) |ref_trace| {
+                try wip.addReferenceTrace(ref_trace);
+            }
+
+            try wip.addRootErrorMessage(ErrorMessage{
+                .msg = try wip.addString("hello world"),
+                .src_loc = src_loc,
+                .notes_len = 1,
+            });
+            const i = try wip.reserveNotes(1);
+            const note_index = @intFromEnum(wip.addErrorMessageAssumeCapacity(.{
+                .msg = try wip.addString("this is a note"),
+                .src_loc = try wip.addSourceLocation(.{
+                    .src_path = try wip.addString("bar"),
+                    .line = 1,
+                    .column = 2,
+                    .span_start = 3,
+                    .span_main = 4,
+                    .span_end = 5,
+                    .source_line = try wip.addString("another line of source"),
+                }),
+            }));
+            wip.extra.items[i] = note_index;
+
+            break :bundle try wip.toOwnedBundle("");
+        };
+        defer bundle.deinit(std.testing.allocator);
+
+        const ttyconf: std.io.tty.Config = .no_color;
+
+        var bundle_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        const bundle_bw = &bundle_buf.interface;
+        defer bundle_buf.deinit();
+        try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_bw);
+
+        var copy = copy: {
+            var wip: ErrorBundle.Wip = undefined;
+            try wip.init(std.testing.allocator);
+            errdefer wip.deinit();
+
+            try wip.addBundleAsRoots(bundle);
+
+            break :copy try wip.toOwnedBundle("");
+        };
+        defer copy.deinit(std.testing.allocator);
+
+        var copy_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        const copy_bw = &copy_buf.interface;
+        defer copy_buf.deinit();
+        try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_bw);
+
+        try std.testing.expectEqualStrings(bundle_bw.written(), copy_bw.written());
+    }
+};

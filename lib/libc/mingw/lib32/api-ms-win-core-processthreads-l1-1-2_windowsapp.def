@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-processthreads-l1-1-2
+
+EXPORTS
+
+GetProcessPriorityBoost@8
+GetSystemTimes@12
+SetProcessPriorityBoost@8
+SetThreadInformation@16

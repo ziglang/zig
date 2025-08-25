@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-wow64-l1-1-0
+
+EXPORTS
+
+IsWow64Process

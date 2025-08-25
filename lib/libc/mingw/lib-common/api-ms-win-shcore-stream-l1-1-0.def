@@ -1,0 +1,19 @@
+LIBRARY api-ms-win-shcore-stream-l1-1-0
+
+EXPORTS
+
+IStream_Copy
+IStream_Read
+IStream_ReadStr
+IStream_Reset
+IStream_Size
+IStream_Write
+IStream_WriteStr
+SHCreateMemStream
+SHCreateStreamOnFileA
+SHCreateStreamOnFileEx
+SHCreateStreamOnFileW
+SHOpenRegStream2A
+SHOpenRegStream2W
+SHOpenRegStreamA
+SHOpenRegStreamW

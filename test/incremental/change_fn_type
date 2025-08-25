@@ -1,0 +1,38 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#update=initial version
+#file=main.zig
+pub fn main() !void {
+    try foo(123);
+}
+fn foo(x: u8) !void {
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    return stdout_writer.interface.print("{d}\n", .{x});
+}
+const std = @import("std");
+#expect_stdout="123\n"
+
+#update=change function type
+#file=main.zig
+pub fn main() !void {
+    try foo(123);
+}
+fn foo(x: i64) !void {
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    return stdout_writer.interface.print("{d}\n", .{x});
+}
+const std = @import("std");
+#expect_stdout="123\n"
+
+#update=change function argument
+#file=main.zig
+pub fn main() !void {
+    try foo(-42);
+}
+fn foo(x: i64) !void {
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    return stdout_writer.interface.print("{d}\n", .{x});
+}
+const std = @import("std");
+#expect_stdout="-42\n"

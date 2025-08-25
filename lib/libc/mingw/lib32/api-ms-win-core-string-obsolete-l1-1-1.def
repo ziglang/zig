@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-string-obsolete-l1-1-1
+
+EXPORTS
+
+lstrcatA@8
+lstrcpyA@8

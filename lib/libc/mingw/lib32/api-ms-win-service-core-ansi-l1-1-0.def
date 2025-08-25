@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-service-core-ansi-l1-1-0
+
+EXPORTS
+
+EnumServicesStatusExA@40
+GetServiceDisplayNameA@16
+GetServiceKeyNameA@16

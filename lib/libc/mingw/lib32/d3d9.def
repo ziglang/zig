@@ -1,0 +1,16 @@
+LIBRARY d3d9.dll
+EXPORTS
+Direct3DShaderValidatorCreate9@0
+;PSGPError@12 ;unknown
+;PSGPSampleTexture@20 ;unknown
+D3DPERF_BeginEvent@8
+D3DPERF_EndEvent@0
+D3DPERF_GetStatus@0
+D3DPERF_QueryRepeatFrame@0
+D3DPERF_SetMarker@8
+D3DPERF_SetOptions@4
+D3DPERF_SetRegion@8
+;DebugSetLevel ;unknown
+;DebugSetMute@0
+Direct3DCreate9@4
+Direct3DCreate9Ex@8

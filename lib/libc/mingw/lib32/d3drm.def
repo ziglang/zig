@@ -1,0 +1,23 @@
+LIBRARY d3drm.dll
+EXPORTS
+D3DRMColorGetAlpha@4
+D3DRMColorGetBlue@4
+D3DRMColorGetGreen@4
+D3DRMColorGetRed@4
+D3DRMCreateColorRGB@12
+D3DRMCreateColorRGBA@16
+D3DRMMatrixFromQuaternion@8
+D3DRMQuaternionFromRotation@12
+D3DRMQuaternionMultiply@12
+D3DRMQuaternionSlerp@16
+D3DRMVectorAdd@12
+D3DRMVectorCrossProduct@12
+D3DRMVectorDotProduct@8
+D3DRMVectorModulus@4
+D3DRMVectorNormalize@4
+D3DRMVectorRandom@4
+D3DRMVectorReflect@12
+D3DRMVectorRotate@16
+D3DRMVectorScale@12
+D3DRMVectorSubtract@12
+Direct3DRMCreate@4

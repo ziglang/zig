@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-com-l1-1-3
+
+EXPORTS
+
+CoRegisterDeviceCatalog@8
+CoRevokeDeviceCatalog@4

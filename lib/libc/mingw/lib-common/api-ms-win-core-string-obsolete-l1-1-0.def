@@ -1,0 +1,14 @@
+LIBRARY api-ms-win-core-string-obsolete-l1-1-0
+
+EXPORTS
+
+lstrcatW
+lstrcmpA
+lstrcmpiA
+lstrcmpiW
+lstrcmpW
+lstrcpynA
+lstrcpynW
+lstrcpyW
+lstrlenA
+lstrlenW

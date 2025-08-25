@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-debug-minidump-l1-1-0
+
+EXPORTS
+
+MiniDumpReadDumpStream@20
+MiniDumpWriteDump@28

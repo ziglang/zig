@@ -1,0 +1,9 @@
+LIBRARY api-ms-win-core-processtopology-obsolete-l1-1-0
+
+EXPORTS
+
+GetActiveProcessorCount
+GetProcessAffinityMask
+GetProcessIoCounters
+SetProcessAffinityMask
+SetThreadAffinityMask

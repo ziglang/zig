@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-file-l2-1-2
+
+EXPORTS
+
+CopyFileW@12

@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-shutdown-l1-1-0
+
+EXPORTS
+
+AbortSystemShutdownW
+InitiateSystemShutdownExW

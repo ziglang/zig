@@ -1,0 +1,13 @@
+LIBRARY api-ms-win-perf-legacy-l1-1-0
+
+EXPORTS
+
+PerfAddCounters@12
+PerfCloseQueryHandle@4
+PerfDeleteCounters@12
+PerfEnumerateCounterSet@16
+PerfEnumerateCounterSetInstances@20
+PerfOpenQueryHandle@8
+PerfQueryCounterData@16
+PerfQueryCounterInfo@16
+PerfQueryCounterSetRegistrationInfo@28

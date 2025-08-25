@@ -1,0 +1,18 @@
+LIBRARY api-ms-win-core-kernel32-legacy-l1-1-3
+
+EXPORTS
+
+CopyFileTransactedW
+CreateDirectoryTransactedW
+CreateHardLinkTransactedW
+CreateMailslotW
+CreateSymbolicLinkTransactedW
+DeleteFileTransactedW
+FindFirstFileTransactedW
+GetBinaryTypeA
+GetCompressedFileSizeTransactedW
+GetFullPathNameTransactedW
+GetLongPathNameTransactedW
+MoveFileTransactedW
+RemoveDirectoryTransactedW
+SetFileAttributesTransactedW

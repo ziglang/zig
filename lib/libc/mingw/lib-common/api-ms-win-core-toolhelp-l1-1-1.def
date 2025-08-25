@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-toolhelp-l1-1-1
+
+EXPORTS
+
+Heap32First
+Heap32ListFirst
+Heap32ListNext
+Heap32Next

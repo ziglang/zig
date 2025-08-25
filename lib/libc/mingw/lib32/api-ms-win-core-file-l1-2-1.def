@@ -1,0 +1,7 @@
+LIBRARY api-ms-win-core-file-l1-2-1
+
+EXPORTS
+
+GetCompressedFileSizeA@8
+GetCompressedFileSizeW@8
+SetFileIoOverlappedRange@12

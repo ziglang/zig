@@ -1,0 +1,203 @@
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+#ifndef VER_LEGALCOPYRIGHT_YEARS
+#define VER_LEGALCOPYRIGHT_YEARS "1985-2005"
+#endif
+
+#ifndef VER_LEGALCOPYRIGHT_STR
+#ifdef RC_INVOKED
+#define VER_LEGALCOPYRIGHT_STR L"\251 Microsoft Corporation. All rights reserved."
+#else
+#define VER_LEGALCOPYRIGHT_STR "Copyright (c) Microsoft Corporation. All rights reserved."
+#endif
+#endif
+
+#ifndef VER_PRODUCTNAME_STR
+#ifdef RC_INVOKED
+#define VER_PRODUCTNAME_STR L"Microsoft\256 Windows\256 Operating System"
+#else
+#define VER_PRODUCTNAME_STR "Microsoft (R) Windows (R) Operating System"
+#endif
+#endif
+
+#ifndef VER_PRODUCTVERSION
+#define VER_PRODUCTVERSION 5,00,01,001
+#endif
+
+#ifndef VER_FILEVERSION
+#define VER_FILEVERSION VER_PRODUCTVERSION
+#endif
+
+#ifndef VER_PRODUCTVERSION_STR
+#define VER_PRODUCTVERSION_STR "5.00"
+#endif
+
+#ifndef VER_FILEVERSION_STR
+#define VER_FILEVERSION_STR VER_PRODUCTVERSION_STR
+#endif
+
+#ifndef VER_ORIGINALFILENAME_STR
+#define VER_ORIGINALFILENAME_STR VER_INTERNALNAME_STR
+#endif
+
+#ifdef EXPORT_CONTROLLED
+
+#ifdef EXPORT
+#define EXPORT_TAG " (Export Version)"
+#else
+#define EXPORT_TAG " (US/Canada Only, Not for Export)"
+#endif
+#else
+
+#define EXPORT_TAG
+#endif
+
+#if defined(__BUILDMACHINE__)
+#if defined(__BUILDDATE__)
+#define B2(x,y) " (" #x "." #y ")"
+#define B1(x,y) B2(x,y)
+#define BUILD_MACHINE_TAG B1(__BUILDMACHINE__,__BUILDDATE__)
+#else
+#define B2(x) " built by: " #x
+#define B1(x) B2(x)
+#define BUILD_MACHINE_TAG B1(__BUILDMACHINE__)
+#endif
+#if defined(__BUILDMACHINE_LEN__)
+#if __BUILDMACHINE_LEN__ >= 25
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG
+#elif __BUILDMACHINE_LEN__ == 24
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG " "
+#elif __BUILDMACHINE_LEN__ == 23
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "  "
+#elif __BUILDMACHINE_LEN__ == 22
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "   "
+#elif __BUILDMACHINE_LEN__ == 21
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "    "
+#elif __BUILDMACHINE_LEN__ == 20
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "     "
+#elif __BUILDMACHINE_LEN__ == 19
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "      "
+#elif __BUILDMACHINE_LEN__ == 18
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "       "
+#elif __BUILDMACHINE_LEN__ == 17
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "        "
+#elif __BUILDMACHINE_LEN__ == 16
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "         "
+#elif __BUILDMACHINE_LEN__ == 15
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "          "
+#elif __BUILDMACHINE_LEN__ == 14
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "           "
+#elif __BUILDMACHINE_LEN__ == 13
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "            "
+#elif __BUILDMACHINE_LEN__ == 12
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "             "
+#elif __BUILDMACHINE_LEN__ == 11
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "              "
+#elif __BUILDMACHINE_LEN__ == 10
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "               "
+#elif __BUILDMACHINE_LEN__ == 9
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                "
+#elif __BUILDMACHINE_LEN__ == 8
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                 "
+#elif __BUILDMACHINE_LEN__ == 7
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                  "
+#elif __BUILDMACHINE_LEN__ == 6
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                   "
+#elif __BUILDMACHINE_LEN__ == 5
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                    "
+#elif __BUILDMACHINE_LEN__ == 4
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                     "
+#elif __BUILDMACHINE_LEN__ == 3
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                      "
+#elif __BUILDMACHINE_LEN__ == 2
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                       "
+#elif __BUILDMACHINE_LEN__ == 1
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG "                        "
+#else
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG
+#endif
+#else
+#define BUILD_MACHINE_TAG_PADDED BUILD_MACHINE_TAG
+#endif
+#else
+#define BUILD_MACHINE_TAG
+#define BUILD_MACHINE_TAG_PADDED
+#endif
+
+#ifdef VER_LANGNEUTRAL
+#ifndef VER_VERSION_UNICODE_LANG
+#define VER_VERSION_UNICODE_LANG "000004B0"
+#endif
+#ifndef VER_VERSION_ANSI_LANG
+#define VER_VERSION_ANSI_LANG "000004E4"
+#endif
+#ifndef VER_VERSION_TRANSLATION
+#define VER_VERSION_TRANSLATION 0x0000,0x04B0
+#endif
+#else
+#ifndef VER_VERSION_UNICODE_LANG
+#define VER_VERSION_UNICODE_LANG "040904B0"
+#endif
+#ifndef VER_VERSION_ANSI_LANG
+#define VER_VERSION_ANSI_LANG "0c0904E4"
+#endif
+#ifndef VER_VERSION_TRANSLATION
+#define VER_VERSION_TRANSLATION 0x0409,0x04B0
+#endif
+#endif
+
+#ifdef RC_INVOKED
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION VER_FILEVERSION
+PRODUCTVERSION VER_PRODUCTVERSION
+FILEFLAGSMASK VER_FILEFLAGSMASK
+FILEFLAGS VER_FILEFLAGS
+FILEOS VER_FILEOS
+FILETYPE VER_FILETYPE
+FILESUBTYPE VER_FILESUBTYPE
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK VER_VERSION_UNICODE_LANG
+        BEGIN
+            VALUE "CompanyName",VER_COMPANYNAME_STR
+            VALUE "FileDescription",VER_FILEDESCRIPTION_STR EXPORT_TAG
+            VALUE "FileVersion",VER_FILEVERSION_STR BUILD_MACHINE_TAG_PADDED
+            VALUE "InternalName",VER_INTERNALNAME_STR
+            VALUE "LegalCopyright",VER_LEGALCOPYRIGHT_STR
+            VALUE "OriginalFilename",VER_ORIGINALFILENAME_STR
+            VALUE "ProductName",VER_PRODUCTNAME_STR
+            VALUE "ProductVersion",VER_PRODUCTVERSION_STR
+#ifdef VER_OLESELFREGISTER
+            VALUE "OleSelfRegister","\0"
+#endif
+        END
+
+#ifdef VER_ANSICP
+	BLOCK VER_VERSION_ANSI_LANG
+        BEGIN
+            VALUE "CompanyName",VER_COMPANYNAME_STR
+            VALUE "FileDescription",VER_FILEDESCRIPTION_STR EXPORT_TAG
+            VALUE "FileVersion",VER_FILEVERSION_STR
+            VALUE "InternalName",VER_INTERNALNAME_STR
+            VALUE "LegalCopyright",VER_LEGALCOPYRIGHT_STR
+            VALUE "OriginalFilename",VER_ORIGINALFILENAME_STR
+            VALUE "ProductName",VER_PRODUCTNAME_STR
+            VALUE "ProductVersion",VER_PRODUCTVERSION_STR
+#ifdef VER_OLESELFREGISTER
+            VALUE "OleSelfRegister","\0"
+#endif
+        END
+#endif
+    END
+
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation",VER_VERSION_TRANSLATION
+    END
+END
+#endif

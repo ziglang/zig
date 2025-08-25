@@ -1,0 +1,27 @@
+LIBRARY api-ms-win-core-libraryloader-l1-2-0
+
+EXPORTS
+
+AddDllDirectory
+DisableThreadLibraryCalls
+FindResourceExW
+FindStringOrdinal
+FreeLibrary
+FreeLibraryAndExitThread
+FreeResource
+GetModuleFileNameA
+GetModuleFileNameW
+GetModuleHandleA
+GetModuleHandleExA
+GetModuleHandleExW
+GetModuleHandleW
+GetProcAddress
+LoadLibraryExA
+LoadLibraryExW
+LoadResource
+LoadStringA
+LoadStringW
+LockResource
+RemoveDllDirectory
+SetDefaultDllDirectories
+SizeofResource

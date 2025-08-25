@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-console-l1-2-0
+
+EXPORTS
+
+AttachConsole@4
+FreeConsole@0
+PeekConsoleInputA@16
+PeekConsoleInputW@16

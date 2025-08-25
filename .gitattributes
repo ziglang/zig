@@ -1,0 +1,23 @@
+*.zig text eol=lf
+*.zon text eol=lf
+*.txt text eol=lf
+langref.html.in text eol=lf
+
+lib/libc/*/abilists binary
+
+lib/std/compress/testdata/** binary
+lib/std/compress/flate/testdata/** binary
+lib/std/compress/lzma/testdata/** binary
+lib/std/compress/xz/testdata/** binary
+lib/std/crypto/codecs/asn1/der/testdata/** binary
+lib/std/tar/testdata/** binary
+src/Package/Fetch/testdata/** binary
+src/Package/Fetch/git/testdata/** binary
+
+lib/compiler/aro/** linguist-vendored
+lib/include/** linguist-vendored
+lib/libc/** linguist-vendored
+lib/libcxx/** linguist-vendored
+lib/libcxxabi/** linguist-vendored
+lib/libtsan/** linguist-vendored
+lib/libunwind/** linguist-vendored

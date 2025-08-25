@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-security-cpwl-l1-1-0
+
+EXPORTS
+
+CreateProcessWithLogonW
+CreateProcessWithTokenW

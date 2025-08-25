@@ -1,0 +1,379 @@
+/**
+ * This file has no copyright assigned and is placed in the Public Domain.
+ * This file is part of the mingw-w64 runtime package.
+ * No warranty is given; refer to the file DISCLAIMER.PD within this package.
+ */
+#ifndef _MSTCPIP_
+#define _MSTCPIP_
+
+#include <_mingw_unicode.h>
+#include <winapifamily.h>
+
+#ifdef __LP64__
+#pragma push_macro("u_long")
+#undef u_long
+#define u_long __ms_u_long
+#endif
+
+#if NTDDI_VERSION >= NTDDI_WIN10_RS2
+typedef enum _TCPSTATE {
+  TCPSTATE_CLOSED,
+  TCPSTATE_LISTEN,
+  TCPSTATE_SYN_SENT,
+  TCPSTATE_SYN_RCVD,
+  TCPSTATE_ESTABLISHED,
+  TCPSTATE_FIN_WAIT_1,
+  TCPSTATE_FIN_WAIT_2,
+  TCPSTATE_CLOSE_WAIT,
+  TCPSTATE_CLOSING,
+  TCPSTATE_LAST_ACK,
+  TCPSTATE_TIME_WAIT,
+  TCPSTATE_MAX
+} TCPSTATE;
+#endif
+
+#ifndef _TRANSPORT_SETTING_COMMON_
+#define _TRANSPORT_SETTING_COMMON_
+typedef struct TRANSPORT_SETTING_ID {
+  GUID Guid;
+} TRANSPORT_SETTING_ID, *PTRANSPORT_SETTING_ID;
+#endif
+
+struct tcp_keepalive {
+  u_long onoff;
+  u_long keepalivetime;
+  u_long keepaliveinterval;
+};
+
+typedef enum {
+  CONTROL_CHANNEL_TRIGGER_STATUS_INVALID = 0,
+  CONTROL_CHANNEL_TRIGGER_STATUS_SOFTWARE_SLOT_ALLOCATED = 1,
+  CONTROL_CHANNEL_TRIGGER_STATUS_HARDWARE_SLOT_ALLOCATED = 2,
+  CONTROL_CHANNEL_TRIGGER_STATUS_POLICY_ERROR = 3,
+  CONTROL_CHANNEL_TRIGGER_STATUS_SYSTEM_ERROR = 4,
+  CONTROL_CHANNEL_TRIGGER_STATUS_TRANSPORT_DISCONNECTED = 5,
+  CONTROL_CHANNEL_TRIGGER_STATUS_SERVICE_UNAVAILABLE = 6
+} CONTROL_CHANNEL_TRIGGER_STATUS, *PCONTROL_CHANNEL_TRIGGER_STATUS;
+
+#define CONTROL_CHANNEL_TRIGGER_STATUS_MAX CONTROL_CHANNEL_TRIGGER_STATUS_SYSTEM_ERROR
+
+typedef struct _REAL_TIME_NOTIFICATION_SETTING_INPUT {
+  TRANSPORT_SETTING_ID TransportSettingId;
+  GUID BrokerEventGuid;
+} REAL_TIME_NOTIFICATION_SETTING_INPUT, *PREAL_TIME_NOTIFICATION_SETTING_INPUT;
+
+typedef struct _REAL_TIME_NOTIFICATION_SETTING_INPUT_EX {
+  TRANSPORT_SETTING_ID TransportSettingId;
+  GUID BrokerEventGuid;
+  BOOLEAN Unmark;
+} REAL_TIME_NOTIFICATION_SETTING_INPUT_EX, *PREAL_TIME_NOTIFICATION_SETTING_INPUT_EX;
+
+typedef struct _REAL_TIME_NOTIFICATION_SETTING_OUTPUT {
+  CONTROL_CHANNEL_TRIGGER_STATUS ChannelStatus;
+} REAL_TIME_NOTIFICATION_SETTING_OUTPUT, *PREAL_TIME_NOTIFICATION_SETTING_OUTPUT;
+
+typedef struct _ASSOCIATE_NAMERES_CONTEXT_INPUT {
+  TRANSPORT_SETTING_ID TransportSettingId;
+  UINT64 Handle;
+} ASSOCIATE_NAMERES_CONTEXT_INPUT, *PASSOCIATE_NAMERES_CONTEXT_INPUT;
+
+#define SIO_RCVALL _WSAIOW(IOC_VENDOR,1)
+#define SIO_RCVALL_MCAST _WSAIOW(IOC_VENDOR,2)
+#define SIO_RCVALL_IGMPMCAST _WSAIOW(IOC_VENDOR,3)
+#define SIO_KEEPALIVE_VALS _WSAIOW(IOC_VENDOR,4)
+#define SIO_ABSORB_RTRALERT _WSAIOW(IOC_VENDOR,5)
+#define SIO_UCAST_IF _WSAIOW(IOC_VENDOR,6)
+#define SIO_LIMIT_BROADCASTS _WSAIOW(IOC_VENDOR,7)
+#define SIO_INDEX_BIND _WSAIOW(IOC_VENDOR,8)
+#define SIO_INDEX_MCASTIF _WSAIOW(IOC_VENDOR,9)
+#define SIO_INDEX_ADD_MCAST _WSAIOW(IOC_VENDOR,10)
+#define SIO_INDEX_DEL_MCAST _WSAIOW(IOC_VENDOR,11)
+#define SIO_RCVALL_MCAST_IF _WSAIOW(IOC_VENDOR,13)
+#define SIO_RCVALL_IF _WSAIOW(IOC_VENDOR,14)
+#define SIO_LOOPBACK_FAST_PATH _WSAIOW(IOC_VENDOR,16)
+#define SIO_TCP_INITIAL_RTO _WSAIOW(IOC_VENDOR,17)
+#define SIO_APPLY_TRANSPORT_SETTING _WSAIOW(IOC_VENDOR,19)
+#define SIO_QUERY_TRANSPORT_SETTING _WSAIOW(IOC_VENDOR,20)
+#define SIO_TCP_SET_ICW _WSAIOW(IOC_VENDOR,22)
+#define SIO_TCP_SET_ACK_FREQUENCY _WSAIOW(IOC_VENDOR,23)
+#if NTDDI_VERSION >= NTDDI_WIN10_RS3
+#define SIO_SET_PRIORITY_HINT _WSAIOW(IOC_VENDOR,24)
+#endif
+#if NTDDI_VERSION >= NTDDI_WIN10_FE
+#define SIO_PRIORITY_HINT SIO_SET_PRIORITY_HINT
+#endif
+#if NTDDI_VERSION >= NTDDI_WIN10_RS2
+#define SIO_TCP_INFO _WSAIORW(IOC_VENDOR,39)
+#endif
+#if NTDDI_VERSION >= NTDDI_WIN10_VB
+#define SIO_CPU_AFFINITY _WSAIOW(IOC_VENDOR,21)
+#endif
+#if NTDDI_VERSION >= NTDDI_WIN10_FE
+
+#define SIO_TIMESTAMPING _WSAIOW(IOC_VENDOR, 235)
+
+typedef struct _TIMESTAMPING_CONFIG {
+  ULONG Flags;
+  USHORT TxTimestampsBuffered;
+} TIMESTAMPING_CONFIG, *PTIMESTAMPING_CONFIG;
+
+#define TIMESTAMPING_FLAG_RX 0x1
+#define TIMESTAMPING_FLAG_TX 0x2
+
+#define SO_TIMESTAMP 0x300A
+
+#define SO_TIMESTAMP_ID 0x300B
+
+#define SIO_GET_TX_TIMESTAMP _WSAIOW(IOC_VENDOR, 234)
+
+typedef enum {
+  SocketPriorityHintVeryLow = 0,
+  SocketPriorityHintLow,
+  SocketPriorityHintNormal,
+  SocketMaximumPriorityHintType
+} SOCKET_PRIORITY_HINT, *PSOCKET_PRIORITY_HINT;
+
+typedef struct _PRIORITY_STATUS {
+  SOCKET_PRIORITY_HINT Sender;
+  SOCKET_PRIORITY_HINT Receiver;
+} PRIORITY_STATUS, *PPRIORITY_STATUS;
+#endif /* NTDDI_WIN10_FE */
+
+typedef enum {
+  RCVALL_OFF = 0,
+  RCVALL_ON = 1,
+  RCVALL_SOCKETLEVELONLY = 2,
+  RCVALL_IPLEVEL = 3
+} RCVALL_VALUE, *PRCVALL_VALUE;
+
+#define RCVALL_MAX RCVALL_IPLEVEL
+
+typedef struct {
+  RCVALL_VALUE Mode;
+  ULONG Interface;
+} RCVALL_IF, *PRCVALL_IF;
+
+#define TCP_INITIAL_RTO_UNSPECIFIED_RTT ((USHORT) -1)
+#define TCP_INITIAL_RTO_UNSPECIFIED_MAX_SYN_RETRANSMISSIONS ((UCHAR) -1)
+
+#define TCP_INITIAL_RTO_DEFAULT_RTT (0)
+#define TCP_INITIAL_RTO_DEFAULT_MAX_SYN_RETRANSMISSIONS (0)
+#define TCP_INITIAL_RTO_NO_SYN_RETRANSMISSIONS ((UCHAR) -2)
+
+typedef struct _TCP_INITIAL_RTO_PARAMETERS {
+  USHORT Rtt;
+  UCHAR MaxSynRetransmissions;
+} TCP_INITIAL_RTO_PARAMETERS, *PTCP_INITIAL_RTO_PARAMETERS;
+
+typedef enum {
+  TCP_ICW_LEVEL_DEFAULT = 0,
+  TCP_ICW_LEVEL_HIGH = 1,
+  TCP_ICW_LEVEL_VERY_HIGH = 2,
+  TCP_ICW_LEVEL_AGGRESSIVE = 3,
+  TCP_ICW_LEVEL_EXPERIMENTAL = 4,
+  TCP_ICW_LEVEL_COMPAT = 254,
+  TCP_ICW_LEVEL_MAX = 255
+} TCP_ICW_LEVEL, *PTCP_ICW_LEVEL;
+
+typedef struct _TCP_ICW_PARAMETERS {
+  TCP_ICW_LEVEL Level;
+} TCP_ICW_PARAMETERS, *PTCP_ICW_PARAMETERS;
+
+typedef struct _TCP_ACK_FREQUENCY_PARAMETERS {
+  UCHAR TcpDelayedAckFrequency;
+} TCP_ACK_FREQUENCY_PARAMETERS, *PTCP_ACK_FREQUENCY_PARAMETERS;
+
+#if NTDDI_VERSION >= NTDDI_WIN10_RS2
+typedef struct _TCP_INFO_v0 {
+  TCPSTATE State;
+  ULONG Mss;
+  ULONG64 ConnectionTimeMs;
+  BOOLEAN TimestampsEnabled;
+  ULONG RttUs;
+  ULONG MinRttUs;
+  ULONG BytesInFlight;
+  ULONG Cwnd;
+  ULONG SndWnd;
+  ULONG RcvWnd;
+  ULONG RcvBuf;
+  ULONG64 BytesOut;
+  ULONG64 BytesIn;
+  ULONG BytesReordered;
+  ULONG BytesRetrans;
+  ULONG FastRetrans;
+  ULONG DupAcksIn;
+  ULONG TimeoutEpisodes;
+  UCHAR SynRetrans;
+} TCP_INFO_v0, *PTCP_INFO_v0;
+#endif
+
+#if NTDDI_VERSION >= NTDDI_WIN10_RS5
+typedef struct _TCP_INFO_v1 {
+  TCPSTATE State;
+  ULONG Mss;
+  ULONG64 ConnectionTimeMs;
+  BOOLEAN TimestampsEnabled;
+  ULONG RttUs;
+  ULONG MinRttUs;
+  ULONG BytesInFlight;
+  ULONG Cwnd;
+  ULONG SndWnd;
+  ULONG RcvWnd;
+  ULONG RcvBuf;
+  ULONG64 BytesOut;
+  ULONG64 BytesIn;
+  ULONG BytesReordered;
+  ULONG BytesRetrans;
+  ULONG FastRetrans;
+  ULONG DupAcksIn;
+  ULONG TimeoutEpisodes;
+  UCHAR SynRetrans;
+  ULONG SndLimTransRwin;
+  ULONG SndLimTimeRwin;
+  ULONG64 SndLimBytesRwin;
+  ULONG SndLimTransCwnd;
+  ULONG SndLimTimeCwnd;
+  ULONG64 SndLimBytesCwnd;
+  ULONG SndLimTransSnd;
+  ULONG SndLimTimeSnd;
+  ULONG64 SndLimBytesSnd;
+} TCP_INFO_v1, *PTCP_INFO_v1;
+#endif
+
+#define SIO_ACQUIRE_PORT_RESERVATION _WSAIOW(IOC_VENDOR, 100)
+#define SIO_RELEASE_PORT_RESERVATION _WSAIOW(IOC_VENDOR, 101)
+#define SIO_ASSOCIATE_PORT_RESERVATION _WSAIOW(IOC_VENDOR, 102)
+
+typedef struct _INET_PORT_RANGE {
+  USHORT StartPort;
+  USHORT NumberOfPorts;
+} INET_PORT_RANGE, *PINET_PORT_RANGE;
+
+typedef struct _INET_PORT_RANGE INET_PORT_RESERVATION, *PINET_PORT_RESERVATION;
+
+typedef struct {
+  ULONG64 Token;
+} INET_PORT_RESERVATION_TOKEN, *PINET_PORT_RESERVATION_TOKEN;
+
+#define INVALID_PORT_RESERVATION_TOKEN ((ULONG64)0)
+
+typedef struct {
+#ifdef __cplusplus
+  INET_PORT_RESERVATION Reservation;
+  INET_PORT_RESERVATION_TOKEN Token;
+#else
+  INET_PORT_RESERVATION;
+  INET_PORT_RESERVATION_TOKEN;
+#endif
+} INET_PORT_RESERVATION_INSTANCE, *PINET_PORT_RESERVATION_INSTANCE;
+
+typedef struct {
+  ULONG OwningPid;
+} INET_PORT_RESERVATION_INFORMATION, *PINET_PORT_RESERVATION_INFORMATION;
+
+#if (_WIN32_WINNT >= 0x0502)
+typedef enum _SOCKET_SECURITY_PROTOCOL {
+  SOCKET_SECURITY_PROTOCOL_DEFAULT,
+  SOCKET_SECURITY_PROTOCOL_IPSEC,
+#if NTDDI_VERSION >= NTDDI_WIN7
+  SOCKET_SECURITY_PROTOCOL_IPSEC2,
+#endif
+  SOCKET_SECURITY_PROTOCOL_INVALID 
+} SOCKET_SECURITY_PROTOCOL;
+
+#define SOCKET_SETTINGS_GUARANTEE_ENCRYPTION  0x1
+#define SOCKET_SETTINGS_ALLOW_INSECURE  0x2
+
+typedef enum _SOCKET_USAGE_TYPE {
+  SYSTEM_CRITICAL_SOCKET   = 1 
+} SOCKET_USAGE_TYPE;
+
+typedef struct _SOCKET_PEER_TARGET_NAME {
+  SOCKET_SECURITY_PROTOCOL SecurityProtocol;
+  SOCKADDR_STORAGE         PeerAddress;
+  ULONG                    PeerTargetNameStringLen;
+  wchar_t                  AllStrings[];
+} SOCKET_PEER_TARGET_NAME;
+
+#define SOCKET_INFO_CONNECTION_SECURED		0x00000001
+#define SOCKET_INFO_CONNECTION_ENCRYPTED	0x00000002
+#define SOCKET_INFO_CONNECTION_IMPERSONATED	0x00000004
+
+typedef struct _SOCKET_SECURITY_QUERY_INFO {
+  SOCKET_SECURITY_PROTOCOL SecurityProtocol;
+  ULONG                    Flags;
+  UINT64                   PeerApplicationAccessTokenHandle;
+  UINT64                   PeerMachineAccessTokenHandle;
+} SOCKET_SECURITY_QUERY_INFO;
+
+typedef struct _SOCKET_SECURITY_QUERY_TEMPLATE {
+  SOCKET_SECURITY_PROTOCOL SecurityProtocol;
+  SOCKADDR_STORAGE         PeerAddress;
+  ULONG                    PeerTokenAccessMask;
+} SOCKET_SECURITY_QUERY_TEMPLATE;
+
+typedef struct _SOCKET_SECURITY_SETTINGS {
+  SOCKET_SECURITY_PROTOCOL SecurityProtocol;
+  ULONG                    SecurityFlags;
+} SOCKET_SECURITY_SETTINGS;
+
+#define SOCKET_SETTINGS_IPSEC_SKIP_FILTER_INSTANTIATION 0x00000001
+
+typedef struct _SOCKET_SECURITY_SETTINGS_IPSEC {
+  SOCKET_SECURITY_PROTOCOL SecurityProtocol;
+  ULONG                    SecurityFlags;
+  ULONG                    IpsecFlags;
+  GUID                     AuthipMMPolicyKey;
+  GUID                     AuthipQMPolicyKey;
+  GUID                     Reserved;
+  UINT64                   Reserved2;
+  ULONG                    UserNameStringLen;
+  ULONG                    DomainNameStringLen;
+  ULONG                    PasswordStringLen;
+  wchar_t                  AllStrings[];
+} SOCKET_SECURITY_SETTINGS_IPSEC;
+
+#if WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP)
+
+#define RtlIpv6AddressToString __MINGW_NAME_AW(RtlIpv6AddressToString)
+#define RtlIpv6AddressToStringEx __MINGW_NAME_AW(RtlIpv6AddressToStringEx)
+
+#ifdef _WS2IPDEF_
+
+LPSTR NTAPI RtlIpv6AddressToStringA(const IN6_ADDR *Addr, LPSTR S);
+LPWSTR NTAPI RtlIpv6AddressToStringW(const IN6_ADDR *Addr, LPWSTR S);
+
+LONG NTAPI RtlIpv6AddressToStringExA(const IN6_ADDR *Address, ULONG ScopeId, USHORT Port, LPSTR AddressString, PULONG AddressStringLength);
+LONG NTAPI RtlIpv6AddressToStringExW(const IN6_ADDR *Address, ULONG ScopeId, USHORT Port, LPWSTR AddressString, PULONG AddressStringLength);
+
+#define RtlIpv4AddressToString __MINGW_NAME_AW(RtlIpv4AddressToString)
+LPSTR NTAPI RtlIpv4AddressToStringA(const IN_ADDR *Addr, LPSTR S);
+LPWSTR NTAPI RtlIpv4AddressToStringW(const IN_ADDR *Addr, LPWSTR S);
+
+#define RtlIpv4AddressToStringEx __MINGW_NAME_AW(RtlIpv4AddressToStringEx)
+LONG NTAPI RtlIpv4AddressToStringExA(const IN_ADDR *Address, USHORT Port, LPSTR AddressString, PULONG AddressStringLength);
+LONG NTAPI RtlIpv4AddressToStringExW(const IN_ADDR *Address, USHORT Port, LPWSTR AddressString, PULONG AddressStringLength);
+
+#define RtlIpv4StringToAddress __MINGW_NAME_AW(RtlIpv4StringToAddress)
+LONG NTAPI RtlIpv4StringToAddressA(PCSTR S, BOOLEAN Strict, LPSTR *Terminator, IN_ADDR *Addr);
+LONG NTAPI RtlIpv4StringToAddressW(PCWSTR S, BOOLEAN Strict, LPWSTR *Terminator, IN_ADDR *Addr);
+
+#define RtlIpv4StringToAddressEx __MINGW_NAME_AW(RtlIpv4StringToAddressEx)
+LONG NTAPI RtlIpv4StringToAddressExA(PCSTR AddressString, BOOLEAN Strict, IN_ADDR *Address, PUSHORT Port);
+LONG NTAPI RtlIpv4StringToAddressExW(PCWSTR AddressString, BOOLEAN Strict, IN_ADDR *Address, PUSHORT Port);
+
+#define RtlIpv6StringToAddressEx __MINGW_NAME_AW(RtlIpv6StringToAddressEx)
+LONG NTAPI RtlIpv6StringToAddressExA(PCSTR AddressString, IN6_ADDR *Address, PULONG ScopeId, PUSHORT Port);
+LONG NTAPI RtlIpv6StringToAddressExW(PCWSTR AddressString, IN6_ADDR *Address, PULONG ScopeId, PUSHORT Port);
+
+#endif /* _WS2IPDEF_ */
+
+#endif /* WINAPI_FAMILY_PARTITION(WINAPI_PARTITION_DESKTOP) */
+#endif /*(_WIN32_WINNT >= 0x0502)*/
+
+#ifdef __LP64__
+#pragma pop_macro("u_long")
+#endif
+
+#endif /* _MSTCPIP_ */
+

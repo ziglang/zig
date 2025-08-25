@@ -1,0 +1,385 @@
+LIBRARY api-ms-win-crt-math-l1-1-0
+
+EXPORTS
+
+#include "func.def.in"
+
+#ifdef __i386__
+_CIacos
+_CIasin
+_CIatan
+_CIatan2
+_CIcos
+_CIcosh
+_CIexp
+_CIfmod
+_CIlog
+_CIlog10
+_CIpow
+_CIsin
+_CIsinh
+_CIsqrt
+_CItan
+_CItanh
+#endif
+_Cbuild
+_Cmulcc
+_Cmulcr
+_FCbuild
+_FCmulcc
+_FCmulcr
+_LCbuild
+_LCmulcc
+_LCmulcr
+#ifdef __i386__
+__libm_sse2_acos
+__libm_sse2_acosf
+__libm_sse2_asin
+__libm_sse2_asinf
+__libm_sse2_atan
+__libm_sse2_atan2
+__libm_sse2_atanf
+__libm_sse2_cos
+__libm_sse2_cosf
+__libm_sse2_exp
+__libm_sse2_expf
+__libm_sse2_log
+__libm_sse2_log10
+__libm_sse2_log10f
+__libm_sse2_logf
+__libm_sse2_pow
+__libm_sse2_powf
+__libm_sse2_sin
+__libm_sse2_sinf
+__libm_sse2_tan
+__libm_sse2_tanf
+#endif
+__setusermatherr
+; DATA set manually
+_cabs DATA
+_chgsign
+chgsign == _chgsign
+F_LD64(_chgsignl == _chgsign)
+_chgsignf
+_copysign
+_copysignf
+_d_int
+_dclass
+_dexp
+_dlog
+_dnorm
+_dpcomp
+_dpoly
+_dscale
+_dsign
+_dsin
+_dtest
+_dunscale
+_except1
+_fd_int
+_fdclass
+_fdexp
+_fdlog
+_fdnorm
+_fdopen
+fdopen == _fdopen
+_fdpcomp
+_fdpoly
+_fdscale
+_fdsign
+_fdsin
+_fdtest
+_fdunscale
+_finite
+finite == _finite
+F_NON_I386(_finitef)
+_fpclass
+fpclass == _fpclass
+F_X64(_fpclassf)
+F_I386(_ftol)
+F_X64(_get_FMA3_enable)
+_hypot
+_hypotf
+_isnan
+F_X64(_isnanf)
+_j0
+j0 == _j0
+_j1
+j1 == _j1
+_jn
+jn == _jn
+_ld_int
+_ldclass
+_ldexp
+_ldlog
+_ldpcomp
+_ldpoly
+_ldscale
+_ldsign
+_ldsin
+_ldtest
+_ldunscale
+#ifdef __i386__
+_libm_sse2_acos_precise
+_libm_sse2_asin_precise
+_libm_sse2_atan_precise
+_libm_sse2_cos_precise
+_libm_sse2_exp_precise
+_libm_sse2_log10_precise
+_libm_sse2_log_precise
+_libm_sse2_pow_precise
+_libm_sse2_sin_precise
+_libm_sse2_sqrt_precise
+_libm_sse2_tan_precise
+#endif
+_logb
+F_NON_I386(_logbf)
+_nextafter
+F_X64(_nextafterf)
+_scalb
+F_X64(_scalbf)
+F_X64(_set_FMA3_enable)
+F_I386(_set_SSE2_enable)
+_y0
+y0 == _y0
+_y1
+y1 == _y1
+_yn
+yn == _yn
+acos
+F_NON_I386(acosf)
+F_LD64(acosl == acos)
+acosh
+acoshf
+F_LD64(acoshl) ; Can't use long double functions from the CRT on x86
+asin
+F_NON_I386(asinf)
+F_LD64(asinl == asin)
+asinh
+asinhf
+F_LD64(asinhl) ; Can't use long double functions from the CRT on x86
+atan
+atan2
+F_NON_I386(atan2f)
+F_LD64(atan2l == atan2)
+F_NON_I386(atanf)
+F_LD64(atanl == atan)
+atanh
+atanhf
+F_LD64(atanhl) ; Can't use long double functions from the CRT on x86
+cabs
+cabsf
+F_LD64(cabsl) ; Can't use long double functions from the CRT on x86
+cacos
+cacosf
+cacosh
+cacoshf
+F_LD64(cacoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(cacosl) ; Can't use long double functions from the CRT on x86
+carg
+cargf
+F_LD64(cargl) ; Can't use long double functions from the CRT on x86
+casin
+casinf
+casinh
+casinhf
+F_LD64(casinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(casinl) ; Can't use long double functions from the CRT on x86
+catan
+catanf
+catanh
+catanhf
+F_LD64(catanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(catanl) ; Can't use long double functions from the CRT on x86
+cbrt
+cbrtf
+F_LD64(cbrtl) ; Can't use long double functions from the CRT on x86
+ccos
+ccosf
+ccosh
+ccoshf
+F_LD64(ccoshl) ; Can't use long double functions from the CRT on x86
+F_LD64(ccosl) ; Can't use long double functions from the CRT on x86
+ceil
+F_NON_I386(ceilf)
+F_LD64(ceill == ceil)
+cexp
+cexpf
+F_LD64(cexpl) ; Can't use long double functions from the CRT on x86
+cimag
+cimagf
+F_LD64(cimagl) ; Can't use long double functions from the CRT on x86
+clog
+clog10
+clog10f
+F_LD64(clog10l) ; Can't use long double functions from the CRT on x86
+clogf
+F_LD64(clogl) ; Can't use long double functions from the CRT on x86
+conj
+conjf
+F_LD64(conjl) ; Can't use long double functions from the CRT on x86
+copysign
+copysignf
+F_LD64(copysignl) ; Can't use long double functions from the CRT on x86
+cos
+F_NON_I386(cosf)
+F_LD64(cosl == cos)
+cosh
+F_NON_I386(coshf)
+cpow
+cpowf
+F_LD64(cpowl) ; Can't use long double functions from the CRT on x86
+cproj
+cprojf
+F_LD64(cprojl) ; Can't use long double functions from the CRT on x86
+creal
+crealf
+F_LD64(creall) ; Can't use long double functions from the CRT on x86
+csin
+csinf
+csinh
+csinhf
+F_LD64(csinhl) ; Can't use long double functions from the CRT on x86
+F_LD64(csinl) ; Can't use long double functions from the CRT on x86
+csqrt
+csqrtf
+F_LD64(csqrtl) ; Can't use long double functions from the CRT on x86
+ctan
+ctanf
+ctanh
+ctanhf
+F_LD64(ctanhl) ; Can't use long double functions from the CRT on x86
+F_LD64(ctanl) ; Can't use long double functions from the CRT on x86
+erf
+erfc
+erfcf
+F_LD64(erfcl) ; Can't use long double functions from the CRT on x86
+erff
+F_LD64(erfl) ; Can't use long double functions from the CRT on x86
+exp
+exp2
+exp2f
+F_LD64(exp2l) ; Can't use long double functions from the CRT on x86
+F_NON_I386(expf)
+F_LD64(expl == exp)
+expm1
+expm1f
+F_LD64(expm1l) ; Can't use long double functions from the CRT on x86
+fabs
+F_ARM_ANY(fabsf)
+fdim
+fdimf
+F_LD64(fdiml) ; Can't use long double functions from the CRT on x86
+floor
+F_NON_I386(floorf)
+F_LD64(floorl == floor)
+fma
+fmaf
+F_LD64(fmal) ; Can't use long double functions from the CRT on x86
+fmax
+fmaxf
+F_LD64(fmaxl) ; Can't use long double functions from the CRT on x86
+fmin
+fminf
+F_LD64(fminl) ; Can't use long double functions from the CRT on x86
+fmod
+F_NON_I386(fmodf)
+F_LD64(fmodl == fmod)
+frexp
+hypot
+ilogb
+ilogbf
+F_LD64(ilogbl) ; Can't use long double functions from the CRT on x86
+ldexp
+; The UCRT lgamma functions don't set/provide the signgam variable like
+; the mingw ones do. Therefore prefer the libmingwex version instead.
+lgamma DATA
+lgammaf DATA
+F_LD64(lgammal DATA) ; Can't use long double functions from the CRT on x86
+llrint
+llrintf
+F_LD64(llrintl) ; Can't use long double functions from the CRT on x86
+llround
+llroundf
+F_LD64(llroundl) ; Can't use long double functions from the CRT on x86
+log
+log10
+F_NON_I386(log10f)
+F_LD64(log10l == log10)
+log1p
+log1pf
+F_LD64(log1pl) ; Can't use long double functions from the CRT on x86
+log2
+log2f
+F_LD64(log2l) ; Can't use long double functions from the CRT on x86
+logb
+logbf
+F_LD64(logbl) ; Can't use long double functions from the CRT on x86
+F_NON_I386(logf)
+F_LD64(logl == log)
+lrint
+lrintf
+F_LD64(lrintl) ; Can't use long double functions from the CRT on x86
+lround
+lroundf
+F_LD64(lroundl) ; Can't use long double functions from the CRT on x86
+modf
+F_NON_I386(modff)
+nan
+nanf
+F_LD64(nanl) ; Can't use long double functions from the CRT on x86
+nearbyint
+nearbyintf
+F_LD64(nearbyintl) ; Can't use long double functions from the CRT on x86
+nextafter
+nextafterf
+F_LD64(nextafterl) ; Can't use long double functions from the CRT on x86
+; All of the nexttoward functions take the second parameter as long double,
+; making them unusable for x86.
+F_LD64(nexttoward) ; Can't use long double functions from the CRT on x86
+F_LD64(nexttowardf) ; Can't use long double functions from the CRT on x86
+F_LD64(nexttowardl) ; Can't use long double functions from the CRT on x86
+norm
+normf
+norml
+pow
+F_NON_I386(powf) ; Missing in Wine's ucrtbase.dll for i386 in Wine 9.15 and older
+F_LD64(powl == pow)
+remainder
+remainderf
+F_LD64(remainderl) ; Can't use long double functions from the CRT on x86
+remquo
+remquof
+F_LD64(remquol) ; Can't use long double functions from the CRT on x86
+rint
+rintf
+F_LD64(rintl) ; Can't use long double functions from the CRT on x86
+round
+roundf
+F_LD64(roundl) ; Can't use long double functions from the CRT on x86
+scalbln
+scalblnf
+F_LD64(scalblnl) ; Can't use long double functions from the CRT on x86
+scalbn
+scalbnf
+F_LD64(scalbnl) ; Can't use long double functions from the CRT on x86
+sin
+F_NON_I386(sinf)
+F_LD64(sinl == sin)
+; if we implement sinh, we can set it DATA only.
+sinh
+F_NON_I386(sinhf)
+sqrt
+F_NON_I386(sqrtf)
+tan
+F_NON_I386(tanf)
+F_LD64(tanl == tan)
+; if we implement tanh, we can set it to DATA only.
+tanh
+F_NON_I386(tanhf)
+tgamma
+tgammaf
+F_LD64(tgammal) ; Can't use long double functions from the CRT on x86
+trunc
+truncf
+F_LD64(truncl) ; Can't use long double functions from the CRT on x86

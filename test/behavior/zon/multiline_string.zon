@@ -1,0 +1,4 @@
+// zig fmt: off
+    \\Hello, world!
+\\This is a multiline string!
+  \\ There are no escapes, we can, for example, include \n in the string

@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-core-wow64-l1-1-2
+
+EXPORTS
+
+IsWow64GuestMachineSupported

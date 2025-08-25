@@ -1,0 +1,14 @@
+LIBRARY api-ms-win-power-limitsmanagement-l1-1-0
+
+EXPORTS
+
+PowerCloseEnvironmentalMonitor@4
+PowerCloseLimitsMitigation@4
+PowerCloseLimitsPolicy@4
+PowerRegisterEnvironmentalMonitor@8
+PowerRegisterLimitsMitigation@8
+PowerRegisterLimitsPolicy@8
+PowerReportLimitsEvent@4
+PowerUpdateEnvironmentalMonitorState@12
+PowerUpdateEnvironmentalMonitorThresholds@12
+PowerUpdateLimitsMitigation@8

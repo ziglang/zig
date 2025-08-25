@@ -1,0 +1,6 @@
+LIBRARY api-ms-win-core-datetime-l1-1-1
+
+EXPORTS
+
+GetDateFormatEx@28
+GetTimeFormatEx@24

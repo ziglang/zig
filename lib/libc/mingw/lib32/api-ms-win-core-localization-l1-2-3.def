@@ -1,0 +1,8 @@
+LIBRARY api-ms-win-core-localization-l1-2-3
+
+EXPORTS
+
+EnumSystemGeoNames@12
+GetGeoInfoEx@16
+GetUserDefaultGeoName@8
+SetUserGeoName@4

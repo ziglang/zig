@@ -1,0 +1,5 @@
+LIBRARY api-ms-win-security-lsalookup-l2-1-1
+
+EXPORTS
+
+LsaManageSidNameMapping@12
