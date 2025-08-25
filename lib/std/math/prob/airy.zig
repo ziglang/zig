@@ -28,7 +28,7 @@ const sqpii = math.sqrt1_pi;
 // IBMPC or MIEEE 53-bit, not UNK
 const MAXAIRY = 103.892;
 
-/// Coefficients for polynomial expansions
+// Coefficients for polynomial expansions
 
 const AN = [_]f64{
     3.46538101525629032477E-1, 1.20075952739645805542E1,

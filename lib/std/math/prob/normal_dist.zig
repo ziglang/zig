@@ -324,11 +324,7 @@ pub fn erfc(a: f64) f64 {
 
     //var p: f64 = undefined;
     //var q: f64 = undefined;
-    const p, const q = if (x < 8.0) .{
-        polevl(x, P[0..]), p1evl(x, Q[0..])
-    } else .{
-        polevl(x, R[0..]), p1evl(x, S[0..])
-    };
+    const p, const q = if (x < 8.0) .{ polevl(x, P[0..]), p1evl(x, Q[0..]) } else .{ polevl(x, R[0..]), p1evl(x, S[0..]) };
 
     var y = (z * p) / q;
 
@@ -350,11 +346,7 @@ pub fn erfc(a: f64) f64 {
 fn erfce(x: f64) f64 {
     // var p: f64 = undefined;
     // var q: f64 = undefined;
-    const p, const q = if (x < 8.0) .{
-        polevl(x, P[0..]), p1evl(x, Q[0..])
-    } else .{
-        polevl(x, R[0..]), p1evl(x, S[0..])
-    };
+    const p, const q = if (x < 8.0) .{ polevl(x, P[0..]), p1evl(x, Q[0..]) } else .{ polevl(x, R[0..]), p1evl(x, S[0..]) };
 
     return p / q;
 }

@@ -13,7 +13,7 @@ const std = @import("std");
 const math = std.math;
 
 /// f64 machine epsilon, 2**-53 ≈ 1.11022302462515654042E-16
-pub const MACHEP = math.floatEps(f64); 
+pub const MACHEP = math.floatEps(f64);
 
 /// f64 smallest normal number, 2**-1022 ≈ 2.22507385850720138309E-308
 pub const UFLOWTHRESH = math.floatMin(f64);
@@ -26,7 +26,7 @@ pub const MAXLOG = 7.09782712893383996732E2;
 
 /// ln(2**-1075)
 pub const MINLOG = -7.451332191019412076235E2;
-// Not sure where 2^-1075 comes from… 
+// Not sure where 2^-1075 comes from…
 // 2^-1074 is the smallest possible subnormal number
 
 /// pi (in math.zig)

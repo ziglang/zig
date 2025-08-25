@@ -9,6 +9,9 @@
 // Cephes Math Library Release 2.8:  June, 2000
 // Copyright 1984, 1987, 1989, 1992, 2000 by Stephen L. Moshier
 
+// REDUNDANT: the Zig standard library already implements the gamma and
+//            lngamma functions for f32 and f64.
+
 const std = @import("std");
 const math = std.math;
 
