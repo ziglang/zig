@@ -3,19 +3,23 @@ const testing = std.testing;
 const xz = std.compress.xz;
 
 fn decompress(data: []const u8) ![]u8 {
-    var in_stream = std.io.fixedBufferStream(data);
+    const gpa = testing.allocator;
 
-    var xz_stream = try xz.decompress(testing.allocator, in_stream.reader());
+    var in_stream: std.Io.Reader = .fixed(data);
+
+    var xz_stream = try xz.Decompress.init(&in_stream, gpa, &.{});
     defer xz_stream.deinit();
 
-    return xz_stream.reader().readAllAlloc(testing.allocator, std.math.maxInt(usize));
+    return xz_stream.reader.allocRemaining(gpa, .unlimited);
 }
 
 fn testReader(data: []const u8, comptime expected: []const u8) !void {
-    const buf = try decompress(data);
-    defer testing.allocator.free(buf);
+    const gpa = testing.allocator;
 
-    try testing.expectEqualSlices(u8, expected, buf);
+    const result = try decompress(data);
+    defer gpa.free(result);
+
+    try testing.expectEqualSlices(u8, expected, result);
 }
 
 test "compressed data" {
