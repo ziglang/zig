@@ -10,6 +10,7 @@ const stack_traces = @import("stack_traces.zig");
 const translate_c = @import("translate_c.zig");
 const run_translated_c = @import("run_translated_c.zig");
 const llvm_ir = @import("llvm_ir.zig");
+const libc = @import("libc.zig");
 
 // Implementations
 pub const TranslateCContext = @import("src/TranslateC.zig");
@@ -17,6 +18,7 @@ pub const RunTranslatedCContext = @import("src/RunTranslatedC.zig");
 pub const StackTracesContext = @import("src/StackTrace.zig");
 pub const DebuggerContext = @import("src/Debugger.zig");
 pub const LlvmIrContext = @import("src/LlvmIr.zig");
+pub const LibcContext = @import("src/Libc.zig");
 
 const TestTarget = struct {
     linkage: ?std.builtin.LinkMode = null,
@@ -2668,4 +2670,192 @@ pub fn addLlvmIrTests(b: *std.Build, options: LlvmIrContext.Options) ?*Step {
     llvm_ir.addCases(&context);
 
     return step;
+}
+
+const libc_targets: []const std.Target.Query = &.{
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .arm,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .armeb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .armeb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .thumb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .thumb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .thumbeb,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .thumbeb,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .aarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .aarch64_be,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    // .{
+    //     .cpu_arch = .hexagon,
+    //     .os_tag = .linux,
+    //     .abi = .musl,
+    // },
+    .{
+        .cpu_arch = .loongarch64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .loongarch64,
+        .os_tag = .linux,
+        .abi = .muslsf,
+    },
+    // .{
+    //     .cpu_arch = .mips,
+    //     .os_tag = .linux,
+    //     .abi = .musleabi,
+    // },
+    // .{
+    //     .cpu_arch = .mips,
+    //     .os_tag = .linux,
+    //     .abi = .musleabihf,
+    // },
+    // .{
+    //     .cpu_arch = .mipsel,
+    //     .os_tag = .linux,
+    //     .abi = .musleabi,
+    // },
+    // .{
+    //     .cpu_arch = .mipsel,
+    //     .os_tag = .linux,
+    //     .abi = .musleabihf,
+    // },
+    // .{
+    //     .cpu_arch = .mips64,
+    //     .os_tag = .linux,
+    //     .abi = .muslabi64,
+    // },
+    // .{
+    //     .cpu_arch = .mips64,
+    //     .os_tag = .linux,
+    //     .abi = .muslabin32,
+    // },
+    // .{
+    //     .cpu_arch = .mips64el,
+    //     .os_tag = .linux,
+    //     .abi = .muslabi64,
+    // },
+    // .{
+    //     .cpu_arch = .mips64el,
+    //     .os_tag = .linux,
+    //     .abi = .muslabin32,
+    // },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musleabi,
+    },
+    .{
+        .cpu_arch = .powerpc,
+        .os_tag = .linux,
+        .abi = .musleabihf,
+    },
+    .{
+        .cpu_arch = .powerpc64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .powerpc64le,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv32,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .riscv64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .s390x,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .wasm32,
+        .os_tag = .wasi,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .musl,
+    },
+    .{
+        .cpu_arch = .x86_64,
+        .os_tag = .linux,
+        .abi = .muslx32,
+    },
+};
+
+pub fn addLibcTests(b: *std.Build, options: LibcContext.Options) ?*Step {
+    const step = b.step("test-libc", "Run libc-test test cases");
+    const opt_libc_test_path = b.option(std.Build.LazyPath, "libc-test-path", "path to libc-test source directory");
+    if (opt_libc_test_path) |libc_test_path| {
+        var context: LibcContext = .{
+            .b = b,
+            .options = options,
+            .root_step = step,
+            .libc_test_src_path = libc_test_path.path(b, "src"),
+        };
+
+        libc.addCases(&context);
+
+        for (libc_targets) |target_query| {
+            const target = b.resolveTargetQuery(target_query);
+            context.addTarget(target);
+        }
+
+        return step;
+    } else {
+        step.dependOn(&b.addFail("The -Dlibc-test-path=... option is required for this step").step);
+        return null;
+    }
 }
