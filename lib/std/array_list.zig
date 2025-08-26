@@ -828,6 +828,35 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             @memcpy(dst, items);
         }
 
+        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// This operation is O(N).
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// Asserts that the list has capacity for the additional items.
+        /// Asserts that the index is in bounds or equal to the length.
+        pub fn insertSliceAssumeCapacity(
+            self: *Self,
+            index: usize,
+            items: []const T,
+        ) void {
+            const dst = self.addManyAtAssumeCapacity(index, items.len);
+            @memcpy(dst, items);
+        }
+
+        /// Insert slice `items` at index `i` by moving `list[i .. list.len]` to make room.
+        /// This operation is O(N).
+        /// Invalidates pre-existing pointers to elements at and after `index`.
+        /// If the list lacks unused capacity for the additional items, returns
+        /// `error.OutOfMemory`.
+        /// Asserts that the index is in bounds or equal to the length.
+        pub fn insertSliceBounded(
+            self: *Self,
+            index: usize,
+            items: []const T,
+        ) error{OutOfMemory}!void {
+            const dst = try self.addManyAtBounded(index, items.len);
+            @memcpy(dst, items);
+        }
+
         /// Grows or shrinks the list as necessary.
         /// Invalidates element pointers if additional capacity is allocated.
         /// Asserts that the range is in bounds.
@@ -2461,4 +2490,23 @@ test "orderedRemoveMany" {
 
     list.orderedRemoveMany(&.{0});
     try testing.expectEqualSlices(usize, &.{}, list.items);
+}
+
+test "insertSlice*" {
+    var buf: [10]u8 = undefined;
+    var list: ArrayList(u8) = .initBuffer(&buf);
+
+    list.appendSliceAssumeCapacity("abcd");
+
+    list.insertSliceAssumeCapacity(2, "ef");
+    try testing.expectEqualStrings("abefcd", list.items);
+
+    try list.insertSliceBounded(4, "gh");
+    try testing.expectEqualStrings("abefghcd", list.items);
+
+    try testing.expectError(error.OutOfMemory, list.insertSliceBounded(6, "ijkl"));
+    try testing.expectEqualStrings("abefghcd", list.items); // ensure no elements were changed before the return of error.OutOfMemory
+
+    list.insertSliceAssumeCapacity(6, "ij");
+    try testing.expectEqualStrings("abefghijcd", list.items);
 }
