@@ -1212,10 +1212,11 @@ fn runCommand(
     const step = &run.step;
     const b = step.owner;
     const arena = b.allocator;
+    const gpa = options.gpa;
 
     const cwd: ?[]const u8 = if (run.cwd) |lazy_cwd| lazy_cwd.getPath2(b, step) else null;
 
-    try step.handleChildProcUnsupported(cwd, argv);
+    try step.handleChildProcUnsupported();
     try Step.handleVerbose2(step.owner, cwd, run.env_map, argv);
 
     const allow_skip = switch (run.stdio) {
@@ -1365,6 +1366,8 @@ fn runCommand(
                 run.addPathForDynLibs(exe);
             }
 
+            gpa.free(step.result_failed_command.?);
+            step.result_failed_command = null;
             try Step.handleVerbose2(step.owner, cwd, run.env_map, interp_argv.items);
 
             break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, options, fuzz_context) catch |e| {
@@ -1380,18 +1383,11 @@ fn runCommand(
         return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
-    const final_argv = if (interp_argv.items.len == 0) argv else interp_argv.items;
-
     const generic_result = opt_generic_result orelse {
         assert(run.stdio == .zig_test);
-        // Specific errors have already been reported. All we need to do is detect those and
-        // report the general "test failed" error, which includes the command argv.
-        if (!step.test_results.isSuccess() or step.result_error_msgs.items.len > 0) {
-            return step.fail(
-                "the following test command failed:\n{s}",
-                .{try Step.allocPrintCmd(arena, cwd, final_argv)},
-            );
-        }
+        // Specific errors have already been reported, and test results are populated. All we need
+        // to do is report step failure if any test failed.
+        if (!step.test_results.isSuccess()) return error.MakeFailed;
         return;
     };
 
@@ -1445,93 +1441,77 @@ fn runCommand(
             .expect_stderr_exact => |expected_bytes| {
                 if (!mem.eql(u8, expected_bytes, generic_result.stderr.?)) {
                     return step.fail(
-                        \\
                         \\========= expected this stderr: =========
                         \\{s}
                         \\========= but found: ====================
                         \\{s}
-                        \\========= from the following command: ===
-                        \\{s}
                     , .{
                         expected_bytes,
                         generic_result.stderr.?,
-                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stderr_match => |match| {
                 if (mem.indexOf(u8, generic_result.stderr.?, match) == null) {
                     return step.fail(
-                        \\
                         \\========= expected to find in stderr: =========
                         \\{s}
                         \\========= but stderr does not contain it: =====
                         \\{s}
-                        \\========= from the following command: =========
-                        \\{s}
                     , .{
                         match,
                         generic_result.stderr.?,
-                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_exact => |expected_bytes| {
                 if (!mem.eql(u8, expected_bytes, generic_result.stdout.?)) {
                     return step.fail(
-                        \\
                         \\========= expected this stdout: =========
                         \\{s}
                         \\========= but found: ====================
                         \\{s}
-                        \\========= from the following command: ===
-                        \\{s}
                     , .{
                         expected_bytes,
                         generic_result.stdout.?,
-                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_match => |match| {
                 if (mem.indexOf(u8, generic_result.stdout.?, match) == null) {
                     return step.fail(
-                        \\
                         \\========= expected to find in stdout: =========
                         \\{s}
                         \\========= but stdout does not contain it: =====
                         \\{s}
-                        \\========= from the following command: =========
-                        \\{s}
                     , .{
                         match,
                         generic_result.stdout.?,
-                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_term => |expected_term| {
                 if (!termMatches(expected_term, generic_result.term)) {
-                    return step.fail("the following command {f} (expected {f}):\n{s}", .{
+                    return step.fail("process {f} (expected {f})", .{
                         fmtTerm(generic_result.term),
                         fmtTerm(expected_term),
-                        try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
         },
         else => {
-            // On failure, print stderr if captured.
+            // On failure, report captured stderr like normal standard error output.
             const bad_exit = switch (generic_result.term) {
                 .Exited => |code| code != 0,
                 .Signal, .Stopped, .Unknown => true,
             };
+            if (bad_exit) {
+                if (generic_result.stderr) |bytes| {
+                    run.step.result_stderr = bytes;
+                }
+            }
 
-            if (bad_exit) if (generic_result.stderr) |err| {
-                try step.addError("stderr:\n{s}", .{err});
-            };
-
-            try step.handleChildProcessTerm(generic_result.term, cwd, final_argv);
+            try step.handleChildProcessTerm(generic_result.term);
         },
     }
 }
@@ -1593,6 +1573,10 @@ fn spawnChildAndCollect(
         assert(run.stdio != .inherit);
         child.stdin_behavior = .Pipe;
     }
+
+    // If an error occurs, it's caused by this command:
+    assert(run.step.result_failed_command == null);
+    run.step.result_failed_command = try Step.allocPrintCmd(options.gpa, child.cwd, argv);
 
     if (run.stdio == .zig_test) {
         var timer = try std.time.Timer.start();

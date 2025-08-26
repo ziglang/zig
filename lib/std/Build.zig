@@ -1594,20 +1594,6 @@ pub fn validateUserInputDidItFail(b: *Build) bool {
     return b.invalid_user_input;
 }
 
-fn allocPrintCmd(gpa: Allocator, opt_cwd: ?[]const u8, argv: []const []const u8) error{OutOfMemory}![]u8 {
-    var buf: ArrayList(u8) = .empty;
-    if (opt_cwd) |cwd| try buf.print(gpa, "cd {s} && ", .{cwd});
-    for (argv) |arg| {
-        try buf.print(gpa, "{s} ", .{arg});
-    }
-    return buf.toOwnedSlice(gpa);
-}
-
-fn printCmd(ally: Allocator, cwd: ?[]const u8, argv: []const []const u8) void {
-    const text = allocPrintCmd(ally, cwd, argv) catch @panic("OOM");
-    std.debug.print("{s}\n", .{text});
-}
-
 /// This creates the install step and adds it to the dependencies of the
 /// top-level install step, using all the default options.
 /// See `addInstallArtifact` for a more flexible function.
@@ -1857,14 +1843,14 @@ pub fn runAllowFail(
 pub fn run(b: *Build, argv: []const []const u8) []u8 {
     if (!process.can_spawn) {
         std.debug.print("unable to spawn the following command: cannot spawn child process\n{s}\n", .{
-            try allocPrintCmd(b.allocator, null, argv),
+            try Step.allocPrintCmd(b.allocator, null, argv),
         });
         process.exit(1);
     }
 
     var code: u8 = undefined;
     return b.runAllowFail(argv, &code, .Inherit) catch |err| {
-        const printed_cmd = allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
+        const printed_cmd = Step.allocPrintCmd(b.allocator, null, argv) catch @panic("OOM");
         std.debug.print("unable to spawn the following command: {s}\n{s}\n", .{
             @errorName(err), printed_cmd,
         });

@@ -56,6 +56,9 @@ result_cached: bool,
 result_duration_ns: ?u64,
 /// 0 means unavailable or not reported.
 result_peak_rss: usize,
+/// If the step is failed and this field is populated, this is the command which failed.
+/// This field may be populated even if the step succeeded.
+result_failed_command: ?[]const u8,
 test_results: TestResults,
 
 /// The return address associated with creation of this step that can be useful
@@ -257,6 +260,7 @@ pub fn init(options: StepOptions) Step {
         .result_cached = false,
         .result_duration_ns = null,
         .result_peak_rss = 0,
+        .result_failed_command = null,
         .test_results = .{},
     };
 }
@@ -336,20 +340,20 @@ pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void 
     }
 }
 
-pub fn evalChildProcess(s: *Step, argv: []const []const u8) ![]u8 {
-    const run_result = try captureChildProcess(s, std.Progress.Node.none, argv);
-    try handleChildProcessTerm(s, run_result.term, null, argv);
-    return run_result.stdout;
-}
-
+/// Populates `s.result_failed_command`.
 pub fn captureChildProcess(
     s: *Step,
+    gpa: Allocator,
     progress_node: std.Progress.Node,
     argv: []const []const u8,
 ) !std.process.Child.RunResult {
     const arena = s.owner.allocator;
 
-    try handleChildProcUnsupported(s, null, argv);
+    // If an error occurs, it's happened in this command:
+    assert(s.result_failed_command == null);
+    s.result_failed_command = try allocPrintCmd(gpa, null, argv);
+
+    try handleChildProcUnsupported(s);
     try handleVerbose(s.owner, null, argv);
 
     const result = std.process.Child.run(.{
@@ -386,6 +390,7 @@ pub const ZigProcess = struct {
 
 /// Assumes that argv contains `--listen=-` and that the process being spawned
 /// is the zig compiler - the same version that compiled the build runner.
+/// Populates `s.result_failed_command`.
 pub fn evalZigProcess(
     s: *Step,
     argv: []const []const u8,
@@ -394,6 +399,10 @@ pub fn evalZigProcess(
     web_server: ?*Build.WebServer,
     gpa: Allocator,
 ) !?Path {
+    // If an error occurs, it's happened in this command:
+    assert(s.result_failed_command == null);
+    s.result_failed_command = try allocPrintCmd(gpa, null, argv);
+
     if (s.getZigProcess()) |zp| update: {
         assert(watch);
         if (std.Progress.have_ipc) if (zp.progress_ipc_fd) |fd| prog_node.setIpcFd(fd);
@@ -410,8 +419,9 @@ pub fn evalZigProcess(
             else => |e| return e,
         };
 
-        if (s.result_error_bundle.errorMessageCount() > 0)
+        if (s.result_error_bundle.errorMessageCount() > 0) {
             return s.fail("{d} compilation errors", .{s.result_error_bundle.errorMessageCount()});
+        }
 
         if (s.result_error_msgs.items.len > 0 and result == null) {
             // Crash detected.
@@ -420,7 +430,7 @@ pub fn evalZigProcess(
             };
             s.result_peak_rss = zp.child.resource_usage_statistics.getMaxRss() orelse 0;
             s.clearZigProcess(gpa);
-            try handleChildProcessTerm(s, term, null, argv);
+            try handleChildProcessTerm(s, term);
             return error.MakeFailed;
         }
 
@@ -430,7 +440,7 @@ pub fn evalZigProcess(
     const b = s.owner;
     const arena = b.allocator;
 
-    try handleChildProcUnsupported(s, null, argv);
+    try handleChildProcUnsupported(s);
     try handleVerbose(s.owner, null, argv);
 
     var child = std.process.Child.init(argv, arena);
@@ -484,16 +494,11 @@ pub fn evalZigProcess(
             else => {},
         };
 
-        try handleChildProcessTerm(s, term, null, argv);
+        try handleChildProcessTerm(s, term);
     }
 
-    // This is intentionally printed for failure on the first build but not for
-    // subsequent rebuilds.
     if (s.result_error_bundle.errorMessageCount() > 0) {
-        return s.fail("the following command failed with {d} compilation errors:\n{s}", .{
-            s.result_error_bundle.errorMessageCount(),
-            try allocPrintCmd(arena, null, argv),
-        });
+        return s.fail("{d} compilation errors", .{s.result_error_bundle.errorMessageCount()});
     }
 
     return result;
@@ -696,54 +701,38 @@ pub fn handleVerbose2(
     }
 }
 
-pub inline fn handleChildProcUnsupported(
-    s: *Step,
-    opt_cwd: ?[]const u8,
-    argv: []const []const u8,
-) error{ OutOfMemory, MakeFailed }!void {
+/// Asserts that the caller has already populated `s.result_failed_command`.
+pub inline fn handleChildProcUnsupported(s: *Step) error{ OutOfMemory, MakeFailed }!void {
     if (!std.process.can_spawn) {
-        return s.fail(
-            "unable to execute the following command: host cannot spawn child processes\n{s}",
-            .{try allocPrintCmd(s.owner.allocator, opt_cwd, argv)},
-        );
+        return s.fail("unable to spawn process: host cannot spawn child processes", .{});
     }
 }
 
-pub fn handleChildProcessTerm(
-    s: *Step,
-    term: std.process.Child.Term,
-    opt_cwd: ?[]const u8,
-    argv: []const []const u8,
-) error{ MakeFailed, OutOfMemory }!void {
-    const arena = s.owner.allocator;
+/// Asserts that the caller has already populated `s.result_failed_command`.
+pub fn handleChildProcessTerm(s: *Step, term: std.process.Child.Term) error{ MakeFailed, OutOfMemory }!void {
+    assert(s.result_failed_command != null);
     switch (term) {
         .Exited => |code| {
             if (code != 0) {
-                return s.fail(
-                    "the following command exited with error code {d}:\n{s}",
-                    .{ code, try allocPrintCmd(arena, opt_cwd, argv) },
-                );
+                return s.fail("process exited with error code {d}", .{code});
             }
         },
         .Signal, .Stopped, .Unknown => {
-            return s.fail(
-                "the following command terminated unexpectedly:\n{s}",
-                .{try allocPrintCmd(arena, opt_cwd, argv)},
-            );
+            return s.fail("process terminated unexpectedly", .{});
         },
     }
 }
 
 pub fn allocPrintCmd(
-    arena: Allocator,
+    gpa: Allocator,
     opt_cwd: ?[]const u8,
     argv: []const []const u8,
 ) Allocator.Error![]u8 {
-    return allocPrintCmd2(arena, opt_cwd, null, argv);
+    return allocPrintCmd2(gpa, opt_cwd, null, argv);
 }
 
 pub fn allocPrintCmd2(
-    arena: Allocator,
+    gpa: Allocator,
     opt_cwd: ?[]const u8,
     opt_env: ?*const std.process.EnvMap,
     argv: []const []const u8,
@@ -783,11 +772,13 @@ pub fn allocPrintCmd2(
         }
     };
 
-    var aw: std.Io.Writer.Allocating = .init(arena);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
     const writer = &aw.writer;
     if (opt_cwd) |cwd| writer.print("cd {s} && ", .{cwd}) catch return error.OutOfMemory;
     if (opt_env) |env| {
-        const process_env_map = std.process.getEnvMap(arena) catch std.process.EnvMap.init(arena);
+        var process_env_map = std.process.getEnvMap(gpa) catch std.process.EnvMap.init(gpa);
+        defer process_env_map.deinit();
         var it = env.iterator();
         while (it.next()) |entry| {
             const key = entry.key_ptr.*;
@@ -973,11 +964,14 @@ fn addWatchInputFromPath(step: *Step, path: Build.Cache.Path, basename: []const 
 pub fn reset(step: *Step, gpa: Allocator) void {
     assert(step.state == .precheck_done);
 
+    if (step.result_failed_command) |cmd| gpa.free(cmd);
+
     step.result_error_msgs.clearRetainingCapacity();
     step.result_stderr = "";
     step.result_cached = false;
     step.result_duration_ns = null;
     step.result_peak_rss = 0;
+    step.result_failed_command = null;
     step.test_results = .{};
 
     step.result_error_bundle.deinit(gpa);

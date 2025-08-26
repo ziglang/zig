@@ -1443,6 +1443,14 @@ pub fn printErrorMessages(
         }
         try stderr.writeAll("\n");
     }
+
+    if (failing_step.result_failed_command) |cmd_str| {
+        try ttyconf.setColor(stderr, .red);
+        try stderr.writeAll("failed command: ");
+        try ttyconf.setColor(stderr, .reset);
+        try stderr.writeAll(cmd_str);
+        try stderr.writeByte('\n');
+    }
 }
 
 fn printSteps(builder: *std.Build, w: *Writer) !void {
