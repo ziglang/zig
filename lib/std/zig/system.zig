@@ -218,9 +218,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             .linux, .illumos => {
                 const uts = posix.uname();
                 const release = mem.sliceTo(&uts.release, 0);
-                // The release field sometimes has a weird format,
-                // `Version.parse` will attempt to find some meaningful interpretation.
-                if (std.SemanticVersion.parse(release)) |ver| {
+                if (std.SemanticVersion.parseUtsnameRelease(release)) |ver| {
                     var stripped = ver;
                     stripped.pre = null;
                     stripped.build = null;
