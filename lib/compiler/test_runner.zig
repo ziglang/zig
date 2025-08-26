@@ -132,33 +132,38 @@ fn mainServer() !void {
                 log_err_count = 0;
                 const index = try server.receiveBody_u32();
                 const test_fn = builtin.test_functions[index];
-                var fail = false;
-                var skip = false;
                 is_fuzz_test = false;
 
                 // let the build server know we're starting the test now
                 try server.serveStringMessage(.test_started, &.{});
 
-                test_fn.func() catch |err| switch (err) {
-                    error.SkipZigTest => skip = true,
-                    else => {
-                        fail = true;
+                const TestResults = std.zig.Server.Message.TestResults;
+                const status: TestResults.Status = if (test_fn.func()) |v| s: {
+                    v;
+                    break :s .pass;
+                } else |err| switch (err) {
+                    error.SkipZigTest => .skip,
+                    else => s: {
                         if (@errorReturnTrace()) |trace| {
                             std.debug.dumpStackTrace(trace);
                         }
+                        break :s .fail;
                     },
                 };
-                const leak = testing.allocator_instance.deinit() == .leak;
+                const leak_count = testing.allocator_instance.detectLeaks();
+                testing.allocator_instance.deinitWithoutLeakChecks();
                 try server.serveTestResults(.{
                     .index = index,
                     .flags = .{
-                        .fail = fail,
-                        .skip = skip,
-                        .leak = leak,
+                        .status = status,
                         .fuzz = is_fuzz_test,
                         .log_err_count = std.math.lossyCast(
-                            @FieldType(std.zig.Server.Message.TestResults.Flags, "log_err_count"),
+                            @FieldType(TestResults.Flags, "log_err_count"),
                             log_err_count,
+                        ),
+                        .leak_count = std.math.lossyCast(
+                            @FieldType(TestResults.Flags, "leak_count"),
+                            leak_count,
                         ),
                     },
                 });

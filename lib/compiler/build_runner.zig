@@ -735,11 +735,12 @@ fn runStepNames(
 
     assert(run.memory_blocked_steps.items.len == 0);
 
+    var test_pass_count: usize = 0;
     var test_skip_count: usize = 0;
     var test_fail_count: usize = 0;
-    var test_pass_count: usize = 0;
-    var test_leak_count: usize = 0;
+    var test_crash_count: usize = 0;
     var test_timeout_count: usize = 0;
+
     var test_count: usize = 0;
 
     var success_count: usize = 0;
@@ -749,11 +750,12 @@ fn runStepNames(
     var total_compile_errors: usize = 0;
 
     for (step_stack.keys()) |s| {
-        test_fail_count += s.test_results.fail_count;
-        test_skip_count += s.test_results.skip_count;
-        test_leak_count += s.test_results.leak_count;
-        test_timeout_count += s.test_results.timeout_count;
         test_pass_count += s.test_results.passCount();
+        test_skip_count += s.test_results.skip_count;
+        test_fail_count += s.test_results.fail_count;
+        test_crash_count += s.test_results.crash_count;
+        test_timeout_count += s.test_results.timeout_count;
+
         test_count += s.test_results.test_count;
 
         switch (s.state) {
@@ -822,6 +824,9 @@ fn runStepNames(
         f.waitAndPrintReport();
     }
 
+    // Every test has a state
+    assert(test_pass_count + test_skip_count + test_fail_count + test_crash_count + test_timeout_count == test_count);
+
     // A proper command line application defaults to silently succeeding.
     // The user may request verbose mode if they have a different preference.
     const failures_only = switch (run.summary) {
@@ -844,14 +849,16 @@ fn runStepNames(
         w.writeAll("\nBuild Summary:") catch {};
         ttyconf.setColor(w, .reset) catch {};
         w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) w.print("; {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) w.print("; {d} failed", .{failure_count}) catch {};
+        if (skipped_count > 0) w.print(", {d} skipped", .{skipped_count}) catch {};
+        if (failure_count > 0) w.print(", {d} failed", .{failure_count}) catch {};
 
-        if (test_count > 0) w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-        if (test_skip_count > 0) w.print("; {d} skipped", .{test_skip_count}) catch {};
-        if (test_fail_count > 0) w.print("; {d} failed", .{test_fail_count}) catch {};
-        if (test_leak_count > 0) w.print("; {d} leaked", .{test_leak_count}) catch {};
-        if (test_timeout_count > 0) w.print("; {d} timed out", .{test_timeout_count}) catch {};
+        if (test_count > 0) {
+            w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
+            if (test_skip_count > 0) w.print(", {d} skipped", .{test_skip_count}) catch {};
+            if (test_fail_count > 0) w.print(", {d} failed", .{test_fail_count}) catch {};
+            if (test_crash_count > 0) w.print(", {d} crashed", .{test_crash_count}) catch {};
+            if (test_timeout_count > 0) w.print(", {d} timed out", .{test_timeout_count}) catch {};
+        }
 
         w.writeAll("\n") catch {};
 
@@ -961,11 +968,16 @@ fn printStepStatus(
                 try stderr.writeAll(" cached");
             } else if (s.test_results.test_count > 0) {
                 const pass_count = s.test_results.passCount();
+                assert(s.test_results.test_count == pass_count + s.test_results.skip_count);
                 try stderr.print(" {d} passed", .{pass_count});
                 if (s.test_results.skip_count > 0) {
+                    try ttyconf.setColor(stderr, .white);
+                    try stderr.writeAll(", ");
                     try ttyconf.setColor(stderr, .yellow);
-                    try stderr.print(" {d} skipped", .{s.test_results.skip_count});
+                    try stderr.print("{d} skipped", .{s.test_results.skip_count});
                 }
+                try ttyconf.setColor(stderr, .white);
+                try stderr.print(" ({d} total)", .{s.test_results.test_count});
             } else {
                 try stderr.writeAll(" success");
             }
@@ -1031,41 +1043,64 @@ fn printStepFailure(
             s.result_error_bundle.errorMessageCount(),
         });
     } else if (!s.test_results.isSuccess()) {
-        try stderr.print(" {d}/{d} passed", .{
-            s.test_results.passCount(), s.test_results.test_count,
-        });
-        if (s.test_results.fail_count > 0) {
-            try stderr.writeAll(", ");
-            try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} failed", .{
-                s.test_results.fail_count,
-            });
-            try ttyconf.setColor(stderr, .white);
-        }
+        // These first values include all of the test "statuses". Every test is either passsed,
+        // skipped, failed, crashed, or timed out.
+        try ttyconf.setColor(stderr, .green);
+        try stderr.print(" {d} passed", .{s.test_results.passCount()});
+        try ttyconf.setColor(stderr, .white);
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.print("{d} skipped", .{
-                s.test_results.skip_count,
-            });
+            try stderr.print("{d} skipped", .{s.test_results.skip_count});
             try ttyconf.setColor(stderr, .white);
         }
-        if (s.test_results.leak_count > 0) {
+        if (s.test_results.fail_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} leaked", .{
-                s.test_results.leak_count,
-            });
+            try stderr.print("{d} failed", .{s.test_results.fail_count});
+            try ttyconf.setColor(stderr, .white);
+        }
+        if (s.test_results.crash_count > 0) {
+            try stderr.writeAll(", ");
+            try ttyconf.setColor(stderr, .red);
+            try stderr.print("{d} crashed", .{s.test_results.crash_count});
             try ttyconf.setColor(stderr, .white);
         }
         if (s.test_results.timeout_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} timed out", .{
-                s.test_results.timeout_count,
-            });
+            try stderr.print("{d} timed out", .{s.test_results.timeout_count});
             try ttyconf.setColor(stderr, .white);
         }
+        try stderr.print(" ({d} total)", .{s.test_results.test_count});
+
+        // Memory leaks are intentionally written after the total, because is isn't a test *status*,
+        // but just a flag that any tests -- even passed ones -- can have. We also use a different
+        // separator, so it looks like:
+        //   2 passed, 1 skipped, 2 failed (5 total); 2 leaks
+        if (s.test_results.leak_count > 0) {
+            try stderr.writeAll("; ");
+            try ttyconf.setColor(stderr, .red);
+            try stderr.print("{d} leaks", .{s.test_results.leak_count});
+            try ttyconf.setColor(stderr, .white);
+        }
+
+        // It's usually not helpful to know how many error logs there were because they tend to
+        // just come with other errors (e.g. crashes and leaks print stack traces, and clean
+        // failures print error traces). So only mention them if they're the only thing causing
+        // the failure.
+        const show_err_logs: bool = show: {
+            var alt_results = s.test_results;
+            alt_results.log_err_count = 0;
+            break :show alt_results.isSuccess();
+        };
+        if (show_err_logs) {
+            try stderr.writeAll("; ");
+            try ttyconf.setColor(stderr, .red);
+            try stderr.print("{d} error logs", .{s.test_results.log_err_count});
+            try ttyconf.setColor(stderr, .white);
+        }
+
         try stderr.writeAll("\n");
     } else if (s.result_error_msgs.items.len > 0) {
         try ttyconf.setColor(stderr, .red);
@@ -1400,7 +1435,12 @@ pub fn printErrorMessages(
         try ttyconf.setColor(stderr, .red);
         try stderr.writeAll("error: ");
         try ttyconf.setColor(stderr, .reset);
-        try stderr.writeAll(msg);
+        // If the message has multiple lines, indent the non-initial ones to align them with the 'error:' text.
+        var it = std.mem.splitScalar(u8, msg, '\n');
+        try stderr.writeAll(it.first());
+        while (it.next()) |line| {
+            try stderr.print("\n       {s}", .{line});
+        }
         try stderr.writeAll("\n");
     }
 }

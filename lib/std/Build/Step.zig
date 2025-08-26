@@ -63,19 +63,43 @@ test_results: TestResults,
 debug_stack_trace: std.builtin.StackTrace,
 
 pub const TestResults = struct {
-    fail_count: u32 = 0,
-    skip_count: u32 = 0,
-    leak_count: u32 = 0,
-    timeout_count: u32 = 0,
-    log_err_count: u32 = 0,
+    /// The total number of tests in the step. Every test has a "status" from the following:
+    /// * passed
+    /// * skipped
+    /// * failed cleanly
+    /// * crashed
+    /// * timed out
     test_count: u32 = 0,
 
+    /// The number of tests which were skipped (`error.SkipZigTest`).
+    skip_count: u32 = 0,
+    /// The number of tests which failed cleanly.
+    fail_count: u32 = 0,
+    /// The number of tests which terminated unexpectedly, i.e. crashed.
+    crash_count: u32 = 0,
+    /// The number of tests which timed out.
+    timeout_count: u32 = 0,
+
+    /// The number of detected memory leaks. The associated test may still have passed; indeed, *all*
+    /// individual tests may have passed. However, the step as a whole fails if any test has leaks.
+    leak_count: u32 = 0,
+    /// The number of detected error logs. The associated test may still have passed; indeed, *all*
+    /// individual tests may have passed. However, the step as a whole fails if any test logs errors.
+    log_err_count: u32 = 0,
+
     pub fn isSuccess(tr: TestResults) bool {
-        return tr.fail_count == 0 and tr.leak_count == 0 and tr.log_err_count == 0 and tr.timeout_count == 0;
+        // all steps are success or skip
+        return tr.fail_count == 0 and
+            tr.crash_count == 0 and
+            tr.timeout_count == 0 and
+            // no (otherwise successful) step leaked memory or logged errors
+            tr.leak_count == 0 and
+            tr.log_err_count == 0;
     }
 
+    /// Computes the number of tests which passed from the other values.
     pub fn passCount(tr: TestResults) u32 {
-        return tr.test_count - tr.fail_count - tr.skip_count - tr.timeout_count;
+        return tr.test_count - tr.skip_count - tr.fail_count - tr.crash_count - tr.timeout_count;
     }
 };
 

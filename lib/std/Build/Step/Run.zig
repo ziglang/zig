@@ -630,6 +630,8 @@ pub fn addCheck(run: *Run, new_check: StdIo.Check) void {
 
 pub fn captureStdErr(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPath {
     assert(run.stdio != .inherit);
+    assert(run.stdio != .zig_test);
+
     const b = run.step.owner;
 
     if (run.captured_stderr) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
@@ -649,6 +651,8 @@ pub fn captureStdErr(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPa
 
 pub fn captureStdOut(run: *Run, options: CapturedStdIo.Options) std.Build.LazyPath {
     assert(run.stdio != .inherit);
+    assert(run.stdio != .zig_test);
+
     const b = run.step.owner;
 
     if (run.captured_stdout) |captured| return .{ .generated = .{ .file = &captured.output.generated_file } };
@@ -1224,7 +1228,7 @@ fn runCommand(
 
     var env_map = run.env_map orelse &b.graph.env_map;
 
-    const result = spawnChildAndCollect(run, argv, env_map, has_side_effects, options, fuzz_context) catch |err| term: {
+    const opt_generic_result = spawnChildAndCollect(run, argv, env_map, has_side_effects, options, fuzz_context) catch |err| term: {
         // InvalidExe: cpu arch mismatch
         // FileNotFound: can happen with a wrong dynamic linker path
         if (err == error.InvalidExe or err == error.FileNotFound) interpret: {
@@ -1365,34 +1369,34 @@ fn runCommand(
 
             break :term spawnChildAndCollect(run, interp_argv.items, env_map, has_side_effects, options, fuzz_context) catch |e| {
                 if (!run.failing_to_execute_foreign_is_an_error) return error.MakeSkipped;
-
+                if (e == error.MakeFailed) return error.MakeFailed; // error already reported
                 return step.fail("unable to spawn interpreter {s}: {s}", .{
                     interp_argv.items[0], @errorName(e),
                 });
             };
         }
+        if (err == error.MakeFailed) return error.MakeFailed; // error already reported
 
         return step.fail("failed to spawn and capture stdio from {s}: {s}", .{ argv[0], @errorName(err) });
     };
 
-    step.result_duration_ns = result.elapsed_ns;
-    step.result_peak_rss = result.peak_rss;
-    step.test_results = result.stdio.test_results;
-    if (result.stdio.test_metadata) |tm| {
-        run.cached_test_metadata = tm.toCachedTestMetadata();
-        if (options.web_server) |ws| ws.updateTimeReportRunTest(
-            run,
-            &run.cached_test_metadata.?,
-            tm.ns_per_test,
-        );
-    }
-
     const final_argv = if (interp_argv.items.len == 0) argv else interp_argv.items;
 
-    if (fuzz_context != null) {
-        try step.handleChildProcessTerm(result.term, cwd, final_argv);
+    const generic_result = opt_generic_result orelse {
+        assert(run.stdio == .zig_test);
+        // Specific errors have already been reported. All we need to do is detect those and
+        // report the general "test failed" error, which includes the command argv.
+        if (!step.test_results.isSuccess() or step.result_error_msgs.items.len > 0) {
+            return step.fail(
+                "the following test command failed:\n{s}",
+                .{try Step.allocPrintCmd(arena, cwd, final_argv)},
+            );
+        }
         return;
-    }
+    };
+
+    assert(fuzz_context == null);
+    assert(run.stdio != .zig_test);
 
     // Capture stdout and stderr to GeneratedFile objects.
     const Stream = struct {
@@ -1402,11 +1406,11 @@ fn runCommand(
     for ([_]Stream{
         .{
             .captured = run.captured_stdout,
-            .bytes = result.stdio.stdout,
+            .bytes = generic_result.stdout,
         },
         .{
             .captured = run.captured_stderr,
-            .bytes = result.stdio.stderr,
+            .bytes = generic_result.stderr,
         },
     }) |stream| {
         if (stream.captured) |captured| {
@@ -1436,9 +1440,10 @@ fn runCommand(
     }
 
     switch (run.stdio) {
+        .zig_test => unreachable,
         .check => |checks| for (checks.items) |check| switch (check) {
             .expect_stderr_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, result.stdio.stderr.?)) {
+                if (!mem.eql(u8, expected_bytes, generic_result.stderr.?)) {
                     return step.fail(
                         \\
                         \\========= expected this stderr: =========
@@ -1449,13 +1454,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stdio.stderr.?,
+                        generic_result.stderr.?,
                         try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stderr_match => |match| {
-                if (mem.indexOf(u8, result.stdio.stderr.?, match) == null) {
+                if (mem.indexOf(u8, generic_result.stderr.?, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stderr: =========
@@ -1466,13 +1471,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stdio.stderr.?,
+                        generic_result.stderr.?,
                         try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_exact => |expected_bytes| {
-                if (!mem.eql(u8, expected_bytes, result.stdio.stdout.?)) {
+                if (!mem.eql(u8, expected_bytes, generic_result.stdout.?)) {
                     return step.fail(
                         \\
                         \\========= expected this stdout: =========
@@ -1483,13 +1488,13 @@ fn runCommand(
                         \\{s}
                     , .{
                         expected_bytes,
-                        result.stdio.stdout.?,
+                        generic_result.stdout.?,
                         try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_stdout_match => |match| {
-                if (mem.indexOf(u8, result.stdio.stdout.?, match) == null) {
+                if (mem.indexOf(u8, generic_result.stdout.?, match) == null) {
                     return step.fail(
                         \\
                         \\========= expected to find in stdout: =========
@@ -1500,69 +1505,45 @@ fn runCommand(
                         \\{s}
                     , .{
                         match,
-                        result.stdio.stdout.?,
+                        generic_result.stdout.?,
                         try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
             .expect_term => |expected_term| {
-                if (!termMatches(expected_term, result.term)) {
+                if (!termMatches(expected_term, generic_result.term)) {
                     return step.fail("the following command {f} (expected {f}):\n{s}", .{
-                        fmtTerm(result.term),
+                        fmtTerm(generic_result.term),
                         fmtTerm(expected_term),
                         try Step.allocPrintCmd(arena, cwd, final_argv),
                     });
                 }
             },
         },
-        .zig_test => {
-            const prefix: []const u8 = p: {
-                if (result.stdio.test_metadata) |tm| {
-                    if (tm.next_index > 0 and tm.next_index <= tm.names.len) {
-                        const name = tm.testName(tm.next_index - 1);
-                        break :p b.fmt("while executing test '{s}', ", .{name});
-                    }
-                }
-                break :p "";
-            };
-            const expected_term: std.process.Child.Term = .{ .Exited = 0 };
-            if (!termMatches(expected_term, result.term)) {
-                return step.fail("{s}the following command {f} (expected {f}):\n{s}", .{
-                    prefix,
-                    fmtTerm(result.term),
-                    fmtTerm(expected_term),
-                    try Step.allocPrintCmd(arena, cwd, final_argv),
-                });
-            }
-            if (!result.stdio.test_results.isSuccess()) {
-                return step.fail(
-                    "{s}the following test command failed:\n{s}",
-                    .{ prefix, try Step.allocPrintCmd(arena, cwd, final_argv) },
-                );
-            }
-        },
         else => {
             // On failure, print stderr if captured.
-            const bad_exit = switch (result.term) {
+            const bad_exit = switch (generic_result.term) {
                 .Exited => |code| code != 0,
                 .Signal, .Stopped, .Unknown => true,
             };
 
-            if (bad_exit) if (result.stdio.stderr) |err| {
+            if (bad_exit) if (generic_result.stderr) |err| {
                 try step.addError("stderr:\n{s}", .{err});
             };
 
-            try step.handleChildProcessTerm(result.term, cwd, final_argv);
+            try step.handleChildProcessTerm(generic_result.term, cwd, final_argv);
         },
     }
 }
 
-const ChildProcResult = struct {
+const EvalZigTestResult = struct {
+    test_results: Step.TestResults,
+    test_metadata: ?TestMetadata,
+};
+const EvalGenericResult = struct {
     term: std.process.Child.Term,
-    elapsed_ns: u64,
-    peak_rss: usize,
-
-    stdio: StdIoResult,
+    stdout: ?[]const u8,
+    stderr: ?[]const u8,
 };
 
 fn spawnChildAndCollect(
@@ -1572,7 +1553,7 @@ fn spawnChildAndCollect(
     has_side_effects: bool,
     options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
-) !ChildProcResult {
+) !?EvalGenericResult {
     const b = run.step.owner;
     const arena = b.allocator;
 
@@ -1613,121 +1594,237 @@ fn spawnChildAndCollect(
         child.stdin_behavior = .Pipe;
     }
 
-    const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
-
-    if (run.stdio != .zig_test and !run.disable_zig_progress and !inherit) {
-        child.progress_node = options.progress_node;
-    }
-
-    const term, const result, const elapsed_ns = t: {
+    if (run.stdio == .zig_test) {
+        var timer = try std.time.Timer.start();
+        const res = try evalZigTest(run, &child, options, fuzz_context);
+        run.step.result_duration_ns = timer.read();
+        run.step.test_results = res.test_results;
+        if (res.test_metadata) |tm| {
+            run.cached_test_metadata = tm.toCachedTestMetadata();
+            if (options.web_server) |ws| ws.updateTimeReportRunTest(
+                run,
+                &run.cached_test_metadata.?,
+                tm.ns_per_test,
+            );
+        }
+        return null;
+    } else {
+        const inherit = child.stdout_behavior == .Inherit or child.stderr_behavior == .Inherit;
+        if (!run.disable_zig_progress and !inherit) {
+            child.progress_node = options.progress_node;
+        }
         if (inherit) std.debug.lockStdErr();
         defer if (inherit) std.debug.unlockStdErr();
-
-        try child.spawn();
-        errdefer {
-            _ = child.kill() catch {};
-        }
-
-        // We need to report `error.InvalidExe` *now* if applicable.
-        try child.waitForSpawn();
-
         var timer = try std.time.Timer.start();
-
-        const result = if (run.stdio == .zig_test)
-            try evalZigTest(run, &child, options, fuzz_context)
-        else
-            try evalGeneric(run, &child);
-
-        break :t .{ try child.wait(), result, timer.read() };
-    };
-
-    return .{
-        .stdio = result,
-        .term = term,
-        .elapsed_ns = elapsed_ns,
-        .peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0,
-    };
+        const res = try evalGeneric(run, &child);
+        run.step.result_duration_ns = timer.read();
+        return .{ .term = res.term, .stdout = res.stdout, .stderr = res.stderr };
+    }
 }
 
-const StdIoResult = struct {
-    stdout: ?[]const u8,
-    stderr: ?[]const u8,
-    test_results: Step.TestResults,
-    test_metadata: ?TestMetadata,
-};
+const StdioPollEnum = enum { stdout, stderr };
 
 fn evalZigTest(
     run: *Run,
     child: *std.process.Child,
     options: Step.MakeOptions,
     fuzz_context: ?FuzzContext,
-) !StdIoResult {
+) !EvalZigTestResult {
     const gpa = run.step.owner.allocator;
     const arena = run.step.owner.allocator;
 
-    const PollEnum = enum { stdout, stderr };
+    // We will update this every time a child runs.
+    run.step.result_peak_rss = 0;
 
-    var poller = std.Io.poll(gpa, PollEnum, .{
-        .stdout = child.stdout.?,
-        .stderr = child.stderr.?,
-    });
-    defer poller.deinit();
+    var result: EvalZigTestResult = .{
+        .test_results = .{
+            .test_count = 0,
+            .skip_count = 0,
+            .fail_count = 0,
+            .crash_count = 0,
+            .timeout_count = 0,
+            .leak_count = 0,
+            .log_err_count = 0,
+        },
+        .test_metadata = null,
+    };
 
-    // If this is `true`, we avoid ever entering the polling loop below, because the stdin pipe has
-    // somehow already closed; instead, we go straight to capturing stderr in case it has anything
-    // useful.
-    const first_write_failed = if (fuzz_context) |fctx| failed: {
-        switch (fctx.fuzz.mode) {
-            .forever => {
-                const instance_id = 0; // will be used by mutiprocess forever fuzzing
-                sendRunFuzzTestMessage(child.stdin.?, fctx.unit_test_index, .forever, instance_id) catch |err| {
-                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-                    break :failed true;
-                };
-                break :failed false;
+    while (true) {
+        try child.spawn();
+        var poller = std.Io.poll(gpa, StdioPollEnum, .{
+            .stdout = child.stdout.?,
+            .stderr = child.stderr.?,
+        });
+        var child_killed = false;
+        defer if (!child_killed) {
+            _ = child.kill() catch {};
+            poller.deinit();
+            run.step.result_peak_rss = @max(
+                run.step.result_peak_rss,
+                child.resource_usage_statistics.getMaxRss() orelse 0,
+            );
+        };
+
+        try child.waitForSpawn();
+
+        switch (try pollZigTest(
+            run,
+            child,
+            options,
+            fuzz_context,
+            &poller,
+            &result.test_metadata,
+            &result.test_results,
+        )) {
+            .write_failed => |err| {
+                // The runner unexpectedly closed a stdio pipe, which means a crash. Make sure we've captured
+                // all available stderr to make our error output as useful as possible.
+                while (try poller.poll()) {}
+                run.step.result_stderr = try arena.dupe(u8, poller.reader(.stderr).buffered());
+
+                // Clean up everything and wait for the child to exit.
+                child.stdin.?.close();
+                child.stdin = null;
+                poller.deinit();
+                child_killed = true;
+                const term = try child.wait();
+                run.step.result_peak_rss = @max(
+                    run.step.result_peak_rss,
+                    child.resource_usage_statistics.getMaxRss() orelse 0,
+                );
+
+                try run.step.addError("unable to write stdin ({t}); test process unexpectedly {f}", .{ err, fmtTerm(term) });
+                return result;
             },
-            .limit => |limit| {
-                sendRunFuzzTestMessage(child.stdin.?, fctx.unit_test_index, .iterations, limit.amount) catch |err| {
-                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-                    break :failed true;
-                };
-                break :failed false;
+            .no_poll => |no_poll| {
+                // This might be a success (we requested exit and the child dutifully closed stdout) or
+                // a crash of some kind. Either way, the child will terminate by itself -- wait for it.
+                const stderr_owned = try arena.dupe(u8, poller.reader(.stderr).buffered());
+                poller.reader(.stderr).tossBuffered();
+
+                // Clean up everything and wait for the child to exit.
+                child.stdin.?.close();
+                child.stdin = null;
+                poller.deinit();
+                child_killed = true;
+                const term = try child.wait();
+                run.step.result_peak_rss = @max(
+                    run.step.result_peak_rss,
+                    child.resource_usage_statistics.getMaxRss() orelse 0,
+                );
+
+                if (no_poll.active_test_index) |test_index| {
+                    // A test was running, so this is definitely a crash. Report it against that
+                    // test, and continue to the next test.
+                    result.test_metadata.?.ns_per_test[test_index] = no_poll.ns_elapsed;
+                    result.test_results.crash_count += 1;
+                    try run.step.addError("'{s}' {f}{s}{s}", .{
+                        result.test_metadata.?.testName(test_index),
+                        fmtTerm(term),
+                        if (stderr_owned.len != 0) " with stderr:\n" else "",
+                        std.mem.trim(u8, stderr_owned, "\n"),
+                    });
+                    continue;
+                }
+
+                // Report an error if the child terminated uncleanly or if we were still trying to run more tests.
+                run.step.result_stderr = stderr_owned;
+                const tests_done = result.test_metadata != null and result.test_metadata.?.next_index == std.math.maxInt(u32);
+                if (!tests_done or !termMatches(.{ .Exited = 0 }, term)) {
+                    try run.step.addError("test process unexpectedly {f}", .{fmtTerm(term)});
+                }
+                return result;
+            },
+            .timeout => |timeout| {
+                const stderr = poller.reader(.stderr).buffered();
+                poller.reader(.stderr).tossBuffered();
+                if (timeout.active_test_index) |test_index| {
+                    // A test was running. Report the timeout against that test, and continue on to
+                    // the next test.
+                    result.test_metadata.?.ns_per_test[test_index] = timeout.ns_elapsed;
+                    result.test_results.timeout_count += 1;
+                    try run.step.addError("'{s}' timed out after {D}{s}{s}", .{
+                        result.test_metadata.?.testName(test_index),
+                        timeout.ns_elapsed,
+                        if (stderr.len != 0) " with stderr:\n" else "",
+                        std.mem.trim(u8, stderr, "\n"),
+                    });
+                    continue;
+                }
+                // Just log an error and let the child be killed.
+                run.step.result_stderr = try arena.dupe(u8, stderr);
+                return run.step.fail("test runner failed to respond for {D}", .{timeout.ns_elapsed});
             },
         }
-    } else failed: {
-        run.fuzz_tests.clearRetainingCapacity();
-        sendMessage(child.stdin.?, .query_test_metadata) catch |err| {
-            try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-            break :failed true;
-        };
-        break :failed false;
-    };
+        comptime unreachable;
+    }
+}
 
-    var fail_count: u32 = 0;
-    var skip_count: u32 = 0;
-    var leak_count: u32 = 0;
-    var timeout_count: u32 = 0;
-    var test_count: u32 = 0;
-    var log_err_count: u32 = 0;
-
-    var metadata: ?TestMetadata = null;
-    var coverage_id: ?u64 = null;
-
-    var test_is_running = false;
-
-    // String allocated into `gpa`. Owned by this function while it runs, then moved to the `Step`.
-    var result_stderr: []u8 = &.{};
-    defer run.step.result_stderr = result_stderr;
-
-    // `null` means this host does not support `std.time.Timer`. This timer is `reset()` whenever we
-    // toggle `test_is_running`, i.e. whenever a test starts or finishes.
-    var timer: ?std.time.Timer = std.time.Timer.start() catch t: {
-        std.log.warn("std.time.Timer not supported on host; test timeouts will be ignored", .{});
-        break :t null;
-    };
+/// Polls stdout of a Zig test process until a termination condition is reached:
+/// * A write fails, indicating the child unexpectedly closed stdin
+/// * A test (or a response from the test runner) times out
+/// * `poll` fails, indicating the child closed stdout and stderr
+fn pollZigTest(
+    run: *Run,
+    child: *std.process.Child,
+    options: Step.MakeOptions,
+    fuzz_context: ?FuzzContext,
+    poller: *std.Io.Poller(StdioPollEnum),
+    opt_metadata: *?TestMetadata,
+    results: *Step.TestResults,
+) !union(enum) {
+    write_failed: anyerror,
+    no_poll: struct {
+        active_test_index: ?u32,
+        ns_elapsed: u64,
+    },
+    timeout: struct {
+        active_test_index: ?u32,
+        ns_elapsed: u64,
+    },
+} {
+    const gpa = run.step.owner.allocator;
+    const arena = run.step.owner.allocator;
 
     var sub_prog_node: ?std.Progress.Node = null;
     defer if (sub_prog_node) |n| n.end();
+
+    if (fuzz_context) |ctx| {
+        assert(opt_metadata.* == null); // fuzz processes are never restarted
+        switch (ctx.fuzz.mode) {
+            .forever => {
+                sendRunFuzzTestMessage(
+                    child.stdin.?,
+                    ctx.unit_test_index,
+                    .forever,
+                    0, // instance ID; will be used by multiprocess forever fuzzing in the future
+                ) catch |err| return .{ .write_failed = err };
+            },
+            .limit => |limit| {
+                sendRunFuzzTestMessage(
+                    child.stdin.?,
+                    ctx.unit_test_index,
+                    .iterations,
+                    limit.amount,
+                ) catch |err| return .{ .write_failed = err };
+            },
+        }
+    } else if (opt_metadata.*) |*md| {
+        // Previous unit test process died or was killed; we're continuing where it left off
+        requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
+    } else {
+        // Running unit tests normally
+        run.fuzz_tests.clearRetainingCapacity();
+        sendMessage(child.stdin.?, .query_test_metadata) catch |err| return .{ .write_failed = err };
+    }
+
+    var active_test_index: ?u32 = null;
+
+    // `null` means this host does not support `std.time.Timer`. This timer is `reset()` whenever we
+    // change `active_test_index`, i.e. whenever a test starts or finishes.
+    var timer: ?std.time.Timer = std.time.Timer.start() catch null;
+
+    var coverage_id: ?u64 = null;
 
     // This timeout is used when we're waiting on the test runner itself rather than a user-specified
     // test. For instance, if the test runner leaves this much time between us requesting a test to
@@ -1735,12 +1832,10 @@ fn evalZigTest(
     // *should* never happen, but could in theory be caused by some very unlucky IB in a test.
     const response_timeout_ns = 30 * std.time.ns_per_s;
 
-    const any_write_failed = first_write_failed or poll: while (true) {
-        // These are scoped inside the loop because we sometimes respawn the child and recreate
-        // `poller` which invaldiates these readers.
-        const stdout = poller.reader(.stdout);
-        const stderr = poller.reader(.stderr);
+    const stdout = poller.reader(.stdout);
+    const stderr = poller.reader(.stderr);
 
+    while (true) {
         const Header = std.zig.Server.Message.Header;
 
         // This block is exited when `stdout` contains enough bytes for a `Header`.
@@ -1753,15 +1848,21 @@ fn evalZigTest(
             // Always `null` if `timer` is `null`.
             const opt_timeout_ns: ?u64 = ns: {
                 if (timer == null) break :ns null;
-                if (!test_is_running) break :ns response_timeout_ns;
+                if (active_test_index == null) break :ns response_timeout_ns;
                 break :ns options.unit_test_timeout_ns;
             };
 
             if (opt_timeout_ns) |timeout_ns| {
                 const remaining_ns = timeout_ns -| timer.?.read();
-                if (!try poller.pollTimeout(remaining_ns)) break :poll false;
+                if (!try poller.pollTimeout(remaining_ns)) return .{ .no_poll = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = if (timer) |*t| t.read() else 0,
+                } };
             } else {
-                if (!try poller.poll()) break :poll false;
+                if (!try poller.poll()) return .{ .no_poll = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = if (timer) |*t| t.read() else 0,
+                } };
             }
 
             if (stdout.buffered().len >= @sizeOf(Header)) {
@@ -1769,73 +1870,29 @@ fn evalZigTest(
                 break :header_ready;
             }
 
-            const timeout_ns = opt_timeout_ns orelse continue;
-            const cur_ns = timer.?.read();
-            if (cur_ns < timeout_ns) continue;
-
-            // There was a timeout.
-
-            if (!test_is_running) {
-                // The child stopped responding while *not* running a test. To avoid getting into
-                // a loop if something's broken, don't retry; just report an error and stop.
-                try run.step.addError("test runner failed to respond for {D}", .{cur_ns});
-                break :poll false;
+            if (opt_timeout_ns) |timeout_ns| {
+                const cur_ns = timer.?.read();
+                if (cur_ns >= timeout_ns) return .{ .timeout = .{
+                    .active_test_index = active_test_index,
+                    .ns_elapsed = cur_ns,
+                } };
             }
-
-            // A test has probably just gotten stuck. We'll report an error, then just kill the
-            // child and continue with the next test in the list.
-
-            const md = &metadata.?;
-            const test_index = md.next_index - 1;
-
-            timeout_count += 1;
-            try run.step.addError(
-                "'{s}' timed out after {D}",
-                .{ md.testName(test_index), cur_ns },
-            );
-            if (stderr.buffered().len > 0) {
-                const new_bytes = stderr.buffered();
-                const old_len = result_stderr.len;
-                result_stderr = try gpa.realloc(result_stderr, old_len + new_bytes.len);
-                @memcpy(result_stderr[old_len..], new_bytes);
-            }
-
-            _ = try child.kill();
-            // Respawn the test runner. There's a double-cleanup if this fails, but that's
-            // fine because our caller's `kill` will just return `error.AlreadyTerminated`.
-            try child.spawn();
-            try child.waitForSpawn();
-
-            // After respawning the child, we must update the poller's streams.
-            poller.deinit();
-            poller = std.Io.poll(gpa, PollEnum, .{
-                .stdout = child.stdout.?,
-                .stderr = child.stderr.?,
-            });
-
-            test_is_running = false;
-            md.ns_per_test[test_index] = timer.?.lap();
-
-            requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| {
-                try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-                break :poll true;
-            };
-
-            continue :poll; // continue work with the new (respawned) child
+            continue;
         }
         // There is definitely a header available now -- read it.
         const header = stdout.takeStruct(Header, .little) catch unreachable;
 
-        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) break :poll false;
+        while (stdout.buffered().len < header.bytes_len) if (!try poller.poll()) return .{ .no_poll = .{
+            .active_test_index = active_test_index,
+            .ns_elapsed = if (timer) |*t| t.read() else 0,
+        } };
         const body = stdout.take(header.bytes_len) catch unreachable;
         switch (header.tag) {
             .zig_version => {
-                if (!std.mem.eql(u8, builtin.zig_version_string, body)) {
-                    return run.step.fail(
-                        "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
-                        .{ builtin.zig_version_string, body },
-                    );
-                }
+                if (!std.mem.eql(u8, builtin.zig_version_string, body)) return run.step.fail(
+                    "zig version mismatch build runner vs compiler: '{s}' vs '{s}'",
+                    .{ builtin.zig_version_string, body },
+                );
             },
             .test_metadata => {
                 assert(fuzz_context == null);
@@ -1843,14 +1900,14 @@ fn evalZigTest(
                 // `metadata` would only be populated if we'd already seen a `test_metadata`, but we
                 // only request it once (and importantly, we don't re-request it if we kill and
                 // restart the test runner).
-                assert(metadata == null);
+                assert(opt_metadata.* == null);
 
                 const TmHdr = std.zig.Server.Message.TestMetadata;
-                const tm_hdr = @as(*align(1) const TmHdr, @ptrCast(body));
-                test_count = tm_hdr.tests_len;
+                const tm_hdr: *align(1) const TmHdr = @ptrCast(body);
+                results.test_count = tm_hdr.tests_len;
 
-                const names_bytes = body[@sizeOf(TmHdr)..][0 .. test_count * @sizeOf(u32)];
-                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. test_count * @sizeOf(u32)];
+                const names_bytes = body[@sizeOf(TmHdr)..][0 .. results.test_count * @sizeOf(u32)];
+                const expected_panic_msgs_bytes = body[@sizeOf(TmHdr) + names_bytes.len ..][0 .. results.test_count * @sizeOf(u32)];
                 const string_bytes = body[@sizeOf(TmHdr) + names_bytes.len + expected_panic_msgs_bytes.len ..][0..tm_hdr.string_bytes_len];
 
                 const names = std.mem.bytesAsSlice(u32, names_bytes);
@@ -1863,68 +1920,70 @@ fn evalZigTest(
                 for (expected_panic_msgs_aligned, expected_panic_msgs) |*dest, src| dest.* = src;
 
                 options.progress_node.setEstimatedTotalItems(names.len);
-                metadata = .{
+                opt_metadata.* = .{
                     .string_bytes = try arena.dupe(u8, string_bytes),
-                    .ns_per_test = try arena.alloc(u64, test_count),
+                    .ns_per_test = try arena.alloc(u64, results.test_count),
                     .names = names_aligned,
                     .expected_panic_msgs = expected_panic_msgs_aligned,
                     .next_index = 0,
                     .prog_node = options.progress_node,
                 };
-                @memset(metadata.?.ns_per_test, std.math.maxInt(u64));
+                @memset(opt_metadata.*.?.ns_per_test, std.math.maxInt(u64));
 
-                test_is_running = false;
+                active_test_index = null;
                 if (timer) |*t| t.reset();
 
-                requestNextTest(child.stdin.?, &metadata.?, &sub_prog_node) catch |err| {
-                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-                    break :poll true;
-                };
+                requestNextTest(child.stdin.?, &opt_metadata.*.?, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             .test_started => {
-                test_is_running = true;
+                active_test_index = opt_metadata.*.?.next_index - 1;
                 if (timer) |*t| t.reset();
             },
             .test_results => {
                 assert(fuzz_context == null);
-                const md = &metadata.?;
+                const md = &opt_metadata.*.?;
 
                 const TrHdr = std.zig.Server.Message.TestResults;
                 const tr_hdr: *align(1) const TrHdr = @ptrCast(body);
-                fail_count +|= @intFromBool(tr_hdr.flags.fail);
-                skip_count +|= @intFromBool(tr_hdr.flags.skip);
-                leak_count +|= @intFromBool(tr_hdr.flags.leak);
-                log_err_count +|= tr_hdr.flags.log_err_count;
+                assert(tr_hdr.index == active_test_index);
+
+                switch (tr_hdr.flags.status) {
+                    .pass => {},
+                    .skip => results.skip_count +|= 1,
+                    .fail => results.fail_count +|= 1,
+                }
+                const leak_count = tr_hdr.flags.leak_count;
+                const log_err_count = tr_hdr.flags.log_err_count;
+                results.leak_count +|= leak_count;
+                results.log_err_count +|= log_err_count;
 
                 if (tr_hdr.flags.fuzz) try run.fuzz_tests.append(gpa, tr_hdr.index);
 
-                if (tr_hdr.flags.fail or tr_hdr.flags.leak or tr_hdr.flags.log_err_count > 0) {
+                if (tr_hdr.flags.status == .fail) {
                     const name = std.mem.sliceTo(md.testName(tr_hdr.index), 0);
-                    const stderr_contents = stderr.buffered();
-                    stderr.toss(stderr_contents.len);
-                    const msg = std.mem.trim(u8, stderr_contents, "\n");
-                    const label = if (tr_hdr.flags.fail)
-                        "failed"
-                    else if (tr_hdr.flags.leak)
-                        "leaked"
-                    else if (tr_hdr.flags.log_err_count > 0)
-                        "logged errors"
-                    else
-                        unreachable;
-                    if (msg.len > 0) {
-                        try run.step.addError("'{s}' {s}: {s}", .{ name, label, msg });
+                    const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
+                    stderr.tossBuffered();
+                    if (stderr_bytes.len == 0) {
+                        try run.step.addError("'{s}' failed without output", .{name});
                     } else {
-                        try run.step.addError("'{s}' {s}", .{ name, label });
+                        try run.step.addError("'{s}' failed:\n{s}", .{ name, stderr_bytes });
                     }
+                } else if (leak_count > 0) {
+                    const name = std.mem.sliceTo(md.testName(tr_hdr.index), 0);
+                    const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
+                    stderr.tossBuffered();
+                    try run.step.addError("'{s}' leaked {d} allocations:\n{s}", .{ name, leak_count, stderr_bytes });
+                } else if (log_err_count > 0) {
+                    const name = std.mem.sliceTo(md.testName(tr_hdr.index), 0);
+                    const stderr_bytes = std.mem.trim(u8, stderr.buffered(), "\n");
+                    stderr.tossBuffered();
+                    try run.step.addError("'{s}' logged {d} errors:\n{s}", .{ name, log_err_count, stderr_bytes });
                 }
 
-                test_is_running = false;
+                active_test_index = null;
                 if (timer) |*t| md.ns_per_test[tr_hdr.index] = t.lap();
 
-                requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| {
-                    try run.step.addError("unable to write stdin: {s}", .{@errorName(err)});
-                    break :poll true;
-                };
+                requestNextTest(child.stdin.?, md, &sub_prog_node) catch |err| return .{ .write_failed = err };
             },
             .coverage_id => {
                 const fuzz = fuzz_context.?.fuzz;
@@ -1961,39 +2020,7 @@ fn evalZigTest(
             },
             else => {}, // ignore other messages
         }
-    };
-
-    if (any_write_failed) {
-        // The compiler unexpectedly closed stdin; something is very wrong and has probably crashed.
-        // We want to make sure we've captured all of stderr so that it's logged below.
-        while (try poller.poll()) {}
     }
-
-    const stderr = poller.reader(.stderr);
-    if (stderr.buffered().len > 0) {
-        const new_bytes = stderr.buffered();
-        const old_len = result_stderr.len;
-        result_stderr = try gpa.realloc(result_stderr, old_len + new_bytes.len);
-        @memcpy(result_stderr[old_len..], new_bytes);
-    }
-
-    // Send EOF to stdin.
-    child.stdin.?.close();
-    child.stdin = null;
-
-    return .{
-        .stdout = null,
-        .stderr = null,
-        .test_results = .{
-            .test_count = test_count,
-            .fail_count = fail_count,
-            .skip_count = skip_count,
-            .leak_count = leak_count,
-            .timeout_count = timeout_count,
-            .log_err_count = log_err_count,
-        },
-        .test_metadata = metadata,
-    };
 }
 
 const TestMetadata = struct {
@@ -2077,9 +2104,14 @@ fn sendRunFuzzTestMessage(
     try file.writeAll(full_msg);
 }
 
-fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
+fn evalGeneric(run: *Run, child: *std.process.Child) !EvalGenericResult {
     const b = run.step.owner;
     const arena = b.allocator;
+
+    try child.spawn();
+    errdefer _ = child.kill() catch {};
+
+    try child.waitForSpawn();
 
     switch (run.stdin) {
         .bytes => |bytes| {
@@ -2170,11 +2202,12 @@ fn evalGeneric(run: *Run, child: *std.process.Child) !StdIoResult {
         }
     };
 
+    run.step.result_peak_rss = child.resource_usage_statistics.getMaxRss() orelse 0;
+
     return .{
+        .term = try child.wait(),
         .stdout = stdout_bytes,
         .stderr = stderr_bytes,
-        .test_results = .{},
-        .test_metadata = null,
     };
 }
 
