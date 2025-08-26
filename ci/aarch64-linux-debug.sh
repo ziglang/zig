@@ -50,7 +50,8 @@ stage3-debug/bin/zig build test docs \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
   --zig-lib-dir "$PWD/../lib" \
-  -Denable-superhtml
+  -Denable-superhtml \
+  --test-timeout-ms 60_000
 
 stage3-debug/bin/zig build \
   --prefix stage4-debug \
