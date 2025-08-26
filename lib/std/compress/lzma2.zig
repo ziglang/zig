@@ -2,6 +2,8 @@ const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
 const lzma = std.compress.lzma;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 /// An accumulating buffer for LZ sequences
 pub const LzAccumBuffer = struct {
@@ -14,30 +16,28 @@ pub const LzAccumBuffer = struct {
     /// Total number of bytes sent through the buffer
     len: usize,
 
-    const Self = @This();
-
-    pub fn init(memlimit: usize) Self {
-        return Self{
+    pub fn init(memlimit: usize) LzAccumBuffer {
+        return .{
             .buf = .{},
             .memlimit = memlimit,
             .len = 0,
         };
     }
 
-    pub fn appendByte(self: *Self, allocator: Allocator, byte: u8) !void {
+    pub fn appendByte(self: *LzAccumBuffer, allocator: Allocator, byte: u8) !void {
         try self.buf.append(allocator, byte);
         self.len += 1;
     }
 
     /// Reset the internal dictionary
-    pub fn reset(self: *Self, writer: anytype) !void {
+    pub fn reset(self: *LzAccumBuffer, writer: *Writer) !void {
         try writer.writeAll(self.buf.items);
         self.buf.clearRetainingCapacity();
         self.len = 0;
     }
 
     /// Retrieve the last byte or return a default
-    pub fn lastOr(self: Self, lit: u8) u8 {
+    pub fn lastOr(self: LzAccumBuffer, lit: u8) u8 {
         const buf_len = self.buf.items.len;
         return if (buf_len == 0)
             lit
@@ -46,7 +46,7 @@ pub const LzAccumBuffer = struct {
     }
 
     /// Retrieve the n-th last byte
-    pub fn lastN(self: Self, dist: usize) !u8 {
+    pub fn lastN(self: LzAccumBuffer, dist: usize) !u8 {
         const buf_len = self.buf.items.len;
         if (dist > buf_len) {
             return error.CorruptInput;
@@ -57,10 +57,10 @@ pub const LzAccumBuffer = struct {
 
     /// Append a literal
     pub fn appendLiteral(
-        self: *Self,
+        self: *LzAccumBuffer,
         allocator: Allocator,
         lit: u8,
-        writer: anytype,
+        writer: *Writer,
     ) !void {
         _ = writer;
         if (self.len >= self.memlimit) {
@@ -72,11 +72,11 @@ pub const LzAccumBuffer = struct {
 
     /// Fetch an LZ sequence (length, distance) from inside the buffer
     pub fn appendLz(
-        self: *Self,
+        self: *LzAccumBuffer,
         allocator: Allocator,
         len: usize,
         dist: usize,
-        writer: anytype,
+        writer: *Writer,
     ) !void {
         _ = writer;
 
@@ -95,23 +95,23 @@ pub const LzAccumBuffer = struct {
         self.len += len;
     }
 
-    pub fn finish(self: *Self, writer: anytype) !void {
+    pub fn finish(self: *LzAccumBuffer, writer: *Writer) !void {
         try writer.writeAll(self.buf.items);
         self.buf.clearRetainingCapacity();
     }
 
-    pub fn deinit(self: *Self, allocator: Allocator) void {
+    pub fn deinit(self: *LzAccumBuffer, allocator: Allocator) void {
         self.buf.deinit(allocator);
         self.* = undefined;
     }
 };
 
 pub const Decode = struct {
-    lzma_state: lzma.Decode,
+    lzma_decode: lzma.Decode,
 
     pub fn init(allocator: Allocator) !Decode {
         return Decode{
-            .lzma_state = try lzma.Decode.init(
+            .lzma_decode = try lzma.Decode.init(
                 allocator,
                 .{
                     .lc = 0,
@@ -124,15 +124,15 @@ pub const Decode = struct {
     }
 
     pub fn deinit(self: *Decode, allocator: Allocator) void {
-        self.lzma_state.deinit(allocator);
+        self.lzma_decode.deinit(allocator);
         self.* = undefined;
     }
 
     pub fn decompress(
         self: *Decode,
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        reader: *Reader,
+        writer: *Writer,
     ) !void {
         var accum = LzAccumBuffer.init(std.math.maxInt(usize));
         defer accum.deinit(allocator);
@@ -154,8 +154,8 @@ pub const Decode = struct {
     fn parseLzma(
         self: *Decode,
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        reader: *Reader,
+        writer: *Writer,
         accum: *LzAccumBuffer,
         status: u8,
     ) !void {
@@ -210,7 +210,7 @@ pub const Decode = struct {
         }
 
         if (reset.state) {
-            var new_props = self.lzma_state.lzma_props;
+            var new_props = self.lzma_decode.properties;
 
             if (reset.props) {
                 var props = try reader.readByte();
@@ -231,16 +231,16 @@ pub const Decode = struct {
                 new_props = .{ .lc = lc, .lp = lp, .pb = pb };
             }
 
-            try self.lzma_state.resetState(allocator, new_props);
+            try self.lzma_decode.resetState(allocator, new_props);
         }
 
-        self.lzma_state.unpacked_size = unpacked_size + accum.len;
+        self.lzma_decode.unpacked_size = unpacked_size + accum.len;
 
         var counter = std.io.countingReader(reader);
         const counter_reader = counter.reader();
 
         var rangecoder = try lzma.RangeDecoder.init(counter_reader);
-        while (try self.lzma_state.process(allocator, counter_reader, writer, accum, &rangecoder) == .continue_) {}
+        while (try self.lzma_decode.process(allocator, counter_reader, writer, accum, &rangecoder) == .continue_) {}
 
         if (counter.bytes_read != packed_size) {
             return error.CorruptInput;
@@ -249,8 +249,8 @@ pub const Decode = struct {
 
     fn parseUncompressed(
         allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
+        reader: *Reader,
+        writer: *Writer,
         accum: *LzAccumBuffer,
         reset_dict: bool,
     ) !void {
@@ -267,24 +267,19 @@ pub const Decode = struct {
     }
 };
 
-pub fn decompress(
-    allocator: Allocator,
-    reader: anytype,
-    writer: anytype,
-) !void {
-    var decoder = try Decode.init(allocator);
-    defer decoder.deinit(allocator);
-    return decoder.decompress(allocator, reader, writer);
-}
-
-test {
+test "decompress hello world stream" {
     const expected = "Hello\nWorld!\n";
     const compressed = &[_]u8{ 0x01, 0x00, 0x05, 0x48, 0x65, 0x6C, 0x6C, 0x6F, 0x0A, 0x02, 0x00, 0x06, 0x57, 0x6F, 0x72, 0x6C, 0x64, 0x21, 0x0A, 0x00 };
 
-    const allocator = std.testing.allocator;
-    var decomp = std.array_list.Managed(u8).init(allocator);
-    defer decomp.deinit();
-    var stream = std.io.fixedBufferStream(compressed);
-    try decompress(allocator, stream.reader(), decomp.writer());
-    try std.testing.expectEqualSlices(u8, expected, decomp.items);
+    const gpa = std.testing.allocator;
+
+    var stream: std.Io.Reader = .fixed(compressed);
+
+    var decode = try Decode.init(gpa, &stream);
+    defer decode.deinit(gpa);
+
+    const result = try decode.reader.allocRemaining(gpa, .unlimited);
+    defer gpa.free(result);
+
+    try std.testing.expectEqualStrings(expected, result);
 }

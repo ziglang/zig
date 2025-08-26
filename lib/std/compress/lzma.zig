@@ -4,49 +4,34 @@ const mem = std.mem;
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
+const Reader = std.Io.Reader;
 
 pub const RangeDecoder = struct {
     range: u32,
     code: u32,
 
-    pub fn init(reader: anytype) !RangeDecoder {
-        const reserved = try reader.readByte();
-        if (reserved != 0) {
-            return error.CorruptInput;
-        }
-        return RangeDecoder{
-            .range = 0xFFFF_FFFF,
-            .code = try reader.readInt(u32, .big),
-        };
-    }
-
-    pub fn fromParts(
-        range: u32,
-        code: u32,
-    ) RangeDecoder {
+    pub fn init(reader: *Reader) !RangeDecoder {
+        const reserved = try reader.takeByte();
+        if (reserved != 0) return error.InvalidRangeCode;
         return .{
-            .range = range,
-            .code = code,
+            .range = 0xFFFF_FFFF,
+            .code = try reader.takeInt(u32, .big),
         };
     }
 
-    pub fn set(self: *RangeDecoder, range: u32, code: u32) void {
-        self.range = range;
-        self.code = code;
-    }
-
-    pub inline fn isFinished(self: RangeDecoder) bool {
+    pub fn isFinished(self: RangeDecoder) bool {
         return self.code == 0;
     }
 
-    inline fn normalize(self: *RangeDecoder, reader: anytype) !void {
+    fn normalize(self: *RangeDecoder, reader: *Reader) !void {
         if (self.range < 0x0100_0000) {
             self.range <<= 8;
-            self.code = (self.code << 8) ^ @as(u32, try reader.readByte());
+            self.code = (self.code << 8) ^ @as(u32, try reader.takeByte());
         }
     }
 
-    inline fn getBit(self: *RangeDecoder, reader: anytype) !bool {
+    fn getBit(self: *RangeDecoder, reader: *Reader) !bool {
         self.range >>= 1;
 
         const bit = self.code >= self.range;
@@ -57,7 +42,7 @@ pub const RangeDecoder = struct {
         return bit;
     }
 
-    pub fn get(self: *RangeDecoder, reader: anytype, count: usize) !u32 {
+    pub fn get(self: *RangeDecoder, reader: *Reader, count: usize) !u32 {
         var result: u32 = 0;
         var i: usize = 0;
         while (i < count) : (i += 1)
@@ -65,7 +50,7 @@ pub const RangeDecoder = struct {
         return result;
     }
 
-    pub inline fn decodeBit(self: *RangeDecoder, reader: anytype, prob: *u16, update: bool) !bool {
+    pub fn decodeBit(self: *RangeDecoder, reader: *Reader, prob: *u16, update: bool) !bool {
         const bound = (self.range >> 11) * prob.*;
 
         if (self.code < bound) {
@@ -88,7 +73,7 @@ pub const RangeDecoder = struct {
 
     fn parseBitTree(
         self: *RangeDecoder,
-        reader: anytype,
+        reader: *Reader,
         num_bits: u5,
         probs: []u16,
         update: bool,
@@ -104,7 +89,7 @@ pub const RangeDecoder = struct {
 
     pub fn parseReverseBitTree(
         self: *RangeDecoder,
-        reader: anytype,
+        reader: *Reader,
         num_bits: u5,
         probs: []u16,
         offset: usize,
@@ -123,7 +108,7 @@ pub const RangeDecoder = struct {
 };
 
 pub const Decode = struct {
-    lzma_props: Properties,
+    properties: Properties,
     unpacked_size: ?u64,
     literal_probs: Vec2d,
     pos_slot_decoder: [4]BitTree(6),
@@ -141,14 +126,14 @@ pub const Decode = struct {
     rep_len_decoder: LenDecoder,
 
     pub fn init(
-        allocator: Allocator,
-        lzma_props: Properties,
+        gpa: Allocator,
+        properties: Properties,
         unpacked_size: ?u64,
     ) !Decode {
         return .{
-            .lzma_props = lzma_props,
+            .properties = properties,
             .unpacked_size = unpacked_size,
-            .literal_probs = try Vec2d.init(allocator, 0x400, .{ @as(usize, 1) << (lzma_props.lc + lzma_props.lp), 0x300 }),
+            .literal_probs = try Vec2d.init(gpa, 0x400, .{ @as(usize, 1) << (properties.lc + properties.lp), 0x300 }),
             .pos_slot_decoder = @splat(.{}),
             .align_decoder = .{},
             .pos_decoders = @splat(0x400),
@@ -165,21 +150,21 @@ pub const Decode = struct {
         };
     }
 
-    pub fn deinit(self: *Decode, allocator: Allocator) void {
-        self.literal_probs.deinit(allocator);
+    pub fn deinit(self: *Decode, gpa: Allocator) void {
+        self.literal_probs.deinit(gpa);
         self.* = undefined;
     }
 
-    pub fn resetState(self: *Decode, allocator: Allocator, new_props: Properties) !void {
+    pub fn resetState(self: *Decode, gpa: Allocator, new_props: Properties) !void {
         new_props.validate();
-        if (self.lzma_props.lc + self.lzma_props.lp == new_props.lc + new_props.lp) {
+        if (self.properties.lc + self.properties.lp == new_props.lc + new_props.lp) {
             self.literal_probs.fill(0x400);
         } else {
-            self.literal_probs.deinit(allocator);
-            self.literal_probs = try Vec2d.init(allocator, 0x400, .{ @as(usize, 1) << (new_props.lc + new_props.lp), 0x300 });
+            self.literal_probs.deinit(gpa);
+            self.literal_probs = try Vec2d.init(gpa, 0x400, .{ @as(usize, 1) << (new_props.lc + new_props.lp), 0x300 });
         }
 
-        self.lzma_props = new_props;
+        self.properties = new_props;
         for (&self.pos_slot_decoder) |*t| t.reset();
         self.align_decoder.reset();
         self.pos_decoders = @splat(0x400);
@@ -195,26 +180,23 @@ pub const Decode = struct {
         self.rep_len_decoder.reset();
     }
 
-    fn processNextInner(
+    fn processNext(
         self: *Decode,
-        allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
-        buffer: anytype,
+        reader: *Reader,
+        allocating: *Writer.Allocating,
+        buffer: *CircularBuffer,
         decoder: *RangeDecoder,
         update: bool,
     ) !ProcessingStatus {
-        const pos_state = buffer.len & ((@as(usize, 1) << self.lzma_props.pb) - 1);
+        const gpa = allocating.allocator;
+        const writer = &allocating.writer;
+        const pos_state = buffer.len & ((@as(usize, 1) << self.properties.pb) - 1);
 
-        if (!try decoder.decodeBit(
-            reader,
-            &self.is_match[(self.state << 4) + pos_state],
-            update,
-        )) {
+        if (!try decoder.decodeBit(reader, &self.is_match[(self.state << 4) + pos_state], update)) {
             const byte: u8 = try self.decodeLiteral(reader, buffer, decoder, update);
 
             if (update) {
-                try buffer.appendLiteral(allocator, byte, writer);
+                try buffer.appendLiteral(gpa, byte, writer);
 
                 self.state = if (self.state < 4)
                     0
@@ -223,7 +205,7 @@ pub const Decode = struct {
                 else
                     self.state - 6;
             }
-            return .continue_;
+            return .more;
         }
 
         var len: usize = undefined;
@@ -237,9 +219,9 @@ pub const Decode = struct {
                     if (update) {
                         self.state = if (self.state < 7) 9 else 11;
                         const dist = self.rep[0] + 1;
-                        try buffer.appendLz(allocator, 1, dist, writer);
+                        try buffer.appendLz(gpa, 1, dist, writer);
                     }
-                    return .continue_;
+                    return .more;
                 }
             } else {
                 const idx: usize = if (!try decoder.decodeBit(reader, &self.is_rep_g1[self.state], update))
@@ -293,31 +275,19 @@ pub const Decode = struct {
             len += 2;
 
             const dist = self.rep[0] + 1;
-            try buffer.appendLz(allocator, len, dist, writer);
+            try buffer.appendLz(gpa, len, dist, writer);
         }
 
-        return .continue_;
-    }
-
-    fn processNext(
-        self: *Decode,
-        allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
-        buffer: anytype,
-        decoder: *RangeDecoder,
-    ) !ProcessingStatus {
-        return self.processNextInner(allocator, reader, writer, buffer, decoder, true);
+        return .more;
     }
 
     pub fn process(
         self: *Decode,
-        allocator: Allocator,
-        reader: anytype,
-        writer: anytype,
-        buffer: anytype,
+        reader: *Reader,
+        allocating: *Writer.Allocating,
+        buffer: *CircularBuffer,
         decoder: *RangeDecoder,
-    ) !ProcessingStatus {
+    ) !void {
         process_next: {
             if (self.unpacked_size) |unpacked_size| {
                 if (buffer.len >= unpacked_size) {
@@ -326,26 +296,24 @@ pub const Decode = struct {
             } else if (decoder.isFinished()) {
                 break :process_next;
             }
-
-            switch (try self.processNext(allocator, reader, writer, buffer, decoder)) {
-                .continue_ => return .continue_,
-                .finished => break :process_next,
+            switch (try self.processNext(reader, allocating, buffer, decoder, true)) {
+                .more => return,
+                .finished => {},
             }
         }
 
         if (self.unpacked_size) |unpacked_size| {
-            if (buffer.len != unpacked_size) {
-                return error.CorruptInput;
-            }
+            if (buffer.len != unpacked_size) return error.DecompressedSizeMismatch;
         }
 
-        return .finished;
+        try buffer.finish(&allocating.writer);
+        self.state = math.maxInt(usize);
     }
 
     fn decodeLiteral(
         self: *Decode,
-        reader: anytype,
-        buffer: anytype,
+        reader: *Reader,
+        buffer: *CircularBuffer,
         decoder: *RangeDecoder,
         update: bool,
     ) !u8 {
@@ -353,9 +321,9 @@ pub const Decode = struct {
         const prev_byte = @as(usize, buffer.lastOr(def_prev_byte));
 
         var result: usize = 1;
-        const lit_state = ((buffer.len & ((@as(usize, 1) << self.lzma_props.lp) - 1)) << self.lzma_props.lc) +
-            (prev_byte >> (8 - self.lzma_props.lc));
-        const probs = try self.literal_probs.getMut(lit_state);
+        const lit_state = ((buffer.len & ((@as(usize, 1) << self.properties.lp) - 1)) << self.properties.lc) +
+            (prev_byte >> (8 - self.properties.lc));
+        const probs = try self.literal_probs.get(lit_state);
 
         if (self.state >= 7) {
             var match_byte = @as(usize, try buffer.lastN(self.rep[0] + 1));
@@ -384,7 +352,7 @@ pub const Decode = struct {
 
     fn decodeDistance(
         self: *Decode,
-        reader: anytype,
+        reader: *Reader,
         decoder: *RangeDecoder,
         length: usize,
         update: bool,
@@ -415,46 +383,40 @@ pub const Decode = struct {
     }
 
     /// A circular buffer for LZ sequences
-    pub const LzCircularBuffer = struct {
+    pub const CircularBuffer = struct {
         /// Circular buffer
         buf: ArrayList(u8),
-
         /// Length of the buffer
         dict_size: usize,
-
         /// Buffer memory limit
-        memlimit: usize,
-
+        mem_limit: usize,
         /// Current position
         cursor: usize,
-
         /// Total number of bytes sent through the buffer
         len: usize,
 
-        const Self = @This();
-
-        pub fn init(dict_size: usize, memlimit: usize) Self {
-            return Self{
+        pub fn init(dict_size: usize, mem_limit: usize) CircularBuffer {
+            return .{
                 .buf = .{},
                 .dict_size = dict_size,
-                .memlimit = memlimit,
+                .mem_limit = mem_limit,
                 .cursor = 0,
                 .len = 0,
             };
         }
 
-        pub fn get(self: Self, index: usize) u8 {
+        pub fn get(self: CircularBuffer, index: usize) u8 {
             return if (0 <= index and index < self.buf.items.len)
                 self.buf.items[index]
             else
                 0;
         }
 
-        pub fn set(self: *Self, allocator: Allocator, index: usize, value: u8) !void {
-            if (index >= self.memlimit) {
+        pub fn set(self: *CircularBuffer, gpa: Allocator, index: usize, value: u8) !void {
+            if (index >= self.mem_limit) {
                 return error.CorruptInput;
             }
-            try self.buf.ensureTotalCapacity(allocator, index + 1);
+            try self.buf.ensureTotalCapacity(gpa, index + 1);
             while (self.buf.items.len < index) {
                 self.buf.appendAssumeCapacity(0);
             }
@@ -462,7 +424,7 @@ pub const Decode = struct {
         }
 
         /// Retrieve the last byte or return a default
-        pub fn lastOr(self: Self, lit: u8) u8 {
+        pub fn lastOr(self: CircularBuffer, lit: u8) u8 {
             return if (self.len == 0)
                 lit
             else
@@ -470,7 +432,7 @@ pub const Decode = struct {
         }
 
         /// Retrieve the n-th last byte
-        pub fn lastN(self: Self, dist: usize) !u8 {
+        pub fn lastN(self: CircularBuffer, dist: usize) !u8 {
             if (dist > self.dict_size or dist > self.len) {
                 return error.CorruptInput;
             }
@@ -481,12 +443,12 @@ pub const Decode = struct {
 
         /// Append a literal
         pub fn appendLiteral(
-            self: *Self,
-            allocator: Allocator,
+            self: *CircularBuffer,
+            gpa: Allocator,
             lit: u8,
-            writer: anytype,
+            writer: *Writer,
         ) !void {
-            try self.set(allocator, self.cursor, lit);
+            try self.set(gpa, self.cursor, lit);
             self.cursor += 1;
             self.len += 1;
 
@@ -499,11 +461,11 @@ pub const Decode = struct {
 
         /// Fetch an LZ sequence (length, distance) from inside the buffer
         pub fn appendLz(
-            self: *Self,
-            allocator: Allocator,
+            self: *CircularBuffer,
+            gpa: Allocator,
             len: usize,
             dist: usize,
-            writer: anytype,
+            writer: *Writer,
         ) !void {
             if (dist > self.dict_size or dist > self.len) {
                 return error.CorruptInput;
@@ -513,7 +475,7 @@ pub const Decode = struct {
             var i: usize = 0;
             while (i < len) : (i += 1) {
                 const x = self.get(offset);
-                try self.appendLiteral(allocator, x, writer);
+                try self.appendLiteral(gpa, x, writer);
                 offset += 1;
                 if (offset == self.dict_size) {
                     offset = 0;
@@ -521,15 +483,15 @@ pub const Decode = struct {
             }
         }
 
-        pub fn finish(self: *Self, writer: anytype) !void {
+        pub fn finish(self: *CircularBuffer, writer: *Writer) !void {
             if (self.cursor > 0) {
                 try writer.writeAll(self.buf.items[0..self.cursor]);
                 self.cursor = 0;
             }
         }
 
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            self.buf.deinit(allocator);
+        pub fn deinit(self: *CircularBuffer, gpa: Allocator) void {
+            self.buf.deinit(gpa);
             self.* = undefined;
         }
     };
@@ -538,11 +500,9 @@ pub const Decode = struct {
         return struct {
             probs: [1 << num_bits]u16 = @splat(0x400),
 
-            const Self = @This();
-
             pub fn parse(
-                self: *Self,
-                reader: anytype,
+                self: *@This(),
+                reader: *Reader,
                 decoder: *RangeDecoder,
                 update: bool,
             ) !u32 {
@@ -550,15 +510,15 @@ pub const Decode = struct {
             }
 
             pub fn parseReverse(
-                self: *Self,
-                reader: anytype,
+                self: *@This(),
+                reader: *Reader,
                 decoder: *RangeDecoder,
                 update: bool,
             ) !u32 {
                 return decoder.parseReverseBitTree(reader, num_bits, &self.probs, 0, update);
             }
 
-            pub fn reset(self: *Self) void {
+            pub fn reset(self: *@This()) void {
                 @memset(&self.probs, 0x400);
             }
         };
@@ -573,7 +533,7 @@ pub const Decode = struct {
 
         pub fn decode(
             self: *LenDecoder,
-            reader: anytype,
+            reader: *Reader,
             decoder: *RangeDecoder,
             pos_state: usize,
             update: bool,
@@ -600,45 +560,35 @@ pub const Decode = struct {
         data: []u16,
         cols: usize,
 
-        const Self = @This();
-
-        pub fn init(allocator: Allocator, value: u16, size: struct { usize, usize }) !Self {
+        pub fn init(gpa: Allocator, value: u16, size: struct { usize, usize }) !Vec2d {
             const len = try math.mul(usize, size[0], size[1]);
-            const data = try allocator.alloc(u16, len);
+            const data = try gpa.alloc(u16, len);
             @memset(data, value);
-            return Self{
+            return .{
                 .data = data,
                 .cols = size[1],
             };
         }
 
-        pub fn deinit(self: *Self, allocator: Allocator) void {
-            allocator.free(self.data);
+        pub fn deinit(self: *Vec2d, gpa: Allocator) void {
+            gpa.free(self.data);
             self.* = undefined;
         }
 
-        pub fn fill(self: *Self, value: u16) void {
+        pub fn fill(self: *Vec2d, value: u16) void {
             @memset(self.data, value);
         }
 
-        inline fn _get(self: Self, row: usize) ![]u16 {
+        fn get(self: Vec2d, row: usize) ![]u16 {
             const start_row = try math.mul(usize, row, self.cols);
             const end_row = try math.add(usize, start_row, self.cols);
             return self.data[start_row..end_row];
-        }
-
-        pub fn get(self: Self, row: usize) ![]const u16 {
-            return self._get(row);
-        }
-
-        pub fn getMut(self: *Self, row: usize) ![]u16 {
-            return self._get(row);
         }
     };
 
     pub const Options = struct {
         unpacked_size: UnpackedSize = .read_from_header,
-        memlimit: ?usize = null,
+        mem_limit: ?usize = null,
         allow_incomplete: bool = false,
     };
 
@@ -649,7 +599,7 @@ pub const Decode = struct {
     };
 
     const ProcessingStatus = enum {
-        continue_,
+        more,
         finished,
     };
 
@@ -670,39 +620,34 @@ pub const Decode = struct {
         dict_size: u32,
         unpacked_size: ?u64,
 
-        pub fn readHeader(reader: anytype, options: Options) !Params {
-            var props = try reader.readByte();
-            if (props >= 225) {
-                return error.CorruptInput;
-            }
+        pub fn readHeader(reader: *Reader, options: Options) !Params {
+            var props = try reader.takeByte();
+            if (props >= 225) return error.CorruptInput;
 
-            const lc = @as(u4, @intCast(props % 9));
+            const lc: u4 = @intCast(props % 9);
             props /= 9;
-            const lp = @as(u3, @intCast(props % 5));
+            const lp: u3 = @intCast(props % 5);
             props /= 5;
-            const pb = @as(u3, @intCast(props));
+            const pb: u3 = @intCast(props);
 
-            const dict_size_provided = try reader.readInt(u32, .little);
+            const dict_size_provided = try reader.takeInt(u32, .little);
             const dict_size = @max(0x1000, dict_size_provided);
 
             const unpacked_size = switch (options.unpacked_size) {
                 .read_from_header => blk: {
-                    const unpacked_size_provided = try reader.readInt(u64, .little);
+                    const unpacked_size_provided = try reader.takeInt(u64, .little);
                     const marker_mandatory = unpacked_size_provided == 0xFFFF_FFFF_FFFF_FFFF;
-                    break :blk if (marker_mandatory)
-                        null
-                    else
-                        unpacked_size_provided;
+                    break :blk if (marker_mandatory) null else unpacked_size_provided;
                 },
                 .read_header_but_use_provided => |x| blk: {
-                    _ = try reader.readInt(u64, .little);
+                    _ = try reader.takeInt(u64, .little);
                     break :blk x;
                 },
                 .use_provided => |x| x,
             };
 
-            return Params{
-                .properties = Properties{ .lc = lc, .lp = lp, .pb = pb },
+            return .{
+                .properties = .{ .lc = lc, .lp = lp, .pb = pb },
                 .dict_size = dict_size,
                 .unpacked_size = unpacked_size,
             };
@@ -710,84 +655,121 @@ pub const Decode = struct {
     };
 };
 
-pub fn decompress(
-    allocator: Allocator,
-    reader: anytype,
-) !Decompress(@TypeOf(reader)) {
-    return decompressWithOptions(allocator, reader, .{});
-}
+pub const Decompress = struct {
+    gpa: Allocator,
+    input: *Reader,
+    reader: Reader,
+    buffer: Decode.CircularBuffer,
+    range_decoder: RangeDecoder,
+    decode: Decode,
+    err: ?Error,
 
-pub fn decompressWithOptions(
-    allocator: Allocator,
-    reader: anytype,
-    options: Decode.Options,
-) !Decompress(@TypeOf(reader)) {
-    const params = try Decode.Params.readHeader(reader, options);
-    return Decompress(@TypeOf(reader)).init(allocator, reader, params, options.memlimit);
-}
-
-pub fn Decompress(comptime ReaderType: type) type {
-    return struct {
-        const Self = @This();
-
-        pub const Error =
-            ReaderType.Error ||
-            Allocator.Error ||
-            error{ CorruptInput, EndOfStream, Overflow };
-
-        pub const Reader = std.io.GenericReader(*Self, Error, read);
-
-        allocator: Allocator,
-        in_reader: ReaderType,
-        to_read: std.ArrayListUnmanaged(u8),
-
-        buffer: Decode.LzCircularBuffer,
-        decoder: RangeDecoder,
-        state: Decode,
-
-        pub fn init(allocator: Allocator, source: ReaderType, params: Decode.Params, memlimit: ?usize) !Self {
-            return Self{
-                .allocator = allocator,
-                .in_reader = source,
-                .to_read = .{},
-
-                .buffer = Decode.LzCircularBuffer.init(params.dict_size, memlimit orelse math.maxInt(usize)),
-                .decoder = try RangeDecoder.init(source),
-                .state = try Decode.init(allocator, params.properties, params.unpacked_size),
-            };
-        }
-
-        pub fn reader(self: *Self) Reader {
-            return .{ .context = self };
-        }
-
-        pub fn deinit(self: *Self) void {
-            self.to_read.deinit(self.allocator);
-            self.buffer.deinit(self.allocator);
-            self.state.deinit(self.allocator);
-            self.* = undefined;
-        }
-
-        pub fn read(self: *Self, output: []u8) Error!usize {
-            const writer = self.to_read.writer(self.allocator);
-            while (self.to_read.items.len < output.len) {
-                switch (try self.state.process(self.allocator, self.in_reader, writer, &self.buffer, &self.decoder)) {
-                    .continue_ => {},
-                    .finished => {
-                        try self.buffer.finish(writer);
-                        break;
-                    },
-                }
-            }
-            const input = self.to_read.items;
-            const n = @min(input.len, output.len);
-            @memcpy(output[0..n], input[0..n]);
-            std.mem.copyForwards(u8, input[0 .. input.len - n], input[n..]);
-            self.to_read.shrinkRetainingCapacity(input.len - n);
-            return n;
-        }
+    pub const Error = error{
+        OutOfMemory,
+        ReadFailed,
+        CorruptInput,
+        DecompressedSizeMismatch,
+        EndOfStream,
+        Overflow,
     };
-}
+
+    /// Takes ownership of `buffer` which may be resized with `gpa`.
+    ///
+    /// LZMA was explicitly designed to take advantage of large heap memory
+    /// being available, with a dictionary size anywhere from 4K to 4G. Thus,
+    /// this API dynamically allocates the dictionary as-needed.
+    pub fn initParams(
+        input: *Reader,
+        gpa: Allocator,
+        buffer: []u8,
+        params: Decode.Params,
+        mem_limit: usize,
+    ) !Decompress {
+        return .{
+            .gpa = gpa,
+            .input = input,
+            .buffer = Decode.CircularBuffer.init(params.dict_size, mem_limit),
+            .range_decoder = try RangeDecoder.init(input),
+            .decode = try Decode.init(gpa, params.properties, params.unpacked_size),
+            .reader = .{
+                .buffer = buffer,
+                .vtable = &.{
+                    .readVec = readVec,
+                    .stream = stream,
+                },
+                .seek = 0,
+                .end = 0,
+            },
+            .err = null,
+        };
+    }
+
+    /// Takes ownership of `buffer` which may be resized with `gpa`.
+    ///
+    /// LZMA was explicitly designed to take advantage of large heap memory
+    /// being available, with a dictionary size anywhere from 4K to 4G. Thus,
+    /// this API dynamically allocates the dictionary as-needed.
+    pub fn initOptions(
+        input: *Reader,
+        gpa: Allocator,
+        buffer: []u8,
+        options: Decode.Options,
+        mem_limit: usize,
+    ) !Decompress {
+        const params = try Decode.Params.readHeader(input, options);
+        return initParams(input, gpa, buffer, params, mem_limit);
+    }
+
+    /// Reclaim ownership of the buffer passed to `init`.
+    pub fn takeBuffer(d: *Decompress) []u8 {
+        const buffer = d.reader.buffer;
+        d.reader.buffer = &.{};
+        return buffer;
+    }
+
+    pub fn deinit(d: *Decompress) void {
+        const gpa = d.gpa;
+        gpa.free(d.reader.buffer);
+        d.buffer.deinit(gpa);
+        d.decode.deinit(gpa);
+        d.* = undefined;
+    }
+
+    fn readVec(r: *Reader, data: [][]u8) Reader.Error!usize {
+        _ = data;
+        return readIndirect(r);
+    }
+
+    fn stream(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
+        _ = w;
+        _ = limit;
+        return readIndirect(r);
+    }
+
+    fn readIndirect(r: *Reader) Reader.Error!usize {
+        const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+        const gpa = d.gpa;
+        var allocating = Writer.Allocating.initOwnedSlice(gpa, r.buffer);
+        allocating.writer.end = r.end;
+        defer r.end = allocating.writer.end;
+        if (d.decode.state == math.maxInt(usize)) return error.EndOfStream;
+        d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder) catch |err| switch (err) {
+            error.WriteFailed => {
+                d.err = error.OutOfMemory;
+                return error.ReadFailed;
+            },
+            error.EndOfStream => {
+                d.err = error.EndOfStream;
+                return error.ReadFailed;
+            },
+            else => |e| {
+                d.err = e;
+                return error.ReadFailed;
+            },
+        };
+        return 0;
+    }
+};
 
 test {
     _ = @import("lzma/test.zig");
