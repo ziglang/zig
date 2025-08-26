@@ -630,6 +630,12 @@ pub fn build(b: *std.Build) !void {
     const test_incremental_step = b.step("test-incremental", "Run the incremental compilation test cases");
     try tests.addIncrementalTests(b, test_incremental_step);
     test_step.dependOn(test_incremental_step);
+
+    if (tests.addLibcTests(b, .{
+        .optimize_modes = optimization_modes,
+        .test_filters = test_filters,
+        .test_target_filters = test_target_filters,
+    })) |test_libc_step| test_step.dependOn(test_libc_step);
 }
 
 fn addWasiUpdateStep(b: *std.Build, version: [:0]const u8) !void {
