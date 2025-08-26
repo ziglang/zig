@@ -18,7 +18,14 @@ fn testDecompressEqual(expected: []const u8, compressed: []const u8) !void {
 }
 
 fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
-    return std.testing.expectError(expected, testDecompress(compressed));
+    const gpa = std.testing.allocator;
+    var stream: std.Io.Reader = .fixed(compressed);
+
+    var decompressor = try lzma.Decompress.initOptions(&stream, gpa, &.{}, .{}, std.math.maxInt(u32));
+    defer decompressor.deinit();
+
+    try std.testing.expectError(error.ReadFailed, decompressor.reader.allocRemaining(gpa, .unlimited));
+    try std.testing.expectEqual(expected, decompressor.err orelse return error.TestFailed);
 }
 
 test "decompress empty world" {
@@ -76,14 +83,14 @@ test "known size with end of payload marker" {
 
 test "too big uncompressed size in header" {
     try testDecompressError(
-        error.CorruptInput,
+        error.DecompressedSizeMismatch,
         @embedFile("testdata/bad-too_big_size-with_eopm.lzma"),
     );
 }
 
 test "too small uncompressed size in header" {
     try testDecompressError(
-        error.CorruptInput,
+        error.DecompressedSizeMismatch,
         @embedFile("testdata/bad-too_small_size-without_eopm-3.lzma"),
     );
 }

@@ -696,6 +696,7 @@ pub const Decompress = struct {
                 .vtable = &.{
                     .readVec = readVec,
                     .stream = stream,
+                    .discard = discard,
                 },
                 .seek = 0,
                 .end = 0,
@@ -746,12 +747,22 @@ pub const Decompress = struct {
         return readIndirect(r);
     }
 
+    fn discard(r: *Reader, limit: std.Io.Limit) Reader.Error!usize {
+        const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
+        _ = d;
+        _ = limit;
+        @panic("TODO");
+    }
+
     fn readIndirect(r: *Reader) Reader.Error!usize {
         const d: *Decompress = @alignCast(@fieldParentPtr("reader", r));
         const gpa = d.gpa;
         var allocating = Writer.Allocating.initOwnedSlice(gpa, r.buffer);
         allocating.writer.end = r.end;
-        defer r.end = allocating.writer.end;
+        defer {
+            r.buffer = allocating.writer.buffer;
+            r.end = allocating.writer.end;
+        }
         if (d.decode.state == math.maxInt(usize)) return error.EndOfStream;
         d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder) catch |err| switch (err) {
             error.WriteFailed => {
