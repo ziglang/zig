@@ -323,7 +323,7 @@ fn serveWebSocket(ws: *WebServer, sock: *http.Server.WebSocket) !noreturn {
                 // Temporarily unlock, then re-lock after the message is sent.
                 ws.time_report_mutex.unlock();
                 defer ws.time_report_mutex.lock();
-                try sock.writeMessage(msg, .binary);
+                try sock.writeMessage(owned_msg, .binary);
             }
         }
 
