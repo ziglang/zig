@@ -493,9 +493,6 @@ pub fn renderError(tree: Ast, parse_error: Error, w: *Writer) Writer.Error!void 
         .varargs_nonfinal => {
             return w.writeAll("function prototype has parameter after varargs");
         },
-        .expected_continue_expr => {
-            return w.writeAll("expected ':' before while continue expression");
-        },
 
         .expected_semi_after_decl => {
             return w.writeAll("expected ';' after declaration");
@@ -2974,7 +2971,6 @@ pub const Error = struct {
         test_doc_comment,
         comptime_doc_comment,
         varargs_nonfinal,
-        expected_continue_expr,
         expected_semi_after_decl,
         expected_semi_after_stmt,
         expected_comma_after_field,
