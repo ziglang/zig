@@ -151,7 +151,7 @@ fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: std.io
         var buf: [256]u8 = undefined;
         const w = std.debug.lockStderrWriter(&buf);
         defer std.debug.unlockStderrWriter();
-        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, w, false) catch {};
+        build_runner.printErrorMessages(gpa, &compile.step, .{ .ttyconf = ttyconf }, w, .verbose, .indent) catch {};
     }
 
     const rebuilt_bin_path = result catch |err| switch (err) {
@@ -177,7 +177,7 @@ fn fuzzWorkerRun(
             var buf: [256]u8 = undefined;
             const w = std.debug.lockStderrWriter(&buf);
             defer std.debug.unlockStderrWriter();
-            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = fuzz.ws.ttyconf }, w, false) catch {};
+            build_runner.printErrorMessages(gpa, &run.step, .{ .ttyconf = fuzz.ws.ttyconf }, w, .verbose, .indent) catch {};
             return;
         },
         else => {
