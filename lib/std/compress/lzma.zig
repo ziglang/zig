@@ -105,7 +105,6 @@ pub const RangeDecoder = struct {
 
 pub const Decode = struct {
     properties: Properties,
-    unpacked_size: ?u64,
     literal_probs: Vec2d,
     pos_slot_decoder: [4]BitTree(6),
     align_decoder: BitTree(4),
@@ -121,15 +120,10 @@ pub const Decode = struct {
     len_decoder: LenDecoder,
     rep_len_decoder: LenDecoder,
 
-    pub fn init(
-        gpa: Allocator,
-        properties: Properties,
-        unpacked_size: ?u64,
-    ) !Decode {
+    pub fn init(gpa: Allocator, properties: Properties) !Decode {
         return .{
             .properties = properties,
-            .unpacked_size = unpacked_size,
-            .literal_probs = try Vec2d.init(gpa, 0x400, .{ @as(usize, 1) << (properties.lc + properties.lp), 0x300 }),
+            .literal_probs = try Vec2d.init(gpa, 0x400, @as(usize, 1) << (properties.lc + properties.lp), 0x300),
             .pos_slot_decoder = @splat(.{}),
             .align_decoder = .{},
             .pos_decoders = @splat(0x400),
@@ -157,7 +151,7 @@ pub const Decode = struct {
             self.literal_probs.fill(0x400);
         } else {
             self.literal_probs.deinit(gpa);
-            self.literal_probs = try Vec2d.init(gpa, 0x400, .{ @as(usize, 1) << (new_props.lc + new_props.lp), 0x300 });
+            self.literal_probs = try Vec2d.init(gpa, 0x400, @as(usize, 1) << (new_props.lc + new_props.lp), 0x300);
         }
 
         self.properties = new_props;
@@ -176,11 +170,12 @@ pub const Decode = struct {
         self.rep_len_decoder.reset();
     }
 
-    fn processNext(
+    pub fn process(
         self: *Decode,
         reader: *Reader,
         allocating: *Writer.Allocating,
-        buffer: *CircularBuffer,
+        /// `CircularBuffer` or `std.compress.lzma2.AccumBuffer`.
+        buffer: anytype,
         decoder: *RangeDecoder,
     ) !ProcessingStatus {
         const gpa = allocating.allocator;
@@ -256,39 +251,11 @@ pub const Decode = struct {
         return .more;
     }
 
-    pub fn process(
-        self: *Decode,
-        reader: *Reader,
-        allocating: *Writer.Allocating,
-        buffer: *CircularBuffer,
-        decoder: *RangeDecoder,
-    ) !void {
-        process_next: {
-            if (self.unpacked_size) |unpacked_size| {
-                if (buffer.len >= unpacked_size) {
-                    break :process_next;
-                }
-            } else if (decoder.isFinished()) {
-                break :process_next;
-            }
-            switch (try self.processNext(reader, allocating, buffer, decoder)) {
-                .more => return,
-                .finished => {},
-            }
-        }
-
-        if (self.unpacked_size) |unpacked_size| {
-            if (buffer.len != unpacked_size) return error.DecompressedSizeMismatch;
-        }
-
-        try buffer.finish(&allocating.writer);
-        self.state = math.maxInt(usize);
-    }
-
     fn decodeLiteral(
         self: *Decode,
         reader: *Reader,
-        buffer: *CircularBuffer,
+        /// `CircularBuffer` or `std.compress.lzma2.AccumBuffer`.
+        buffer: anytype,
         decoder: *RangeDecoder,
     ) !u8 {
         const def_prev_byte = 0;
@@ -377,10 +344,7 @@ pub const Decode = struct {
         }
 
         pub fn get(self: CircularBuffer, index: usize) u8 {
-            return if (0 <= index and index < self.buf.items.len)
-                self.buf.items[index]
-            else
-                0;
+            return if (0 <= index and index < self.buf.items.len) self.buf.items[index] else 0;
         }
 
         pub fn set(self: *CircularBuffer, gpa: Allocator, index: usize, value: u8) !void {
@@ -524,29 +488,29 @@ pub const Decode = struct {
         data: []u16,
         cols: usize,
 
-        pub fn init(gpa: Allocator, value: u16, size: struct { usize, usize }) !Vec2d {
-            const len = try math.mul(usize, size[0], size[1]);
+        pub fn init(gpa: Allocator, value: u16, w: usize, h: usize) !Vec2d {
+            const len = try math.mul(usize, w, h);
             const data = try gpa.alloc(u16, len);
             @memset(data, value);
             return .{
                 .data = data,
-                .cols = size[1],
+                .cols = h,
             };
         }
 
-        pub fn deinit(self: *Vec2d, gpa: Allocator) void {
-            gpa.free(self.data);
-            self.* = undefined;
+        pub fn deinit(v: *Vec2d, gpa: Allocator) void {
+            gpa.free(v.data);
+            v.* = undefined;
         }
 
-        pub fn fill(self: *Vec2d, value: u16) void {
-            @memset(self.data, value);
+        pub fn fill(v: *Vec2d, value: u16) void {
+            @memset(v.data, value);
         }
 
-        fn get(self: Vec2d, row: usize) ![]u16 {
-            const start_row = try math.mul(usize, row, self.cols);
-            const end_row = try math.add(usize, start_row, self.cols);
-            return self.data[start_row..end_row];
+        fn get(v: Vec2d, row: usize) ![]u16 {
+            const start_row = try math.mul(usize, row, v.cols);
+            const end_row = try math.add(usize, start_row, v.cols);
+            return v.data[start_row..end_row];
         }
     };
 
@@ -627,6 +591,7 @@ pub const Decompress = struct {
     range_decoder: RangeDecoder,
     decode: Decode,
     err: ?Error,
+    unpacked_size: ?u64,
 
     pub const Error = error{
         OutOfMemory,
@@ -654,7 +619,7 @@ pub const Decompress = struct {
             .input = input,
             .buffer = Decode.CircularBuffer.init(params.dict_size, mem_limit),
             .range_decoder = try RangeDecoder.init(input),
-            .decode = try Decode.init(gpa, params.properties, params.unpacked_size),
+            .decode = try Decode.init(gpa, params.properties),
             .reader = .{
                 .buffer = buffer,
                 .vtable = &.{
@@ -666,6 +631,7 @@ pub const Decompress = struct {
                 .end = 0,
             },
             .err = null,
+            .unpacked_size = params.unpacked_size,
         };
     }
 
@@ -728,20 +694,46 @@ pub const Decompress = struct {
             r.end = allocating.writer.end;
         }
         if (d.decode.state == math.maxInt(usize)) return error.EndOfStream;
-        d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder) catch |err| switch (err) {
+
+        process_next: {
+            if (d.unpacked_size) |unpacked_size| {
+                if (d.buffer.len >= unpacked_size) break :process_next;
+            } else if (d.range_decoder.isFinished()) {
+                break :process_next;
+            }
+            switch (d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder) catch |err| switch (err) {
+                error.WriteFailed => {
+                    d.err = error.OutOfMemory;
+                    return error.ReadFailed;
+                },
+                error.EndOfStream => {
+                    d.err = error.EndOfStream;
+                    return error.ReadFailed;
+                },
+                else => |e| {
+                    d.err = e;
+                    return error.ReadFailed;
+                },
+            }) {
+                .more => return 0,
+                .finished => break :process_next,
+            }
+        }
+
+        if (d.unpacked_size) |unpacked_size| {
+            if (d.buffer.len != unpacked_size) {
+                d.err = error.DecompressedSizeMismatch;
+                return error.ReadFailed;
+            }
+        }
+
+        d.buffer.finish(&allocating.writer) catch |err| switch (err) {
             error.WriteFailed => {
                 d.err = error.OutOfMemory;
                 return error.ReadFailed;
             },
-            error.EndOfStream => {
-                d.err = error.EndOfStream;
-                return error.ReadFailed;
-            },
-            else => |e| {
-                d.err = e;
-                return error.ReadFailed;
-            },
         };
+        d.decode.state = math.maxInt(usize);
         return 0;
     }
 };
