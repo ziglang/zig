@@ -862,18 +862,47 @@ fn runStepNames(
 
         const total_count = success_count + failure_count + pending_count + skipped_count;
         ttyconf.setColor(w, .cyan) catch {};
-        w.writeAll("Build Summary:") catch {};
+        ttyconf.setColor(w, .bold) catch {};
+        w.writeAll("Build Summary: ") catch {};
         ttyconf.setColor(w, .reset) catch {};
-        w.print(" {d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
-        if (skipped_count > 0) w.print(", {d} skipped", .{skipped_count}) catch {};
-        if (failure_count > 0) w.print(", {d} failed", .{failure_count}) catch {};
+        w.print("{d}/{d} steps succeeded", .{ success_count, total_count }) catch {};
+        {
+            ttyconf.setColor(w, .dim) catch {};
+            var first = true;
+            if (skipped_count > 0) {
+                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", skipped_count }) catch {};
+                first = false;
+            }
+            if (failure_count > 0) {
+                w.print("{s}{d} failed", .{ if (first) " (" else ", ", failure_count }) catch {};
+                first = false;
+            }
+            if (!first) w.writeByte(')') catch {};
+            ttyconf.setColor(w, .reset) catch {};
+        }
 
         if (test_count > 0) {
             w.print("; {d}/{d} tests passed", .{ test_pass_count, test_count }) catch {};
-            if (test_skip_count > 0) w.print(", {d} skipped", .{test_skip_count}) catch {};
-            if (test_fail_count > 0) w.print(", {d} failed", .{test_fail_count}) catch {};
-            if (test_crash_count > 0) w.print(", {d} crashed", .{test_crash_count}) catch {};
-            if (test_timeout_count > 0) w.print(", {d} timed out", .{test_timeout_count}) catch {};
+            ttyconf.setColor(w, .dim) catch {};
+            var first = true;
+            if (test_skip_count > 0) {
+                w.print("{s}{d} skipped", .{ if (first) " (" else ", ", test_skip_count }) catch {};
+                first = false;
+            }
+            if (test_fail_count > 0) {
+                w.print("{s}{d} failed", .{ if (first) " (" else ", ", test_fail_count }) catch {};
+                first = false;
+            }
+            if (test_crash_count > 0) {
+                w.print("{s}{d} crashed", .{ if (first) " (" else ", ", test_crash_count }) catch {};
+                first = false;
+            }
+            if (test_timeout_count > 0) {
+                w.print("{s}{d} timed out", .{ if (first) " (" else ", ", test_timeout_count }) catch {};
+                first = false;
+            }
+            if (!first) w.writeByte(')') catch {};
+            ttyconf.setColor(w, .reset) catch {};
         }
 
         w.writeAll("\n") catch {};
@@ -978,14 +1007,14 @@ fn printStepStatus(
             } else if (s.test_results.test_count > 0) {
                 const pass_count = s.test_results.passCount();
                 assert(s.test_results.test_count == pass_count + s.test_results.skip_count);
-                try stderr.print(" {d} passed", .{pass_count});
+                try stderr.print(" {d} pass", .{pass_count});
                 if (s.test_results.skip_count > 0) {
-                    try ttyconf.setColor(stderr, .white);
+                    try ttyconf.setColor(stderr, .reset);
                     try stderr.writeAll(", ");
                     try ttyconf.setColor(stderr, .yellow);
-                    try stderr.print("{d} skipped", .{s.test_results.skip_count});
+                    try stderr.print("{d} skip", .{s.test_results.skip_count});
                 }
-                try ttyconf.setColor(stderr, .white);
+                try ttyconf.setColor(stderr, .reset);
                 try stderr.print(" ({d} total)", .{s.test_results.test_count});
             } else {
                 try stderr.writeAll(" success");
@@ -1035,7 +1064,7 @@ fn printStepStatus(
             try ttyconf.setColor(stderr, .reset);
         },
         .failure => {
-            try printStepFailure(s, stderr, ttyconf);
+            try printStepFailure(s, stderr, ttyconf, false);
             try ttyconf.setColor(stderr, .reset);
         },
     }
@@ -1045,6 +1074,7 @@ fn printStepFailure(
     s: *Step,
     stderr: *Writer,
     ttyconf: tty.Config,
+    dim: bool,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
@@ -1055,43 +1085,49 @@ fn printStepFailure(
         // These first values include all of the test "statuses". Every test is either passsed,
         // skipped, failed, crashed, or timed out.
         try ttyconf.setColor(stderr, .green);
-        try stderr.print(" {d} passed", .{s.test_results.passCount()});
-        try ttyconf.setColor(stderr, .white);
+        try stderr.print(" {d} pass", .{s.test_results.passCount()});
+        try ttyconf.setColor(stderr, .reset);
+        if (dim) try ttyconf.setColor(stderr, .dim);
         if (s.test_results.skip_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .yellow);
-            try stderr.print("{d} skipped", .{s.test_results.skip_count});
-            try ttyconf.setColor(stderr, .white);
+            try stderr.print("{d} skip", .{s.test_results.skip_count});
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
         if (s.test_results.fail_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} failed", .{s.test_results.fail_count});
-            try ttyconf.setColor(stderr, .white);
+            try stderr.print("{d} fail", .{s.test_results.fail_count});
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
         if (s.test_results.crash_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} crashed", .{s.test_results.crash_count});
-            try ttyconf.setColor(stderr, .white);
+            try stderr.print("{d} crash", .{s.test_results.crash_count});
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
         if (s.test_results.timeout_count > 0) {
             try stderr.writeAll(", ");
             try ttyconf.setColor(stderr, .red);
-            try stderr.print("{d} timed out", .{s.test_results.timeout_count});
-            try ttyconf.setColor(stderr, .white);
+            try stderr.print("{d} timeout", .{s.test_results.timeout_count});
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
         try stderr.print(" ({d} total)", .{s.test_results.test_count});
 
         // Memory leaks are intentionally written after the total, because is isn't a test *status*,
         // but just a flag that any tests -- even passed ones -- can have. We also use a different
         // separator, so it looks like:
-        //   2 passed, 1 skipped, 2 failed (5 total); 2 leaks
+        //   2 pass, 1 skip, 2 fail (5 total); 2 leaks
         if (s.test_results.leak_count > 0) {
             try stderr.writeAll("; ");
             try ttyconf.setColor(stderr, .red);
             try stderr.print("{d} leaks", .{s.test_results.leak_count});
-            try ttyconf.setColor(stderr, .white);
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
 
         // It's usually not helpful to know how many error logs there were because they tend to
@@ -1107,7 +1143,8 @@ fn printStepFailure(
             try stderr.writeAll("; ");
             try ttyconf.setColor(stderr, .red);
             try stderr.print("{d} error logs", .{s.test_results.log_err_count});
-            try ttyconf.setColor(stderr, .white);
+            try ttyconf.setColor(stderr, .reset);
+            if (dim) try ttyconf.setColor(stderr, .dim);
         }
 
         try stderr.writeAll("\n");
@@ -1422,7 +1459,7 @@ pub fn printErrorMessages(
             try stderr.writeAll(s.name);
 
             if (s == failing_step) {
-                try printStepFailure(s, stderr, ttyconf);
+                try printStepFailure(s, stderr, ttyconf, true);
             } else {
                 try stderr.writeAll("\n");
             }
@@ -1432,7 +1469,7 @@ pub fn printErrorMessages(
         // Just print the failing step itself.
         try ttyconf.setColor(stderr, .dim);
         try stderr.writeAll(failing_step.name);
-        try printStepFailure(failing_step, stderr, ttyconf);
+        try printStepFailure(failing_step, stderr, ttyconf, true);
         try ttyconf.setColor(stderr, .reset);
     }
 
