@@ -1,0 +1,16 @@
+.{
+    .name = .dependency_override,
+    .fingerprint = 0x1d52eb5bc39f2664,
+    .version = "0.0.0",
+    .paths = .{""},
+    .dependencies = .{
+        .overridden_runtime = .{
+            .url = "https://example.com",
+            .hash = "overridden_runtime_pkg-0.0.0-AAAAAG8BAADm054BUibxV6D-KNadKUJKOmpavQp3xJkX",
+        },
+        .overridden_buildtime = .{
+            .url = "https://example.com",
+            .hash = "overridden_buildtime_pkg-0.0.0-AAAAALcBAABxm1t_JaDEv2JAbqTxTR7030GYiuw3tGUN",
+        },
+    },
+}

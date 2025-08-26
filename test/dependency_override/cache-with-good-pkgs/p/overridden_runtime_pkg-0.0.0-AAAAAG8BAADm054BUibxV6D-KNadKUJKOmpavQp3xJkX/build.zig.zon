@@ -1,0 +1,5 @@
+.{
+    .name = .overridden_runtime_pkg,
+    .version = "0.0.0",
+    .paths = .{""},
+}

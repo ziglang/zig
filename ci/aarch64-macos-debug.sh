@@ -55,3 +55,12 @@ stage3-debug/bin/zig build test docs \
   -Dstatic-llvm \
   -Dskip-non-native \
   --search-prefix "$PREFIX"
+
+# Ensure that dependency overrides function correctly
+wd=$PWD
+
+cd ../test/dependency_override
+./run-tests.sh ../../build-debug/stage3-debug/bin/zig
+cd $wd
+
+unset wd
