@@ -226,18 +226,19 @@ pub const Decode = struct {
             try ld.resetState(allocating.allocator, new_props);
         }
 
+        const expected_unpacked_size = accum.len + unpacked_size;
         const start_count = n_read;
         var range_decoder = try lzma.RangeDecoder.initCounting(reader, &n_read);
 
         while (true) {
-            if (accum.len >= unpacked_size) break;
+            if (accum.len >= expected_unpacked_size) break;
             if (range_decoder.isFinished()) break;
             switch (try ld.process(reader, allocating, accum, &range_decoder, &n_read)) {
                 .more => continue,
                 .finished => break,
             }
         }
-        if (accum.len != unpacked_size) return error.DecompressedSizeMismatch;
+        if (accum.len != expected_unpacked_size) return error.DecompressedSizeMismatch;
         if (n_read - start_count != packed_size) return error.CompressedSizeMismatch;
 
         return n_read;
