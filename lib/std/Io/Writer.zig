@@ -2528,6 +2528,8 @@ pub fn Hashing(comptime Hasher: type) type {
     };
 }
 
+pub const Allocating = AllocatingAligned(.fromByteUnits(1));
+
 /// Maintains `Writer` state such that it writes to the unused capacity of an
 /// array list, filling it up completely before making a call through the
 /// vtable, causing a resize. Consequently, the same, optimized, non-generic
@@ -2535,11 +2537,15 @@ pub fn Hashing(comptime Hasher: type) type {
 /// the hot paths when using this API.
 ///
 /// When using this API, it is not necessary to call `flush`.
-pub const Allocating = struct {
+// zig fmt: off
+pub fn AllocatingAligned(comptime alignment: std.mem.Alignment) type {
+return struct {
     allocator: Allocator,
     writer: Writer,
 
-    pub fn init(allocator: Allocator) Allocating {
+    const Self = @This();
+
+    pub fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
             .writer = .{
@@ -2549,7 +2555,7 @@ pub const Allocating = struct {
         };
     }
 
-    pub fn initCapacity(allocator: Allocator, capacity: usize) error{OutOfMemory}!Allocating {
+    pub fn initCapacity(allocator: Allocator, capacity: usize) error{OutOfMemory}!Self {
         return .{
             .allocator = allocator,
             .writer = .{
@@ -2559,7 +2565,7 @@ pub const Allocating = struct {
         };
     }
 
-    pub fn initOwnedSlice(allocator: Allocator, slice: []u8) Allocating {
+    pub fn initOwnedSlice(allocator: Allocator, slice: []align(alignment.toByteUnits()) u8) Self {
         return .{
             .allocator = allocator,
             .writer = .{
@@ -2570,7 +2576,7 @@ pub const Allocating = struct {
     }
 
     /// Replaces `array_list` with empty, taking ownership of the memory.
-    pub fn fromArrayList(allocator: Allocator, array_list: *ArrayList(u8)) Allocating {
+    pub fn fromArrayList(allocator: Allocator, array_list: *std.array_list.Aligned(u8, alignment)) Self {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
@@ -2583,23 +2589,23 @@ pub const Allocating = struct {
     }
 
     const vtable: VTable = .{
-        .drain = Allocating.drain,
-        .sendFile = Allocating.sendFile,
+        .drain = Self.drain,
+        .sendFile = Self.sendFile,
         .flush = noopFlush,
         .rebase = growingRebase,
     };
 
-    pub fn deinit(a: *Allocating) void {
+    pub fn deinit(a: *Self) void {
         a.allocator.free(a.writer.buffer);
         a.* = undefined;
     }
 
     /// Returns an array list that takes ownership of the allocated memory.
     /// Resets the `Allocating` to an empty state.
-    pub fn toArrayList(a: *Allocating) ArrayList(u8) {
+    pub fn toArrayList(a: *Self) std.array_list.Aligned(u8, alignment) {
         const w = &a.writer;
-        const result: ArrayList(u8) = .{
-            .items = w.buffer[0..w.end],
+        const result: std.array_list.Aligned(u8, alignment) = .{
+            .items = @alignCast(w.buffer[0..w.end]),
             .capacity = w.buffer.len,
         };
         w.buffer = &.{};
@@ -2607,45 +2613,45 @@ pub const Allocating = struct {
         return result;
     }
 
-    pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
+    pub fn ensureUnusedCapacity(a: *Self, additional_count: usize) Allocator.Error!void {
         var list = a.toArrayList();
         defer a.setArrayList(list);
         return list.ensureUnusedCapacity(a.allocator, additional_count);
     }
 
-    pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
+    pub fn ensureTotalCapacity(a: *Self, new_capacity: usize) Allocator.Error!void {
         var list = a.toArrayList();
         defer a.setArrayList(list);
         return list.ensureTotalCapacity(a.allocator, new_capacity);
     }
 
-    pub fn toOwnedSlice(a: *Allocating) error{OutOfMemory}![]u8 {
+    pub fn toOwnedSlice(a: *Self) error{OutOfMemory}![]align(alignment.toByteUnits()) u8 {
         var list = a.toArrayList();
         defer a.setArrayList(list);
         return list.toOwnedSlice(a.allocator);
     }
 
-    pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
+    pub fn toOwnedSliceSentinel(a: *Self, comptime sentinel: u8) error{OutOfMemory}![:sentinel]align(alignment.toByteUnits()) u8 {
         const gpa = a.allocator;
         var list = @This().toArrayList(a);
         defer a.setArrayList(list);
-        return list.toOwnedSliceSentinel(gpa, sentinel);
+        return @alignCast(try list.toOwnedSliceSentinel(gpa, sentinel));
     }
 
-    pub fn written(a: *Allocating) []u8 {
-        return a.writer.buffered();
+    pub fn written(a: *Self) []align(alignment.toByteUnits()) u8 {
+        return @alignCast(a.writer.buffered());
     }
 
-    pub fn shrinkRetainingCapacity(a: *Allocating, new_len: usize) void {
+    pub fn shrinkRetainingCapacity(a: *Self, new_len: usize) void {
         a.writer.end = new_len;
     }
 
-    pub fn clearRetainingCapacity(a: *Allocating) void {
+    pub fn clearRetainingCapacity(a: *Self) void {
         a.shrinkRetainingCapacity(0);
     }
 
     fn drain(w: *Writer, data: []const []const u8, splat: usize) Error!usize {
-        const a: *Allocating = @fieldParentPtr("writer", w);
+        const a: *Self = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         const pattern = data[data.len - 1];
         const splat_len = pattern.len * splat;
@@ -2670,7 +2676,7 @@ pub const Allocating = struct {
     fn sendFile(w: *Writer, file_reader: *File.Reader, limit: Limit) FileError!usize {
         if (File.Handle == void) return error.Unimplemented;
         if (limit == .nothing) return 0;
-        const a: *Allocating = @fieldParentPtr("writer", w);
+        const a: *Self = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
@@ -2685,7 +2691,7 @@ pub const Allocating = struct {
     }
 
     fn growingRebase(w: *Writer, preserve: usize, minimum_len: usize) Error!void {
-        const a: *Allocating = @fieldParentPtr("writer", w);
+        const a: *Self = @fieldParentPtr("writer", w);
         const gpa = a.allocator;
         var list = a.toArrayList();
         defer setArrayList(a, list);
@@ -2694,13 +2700,13 @@ pub const Allocating = struct {
         list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
     }
 
-    fn setArrayList(a: *Allocating, list: ArrayList(u8)) void {
+    fn setArrayList(a: *Self, list: std.array_list.Aligned(u8, alignment)) void {
         a.writer.buffer = list.allocatedSlice();
         a.writer.end = list.items.len;
     }
 
-    test Allocating {
-        var a: Allocating = .init(testing.allocator);
+    test Self {
+        var a: Self = .init(testing.allocator);
         defer a.deinit();
         const w = &a.writer;
 
@@ -2711,7 +2717,8 @@ pub const Allocating = struct {
         try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
     }
 };
-
+}
+// zig fmt: on
 test "discarding sendFile" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
