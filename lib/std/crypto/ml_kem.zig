@@ -1721,53 +1721,55 @@ test "Test happy flow" {
 
 // Code to test NIST Known Answer Tests (KAT), see PQCgenKAT.c.
 
-const sha2 = crypto.hash.sha2;
+test "NIST KAT test d00.Kyber512" {
+    try testNistKat(d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547");
+}
 
-test "NIST KAT test" {
-    inline for (.{
-        .{ d00.Kyber512, "e9c2bd37133fcb40772f81559f14b1f58dccd1c816701be9ba6214d43baf4547" },
-        .{ d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5" },
-        .{ d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2" },
-    }) |modeHash| {
-        const mode = modeHash[0];
-        var seed: [48]u8 = undefined;
-        for (&seed, 0..) |*s, i| {
-            s.* = @as(u8, @intCast(i));
-        }
-        var f = sha2.Sha256.init(.{});
-        const fw = f.writer();
-        var g = NistDRBG.init(seed);
-        try std.fmt.format(fw, "# {s}\n\n", .{mode.name});
-        for (0..100) |i| {
-            g.fill(&seed);
-            try std.fmt.format(fw, "count = {}\n", .{i});
-            try std.fmt.format(fw, "seed = {X}\n", .{&seed});
-            var g2 = NistDRBG.init(seed);
+test "NIST KAT test d00.Kyber1024" {
+    try testNistKat(d00.Kyber1024, "89248f2f33f7f4f7051729111f3049c409a933ec904aedadf035f30fa5646cd5");
+}
 
-            // This is not equivalent to g2.fill(kseed[:]). As the reference
-            // implementation calls randombytes twice generating the keypair,
-            // we have to do that as well.
-            var kseed: [64]u8 = undefined;
-            var eseed: [32]u8 = undefined;
-            g2.fill(kseed[0..32]);
-            g2.fill(kseed[32..64]);
-            g2.fill(&eseed);
-            const kp = try mode.KeyPair.generateDeterministic(kseed);
-            const e = kp.public_key.encaps(eseed);
-            const ss2 = try kp.secret_key.decaps(&e.ciphertext);
-            try testing.expectEqual(ss2, e.shared_secret);
-            try std.fmt.format(fw, "pk = {X}\n", .{&kp.public_key.toBytes()});
-            try std.fmt.format(fw, "sk = {X}\n", .{&kp.secret_key.toBytes()});
-            try std.fmt.format(fw, "ct = {X}\n", .{&e.ciphertext});
-            try std.fmt.format(fw, "ss = {X}\n\n", .{&e.shared_secret});
-        }
+test "NIST KAT test d00.Kyber768" {
+    try testNistKat(d00.Kyber768, "a1e122cad3c24bc51622e4c242d8b8acbcd3f618fee4220400605ca8f9ea02c2");
+}
 
-        var out: [32]u8 = undefined;
-        f.final(&out);
-        var outHex: [64]u8 = undefined;
-        _ = try std.fmt.bufPrint(&outHex, "{x}", .{&out});
-        try testing.expectEqual(outHex, modeHash[1].*);
+fn testNistKat(mode: type, hash: []const u8) !void {
+    var seed: [48]u8 = undefined;
+    for (&seed, 0..) |*s, i| {
+        s.* = @as(u8, @intCast(i));
     }
+    var fw: std.Io.Writer.Hashing(crypto.hash.sha2.Sha256) = .init(&.{});
+    var g = NistDRBG.init(seed);
+    try fw.writer.print("# {s}\n\n", .{mode.name});
+    for (0..100) |i| {
+        g.fill(&seed);
+        try fw.writer.print("count = {}\n", .{i});
+        try fw.writer.print("seed = {X}\n", .{&seed});
+        var g2 = NistDRBG.init(seed);
+
+        // This is not equivalent to g2.fill(kseed[:]). As the reference
+        // implementation calls randombytes twice generating the keypair,
+        // we have to do that as well.
+        var kseed: [64]u8 = undefined;
+        var eseed: [32]u8 = undefined;
+        g2.fill(kseed[0..32]);
+        g2.fill(kseed[32..64]);
+        g2.fill(&eseed);
+        const kp = try mode.KeyPair.generateDeterministic(kseed);
+        const e = kp.public_key.encaps(eseed);
+        const ss2 = try kp.secret_key.decaps(&e.ciphertext);
+        try testing.expectEqual(ss2, e.shared_secret);
+        try fw.writer.print("pk = {X}\n", .{&kp.public_key.toBytes()});
+        try fw.writer.print("sk = {X}\n", .{&kp.secret_key.toBytes()});
+        try fw.writer.print("ct = {X}\n", .{&e.ciphertext});
+        try fw.writer.print("ss = {X}\n\n", .{&e.shared_secret});
+    }
+
+    var out: [32]u8 = undefined;
+    fw.hasher.final(&out);
+    var outHex: [64]u8 = undefined;
+    _ = try std.fmt.bufPrint(&outHex, "{x}", .{&out});
+    try testing.expectEqualStrings(&outHex, hash);
 }
 
 const NistDRBG = struct {
