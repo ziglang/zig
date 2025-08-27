@@ -12,11 +12,19 @@ pub const RangeDecoder = struct {
     code: u32,
 
     pub fn init(reader: *Reader) !RangeDecoder {
+        var counter: u64 = 0;
+        return initCounting(reader, &counter);
+    }
+
+    pub fn initCounting(reader: *Reader, n_read: *u64) !RangeDecoder {
         const reserved = try reader.takeByte();
+        n_read.* += 1;
         if (reserved != 0) return error.InvalidRangeCode;
+        const code = try reader.takeInt(u32, .big);
+        n_read.* += 4;
         return .{
             .range = 0xFFFF_FFFF,
-            .code = try reader.takeInt(u32, .big),
+            .code = code,
         };
     }
 
@@ -24,47 +32,47 @@ pub const RangeDecoder = struct {
         return self.code == 0;
     }
 
-    fn normalize(self: *RangeDecoder, reader: *Reader) !void {
+    fn normalize(self: *RangeDecoder, reader: *Reader, n_read: *u64) !void {
         if (self.range < 0x0100_0000) {
             self.range <<= 8;
             self.code = (self.code << 8) ^ @as(u32, try reader.takeByte());
+            n_read.* += 1;
         }
     }
 
-    fn getBit(self: *RangeDecoder, reader: *Reader) !bool {
+    fn getBit(self: *RangeDecoder, reader: *Reader, n_read: *u64) !bool {
         self.range >>= 1;
 
         const bit = self.code >= self.range;
-        if (bit)
-            self.code -= self.range;
+        if (bit) self.code -= self.range;
 
-        try self.normalize(reader);
+        try self.normalize(reader, n_read);
         return bit;
     }
 
-    pub fn get(self: *RangeDecoder, reader: *Reader, count: usize) !u32 {
+    pub fn get(self: *RangeDecoder, reader: *Reader, count: usize, n_read: *u64) !u32 {
         var result: u32 = 0;
-        var i: usize = 0;
-        while (i < count) : (i += 1)
-            result = (result << 1) ^ @intFromBool(try self.getBit(reader));
+        for (0..count) |_| {
+            result = (result << 1) ^ @intFromBool(try self.getBit(reader, n_read));
+        }
         return result;
     }
 
-    pub fn decodeBit(self: *RangeDecoder, reader: *Reader, prob: *u16) !bool {
+    pub fn decodeBit(self: *RangeDecoder, reader: *Reader, prob: *u16, n_read: *u64) !bool {
         const bound = (self.range >> 11) * prob.*;
 
         if (self.code < bound) {
             prob.* += (0x800 - prob.*) >> 5;
             self.range = bound;
 
-            try self.normalize(reader);
+            try self.normalize(reader, n_read);
             return false;
         } else {
             prob.* -= prob.* >> 5;
             self.code -= bound;
             self.range -= bound;
 
-            try self.normalize(reader);
+            try self.normalize(reader, n_read);
             return true;
         }
     }
@@ -74,11 +82,12 @@ pub const RangeDecoder = struct {
         reader: *Reader,
         num_bits: u5,
         probs: []u16,
+        n_read: *u64,
     ) !u32 {
         var tmp: u32 = 1;
         var i: @TypeOf(num_bits) = 0;
         while (i < num_bits) : (i += 1) {
-            const bit = try self.decodeBit(reader, &probs[tmp]);
+            const bit = try self.decodeBit(reader, &probs[tmp], n_read);
             tmp = (tmp << 1) ^ @intFromBool(bit);
         }
         return tmp - (@as(u32, 1) << num_bits);
@@ -90,12 +99,13 @@ pub const RangeDecoder = struct {
         num_bits: u5,
         probs: []u16,
         offset: usize,
+        n_read: *u64,
     ) !u32 {
         var result: u32 = 0;
         var tmp: usize = 1;
         var i: @TypeOf(num_bits) = 0;
         while (i < num_bits) : (i += 1) {
-            const bit = @intFromBool(try self.decodeBit(reader, &probs[offset + tmp]));
+            const bit = @intFromBool(try self.decodeBit(reader, &probs[offset + tmp], n_read));
             tmp = (tmp << 1) ^ bit;
             result ^= @as(u32, bit) << i;
         }
@@ -177,13 +187,14 @@ pub const Decode = struct {
         /// `CircularBuffer` or `std.compress.lzma2.AccumBuffer`.
         buffer: anytype,
         decoder: *RangeDecoder,
+        n_read: *u64,
     ) !ProcessingStatus {
         const gpa = allocating.allocator;
         const writer = &allocating.writer;
         const pos_state = buffer.len & ((@as(usize, 1) << self.properties.pb) - 1);
 
-        if (!try decoder.decodeBit(reader, &self.is_match[(self.state << 4) + pos_state])) {
-            const byte: u8 = try self.decodeLiteral(reader, buffer, decoder);
+        if (!try decoder.decodeBit(reader, &self.is_match[(self.state << 4) + pos_state], n_read)) {
+            const byte: u8 = try self.decodeLiteral(reader, buffer, decoder, n_read);
 
             try buffer.appendLiteral(gpa, byte, writer);
 
@@ -197,18 +208,18 @@ pub const Decode = struct {
         }
 
         var len: usize = undefined;
-        if (try decoder.decodeBit(reader, &self.is_rep[self.state])) {
-            if (!try decoder.decodeBit(reader, &self.is_rep_g0[self.state])) {
-                if (!try decoder.decodeBit(reader, &self.is_rep_0long[(self.state << 4) + pos_state])) {
+        if (try decoder.decodeBit(reader, &self.is_rep[self.state], n_read)) {
+            if (!try decoder.decodeBit(reader, &self.is_rep_g0[self.state], n_read)) {
+                if (!try decoder.decodeBit(reader, &self.is_rep_0long[(self.state << 4) + pos_state], n_read)) {
                     self.state = if (self.state < 7) 9 else 11;
                     const dist = self.rep[0] + 1;
                     try buffer.appendLz(gpa, 1, dist, writer);
                     return .more;
                 }
             } else {
-                const idx: usize = if (!try decoder.decodeBit(reader, &self.is_rep_g1[self.state]))
+                const idx: usize = if (!try decoder.decodeBit(reader, &self.is_rep_g1[self.state], n_read))
                     1
-                else if (!try decoder.decodeBit(reader, &self.is_rep_g2[self.state]))
+                else if (!try decoder.decodeBit(reader, &self.is_rep_g2[self.state], n_read))
                     2
                 else
                     3;
@@ -220,7 +231,7 @@ pub const Decode = struct {
                 self.rep[0] = dist;
             }
 
-            len = try self.rep_len_decoder.decode(reader, decoder, pos_state);
+            len = try self.rep_len_decoder.decode(reader, decoder, pos_state, n_read);
 
             self.state = if (self.state < 7) 8 else 11;
         } else {
@@ -228,11 +239,11 @@ pub const Decode = struct {
             self.rep[2] = self.rep[1];
             self.rep[1] = self.rep[0];
 
-            len = try self.len_decoder.decode(reader, decoder, pos_state);
+            len = try self.len_decoder.decode(reader, decoder, pos_state, n_read);
 
             self.state = if (self.state < 7) 7 else 10;
 
-            const rep_0 = try self.decodeDistance(reader, decoder, len);
+            const rep_0 = try self.decodeDistance(reader, decoder, len, n_read);
 
             self.rep[0] = rep_0;
             if (self.rep[0] == 0xFFFF_FFFF) {
@@ -257,6 +268,7 @@ pub const Decode = struct {
         /// `CircularBuffer` or `std.compress.lzma2.AccumBuffer`.
         buffer: anytype,
         decoder: *RangeDecoder,
+        n_read: *u64,
     ) !u8 {
         const def_prev_byte = 0;
         const prev_byte = @as(usize, buffer.lastOr(def_prev_byte));
@@ -275,6 +287,7 @@ pub const Decode = struct {
                 const bit = @intFromBool(try decoder.decodeBit(
                     reader,
                     &probs[((@as(usize, 1) + match_bit) << 8) + result],
+                    n_read,
                 ));
                 result = (result << 1) ^ bit;
                 if (match_bit != bit) {
@@ -284,10 +297,10 @@ pub const Decode = struct {
         }
 
         while (result < 0x100) {
-            result = (result << 1) ^ @intFromBool(try decoder.decodeBit(reader, &probs[result]));
+            result = (result << 1) ^ @intFromBool(try decoder.decodeBit(reader, &probs[result], n_read));
         }
 
-        return @as(u8, @truncate(result - 0x100));
+        return @truncate(result - 0x100);
     }
 
     fn decodeDistance(
@@ -295,12 +308,12 @@ pub const Decode = struct {
         reader: *Reader,
         decoder: *RangeDecoder,
         length: usize,
+        n_read: *u64,
     ) !usize {
         const len_state = if (length > 3) 3 else length;
 
-        const pos_slot = @as(usize, try self.pos_slot_decoder[len_state].parse(reader, decoder));
-        if (pos_slot < 4)
-            return pos_slot;
+        const pos_slot: usize = try self.pos_slot_decoder[len_state].parse(reader, decoder, n_read);
+        if (pos_slot < 4) return pos_slot;
 
         const num_direct_bits = @as(u5, @intCast((pos_slot >> 1) - 1));
         var result = (2 ^ (pos_slot & 1)) << num_direct_bits;
@@ -311,10 +324,11 @@ pub const Decode = struct {
                 num_direct_bits,
                 &self.pos_decoders,
                 result - pos_slot,
+                n_read,
             );
         } else {
-            result += @as(usize, try decoder.get(reader, num_direct_bits - 4)) << 4;
-            result += try self.align_decoder.parseReverse(reader, decoder);
+            result += @as(usize, try decoder.get(reader, num_direct_bits - 4, n_read)) << 4;
+            result += try self.align_decoder.parseReverse(reader, decoder, n_read);
         }
 
         return result;
@@ -435,16 +449,17 @@ pub const Decode = struct {
         return struct {
             probs: [1 << num_bits]u16 = @splat(0x400),
 
-            pub fn parse(self: *@This(), reader: *Reader, decoder: *RangeDecoder) !u32 {
-                return decoder.parseBitTree(reader, num_bits, &self.probs);
+            pub fn parse(self: *@This(), reader: *Reader, decoder: *RangeDecoder, n_read: *u64) !u32 {
+                return decoder.parseBitTree(reader, num_bits, &self.probs, n_read);
             }
 
             pub fn parseReverse(
                 self: *@This(),
                 reader: *Reader,
                 decoder: *RangeDecoder,
+                n_read: *u64,
             ) !u32 {
-                return decoder.parseReverseBitTree(reader, num_bits, &self.probs, 0);
+                return decoder.parseReverseBitTree(reader, num_bits, &self.probs, 0, n_read);
             }
 
             pub fn reset(self: *@This()) void {
@@ -465,13 +480,14 @@ pub const Decode = struct {
             reader: *Reader,
             decoder: *RangeDecoder,
             pos_state: usize,
+            n_read: *u64,
         ) !usize {
-            if (!try decoder.decodeBit(reader, &self.choice)) {
-                return @as(usize, try self.low_coder[pos_state].parse(reader, decoder));
-            } else if (!try decoder.decodeBit(reader, &self.choice2)) {
-                return @as(usize, try self.mid_coder[pos_state].parse(reader, decoder)) + 8;
+            if (!try decoder.decodeBit(reader, &self.choice, n_read)) {
+                return @as(usize, try self.low_coder[pos_state].parse(reader, decoder, n_read));
+            } else if (!try decoder.decodeBit(reader, &self.choice2, n_read)) {
+                return @as(usize, try self.mid_coder[pos_state].parse(reader, decoder, n_read)) + 8;
             } else {
-                return @as(usize, try self.high_coder.parse(reader, decoder)) + 16;
+                return @as(usize, try self.high_coder.parse(reader, decoder, n_read)) + 16;
             }
         }
 
@@ -701,7 +717,8 @@ pub const Decompress = struct {
             } else if (d.range_decoder.isFinished()) {
                 break :process_next;
             }
-            switch (d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder) catch |err| switch (err) {
+            var n_read: u64 = 0;
+            switch (d.decode.process(d.input, &allocating, &d.buffer, &d.range_decoder, &n_read) catch |err| switch (err) {
                 error.WriteFailed => {
                     d.err = error.OutOfMemory;
                     return error.ReadFailed;

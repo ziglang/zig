@@ -116,24 +116,29 @@ pub const Decode = struct {
         self.* = undefined;
     }
 
-    pub fn decompress(d: *Decode, reader: *Reader, allocating: *Writer.Allocating) !void {
+    /// Returns how many compressed bytes were consumed.
+    pub fn decompress(d: *Decode, reader: *Reader, allocating: *Writer.Allocating) !u64 {
         const gpa = allocating.allocator;
 
         var accum = AccumBuffer.init(std.math.maxInt(usize));
         defer accum.deinit(gpa);
 
+        var n_read: u64 = 0;
+
         while (true) {
             const status = try reader.takeByte();
+            n_read += 1;
 
             switch (status) {
                 0 => break,
-                1 => try parseUncompressed(reader, allocating, &accum, true),
-                2 => try parseUncompressed(reader, allocating, &accum, false),
-                else => try d.parseLzma(reader, allocating, &accum, status),
+                1 => n_read += try parseUncompressed(reader, allocating, &accum, true),
+                2 => n_read += try parseUncompressed(reader, allocating, &accum, false),
+                else => n_read += try d.parseLzma(reader, allocating, &accum, status),
             }
         }
 
         try accum.finish(&allocating.writer);
+        return n_read;
     }
 
     fn parseLzma(
@@ -142,7 +147,7 @@ pub const Decode = struct {
         allocating: *Writer.Allocating,
         accum: *AccumBuffer,
         status: u8,
-    ) !void {
+    ) !u64 {
         if (status & 0x80 == 0) return error.CorruptInput;
 
         const Reset = struct {
@@ -175,15 +180,19 @@ pub const Decode = struct {
             else => unreachable,
         };
 
+        var n_read: u64 = 0;
+
         const unpacked_size = blk: {
             var tmp: u64 = status & 0x1F;
             tmp <<= 16;
             tmp |= try reader.takeInt(u16, .big);
+            n_read += 2;
             break :blk tmp + 1;
         };
 
         const packed_size = blk: {
             const tmp: u17 = try reader.takeInt(u16, .big);
+            n_read += 2;
             break :blk tmp + 1;
         };
 
@@ -196,6 +205,7 @@ pub const Decode = struct {
 
             if (reset.props) {
                 var props = try reader.takeByte();
+                n_read += 1;
                 if (props >= 225) {
                     return error.CorruptInput;
                 }
@@ -216,23 +226,21 @@ pub const Decode = struct {
             try ld.resetState(allocating.allocator, new_props);
         }
 
-        var range_decoder = try lzma.RangeDecoder.init(reader);
+        const start_count = n_read;
+        var range_decoder = try lzma.RangeDecoder.initCounting(reader, &n_read);
 
         while (true) {
             if (accum.len >= unpacked_size) break;
             if (range_decoder.isFinished()) break;
-            switch (try ld.process(reader, allocating, accum, &range_decoder)) {
+            switch (try ld.process(reader, allocating, accum, &range_decoder, &n_read)) {
                 .more => continue,
                 .finished => break,
             }
         }
         if (accum.len != unpacked_size) return error.DecompressedSizeMismatch;
+        if (n_read - start_count != packed_size) return error.CompressedSizeMismatch;
 
-        // TODO restore this error
-        //if (counter.bytes_read != packed_size) {
-        //    return error.CorruptInput;
-        //}
-        _ = packed_size;
+        return n_read;
     }
 
     fn parseUncompressed(
@@ -240,18 +248,17 @@ pub const Decode = struct {
         allocating: *Writer.Allocating,
         accum: *AccumBuffer,
         reset_dict: bool,
-    ) !void {
+    ) !usize {
         const unpacked_size = @as(u17, try reader.takeInt(u16, .big)) + 1;
 
         if (reset_dict) try accum.reset(&allocating.writer);
 
         const gpa = allocating.allocator;
 
-        var i = unpacked_size;
-        while (i != 0) {
+        for (0..unpacked_size) |_| {
             try accum.appendByte(gpa, try reader.takeByte());
-            i -= 1;
         }
+        return 2 + unpacked_size;
     }
 };
 
@@ -268,6 +275,7 @@ test "decompress hello world stream" {
     var result: std.Io.Writer.Allocating = .init(gpa);
     defer result.deinit();
 
-    try decode.decompress(&stream, &result);
+    const n_read = try decode.decompress(&stream, &result);
+    try std.testing.expectEqual(compressed.len, n_read);
     try std.testing.expectEqualStrings(expected, result.written());
 }
