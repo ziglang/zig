@@ -13,13 +13,24 @@ fn decompress(data: []const u8) ![]u8 {
     return xz_stream.reader.allocRemaining(gpa, .unlimited);
 }
 
-fn testReader(data: []const u8, comptime expected: []const u8) !void {
+fn testReader(data: []const u8, expected: []const u8) !void {
     const gpa = testing.allocator;
 
     const result = try decompress(data);
     defer gpa.free(result);
 
     try testing.expectEqualSlices(u8, expected, result);
+}
+
+fn testDecompressError(expected: anyerror, compressed: []const u8) !void {
+    const gpa = std.testing.allocator;
+    var stream: std.Io.Reader = .fixed(compressed);
+
+    var decompressor = try xz.Decompress.init(&stream, gpa, &.{});
+    defer decompressor.deinit();
+
+    try std.testing.expectError(error.ReadFailed, decompressor.reader.allocRemaining(gpa, .unlimited));
+    try std.testing.expectEqual(expected, decompressor.err orelse return error.TestFailed);
 }
 
 test "fixture good-0-empty.xz" {
@@ -98,21 +109,32 @@ test "fixture good-1-lzma2-5.xz" {
     try testReader(@embedFile("testdata/good-1-lzma2-5.xz"), "");
 }
 
-test "unsupported" {
-    inline for ([_][]const u8{
-        "good-1-delta-lzma2.tiff.xz",
-        "good-1-x86-lzma2.xz",
-        "good-1-sparc-lzma2.xz",
-        "good-1-arm64-lzma2-1.xz",
-        "good-1-arm64-lzma2-2.xz",
-        "good-1-3delta-lzma2.xz",
-        "good-1-empty-bcj-lzma2.xz",
-    }) |filename| {
-        try testing.expectError(
-            error.Unsupported,
-            decompress(@embedFile("testdata/" ++ filename)),
-        );
-    }
+test "fixture good-1-delta-lzma2.tiff.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-delta-lzma2.tiff.xz"));
+}
+
+test "fixture good-1-x86-lzma2.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-x86-lzma2.xz"));
+}
+
+test "fixture good-1-sparc-lzma2.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-sparc-lzma2.xz"));
+}
+
+test "fixture good-1-arm64-lzma2-1.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-arm64-lzma2-1.xz"));
+}
+
+test "fixture good-1-arm64-lzma2-2.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-arm64-lzma2-2.xz"));
+}
+
+test "fixture good-1-3delta-lzma2.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-3delta-lzma2.xz"));
+}
+
+test "fixture good-1-empty-bcj-lzma2.xz" {
+    try testDecompressError(error.Unsupported, @embedFile("testdata/good-1-empty-bcj-lzma2.xz"));
 }
 
 fn testDontPanic(data: []const u8) !void {
@@ -127,6 +149,8 @@ test "size fields: integer overflow avoidance" {
     // These cases were found via fuzz testing and each previously caused
     // an integer overflow when decoding. We just want to ensure they no longer
     // cause a panic
+    // TODO this not a sufficient way to test. tests should always check the result,
+    // not merely ensure that the code does not crash.
     const header_size_overflow = "\xfd7zXZ\x00\x00\x01i\"\xde6z";
     try testDontPanic(header_size_overflow);
     const lzma2_chunk_size_overflow = "\xfd7zXZ\x00\x00\x01i\"\xde6\x02\x00!\x01\x08\x00\x00\x00\xd8\x0f#\x13\x01\xff\xff";
