@@ -140,21 +140,21 @@ pub fn buildCrtFile(comp: *Compilation, in_crt_file: CrtFile, prog_node: std.Pro
                 if (!is_arch_specific) {
                     // Look for an arch specific override.
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
+                    try override_path.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.s", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))
                         continue;
 
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
+                    try override_path.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.S", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))
                         continue;
 
                     override_path.shrinkRetainingCapacity(0);
-                    try override_path.writer().print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
+                    try override_path.print("{s}" ++ s ++ "{s}" ++ s ++ "{s}.c", .{
                         dirname, arch_name, noextbasename,
                     });
                     if (source_table.contains(override_path.items))

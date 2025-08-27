@@ -752,9 +752,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
             if (ver.patch == 0) {
-                try map_contents.writer().print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
+                try map_contents.print("GLIBC_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
             } else {
-                try map_contents.writer().print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
+                try map_contents.print("GLIBC_{d}.{d}.{d} {{ }};\n", .{ ver.major, ver.minor, ver.patch });
             }
         }
         try o_directory.handle.writeFile(.{ .sub_path = all_map_basename, .data = map_contents.items });
@@ -773,7 +773,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.array_list.Managed(u8).init(arena);
+        var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions_buffer: [32]u8 = undefined;
         var versions_len: usize = undefined;
@@ -794,24 +794,23 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         // twice, which causes a "duplicate symbol" assembler error.
         var versions_written = std.AutoArrayHashMap(Version, void).init(arena);
 
-        var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
-        var inc_reader = inc_fbs.reader();
+        var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
-        const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+        const fn_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;
                 versions_len = 0;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
-            const targets = try std.leb.readUleb128(u64, inc_reader);
-            var lib_index = try inc_reader.readByte();
+            const targets = try inc_reader.takeLeb128(u64);
+            var lib_index = try inc_reader.takeByte();
 
             const is_terminal = (lib_index & (1 << 7)) != 0;
             if (is_terminal) {
@@ -825,7 +824,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = try inc_reader.readByte();
+                const byte = try inc_reader.takeByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -880,7 +879,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function
@@ -905,7 +904,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor, ver.patch },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %function
@@ -950,7 +949,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         // versions where the symbol didn't exist. We only care about modern glibc versions, so use
         // a strong reference.
         if (std.mem.eql(u8, lib.name, "c")) {
-            try stubs_asm.writer().print(
+            try stubs_asm.print(
                 \\.balign {d}
                 \\.globl _IO_stdin_used
                 \\{s} _IO_stdin_used
@@ -963,7 +962,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
 
         try stubs_asm.appendSlice(".data\n");
 
-        const obj_inclusions_len = try inc_reader.readInt(u16, .little);
+        const obj_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         var sizes = try arena.alloc(u16, metadata.all_versions.len);
 
@@ -974,17 +973,17 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;
                 versions_len = 0;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
-            const targets = try std.leb.readUleb128(u64, inc_reader);
-            const size = try std.leb.readUleb128(u16, inc_reader);
-            var lib_index = try inc_reader.readByte();
+            const targets = try inc_reader.takeLeb128(u64);
+            const size = try inc_reader.takeLeb128(u16);
+            var lib_index = try inc_reader.takeByte();
 
             const is_terminal = (lib_index & (1 << 7)) != 0;
             if (is_terminal) {
@@ -998,7 +997,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
             while (true) {
-                const byte = try inc_reader.readByte();
+                const byte = try inc_reader.takeByte();
                 const last = (byte & 0b1000_0000) != 0;
                 const ver_i = @as(u7, @truncate(byte));
                 if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -1055,7 +1054,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object
@@ -1083,7 +1082,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                             "{s}_{d}_{d}_{d}",
                             .{ sym_name, ver.major, ver.minor, ver.patch },
                         );
-                        try stubs_asm.writer().print(
+                        try stubs_asm.print(
                             \\.balign {d}
                             \\.globl {s}
                             \\.type {s}, %object
