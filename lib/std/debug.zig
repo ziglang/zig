@@ -498,10 +498,17 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         }
         stack_trace.index = slice.len;
     } else {
-        // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
-        //       A new path for loading SelfInfo needs to be created which will only attempt to parse in-memory sections, because
-        //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
-        var it = StackIterator.init(first_address, @frameAddress());
+        if (builtin.cpu.arch == .powerpc64) {
+            // https://github.com/ziglang/zig/issues/24970
+            stack_trace.index = 0;
+            return;
+        }
+        var context: ThreadContext = undefined;
+        const has_context = getContext(&context);
+
+        var it = (if (has_context) blk: {
+            break :blk StackIterator.initWithContext(first_address, getSelfDebugInfo() catch break :blk null, &context) catch null;
+        } else null) orelse StackIterator.init(first_address, null);
         defer it.deinit();
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
             addr.* = it.next() orelse {
@@ -764,7 +771,7 @@ pub fn writeStackTrace(
 }
 
 pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(StackIterator.next_unwind)).@"fn".return_type.?).error_union.error_set
+    @typeInfo(@typeInfo(@TypeOf(SelfInfo.unwindFrame)).@"fn".return_type.?).error_union.error_set
 else
     void;
 
@@ -865,11 +872,11 @@ pub const StackIterator = struct {
         @sizeOf(usize);
 
     pub fn next(it: *StackIterator) ?usize {
-        var address = it.next_internal() orelse return null;
+        var address = it.nextInternal() orelse return null;
 
         if (it.first_address) |first_address| {
             while (address != first_address) {
-                address = it.next_internal() orelse return null;
+                address = it.nextInternal() orelse return null;
             }
             it.first_address = null;
         }
@@ -877,48 +884,13 @@ pub const StackIterator = struct {
         return address;
     }
 
-    fn next_unwind(it: *StackIterator) !usize {
-        const unwind_state = &it.unwind_state.?;
-        const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
-        switch (native_os) {
-            .macos, .ios, .watchos, .tvos, .visionos => {
-                // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
-                // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-                if (module.unwind_info) |unwind_info| {
-                    if (SelfInfo.unwindFrameMachO(
-                        unwind_state.debug_info.allocator,
-                        module.base_address,
-                        &unwind_state.dwarf_context,
-                        unwind_info,
-                        module.eh_frame,
-                    )) |return_address| {
-                        return return_address;
-                    } else |err| {
-                        if (err != error.RequiresDWARFUnwind) return err;
-                    }
-                } else return error.MissingUnwindInfo;
-            },
-            else => {},
-        }
-
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
-            return SelfInfo.unwindFrameDwarf(
-                unwind_state.debug_info.allocator,
-                di,
-                module.base_address,
-                &unwind_state.dwarf_context,
-                null,
-            );
-        } else return error.MissingDebugInfo;
-    }
-
-    fn next_internal(it: *StackIterator) ?usize {
+    fn nextInternal(it: *StackIterator) ?usize {
         if (have_ucontext) {
             if (it.unwind_state) |*unwind_state| {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
                     defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (it.next_unwind()) |return_address| {
+                    if (unwind_state.debug_info.unwindFrame(&unwind_state.dwarf_context)) |return_address| {
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -948,7 +920,7 @@ pub const StackIterator = struct {
         // Sanity check: the stack grows down thus all the parent frames must be
         // be at addresses that are greater (or equal) than the previous one.
         // A zero frame pointer often signals this is the last frame, that case
-        // is gracefully handled by the next call to next_internal.
+        // is gracefully handled by the next call to nextInternal.
         if (new_fp != 0 and new_fp < it.fp) return null;
         const new_pc = @as(*usize, @ptrFromInt(math.add(usize, fp, pc_offset) catch return null)).*;
 
@@ -1099,12 +1071,7 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err:
 }
 
 pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
-    const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
-        else => return err,
-    };
-
-    const symbol_info = module.getSymbolAtAddress(debug_info.allocator, address) catch |err| switch (err) {
+    const symbol_info = debug_info.getSymbolAtAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
         else => return err,
     };
