@@ -1229,6 +1229,27 @@ const targets = [_]ArchTarget{
                 .llvm_name = "64bit-mode",
                 .omit = true,
             },
+            // Remove these when LLVM removes AVX10.N-256 support.
+            .{
+                .llvm_name = "avx10.1-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.2-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.1-512",
+                .zig_name = "avx10_1",
+            },
+            .{
+                .llvm_name = "avx10.2-512",
+                .zig_name = "avx10_2",
+            },
+            .{
+                .llvm_name = "avx512f",
+                .extra_deps = &.{"evex512"},
+            },
             .{
                 .llvm_name = "alderlake",
                 .extra_deps = &.{ "smap", "smep" },
