@@ -248,11 +248,8 @@ pub fn inverseNormalDist(y0: f64) f64 {
     else
         z * polevl(z, P2[0..]) / p1evl(z, Q2[0..]);
 
-    x = x0 - x1;
-    if (!code) {
-        x = -x;
-    }
-
+    x = if (code) x1 - x0 else x0 - x1;
+    
     return x;
 }
 
@@ -261,7 +258,7 @@ const expect = std.testing.expect;
 const epsilon = 1e5;
 
 test "inverseNormalDist" {
-    try expectApproxEqRel(inverseNormalDist(7.62e-24), 10, epsilon);
+    try expectApproxEqRel(inverseNormalDist(7.62e-24), -10, epsilon);
     try expectApproxEqRel(inverseNormalDist(0.1587), -1, epsilon);
     try expectApproxEqRel(inverseNormalDist(0.5), 0, epsilon);
     try expectApproxEqRel(inverseNormalDist(0.8413), 1, epsilon);
