@@ -90,7 +90,7 @@ pub const MemoryType = enum(u32) {
         return @truncate(as_int - vendor_start);
     }
 
-    pub fn format(self: MemoryType, w: *std.io.Writer) std.io.WriteError!void {
+    pub fn format(self: MemoryType, w: *std.io.Writer) std.io.Writer.Error!void {
         if (self.toOem()) |oemval|
             try w.print("OEM({X})", .{oemval})
         else if (self.toVendor()) |vendorval|
