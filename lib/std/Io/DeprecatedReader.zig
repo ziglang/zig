@@ -290,7 +290,3 @@ const mem = std.mem;
 const testing = std.testing;
 const native_endian = @import("builtin").target.cpu.arch.endian();
 const Alignment = std.mem.Alignment;
-
-test {
-    _ = @import("Reader/test.zig");
-}

@@ -144,48 +144,6 @@ pub fn GenericReader(
             return @errorCast(self.any().readAllAlloc(allocator, max_size));
         }
 
-        pub inline fn readUntilDelimiterAlloc(
-            self: Self,
-            allocator: Allocator,
-            delimiter: u8,
-            max_size: usize,
-        ) (NoEofError || Allocator.Error || error{StreamTooLong})![]u8 {
-            return @errorCast(self.any().readUntilDelimiterAlloc(
-                allocator,
-                delimiter,
-                max_size,
-            ));
-        }
-
-        pub inline fn readUntilDelimiter(
-            self: Self,
-            buf: []u8,
-            delimiter: u8,
-        ) (NoEofError || error{StreamTooLong})![]u8 {
-            return @errorCast(self.any().readUntilDelimiter(buf, delimiter));
-        }
-
-        pub inline fn readUntilDelimiterOrEofAlloc(
-            self: Self,
-            allocator: Allocator,
-            delimiter: u8,
-            max_size: usize,
-        ) (Error || Allocator.Error || error{StreamTooLong})!?[]u8 {
-            return @errorCast(self.any().readUntilDelimiterOrEofAlloc(
-                allocator,
-                delimiter,
-                max_size,
-            ));
-        }
-
-        pub inline fn readUntilDelimiterOrEof(
-            self: Self,
-            buf: []u8,
-            delimiter: u8,
-        ) (Error || error{StreamTooLong})!?[]u8 {
-            return @errorCast(self.any().readUntilDelimiterOrEof(buf, delimiter));
-        }
-
         pub inline fn streamUntilDelimiter(
             self: Self,
             writer: anytype,

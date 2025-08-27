@@ -683,11 +683,11 @@ test "mmap" {
         const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
-        const stream = file.deprecatedWriter();
+        var stream = file.writer(&.{});
 
         var i: u32 = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try stream.writeInt(u32, i, .little);
+            try stream.interface.writeInt(u32, i, .little);
         }
     }
 
