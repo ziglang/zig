@@ -9,6 +9,7 @@ const Compilation = @import("Compilation.zig");
 const Type = @import("Type.zig");
 const target_util = @import("target.zig");
 const annex_g = @import("annex_g.zig");
+const Writer = std.Io.Writer;
 
 const Value = @This();
 
@@ -953,7 +954,7 @@ pub fn maxInt(ty: Type, comp: *Compilation) !Value {
     return twosCompIntLimit(.max, ty, comp);
 }
 
-pub fn print(v: Value, ty: Type, comp: *const Compilation, w: anytype) @TypeOf(w).Error!void {
+pub fn print(v: Value, ty: Type, comp: *const Compilation, w: *Writer) Writer.Error!void {
     if (ty.is(.bool)) {
         return w.writeAll(if (v.isZero(comp)) "false" else "true");
     }
@@ -977,7 +978,7 @@ pub fn print(v: Value, ty: Type, comp: *const Compilation, w: anytype) @TypeOf(w
     }
 }
 
-pub fn printString(bytes: []const u8, ty: Type, comp: *const Compilation, w: anytype) @TypeOf(w).Error!void {
+pub fn printString(bytes: []const u8, ty: Type, comp: *const Compilation, w: *Writer) Writer.Error!void {
     const size: Compilation.CharUnitSize = @enumFromInt(ty.elemType().sizeof(comp).?);
     const without_null = bytes[0 .. bytes.len - @intFromEnum(size)];
     try w.writeByte('"');

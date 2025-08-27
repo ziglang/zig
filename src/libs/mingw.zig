@@ -334,7 +334,10 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.deprecatedWriter(), .result_only);
+        var buffer: [1024]u8 = undefined;
+        var def_final_file_writer = def_final_file.writer(&buffer);
+        try pp.prettyPrintTokens(&def_final_file_writer.interface, .result_only);
+        try def_final_file_writer.interface.flush();
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
