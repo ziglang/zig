@@ -200,35 +200,42 @@ test "variadic functions" {
     if (builtin.cpu.arch.isSPARC() and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23718
 
     const S = struct {
-        fn printf(list_ptr: *std.array_list.Managed(u8), format: [*:0]const u8, ...) callconv(.c) void {
+        fn printf(buffer: [*]u8, format: [*:0]const u8, ...) callconv(.c) void {
             var ap = @cVaStart();
             defer @cVaEnd(&ap);
-            vprintf(list_ptr, format, &ap);
+            vprintf(buffer, format, &ap);
         }
 
-        fn vprintf(
-            list: *std.array_list.Managed(u8),
-            format: [*:0]const u8,
-            ap: *std.builtin.VaList,
-        ) callconv(.c) void {
-            for (std.mem.span(format)) |c| switch (c) {
+        fn vprintf(buffer: [*]u8, format: [*:0]const u8, ap: *std.builtin.VaList) callconv(.c) void {
+            var i: usize = 0;
+            for (format[0..3]) |byte| switch (byte) {
                 's' => {
                     const arg = @cVaArg(ap, [*:0]const u8);
-                    list.writer().print("{s}", .{arg}) catch return;
+                    buffer[i..][0..5].* = arg[0..5].*;
+                    i += 5;
                 },
                 'd' => {
                     const arg = @cVaArg(ap, c_int);
-                    list.writer().print("{d}", .{arg}) catch return;
+                    switch (arg) {
+                        1 => {
+                            buffer[i] = '1';
+                            i += 1;
+                        },
+                        5 => {
+                            buffer[i] = '5';
+                            i += 1;
+                        },
+                        else => unreachable,
+                    }
                 },
                 else => unreachable,
             };
         }
     };
 
-    var list = std.array_list.Managed(u8).init(std.testing.allocator);
-    defer list.deinit();
-    S.printf(&list, "dsd", @as(c_int, 1), @as([*:0]const u8, "hello"), @as(c_int, 5));
-    try std.testing.expectEqualStrings("1hello5", list.items);
+    var buffer: [7]u8 = undefined;
+    S.printf(&buffer, "dsd", @as(c_int, 1), @as([*:0]const u8, "hello"), @as(c_int, 5));
+    try expect(std.mem.eql(u8, &buffer, "1hello5"));
 }
 
 test "copy VaList" {
