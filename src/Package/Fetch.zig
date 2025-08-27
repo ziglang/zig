@@ -1204,12 +1204,10 @@ fn unpackResource(
         },
         .@"tar.xz" => {
             const gpa = f.arena.child_allocator;
-            var dcp = std.compress.xz.decompress(gpa, resource.reader().adaptToOldInterface()) catch |err|
+            var decompress = std.compress.xz.Decompress.init(resource.reader(), gpa, &.{}) catch |err|
                 return f.fail(f.location_tok, try eb.printString("unable to decompress tarball: {t}", .{err}));
-            defer dcp.deinit();
-            var adapter_buffer: [1024]u8 = undefined;
-            var adapter = dcp.reader().adaptToNewApi(&adapter_buffer);
-            return try unpackTarball(f, tmp_directory.handle, &adapter.new_interface);
+            defer decompress.deinit();
+            return try unpackTarball(f, tmp_directory.handle, &decompress.reader);
         },
         .@"tar.zst" => {
             const window_len = std.compress.zstd.default_window_len;
