@@ -1,8 +1,5 @@
-.global floorl
-.type floorl,@function
-floorl:
-	fldt 8(%esp)
-1:	mov $0x7,%al
+/* zig patch: removed `floorl` in favor of using zig compiler_rt's implementations */
+
 1:	fstcw 8(%esp)
 	mov 9(%esp),%ah
 	mov %al,9(%esp)
