@@ -440,7 +440,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
             return;
         }
 
-        var it = StackIterator.initWithContext(null, debug_info, context) catch return;
+        var it = StackIterator.initWithContext(null, debug_info, context, @frameAddress()) catch return;
         defer it.deinit();
 
         // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
@@ -499,12 +499,7 @@ pub fn captureStackTrace(first_address: ?usize, stack_trace: *std.builtin.StackT
         // TODO: This should use the DWARF unwinder if .eh_frame_hdr is available (so that full debug info parsing isn't required).
         //       A new path for loading SelfInfo needs to be created which will only attempt to parse in-memory sections, because
         //       stopping to load other debug info (ie. source line info) from disk here is not required for unwinding.
-        if (builtin.cpu.arch == .powerpc64) {
-            // https://github.com/ziglang/zig/issues/24970
-            stack_trace.index = 0;
-            return;
-        }
-        var it = StackIterator.init(first_address, null);
+        var it = StackIterator.init(first_address, @frameAddress());
         defer it.deinit();
         for (stack_trace.instruction_addresses, 0..) |*addr, i| {
             addr.* = it.next() orelse {
@@ -787,7 +782,7 @@ pub const StackIterator = struct {
         failed: bool = false,
     } else void = if (have_ucontext) null else {},
 
-    pub fn init(first_address: ?usize, fp: ?usize) StackIterator {
+    pub fn init(first_address: ?usize, fp: usize) StackIterator {
         if (native_arch.isSPARC()) {
             // Flush all the register windows on stack.
             asm volatile (if (builtin.cpu.has(.sparc, .v9))
@@ -799,23 +794,18 @@ pub const StackIterator = struct {
 
         return .{
             .first_address = first_address,
-            // TODO: this is a workaround for #16876
-            //.fp = fp orelse @frameAddress(),
-            .fp = fp orelse blk: {
-                const fa = @frameAddress();
-                break :blk fa;
-            },
+            .fp = fp,
         };
     }
 
-    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t) !StackIterator {
+    pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t, fp: usize) !StackIterator {
         // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
         // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
         if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
             return init(first_address, @truncate(context.mcontext.ss.fp));
 
         if (SelfInfo.supports_unwinding) {
-            var iterator = init(first_address, null);
+            var iterator = init(first_address, fp);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
                 .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
@@ -823,7 +813,7 @@ pub const StackIterator = struct {
             return iterator;
         }
 
-        return init(first_address, null);
+        return init(first_address, fp);
     }
 
     pub fn deinit(it: *StackIterator) void {
@@ -981,8 +971,8 @@ pub fn writeCurrentStackTrace(
     const has_context = getContext(&context);
 
     var it = (if (has_context) blk: {
-        break :blk StackIterator.initWithContext(start_addr, debug_info, &context) catch null;
-    } else null) orelse StackIterator.init(start_addr, null);
+        break :blk StackIterator.initWithContext(start_addr, debug_info, &context, @frameAddress()) catch null;
+    } else null) orelse StackIterator.init(start_addr, @frameAddress());
     defer it.deinit();
 
     while (it.next()) |return_address| {
