@@ -1102,11 +1102,10 @@ const CorrespondingLines = struct {
         corresponding_lines.buffered_reader = corresponding_lines.file.reader(&.{});
         errdefer corresponding_lines.deinit();
 
-        var fbs = std.io.fixedBufferStream(&corresponding_lines.line_buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&corresponding_lines.line_buf);
 
         try corresponding_lines.writeLineFromStreamVerbatim(
-            writer,
+            &writer,
             corresponding_lines.buffered_reader.interface.adaptToOldInterface(),
             corresponding_span.start_line,
         );
@@ -1145,11 +1144,10 @@ const CorrespondingLines = struct {
         self.line_len = 0;
         self.visual_line_len = 0;
 
-        var fbs = std.io.fixedBufferStream(&self.line_buf);
-        const writer = fbs.writer();
+        var writer: std.Io.Writer = .fixed(&self.line_buf);
 
         try self.writeLineFromStreamVerbatim(
-            writer,
+            &writer,
             self.buffered_reader.interface.adaptToOldInterface(),
             self.line_num,
         );
@@ -1164,7 +1162,7 @@ const CorrespondingLines = struct {
         return visual_line;
     }
 
-    fn writeLineFromStreamVerbatim(self: *CorrespondingLines, writer: anytype, input: anytype, line_num: usize) !void {
+    fn writeLineFromStreamVerbatim(self: *CorrespondingLines, writer: *std.Io.Writer, input: anytype, line_num: usize) !void {
         while (try readByteOrEof(input)) |byte| {
             switch (byte) {
                 '\n', '\r' => {
@@ -1188,7 +1186,7 @@ const CorrespondingLines = struct {
                         if (writer.writeByte(byte)) {
                             self.line_len += 1;
                         } else |err| switch (err) {
-                            error.NoSpaceLeft => {},
+                            error.WriteFailed => {},
                             else => |e| return e,
                         }
                     }

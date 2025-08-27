@@ -18,12 +18,15 @@ pub fn preprocess(
     var driver: aro.Driver = .{ .comp = comp, .aro_name = "arocc" };
     defer driver.deinit();
 
-    var macro_buf = std.array_list.Managed(u8).init(comp.gpa);
+    var macro_buf: std.Io.Writer.Allocating = .init(comp.gpa);
     defer macro_buf.deinit();
 
-    _ = driver.parseArgs(std.io.null_writer, macro_buf.writer(), argv) catch |err| switch (err) {
+    var trash: [64]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&trash);
+    _ = driver.parseArgs(&discarding.writer, &macro_buf.writer, argv) catch |err| switch (err) {
         error.FatalError => return error.ArgError,
         error.OutOfMemory => |e| return e,
+        error.WriteFailed => return error.OutOfMemory,
     };
 
     if (hasAnyErrors(comp)) return error.ArgError;
@@ -33,7 +36,7 @@ pub fn preprocess(
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
-    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.items) catch |err| switch (err) {
+    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.written()) catch |err| switch (err) {
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
@@ -59,7 +62,9 @@ pub fn preprocess(
 
     if (hasAnyErrors(comp)) return error.PreprocessError;
 
-    try pp.prettyPrintTokens(writer, .result_only);
+    pp.prettyPrintTokens(writer, .result_only) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 
     if (maybe_dependencies_list) |dependencies_list| {
         for (comp.sources.values()) |comp_source| {

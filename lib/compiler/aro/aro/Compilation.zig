@@ -537,8 +537,15 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
     var allocating: std.Io.Writer.Allocating = .init(comp.gpa);
     defer allocating.deinit();
 
-    const buf = &allocating.writer;
+    generateBuiltinMacrosWriter(comp, system_defines_mode, &allocating.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
 
+    return comp.addSourceFromBuffer("<builtin>", allocating.written());
+}
+
+pub fn generateBuiltinMacrosWriter(comp: *Compilation, system_defines_mode: SystemDefinesMode, buf: *Writer) !void {
     if (system_defines_mode == .include_system_defines) {
         try buf.writeAll(
             \\#define __VERSION__ "Aro
@@ -576,8 +583,6 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
     if (system_defines_mode == .include_system_defines) {
         try comp.generateSystemDefines(buf);
     }
-
-    return comp.addSourceFromBuffer("<builtin>", allocating.written());
 }
 
 fn generateFloatMacros(w: *Writer, prefix: []const u8, semantics: target_util.FPSemantics, ext: []const u8) !void {

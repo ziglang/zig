@@ -61,7 +61,7 @@ pub const CompileOptions = struct {
     warn_instead_of_error_on_invalid_code_page: bool = false,
 };
 
-pub fn compile(allocator: Allocator, source: []const u8, writer: anytype, options: CompileOptions) !void {
+pub fn compile(allocator: Allocator, source: []const u8, writer: *std.Io.Writer, options: CompileOptions) !void {
     var lexer = lex.Lexer.init(source, .{
         .default_code_page = options.default_code_page,
         .source_mappings = options.source_mappings,
@@ -194,7 +194,7 @@ pub const Compiler = struct {
         characteristics: u32 = 0,
     };
 
-    pub fn writeRoot(self: *Compiler, root: *Node.Root, writer: anytype) !void {
+    pub fn writeRoot(self: *Compiler, root: *Node.Root, writer: *std.Io.Writer) !void {
         try writeEmptyResource(writer);
         for (root.body) |node| {
             try self.writeNode(node, writer);
@@ -236,7 +236,7 @@ pub const Compiler = struct {
         }
     }
 
-    pub fn writeNode(self: *Compiler, node: *Node, writer: anytype) !void {
+    pub fn writeNode(self: *Compiler, node: *Node, writer: *std.Io.Writer) !void {
         switch (node.id) {
             .root => unreachable, // writeRoot should be called directly instead
             .resource_external => try self.writeResourceExternal(@alignCast(@fieldParentPtr("base", node)), writer),
@@ -479,7 +479,7 @@ pub const Compiler = struct {
         return buf.toOwnedSlice();
     }
 
-    pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: anytype) !void {
+    pub fn writeResourceExternal(self: *Compiler, node: *Node.ResourceExternal, writer: *std.Io.Writer) !void {
         // Init header with data size zero for now, will need to fill it in later
         var header = try self.resourceHeader(node.id, node.type, .{});
         defer header.deinit(self.allocator);
@@ -1226,33 +1226,31 @@ pub const Compiler = struct {
     }
 
     pub fn writeResourceRawData(self: *Compiler, node: *Node.ResourceRawData, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         for (node.raw_data) |expression| {
             const data = try self.evaluateDataExpression(expression);
             defer data.deinit(self.allocator);
             data.write(data_writer) catch |err| switch (err) {
-                error.NoSpaceLeft => {
+                error.WriteFailed => {
                     return self.addErrorDetailsAndFail(.{
                         .err = .resource_data_size_exceeds_max,
                         .token = node.id,
                     });
                 },
-                else => |e| return e,
             };
         }
 
         // This intCast can't fail because the limitedWriter above guarantees that
         // we will never write more than maxInt(u32) bytes.
-        const data_len: u32 = @intCast(data_buffer.items.len);
+        const data_len: u32 = @intCast(data_buffer.written().len);
         try self.writeResourceHeader(writer, node.id, node.type, data_len, node.common_resource_attributes, self.state.language);
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_len);
     }
 
@@ -1306,16 +1304,15 @@ pub const Compiler = struct {
     }
 
     pub fn writeAccelerators(self: *Compiler, node: *Node.Accelerators, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
 
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         self.writeAcceleratorsData(node, data_writer) catch |err| switch (err) {
-            error.NoSpaceLeft => {
+            error.WriteFailed => {
                 return self.addErrorDetailsAndFail(.{
                     .err = .resource_data_size_exceeds_max,
                     .token = node.id,
@@ -1326,7 +1323,7 @@ pub const Compiler = struct {
 
         // This intCast can't fail because the limitedWriter above guarantees that
         // we will never write more than maxInt(u32) bytes.
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -1337,7 +1334,7 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_size);
     }
 
@@ -1405,12 +1402,11 @@ pub const Compiler = struct {
     };
 
     pub fn writeDialog(self: *Compiler, node: *Node.Dialog, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         const resource = ResourceType.fromString(.{
             .slice = node.type.slice(self.source),
@@ -1683,7 +1679,7 @@ pub const Compiler = struct {
         ) catch |err| switch (err) {
             // Dialog header and menu/class/title strings can never exceed u32 bytes
             // on their own, so this error is unreachable.
-            error.NoSpaceLeft => unreachable,
+            error.WriteFailed => unreachable,
             else => |e| return e,
         };
 
@@ -1700,10 +1696,10 @@ pub const Compiler = struct {
                 data_writer,
                 resource,
                 // We know the data_buffer len is limited to u32 max.
-                @intCast(data_buffer.items.len),
+                @intCast(data_buffer.written().len),
                 &controls_by_id,
             ) catch |err| switch (err) {
-                error.NoSpaceLeft => {
+                error.WriteFailed => {
                     try self.addErrorDetails(.{
                         .err = .resource_data_size_exceeds_max,
                         .token = node.id,
@@ -1719,7 +1715,7 @@ pub const Compiler = struct {
         }
 
         // We know the data_buffer len is limited to u32 max.
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -1730,7 +1726,7 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_size);
     }
 
@@ -1821,7 +1817,7 @@ pub const Compiler = struct {
                 .token = control.type,
             });
         }
-        try data_writer.writeByteNTimes(0, num_padding);
+        try data_writer.splatByteAll(0, num_padding);
 
         const style = if (control.style) |style_expression|
             // Certain styles are implied by the control type
@@ -1973,16 +1969,15 @@ pub const Compiler = struct {
             try NameOrOrdinal.writeEmpty(data_writer);
         }
 
-        var extra_data_buf = std.array_list.Managed(u8).init(self.allocator);
+        var extra_data_buf: std.Io.Writer.Allocating = .init(self.allocator);
         defer extra_data_buf.deinit();
         // The extra data byte length must be able to fit within a u16.
-        var limited_extra_data_writer = limitedWriter(extra_data_buf.writer(), std.math.maxInt(u16));
-        const extra_data_writer = limited_extra_data_writer.writer();
+        const extra_data_writer = &extra_data_buf.writer;
         for (control.extra_data) |data_expression| {
             const data = try self.evaluateDataExpression(data_expression);
             defer data.deinit(self.allocator);
             data.write(extra_data_writer) catch |err| switch (err) {
-                error.NoSpaceLeft => {
+                error.WriteFailed => {
                     try self.addErrorDetails(.{
                         .err = .control_extra_data_size_exceeds_max,
                         .token = control.type,
@@ -1998,15 +1993,15 @@ pub const Compiler = struct {
             };
         }
         // We know the extra_data_buf size fits within a u16.
-        const extra_data_size: u16 = @intCast(extra_data_buf.items.len);
+        const extra_data_size: u16 = @intCast(extra_data_buf.written().len);
         try data_writer.writeInt(u16, extra_data_size, .little);
-        try data_writer.writeAll(extra_data_buf.items);
+        try data_writer.writeAll(extra_data_buf.written());
     }
 
     pub fn writeToolbar(self: *Compiler, node: *Node.Toolbar, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
-        const data_writer = data_buffer.writer();
+        const data_writer = &data_buffer.writer;
 
         const button_width = evaluateNumberExpression(node.button_width, self.source, self.input_code_pages);
         const button_height = evaluateNumberExpression(node.button_height, self.source, self.input_code_pages);
@@ -2034,7 +2029,7 @@ pub const Compiler = struct {
             }
         }
 
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -2044,7 +2039,7 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_size);
     }
 
@@ -2082,12 +2077,11 @@ pub const Compiler = struct {
     }
 
     pub fn writeMenu(self: *Compiler, node: *Node.Menu, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
         // The header's data length field is a u32 so limit the resource's data size so that
         // we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u32));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         const type_bytes = SourceBytes{
             .slice = node.type.slice(self.source),
@@ -2096,9 +2090,7 @@ pub const Compiler = struct {
         const resource = ResourceType.fromString(type_bytes);
         std.debug.assert(resource == .menu or resource == .menuex);
 
-        var adapted = data_writer.adaptToNewApi(&.{});
-
-        self.writeMenuData(node, &adapted.new_interface, resource) catch |err| switch (err) {
+        self.writeMenuData(node, data_writer, resource) catch |err| switch (err) {
             error.WriteFailed => {
                 return self.addErrorDetailsAndFail(.{
                     .err = .resource_data_size_exceeds_max,
@@ -2110,7 +2102,7 @@ pub const Compiler = struct {
 
         // This intCast can't fail because the limitedWriter above guarantees that
         // we will never write more than maxInt(u32) bytes.
-        const data_size: u32 = @intCast(data_buffer.items.len);
+        const data_size: u32 = @intCast(data_buffer.written().len);
         var header = try self.resourceHeader(node.id, node.type, .{
             .data_size = data_size,
         });
@@ -2121,7 +2113,7 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_size);
     }
 
@@ -2265,12 +2257,11 @@ pub const Compiler = struct {
     }
 
     pub fn writeVersionInfo(self: *Compiler, node: *Node.VersionInfo, writer: anytype) !void {
-        var data_buffer = std.array_list.Managed(u8).init(self.allocator);
+        var data_buffer: std.Io.Writer.Allocating = .init(self.allocator);
         defer data_buffer.deinit();
         // The node's length field (which is inclusive of the length of all of its children) is a u16
         // so limit the node's data size so that we know we can always specify the real size.
-        var limited_writer = limitedWriter(data_buffer.writer(), std.math.maxInt(u16));
-        const data_writer = limited_writer.writer();
+        const data_writer = &data_buffer.writer;
 
         try data_writer.writeInt(u16, 0, .little); // placeholder size
         try data_writer.writeInt(u16, res.FixedFileInfo.byte_len, .little);
@@ -2354,8 +2345,7 @@ pub const Compiler = struct {
         try fixed_file_info.write(data_writer);
 
         for (node.block_statements) |statement| {
-            var adapted = data_writer.adaptToNewApi(&.{});
-            self.writeVersionNode(statement, &adapted.new_interface, &data_buffer) catch |err| switch (err) {
+            self.writeVersionNode(statement, data_writer, &data_buffer) catch |err| switch (err) {
                 error.WriteFailed => {
                     try self.addErrorDetails(.{
                         .err = .version_node_size_exceeds_max,
@@ -2374,9 +2364,9 @@ pub const Compiler = struct {
 
         // We know that data_buffer.items.len is within the limits of a u16, since we
         // limited the writer to maxInt(u16)
-        const data_size: u16 = @intCast(data_buffer.items.len);
+        const data_size: u16 = @intCast(data_buffer.written().len);
         // And now that we know the full size of this node (including its children), set its size
-        std.mem.writeInt(u16, data_buffer.items[0..2], data_size, .little);
+        std.mem.writeInt(u16, data_buffer.written()[0..2], data_size, .little);
 
         var header = try self.resourceHeader(node.id, node.versioninfo, .{
             .data_size = data_size,
@@ -2387,22 +2377,22 @@ pub const Compiler = struct {
 
         try header.write(writer, self.errContext(node.id));
 
-        var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+        var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
         try writeResourceData(writer, &data_fbs, data_size);
     }
 
     /// Expects writer to be a LimitedWriter limited to u16, meaning all writes to
     /// the writer within this function could return error.NoSpaceLeft, and that buf.items.len
     /// will never be able to exceed maxInt(u16).
-    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer, buf: *std.array_list.Managed(u8)) !void {
+    pub fn writeVersionNode(self: *Compiler, node: *Node, writer: *std.Io.Writer, buf: *std.Io.Writer.Allocating) !void {
         // We can assume that buf.items.len will never be able to exceed the limits of a u16
-        try writeDataPadding(writer, @as(u16, @intCast(buf.items.len)));
+        try writeDataPadding(writer, @as(u16, @intCast(buf.written().len)));
 
-        const node_and_children_size_offset = buf.items.len;
+        const node_and_children_size_offset = buf.written().len;
         try writer.writeInt(u16, 0, .little); // placeholder for size
-        const data_size_offset = buf.items.len;
+        const data_size_offset = buf.written().len;
         try writer.writeInt(u16, 0, .little); // placeholder for data size
-        const data_type_offset = buf.items.len;
+        const data_type_offset = buf.written().len;
         // Data type is string unless the node contains values that are numbers.
         try writer.writeInt(u16, res.VersionNode.type_string, .little);
 
@@ -2432,7 +2422,7 @@ pub const Compiler = struct {
                 // during parsing, so we can just do the correct thing here.
                 var values_size: usize = 0;
 
-                try writeDataPadding(writer, @intCast(buf.items.len));
+                try writeDataPadding(writer, @intCast(buf.written().len));
 
                 for (block_or_value.values, 0..) |value_value_node_uncasted, i| {
                     const value_value_node = value_value_node_uncasted.cast(.block_value_value).?;
@@ -2471,11 +2461,11 @@ pub const Compiler = struct {
                         }
                     }
                 }
-                var data_size_slice = buf.items[data_size_offset..];
+                var data_size_slice = buf.written()[data_size_offset..];
                 std.mem.writeInt(u16, data_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(values_size)), .little);
 
                 if (has_number_value) {
-                    const data_type_slice = buf.items[data_type_offset..];
+                    const data_type_slice = buf.written()[data_type_offset..];
                     std.mem.writeInt(u16, data_type_slice[0..@sizeOf(u16)], res.VersionNode.type_binary, .little);
                 }
 
@@ -2489,8 +2479,8 @@ pub const Compiler = struct {
             else => unreachable,
         }
 
-        const node_and_children_size = buf.items.len - node_and_children_size_offset;
-        const node_and_children_size_slice = buf.items[node_and_children_size_offset..];
+        const node_and_children_size = buf.written().len - node_and_children_size_offset;
+        const node_and_children_size_slice = buf.written()[node_and_children_size_offset..];
         std.mem.writeInt(u16, node_and_children_size_slice[0..@sizeOf(u16)], @as(u16, @intCast(node_and_children_size)), .little);
     }
 
@@ -2973,54 +2963,6 @@ pub fn headerSlurpingReader(comptime size: usize, reader: anytype) HeaderSlurpin
     return .{ .child_reader = reader };
 }
 
-/// Sort of like std.io.LimitedReader, but a Writer.
-/// Returns an error if writing the requested number of bytes
-/// would ever exceed bytes_left, i.e. it does not always
-/// write up to the limit and instead will error if the
-/// limit would be breached if the entire slice was written.
-pub fn LimitedWriter(comptime WriterType: type) type {
-    return struct {
-        inner_writer: WriterType,
-        bytes_left: u64,
-
-        pub const Error = error{NoSpaceLeft} || WriterType.Error;
-        pub const Writer = std.io.GenericWriter(*Self, Error, write);
-
-        const Self = @This();
-
-        pub fn write(self: *Self, bytes: []const u8) Error!usize {
-            if (bytes.len > self.bytes_left) return error.NoSpaceLeft;
-            const amt = try self.inner_writer.write(bytes);
-            self.bytes_left -= amt;
-            return amt;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-    };
-}
-
-/// Returns an initialised `LimitedWriter`
-/// `bytes_left` is a `u64` to be able to take 64 bit file offsets
-pub fn limitedWriter(inner_writer: anytype, bytes_left: u64) LimitedWriter(@TypeOf(inner_writer)) {
-    return .{ .inner_writer = inner_writer, .bytes_left = bytes_left };
-}
-
-test "limitedWriter basic usage" {
-    var buf: [4]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-    var limited_stream = limitedWriter(fbs.writer(), 4);
-    var writer = limited_stream.writer();
-
-    try std.testing.expectEqual(@as(usize, 3), try writer.write("123"));
-    try std.testing.expectEqualSlices(u8, "123", buf[0..3]);
-    try std.testing.expectError(error.NoSpaceLeft, writer.write("45"));
-    try std.testing.expectEqual(@as(usize, 1), try writer.write("4"));
-    try std.testing.expectEqualSlices(u8, "1234", buf[0..4]);
-    try std.testing.expectError(error.NoSpaceLeft, writer.write("5"));
-}
-
 pub const FontDir = struct {
     fonts: std.ArrayListUnmanaged(Font) = .empty,
     /// To keep track of which ids are set and where they were set from
@@ -3246,9 +3188,9 @@ pub const StringTable = struct {
         }
 
         pub fn writeResData(self: *Block, compiler: *Compiler, language: res.Language, block_id: u16, writer: anytype) !void {
-            var data_buffer = std.array_list.Managed(u8).init(compiler.allocator);
+            var data_buffer: std.Io.Writer.Allocating = .init(compiler.allocator);
             defer data_buffer.deinit();
-            const data_writer = data_buffer.writer();
+            const data_writer = &data_buffer.writer;
 
             var i: u8 = 0;
             var string_i: u8 = 0;
@@ -3307,7 +3249,7 @@ pub const StringTable = struct {
             //   16 * (131,070 + 2) = 2,097,152 which is well within the u32 max.
             //
             // Note: The string literal maximum length is enforced by the lexer.
-            const data_size: u32 = @intCast(data_buffer.items.len);
+            const data_size: u32 = @intCast(data_buffer.written().len);
 
             const header = Compiler.ResourceHeader{
                 .name_value = .{ .ordinal = block_id },
@@ -3322,7 +3264,7 @@ pub const StringTable = struct {
             // we fully control and know are numbers, so they have a fixed size.
             try header.writeAssertNoOverflow(writer);
 
-            var data_fbs: std.Io.Reader = .fixed(data_buffer.items);
+            var data_fbs: std.Io.Reader = .fixed(data_buffer.written());
             try Compiler.writeResourceData(writer, &data_fbs, data_size);
         }
     };
