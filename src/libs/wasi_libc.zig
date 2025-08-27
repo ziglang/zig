@@ -886,7 +886,6 @@ const libc_top_half_src_files = [_][]const u8{
     "musl/src/math/tgamma.c",
     "musl/src/math/tgammaf.c",
     "musl/src/math/tgammal.c",
-    "musl/src/math/truncl.c",
     "musl/src/misc/a64l.c",
     "musl/src/misc/basename.c",
     "musl/src/misc/dirname.c",

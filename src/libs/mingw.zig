@@ -911,7 +911,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "rintl.c",
     "math" ++ path.sep_str ++ "roundl.c",
     "math" ++ path.sep_str ++ "tgammal.c",
-    "math" ++ path.sep_str ++ "truncl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acoshl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acosl.c",
