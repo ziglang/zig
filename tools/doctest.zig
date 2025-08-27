@@ -7,6 +7,7 @@ const process = std.process;
 const Allocator = std.mem.Allocator;
 const testing = std.testing;
 const getExternalExecutor = std.zig.system.getExternalExecutor;
+const Writer = std.Io.Writer;
 
 const max_doc_file_size = 10 * 1024 * 1024;
 
@@ -108,7 +109,7 @@ pub fn main() !void {
 
 fn printOutput(
     arena: Allocator,
-    out: anytype,
+    out: *Writer,
     code: Code,
     /// Relative to this process' cwd.
     tmp_dir_path: []const u8,
@@ -610,7 +611,7 @@ fn dumpArgs(args: []const []const u8) void {
         std.debug.print("\n", .{});
 }
 
-fn printSourceBlock(arena: Allocator, out: anytype, source_bytes: []const u8, name: []const u8) !void {
+fn printSourceBlock(arena: Allocator, out: *Writer, source_bytes: []const u8, name: []const u8) !void {
     try out.print("<figure><figcaption class=\"{s}-cap\"><cite class=\"file\">{s}</cite></figcaption><pre>", .{
         "zig", name,
     });
@@ -618,7 +619,7 @@ fn printSourceBlock(arena: Allocator, out: anytype, source_bytes: []const u8, na
     try out.writeAll("</pre></figure>");
 }
 
-fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
+fn tokenizeAndPrint(arena: Allocator, out: *Writer, raw_src: []const u8) !void {
     const src_non_terminated = mem.trim(u8, raw_src, " \r\n");
     const src = try arena.dupeZ(u8, src_non_terminated);
 
@@ -846,7 +847,7 @@ fn tokenizeAndPrint(arena: Allocator, out: anytype, raw_src: []const u8) !void {
     try out.writeAll("</code>");
 }
 
-fn writeEscapedLines(out: anytype, text: []const u8) !void {
+fn writeEscapedLines(out: *Writer, text: []const u8) !void {
     return writeEscaped(out, text);
 }
 
@@ -983,7 +984,7 @@ fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
     return try buf.toOwnedSlice();
 }
 
-fn writeEscaped(out: anytype, input: []const u8) !void {
+fn writeEscaped(out: *Writer, input: []const u8) !void {
     for (input) |c| {
         try switch (c) {
             '&' => out.writeAll("&amp;"),
@@ -1014,7 +1015,6 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
     var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
-    var out = buf.writer();
     var sgr_param_start_index: usize = undefined;
     var sgr_num: u8 = undefined;
     var sgr_color: u8 = undefined;
@@ -1037,10 +1037,10 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
             .start => switch (c) {
                 '\x1b' => state = .escape,
                 '\n' => {
-                    try out.writeByte(c);
+                    try buf.append(c);
                     last_new_line = buf.items.len;
                 },
-                else => try out.writeByte(c),
+                else => try buf.append(c),
             },
             .escape => switch (c) {
                 '[' => state = .lbracket,
@@ -1101,16 +1101,16 @@ fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
                 'm' => {
                     state = .start;
                     while (open_span_count != 0) : (open_span_count -= 1) {
-                        try out.writeAll("</span>");
+                        try buf.appendSlice("</span>");
                     }
                     if (sgr_num == 0) {
                         if (sgr_color != 0) return error.UnsupportedColor;
                         continue;
                     }
                     if (sgr_color != 0) {
-                        try out.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
+                        try buf.print("<span class=\"sgr-{d}_{d}m\">", .{ sgr_color, sgr_num });
                     } else {
-                        try out.print("<span class=\"sgr-{d}m\">", .{sgr_num});
+                        try buf.print("<span class=\"sgr-{d}m\">", .{sgr_num});
                     }
                     open_span_count += 1;
                 },
@@ -1156,7 +1156,7 @@ fn run(
     return result;
 }
 
-fn printShell(out: anytype, shell_content: []const u8, escape: bool) !void {
+fn printShell(out: *Writer, shell_content: []const u8, escape: bool) !void {
     const trimmed_shell_content = mem.trim(u8, shell_content, " \r\n");
     try out.writeAll("<figure><figcaption class=\"shell-cap\">Shell</figcaption><pre><samp>");
     var cmd_cont: bool = false;
@@ -1401,11 +1401,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1418,11 +1418,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out = "$ zig build test.zig\r\nbuild output\r\n";
@@ -1432,11 +1432,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1451,11 +1451,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1472,11 +1472,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1491,11 +1491,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1514,11 +1514,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         // intentional space after "--build-option1 \"
@@ -1536,11 +1536,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1553,11 +1553,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1572,11 +1572,11 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
     {
         const shell_out =
@@ -1587,10 +1587,10 @@ test "printShell" {
             \\</samp></pre></figure>
         ;
 
-        var buffer = std.array_list.Managed(u8).init(test_allocator);
+        var buffer: std.Io.Writer.Allocating = .init(test_allocator);
         defer buffer.deinit();
 
-        try printShell(buffer.writer(), shell_out, false);
-        try testing.expectEqualSlices(u8, expected, buffer.items);
+        try printShell(&buffer.writer, shell_out, false);
+        try testing.expectEqualSlices(u8, expected, buffer.written());
     }
 }

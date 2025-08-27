@@ -262,13 +262,13 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: *std.Io.Writer) !void 
         // TODO Implement for special flags.
         assert(export_flags & macho.EXPORT_SYMBOL_FLAGS_REEXPORT == 0 and
             export_flags & macho.EXPORT_SYMBOL_FLAGS_STUB_AND_RESOLVER == 0);
-        try leb.writeUleb128(&info_stream, export_flags);
-        try leb.writeUleb128(&info_stream, vmaddr_offset);
+        try info_stream.writeUleb128(export_flags);
+        try info_stream.writeUleb128(vmaddr_offset);
 
         // Encode the size of the terminal node info.
         var size_buf: [@sizeOf(u64)]u8 = undefined;
         var size_stream: std.Io.Writer = .fixed(&size_buf);
-        try leb.writeUleb128(&size_stream, info_stream.end);
+        try size_stream.writeUleb128(info_stream.end);
 
         // Now, write them to the output stream.
         try writer.writeAll(size_buf[0..size_stream.end]);
@@ -285,7 +285,7 @@ fn writeNode(self: *Trie, node_index: Node.Index, writer: *std.Io.Writer) !void 
         // Write edge label and offset to next node in trie.
         try writer.writeAll(edge.label);
         try writer.writeByte(0);
-        try leb.writeUleb128(writer, slice.items(.trie_offset)[edge.node]);
+        try writer.writeUleb128(slice.items(.trie_offset)[edge.node]);
     }
 }
 
@@ -419,7 +419,6 @@ test "ordering bug" {
 }
 
 const assert = std.debug.assert;
-const leb = std.leb;
 const log = std.log.scoped(.macho);
 const macho = std.macho;
 const mem = std.mem;

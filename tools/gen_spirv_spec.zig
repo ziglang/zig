@@ -82,13 +82,11 @@ pub fn main() !void {
 
     try readExtRegistry(&exts, std.fs.cwd(), args[2]);
 
-    const output_buf = try allocator.alloc(u8, 1024 * 1024);
-    var fbs = std.io.fixedBufferStream(output_buf);
-    var adapter = fbs.writer().adaptToNewApi(&.{});
-    const w = &adapter.new_interface;
-    try render(w, core_spec, exts.items);
-    var output: [:0]u8 = @ptrCast(fbs.getWritten());
-    output[output.len] = 0;
+    var allocating: std.Io.Writer.Allocating = .init(allocator);
+    defer allocating.deinit();
+    try render(&allocating.writer, core_spec, exts.items);
+    try allocating.writer.writeByte(0);
+    const output = allocating.written()[0 .. allocating.written().len - 1 :0];
 
     var tree = try std.zig.Ast.parse(allocator, output, .zig);
     var color: std.zig.Color = .on;
@@ -429,10 +427,9 @@ fn renderClass(writer: *std.io.Writer, instructions: []const Instruction) !void 
 const Formatter = struct {
     data: []const u8,
 
-    fn format(f: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn format(f: Formatter, writer: *std.Io.Writer) std.io.Writer.Error!void {
         var id_buf: [128]u8 = undefined;
-        var fbs = std.io.fixedBufferStream(&id_buf);
-        const fw = fbs.writer();
+        var fw: std.Io.Writer = .fixed(&id_buf);
         for (f.data, 0..) |c, i| {
             switch (c) {
                 '-', '_', '.', '~', ' ' => fw.writeByte('_') catch return error.WriteFailed,
@@ -452,7 +449,7 @@ const Formatter = struct {
         }
 
         // make sure that this won't clobber with zig keywords
-        try writer.print("{f}", .{std.zig.fmtId(fbs.getWritten())});
+        try writer.print("{f}", .{std.zig.fmtId(fw.buffered())});
     }
 };
 

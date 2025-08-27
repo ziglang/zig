@@ -605,7 +605,7 @@ pub const LazyBind = struct {
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: *std.Io.Writer) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try writer.writeByte(macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
-    try std.leb.writeUleb128(writer, offset);
+    try writer.writeUleb128(offset);
 }
 
 fn setSymbol(name: []const u8, flags: u8, writer: *std.Io.Writer) !void {
@@ -639,7 +639,7 @@ fn setDylibOrdinal(ordinal: i16, writer: *std.Io.Writer) !void {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_IMM | @as(u4, @truncate(cast)));
         } else {
             try writer.writeByte(macho.BIND_OPCODE_SET_DYLIB_ORDINAL_ULEB);
-            try std.leb.writeUleb128(writer, cast);
+            try writer.writeUleb128(cast);
         }
     }
 }
@@ -667,20 +667,20 @@ fn doBindAddAddr(addr: u64, writer: *std.Io.Writer) !void {
         }
     }
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB);
-    try std.leb.writeUleb128(writer, addr);
+    try writer.writeUleb128(addr);
 }
 
 fn doBindTimesSkip(count: usize, skip: u64, writer: *std.Io.Writer) !void {
     log.debug(">>> bind with count: {d} and skip: {x}", .{ count, skip });
     try writer.writeByte(macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB);
-    try std.leb.writeUleb128(writer, count);
-    try std.leb.writeUleb128(writer, skip);
+    try writer.writeUleb128(count);
+    try writer.writeUleb128(skip);
 }
 
 fn addAddr(addr: u64, writer: *std.Io.Writer) !void {
     log.debug(">>> add: {x}", .{addr});
     try writer.writeByte(macho.BIND_OPCODE_ADD_ADDR_ULEB);
-    try std.leb.writeUleb128(writer, addr);
+    try writer.writeUleb128(addr);
 }
 
 fn done(writer: *std.Io.Writer) !void {
@@ -689,7 +689,6 @@ fn done(writer: *std.Io.Writer) !void {
 }
 
 const assert = std.debug.assert;
-const leb = std.leb;
 const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;

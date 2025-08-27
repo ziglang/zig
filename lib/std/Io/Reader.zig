@@ -784,7 +784,7 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
-/// `delimiter` is found, advancing the seek position.
+/// `delimiter` is found, advancing the seek position up to the delimiter.
 ///
 /// Returned slice excludes the delimiter. End-of-stream is treated equivalent
 /// to a delimiter, unless it would result in a length 0 return value, in which
@@ -811,6 +811,37 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         else => |e| return e,
     };
     r.toss(result.len);
+    return result[0 .. result.len - 1];
+}
+
+/// Returns a slice of the next bytes of buffered data from the stream until
+/// `delimiter` is found, advancing the seek position past the delimiter.
+///
+/// Returned slice excludes the delimiter. End-of-stream is treated equivalent
+/// to a delimiter, unless it would result in a length 0 return value, in which
+/// case `null` is returned instead.
+///
+/// If the delimiter is not found within a number of bytes matching the
+/// capacity of this `Reader`, `error.StreamTooLong` is returned. In
+/// such case, the stream state is unmodified as if this function was never
+/// called.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// See also:
+/// * `takeDelimiterInclusive`
+/// * `takeDelimiterExclusive`
+pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong }!?[]u8 {
+    const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
+        error.EndOfStream => {
+            const remaining = r.buffer[r.seek..r.end];
+            if (remaining.len == 0) return null;
+            r.toss(remaining.len);
+            return remaining;
+        },
+        else => |e| return e,
+    };
+    r.toss(result.len + 1);
     return result[0 .. result.len - 1];
 }
 

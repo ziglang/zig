@@ -228,13 +228,13 @@ fn setTypePointer(writer: anytype) !void {
 fn setSegmentOffset(segment_id: u8, offset: u64, writer: anytype) !void {
     log.debug(">>> set segment: {d} and offset: {x}", .{ segment_id, offset });
     try writer.writeByte(macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB | @as(u4, @truncate(segment_id)));
-    try std.leb.writeUleb128(writer, offset);
+    try writer.writeUleb128(offset);
 }
 
 fn rebaseAddAddr(addr: u64, writer: anytype) !void {
     log.debug(">>> rebase with add: {x}", .{addr});
     try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB);
-    try std.leb.writeUleb128(writer, addr);
+    try writer.writeUleb128(addr);
 }
 
 fn rebaseTimes(count: usize, writer: anytype) !void {
@@ -243,15 +243,15 @@ fn rebaseTimes(count: usize, writer: anytype) !void {
         try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_IMM_TIMES | @as(u4, @truncate(count)));
     } else {
         try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES);
-        try std.leb.writeUleb128(writer, count);
+        try writer.writeUleb128(count);
     }
 }
 
 fn rebaseTimesSkip(count: usize, skip: u64, writer: anytype) !void {
     log.debug(">>> rebase with count: {d} and skip: {x}", .{ count, skip });
     try writer.writeByte(macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB);
-    try std.leb.writeUleb128(writer, count);
-    try std.leb.writeUleb128(writer, skip);
+    try writer.writeUleb128(count);
+    try writer.writeUleb128(skip);
 }
 
 fn addAddr(addr: u64, writer: anytype) !void {
@@ -264,7 +264,7 @@ fn addAddr(addr: u64, writer: anytype) !void {
         }
     }
     try writer.writeByte(macho.REBASE_OPCODE_ADD_ADDR_ULEB);
-    try std.leb.writeUleb128(writer, addr);
+    try writer.writeUleb128(addr);
 }
 
 fn done(writer: anytype) !void {
@@ -651,7 +651,6 @@ test "rebase - composite" {
 
 const std = @import("std");
 const assert = std.debug.assert;
-const leb = std.leb;
 const log = std.log.scoped(.link_dyld_info);
 const macho = std.macho;
 const mem = std.mem;
