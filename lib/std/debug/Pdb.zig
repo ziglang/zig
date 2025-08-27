@@ -65,9 +65,15 @@ pub fn deinit(self: *Pdb) void {
 pub fn parseDbiStream(self: *Pdb) !void {
     var stream = self.getStream(pdb.StreamType.dbi) orelse
         return error.InvalidDebugInfo;
-    const reader = stream.reader();
 
-    const header = try reader.readStruct(std.pdb.DbiStreamHeader);
+    const gpa = self.allocator;
+
+    const deprecated_reader = stream.reader();
+    var adapted_buffer: [1024]u8 = undefined;
+    var adapted_reader = deprecated_reader.adaptToNewApi(&adapted_buffer);
+    const reader = &adapted_reader.new_interface;
+
+    const header = try reader.takeStruct(std.pdb.DbiStreamHeader, .little);
     if (header.version_header != 19990903) // V70, only value observed by LLVM team
         return error.UnknownPDBVersion;
     // if (header.Age != age)
@@ -76,22 +82,24 @@ pub fn parseDbiStream(self: *Pdb) !void {
     const mod_info_size = header.mod_info_size;
     const section_contrib_size = header.section_contribution_size;
 
-    var modules = std.array_list.Managed(Module).init(self.allocator);
+    var modules = std.array_list.Managed(Module).init(gpa);
     errdefer modules.deinit();
 
     // Module Info Substream
     var mod_info_offset: usize = 0;
     while (mod_info_offset != mod_info_size) {
-        const mod_info = try reader.readStruct(pdb.ModInfo);
+        const mod_info = try reader.takeStruct(pdb.ModInfo, .little);
         var this_record_len: usize = @sizeOf(pdb.ModInfo);
 
-        const module_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-        errdefer self.allocator.free(module_name);
-        this_record_len += module_name.len + 1;
+        var module_name: std.Io.Writer.Allocating = .init(gpa);
+        defer module_name.deinit();
+        this_record_len += try reader.streamDelimiterLimit(&module_name.writer, 0, .limited(1024));
+        this_record_len += 1;
 
-        const obj_file_name = try reader.readUntilDelimiterAlloc(self.allocator, 0, 1024);
-        errdefer self.allocator.free(obj_file_name);
-        this_record_len += obj_file_name.len + 1;
+        var obj_file_name: std.Io.Writer.Allocating = .init(gpa);
+        defer obj_file_name.deinit();
+        this_record_len += try reader.streamDelimiterLimit(&obj_file_name.writer, 0, .limited(1024));
+        this_record_len += 1;
 
         if (this_record_len % 4 != 0) {
             const round_to_next_4 = (this_record_len | 0x3) + 1;
@@ -102,8 +110,8 @@ pub fn parseDbiStream(self: *Pdb) !void {
 
         try modules.append(Module{
             .mod_info = mod_info,
-            .module_name = module_name,
-            .obj_file_name = obj_file_name,
+            .module_name = try module_name.toOwnedSlice(),
+            .obj_file_name = try obj_file_name.toOwnedSlice(),
 
             .populated = false,
             .symbols = undefined,
@@ -117,21 +125,21 @@ pub fn parseDbiStream(self: *Pdb) !void {
     }
 
     // Section Contribution Substream
-    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(self.allocator);
+    var sect_contribs = std.array_list.Managed(pdb.SectionContribEntry).init(gpa);
     errdefer sect_contribs.deinit();
 
     var sect_cont_offset: usize = 0;
     if (section_contrib_size != 0) {
-        const version = reader.readEnum(std.pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
-            error.InvalidValue => return error.InvalidDebugInfo,
-            else => |e| return e,
+        const version = reader.takeEnum(std.pdb.SectionContrSubstreamVersion, .little) catch |err| switch (err) {
+            error.InvalidEnumTag, error.EndOfStream => return error.InvalidDebugInfo,
+            error.ReadFailed => return error.ReadFailed,
         };
         _ = version;
         sect_cont_offset += @sizeOf(u32);
     }
     while (sect_cont_offset != section_contrib_size) {
         const entry = try sect_contribs.addOne();
-        entry.* = try reader.readStruct(pdb.SectionContribEntry);
+        entry.* = try reader.takeStruct(pdb.SectionContribEntry, .little);
         sect_cont_offset += @sizeOf(pdb.SectionContribEntry);
 
         if (sect_cont_offset > section_contrib_size)
@@ -233,6 +241,7 @@ pub fn getSymbolName(self: *Pdb, module: *Module, address: u64) ?[]const u8 {
 pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.SourceLocation {
     std.debug.assert(module.populated);
     const subsect_info = module.subsect_info;
+    const gpa = self.allocator;
 
     var sect_offset: usize = 0;
     var skip_len: usize = undefined;
@@ -287,7 +296,16 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
                             const chksum_hdr: *align(1) pdb.FileChecksumEntryHeader = @ptrCast(&module.subsect_info[subsect_index]);
                             const strtab_offset = @sizeOf(pdb.StringTableHeader) + chksum_hdr.file_name_offset;
                             try self.string_table.?.seekTo(strtab_offset);
-                            const source_file_name = try self.string_table.?.reader().readUntilDelimiterAlloc(self.allocator, 0, 1024);
+                            const source_file_name = s: {
+                                const deprecated_reader = self.string_table.?.reader();
+                                var adapted_buffer: [1024]u8 = undefined;
+                                var adapted_reader = deprecated_reader.adaptToNewApi(&adapted_buffer);
+                                var source_file_name: std.Io.Writer.Allocating = .init(gpa);
+                                defer source_file_name.deinit();
+                                _ = try adapted_reader.new_interface.streamDelimiterLimit(&source_file_name.writer, 0, .limited(1024));
+                                break :s try source_file_name.toOwnedSlice();
+                            };
+                            errdefer gpa.free(source_file_name);
 
                             const line_entry_idx = line_i - 1;
 
