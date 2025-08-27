@@ -259,9 +259,9 @@ fn readBlock(input: *Reader, allocating: *Writer.Allocating) !void {
 
     // Block Padding
     const block_counter = header_size + packed_bytes_read;
-    const padding = (4 - (block_counter % 4)) % 4;
-    for (0..padding) |_| {
-        if (try input.takeByte() != 0) return error.CorruptInput;
+    const padding = try input.take(@intCast((4 - (block_counter % 4)) % 4));
+    for (padding) |byte| {
+        if (byte != 0) return error.CorruptInput;
     }
 }
 
@@ -279,14 +279,13 @@ fn finish(d: *Decompress) !void {
         if (record_count != d.block_count)
             return error.CorruptInput;
 
-        for (0..record_count) |_| {
+        for (0..@intCast(record_count)) |_| {
             // TODO: validate records
             _ = try countLeb128(input, u64, &input_counter, &checksum);
             _ = try countLeb128(input, u64, &input_counter, &checksum);
         }
 
-        const padding_len = (4 - (input_counter % 4)) % 4;
-        const padding = try input.take(padding_len);
+        const padding = try input.take(@intCast((4 - (input_counter % 4)) % 4));
         for (padding) |byte| {
             if (byte != 0) return error.CorruptInput;
         }
