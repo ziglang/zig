@@ -877,6 +877,8 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// Appends to `w` contents by reading from the stream until `delimiter` is
 /// found. Does not write the delimiter itself.
 ///
+/// Does not discard the delimiter from the `Reader`.
+///
 /// Returns number of bytes streamed, which may be zero, or error.EndOfStream
 /// if the delimiter was not found.
 ///
@@ -929,6 +931,8 @@ pub const StreamDelimiterLimitError = error{
 
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
+///
+/// Does not discard the delimiter from the `Reader`.
 ///
 /// Returns number of bytes streamed, which may be zero. End of stream can be
 /// detected by checking if the next byte in the stream is the delimiter.

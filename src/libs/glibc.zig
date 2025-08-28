@@ -802,6 +802,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
                 _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
                 opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;
@@ -974,6 +976,8 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
                 _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
                 opt_symbol_name = sym_name_buf.written();
                 versions_buffer = undefined;

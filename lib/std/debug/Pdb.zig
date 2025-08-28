@@ -2,6 +2,7 @@ const std = @import("../std.zig");
 const File = std.fs.File;
 const Allocator = std.mem.Allocator;
 const pdb = std.pdb;
+const assert = std.debug.assert;
 
 const Pdb = @This();
 
@@ -94,11 +95,15 @@ pub fn parseDbiStream(self: *Pdb) !void {
         var module_name: std.Io.Writer.Allocating = .init(gpa);
         defer module_name.deinit();
         this_record_len += try reader.streamDelimiterLimit(&module_name.writer, 0, .limited(1024));
+        assert(reader.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+        reader.toss(1);
         this_record_len += 1;
 
         var obj_file_name: std.Io.Writer.Allocating = .init(gpa);
         defer obj_file_name.deinit();
         this_record_len += try reader.streamDelimiterLimit(&obj_file_name.writer, 0, .limited(1024));
+        assert(reader.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+        reader.toss(1);
         this_record_len += 1;
 
         if (this_record_len % 4 != 0) {
@@ -303,6 +308,8 @@ pub fn getLineNumberInfo(self: *Pdb, module: *Module, address: u64) !std.debug.S
                                 var source_file_name: std.Io.Writer.Allocating = .init(gpa);
                                 defer source_file_name.deinit();
                                 _ = try adapted_reader.new_interface.streamDelimiterLimit(&source_file_name.writer, 0, .limited(1024));
+                                assert(adapted_reader.new_interface.buffered()[0] == 0); // TODO change streamDelimiterLimit API
+                                adapted_reader.new_interface.toss(1);
                                 break :s try source_file_name.toOwnedSlice();
                             };
                             errdefer gpa.free(source_file_name);
