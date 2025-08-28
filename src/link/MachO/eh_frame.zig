@@ -17,31 +17,29 @@ pub const Cie = struct {
 
         if (aug[0] != 'z') return; // TODO should we error out?
 
-        var stream = std.io.fixedBufferStream(data[9 + aug.len + 1 ..]);
-        var creader = std.io.countingReader(stream.reader());
-        const reader = creader.reader();
+        var reader: std.Io.Reader = .fixed(data[9 + aug.len + 1 ..]);
 
-        _ = try leb.readUleb128(u64, reader); // code alignment factor
-        _ = try leb.readUleb128(u64, reader); // data alignment factor
-        _ = try leb.readUleb128(u64, reader); // return address register
-        _ = try leb.readUleb128(u64, reader); // augmentation data length
+        _ = try reader.takeLeb128(u64); // code alignment factor
+        _ = try reader.takeLeb128(u64); // data alignment factor
+        _ = try reader.takeLeb128(u64); // return address register
+        _ = try reader.takeLeb128(u64); // augmentation data length
 
         for (aug[1..]) |ch| switch (ch) {
             'R' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.absptr) {
                     @panic("unexpected pointer encoding"); // TODO error
                 }
             },
             'P' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 if (enc != DW_EH_PE.pcrel | DW_EH_PE.indirect | DW_EH_PE.sdata4) {
                     @panic("unexpected personality pointer encoding"); // TODO error
                 }
-                _ = try reader.readInt(u32, .little); // personality pointer
+                _ = try reader.takeInt(u32, .little); // personality pointer
             },
             'L' => {
-                const enc = try reader.readByte();
+                const enc = try reader.takeByte();
                 switch (enc & DW_EH_PE.type_mask) {
                     DW_EH_PE.sdata4 => cie.lsda_size = .p32,
                     DW_EH_PE.absptr => cie.lsda_size = .p64,
@@ -163,14 +161,13 @@ pub const Fde = struct {
 
         // Parse LSDA atom index if any
         if (cie.lsda_size) |lsda_size| {
-            var stream = std.io.fixedBufferStream(data[24..]);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
-            _ = try leb.readUleb128(u64, reader); // augmentation length
-            fde.lsda_ptr_offset = @intCast(creader.bytes_read + 24);
+            var reader: std.Io.Reader = .fixed(data);
+            reader.seek = 24;
+            _ = try reader.takeLeb128(u64); // augmentation length
+            fde.lsda_ptr_offset = @intCast(reader.seek);
             const lsda_ptr = switch (lsda_size) {
-                .p32 => try reader.readInt(i32, .little),
-                .p64 => try reader.readInt(i64, .little),
+                .p32 => try reader.takeInt(i32, .little),
+                .p64 => try reader.takeInt(i64, .little),
             };
             const lsda_addr: u64 = @intCast(@as(i64, @intCast(sect.addr + fde.offset + fde.lsda_ptr_offset)) + lsda_ptr);
             fde.lsda = object.findAtom(lsda_addr) orelse {
