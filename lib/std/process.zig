@@ -1753,7 +1753,8 @@ pub fn totalSystemMemory() TotalSystemMemoryError!u64 {
             if (std.os.linux.E.init(result) != .SUCCESS) {
                 return error.UnknownTotalSystemMemory;
             }
-            return info.totalram * info.mem_unit;
+            // Promote to u64 to avoid overflow on systems where info.totalram is a 32-bit usize
+            return @as(u64, info.totalram) * info.mem_unit;
         },
         .freebsd => {
             var physmem: c_ulong = undefined;
