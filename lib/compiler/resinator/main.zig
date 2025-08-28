@@ -24,7 +24,7 @@ pub fn main() !void {
     const arena = arena_state.allocator();
 
     const stderr = std.fs.File.stderr();
-    const stderr_config = std.io.tty.detectConfig(stderr);
+    const stderr_config = std.Io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -621,7 +621,7 @@ const SourceMappings = @import("source_mapping.zig").SourceMappings;
 
 const ErrorHandler = union(enum) {
     server: std.zig.Server,
-    tty: std.io.tty.Config,
+    tty: std.Io.tty.Config,
 
     pub fn emitCliDiagnostics(
         self: *ErrorHandler,
@@ -984,7 +984,7 @@ const MsgWriter = struct {
         m.buf.appendSlice(msg) catch {};
     }
 
-    pub fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
+    pub fn setColor(m: *MsgWriter, color: std.Io.tty.Color) void {
         _ = m;
         _ = color;
     }

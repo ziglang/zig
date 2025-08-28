@@ -127,7 +127,7 @@ pub fn deinit(fuzz: *Fuzz) void {
     gpa.free(fuzz.run_steps);
 }
 
-fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) void {
+fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Config, parent_prog_node: std.Progress.Node) void {
     rebuildTestsWorkerRunFallible(run, gpa, ttyconf, parent_prog_node) catch |err| {
         const compile = run.producer.?;
         log.err("step '{s}': failed to rebuild in fuzz mode: {s}", .{
@@ -136,7 +136,7 @@ fn rebuildTestsWorkerRun(run: *Step.Run, gpa: Allocator, ttyconf: std.io.tty.Con
     };
 }
 
-fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: std.io.tty.Config, parent_prog_node: std.Progress.Node) !void {
+fn rebuildTestsWorkerRunFallible(run: *Step.Run, gpa: Allocator, ttyconf: std.Io.tty.Config, parent_prog_node: std.Progress.Node) !void {
     const compile = run.producer.?;
     const prog_node = parent_prog_node.start(compile.step.name, 0);
     defer prog_node.end();

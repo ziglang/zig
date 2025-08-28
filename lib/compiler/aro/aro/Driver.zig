@@ -544,7 +544,7 @@ pub fn renderErrors(d: *Driver) void {
     Diagnostics.render(d.comp, d.detectConfig(std.fs.File.stderr()));
 }
 
-pub fn detectConfig(d: *Driver, file: std.fs.File) std.io.tty.Config {
+pub fn detectConfig(d: *Driver, file: std.fs.File) std.Io.tty.Config {
     if (d.color == true) return .escape_codes;
     if (d.color == false) return .no_color;
 

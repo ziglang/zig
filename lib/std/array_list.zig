@@ -1038,14 +1038,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch unreachable;
             self.items.len += w.end;
         }
 
         pub fn printBounded(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch return error.OutOfMemory;
             self.items.len += w.end;
         }

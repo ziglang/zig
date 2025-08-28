@@ -578,8 +578,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     // 64 bytes is assumed to be large enough to hold any target triple; increase if necessary
     std.debug.assert(buf.len >= 64);
 
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
+    var writer: std.Io.Writer = .fixed(buf);
 
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
@@ -718,7 +717,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
-    return stream.getWritten();
+    return writer.buffered();
 }
 
 test "alignment functions - smoke test" {

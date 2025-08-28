@@ -124,13 +124,13 @@ pub const Diagnostics = struct {
         try self.errors.append(self.allocator, error_details);
     }
 
-    pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.io.tty.Config) void {
+    pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.Io.tty.Config) void {
         const stderr = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         self.renderToWriter(args, stderr, config) catch return;
     }
 
-    pub fn renderToWriter(self: *Diagnostics, args: []const []const u8, writer: *std.io.Writer, config: std.io.tty.Config) !void {
+    pub fn renderToWriter(self: *Diagnostics, args: []const []const u8, writer: *std.Io.Writer, config: std.Io.tty.Config) !void {
         for (self.errors.items) |err_details| {
             try renderErrorMessage(writer, config, err_details, args);
         }
@@ -1343,7 +1343,7 @@ test parsePercent {
     try std.testing.expectError(error.InvalidFormat, parsePercent("~1"));
 }
 
-pub fn renderErrorMessage(writer: *std.io.Writer, config: std.io.tty.Config, err_details: Diagnostics.ErrorDetails, args: []const []const u8) !void {
+pub fn renderErrorMessage(writer: *std.Io.Writer, config: std.Io.tty.Config, err_details: Diagnostics.ErrorDetails, args: []const []const u8) !void {
     try config.setColor(writer, .dim);
     try writer.writeAll("<cli>");
     try config.setColor(writer, .reset);
@@ -1470,7 +1470,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     var diagnostics = Diagnostics.init(std.testing.allocator);
     defer diagnostics.deinit();
 
-    var output: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
 
     var options = parse(std.testing.allocator, args, &diagnostics) catch |err| switch (err) {

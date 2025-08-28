@@ -1552,103 +1552,108 @@ pub fn getUserInfo(name: []const u8) !UserInfo {
 pub fn posixGetUserInfo(name: []const u8) !UserInfo {
     const file = try std.fs.openFileAbsolute("/etc/passwd", .{});
     defer file.close();
+    var buffer: [4096]u8 = undefined;
+    var file_reader = file.reader(&buffer);
+    return posixGetUserInfoPasswdStream(name, &file_reader.interface) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.EndOfStream => return error.UserNotFound,
+        error.CorruptPasswordFile => return error.CorruptPasswordFile,
+    };
+}
 
-    const reader = file.deprecatedReader();
-
+fn posixGetUserInfoPasswdStream(name: []const u8, reader: *std.Io.Reader) !UserInfo {
     const State = enum {
-        Start,
-        WaitForNextLine,
-        SkipPassword,
-        ReadUserId,
-        ReadGroupId,
+        start,
+        wait_for_next_line,
+        skip_password,
+        read_user_id,
+        read_group_id,
     };
 
-    var buf: [std.heap.page_size_min]u8 = undefined;
     var name_index: usize = 0;
-    var state = State.Start;
     var uid: posix.uid_t = 0;
     var gid: posix.gid_t = 0;
 
-    while (true) {
-        const amt_read = try reader.read(buf[0..]);
-        for (buf[0..amt_read]) |byte| {
-            switch (state) {
-                .Start => switch (byte) {
-                    ':' => {
-                        state = if (name_index == name.len) State.SkipPassword else State.WaitForNextLine;
-                    },
-                    '\n' => return error.CorruptPasswordFile,
-                    else => {
-                        if (name_index == name.len or name[name_index] != byte) {
-                            state = .WaitForNextLine;
-                        }
-                        name_index += 1;
-                    },
-                },
-                .WaitForNextLine => switch (byte) {
-                    '\n' => {
-                        name_index = 0;
-                        state = .Start;
-                    },
-                    else => continue,
-                },
-                .SkipPassword => switch (byte) {
-                    '\n' => return error.CorruptPasswordFile,
-                    ':' => {
-                        state = .ReadUserId;
-                    },
-                    else => continue,
-                },
-                .ReadUserId => switch (byte) {
-                    ':' => {
-                        state = .ReadGroupId;
-                    },
-                    '\n' => return error.CorruptPasswordFile,
-                    else => {
-                        const digit = switch (byte) {
-                            '0'...'9' => byte - '0',
-                            else => return error.CorruptPasswordFile,
-                        };
-                        {
-                            const ov = @mulWithOverflow(uid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(uid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            uid = ov[0];
-                        }
-                    },
-                },
-                .ReadGroupId => switch (byte) {
-                    '\n', ':' => {
-                        return UserInfo{
-                            .uid = uid,
-                            .gid = gid,
-                        };
-                    },
-                    else => {
-                        const digit = switch (byte) {
-                            '0'...'9' => byte - '0',
-                            else => return error.CorruptPasswordFile,
-                        };
-                        {
-                            const ov = @mulWithOverflow(gid, 10);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
-                        {
-                            const ov = @addWithOverflow(gid, digit);
-                            if (ov[1] != 0) return error.CorruptPasswordFile;
-                            gid = ov[0];
-                        }
-                    },
-                },
-            }
-        }
-        if (amt_read < buf.len) return error.UserNotFound;
+    sw: switch (State.start) {
+        .start => switch (try reader.takeByte()) {
+            ':' => {
+                if (name_index == name.len) {
+                    continue :sw .skip_password;
+                } else {
+                    continue :sw .wait_for_next_line;
+                }
+            },
+            '\n' => return error.CorruptPasswordFile,
+            else => |byte| {
+                if (name_index == name.len or name[name_index] != byte) {
+                    continue :sw .wait_for_next_line;
+                }
+                name_index += 1;
+                continue :sw .start;
+            },
+        },
+        .wait_for_next_line => switch (try reader.takeByte()) {
+            '\n' => {
+                name_index = 0;
+                continue :sw .start;
+            },
+            else => continue :sw .wait_for_next_line,
+        },
+        .skip_password => switch (try reader.takeByte()) {
+            '\n' => return error.CorruptPasswordFile,
+            ':' => {
+                continue :sw .read_user_id;
+            },
+            else => continue :sw .skip_password,
+        },
+        .read_user_id => switch (try reader.takeByte()) {
+            ':' => {
+                continue :sw .read_group_id;
+            },
+            '\n' => return error.CorruptPasswordFile,
+            else => |byte| {
+                const digit = switch (byte) {
+                    '0'...'9' => byte - '0',
+                    else => return error.CorruptPasswordFile,
+                };
+                {
+                    const ov = @mulWithOverflow(uid, 10);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    uid = ov[0];
+                }
+                {
+                    const ov = @addWithOverflow(uid, digit);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    uid = ov[0];
+                }
+                continue :sw .read_user_id;
+            },
+        },
+        .read_group_id => switch (try reader.takeByte()) {
+            '\n', ':' => return .{
+                .uid = uid,
+                .gid = gid,
+            },
+            else => |byte| {
+                const digit = switch (byte) {
+                    '0'...'9' => byte - '0',
+                    else => return error.CorruptPasswordFile,
+                };
+                {
+                    const ov = @mulWithOverflow(gid, 10);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    gid = ov[0];
+                }
+                {
+                    const ov = @addWithOverflow(gid, digit);
+                    if (ov[1] != 0) return error.CorruptPasswordFile;
+                    gid = ov[0];
+                }
+                continue :sw .read_group_id;
+            },
+        },
     }
+    comptime unreachable;
 }
 
 pub fn getBaseAddress() usize {

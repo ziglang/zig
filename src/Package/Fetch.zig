@@ -2020,7 +2020,7 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var aw: std.io.Writer.Allocating = .init(gpa);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(
@@ -2329,7 +2329,7 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(msg, aw.written());

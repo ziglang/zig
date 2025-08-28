@@ -146,7 +146,7 @@ pub const Oid = union(Format) {
         } else error.InvalidOid;
     }
 
-    pub fn format(oid: Oid, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(oid: Oid, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{x}", .{oid.slice()});
     }
 

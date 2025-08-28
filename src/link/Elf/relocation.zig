@@ -160,7 +160,7 @@ pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatte
     } };
 }
 
-fn formatRelocType(ctx: FormatRelocTypeCtx, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatRelocType(ctx: FormatRelocTypeCtx, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const r_type = ctx.r_type;
     switch (ctx.cpu_arch) {
         .x86_64 => try writer.print("R_X86_64_{s}", .{@tagName(@as(elf.R_X86_64, @enumFromInt(r_type)))}),

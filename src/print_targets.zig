@@ -1,6 +1,5 @@
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
 const fatal = std.process.fatal;

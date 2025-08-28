@@ -2,7 +2,7 @@ const std = @import("std");
 const ConfigHeader = @This();
 const Step = std.Build.Step;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const Style = union(enum) {
     /// A configure format supported by autotools that uses `#undef foo` to
@@ -196,7 +196,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     man.hash.addBytes(config_header.include_path);
     man.hash.addOptionalBytes(config_header.include_guard_override);
 
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: Writer.Allocating = .init(gpa);
     defer aw.deinit();
     const bw = &aw.writer;
 
@@ -329,7 +329,7 @@ fn render_autoconf_undef(
 fn render_autoconf_at(
     step: *Step,
     contents: []const u8,
-    aw: *std.io.Writer.Allocating,
+    aw: *Writer.Allocating,
     values: std.StringArrayHashMap(Value),
     src_path: []const u8,
 ) !void {
@@ -753,7 +753,7 @@ fn testReplaceVariablesAutoconfAt(
     expected: []const u8,
     values: std.StringArrayHashMap(Value),
 ) !void {
-    var aw: std.io.Writer.Allocating = .init(allocator);
+    var aw: Writer.Allocating = .init(allocator);
     defer aw.deinit();
 
     const used = try allocator.alloc(bool, values.count());

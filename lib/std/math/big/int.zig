@@ -2029,11 +2029,11 @@ pub const Mutable = struct {
         r.len = llnormalize(r.limbs[0..length]);
     }
 
-    pub fn format(self: Mutable, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Mutable, w: *std.Io.Writer) std.Io.Writer.Error!void {
         return formatNumber(self, w, .{});
     }
 
-    pub fn formatNumber(self: Const, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Const, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 };
@@ -2326,7 +2326,7 @@ pub const Const = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatNumber(self: Const, w: *std.io.Writer, number: std.fmt.Number) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Const, w: *std.Io.Writer, number: std.fmt.Number) std.Io.Writer.Error!void {
         const available_len = 64;
         if (self.limbs.len > available_len)
             return w.writeAll("(BigInt)");
@@ -2907,7 +2907,7 @@ pub const Managed = struct {
     }
 
     /// To allow `std.fmt.format` to work with `Managed`.
-    pub fn format(self: Managed, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Managed, w: *std.Io.Writer) std.Io.Writer.Error!void {
         return formatNumber(self, w, .{});
     }
 
@@ -2915,7 +2915,7 @@ pub const Managed = struct {
     /// this function will fail to print the string, printing "(BigInt)" instead of a number.
     /// This is because the rendering algorithm requires reversing a string, which requires O(N) memory.
     /// See `toString` and `toStringAlloc` for a way to print big integers without failure.
-    pub fn formatNumber(self: Managed, w: *std.io.Writer, n: std.fmt.Number) std.io.Writer.Error!void {
+    pub fn formatNumber(self: Managed, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 

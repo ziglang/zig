@@ -15,7 +15,7 @@ const Value = @This();
 
 ip_index: InternPool.Index,
 
-pub fn format(val: Value, writer: *std.io.Writer) !void {
+pub fn format(val: Value, writer: *std.Io.Writer) !void {
     _ = val;
     _ = writer;
     @compileError("do not use format values directly; use either fmtDebug or fmtValue");
@@ -23,7 +23,7 @@ pub fn format(val: Value, writer: *std.io.Writer) !void {
 
 /// This is a debug function. In order to print values in a meaningful way
 /// we also need access to the type.
-pub fn dump(start_val: Value, w: std.io.Writer) std.io.Writer.Error!void {
+pub fn dump(start_val: Value, w: std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("(interned: {})", .{start_val.toIntern()});
 }
 

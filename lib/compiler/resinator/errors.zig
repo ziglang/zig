@@ -61,7 +61,7 @@ pub const Diagnostics = struct {
         return @intCast(index);
     }
 
-    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.io.tty.Config, source_mappings: ?SourceMappings) void {
+    pub fn renderToStdErr(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, tty_config: std.Io.tty.Config, source_mappings: ?SourceMappings) void {
         const stderr = std.debug.lockStderrWriter(&.{});
         defer std.debug.unlockStderrWriter();
         for (self.errors.items) |err_details| {
@@ -70,7 +70,7 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErrDetectTTY(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
-        const tty_config = std.io.tty.detectConfig(std.fs.File.stderr());
+        const tty_config = std.Io.tty.detectConfig(std.fs.File.stderr());
         return self.renderToStdErr(cwd, source, tty_config, source_mappings);
     }
 
@@ -409,7 +409,7 @@ pub const ErrorDetails = struct {
         failed_to_open_cwd,
     };
 
-    fn formatToken(ctx: TokenFormatContext, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatToken(ctx: TokenFormatContext, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (ctx.token.id) {
             .eof => return writer.writeAll(ctx.token.id.nameForErrorDisplay()),
             else => {},
@@ -894,7 +894,7 @@ fn cellCount(code_page: SupportedCodePage, source: []const u8, start_index: usiz
 
 const truncated_str = "<...truncated...>";
 
-pub fn renderErrorMessage(writer: *std.io.Writer, tty_config: std.io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
+pub fn renderErrorMessage(writer: *std.Io.Writer, tty_config: std.Io.tty.Config, cwd: std.fs.Dir, err_details: ErrorDetails, source: []const u8, strings: []const []const u8, source_mappings: ?SourceMappings) !void {
     if (err_details.type == .hint) return;
 
     const source_line_start = err_details.token.getLineStartForErrorDisplay(source);

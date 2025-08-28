@@ -158,7 +158,7 @@ pub fn modRmExt(encoding: Encoding) u3 {
     };
 }
 
-pub fn format(encoding: Encoding, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(encoding: Encoding, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var opc = encoding.opcode();
     if (encoding.data.mode.isVex()) {
         try writer.writeAll("VEX.");
@@ -1016,7 +1016,7 @@ fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Op
     // By using a buffer with maximum length of encoded instruction, we can use
     // the `end` field of the Writer for the count.
     var buf: [16]u8 = undefined;
-    var trash: std.io.Writer.Discarding = .init(&buf);
+    var trash: std.Io.Writer.Discarding = .init(&buf);
     inst.encode(&trash.writer, .{
         .allow_frame_locs = true,
         .allow_symbols = true,

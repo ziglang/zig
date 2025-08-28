@@ -92,7 +92,7 @@ pub const Inst = struct {
         },
     };
 
-    pub fn format(inst: Inst, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(inst: Inst, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("Tag: {s}, Data: {s}", .{ @tagName(inst.tag), @tagName(inst.data) });
     }
 };

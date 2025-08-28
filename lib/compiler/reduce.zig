@@ -381,7 +381,7 @@ fn transformationsToFixups(
                 }
             }
 
-            var other_source: std.io.Writer.Allocating = .init(gpa);
+            var other_source: std.Io.Writer.Allocating = .init(gpa);
             defer other_source.deinit();
             try other_source.writer.writeAll("struct {\n");
             try other_file_ast.render(gpa, &other_source.writer, inlined_fixups);

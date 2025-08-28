@@ -3,7 +3,7 @@ const assert = std.debug.assert;
 const log = std.log.scoped(.x86_64_encoder);
 const math = std.math;
 const testing = std.testing;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const bits = @import("bits.zig");
 const Encoding = @import("Encoding.zig");

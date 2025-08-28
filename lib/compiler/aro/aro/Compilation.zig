@@ -1645,8 +1645,8 @@ test "addSourceFromReader" {
             var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
-            var buf_reader = std.io.fixedBufferStream(str);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "path", .user);
+            var buf_reader: std.Io.Reader = .fixed(str);
+            const source = try comp.addSourceFromReader(&buf_reader, "path", .user);
 
             try std.testing.expectEqualStrings(expected, source.buf);
             try std.testing.expectEqual(warning_count, @as(u32, @intCast(comp.diagnostics.list.items.len)));
@@ -1727,8 +1727,8 @@ test "ignore BOM at beginning of file" {
             var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
-            var buf_reader = std.io.fixedBufferStream(buf);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "file.c", .user);
+            var buf_reader: std.Io.Reader = .fixed(buf);
+            const source = try comp.addSourceFromReader(&buf_reader, "file.c", .user);
             const expected_output = if (mem.startsWith(u8, buf, BOM)) buf[BOM.len..] else buf;
             try std.testing.expectEqualStrings(expected_output, source.buf);
         }
