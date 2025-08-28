@@ -127,9 +127,9 @@ fn printOutput(
     const obj_ext = builtin.object_format.fileExt(builtin.cpu.arch);
     const print = std.debug.print;
 
-    var shell_buffer = std.array_list.Managed(u8).init(arena);
+    var shell_buffer: std.Io.Writer.Allocating = .init(arena);
     defer shell_buffer.deinit();
-    var shell_out = shell_buffer.writer();
+    const shell_out = &shell_buffer.writer;
 
     const code_name = std.fs.path.stem(input_path);
 
@@ -600,7 +600,7 @@ fn printOutput(
     }
 
     if (!code.just_check_syntax) {
-        try printShell(out, shell_buffer.items, false);
+        try printShell(out, shell_buffer.written(), false);
     }
 }
 
@@ -975,25 +975,21 @@ fn skipPrefix(line: []const u8) []const u8 {
     return line[3..];
 }
 
-fn escapeHtml(allocator: Allocator, input: []const u8) ![]u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    defer buf.deinit();
-
-    const out = buf.writer();
-    try writeEscaped(out, input);
-    return try buf.toOwnedSlice();
+fn escapeHtml(gpa: Allocator, input: []const u8) ![]u8 {
+    var allocating: Writer.Allocating = .init(gpa);
+    defer allocating.deinit();
+    try writeEscaped(&allocating.writer, input);
+    return allocating.toOwnedSlice();
 }
 
-fn writeEscaped(out: *Writer, input: []const u8) !void {
-    for (input) |c| {
-        try switch (c) {
-            '&' => out.writeAll("&amp;"),
-            '<' => out.writeAll("&lt;"),
-            '>' => out.writeAll("&gt;"),
-            '"' => out.writeAll("&quot;"),
-            else => out.writeByte(c),
-        };
-    }
+fn writeEscaped(w: *Writer, input: []const u8) !void {
+    for (input) |c| try switch (c) {
+        '&' => w.writeAll("&amp;"),
+        '<' => w.writeAll("&lt;"),
+        '>' => w.writeAll("&gt;"),
+        '"' => w.writeAll("&quot;"),
+        else => w.writeByte(c),
+    };
 }
 
 fn termColor(allocator: Allocator, input: []const u8) ![]u8 {
