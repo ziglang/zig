@@ -255,7 +255,6 @@ mutex: if (builtin.single_threaded) struct {
 } else std.Thread.Mutex = .{},
 
 test_filters: []const []const u8,
-test_name_prefix: ?[]const u8,
 
 link_task_wait_group: WaitGroup = .{},
 link_prog_node: std.Progress.Node = std.Progress.Node.none,
@@ -1766,7 +1765,6 @@ pub const CreateOptions = struct {
     clang_preprocessor_mode: ClangPreprocessorMode = .no,
     reference_trace: ?u32 = null,
     test_filters: []const []const u8 = &.{},
-    test_name_prefix: ?[]const u8 = null,
     test_runner_path: ?[]const u8 = null,
     subsystem: ?std.Target.SubSystem = null,
     mingw_unicode_entry_point: bool = false,
@@ -2266,7 +2264,6 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             .time_report = if (options.time_report) .init else null,
             .stack_report = options.stack_report,
             .test_filters = options.test_filters,
-            .test_name_prefix = options.test_name_prefix,
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .debug_incremental = options.debug_incremental,
@@ -2416,7 +2413,6 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 hash.add(options.config.dll_export_fns);
                 hash.add(options.config.is_test);
                 hash.addListOfBytes(options.test_filters);
-                hash.addOptionalBytes(options.test_name_prefix);
                 hash.add(options.skip_linker_dependencies);
                 hash.add(options.emit_h != .no);
                 hash.add(error_limit);
@@ -3450,7 +3446,6 @@ fn addNonIncrementalStuffToCacheManifest(
 
         // Synchronize with other matching comments: ZigOnlyHashStuff
         man.hash.addListOfBytes(comp.test_filters);
-        man.hash.addOptionalBytes(comp.test_name_prefix);
         man.hash.add(comp.skip_linker_dependencies);
         //man.hash.add(zcu.emit_h != .no);
         man.hash.add(zcu.error_limit);
