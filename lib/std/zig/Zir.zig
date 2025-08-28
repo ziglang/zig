@@ -2111,6 +2111,11 @@ pub const Inst = struct {
         /// This instruction is always `noreturn`, however, it is not considered as such by ZIR-level queries. This allows AstGen to assume that
         /// any code may have gone here, avoiding false-positive "unreachable code" errors.
         astgen_error,
+        /// Given a type, strips away any error unions or optionals stacked
+        /// on top and returns the base type. That base type must be a float.
+        /// For example: Provided with error{Foo}!?f64, returns f64.
+        /// `operand` is `operand: Air.Inst.Ref`.
+        float_op_result_ty,
 
         pub const InstData = struct {
             opcode: Extended,
@@ -4436,6 +4441,7 @@ fn findTrackableInner(
                 .tuple_decl,
                 .dbg_empty_stmt,
                 .astgen_error,
+                .float_op_result_ty,
                 => return,
 
                 // `@TypeOf` has a body.
