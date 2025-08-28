@@ -263,7 +263,7 @@ pub fn writeAdhocSignature(
     self: *CodeSignature,
     macho_file: *MachO,
     opts: WriteOpts,
-    writer: anytype,
+    writer: *std.Io.Writer,
 ) !void {
     const tracy = trace(@src());
     defer tracy.end();

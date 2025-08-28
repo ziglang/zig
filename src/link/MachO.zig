@@ -3015,24 +3015,30 @@ pub fn writeCodeSignature(self: *MachO, code_sig: *CodeSignature) !void {
     const offset = self.codesig_cmd.dataoff;
     const gpa = self.base.comp.gpa;
 
-    const buffer = try gpa.alloc(u8, code_sig.size());
-    defer gpa.free(buffer);
-    var writer: Writer = .fixed(buffer);
-    try code_sig.writeAdhocSignature(self, .{
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
+    defer buffer.deinit();
+    // The writeAdhocSignature function internally changes code_sig.size()
+    // during the execution.
+    try buffer.ensureUnusedCapacity(code_sig.size());
+
+    code_sig.writeAdhocSignature(self, .{
         .file = self.base.file.?,
         .exec_seg_base = seg.fileoff,
         .exec_seg_limit = seg.filesize,
         .file_size = offset,
         .dylib = self.base.isDynLib(),
-    }, &writer);
-    assert(writer.buffered().len == code_sig.size());
+    }, &buffer.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    assert(buffer.written().len == code_sig.size());
 
     log.debug("writing code signature from 0x{x} to 0x{x}", .{
         offset,
-        offset + writer.buffered().len,
+        offset + buffer.written().len,
     });
 
-    try self.pwriteAll(writer.buffered(), offset);
+    try self.pwriteAll(buffer.written(), offset);
 }
 
 pub fn updateFunc(
