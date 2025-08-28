@@ -308,7 +308,7 @@ pub fn appendRemaining(
     list: *ArrayList(u8),
     limit: Limit,
 ) LimitedAllocError!void {
-    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.items);
+    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.allocatedSlice());
     a.writer.end = list.items.len;
     list.* = .empty;
     defer {
@@ -332,7 +332,7 @@ pub fn appendRemaining(
 pub const UnlimitedAllocError = Allocator.Error || ShortError;
 
 pub fn appendRemainingUnlimited(r: *Reader, gpa: Allocator, list: *ArrayList(u8)) UnlimitedAllocError!void {
-    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.items);
+    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.allocatedSlice());
     a.writer.end = list.items.len;
     list.* = .empty;
     defer {
