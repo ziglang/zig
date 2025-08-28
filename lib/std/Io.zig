@@ -277,10 +277,6 @@ pub const AnyReader = @import("Io/DeprecatedReader.zig");
 pub const FixedBufferStream = @import("Io/fixed_buffer_stream.zig").FixedBufferStream;
 /// Deprecated in favor of `Reader`.
 pub const fixedBufferStream = @import("Io/fixed_buffer_stream.zig").fixedBufferStream;
-/// Deprecated with no replacement; inefficient pattern
-pub const CountingReader = @import("Io/counting_reader.zig").CountingReader;
-/// Deprecated with no replacement; inefficient pattern
-pub const countingReader = @import("Io/counting_reader.zig").countingReader;
 
 pub const tty = @import("Io/tty.zig");
 
@@ -750,7 +746,6 @@ pub fn PollFiles(comptime StreamEnum: type) type {
 test {
     _ = Reader;
     _ = Writer;
-    _ = CountingReader;
     _ = FixedBufferStream;
     _ = tty;
     _ = @import("Io/test.zig");

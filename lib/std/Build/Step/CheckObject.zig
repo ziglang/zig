@@ -1224,14 +1224,12 @@ const MachODumper = struct {
         }
 
         fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.array_list.Managed(u64)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
+            var reader: std.Io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
             while (true) {
-                const byte = reader.readByte() catch break;
+                const byte = reader.takeByte() catch break;
                 const opc = byte & macho.REBASE_OPCODE_MASK;
                 const imm = byte & macho.REBASE_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1239,17 +1237,17 @@ const MachODumper = struct {
                     macho.REBASE_OPCODE_SET_TYPE_IMM => {},
                     macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try reader.takeLeb128(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
                         offset += imm * @sizeOf(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try reader.takeLeb128(u64);
                         offset += addend;
                     },
                     macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try reader.takeLeb128(u64);
                         const seg = ctx.segments.items[seg_id.?];
                         const addr = seg.vmaddr + offset;
                         try rebases.append(addr);
@@ -1266,11 +1264,11 @@ const MachODumper = struct {
                                 ntimes = imm;
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
+                                ntimes = try reader.takeLeb128(u64);
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                ntimes = try reader.takeLeb128(u64);
+                                skip = try reader.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1431,7 +1429,7 @@ const MachODumper = struct {
             defer arena.deinit();
 
             var exports = std.array_list.Managed(Export).init(arena.allocator());
-            var it = TrieIterator{ .data = data };
+            var it: TrieIterator = .{ .stream = .fixed(data) };
             try parseTrieNode(arena.allocator(), &it, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
@@ -1462,42 +1460,18 @@ const MachODumper = struct {
         }
 
         const TrieIterator = struct {
-            data: []const u8,
-            pos: usize = 0,
-
-            fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
-                return std.io.fixedBufferStream(it.data[it.pos..]);
-            }
+            stream: std.Io.Reader,
 
             fn readUleb128(it: *TrieIterator) !u64 {
-                var stream = it.getStream();
-                var creader = std.io.countingReader(stream.reader());
-                const reader = creader.reader();
-                const value = try std.leb.readUleb128(u64, reader);
-                it.pos += creader.bytes_read;
-                return value;
+                return it.stream.takeLeb128(u64);
             }
 
             fn readString(it: *TrieIterator) ![:0]const u8 {
-                var stream = it.getStream();
-                const reader = stream.reader();
-
-                var count: usize = 0;
-                while (true) : (count += 1) {
-                    const byte = try reader.readByte();
-                    if (byte == 0) break;
-                }
-
-                const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
-                it.pos += count + 1;
-                return str;
+                return it.stream.takeSentinel(0);
             }
 
             fn readByte(it: *TrieIterator) !u8 {
-                var stream = it.getStream();
-                const value = try stream.reader().readByte();
-                it.pos += 1;
-                return value;
+                return it.stream.takeByte();
             }
         };
 
@@ -1594,10 +1568,10 @@ const MachODumper = struct {
                 const label = try it.readString();
                 const off = try it.readUleb128();
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-                const curr = it.pos;
-                it.pos = off;
+                const curr = it.stream.seek;
+                it.stream.seek = off;
                 try parseTrieNode(arena, it, prefix_label, exports);
-                it.pos = curr;
+                it.stream.seek = curr;
             }
         }
 
