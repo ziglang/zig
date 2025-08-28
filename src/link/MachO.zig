@@ -2672,13 +2672,13 @@ fn writeDyldInfo(self: *MachO) !void {
     var writer: Writer = .fixed(buffer);
 
     try self.rebase_section.write(&writer);
-    writer.end = cmd.bind_off - base_off;
+    writer.end = @intCast(cmd.bind_off - base_off);
     try self.bind_section.write(&writer);
-    writer.end = cmd.weak_bind_off - base_off;
+    writer.end = @intCast(cmd.weak_bind_off - base_off);
     try self.weak_bind_section.write(&writer);
-    writer.end = cmd.lazy_bind_off - base_off;
+    writer.end = @intCast(cmd.lazy_bind_off - base_off);
     try self.lazy_bind_section.write(&writer);
-    writer.end = cmd.export_off - base_off;
+    writer.end = @intCast(cmd.export_off - base_off);
     try self.export_trie.write(&writer);
     try self.pwriteAll(buffer, cmd.rebase_off);
 }
