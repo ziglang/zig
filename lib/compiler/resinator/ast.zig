@@ -22,13 +22,13 @@ pub const Tree = struct {
         return @alignCast(@fieldParentPtr("base", self.node));
     }
 
-    pub fn dump(self: *Tree, writer: anytype) @TypeOf(writer).Error!void {
+    pub fn dump(self: *Tree, writer: *std.io.Writer) !void {
         try self.node.dump(self, writer, 0);
     }
 };
 
 pub const CodePageLookup = struct {
-    lookup: std.ArrayListUnmanaged(SupportedCodePage) = .empty,
+    lookup: std.ArrayList(SupportedCodePage) = .empty,
     allocator: Allocator,
     default_code_page: SupportedCodePage,
 
@@ -726,10 +726,10 @@ pub const Node = struct {
     pub fn dump(
         node: *const Node,
         tree: *const Tree,
-        writer: anytype,
+        writer: *std.io.Writer,
         indent: usize,
-    ) @TypeOf(writer).Error!void {
-        try writer.writeByteNTimes(' ', indent);
+    ) std.io.Writer.Error!void {
+        try writer.splatByteAll(' ', indent);
         try writer.writeAll(@tagName(node.id));
         switch (node.id) {
             .root => {
@@ -768,11 +768,11 @@ pub const Node = struct {
             .grouped_expression => {
                 const grouped: *const Node.GroupedExpression = @alignCast(@fieldParentPtr("base", node));
                 try writer.writeAll("\n");
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(grouped.open_token.slice(tree.source));
                 try writer.writeAll("\n");
                 try grouped.expression.dump(tree, writer, indent + 1);
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(grouped.close_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -790,13 +790,13 @@ pub const Node = struct {
                 for (accelerators.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(accelerators.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (accelerators.accelerators) |accelerator| {
                     try accelerator.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(accelerators.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -815,25 +815,25 @@ pub const Node = struct {
                 const dialog: *const Node.Dialog = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ dialog.id.slice(tree.source), dialog.type.slice(tree.source), dialog.common_resource_attributes.len });
                 inline for (.{ "x", "y", "width", "height" }) |arg| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll(arg ++ ":\n");
                     try @field(dialog, arg).dump(tree, writer, indent + 2);
                 }
                 if (dialog.help_id) |help_id| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll("help_id:\n");
                     try help_id.dump(tree, writer, indent + 2);
                 }
                 for (dialog.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(dialog.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (dialog.controls) |control| {
                     try control.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(dialog.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -845,30 +845,30 @@ pub const Node = struct {
                 }
                 try writer.writeByte('\n');
                 if (control.class) |class| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll("class:\n");
                     try class.dump(tree, writer, indent + 2);
                 }
                 inline for (.{ "id", "x", "y", "width", "height" }) |arg| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll(arg ++ ":\n");
                     try @field(control, arg).dump(tree, writer, indent + 2);
                 }
                 inline for (.{ "style", "exstyle", "help_id" }) |arg| {
                     if (@field(control, arg)) |val_node| {
-                        try writer.writeByteNTimes(' ', indent + 1);
+                        try writer.splatByteAll(' ', indent + 1);
                         try writer.writeAll(arg ++ ":\n");
                         try val_node.dump(tree, writer, indent + 2);
                     }
                 }
                 if (control.extra_data_begin != null) {
-                    try writer.writeByteNTimes(' ', indent);
+                    try writer.splatByteAll(' ', indent);
                     try writer.writeAll(control.extra_data_begin.?.slice(tree.source));
                     try writer.writeAll("\n");
                     for (control.extra_data) |data_node| {
                         try data_node.dump(tree, writer, indent + 1);
                     }
-                    try writer.writeByteNTimes(' ', indent);
+                    try writer.splatByteAll(' ', indent);
                     try writer.writeAll(control.extra_data_end.?.slice(tree.source));
                     try writer.writeAll("\n");
                 }
@@ -877,17 +877,17 @@ pub const Node = struct {
                 const toolbar: *const Node.Toolbar = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} common_resource_attributes]\n", .{ toolbar.id.slice(tree.source), toolbar.type.slice(tree.source), toolbar.common_resource_attributes.len });
                 inline for (.{ "button_width", "button_height" }) |arg| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll(arg ++ ":\n");
                     try @field(toolbar, arg).dump(tree, writer, indent + 2);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(toolbar.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (toolbar.buttons) |button_or_sep| {
                     try button_or_sep.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(toolbar.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -898,17 +898,17 @@ pub const Node = struct {
                     try statement.dump(tree, writer, indent + 1);
                 }
                 if (menu.help_id) |help_id| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.writeAll("help_id:\n");
                     try help_id.dump(tree, writer, indent + 2);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(menu.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (menu.items) |item| {
                     try item.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(menu.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -926,7 +926,7 @@ pub const Node = struct {
                 try writer.print(" {s} {s}\n", .{ menu_item.menuitem.slice(tree.source), menu_item.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state" }) |arg| {
                     if (@field(menu_item, arg)) |val_node| {
-                        try writer.writeByteNTimes(' ', indent + 1);
+                        try writer.splatByteAll(' ', indent + 1);
                         try writer.writeAll(arg ++ ":\n");
                         try val_node.dump(tree, writer, indent + 2);
                     }
@@ -935,13 +935,13 @@ pub const Node = struct {
             .popup => {
                 const popup: *const Node.Popup = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} {s} [{d} options]\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source), popup.option_list.len });
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(popup.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (popup.items) |item| {
                     try item.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(popup.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -950,18 +950,18 @@ pub const Node = struct {
                 try writer.print(" {s} {s}\n", .{ popup.popup.slice(tree.source), popup.text.slice(tree.source) });
                 inline for (.{ "id", "type", "state", "help_id" }) |arg| {
                     if (@field(popup, arg)) |val_node| {
-                        try writer.writeByteNTimes(' ', indent + 1);
+                        try writer.splatByteAll(' ', indent + 1);
                         try writer.writeAll(arg ++ ":\n");
                         try val_node.dump(tree, writer, indent + 2);
                     }
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(popup.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (popup.items) |item| {
                     try item.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(popup.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -971,13 +971,13 @@ pub const Node = struct {
                 for (version_info.fixed_info) |fixed_info| {
                     try fixed_info.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(version_info.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (version_info.block_statements) |block| {
                     try block.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(version_info.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -994,13 +994,13 @@ pub const Node = struct {
                 for (block.values) |value| {
                     try value.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(block.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (block.children) |child| {
                     try child.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(block.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -1025,13 +1025,13 @@ pub const Node = struct {
                 for (string_table.optional_statements) |statement| {
                     try statement.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(string_table.begin_token.slice(tree.source));
                 try writer.writeAll("\n");
                 for (string_table.strings) |string| {
                     try string.dump(tree, writer, indent + 1);
                 }
-                try writer.writeByteNTimes(' ', indent);
+                try writer.splatByteAll(' ', indent);
                 try writer.writeAll(string_table.end_token.slice(tree.source));
                 try writer.writeAll("\n");
             },
@@ -1039,7 +1039,7 @@ pub const Node = struct {
                 try writer.writeAll("\n");
                 const string: *const Node.StringTableString = @alignCast(@fieldParentPtr("base", node));
                 try string.id.dump(tree, writer, indent + 1);
-                try writer.writeByteNTimes(' ', indent + 1);
+                try writer.splatByteAll(' ', indent + 1);
                 try writer.print("{s}\n", .{string.string.slice(tree.source)});
             },
             .language_statement => {
@@ -1051,12 +1051,12 @@ pub const Node = struct {
             .font_statement => {
                 const font: *const Node.FontStatement = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" {s} typeface: {s}\n", .{ font.identifier.slice(tree.source), font.typeface.slice(tree.source) });
-                try writer.writeByteNTimes(' ', indent + 1);
+                try writer.splatByteAll(' ', indent + 1);
                 try writer.writeAll("point_size:\n");
                 try font.point_size.dump(tree, writer, indent + 2);
                 inline for (.{ "weight", "italic", "char_set" }) |arg| {
                     if (@field(font, arg)) |arg_node| {
-                        try writer.writeByteNTimes(' ', indent + 1);
+                        try writer.splatByteAll(' ', indent + 1);
                         try writer.writeAll(arg ++ ":\n");
                         try arg_node.dump(tree, writer, indent + 2);
                     }
@@ -1071,7 +1071,7 @@ pub const Node = struct {
                 const invalid: *const Node.Invalid = @alignCast(@fieldParentPtr("base", node));
                 try writer.print(" context.len: {}\n", .{invalid.context.len});
                 for (invalid.context) |context_token| {
-                    try writer.writeByteNTimes(' ', indent + 1);
+                    try writer.splatByteAll(' ', indent + 1);
                     try writer.print("{s}:{s}", .{ @tagName(context_token.id), context_token.slice(tree.source) });
                     try writer.writeByte('\n');
                 }

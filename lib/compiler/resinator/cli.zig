@@ -80,20 +80,20 @@ pub const usage_string_after_command_name =
     \\
 ;
 
-pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
+pub fn writeUsage(writer: *std.Io.Writer, command_name: []const u8) !void {
     try writer.writeAll("Usage: ");
     try writer.writeAll(command_name);
     try writer.writeAll(usage_string_after_command_name);
 }
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
+    errors: std.ArrayList(ErrorDetails) = .empty,
     allocator: Allocator,
 
     pub const ErrorDetails = struct {
         arg_index: usize,
         arg_span: ArgSpan = .{},
-        msg: std.ArrayListUnmanaged(u8) = .empty,
+        msg: std.ArrayList(u8) = .empty,
         type: Type = .err,
         print_args: bool = true,
 
@@ -148,7 +148,7 @@ pub const Options = struct {
     allocator: Allocator,
     input_source: IoSource = .{ .filename = &[_]u8{} },
     output_source: IoSource = .{ .filename = &[_]u8{} },
-    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .empty,
+    extra_include_paths: std.ArrayList([]const u8) = .empty,
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
@@ -295,7 +295,7 @@ pub const Options = struct {
         }
     }
 
-    pub fn dumpVerbose(self: *const Options, writer: anytype) !void {
+    pub fn dumpVerbose(self: *const Options, writer: *std.Io.Writer) !void {
         const input_source_name = switch (self.input_source) {
             .stdio => "<stdin>",
             .filename => |filename| filename,
@@ -1230,19 +1230,19 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 }
 
 pub fn filepathWithExtension(allocator: Allocator, path: []const u8, ext: []const u8) ![]const u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    errdefer buf.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(allocator);
     if (std.fs.path.dirname(path)) |dirname| {
         var end_pos = dirname.len;
         // We want to ensure that we write a path separator at the end, so if the dirname
         // doesn't end with a path sep then include the char after the dirname
         // which must be a path sep.
         if (!std.fs.path.isSep(dirname[dirname.len - 1])) end_pos += 1;
-        try buf.appendSlice(path[0..end_pos]);
+        try buf.appendSlice(allocator, path[0..end_pos]);
     }
-    try buf.appendSlice(std.fs.path.stem(path));
-    try buf.appendSlice(ext);
-    return try buf.toOwnedSlice();
+    try buf.appendSlice(allocator, std.fs.path.stem(path));
+    try buf.appendSlice(allocator, ext);
+    return try buf.toOwnedSlice(allocator);
 }
 
 pub fn isSupportedInputExtension(ext: []const u8) bool {
@@ -1476,7 +1476,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     var options = parse(std.testing.allocator, args, &diagnostics) catch |err| switch (err) {
         error.ParseError => {
             try diagnostics.renderToWriter(args, &output.writer, .no_color);
-            try std.testing.expectEqualStrings(expected_output, output.getWritten());
+            try std.testing.expectEqualStrings(expected_output, output.written());
             return null;
         },
         else => |e| return e,
@@ -1484,7 +1484,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     errdefer options.deinit();
 
     try diagnostics.renderToWriter(args, &output.writer, .no_color);
-    try std.testing.expectEqualStrings(expected_output, output.getWritten());
+    try std.testing.expectEqualStrings(expected_output, output.written());
     return options;
 }
 

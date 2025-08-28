@@ -43,7 +43,7 @@ pub const Resource = struct {
 };
 
 pub const ParsedResources = struct {
-    list: std.ArrayListUnmanaged(Resource) = .empty,
+    list: std.ArrayList(Resource) = .empty,
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) ParsedResources {
@@ -157,7 +157,7 @@ pub fn parseNameOrOrdinal(allocator: Allocator, reader: *std.Io.Reader) !NameOrO
         const ordinal_value = try reader.takeInt(u16, .little);
         return .{ .ordinal = ordinal_value };
     }
-    var name_buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 16);
+    var name_buf = try std.ArrayList(u16).initCapacity(allocator, 16);
     errdefer name_buf.deinit(allocator);
     var code_unit = first_code_unit;
     while (code_unit != 0) {
@@ -373,7 +373,7 @@ pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []cons
     try writer.writeAll(string_table.bytes.items);
 }
 
-fn writeSymbol(writer: anytype, symbol: std.coff.Symbol) !void {
+fn writeSymbol(writer: *std.Io.Writer, symbol: std.coff.Symbol) !void {
     try writer.writeAll(&symbol.name);
     try writer.writeInt(u32, symbol.value, .little);
     try writer.writeInt(u16, @intFromEnum(symbol.section_number), .little);
@@ -383,7 +383,7 @@ fn writeSymbol(writer: anytype, symbol: std.coff.Symbol) !void {
     try writer.writeInt(u8, symbol.number_of_aux_symbols, .little);
 }
 
-fn writeSectionDefinition(writer: anytype, def: std.coff.SectionDefinition) !void {
+fn writeSectionDefinition(writer: *std.Io.Writer, def: std.coff.SectionDefinition) !void {
     try writer.writeInt(u32, def.length, .little);
     try writer.writeInt(u16, def.number_of_relocations, .little);
     try writer.writeInt(u16, def.number_of_linenumbers, .little);
@@ -417,7 +417,7 @@ pub const ResourceDirectoryEntry = extern struct {
         to_subdirectory: bool,
     },
 
-    pub fn writeCoff(self: ResourceDirectoryEntry, writer: anytype) !void {
+    pub fn writeCoff(self: ResourceDirectoryEntry, writer: *std.Io.Writer) !void {
         try writer.writeInt(u32, @bitCast(self.entry), .little);
         try writer.writeInt(u32, @bitCast(self.offset), .little);
     }
@@ -435,7 +435,7 @@ const ResourceTree = struct {
     type_to_name_map: std.ArrayHashMapUnmanaged(NameOrOrdinal, NameToLanguageMap, NameOrOrdinalHashContext, true),
     rsrc_string_table: std.ArrayHashMapUnmanaged(NameOrOrdinal, void, NameOrOrdinalHashContext, true),
     deduplicated_data: std.StringArrayHashMapUnmanaged(u32),
-    data_offsets: std.ArrayListUnmanaged(u32),
+    data_offsets: std.ArrayList(u32),
     rsrc02_len: u32,
     coff_options: CoffOptions,
     allocator: Allocator,
@@ -675,13 +675,13 @@ const ResourceTree = struct {
             return &.{};
         }
 
-        var level2_list: std.ArrayListUnmanaged(*const NameToLanguageMap) = .empty;
+        var level2_list: std.ArrayList(*const NameToLanguageMap) = .empty;
         defer level2_list.deinit(allocator);
 
-        var level3_list: std.ArrayListUnmanaged(*const LanguageToResourceMap) = .empty;
+        var level3_list: std.ArrayList(*const LanguageToResourceMap) = .empty;
         defer level3_list.deinit(allocator);
 
-        var resources_list: std.ArrayListUnmanaged(*const RelocatableResource) = .empty;
+        var resources_list: std.ArrayList(*const RelocatableResource) = .empty;
         defer resources_list.deinit(allocator);
 
         var relocations = Relocations.init(allocator);
@@ -896,7 +896,7 @@ const ResourceTree = struct {
         return symbols;
     }
 
-    fn writeRelocation(writer: anytype, relocation: std.coff.Relocation) !void {
+    fn writeRelocation(writer: *std.Io.Writer, relocation: std.coff.Relocation) !void {
         try writer.writeInt(u32, relocation.virtual_address, .little);
         try writer.writeInt(u32, relocation.symbol_table_index, .little);
         try writer.writeInt(u16, relocation.type, .little);
@@ -928,7 +928,7 @@ const Relocation = struct {
 
 const Relocations = struct {
     allocator: Allocator,
-    list: std.ArrayListUnmanaged(Relocation) = .empty,
+    list: std.ArrayList(Relocation) = .empty,
     cur_symbol_index: u32 = 5,
 
     pub fn init(allocator: Allocator) Relocations {
@@ -952,7 +952,7 @@ const Relocations = struct {
 /// Does not do deduplication (only because there's no chance of duplicate strings in this
 /// instance).
 const StringTable = struct {
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
 
     pub fn deinit(self: *StringTable, allocator: Allocator) void {
         self.bytes.deinit(allocator);

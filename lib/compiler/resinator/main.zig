@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const removeComments = @import("comments.zig").removeComments;
 const parseAndRemoveLineCommands = @import("source_mapping.zig").parseAndRemoveLineCommands;
 const compile = @import("compile.zig").compile;
+const Dependencies = @import("compile.zig").Dependencies;
 const Diagnostics = @import("errors.zig").Diagnostics;
 const cli = @import("cli.zig");
 const preprocess = @import("preprocess.zig");
@@ -12,8 +13,6 @@ const cvtres = @import("cvtres.zig");
 const hasDisjointCodePage = @import("disjoint_code_page.zig").hasDisjointCodePage;
 const fmtResourceType = @import("res.zig").NameOrOrdinal.fmtResourceType;
 const aro = @import("aro");
-
-var stdout_buffer: [1024]u8 = undefined;
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -43,11 +42,13 @@ pub fn main() !void {
         cli_args = args[3..];
     }
 
+    var stdout_buffer: [1024]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+    const stdout = &stdout_writer.interface;
     var error_handler: ErrorHandler = switch (zig_integration) {
         true => .{
             .server = .{
-                .out = &stdout_writer.interface,
+                .out = stdout,
                 .in = undefined, // won't be receiving messages
             },
         },
@@ -83,8 +84,8 @@ pub fn main() !void {
     defer options.deinit();
 
     if (options.print_help_and_exit) {
-        try cli.writeUsage(&stdout_writer.interface, "zig rc");
-        try stdout_writer.interface.flush();
+        try cli.writeUsage(stdout, "zig rc");
+        try stdout.flush();
         return;
     }
 
@@ -92,19 +93,14 @@ pub fn main() !void {
     options.verbose = false;
 
     if (options.verbose) {
-        try options.dumpVerbose(&stdout_writer.interface);
-        try stdout_writer.interface.writeByte('\n');
-        try stdout_writer.interface.flush();
+        try options.dumpVerbose(stdout);
+        try stdout.writeByte('\n');
+        try stdout.flush();
     }
 
-    var dependencies_list = std.array_list.Managed([]const u8).init(allocator);
-    defer {
-        for (dependencies_list.items) |item| {
-            allocator.free(item);
-        }
-        dependencies_list.deinit();
-    }
-    const maybe_dependencies_list: ?*std.array_list.Managed([]const u8) = if (options.depfile_path != null) &dependencies_list else null;
+    var dependencies = Dependencies.init(allocator);
+    defer dependencies.deinit();
+    const maybe_dependencies: ?*Dependencies = if (options.depfile_path != null) &dependencies else null;
 
     var include_paths = LazyIncludePaths{
         .arena = arena,
@@ -127,27 +123,27 @@ pub fn main() !void {
             var comp = aro.Compilation.init(aro_arena, std.fs.cwd());
             defer comp.deinit();
 
-            var argv = std.array_list.Managed([]const u8).init(comp.gpa);
-            defer argv.deinit();
+            var argv: std.ArrayList([]const u8) = .empty;
+            defer argv.deinit(aro_arena);
 
-            try argv.append("arocc"); // dummy command name
+            try argv.append(aro_arena, "arocc"); // dummy command name
             const resolved_include_paths = try include_paths.get(&error_handler);
             try preprocess.appendAroArgs(aro_arena, &argv, options, resolved_include_paths);
-            try argv.append(switch (options.input_source) {
+            try argv.append(aro_arena, switch (options.input_source) {
                 .stdio => "-",
                 .filename => |filename| filename,
             });
 
             if (options.verbose) {
-                try stdout_writer.interface.writeAll("Preprocessor: arocc (built-in)\n");
+                try stdout.writeAll("Preprocessor: arocc (built-in)\n");
                 for (argv.items[0 .. argv.items.len - 1]) |arg| {
-                    try stdout_writer.interface.print("{s} ", .{arg});
+                    try stdout.print("{s} ", .{arg});
                 }
-                try stdout_writer.interface.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
-                try stdout_writer.interface.flush();
+                try stdout.print("{s}\n\n", .{argv.items[argv.items.len - 1]});
+                try stdout.flush();
             }
 
-            preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies_list) catch |err| switch (err) {
+            preprocess.preprocess(&comp, &preprocessed_buf.writer, argv.items, maybe_dependencies) catch |err| switch (err) {
                 error.GeneratedSourceError => {
                     try error_handler.emitAroDiagnostics(allocator, "failed during preprocessor setup (this is always a bug):", &comp);
                     std.process.exit(1);
@@ -258,7 +254,7 @@ pub fn main() !void {
                     .cwd = std.fs.cwd(),
                     .diagnostics = &diagnostics,
                     .source_mappings = &mapping_results.mappings,
-                    .dependencies_list = maybe_dependencies_list,
+                    .dependencies = maybe_dependencies,
                     .ignore_include_env_var = options.ignore_include_env_var,
                     .extra_include_paths = options.extra_include_paths.items,
                     .system_include_paths = try include_paths.get(&error_handler),
@@ -305,7 +301,7 @@ pub fn main() !void {
                             };
 
                             try write_stream.beginArray();
-                            for (dependencies_list.items) |dep_path| {
+                            for (dependencies.list.items) |dep_path| {
                                 try write_stream.write(dep_path);
                             }
                             try write_stream.endArray();
