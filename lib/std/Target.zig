@@ -22,6 +22,7 @@ pub const Os = struct {
         contiki,
         fuchsia,
         hermit,
+        managarm,
 
         aix,
         haiku,
@@ -157,6 +158,8 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+
+                .managarm,
 
                 .haiku,
                 .plan9,
@@ -387,6 +390,8 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+
+                .managarm,
 
                 .haiku,
                 .plan9,
@@ -895,6 +900,7 @@ pub const Abi = enum {
             .contiki,
             .fuchsia,
             .hermit,
+            .managarm,
             .plan9,
             .serenity,
             .zos,
@@ -2094,6 +2100,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .netbsd,
         .freestanding,
         .fuchsia,
+        .managarm,
         .ps3,
         .zos,
         .rtems,
@@ -2206,6 +2213,7 @@ pub const DynamicLinker = struct {
 
             .contiki,
             .hermit,
+            .managarm, // Needs to be double-checked.
 
             .aix,
             .plan9,
@@ -2621,6 +2629,8 @@ pub const DynamicLinker = struct {
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
+            .managarm,
+
             .ps3,
             .ps4,
             .ps5,
@@ -3148,6 +3158,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .ps3,
         .contiki,
+        .managarm,
         .opengl,
         => @panic("specify the C integer and float type sizes for this OS"),
     }
