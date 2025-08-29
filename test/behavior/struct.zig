@@ -2136,3 +2136,21 @@ test "field access through mem ptr arg" {
         &.{ .field = 0x0ced271f },
     ) == 0x0ced271f);
 }
+
+test "align 1 struct parameter dereferenced and returned" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    const S = extern struct {
+        a: u32,
+
+        fn gimme(p: *align(1) @This()) @This() {
+            return p.*;
+        }
+    };
+    var buffer: [5]u8 align(4) = .{ 1, 2, 3, 4, 5 };
+    const s = S.gimme(@ptrCast(buffer[1..]));
+    switch (native_endian) {
+        .big => try expect(s.a == 0x02030405),
+        .little => try expect(s.a == 0x05040302),
+    }
+}
