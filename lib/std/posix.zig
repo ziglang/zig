@@ -6721,6 +6721,14 @@ pub const SetSockOptError = error{
     /// Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    /// This can mean many different things depending on the platform, the
+    /// option name, and conditions.  For example:
+    /// - That the socket was not listen()ing when setting SO_ACCEPTFILTER on BSDs.
+    /// - That an non-multicast IP address was set for IP_ADD_MEMBERSHIP on Linux.
+    /// - That the socket is shut down and the option requires otherwise
+    /// - etc...
+    InvalidOption,
+
     OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
@@ -6748,8 +6756,8 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
             .SUCCESS => {},
             .BADF => unreachable, // always a race condition
             .NOTSOCK => unreachable, // always a race condition
-            .INVAL => unreachable,
             .FAULT => unreachable,
+            .INVAL => return error.InvalidOption,
             .DOM => return error.TimeoutTooBig,
             .ISCONN => return error.AlreadyConnected,
             .NOPROTOOPT => return error.InvalidProtocolOption,
