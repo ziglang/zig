@@ -4354,6 +4354,9 @@ pub const GetSockOptError = error{
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
 
+    /// The supplied opt buffer was too small for the data to be returned.
+    BufferTooSmall,
+
     /// This can mean different things depending on the platform, the option
     /// name, and conditions.  One known oddball example is SO_ACCEPTFILTER on
     /// BSDs, which returns this error to indicate that no filter is currently
@@ -4375,6 +4378,7 @@ pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptE
         .NOMEM => return error.SystemResources,
         .NOBUFS => return error.SystemResources,
         .ACCES => return error.AccessDenied,
+        .RANGE => return error.BufferTooSmall,
         else => |err| return unexpectedErrno(err),
     }
 }
