@@ -1,3 +1,6 @@
+//! The Time Zone Information Format (TZif)
+//! https://datatracker.ietf.org/doc/html/rfc8536
+
 const builtin = @import("builtin");
 
 const std = @import("std.zig");
@@ -58,30 +61,26 @@ pub const Tz = struct {
     };
 
     pub fn parse(allocator: Allocator, reader: *Reader) !Tz {
-        var legacy_header = try reader.takeStruct(Header, .little);
+        const legacy_header = try reader.takeStruct(Header, .big);
         if (!std.mem.eql(u8, &legacy_header.magic, "TZif")) return error.BadHeader;
-        if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3') return error.BadVersion;
+        if (legacy_header.version != 0 and legacy_header.version != '2' and legacy_header.version != '3')
+            return error.BadVersion;
 
-        if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
-            std.mem.byteSwapAllFields(@TypeOf(legacy_header.counts), &legacy_header.counts);
-        }
-
-        if (legacy_header.version == 0) {
+        if (legacy_header.version == 0)
             return parseBlock(allocator, reader, legacy_header, true);
-        } else {
-            // If the format is modern, just skip over the legacy data
-            const skipv = legacy_header.counts.timecnt * 5 + legacy_header.counts.typecnt * 6 + legacy_header.counts.charcnt + legacy_header.counts.leapcnt * 8 + legacy_header.counts.isstdcnt + legacy_header.counts.isutcnt;
-            try reader.discardAll(skipv);
 
-            var header = try reader.takeStruct(Header, .little);
-            if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
-            if (header.version != '2' and header.version != '3') return error.BadVersion;
-            if (builtin.target.cpu.arch.endian() != std.builtin.Endian.big) {
-                std.mem.byteSwapAllFields(@TypeOf(header.counts), &header.counts);
-            }
+        // If the format is modern, just skip over the legacy data
+        const skip_n = legacy_header.counts.timecnt * 5 +
+            legacy_header.counts.typecnt * 6 +
+            legacy_header.counts.charcnt + legacy_header.counts.leapcnt * 8 +
+            legacy_header.counts.isstdcnt + legacy_header.counts.isutcnt;
+        try reader.discardAll(skip_n);
 
-            return parseBlock(allocator, reader, header, false);
-        }
+        var header = try reader.takeStruct(Header, .big);
+        if (!std.mem.eql(u8, &header.magic, "TZif")) return error.BadHeader;
+        if (header.version != '2' and header.version != '3') return error.BadVersion;
+
+        return parseBlock(allocator, reader, header, false);
     }
 
     fn parseBlock(allocator: Allocator, reader: *Reader, header: Header, legacy: bool) !Tz {
