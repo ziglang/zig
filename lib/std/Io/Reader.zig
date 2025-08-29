@@ -143,8 +143,8 @@ pub const failing: Reader = .{
 
 /// This is generally safe to `@constCast` because it has an empty buffer, so
 /// there is not really a way to accidentally attempt mutation of these fields.
-const ending_state: Reader = .fixed(&.{});
-pub const ending: *Reader = @constCast(&ending_state);
+pub const ending_instance: Reader = .fixed(&.{});
+pub const ending: *Reader = @constCast(&ending_instance);
 
 pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
     return .init(r, limit, buffer);
