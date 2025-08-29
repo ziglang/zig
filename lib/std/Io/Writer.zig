@@ -2595,7 +2595,9 @@ pub fn AllocatingAligned(comptime alignment: std.mem.Alignment) type {
         };
 
         pub fn deinit(a: *Self) void {
-            a.allocator.free(a.writer.buffer);
+            const aligned_buffer: []align(alignment.toByteUnits()) u8 =
+                @alignCast(a.writer.buffer);
+            a.allocator.free(aligned_buffer);
             a.* = undefined;
         }
 
@@ -2705,17 +2707,39 @@ pub fn AllocatingAligned(comptime alignment: std.mem.Alignment) type {
         }
 
         test Self {
-            var a: Self = .init(testing.allocator);
-            defer a.deinit();
-            const w = &a.writer;
+            const gpa = testing.allocator;
+            {
+                var a: Self = .init(gpa);
+                defer a.deinit();
+                const w = &a.writer;
 
-            const x: i32 = 42;
-            const y: i32 = 1234;
-            try w.print("x: {}\ny: {}\n", .{ x, y });
+                const x: i32 = 42;
+                const y: i32 = 1234;
+                try w.print("x: {}\ny: {}\n", .{ x, y });
 
-            try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
+                try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", a.written());
+            }
+
+            { // check that things compile and types are correct
+                var a: Self = .init(gpa);
+                defer a.deinit();
+                var l: std.array_list.Aligned(u8, alignment) = a.toArrayList();
+                _ = Self.fromArrayList(gpa, &l);
+                a.setArrayList(l);
+                const s: []align(alignment.toByteUnits()) u8 = try a.toOwnedSlice();
+                defer gpa.free(s);
+                const s2: [:0]align(alignment.toByteUnits()) u8 = try a.toOwnedSliceSentinel(0);
+                defer gpa.free(s2);
+            }
         }
     };
+}
+
+test AllocatingAligned {
+    _ = AllocatingAligned(.fromByteUnits(4));
+    _ = AllocatingAligned(.fromByteUnits(8));
+    _ = AllocatingAligned(.fromByteUnits(16));
+    _ = AllocatingAligned(.fromByteUnits(32));
 }
 
 test "discarding sendFile" {
