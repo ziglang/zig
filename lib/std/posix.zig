@@ -4353,6 +4353,12 @@ pub const GetSockOptError = error{
 
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
+
+    /// This can mean different things depending on the platform, the option
+    /// name, and conditions.  One known oddball example is SO_ACCEPTFILTER on
+    /// BSDs, which returns this error to indicate that no filter is currently
+    /// installed.
+    InvalidOption,
 } || UnexpectedError;
 
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
@@ -4363,8 +4369,8 @@ pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptE
         },
         .BADF => unreachable,
         .NOTSOCK => unreachable,
-        .INVAL => unreachable,
         .FAULT => unreachable,
+        .INVAL => return error.InvalidOption,
         .NOPROTOOPT => return error.InvalidProtocolOption,
         .NOMEM => return error.SystemResources,
         .NOBUFS => return error.SystemResources,
