@@ -33,28 +33,6 @@ pub fn readUleb128(comptime T: type, reader: anytype) !T {
     return @as(T, @truncate(value));
 }
 
-/// Write a single unsigned integer as unsigned LEB128 to the given writer.
-pub fn writeUleb128(writer: anytype, arg: anytype) !void {
-    const Arg = @TypeOf(arg);
-    const Int = switch (Arg) {
-        comptime_int => std.math.IntFittingRange(arg, arg),
-        else => Arg,
-    };
-    const Value = if (@typeInfo(Int).int.bits < 8) u8 else Int;
-    var value: Value = arg;
-
-    while (true) {
-        const byte: u8 = @truncate(value & 0x7f);
-        value >>= 7;
-        if (value == 0) {
-            try writer.writeByte(byte);
-            break;
-        } else {
-            try writer.writeByte(byte | 0x80);
-        }
-    }
-}
-
 /// Read a single signed LEB128 value from the given reader as type T,
 /// or error.Overflow if the value cannot fit.
 pub fn readIleb128(comptime T: type, reader: anytype) !T {
@@ -373,85 +351,4 @@ test "deserialize unsigned LEB128" {
 
     // Decode sequence of ULEB128 values
     try test_read_uleb128_seq(u64, 4, "\x81\x01\x3f\x80\x7f\x80\x80\x80\x00");
-}
-
-fn test_write_leb128(value: anytype) !void {
-    const T = @TypeOf(value);
-    const signedness = @typeInfo(T).int.signedness;
-    const t_signed = signedness == .signed;
-
-    const writeStream = if (t_signed) writeIleb128 else writeUleb128;
-    const readStream = if (t_signed) readIleb128 else readUleb128;
-
-    // decode to a larger bit size too, to ensure sign extension
-    // is working as expected
-    const larger_type_bits = ((@typeInfo(T).int.bits + 8) / 8) * 8;
-    const B = std.meta.Int(signedness, larger_type_bits);
-
-    const bytes_needed = bn: {
-        if (@typeInfo(T).int.bits <= 7) break :bn @as(u16, 1);
-
-        const unused_bits = if (value < 0) @clz(~value) else @clz(value);
-        const used_bits: u16 = (@typeInfo(T).int.bits - unused_bits) + @intFromBool(t_signed);
-        if (used_bits <= 7) break :bn @as(u16, 1);
-        break :bn ((used_bits + 6) / 7);
-    };
-
-    const max_groups = if (@typeInfo(T).int.bits == 0) 1 else (@typeInfo(T).int.bits + 6) / 7;
-
-    var buf: [max_groups]u8 = undefined;
-    var fbs = std.io.fixedBufferStream(&buf);
-
-    // stream write
-    try writeStream(fbs.writer(), value);
-    const w1_pos = fbs.pos;
-    try testing.expect(w1_pos == bytes_needed);
-
-    // stream read
-    fbs.pos = 0;
-    const sr = try readStream(T, fbs.reader());
-    try testing.expect(fbs.pos == w1_pos);
-    try testing.expect(sr == value);
-
-    // bigger type stream read
-    fbs.pos = 0;
-    const bsr = try readStream(B, fbs.reader());
-    try testing.expect(fbs.pos == w1_pos);
-    try testing.expect(bsr == value);
-}
-
-test "serialize unsigned LEB128" {
-    if (builtin.cpu.arch == .x86 and builtin.abi == .musl and builtin.link_mode == .dynamic) return error.SkipZigTest;
-
-    const max_bits = 18;
-
-    comptime var t = 0;
-    inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(.unsigned, t);
-        const min = std.math.minInt(T);
-        const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(.unsigned, @typeInfo(T).int.bits + 1), min);
-
-        while (i <= max) : (i += 1) try test_write_leb128(@as(T, @intCast(i)));
-    }
-}
-
-test "serialize signed LEB128" {
-    if (builtin.cpu.arch == .x86 and builtin.abi == .musl and builtin.link_mode == .dynamic) return error.SkipZigTest;
-
-    // explicitly test i0 because starting `t` at 0
-    // will break the while loop
-    try test_write_leb128(@as(i0, 0));
-
-    const max_bits = 18;
-
-    comptime var t = 1;
-    inline while (t <= max_bits) : (t += 1) {
-        const T = std.meta.Int(.signed, t);
-        const min = std.math.minInt(T);
-        const max = std.math.maxInt(T);
-        var i = @as(std.meta.Int(.signed, @typeInfo(T).int.bits + 1), min);
-
-        while (i <= max) : (i += 1) try test_write_leb128(@as(T, @intCast(i)));
-    }
 }

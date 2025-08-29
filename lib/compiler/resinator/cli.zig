@@ -80,20 +80,20 @@ pub const usage_string_after_command_name =
     \\
 ;
 
-pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
+pub fn writeUsage(writer: *std.Io.Writer, command_name: []const u8) !void {
     try writer.writeAll("Usage: ");
     try writer.writeAll(command_name);
     try writer.writeAll(usage_string_after_command_name);
 }
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
+    errors: std.ArrayList(ErrorDetails) = .empty,
     allocator: Allocator,
 
     pub const ErrorDetails = struct {
         arg_index: usize,
         arg_span: ArgSpan = .{},
-        msg: std.ArrayListUnmanaged(u8) = .empty,
+        msg: std.ArrayList(u8) = .empty,
         type: Type = .err,
         print_args: bool = true,
 
@@ -148,7 +148,7 @@ pub const Options = struct {
     allocator: Allocator,
     input_source: IoSource = .{ .filename = &[_]u8{} },
     output_source: IoSource = .{ .filename = &[_]u8{} },
-    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .empty,
+    extra_include_paths: std.ArrayList([]const u8) = .empty,
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
@@ -295,7 +295,7 @@ pub const Options = struct {
         }
     }
 
-    pub fn dumpVerbose(self: *const Options, writer: anytype) !void {
+    pub fn dumpVerbose(self: *const Options, writer: *std.Io.Writer) !void {
         const input_source_name = switch (self.input_source) {
             .stdio => "<stdin>",
             .filename => |filename| filename,
@@ -520,8 +520,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 // - or / on its own is an error
                 else => {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid option: {s}", .{arg.prefixSlice()});
+                    try err_details.msg.print(allocator, "invalid option: {s}", .{arg.prefixSlice()});
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     continue :next_arg;
@@ -532,8 +531,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
         const args_remaining = args.len - arg_i;
         if (args_remaining <= 2 and arg.looksLikeFilepath()) {
             var err_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i };
-            var msg_writer = err_details.msg.writer(allocator);
-            try msg_writer.writeAll("this argument was inferred to be a filepath, so argument parsing was terminated");
+            try err_details.msg.appendSlice(allocator, "this argument was inferred to be a filepath, so argument parsing was terminated");
             try diagnostics.append(err_details);
 
             break;
@@ -550,16 +548,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":output-format")) {
                 const value = arg.value(":output-format".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":output-format".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":output-format".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 output_format = std.meta.stringToEnum(Options.OutputFormat, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid output format setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid output format setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk output_format;
                 };
@@ -569,16 +565,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":auto-includes")) {
                 const value = arg.value(":auto-includes".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":auto-includes".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":auto-includes".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 options.auto_includes = std.meta.stringToEnum(Options.AutoIncludes, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid auto includes setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid auto includes setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk options.auto_includes;
                 };
@@ -587,16 +581,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":input-format")) {
                 const value = arg.value(":input-format".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":input-format".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":input-format".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 input_format = std.meta.stringToEnum(Options.InputFormat, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid input format setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid input format setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk input_format;
                 };
@@ -606,16 +598,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile-fmt")) {
                 const value = arg.value(":depfile-fmt".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile-fmt".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile-fmt".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 options.depfile_fmt = std.meta.stringToEnum(Options.DepfileFormat, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid depfile format setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid depfile format setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk options.depfile_fmt;
                 };
@@ -624,8 +614,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile")) {
                 const value = arg.value(":depfile".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -643,8 +632,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":target")) {
                 const value = arg.value(":target".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":target".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":target".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -655,8 +643,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const arch_str = target_it.first();
                 const arch = cvtres.supported_targets.Arch.fromStringIgnoreCase(arch_str) orelse {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid or unsupported target architecture: {s}", .{arch_str});
+                    try err_details.msg.print(allocator, "invalid or unsupported target architecture: {s}", .{arch_str});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -680,13 +667,11 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                         .prefix_len = arg.prefixSlice().len,
                         .value_offset = arg.name_offset + 3,
                     } };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value for {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
+                    try err_details.msg.print(allocator, "missing value for {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
                     try diagnostics.append(err_details);
                 }
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
                 try diagnostics.append(err_details);
                 arg_i += 1;
                 continue :next_arg;
@@ -695,16 +680,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             else if (std.ascii.startsWithIgnoreCase(arg_name, "tn")) {
                 const value = arg.value(2, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 2;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -716,16 +699,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(2, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 2;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -733,8 +714,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             // Unsupported MUI options that do not need a value
             else if (std.ascii.startsWithIgnoreCase(arg_name, "g1")) {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(2) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 2;
             }
@@ -747,15 +727,13 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 std.ascii.startsWithIgnoreCase(arg_name, "ta"))
             {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(2) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 2;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "fo")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing output path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing output path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -767,8 +745,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "sl")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -776,24 +753,20 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const percent_str = value.slice;
                 const percent: u32 = parsePercent(percent_str) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid percent format '{s}'", .{percent_str});
+                    try err_details.msg.print(allocator, "invalid percent format '{s}'", .{percent_str});
                     try diagnostics.append(err_details);
                     var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = false, .arg_index = arg_i };
-                    var note_writer = note_details.msg.writer(allocator);
-                    try note_writer.writeAll("string length percent must be an integer between 1 and 100 (inclusive)");
+                    try note_details.msg.appendSlice(allocator, "string length percent must be an integer between 1 and 100 (inclusive)");
                     try diagnostics.append(note_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
                 if (percent == 0 or percent > 100) {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("percent out of range: {} (parsed from '{s}')", .{ percent, percent_str });
+                    try err_details.msg.print(allocator, "percent out of range: {} (parsed from '{s}')", .{ percent, percent_str });
                     try diagnostics.append(err_details);
                     var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = false, .arg_index = arg_i };
-                    var note_writer = note_details.msg.writer(allocator);
-                    try note_writer.writeAll("string length percent must be an integer between 1 and 100 (inclusive)");
+                    try note_details.msg.appendSlice(allocator, "string length percent must be an integer between 1 and 100 (inclusive)");
                     try diagnostics.append(note_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -805,8 +778,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "ln")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -814,16 +786,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const tag = value.slice;
                 options.default_language_id = lang.tagToInt(tag) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid language tag: {s}", .{tag});
+                    try err_details.msg.print(allocator, "invalid language tag: {s}", .{tag});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
                 if (options.default_language_id.? == lang.LOCALE_CUSTOM_UNSPECIFIED) {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("language tag '{s}' does not have an assigned ID so it will be resolved to LOCALE_CUSTOM_UNSPECIFIED (id=0x{x})", .{ tag, lang.LOCALE_CUSTOM_UNSPECIFIED });
+                    try err_details.msg.print(allocator, "language tag '{s}' does not have an assigned ID so it will be resolved to LOCALE_CUSTOM_UNSPECIFIED (id=0x{x})", .{ tag, lang.LOCALE_CUSTOM_UNSPECIFIED });
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
@@ -831,8 +801,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "l")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing language ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -840,8 +809,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const num_str = value.slice;
                 options.default_language_id = lang.parseInt(num_str) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid language ID: {s}", .{num_str});
+                    try err_details.msg.print(allocator, "invalid language ID: {s}", .{num_str});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -860,16 +828,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(1, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 1;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -882,16 +848,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(1, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 1;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -899,15 +863,13 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             // 1 char unsupported LCX/LCE options that do not need a value
             else if (std.ascii.startsWithIgnoreCase(arg_name, "t")) {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(1) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "c")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing code page ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing code page ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -915,8 +877,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const num_str = value.slice;
                 const code_page_id = std.fmt.parseUnsigned(u16, num_str, 10) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid code page ID: {s}", .{num_str});
+                    try err_details.msg.print(allocator, "invalid code page ID: {s}", .{num_str});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -924,16 +885,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 options.default_code_page = code_pages.getByIdentifierEnsureSupported(code_page_id) catch |err| switch (err) {
                     error.InvalidCodePage => {
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                        var msg_writer = err_details.msg.writer(allocator);
-                        try msg_writer.print("invalid or unknown code page ID: {}", .{code_page_id});
+                        try err_details.msg.print(allocator, "invalid or unknown code page ID: {}", .{code_page_id});
                         try diagnostics.append(err_details);
                         arg_i += value.index_increment;
                         continue :next_arg;
                     },
                     error.UnsupportedCodePage => {
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                        var msg_writer = err_details.msg.writer(allocator);
-                        try msg_writer.print("unsupported code page: {s} (id={})", .{
+                        try err_details.msg.print(allocator, "unsupported code page: {s} (id={})", .{
                             @tagName(code_pages.getByIdentifier(code_page_id) catch unreachable),
                             code_page_id,
                         });
@@ -957,8 +916,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "i")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing include path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing include path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -986,15 +944,13 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 // Undocumented option with unknown function
                 // TODO: More investigation to figure out what it does (if anything)
                 var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = arg.optionSpan(1) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("option {s}{s} has no effect (it is undocumented and its function is unknown in the Win32 RC compiler)", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "option {s}{s} has no effect (it is undocumented and its function is unknown in the Win32 RC compiler)", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "d")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing symbol to define after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing symbol to define after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -1009,8 +965,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     try options.define(symbol, symbol_value);
                 } else {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("symbol \"{s}\" is not a valid identifier and therefore cannot be defined", .{symbol});
+                    try err_details.msg.print(allocator, "symbol \"{s}\" is not a valid identifier and therefore cannot be defined", .{symbol});
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
@@ -1018,8 +973,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "u")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing symbol to undefine after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing symbol to undefine after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -1029,16 +983,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     try options.undefine(symbol);
                 } else {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("symbol \"{s}\" is not a valid identifier and therefore cannot be undefined", .{symbol});
+                    try err_details.msg.print(allocator, "symbol \"{s}\" is not a valid identifier and therefore cannot be undefined", .{symbol});
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else {
                 var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("invalid option: {s}{s}", .{ arg.prefixSlice(), arg.name() });
+                try err_details.msg.print(allocator, "invalid option: {s}{s}", .{ arg.prefixSlice(), arg.name() });
                 try diagnostics.append(err_details);
                 arg_i += 1;
                 continue :next_arg;
@@ -1055,16 +1007,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 
     if (positionals.len == 0) {
         var err_details = Diagnostics.ErrorDetails{ .print_args = false, .arg_index = arg_i };
-        var msg_writer = err_details.msg.writer(allocator);
-        try msg_writer.writeAll("missing input filename");
+        try err_details.msg.appendSlice(allocator, "missing input filename");
         try diagnostics.append(err_details);
 
         if (args.len > 0) {
             const last_arg = args[args.len - 1];
             if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and isSupportedInputExtension(std.fs.path.extension(last_arg))) {
                 var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
-                var note_writer = note_details.msg.writer(allocator);
-                try note_writer.writeAll("if this argument was intended to be the input filename, adding -- in front of it will exclude it from option parsing");
+                try note_details.msg.appendSlice(allocator, "if this argument was intended to be the input filename, adding -- in front of it will exclude it from option parsing");
                 try diagnostics.append(note_details);
             }
         }
@@ -1099,16 +1049,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     if (positionals.len > 1) {
         if (output_filename != null) {
             var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i + 1 };
-            var msg_writer = err_details.msg.writer(allocator);
-            try msg_writer.writeAll("output filename already specified");
+            try err_details.msg.appendSlice(allocator, "output filename already specified");
             try diagnostics.append(err_details);
             var note_details = Diagnostics.ErrorDetails{
                 .type = .note,
                 .arg_index = output_filename_context.arg.index,
                 .arg_span = output_filename_context.arg.value.argSpan(output_filename_context.arg.arg),
             };
-            var note_writer = note_details.msg.writer(allocator);
-            try note_writer.writeAll("output filename previously specified here");
+            try note_details.msg.appendSlice(allocator, "output filename previously specified here");
             try diagnostics.append(note_details);
         } else {
             output_filename = positionals[1];
@@ -1173,16 +1121,15 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     var print_output_format_source_note: bool = false;
     if (options.depfile_path != null and (options.input_format == .res or options.output_format == .rcpp)) {
         var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = depfile_context.index, .arg_span = depfile_context.value.argSpan(depfile_context.arg) };
-        var msg_writer = err_details.msg.writer(allocator);
         if (options.input_format == .res) {
-            try msg_writer.print("the {s}{s} option was ignored because the input format is '{s}'", .{
+            try err_details.msg.print(allocator, "the {s}{s} option was ignored because the input format is '{s}'", .{
                 depfile_context.arg.prefixSlice(),
                 depfile_context.arg.optionWithoutPrefix(depfile_context.option_len),
                 @tagName(options.input_format),
             });
             print_input_format_source_note = true;
         } else if (options.output_format == .rcpp) {
-            try msg_writer.print("the {s}{s} option was ignored because the output format is '{s}'", .{
+            try err_details.msg.print(allocator, "the {s}{s} option was ignored because the output format is '{s}'", .{
                 depfile_context.arg.prefixSlice(),
                 depfile_context.arg.optionWithoutPrefix(depfile_context.option_len),
                 @tagName(options.output_format),
@@ -1193,16 +1140,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     }
     if (!isSupportedTransformation(options.input_format, options.output_format)) {
         var err_details = Diagnostics.ErrorDetails{ .arg_index = input_filename_arg_i, .print_args = false };
-        var msg_writer = err_details.msg.writer(allocator);
-        try msg_writer.print("input format '{s}' cannot be converted to output format '{s}'", .{ @tagName(options.input_format), @tagName(options.output_format) });
+        try err_details.msg.print(allocator, "input format '{s}' cannot be converted to output format '{s}'", .{ @tagName(options.input_format), @tagName(options.output_format) });
         try diagnostics.append(err_details);
         print_input_format_source_note = true;
         print_output_format_source_note = true;
     }
     if (options.preprocess == .only and options.output_format != .rcpp) {
         var err_details = Diagnostics.ErrorDetails{ .arg_index = preprocess_only_context.index };
-        var msg_writer = err_details.msg.writer(allocator);
-        try msg_writer.print("the {s}{s} option cannot be used with output format '{s}'", .{
+        try err_details.msg.print(allocator, "the {s}{s} option cannot be used with output format '{s}'", .{
             preprocess_only_context.arg.prefixSlice(),
             preprocess_only_context.arg.optionWithoutPrefix(preprocess_only_context.option_len),
             @tagName(options.output_format),
@@ -1214,8 +1159,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
         switch (input_format_source) {
             .inferred_from_input_filename => {
                 var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = input_filename_arg_i };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.writeAll("the input format was inferred from the input filename");
+                try err_details.msg.appendSlice(allocator, "the input format was inferred from the input filename");
                 try diagnostics.append(err_details);
             },
             .input_format_arg => {
@@ -1224,8 +1168,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     .arg_index = input_format_context.index,
                     .arg_span = input_format_context.value.argSpan(input_format_context.arg),
                 };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.writeAll("the input format was specified here");
+                try err_details.msg.appendSlice(allocator, "the input format was specified here");
                 try diagnostics.append(err_details);
             },
         }
@@ -1234,11 +1177,10 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
         switch (output_format_source) {
             .inferred_from_input_filename, .unable_to_infer_from_input_filename => {
                 var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = input_filename_arg_i };
-                var msg_writer = err_details.msg.writer(allocator);
                 if (output_format_source == .inferred_from_input_filename) {
-                    try msg_writer.writeAll("the output format was inferred from the input filename");
+                    try err_details.msg.appendSlice(allocator, "the output format was inferred from the input filename");
                 } else {
-                    try msg_writer.writeAll("the output format was unable to be inferred from the input filename, so the default was used");
+                    try err_details.msg.appendSlice(allocator, "the output format was unable to be inferred from the input filename, so the default was used");
                 }
                 try diagnostics.append(err_details);
             },
@@ -1248,11 +1190,10 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     .arg => |ctx| .{ .type = .note, .arg_index = ctx.index, .arg_span = ctx.value.argSpan(ctx.arg) },
                     .unspecified => unreachable,
                 };
-                var msg_writer = err_details.msg.writer(allocator);
                 if (output_format_source == .inferred_from_output_filename) {
-                    try msg_writer.writeAll("the output format was inferred from the output filename");
+                    try err_details.msg.appendSlice(allocator, "the output format was inferred from the output filename");
                 } else {
-                    try msg_writer.writeAll("the output format was unable to be inferred from the output filename, so the default was used");
+                    try err_details.msg.appendSlice(allocator, "the output format was unable to be inferred from the output filename, so the default was used");
                 }
                 try diagnostics.append(err_details);
             },
@@ -1262,14 +1203,12 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     .arg_index = output_format_context.index,
                     .arg_span = output_format_context.value.argSpan(output_format_context.arg),
                 };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.writeAll("the output format was specified here");
+                try err_details.msg.appendSlice(allocator, "the output format was specified here");
                 try diagnostics.append(err_details);
             },
             .inferred_from_preprocess_only => {
                 var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = preprocess_only_context.index };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the output format was inferred from the usage of the {s}{s} option", .{
+                try err_details.msg.print(allocator, "the output format was inferred from the usage of the {s}{s} option", .{
                     preprocess_only_context.arg.prefixSlice(),
                     preprocess_only_context.arg.optionWithoutPrefix(preprocess_only_context.option_len),
                 });
@@ -1291,19 +1230,19 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 }
 
 pub fn filepathWithExtension(allocator: Allocator, path: []const u8, ext: []const u8) ![]const u8 {
-    var buf = std.array_list.Managed(u8).init(allocator);
-    errdefer buf.deinit();
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(allocator);
     if (std.fs.path.dirname(path)) |dirname| {
         var end_pos = dirname.len;
         // We want to ensure that we write a path separator at the end, so if the dirname
         // doesn't end with a path sep then include the char after the dirname
         // which must be a path sep.
         if (!std.fs.path.isSep(dirname[dirname.len - 1])) end_pos += 1;
-        try buf.appendSlice(path[0..end_pos]);
+        try buf.appendSlice(allocator, path[0..end_pos]);
     }
-    try buf.appendSlice(std.fs.path.stem(path));
-    try buf.appendSlice(ext);
-    return try buf.toOwnedSlice();
+    try buf.appendSlice(allocator, std.fs.path.stem(path));
+    try buf.appendSlice(allocator, ext);
+    return try buf.toOwnedSlice(allocator);
 }
 
 pub fn isSupportedInputExtension(ext: []const u8) bool {
@@ -1537,7 +1476,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     var options = parse(std.testing.allocator, args, &diagnostics) catch |err| switch (err) {
         error.ParseError => {
             try diagnostics.renderToWriter(args, &output.writer, .no_color);
-            try std.testing.expectEqualStrings(expected_output, output.getWritten());
+            try std.testing.expectEqualStrings(expected_output, output.written());
             return null;
         },
         else => |e| return e,
@@ -1545,7 +1484,7 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     errdefer options.deinit();
 
     try diagnostics.renderToWriter(args, &output.writer, .no_color);
-    try std.testing.expectEqualStrings(expected_output, output.getWritten());
+    try std.testing.expectEqualStrings(expected_output, output.written());
     return options;
 }
 

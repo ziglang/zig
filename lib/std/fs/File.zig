@@ -1097,14 +1097,6 @@ pub fn deprecatedReader(file: File) DeprecatedReader {
     return .{ .context = file };
 }
 
-/// Deprecated in favor of `Writer`.
-pub const DeprecatedWriter = io.GenericWriter(File, WriteError, write);
-
-/// Deprecated in favor of `Writer`.
-pub fn deprecatedWriter(file: File) DeprecatedWriter {
-    return .{ .context = file };
-}
-
 /// Memoizes key information about a file handle such as:
 /// * The size from calling stat, or the error that occurred therein.
 /// * The current seek position.

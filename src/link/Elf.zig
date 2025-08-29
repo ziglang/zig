@@ -811,10 +811,6 @@ fn flushInner(self: *Elf, arena: Allocator, tid: Zcu.PerThread.Id) !void {
 
     if (self.base.gc_sections) {
         try gc.gcAtoms(self);
-
-        if (self.base.print_gc_sections) {
-            try gc.dumpPrunedAtoms(self);
-        }
     }
 
     self.checkDuplicates() catch |err| switch (err) {
@@ -3005,7 +3001,7 @@ fn writeAtoms(self: *Elf) !void {
         undefs.deinit();
     }
 
-    var buffer = std.array_list.Managed(u8).init(gpa);
+    var buffer: std.Io.Writer.Allocating = .init(gpa);
     defer buffer.deinit();
 
     const slice = self.sections.slice();
@@ -3032,9 +3028,9 @@ fn writeAtoms(self: *Elf) !void {
             try buffer.ensureUnusedCapacity(thunk_size);
             const shdr = slice.items(.shdr)[th.output_section_index];
             const offset = @as(u64, @intCast(th.value)) + shdr.sh_offset;
-            try th.write(self, buffer.writer());
-            assert(buffer.items.len == thunk_size);
-            try self.pwriteAll(buffer.items, offset);
+            try th.write(self, &buffer.writer);
+            assert(buffer.written().len == thunk_size);
+            try self.pwriteAll(buffer.written(), offset);
             buffer.clearRetainingCapacity();
         }
     }
@@ -3166,26 +3162,26 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.verneed) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.verneed.size());
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.verneed.size());
         defer buffer.deinit();
-        try self.verneed.write(buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.verneed.write(&buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynamic) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.dynamic.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.dynamic.size(self));
         defer buffer.deinit();
-        try self.dynamic.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.dynamic.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynsymtab) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.dynsym.size());
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.dynsym.size());
         defer buffer.deinit();
-        try self.dynsym.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.dynsym.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.dynstrtab) |shndx| {
@@ -3201,28 +3197,28 @@ fn writeSyntheticSections(self: *Elf) !void {
         };
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, @intCast(sh_size - existing_size));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, @intCast(sh_size - existing_size));
         defer buffer.deinit();
-        try eh_frame.writeEhFrame(self, buffer.writer());
-        assert(buffer.items.len == sh_size - existing_size);
-        try self.pwriteAll(buffer.items, shdr.sh_offset + existing_size);
+        try eh_frame.writeEhFrame(self, &buffer.writer);
+        assert(buffer.written().len == sh_size - existing_size);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset + existing_size);
     }
 
     if (self.section_indexes.eh_frame_hdr) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
         const sh_size = try self.cast(usize, shdr.sh_size);
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, sh_size);
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, sh_size);
         defer buffer.deinit();
-        try eh_frame.writeEhFrameHdr(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try eh_frame.writeEhFrameHdr(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.got) |index| {
         const shdr = slice.items(.shdr)[index];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.got.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.got.size(self));
         defer buffer.deinit();
-        try self.got.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.got.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.rela_dyn) |shndx| {
@@ -3235,26 +3231,26 @@ fn writeSyntheticSections(self: *Elf) !void {
 
     if (self.section_indexes.plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.plt.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.plt.size(self));
         defer buffer.deinit();
-        try self.plt.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.plt.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.got_plt) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.got_plt.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.got_plt.size(self));
         defer buffer.deinit();
-        try self.got_plt.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.got_plt.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.plt_got) |shndx| {
         const shdr = slice.items(.shdr)[shndx];
-        var buffer = try std.array_list.Managed(u8).initCapacity(gpa, self.plt_got.size(self));
+        var buffer = try std.Io.Writer.Allocating.initCapacity(gpa, self.plt_got.size(self));
         defer buffer.deinit();
-        try self.plt_got.write(self, buffer.writer());
-        try self.pwriteAll(buffer.items, shdr.sh_offset);
+        try self.plt_got.write(self, &buffer.writer);
+        try self.pwriteAll(buffer.written(), shdr.sh_offset);
     }
 
     if (self.section_indexes.rela_plt) |shndx| {
@@ -3757,7 +3753,7 @@ pub fn insertShString(self: *Elf, name: [:0]const u8) error{OutOfMemory}!u32 {
     const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.shstrtab.items.len));
     try self.shstrtab.ensureUnusedCapacity(gpa, name.len + 1);
-    self.shstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
+    self.shstrtab.print(gpa, "{s}\x00", .{name}) catch unreachable;
     return off;
 }
 
@@ -3770,7 +3766,7 @@ pub fn insertDynString(self: *Elf, name: []const u8) error{OutOfMemory}!u32 {
     const gpa = self.base.comp.gpa;
     const off = @as(u32, @intCast(self.dynstrtab.items.len));
     try self.dynstrtab.ensureUnusedCapacity(gpa, name.len + 1);
-    self.dynstrtab.writer(gpa).print("{s}\x00", .{name}) catch unreachable;
+    self.dynstrtab.print(gpa, "{s}\x00", .{name}) catch unreachable;
     return off;
 }
 

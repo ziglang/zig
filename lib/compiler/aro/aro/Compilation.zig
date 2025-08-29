@@ -16,6 +16,7 @@ const Pragma = @import("Pragma.zig");
 const StrInt = @import("StringInterner.zig");
 const record_layout = @import("record_layout.zig");
 const target_util = @import("target.zig");
+const Writer = std.Io.Writer;
 
 pub const Error = error{
     /// A fatal error has ocurred and compilation has stopped.
@@ -199,7 +200,7 @@ fn getTimestamp(comp: *Compilation) !u47 {
     return @intCast(std.math.clamp(timestamp, 0, max_timestamp));
 }
 
-fn generateDateAndTime(w: anytype, timestamp: u47) !void {
+fn generateDateAndTime(w: *Writer, timestamp: u47) !void {
     const epoch_seconds = EpochSeconds{ .secs = timestamp };
     const epoch_day = epoch_seconds.getEpochDay();
     const day_seconds = epoch_seconds.getDaySeconds();
@@ -242,7 +243,7 @@ pub const SystemDefinesMode = enum {
     include_system_defines,
 };
 
-fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
+fn generateSystemDefines(comp: *Compilation, w: *Writer) !void {
     const ptr_width = comp.target.ptrBitWidth();
 
     if (comp.langopts.gnuc_version > 0) {
@@ -533,11 +534,20 @@ fn generateSystemDefines(comp: *Compilation, w: anytype) !void {
 pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefinesMode) !Source {
     try comp.generateBuiltinTypes();
 
-    var buf = std.array_list.Managed(u8).init(comp.gpa);
-    defer buf.deinit();
+    var allocating: std.Io.Writer.Allocating = .init(comp.gpa);
+    defer allocating.deinit();
 
+    generateBuiltinMacrosWriter(comp, system_defines_mode, &allocating.writer) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+
+    return comp.addSourceFromBuffer("<builtin>", allocating.written());
+}
+
+pub fn generateBuiltinMacrosWriter(comp: *Compilation, system_defines_mode: SystemDefinesMode, buf: *Writer) !void {
     if (system_defines_mode == .include_system_defines) {
-        try buf.appendSlice(
+        try buf.writeAll(
             \\#define __VERSION__ "Aro
         ++ " " ++ @import("../backend.zig").version_str ++ "\"\n" ++
             \\#define __Aro__
@@ -545,11 +555,11 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
         );
     }
 
-    try buf.appendSlice("#define __STDC__ 1\n");
-    try buf.writer().print("#define __STDC_HOSTED__ {d}\n", .{@intFromBool(comp.target.os.tag != .freestanding)});
+    try buf.writeAll("#define __STDC__ 1\n");
+    try buf.print("#define __STDC_HOSTED__ {d}\n", .{@intFromBool(comp.target.os.tag != .freestanding)});
 
     // standard macros
-    try buf.appendSlice(
+    try buf.writeAll(
         \\#define __STDC_NO_COMPLEX__ 1
         \\#define __STDC_NO_THREADS__ 1
         \\#define __STDC_NO_VLA__ 1
@@ -561,23 +571,21 @@ pub fn generateBuiltinMacros(comp: *Compilation, system_defines_mode: SystemDefi
         \\
     );
     if (comp.langopts.standard.StdCVersionMacro()) |stdc_version| {
-        try buf.appendSlice("#define __STDC_VERSION__ ");
-        try buf.appendSlice(stdc_version);
-        try buf.append('\n');
+        try buf.writeAll("#define __STDC_VERSION__ ");
+        try buf.writeAll(stdc_version);
+        try buf.writeByte('\n');
     }
 
     // timestamps
     const timestamp = try comp.getTimestamp();
-    try generateDateAndTime(buf.writer(), timestamp);
+    try generateDateAndTime(buf, timestamp);
 
     if (system_defines_mode == .include_system_defines) {
-        try comp.generateSystemDefines(buf.writer());
+        try comp.generateSystemDefines(buf);
     }
-
-    return comp.addSourceFromBuffer("<builtin>", buf.items);
 }
 
-fn generateFloatMacros(w: anytype, prefix: []const u8, semantics: target_util.FPSemantics, ext: []const u8) !void {
+fn generateFloatMacros(w: *Writer, prefix: []const u8, semantics: target_util.FPSemantics, ext: []const u8) !void {
     const denormMin = semantics.chooseValue(
         []const u8,
         .{
@@ -656,7 +664,7 @@ fn generateFloatMacros(w: anytype, prefix: []const u8, semantics: target_util.FP
     try w.print("#define {s}MIN__ {s}{s}\n", .{ prefix_slice, min, ext });
 }
 
-fn generateTypeMacro(w: anytype, mapper: StrInt.TypeMapper, name: []const u8, ty: Type, langopts: LangOpts) !void {
+fn generateTypeMacro(w: *Writer, mapper: StrInt.TypeMapper, name: []const u8, ty: Type, langopts: LangOpts) !void {
     try w.print("#define {s} ", .{name});
     try ty.print(mapper, langopts, w);
     try w.writeByte('\n');
@@ -762,7 +770,7 @@ fn generateFastOrLeastType(
     bits: usize,
     kind: enum { least, fast },
     signedness: std.builtin.Signedness,
-    w: anytype,
+    w: *Writer,
     mapper: StrInt.TypeMapper,
 ) !void {
     const ty = comp.intLeastN(bits, signedness); // defining the fast types as the least types is permitted
@@ -793,7 +801,7 @@ fn generateFastOrLeastType(
     try comp.generateFmt(prefix, w, ty);
 }
 
-fn generateFastAndLeastWidthTypes(comp: *Compilation, w: anytype, mapper: StrInt.TypeMapper) !void {
+fn generateFastAndLeastWidthTypes(comp: *Compilation, w: *Writer, mapper: StrInt.TypeMapper) !void {
     const sizes = [_]usize{ 8, 16, 32, 64 };
     for (sizes) |size| {
         try comp.generateFastOrLeastType(size, .least, .signed, w, mapper);
@@ -803,7 +811,7 @@ fn generateFastAndLeastWidthTypes(comp: *Compilation, w: anytype, mapper: StrInt
     }
 }
 
-fn generateExactWidthTypes(comp: *const Compilation, w: anytype, mapper: StrInt.TypeMapper) !void {
+fn generateExactWidthTypes(comp: *const Compilation, w: *Writer, mapper: StrInt.TypeMapper) !void {
     try comp.generateExactWidthType(w, mapper, .schar);
 
     if (comp.intSize(.short) > comp.intSize(.char)) {
@@ -851,7 +859,7 @@ fn generateExactWidthTypes(comp: *const Compilation, w: anytype, mapper: StrInt.
     }
 }
 
-fn generateFmt(comp: *const Compilation, prefix: []const u8, w: anytype, ty: Type) !void {
+fn generateFmt(comp: *const Compilation, prefix: []const u8, w: *Writer, ty: Type) !void {
     const unsigned = ty.isUnsignedInt(comp);
     const modifier = ty.formatModifier();
     const formats = if (unsigned) "ouxX" else "di";
@@ -860,7 +868,7 @@ fn generateFmt(comp: *const Compilation, prefix: []const u8, w: anytype, ty: Typ
     }
 }
 
-fn generateSuffixMacro(comp: *const Compilation, prefix: []const u8, w: anytype, ty: Type) !void {
+fn generateSuffixMacro(comp: *const Compilation, prefix: []const u8, w: *Writer, ty: Type) !void {
     return w.print("#define {s}_C_SUFFIX__ {s}\n", .{ prefix, ty.intValueSuffix(comp) });
 }
 
@@ -868,7 +876,7 @@ fn generateSuffixMacro(comp: *const Compilation, prefix: []const u8, w: anytype,
 ///     Name macro (e.g. #define __UINT32_TYPE__ unsigned int)
 ///     Format strings (e.g. #define __UINT32_FMTu__ "u")
 ///     Suffix macro (e.g. #define __UINT32_C_SUFFIX__ U)
-fn generateExactWidthType(comp: *const Compilation, w: anytype, mapper: StrInt.TypeMapper, specifier: Type.Specifier) !void {
+fn generateExactWidthType(comp: *const Compilation, w: *Writer, mapper: StrInt.TypeMapper, specifier: Type.Specifier) !void {
     var ty = Type{ .specifier = specifier };
     const width = 8 * ty.sizeof(comp).?;
     const unsigned = ty.isUnsignedInt(comp);
@@ -998,7 +1006,7 @@ fn generateVaListType(comp: *Compilation) !Type {
     return ty;
 }
 
-fn generateIntMax(comp: *const Compilation, w: anytype, name: []const u8, ty: Type) !void {
+fn generateIntMax(comp: *const Compilation, w: *Writer, name: []const u8, ty: Type) !void {
     const bit_count: u8 = @intCast(ty.sizeof(comp).? * 8);
     const unsigned = ty.isUnsignedInt(comp);
     const max: u128 = switch (bit_count) {
@@ -1023,7 +1031,7 @@ pub fn wcharMax(comp: *const Compilation) u32 {
     };
 }
 
-fn generateExactWidthIntMax(comp: *const Compilation, w: anytype, specifier: Type.Specifier) !void {
+fn generateExactWidthIntMax(comp: *const Compilation, w: *Writer, specifier: Type.Specifier) !void {
     var ty = Type{ .specifier = specifier };
     const bit_count: u8 = @intCast(ty.sizeof(comp).? * 8);
     const unsigned = ty.isUnsignedInt(comp);
@@ -1040,16 +1048,16 @@ fn generateExactWidthIntMax(comp: *const Compilation, w: anytype, specifier: Typ
     return comp.generateIntMax(w, name, ty);
 }
 
-fn generateIntWidth(comp: *Compilation, w: anytype, name: []const u8, ty: Type) !void {
+fn generateIntWidth(comp: *Compilation, w: *Writer, name: []const u8, ty: Type) !void {
     try w.print("#define __{s}_WIDTH__ {d}\n", .{ name, 8 * ty.sizeof(comp).? });
 }
 
-fn generateIntMaxAndWidth(comp: *Compilation, w: anytype, name: []const u8, ty: Type) !void {
+fn generateIntMaxAndWidth(comp: *Compilation, w: *Writer, name: []const u8, ty: Type) !void {
     try comp.generateIntMax(w, name, ty);
     try comp.generateIntWidth(w, name, ty);
 }
 
-fn generateSizeofType(comp: *Compilation, w: anytype, name: []const u8, ty: Type) !void {
+fn generateSizeofType(comp: *Compilation, w: *Writer, name: []const u8, ty: Type) !void {
     try w.print("#define {s} {d}\n", .{ name, ty.sizeof(comp).? });
 }
 

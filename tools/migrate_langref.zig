@@ -382,46 +382,50 @@ fn walk(arena: Allocator, tokenizer: *Tokenizer, out_dir: std.fs.Dir, w: anytype
                         fatal("unable to create file '{s}': {s}", .{ name, @errorName(err) });
                     };
                     defer file.close();
+                    var file_buffer: [1024]u8 = undefined;
+                    var file_writer = file.writer(&file_buffer);
+                    const code = &file_writer.interface;
 
                     const source = tokenizer.buffer[source_token.start..source_token.end];
-                    try file.writeAll(std.mem.trim(u8, source[1..], " \t\r\n"));
-                    try file.writeAll("\n\n");
+                    try code.writeAll(std.mem.trim(u8, source[1..], " \t\r\n"));
+                    try code.writeAll("\n\n");
 
                     if (just_check_syntax) {
-                        try file.deprecatedWriter().print("// syntax\n", .{});
+                        try code.print("// syntax\n", .{});
                     } else switch (code_kind_id) {
-                        .@"test" => try file.deprecatedWriter().print("// test\n", .{}),
-                        .lib => try file.deprecatedWriter().print("// lib\n", .{}),
-                        .test_error => |s| try file.deprecatedWriter().print("// test_error={s}\n", .{s}),
-                        .test_safety => |s| try file.deprecatedWriter().print("// test_safety={s}\n", .{s}),
-                        .exe => |s| try file.deprecatedWriter().print("// exe={s}\n", .{@tagName(s)}),
+                        .@"test" => try code.print("// test\n", .{}),
+                        .lib => try code.print("// lib\n", .{}),
+                        .test_error => |s| try code.print("// test_error={s}\n", .{s}),
+                        .test_safety => |s| try code.print("// test_safety={s}\n", .{s}),
+                        .exe => |s| try code.print("// exe={s}\n", .{@tagName(s)}),
                         .obj => |opt| if (opt) |s| {
-                            try file.deprecatedWriter().print("// obj={s}\n", .{s});
+                            try code.print("// obj={s}\n", .{s});
                         } else {
-                            try file.deprecatedWriter().print("// obj\n", .{});
+                            try code.print("// obj\n", .{});
                         },
                     }
 
                     if (mode != .Debug)
-                        try file.deprecatedWriter().print("// optimize={s}\n", .{@tagName(mode)});
+                        try code.print("// optimize={s}\n", .{@tagName(mode)});
 
                     for (link_objects.items) |link_object| {
-                        try file.deprecatedWriter().print("// link_object={s}\n", .{link_object});
+                        try code.print("// link_object={s}\n", .{link_object});
                     }
 
                     if (target_str) |s|
-                        try file.deprecatedWriter().print("// target={s}\n", .{s});
+                        try code.print("// target={s}\n", .{s});
 
-                    if (link_libc) try file.deprecatedWriter().print("// link_libc\n", .{});
-                    if (disable_cache) try file.deprecatedWriter().print("// disable_cache\n", .{});
-                    if (verbose_cimport) try file.deprecatedWriter().print("// verbose_cimport\n", .{});
+                    if (link_libc) try code.print("// link_libc\n", .{});
+                    if (disable_cache) try code.print("// disable_cache\n", .{});
+                    if (verbose_cimport) try code.print("// verbose_cimport\n", .{});
 
                     if (link_mode) |m|
-                        try file.deprecatedWriter().print("// link_mode={s}\n", .{@tagName(m)});
+                        try code.print("// link_mode={s}\n", .{@tagName(m)});
 
                     for (additional_options.items) |o| {
-                        try file.deprecatedWriter().print("// additional_option={s}\n", .{o});
+                        try code.print("// additional_option={s}\n", .{o});
                     }
+                    try code.flush();
                     try w.print("{{#code|{s}#}}\n", .{basename});
                 } else {
                     const close_bracket = while (true) {

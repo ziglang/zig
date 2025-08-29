@@ -257,7 +257,7 @@ const Check = struct {
     fn dumpSection(allocator: Allocator, name: [:0]const u8) Check {
         var check = Check.create(allocator, .dump_section);
         const off: u32 = @intCast(check.data.items.len);
-        check.data.writer().print("{s}\x00", .{name}) catch @panic("OOM");
+        check.data.print("{s}\x00", .{name}) catch @panic("OOM");
         check.payload = .{ .dump_section = off };
         return check;
     }
@@ -1320,7 +1320,8 @@ const MachODumper = struct {
                 }
                 bindings.deinit();
             }
-            try ctx.parseBindInfo(data, &bindings);
+            var data_reader: std.Io.Reader = .fixed(data);
+            try ctx.parseBindInfo(&data_reader, &bindings);
             mem.sort(Binding, bindings.items, {}, Binding.lessThan);
             for (bindings.items) |binding| {
                 try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
@@ -1335,11 +1336,7 @@ const MachODumper = struct {
             }
         }
 
-        fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.array_list.Managed(Binding)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
-
+        fn parseBindInfo(ctx: ObjectContext, reader: *std.Io.Reader, bindings: *std.array_list.Managed(Binding)) !void {
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
             var ordinal: u16 = 0;
@@ -1350,7 +1347,7 @@ const MachODumper = struct {
             defer name_buf.deinit();
 
             while (true) {
-                const byte = reader.readByte() catch break;
+                const byte = reader.takeByte() catch break;
                 const opc = byte & macho.BIND_OPCODE_MASK;
                 const imm = byte & macho.BIND_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1371,18 +1368,17 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try reader.takeLeb128(u64);
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
-                        try name_buf.append(0);
+                        try name_buf.appendSlice(try reader.takeDelimiterInclusive(0));
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                        addend = try std.leb.readIleb128(i64, reader);
+                        addend = try reader.takeLeb128(i64);
                     },
                     macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                        const x = try std.leb.readUleb128(u64, reader);
+                        const x = try reader.takeLeb128(u64);
                         offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                     },
                     macho.BIND_OPCODE_DO_BIND,
@@ -1397,14 +1393,14 @@ const MachODumper = struct {
                         switch (opc) {
                             macho.BIND_OPCODE_DO_BIND => {},
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                                add_addr = try std.leb.readUleb128(u64, reader);
+                                add_addr = try reader.takeLeb128(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
                                 add_addr = imm * @sizeOf(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                                count = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                count = try reader.takeLeb128(u64);
+                                skip = try reader.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1621,8 +1617,9 @@ const MachODumper = struct {
         var ctx = ObjectContext{ .gpa = gpa, .data = bytes, .header = hdr };
         try ctx.parse();
 
-        var output = std.array_list.Managed(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .headers => {
@@ -1787,8 +1784,9 @@ const ElfDumper = struct {
             try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
         }
 
-        var output = std.array_list.Managed(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .archive_symtab => if (ctx.symtab.items.len > 0) {
@@ -1944,8 +1942,9 @@ const ElfDumper = struct {
             else => {},
         };
 
-        var output = std.array_list.Managed(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .headers => {
@@ -2398,10 +2397,10 @@ const WasmDumper = struct {
             return error.UnsupportedWasmVersion;
         }
 
-        var output = std.array_list.Managed(u8).init(gpa);
+        var output: std.Io.Writer.Allocating = .init(gpa);
         defer output.deinit();
-        parseAndDumpInner(step, check, bytes, &fbs, &output) catch |err| switch (err) {
-            error.EndOfStream => try output.appendSlice("\n<UnexpectedEndOfStream>"),
+        parseAndDumpInner(step, check, bytes, &fbs, &output.writer) catch |err| switch (err) {
+            error.EndOfStream => try output.writer.writeAll("\n<UnexpectedEndOfStream>"),
             else => |e| return e,
         };
         return output.toOwnedSlice();
@@ -2412,10 +2411,9 @@ const WasmDumper = struct {
         check: Check,
         bytes: []const u8,
         fbs: *std.io.FixedBufferStream([]const u8),
-        output: *std.array_list.Managed(u8),
+        writer: *std.Io.Writer,
     ) !void {
         const reader = fbs.reader();
-        const writer = output.writer();
 
         switch (check.kind) {
             .headers => {

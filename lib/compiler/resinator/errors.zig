@@ -15,10 +15,10 @@ const builtin = @import("builtin");
 const native_endian = builtin.cpu.arch.endian();
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
+    errors: std.ArrayList(ErrorDetails) = .empty,
     /// Append-only, cannot handle removing strings.
     /// Expects to own all strings within the list.
-    strings: std.ArrayListUnmanaged([]const u8) = .empty,
+    strings: std.ArrayList([]const u8) = .empty,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) Diagnostics {
@@ -256,7 +256,7 @@ pub const ErrorDetails = struct {
             .{ "literal", "unquoted literal" },
         });
 
-        pub fn writeCommaSeparated(self: ExpectedTypes, writer: anytype) !void {
+        pub fn writeCommaSeparated(self: ExpectedTypes, writer: *std.Io.Writer) !void {
             const struct_info = @typeInfo(ExpectedTypes).@"struct";
             const num_real_fields = struct_info.fields.len - 1;
             const num_padding_bits = @bitSizeOf(ExpectedTypes) - num_real_fields;
@@ -441,7 +441,7 @@ pub const ErrorDetails = struct {
         } };
     }
 
-    pub fn render(self: ErrorDetails, writer: anytype, source: []const u8, strings: []const []const u8) !void {
+    pub fn render(self: ErrorDetails, writer: *std.Io.Writer, source: []const u8, strings: []const []const u8) !void {
         switch (self.err) {
             .unfinished_string_literal => {
                 return writer.print("unfinished string literal at '{f}', expected closing '\"'", .{self.fmtToken(source)});
@@ -987,12 +987,14 @@ pub fn renderErrorMessage(writer: *std.io.Writer, tty_config: std.io.tty.Config,
     if (corresponding_span != null and corresponding_file != null) {
         var worth_printing_lines: bool = true;
         var initial_lines_err: ?anyerror = null;
+        var file_reader_buf: [max_source_line_bytes * 2]u8 = undefined;
         var corresponding_lines: ?CorrespondingLines = CorrespondingLines.init(
             cwd,
             err_details,
             source_line_for_display.line,
             corresponding_span.?,
             corresponding_file.?,
+            &file_reader_buf,
         ) catch |err| switch (err) {
             error.NotWorthPrintingLines => blk: {
                 worth_printing_lines = false;
@@ -1078,10 +1080,17 @@ const CorrespondingLines = struct {
     at_eof: bool = false,
     span: SourceMappings.CorrespondingSpan,
     file: std.fs.File,
-    buffered_reader: std.fs.File.Reader,
+    file_reader: std.fs.File.Reader,
     code_page: SupportedCodePage,
 
-    pub fn init(cwd: std.fs.Dir, err_details: ErrorDetails, line_for_comparison: []const u8, corresponding_span: SourceMappings.CorrespondingSpan, corresponding_file: []const u8) !CorrespondingLines {
+    pub fn init(
+        cwd: std.fs.Dir,
+        err_details: ErrorDetails,
+        line_for_comparison: []const u8,
+        corresponding_span: SourceMappings.CorrespondingSpan,
+        corresponding_file: []const u8,
+        file_reader_buf: []u8,
+    ) !CorrespondingLines {
         // We don't do line comparison for this error, so don't print the note if the line
         // number is different
         if (err_details.err == .string_literal_too_long and err_details.token.line_number != corresponding_span.start_line) {
@@ -1096,18 +1105,14 @@ const CorrespondingLines = struct {
         var corresponding_lines = CorrespondingLines{
             .span = corresponding_span,
             .file = try utils.openFileNotDir(cwd, corresponding_file, .{}),
-            .buffered_reader = undefined,
             .code_page = err_details.code_page,
+            .file_reader = undefined,
         };
-        corresponding_lines.buffered_reader = corresponding_lines.file.reader(&.{});
+        corresponding_lines.file_reader = corresponding_lines.file.reader(file_reader_buf);
         errdefer corresponding_lines.deinit();
 
-        var fbs = std.io.fixedBufferStream(&corresponding_lines.line_buf);
-        const writer = fbs.writer();
-
         try corresponding_lines.writeLineFromStreamVerbatim(
-            writer,
-            corresponding_lines.buffered_reader.interface.adaptToOldInterface(),
+            &corresponding_lines.file_reader.interface,
             corresponding_span.start_line,
         );
 
@@ -1145,12 +1150,8 @@ const CorrespondingLines = struct {
         self.line_len = 0;
         self.visual_line_len = 0;
 
-        var fbs = std.io.fixedBufferStream(&self.line_buf);
-        const writer = fbs.writer();
-
         try self.writeLineFromStreamVerbatim(
-            writer,
-            self.buffered_reader.interface.adaptToOldInterface(),
+            &self.file_reader.interface,
             self.line_num,
         );
 
@@ -1164,7 +1165,7 @@ const CorrespondingLines = struct {
         return visual_line;
     }
 
-    fn writeLineFromStreamVerbatim(self: *CorrespondingLines, writer: anytype, input: anytype, line_num: usize) !void {
+    fn writeLineFromStreamVerbatim(self: *CorrespondingLines, input: *std.Io.Reader, line_num: usize) !void {
         while (try readByteOrEof(input)) |byte| {
             switch (byte) {
                 '\n', '\r' => {
@@ -1184,13 +1185,9 @@ const CorrespondingLines = struct {
                     }
                 },
                 else => {
-                    if (self.line_num == line_num) {
-                        if (writer.writeByte(byte)) {
-                            self.line_len += 1;
-                        } else |err| switch (err) {
-                            error.NoSpaceLeft => {},
-                            else => |e| return e,
-                        }
+                    if (self.line_num == line_num and self.line_len < self.line_buf.len) {
+                        self.line_buf[self.line_len] = byte;
+                        self.line_len += 1;
                     }
                 },
             }
@@ -1201,8 +1198,8 @@ const CorrespondingLines = struct {
         self.line_num += 1;
     }
 
-    fn readByteOrEof(reader: anytype) !?u8 {
-        return reader.readByte() catch |err| switch (err) {
+    fn readByteOrEof(reader: *std.Io.Reader) !?u8 {
+        return reader.takeByte() catch |err| switch (err) {
             error.EndOfStream => return null,
             else => |e| return e,
         };

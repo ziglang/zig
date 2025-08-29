@@ -713,22 +713,26 @@ pub const Module = switch (native_os) {
     },
     .uefi, .windows => struct {
         base_address: usize,
-        pdb: ?Pdb = null,
-        dwarf: ?Dwarf = null,
+        pdb: ?Pdb,
+        dwarf: ?Dwarf,
         coff_image_base: u64,
 
         /// Only used if pdb is non-null
         coff_section_headers: []coff.SectionHeader,
 
-        pub fn deinit(self: *@This(), allocator: Allocator) void {
+        pub fn deinit(self: *@This(), gpa: Allocator) void {
             if (self.dwarf) |*dwarf| {
-                dwarf.deinit(allocator);
+                dwarf.deinit(gpa);
             }
 
             if (self.pdb) |*p| {
+                gpa.free(p.file_reader.interface.buffer);
+                gpa.destroy(p.file_reader);
                 p.deinit();
-                allocator.free(self.coff_section_headers);
+                gpa.free(self.coff_section_headers);
             }
+
+            self.* = undefined;
         }
 
         fn getSymbolFromPdb(self: *@This(), relocated_address: usize) !?std.debug.Symbol {
@@ -970,23 +974,25 @@ fn readMachODebugInfo(allocator: Allocator, macho_file: File) !Module {
     };
 }
 
-fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
+fn readCoffDebugInfo(gpa: Allocator, coff_obj: *coff.Coff) !Module {
     nosuspend {
         var di: Module = .{
             .base_address = undefined,
             .coff_image_base = coff_obj.getImageBase(),
             .coff_section_headers = undefined,
+            .pdb = null,
+            .dwarf = null,
         };
 
         if (coff_obj.getSectionByName(".debug_info")) |_| {
             // This coff file has embedded DWARF debug info
             var sections: Dwarf.SectionArray = Dwarf.null_section_array;
-            errdefer for (sections) |section| if (section) |s| if (s.owned) allocator.free(s.data);
+            errdefer for (sections) |section| if (section) |s| if (s.owned) gpa.free(s.data);
 
             inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
                 sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                     break :blk .{
-                        .data = try coff_obj.getSectionDataAlloc(section_header, allocator),
+                        .data = try coff_obj.getSectionDataAlloc(section_header, gpa),
                         .virtual_address = section_header.virtual_address,
                         .owned = true,
                     };
@@ -999,7 +1005,7 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
                 .is_macho = false,
             };
 
-            try Dwarf.open(&dwarf, allocator);
+            try Dwarf.open(&dwarf, gpa);
             di.dwarf = dwarf;
         }
 
@@ -1008,20 +1014,31 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             if (fs.path.isAbsolute(raw_path)) {
                 break :blk raw_path;
             } else {
-                const self_dir = try fs.selfExeDirPathAlloc(allocator);
-                defer allocator.free(self_dir);
-                break :blk try fs.path.join(allocator, &.{ self_dir, raw_path });
+                const self_dir = try fs.selfExeDirPathAlloc(gpa);
+                defer gpa.free(self_dir);
+                break :blk try fs.path.join(gpa, &.{ self_dir, raw_path });
             }
         };
-        defer if (path.ptr != raw_path.ptr) allocator.free(path);
+        defer if (path.ptr != raw_path.ptr) gpa.free(path);
 
-        di.pdb = Pdb.init(allocator, path) catch |err| switch (err) {
+        const pdb_file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => {
                 if (di.dwarf == null) return error.MissingDebugInfo;
                 return di;
             },
-            else => return err,
+            else => |e| return e,
         };
+        errdefer pdb_file.close();
+
+        const pdb_file_reader_buffer = try gpa.alloc(u8, 4096);
+        errdefer gpa.free(pdb_file_reader_buffer);
+
+        const pdb_file_reader = try gpa.create(File.Reader);
+        errdefer gpa.destroy(pdb_file_reader);
+
+        pdb_file_reader.* = pdb_file.reader(pdb_file_reader_buffer);
+
+        di.pdb = try Pdb.init(gpa, pdb_file_reader);
         try di.pdb.?.parseInfoStream();
         try di.pdb.?.parseDbiStream();
 
@@ -1029,8 +1046,8 @@ fn readCoffDebugInfo(allocator: Allocator, coff_obj: *coff.Coff) !Module {
             return error.InvalidDebugInfo;
 
         // Only used by the pdb path
-        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(allocator);
-        errdefer allocator.free(di.coff_section_headers);
+        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(gpa);
+        errdefer gpa.free(di.coff_section_headers);
 
         return di;
     }

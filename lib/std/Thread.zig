@@ -167,7 +167,7 @@ pub fn setName(self: Thread, name: []const u8) SetNameError!void {
             const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
             defer file.close();
 
-            try file.deprecatedWriter().writeAll(name);
+            try file.writeAll(name);
             return;
         },
         .windows => {

@@ -101,7 +101,7 @@ value_map: Tree.ValueMap,
 
 // buffers used during compilation
 syms: SymbolStack = .{},
-strings: std.array_list.AlignedManaged(u8, .@"4"),
+strings: std.array_list.Managed(u8),
 labels: std.array_list.Managed(Label),
 list_buf: NodeList,
 decl_buf: NodeList,
@@ -447,7 +447,17 @@ pub fn typeStr(p: *Parser, ty: Type) ![]const u8 {
     defer p.strings.items.len = strings_top;
 
     const mapper = p.comp.string_interner.getSlowTypeMapper();
-    try ty.print(mapper, p.comp.langopts, p.strings.writer());
+    {
+        var unmanaged = p.strings.moveToUnmanaged();
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+        defer {
+            unmanaged = allocating.toArrayList();
+            p.strings = unmanaged.toManaged(p.comp.gpa);
+        }
+        ty.print(mapper, p.comp.langopts, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    }
     return try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
 }
 
@@ -455,7 +465,7 @@ pub fn typePairStr(p: *Parser, a: Type, b: Type) ![]const u8 {
     return p.typePairStrExtra(a, " and ", b);
 }
 
-pub fn typePairStrExtra(p: *Parser, a: Type, msg: []const u8, b: Type) ![]const u8 {
+pub fn typePairStrExtra(p: *Parser, a: Type, msg: []const u8, b: Type) Error![]const u8 {
     if (@import("builtin").mode != .Debug) {
         if (a.is(.invalid) or b.is(.invalid)) {
             return "Tried to render invalid type - this is an aro bug.";
@@ -466,29 +476,60 @@ pub fn typePairStrExtra(p: *Parser, a: Type, msg: []const u8, b: Type) ![]const 
 
     try p.strings.append('\'');
     const mapper = p.comp.string_interner.getSlowTypeMapper();
-    try a.print(mapper, p.comp.langopts, p.strings.writer());
+    {
+        var unmanaged = p.strings.moveToUnmanaged();
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+        defer {
+            unmanaged = allocating.toArrayList();
+            p.strings = unmanaged.toManaged(p.comp.gpa);
+        }
+        a.print(mapper, p.comp.langopts, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    }
     try p.strings.append('\'');
     try p.strings.appendSlice(msg);
     try p.strings.append('\'');
-    try b.print(mapper, p.comp.langopts, p.strings.writer());
+    {
+        var unmanaged = p.strings.moveToUnmanaged();
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+        defer {
+            unmanaged = allocating.toArrayList();
+            p.strings = unmanaged.toManaged(p.comp.gpa);
+        }
+        b.print(mapper, p.comp.langopts, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    }
     try p.strings.append('\'');
     return try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
 }
 
-pub fn valueChangedStr(p: *Parser, res: *Result, old_value: Value, int_ty: Type) ![]const u8 {
+pub fn valueChangedStr(p: *Parser, res: *Result, old_value: Value, int_ty: Type) Error![]const u8 {
     const strings_top = p.strings.items.len;
     defer p.strings.items.len = strings_top;
 
-    var w = p.strings.writer();
     const type_pair_str = try p.typePairStrExtra(res.ty, " to ", int_ty);
-    try w.writeAll(type_pair_str);
+    {
+        var unmanaged = p.strings.moveToUnmanaged();
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+        defer {
+            unmanaged = allocating.toArrayList();
+            p.strings = unmanaged.toManaged(p.comp.gpa);
+        }
+        allocating.writer.writeAll(type_pair_str) catch return error.OutOfMemory;
 
-    try w.writeAll(" changes ");
-    if (res.val.isZero(p.comp)) try w.writeAll("non-zero ");
-    try w.writeAll("value from ");
-    try old_value.print(res.ty, p.comp, w);
-    try w.writeAll(" to ");
-    try res.val.print(int_ty, p.comp, w);
+        allocating.writer.writeAll(" changes ") catch return error.OutOfMemory;
+        if (res.val.isZero(p.comp)) allocating.writer.writeAll("non-zero ") catch return error.OutOfMemory;
+        allocating.writer.writeAll("value from ") catch return error.OutOfMemory;
+        old_value.print(res.ty, p.comp, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+        allocating.writer.writeAll(" to ") catch return error.OutOfMemory;
+        res.val.print(int_ty, p.comp, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    }
 
     return try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
 }
@@ -498,9 +539,8 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
         const strings_top = p.strings.items.len;
         defer p.strings.items.len = strings_top;
 
-        const w = p.strings.writer();
         const msg_str = p.comp.interner.get(@"error".msg.ref()).bytes;
-        try w.print("call to '{s}' declared with attribute error: {f}", .{
+        try p.strings.print("call to '{s}' declared with attribute error: {f}", .{
             p.tokSlice(@"error".__name_tok), std.zig.fmtString(msg_str),
         });
         const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
@@ -510,9 +550,8 @@ fn checkDeprecatedUnavailable(p: *Parser, ty: Type, usage_tok: TokenIndex, decl_
         const strings_top = p.strings.items.len;
         defer p.strings.items.len = strings_top;
 
-        const w = p.strings.writer();
         const msg_str = p.comp.interner.get(warning.msg.ref()).bytes;
-        try w.print("call to '{s}' declared with attribute warning: {f}", .{
+        try p.strings.print("call to '{s}' declared with attribute warning: {f}", .{
             p.tokSlice(warning.__name_tok), std.zig.fmtString(msg_str),
         });
         const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
@@ -532,17 +571,16 @@ fn errDeprecated(p: *Parser, tag: Diagnostics.Tag, tok_i: TokenIndex, msg: ?Valu
     const strings_top = p.strings.items.len;
     defer p.strings.items.len = strings_top;
 
-    const w = p.strings.writer();
-    try w.print("'{s}' is ", .{p.tokSlice(tok_i)});
+    try p.strings.print("'{s}' is ", .{p.tokSlice(tok_i)});
     const reason: []const u8 = switch (tag) {
         .unavailable => "unavailable",
         .deprecated_declarations => "deprecated",
         else => unreachable,
     };
-    try w.writeAll(reason);
+    try p.strings.appendSlice(reason);
     if (msg) |m| {
         const str = p.comp.interner.get(m.ref()).bytes;
-        try w.print(": {f}", .{std.zig.fmtString(str)});
+        try p.strings.print(": {f}", .{std.zig.fmtString(str)});
     }
     const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
     return p.errStr(tag, tok_i, str);
@@ -681,7 +719,7 @@ fn diagnoseIncompleteDefinitions(p: *Parser) !void {
 }
 
 /// root : (decl | assembly ';' | staticAssert)*
-pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
+pub fn parse(pp: *Preprocessor) Error!Tree {
     assert(pp.linemarkers == .none);
     pp.comp.pragmaEvent(.before_parse);
 
@@ -693,7 +731,7 @@ pub fn parse(pp: *Preprocessor) Compilation.Error!Tree {
         .gpa = pp.comp.gpa,
         .arena = arena.allocator(),
         .tok_ids = pp.tokens.items(.id),
-        .strings = std.array_list.AlignedManaged(u8, .@"4").init(pp.comp.gpa),
+        .strings = std.array_list.Managed(u8).init(pp.comp.gpa),
         .value_map = Tree.ValueMap.init(pp.comp.gpa),
         .data = NodeList.init(pp.comp.gpa),
         .labels = std.array_list.Managed(Label).init(pp.comp.gpa),
@@ -1218,38 +1256,46 @@ fn decl(p: *Parser) Error!bool {
     return true;
 }
 
-fn staticAssertMessage(p: *Parser, cond_node: NodeIndex, message: Result) !?[]const u8 {
+fn staticAssertMessage(p: *Parser, cond_node: NodeIndex, message: Result) Error!?[]const u8 {
     const cond_tag = p.nodes.items(.tag)[@intFromEnum(cond_node)];
     if (cond_tag != .builtin_types_compatible_p and message.node == .none) return null;
 
-    var buf = std.array_list.Managed(u8).init(p.gpa);
-    defer buf.deinit();
+    var allocating: std.Io.Writer.Allocating = .init(p.gpa);
+    defer allocating.deinit();
+
+    const buf = &allocating.writer;
 
     if (cond_tag == .builtin_types_compatible_p) {
         const mapper = p.comp.string_interner.getSlowTypeMapper();
         const data = p.nodes.items(.data)[@intFromEnum(cond_node)].bin;
 
-        try buf.appendSlice("'__builtin_types_compatible_p(");
+        buf.writeAll("'__builtin_types_compatible_p(") catch return error.OutOfMemory;
 
         const lhs_ty = p.nodes.items(.ty)[@intFromEnum(data.lhs)];
-        try lhs_ty.print(mapper, p.comp.langopts, buf.writer());
-        try buf.appendSlice(", ");
+        lhs_ty.print(mapper, p.comp.langopts, buf) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+        buf.writeAll(", ") catch return error.OutOfMemory;
 
         const rhs_ty = p.nodes.items(.ty)[@intFromEnum(data.rhs)];
-        try rhs_ty.print(mapper, p.comp.langopts, buf.writer());
+        rhs_ty.print(mapper, p.comp.langopts, buf) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
 
-        try buf.appendSlice(")'");
+        buf.writeAll(")'") catch return error.OutOfMemory;
     }
     if (message.node != .none) {
         assert(p.nodes.items(.tag)[@intFromEnum(message.node)] == .string_literal_expr);
-        if (buf.items.len > 0) {
-            try buf.append(' ');
+        if (buf.buffered().len > 0) {
+            buf.writeByte(' ') catch return error.OutOfMemory;
         }
         const bytes = p.comp.interner.get(message.val.ref()).bytes;
-        try buf.ensureUnusedCapacity(bytes.len);
-        try Value.printString(bytes, message.ty, p.comp, buf.writer());
+        try allocating.ensureUnusedCapacity(bytes.len);
+        Value.printString(bytes, message.ty, p.comp, buf) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
     }
-    return try p.comp.diagnostics.arena.allocator().dupe(u8, buf.items);
+    return try p.comp.diagnostics.arena.allocator().dupe(u8, allocating.written());
 }
 
 /// staticAssert
@@ -4981,7 +5027,7 @@ const CallExpr = union(enum) {
         return true;
     }
 
-    fn checkVarArg(self: CallExpr, p: *Parser, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32) !void {
+    fn checkVarArg(self: CallExpr, p: *Parser, first_after: TokenIndex, param_tok: TokenIndex, arg: *Result, arg_idx: u32) Error!void {
         if (self == .standard) return;
 
         const builtin_tok = p.nodes.items(.data)[@intFromEnum(self.builtin.node)].decl.name;
@@ -5183,7 +5229,17 @@ pub const Result = struct {
         const strings_top = p.strings.items.len;
         defer p.strings.items.len = strings_top;
 
-        try res.val.print(res.ty, p.comp, p.strings.writer());
+        {
+            var unmanaged = p.strings.moveToUnmanaged();
+            var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+            defer {
+                unmanaged = allocating.toArrayList();
+                p.strings = unmanaged.toManaged(p.comp.gpa);
+            }
+            res.val.print(res.ty, p.comp, &allocating.writer) catch |e| switch (e) {
+                error.WriteFailed => return error.OutOfMemory,
+            };
+        }
         return try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
     }
 
@@ -5347,7 +5403,7 @@ pub const Result = struct {
         conditional,
         add,
         sub,
-    }) !bool {
+    }) Error!bool {
         if (b.ty.specifier == .invalid) {
             try a.saveValue(p);
             a.ty = Type.invalid;
@@ -5643,7 +5699,7 @@ pub const Result = struct {
         }
     }
 
-    fn floatToIntWarning(res: *Result, p: *Parser, int_ty: Type, old_value: Value, change_kind: Value.FloatToIntChangeKind, tok: TokenIndex) !void {
+    fn floatToIntWarning(res: *Result, p: *Parser, int_ty: Type, old_value: Value, change_kind: Value.FloatToIntChangeKind, tok: TokenIndex) Error!void {
         switch (change_kind) {
             .none => return p.errStr(.float_to_int, tok, try p.typePairStrExtra(res.ty, " to ", int_ty)),
             .out_of_range => return p.errStr(.float_out_of_range, tok, try p.typePairStrExtra(res.ty, " to ", int_ty)),
@@ -5866,7 +5922,7 @@ pub const Result = struct {
         res.val = .{};
     }
 
-    fn castType(res: *Result, p: *Parser, to: Type, operand_tok: TokenIndex, l_paren: TokenIndex) !void {
+    fn castType(res: *Result, p: *Parser, to: Type, operand_tok: TokenIndex, l_paren: TokenIndex) Error!void {
         var cast_kind: Tree.CastKind = undefined;
 
         if (to.is(.void)) {
@@ -7595,9 +7651,19 @@ fn validateFieldAccess(p: *Parser, record_ty: *const Type.Record, expr_ty: Type,
 
     p.strings.items.len = 0;
 
-    try p.strings.writer().print("'{s}' in '", .{p.tokSlice(field_name_tok)});
+    try p.strings.print("'{s}' in '", .{p.tokSlice(field_name_tok)});
     const mapper = p.comp.string_interner.getSlowTypeMapper();
-    try expr_ty.print(mapper, p.comp.langopts, p.strings.writer());
+    {
+        var unmanaged = p.strings.moveToUnmanaged();
+        var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+        defer {
+            unmanaged = allocating.toArrayList();
+            p.strings = unmanaged.toManaged(p.comp.gpa);
+        }
+        expr_ty.print(mapper, p.comp.langopts, &allocating.writer) catch |e| switch (e) {
+            error.WriteFailed => return error.OutOfMemory,
+        };
+    }
     try p.strings.append('\'');
 
     const duped = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items);
@@ -8016,7 +8082,17 @@ fn primaryExpr(p: *Parser) Error!Result {
                 defer p.strings.items.len = strings_top;
 
                 const mapper = p.comp.string_interner.getSlowTypeMapper();
-                try Type.printNamed(func_ty, p.tokSlice(p.func.name), mapper, p.comp.langopts, p.strings.writer());
+                {
+                    var unmanaged = p.strings.moveToUnmanaged();
+                    var allocating: std.Io.Writer.Allocating = .fromArrayList(p.comp.gpa, &unmanaged);
+                    defer {
+                        unmanaged = allocating.toArrayList();
+                        p.strings = unmanaged.toManaged(p.comp.gpa);
+                    }
+                    Type.printNamed(func_ty, p.tokSlice(p.func.name), mapper, p.comp.langopts, &allocating.writer) catch |e| switch (e) {
+                        error.WriteFailed => return error.OutOfMemory,
+                    };
+                }
                 try p.strings.append(0);
                 const predef = try p.makePredefinedIdentifier(strings_top);
                 ty = predef.ty;

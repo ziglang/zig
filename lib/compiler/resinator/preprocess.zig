@@ -2,28 +2,32 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
+const Dependencies = @import("compile.zig").Dependencies;
 const aro = @import("aro");
 
 const PreprocessError = error{ ArgError, GeneratedSourceError, PreprocessError, StreamTooLong, OutOfMemory };
 
 pub fn preprocess(
     comp: *aro.Compilation,
-    writer: anytype,
+    writer: *std.Io.Writer,
     /// Expects argv[0] to be the command name
     argv: []const []const u8,
-    maybe_dependencies_list: ?*std.array_list.Managed([]const u8),
+    maybe_dependencies: ?*Dependencies,
 ) PreprocessError!void {
     try comp.addDefaultPragmaHandlers();
 
     var driver: aro.Driver = .{ .comp = comp, .aro_name = "arocc" };
     defer driver.deinit();
 
-    var macro_buf = std.array_list.Managed(u8).init(comp.gpa);
+    var macro_buf: std.Io.Writer.Allocating = .init(comp.gpa);
     defer macro_buf.deinit();
 
-    _ = driver.parseArgs(std.io.null_writer, macro_buf.writer(), argv) catch |err| switch (err) {
+    var trash: [64]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&trash);
+    _ = driver.parseArgs(&discarding.writer, &macro_buf.writer, argv) catch |err| switch (err) {
         error.FatalError => return error.ArgError,
         error.OutOfMemory => |e| return e,
+        error.WriteFailed => return error.OutOfMemory,
     };
 
     if (hasAnyErrors(comp)) return error.ArgError;
@@ -33,7 +37,7 @@ pub fn preprocess(
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
-    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.items) catch |err| switch (err) {
+    const user_macros = comp.addSourceFromBuffer("<command line>", macro_buf.written()) catch |err| switch (err) {
         error.FatalError => return error.GeneratedSourceError,
         else => |e| return e,
     };
@@ -59,15 +63,17 @@ pub fn preprocess(
 
     if (hasAnyErrors(comp)) return error.PreprocessError;
 
-    try pp.prettyPrintTokens(writer, .result_only);
+    pp.prettyPrintTokens(writer, .result_only) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+    };
 
-    if (maybe_dependencies_list) |dependencies_list| {
+    if (maybe_dependencies) |dependencies| {
         for (comp.sources.values()) |comp_source| {
             if (comp_source.id == builtin_macros.id or comp_source.id == user_macros.id) continue;
             if (comp_source.id == .unused or comp_source.id == .generated) continue;
-            const duped_path = try dependencies_list.allocator.dupe(u8, comp_source.path);
-            errdefer dependencies_list.allocator.free(duped_path);
-            try dependencies_list.append(duped_path);
+            const duped_path = try dependencies.allocator.dupe(u8, comp_source.path);
+            errdefer dependencies.allocator.free(duped_path);
+            try dependencies.list.append(dependencies.allocator, duped_path);
         }
     }
 }
@@ -87,8 +93,8 @@ fn hasAnyErrors(comp: *aro.Compilation) bool {
 
 /// `arena` is used for temporary -D argument strings and the INCLUDE environment variable.
 /// The arena should be kept alive at least as long as `argv`.
-pub fn appendAroArgs(arena: Allocator, argv: *std.array_list.Managed([]const u8), options: cli.Options, system_include_paths: []const []const u8) !void {
-    try argv.appendSlice(&.{
+pub fn appendAroArgs(arena: Allocator, argv: *std.ArrayList([]const u8), options: cli.Options, system_include_paths: []const []const u8) !void {
+    try argv.appendSlice(arena, &.{
         "-E",
         "--comments",
         "-fuse-line-directives",
@@ -99,13 +105,13 @@ pub fn appendAroArgs(arena: Allocator, argv: *std.array_list.Managed([]const u8)
         "-D_WIN32", // undocumented, but defined by default
     });
     for (options.extra_include_paths.items) |extra_include_path| {
-        try argv.append("-I");
-        try argv.append(extra_include_path);
+        try argv.append(arena, "-I");
+        try argv.append(arena, extra_include_path);
     }
 
     for (system_include_paths) |include_path| {
-        try argv.append("-isystem");
-        try argv.append(include_path);
+        try argv.append(arena, "-isystem");
+        try argv.append(arena, include_path);
     }
 
     if (!options.ignore_include_env_var) {
@@ -119,8 +125,8 @@ pub fn appendAroArgs(arena: Allocator, argv: *std.array_list.Managed([]const u8)
         };
         var it = std.mem.tokenizeScalar(u8, INCLUDE, delimiter);
         while (it.next()) |include_path| {
-            try argv.append("-isystem");
-            try argv.append(include_path);
+            try argv.append(arena, "-isystem");
+            try argv.append(arena, include_path);
         }
     }
 
@@ -128,13 +134,13 @@ pub fn appendAroArgs(arena: Allocator, argv: *std.array_list.Managed([]const u8)
     while (symbol_it.next()) |entry| {
         switch (entry.value_ptr.*) {
             .define => |value| {
-                try argv.append("-D");
+                try argv.append(arena, "-D");
                 const define_arg = try std.fmt.allocPrint(arena, "{s}={s}", .{ entry.key_ptr.*, value });
-                try argv.append(define_arg);
+                try argv.append(arena, define_arg);
             },
             .undefine => {
-                try argv.append("-U");
-                try argv.append(entry.key_ptr.*);
+                try argv.append(arena, "-U");
+                try argv.append(arena, entry.key_ptr.*);
             },
         }
     }

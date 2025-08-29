@@ -15,6 +15,7 @@ const TokenWithExpansionLocs = Tree.TokenWithExpansionLocs;
 const Attribute = @import("Attribute.zig");
 const features = @import("features.zig");
 const Hideset = @import("Hideset.zig");
+const Writer = std.Io.Writer;
 
 const DefineMap = std.StringHashMapUnmanaged(Macro);
 const RawTokenList = std.array_list.Managed(RawToken);
@@ -982,7 +983,7 @@ fn expr(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!bool {
         .tok_i = @intCast(token_state.tokens_len),
         .arena = pp.arena.allocator(),
         .in_macro = true,
-        .strings = std.array_list.AlignedManaged(u8, .@"4").init(pp.comp.gpa),
+        .strings = std.array_list.Managed(u8).init(pp.comp.gpa),
 
         .data = undefined,
         .value_map = undefined,
@@ -1193,24 +1194,21 @@ fn expandObjMacro(pp: *Preprocessor, simple_macro: *const Macro) Error!ExpandBuf
             .macro_file => {
                 const start = pp.comp.generated_buf.items.len;
                 const source = pp.comp.getSource(pp.expansion_source_loc.id);
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("\"{s}\"\n", .{source.path});
+                try pp.comp.generated_buf.print(pp.gpa, "\"{s}\"\n", .{source.path});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
             },
             .macro_line => {
                 const start = pp.comp.generated_buf.items.len;
                 const source = pp.comp.getSource(pp.expansion_source_loc.id);
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{d}\n", .{source.physicalLine(pp.expansion_source_loc)});
+                try pp.comp.generated_buf.print(pp.gpa, "{d}\n", .{source.physicalLine(pp.expansion_source_loc)});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .pp_num, tok));
             },
             .macro_counter => {
                 defer pp.counter += 1;
                 const start = pp.comp.generated_buf.items.len;
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{d}\n", .{pp.counter});
+                try pp.comp.generated_buf.print(pp.gpa, "{d}\n", .{pp.counter});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .pp_num, tok));
             },
@@ -1682,8 +1680,7 @@ fn expandFuncMacro(
                     break :blk false;
                 } else try pp.handleBuiltinMacro(raw.id, arg, macro_tok.loc);
                 const start = pp.comp.generated_buf.items.len;
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{}\n", .{@intFromBool(result)});
+                try pp.comp.generated_buf.print(pp.gpa, "{}\n", .{@intFromBool(result)});
                 try buf.append(try pp.makeGeneratedToken(start, .pp_num, tokFromRaw(raw)));
             },
             .macro_param_has_c_attribute => {
@@ -2988,18 +2985,16 @@ fn embed(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!void {
     // TODO: We currently only support systems with CHAR_BIT == 8
     // If the target's CHAR_BIT is not 8, we need to write out correctly-sized embed_bytes
     // and correctly account for the target's endianness
-    const writer = pp.comp.generated_buf.writer(pp.gpa);
-
     {
         const byte = embed_bytes[0];
         const start = pp.comp.generated_buf.items.len;
-        try writer.print("{d}", .{byte});
+        try pp.comp.generated_buf.print(pp.gpa, "{d}", .{byte});
         pp.addTokenAssumeCapacity(try pp.makeGeneratedToken(start, .embed_byte, filename_tok));
     }
 
     for (embed_bytes[1..]) |byte| {
         const start = pp.comp.generated_buf.items.len;
-        try writer.print(",{d}", .{byte});
+        try pp.comp.generated_buf.print(pp.gpa, ",{d}", .{byte});
         pp.addTokenAssumeCapacity(.{ .id = .comma, .loc = .{ .id = .generated, .byte_offset = @intCast(start) } });
         pp.addTokenAssumeCapacity(try pp.makeGeneratedToken(start + 1, .embed_byte, filename_tok));
     }
@@ -3241,7 +3236,7 @@ fn findIncludeSource(pp: *Preprocessor, tokenizer: *Tokenizer, first: RawToken, 
 
 fn printLinemarker(
     pp: *Preprocessor,
-    w: anytype,
+    w: *Writer,
     line_no: u32,
     source: Source,
     start_resume: enum(u8) { start, @"resume", none },
@@ -3301,7 +3296,7 @@ pub const DumpMode = enum {
 /// Pretty-print the macro define or undef at location `loc`.
 /// We re-tokenize the directive because we are printing a macro that may have the same name as one in
 /// `pp.defines` but a different definition (due to being #undef'ed and then redefined)
-fn prettyPrintMacro(pp: *Preprocessor, w: anytype, loc: Source.Location, parts: enum { name_only, name_and_body }) !void {
+fn prettyPrintMacro(pp: *Preprocessor, w: *Writer, loc: Source.Location, parts: enum { name_only, name_and_body }) !void {
     const source = pp.comp.getSource(loc.id);
     var tokenizer: Tokenizer = .{
         .buf = source.buf,
@@ -3339,7 +3334,7 @@ fn prettyPrintMacro(pp: *Preprocessor, w: anytype, loc: Source.Location, parts: 
     }
 }
 
-fn prettyPrintMacrosOnly(pp: *Preprocessor, w: anytype) !void {
+fn prettyPrintMacrosOnly(pp: *Preprocessor, w: *Writer) !void {
     var it = pp.defines.valueIterator();
     while (it.next()) |macro| {
         if (macro.is_builtin) continue;
@@ -3351,7 +3346,7 @@ fn prettyPrintMacrosOnly(pp: *Preprocessor, w: anytype) !void {
 }
 
 /// Pretty print tokens and try to preserve whitespace.
-pub fn prettyPrintTokens(pp: *Preprocessor, w: anytype, macro_dump_mode: DumpMode) !void {
+pub fn prettyPrintTokens(pp: *Preprocessor, w: *Writer, macro_dump_mode: DumpMode) !void {
     if (macro_dump_mode == .macros_only) {
         return pp.prettyPrintMacrosOnly(w);
     }

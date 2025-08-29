@@ -8,6 +8,7 @@ const Limit = std.Io.Limit;
 const File = std.fs.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
+const ArrayList = std.ArrayList;
 
 vtable: *const VTable,
 /// If this has length zero, the writer is unbuffered, and `flush` is a no-op.
@@ -2374,6 +2375,29 @@ pub fn unreachableRebase(w: *Writer, preserve: usize, capacity: usize) Error!voi
     unreachable;
 }
 
+pub fn fromArrayList(array_list: *ArrayList(u8)) Writer {
+    defer array_list.* = .empty;
+    return .{
+        .vtable = &.{
+            .drain = fixedDrain,
+            .flush = noopFlush,
+            .rebase = failingRebase,
+        },
+        .buffer = array_list.allocatedSlice(),
+        .end = array_list.items.len,
+    };
+}
+
+pub fn toArrayList(w: *Writer) ArrayList(u8) {
+    const result: ArrayList(u8) = .{
+        .items = w.buffer[0..w.end],
+        .capacity = w.buffer.len,
+    };
+    w.buffer = &.{};
+    w.end = 0;
+    return result;
+}
+
 /// Provides a `Writer` implementation based on calling `Hasher.update`, sending
 /// all data also to an underlying `Writer`.
 ///
@@ -2546,7 +2570,7 @@ pub const Allocating = struct {
     }
 
     /// Replaces `array_list` with empty, taking ownership of the memory.
-    pub fn fromArrayList(allocator: Allocator, array_list: *std.ArrayListUnmanaged(u8)) Allocating {
+    pub fn fromArrayList(allocator: Allocator, array_list: *ArrayList(u8)) Allocating {
         defer array_list.* = .empty;
         return .{
             .allocator = allocator,
@@ -2572,9 +2596,9 @@ pub const Allocating = struct {
 
     /// Returns an array list that takes ownership of the allocated memory.
     /// Resets the `Allocating` to an empty state.
-    pub fn toArrayList(a: *Allocating) std.ArrayListUnmanaged(u8) {
+    pub fn toArrayList(a: *Allocating) ArrayList(u8) {
         const w = &a.writer;
-        const result: std.ArrayListUnmanaged(u8) = .{
+        const result: ArrayList(u8) = .{
             .items = w.buffer[0..w.end],
             .capacity = w.buffer.len,
         };
@@ -2603,7 +2627,7 @@ pub const Allocating = struct {
 
     pub fn toOwnedSliceSentinel(a: *Allocating, comptime sentinel: u8) error{OutOfMemory}![:sentinel]u8 {
         const gpa = a.allocator;
-        var list = toArrayList(a);
+        var list = @This().toArrayList(a);
         defer a.setArrayList(list);
         return list.toOwnedSliceSentinel(gpa, sentinel);
     }
@@ -2670,7 +2694,7 @@ pub const Allocating = struct {
         list.ensureUnusedCapacity(gpa, minimum_len) catch return error.WriteFailed;
     }
 
-    fn setArrayList(a: *Allocating, list: std.ArrayListUnmanaged(u8)) void {
+    fn setArrayList(a: *Allocating, list: ArrayList(u8)) void {
         a.writer.buffer = list.allocatedSlice();
         a.writer.end = list.items.len;
     }

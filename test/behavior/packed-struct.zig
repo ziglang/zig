@@ -1075,17 +1075,6 @@ test "assigning packed struct inside another packed struct" {
     try expect(S.mem.padding == 0);
 }
 
-test "packed struct used as part of anon decl name" {
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
-
-    const S = packed struct { a: u0 = 0 };
-    var a: u8 = 0;
-    _ = &a;
-    try std.io.null_writer.print("\n{} {}\n", .{ a, S{} });
-}
-
 test "packed struct acts as a namespace" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 

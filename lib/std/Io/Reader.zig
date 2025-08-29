@@ -143,8 +143,8 @@ pub const failing: Reader = .{
 
 /// This is generally safe to `@constCast` because it has an empty buffer, so
 /// there is not really a way to accidentally attempt mutation of these fields.
-const ending_state: Reader = .fixed(&.{});
-pub const ending: *Reader = @constCast(&ending_state);
+pub const ending_instance: Reader = .fixed(&.{});
+pub const ending: *Reader = @constCast(&ending_instance);
 
 pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
     return .init(r, limit, buffer);
@@ -784,7 +784,7 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
-/// `delimiter` is found, advancing the seek position.
+/// `delimiter` is found, advancing the seek position up to the delimiter.
 ///
 /// Returned slice excludes the delimiter. End-of-stream is treated equivalent
 /// to a delimiter, unless it would result in a length 0 return value, in which
@@ -811,6 +811,37 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         else => |e| return e,
     };
     r.toss(result.len);
+    return result[0 .. result.len - 1];
+}
+
+/// Returns a slice of the next bytes of buffered data from the stream until
+/// `delimiter` is found, advancing the seek position past the delimiter.
+///
+/// Returned slice excludes the delimiter. End-of-stream is treated equivalent
+/// to a delimiter, unless it would result in a length 0 return value, in which
+/// case `null` is returned instead.
+///
+/// If the delimiter is not found within a number of bytes matching the
+/// capacity of this `Reader`, `error.StreamTooLong` is returned. In
+/// such case, the stream state is unmodified as if this function was never
+/// called.
+///
+/// Invalidates previously returned values from `peek`.
+///
+/// See also:
+/// * `takeDelimiterInclusive`
+/// * `takeDelimiterExclusive`
+pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong }!?[]u8 {
+    const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
+        error.EndOfStream => {
+            const remaining = r.buffer[r.seek..r.end];
+            if (remaining.len == 0) return null;
+            r.toss(remaining.len);
+            return remaining;
+        },
+        else => |e| return e,
+    };
+    r.toss(result.len + 1);
     return result[0 .. result.len - 1];
 }
 
@@ -845,6 +876,8 @@ pub fn peekDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 
 /// Appends to `w` contents by reading from the stream until `delimiter` is
 /// found. Does not write the delimiter itself.
+///
+/// Does not discard the delimiter from the `Reader`.
 ///
 /// Returns number of bytes streamed, which may be zero, or error.EndOfStream
 /// if the delimiter was not found.
@@ -898,6 +931,8 @@ pub const StreamDelimiterLimitError = error{
 
 /// Appends to `w` contents by reading from the stream until `delimiter` is found.
 /// Does not write the delimiter itself.
+///
+/// Does not discard the delimiter from the `Reader`.
 ///
 /// Returns number of bytes streamed, which may be zero. End of stream can be
 /// detected by checking if the next byte in the stream is the delimiter.
@@ -1128,7 +1163,11 @@ pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                var res = (try r.takeStructPointer(T)).*;
+                // This code works around https://github.com/ziglang/zig/issues/25067
+                // by avoiding a call to `peekStructPointer`.
+                const struct_bytes = try r.takeArray(@sizeOf(T));
+                var res: T = undefined;
+                @memcpy(@as([]u8, @ptrCast(&res)), struct_bytes);
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },
@@ -1153,7 +1192,11 @@ pub inline fn peekStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                var res = (try r.peekStructPointer(T)).*;
+                // This code works around https://github.com/ziglang/zig/issues/25067
+                // by avoiding a call to `peekStructPointer`.
+                const struct_bytes = try r.peekArray(@sizeOf(T));
+                var res: T = undefined;
+                @memcpy(@as([]u8, @ptrCast(&res)), struct_bytes);
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },

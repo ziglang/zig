@@ -116,15 +116,17 @@ pub fn translate(
     var driver: aro.Driver = .{ .comp = comp };
     defer driver.deinit();
 
-    var macro_buf = std.array_list.Managed(u8).init(gpa);
+    var macro_buf: std.Io.Writer.Allocating = .init(gpa);
     defer macro_buf.deinit();
 
-    assert(!try driver.parseArgs(std.io.null_writer, macro_buf.writer(), args));
+    var trash: [64]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&trash);
+    assert(!try driver.parseArgs(&discarding.writer, &macro_buf.writer, args));
     assert(driver.inputs.items.len == 1);
     const source = driver.inputs.items[0];
 
     const builtin_macros = try comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try comp.addSourceFromBuffer("<command line>", macro_buf.items);
+    const user_macros = try comp.addSourceFromBuffer("<command line>", macro_buf.written());
 
     var pp = try aro.Preprocessor.initDefault(comp);
     defer pp.deinit();
@@ -698,11 +700,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_
 }
 
 fn getTypeStr(c: *Context, ty: Type) ![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    defer buf.deinit(c.gpa);
-    const w = buf.writer(c.gpa);
-    try ty.print(c.mapper, c.comp.langopts, w);
-    return c.arena.dupe(u8, buf.items);
+    var allocating: std.Io.Writer.Allocating = .init(c.gpa);
+    defer allocating.deinit();
+    ty.print(c.mapper, c.comp.langopts, &allocating.writer) catch return error.OutOfMemory;
+    return c.arena.dupe(u8, allocating.written());
 }
 
 fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualHandling, source_loc: TokenIndex) TypeError!ZigNode {
@@ -1820,6 +1821,7 @@ pub fn main() !void {
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
         error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
+        error.WriteFailed => return error.WriteFailed,
         error.StreamTooLong => std.process.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);

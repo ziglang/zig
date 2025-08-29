@@ -336,39 +336,6 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
             try unmanaged.print(gpa, fmt, args);
         }
 
-        pub const Writer = if (T != u8) void else std.io.GenericWriter(*Self, Allocator.Error, appendWrite);
-
-        /// Initializes a Writer which will append to the list.
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
-
-        /// Same as `append` except it returns the number of bytes written, which is always the same
-        /// as `m.len`. The purpose of this function existing is to match `std.io.GenericWriter` API.
-        /// Invalidates element pointers if additional memory is needed.
-        fn appendWrite(self: *Self, m: []const u8) Allocator.Error!usize {
-            try self.appendSlice(m);
-            return m.len;
-        }
-
-        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Initializes a Writer which will append to the list but will return
-        /// `error.OutOfMemory` rather than increasing capacity.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// The purpose of this function existing is to match `std.io.GenericWriter` API.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
-        }
-
         /// Append a value to the list `n` times.
         /// Allocates more memory as necessary.
         /// Invalidates element pointers if additional memory is needed.
@@ -1081,48 +1048,6 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
             var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch return error.OutOfMemory;
             self.items.len += w.end;
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const WriterContext = struct {
-            self: *Self,
-            allocator: Allocator,
-        };
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const Writer = if (T != u8)
-            @compileError("The Writer interface is only defined for ArrayList(u8) " ++
-                "but the given type is ArrayList(" ++ @typeName(T) ++ ")")
-        else
-            std.io.GenericWriter(WriterContext, Allocator.Error, appendWrite);
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub fn writer(self: *Self, gpa: Allocator) Writer {
-            return .{ .context = .{ .self = self, .allocator = gpa } };
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        fn appendWrite(context: WriterContext, m: []const u8) Allocator.Error!usize {
-            try context.self.appendSlice(context.allocator, m);
-            return m.len;
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub const FixedWriter = std.io.GenericWriter(*Self, Allocator.Error, appendWriteFixed);
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        pub fn fixedWriter(self: *Self) FixedWriter {
-            return .{ .context = self };
-        }
-
-        /// Deprecated in favor of `print` or `std.io.Writer.Allocating`.
-        fn appendWriteFixed(self: *Self, m: []const u8) error{OutOfMemory}!usize {
-            const available_capacity = self.capacity - self.items.len;
-            if (m.len > available_capacity)
-                return error.OutOfMemory;
-
-            self.appendSliceAssumeCapacity(m);
-            return m.len;
         }
 
         /// Append a value to the list `n` times.
@@ -2113,60 +2038,6 @@ test "Managed(T) of struct T" {
         defer root.sub_items.deinit(a);
         try root.sub_items.append(a, ItemUnmanaged{ .integer = 42, .sub_items = .empty });
         try testing.expect(root.sub_items.items[0].integer == 42);
-    }
-}
-
-test "Managed(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer = Managed(u8).init(a);
-        defer buffer.deinit();
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer().print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list = AlignedManaged(u8, .@"2").init(a);
-        defer list.deinit();
-
-        const writer = list.writer();
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
-    }
-}
-
-test "ArrayList(u8) implements writer" {
-    const a = testing.allocator;
-
-    {
-        var buffer: ArrayList(u8) = .empty;
-        defer buffer.deinit(a);
-
-        const x: i32 = 42;
-        const y: i32 = 1234;
-        try buffer.writer(a).print("x: {}\ny: {}\n", .{ x, y });
-
-        try testing.expectEqualSlices(u8, "x: 42\ny: 1234\n", buffer.items);
-    }
-    {
-        var list: Aligned(u8, .@"2") = .empty;
-        defer list.deinit(a);
-
-        const writer = list.writer(a);
-        try writer.writeAll("a");
-        try writer.writeAll("bc");
-        try writer.writeAll("d");
-        try writer.writeAll("efg");
-
-        try testing.expectEqualSlices(u8, list.items, "abcdefg");
     }
 }
 

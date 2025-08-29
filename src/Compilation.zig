@@ -5893,15 +5893,16 @@ fn buildGlibcCrtFile(comp: *Compilation, crt_file: glibc.CrtFile, prog_node: std
 
 fn buildGlibcSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) void {
     defer comp.link_task_queue.finishPrelinkItem(comp);
-    if (glibc.buildSharedObjects(comp, prog_node)) |_| {
-        // The job should no longer be queued up since it succeeded.
-        comp.queued_jobs.glibc_shared_objects = false;
-    } else |err| switch (err) {
-        error.AlreadyReported => return,
-        else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
-            @errorName(err),
-        }),
-    }
+    glibc.buildSharedObjects(comp, prog_node) catch unreachable;
+    //if (glibc.buildSharedObjects(comp, prog_node)) |_| {
+    //    // The job should no longer be queued up since it succeeded.
+    //    comp.queued_jobs.glibc_shared_objects = false;
+    //} else |err| switch (err) {
+    //    error.AlreadyReported => return,
+    //    else => comp.lockAndSetMiscFailure(.glibc_shared_objects, "unable to build glibc shared objects: {s}", .{
+    //        @errorName(err),
+    //    }),
+    //}
 }
 
 fn buildFreeBSDCrtFile(comp: *Compilation, crt_file: freebsd.CrtFile, prog_node: std.Progress.Node) void {
