@@ -1163,11 +1163,7 @@ pub inline fn takeStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                // This code works around https://github.com/ziglang/zig/issues/25067
-                // by avoiding a call to `peekStructPointer`.
-                const struct_bytes = try r.takeArray(@sizeOf(T));
-                var res: T = undefined;
-                @memcpy(@as([]u8, @ptrCast(&res)), struct_bytes);
+                var res = (try r.takeStructPointer(T)).*;
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },
@@ -1192,11 +1188,7 @@ pub inline fn peekStruct(r: *Reader, comptime T: type, endian: std.builtin.Endia
         .@"struct" => |info| switch (info.layout) {
             .auto => @compileError("ill-defined memory layout"),
             .@"extern" => {
-                // This code works around https://github.com/ziglang/zig/issues/25067
-                // by avoiding a call to `peekStructPointer`.
-                const struct_bytes = try r.peekArray(@sizeOf(T));
-                var res: T = undefined;
-                @memcpy(@as([]u8, @ptrCast(&res)), struct_bytes);
+                var res = (try r.peekStructPointer(T)).*;
                 if (native_endian != endian) std.mem.byteSwapAllFields(T, &res);
                 return res;
             },
