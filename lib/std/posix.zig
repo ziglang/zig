@@ -6738,8 +6738,20 @@ pub const SetSockOptError = error{
 
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSockOptError!void {
+    try setsockoptRaw(fd, level, optname, opt.ptr, @intCast(opt.len));
+}
+
+/// This is the full raw setsockopt() interface.  The posix.setsockopt()
+/// interface will be sufficient and more-ergonomic for most normal socket
+/// options, but there are edge cases its interface cannot handle.
+///
+/// A known example is BSD SO_ACCEPTFILTER: to remove an existing filter (which
+/// is required before installing a different one), one must call setsockopt()
+/// with optval set to null.
+/// (ref: https://man.freebsd.org/cgi/man.cgi?query=setsockopt )
+pub fn setsockoptRaw(fd: socket_t, level: i32, optname: u32, optval: ?[*]const u8, optlen: socklen_t) SetSockOptError!void {
     if (native_os == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), @ptrCast(optval), @intCast(optlen));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -6752,7 +6764,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         }
         return;
     } else {
-        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
+        switch (errno(system.setsockopt(fd, level, optname, @ptrCast(optval), optlen))) {
             .SUCCESS => {},
             .BADF => unreachable, // always a race condition
             .NOTSOCK => unreachable, // always a race condition
