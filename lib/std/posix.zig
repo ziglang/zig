@@ -4364,12 +4364,33 @@ pub const GetSockOptError = error{
     InvalidOption,
 } || UnexpectedError;
 
+/// Get a socket's options.
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
     var len: socklen_t = @intCast(opt.len);
-    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
-        .SUCCESS => {
-            std.debug.assert(len == opt.len);
-        },
+    try getsockoptRaw(fd, level, optname, opt.ptr, &len);
+    std.debug.assert(len == opt.len);
+}
+
+/// This is the full raw getsockopt() interface.  The posix.getsockopt() will
+/// be sufficient and more-ergonomic for most normal socket options, but there
+/// are edge cases its interface cannot handle.
+///
+/// Known examples:
+/// Linux SO_PEERSEC: there is no documented buffer length that will always be
+/// sufficient, so the caller has to observe the BufferTooSmall error and then
+/// read the appropriate buffer size from the returned optlen value to resize
+/// and try again.  Additionally, if an oversized buffer is provided, the
+/// returned optlen is the only way to know the length of the returned value,
+/// which need not be sentinel-terminated.
+///
+/// Linux SO_BINDTODEVICE: recommends the input buffer to be IFNAMSIZ long to
+/// hold any device name, but returns the actual length of the stored name in
+/// optlen, which will usually be shorter than the buffer length, and thus
+/// would fail the otherwise-useful optlen assertion check in the the regular
+/// getsockopt() interface.
+pub fn getsockoptRaw(fd: socket_t, level: i32, optname: u32, optval: [*]u8, optlen: *socklen_t) GetSockOptError!void {
+    switch (errno(system.getsockopt(fd, level, optname, optval, optlen))) {
+        .SUCCESS => {},
         .BADF => unreachable,
         .NOTSOCK => unreachable,
         .FAULT => unreachable,
