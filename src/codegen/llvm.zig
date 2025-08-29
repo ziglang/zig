@@ -9773,6 +9773,7 @@ pub const FuncGen = struct {
         const ptr = try fg.resolveInst(ty_op.operand);
 
         elide: {
+            if (ptr_info.flags.alignment != .none) break :elide;
             if (!isByRef(Type.fromInterned(ptr_info.child), zcu)) break :elide;
             if (!canElideLoad(fg, body_tail)) break :elide;
             return ptr;
