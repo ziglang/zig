@@ -93,6 +93,12 @@ latest_commit: ?git.Oid,
 /// the root source file.
 module: ?*Package.Module,
 
+/// The number of times an HTTP request will retry if it fails
+retry_count: u32 = 2,
+
+/// The delay in milliseconds between HTTP request retries
+retry_delay_ms: u32 = 500,
+
 pub const LazyStatus = enum {
     /// Not lazy.
     eager,
@@ -1012,9 +1018,18 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
     if (ascii.eqlIgnoreCase(uri.scheme, "http") or
         ascii.eqlIgnoreCase(uri.scheme, "https"))
     {
+        var retries_left = f.retry_count;
         resource.* = .{ .http_request = .{
-            .request = http_client.request(.GET, uri, .{}) catch |err|
-                return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err})),
+            .request = while (true) {
+                break http_client.request(.GET, uri, .{}) catch |err| {
+                    if (retries_left > 0) {
+                        std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
+                        retries_left -= 1;
+                        continue;
+                    }
+                    return f.fail(f.location_tok, try eb.printString("unable to connect to server: {t}", .{err}));
+                };
+            },
             .response = undefined,
             .transfer_buffer = reader_buffer,
             .decompress_buffer = &.{},
@@ -1023,39 +1038,63 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
         const request = &resource.http_request.request;
         errdefer request.deinit();
 
-        request.sendBodiless() catch |err|
-            return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
+        while (true) {
+            request.sendBodiless() catch |err| {
+                if (retries_left > 0) {
+                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
+                    retries_left -= 1;
+                    continue;
+                }
+                return f.fail(f.location_tok, try eb.printString("HTTP request failed: {t}", .{err}));
+            };
 
-        var redirect_buffer: [1024]u8 = undefined;
-        const response = &resource.http_request.response;
-        response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
-            error.ReadFailed => {
-                return f.fail(f.location_tok, try eb.printString("HTTP response read failure: {t}", .{
-                    request.connection.?.getReadError().?,
-                }));
-            },
-            else => |e| return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{e})),
-        };
+            var redirect_buffer: [1024]u8 = undefined;
+            const response = &resource.http_request.response;
+            response.* = request.receiveHead(&redirect_buffer) catch |err| switch (err) {
+                error.ReadFailed => {
+                    return f.fail(f.location_tok, try eb.printString("HTTP response read failure: {t}", .{
+                        request.connection.?.getReadError().?,
+                    }));
+                },
+                else => |e| return f.fail(f.location_tok, try eb.printString("invalid HTTP response: {t}", .{e})),
+            };
 
-        if (response.head.status != .ok) return f.fail(f.location_tok, try eb.printString(
-            "bad HTTP response code: '{d} {s}'",
-            .{ response.head.status, response.head.status.phrase() orelse "" },
-        ));
+            if (response.head.status != .ok) {
+                // We only need to retry if we run into server-side errors (5xx)
+                if (retries_left > 0 and @intFromEnum(response.head.status) >= 500) {
+                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
+                    retries_left -= 1;
+                    continue;
+                }
+                return f.fail(f.location_tok, try eb.printString(
+                    "bad HTTP response code: '{d} {s}'",
+                    .{ response.head.status, response.head.status.phrase() orelse "" },
+                ));
+            }
 
-        resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
-        return;
+            resource.http_request.decompress_buffer = try arena.alloc(u8, response.head.content_encoding.minBufferCapacity());
+            return;
+        }
     }
 
     if (ascii.eqlIgnoreCase(uri.scheme, "git+http") or
         ascii.eqlIgnoreCase(uri.scheme, "git+https"))
     {
+        var retries_left = f.retry_count;
         var transport_uri = uri;
         transport_uri.scheme = uri.scheme["git+".len..];
-        var session = git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
-            return f.fail(
-                f.location_tok,
-                try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
-            );
+        var session = while (true) {
+            break git.Session.init(arena, http_client, transport_uri, reader_buffer) catch |err| {
+                if (retries_left > 0) {
+                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
+                    retries_left -= 1;
+                    continue;
+                }
+                return f.fail(
+                    f.location_tok,
+                    try eb.printString("unable to discover remote git server capabilities: {t}", .{err}),
+                );
+            };
         };
 
         const want_oid = want_oid: {
@@ -1115,9 +1154,16 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             .want_oid = want_oid,
         } };
         const fetch_stream = &resource.git.fetch_stream;
-        session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
-            return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
-        };
+        while (true) {
+            break session.fetch(fetch_stream, &.{&want_oid_buf}, reader_buffer) catch |err| {
+                if (retries_left > 0) {
+                    std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
+                    retries_left -= 1;
+                    continue;
+                }
+                return f.fail(f.location_tok, try eb.printString("unable to create fetch stream: {t}", .{err}));
+            };
+        }
         errdefer fetch_stream.deinit(fetch_stream);
 
         return;
