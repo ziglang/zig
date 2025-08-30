@@ -4353,22 +4353,53 @@ pub const GetSockOptError = error{
 
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
+
+    /// The supplied opt buffer was too small for the data to be returned.
+    BufferTooSmall,
+
+    /// This can mean different things depending on the platform, the option
+    /// name, and conditions.  One known oddball example is SO_ACCEPTFILTER on
+    /// BSDs, which returns this error to indicate that no filter is currently
+    /// installed.
+    InvalidOption,
 } || UnexpectedError;
 
+/// Get a socket's options.
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
     var len: socklen_t = @intCast(opt.len);
-    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
-        .SUCCESS => {
-            std.debug.assert(len == opt.len);
-        },
+    try getsockoptRaw(fd, level, optname, opt.ptr, &len);
+    std.debug.assert(len == opt.len);
+}
+
+/// This is the full raw getsockopt() interface.  The posix.getsockopt() will
+/// be sufficient and more-ergonomic for most normal socket options, but there
+/// are edge cases its interface cannot handle.
+///
+/// Known examples:
+/// Linux SO_PEERSEC: there is no documented buffer length that will always be
+/// sufficient, so the caller has to observe the BufferTooSmall error and then
+/// read the appropriate buffer size from the returned optlen value to resize
+/// and try again.  Additionally, if an oversized buffer is provided, the
+/// returned optlen is the only way to know the length of the returned value,
+/// which need not be sentinel-terminated.
+///
+/// Linux SO_BINDTODEVICE: recommends the input buffer to be IFNAMSIZ long to
+/// hold any device name, but returns the actual length of the stored name in
+/// optlen, which will usually be shorter than the buffer length, and thus
+/// would fail the otherwise-useful optlen assertion check in the the regular
+/// getsockopt() interface.
+pub fn getsockoptRaw(fd: socket_t, level: i32, optname: u32, optval: [*]u8, optlen: *socklen_t) GetSockOptError!void {
+    switch (errno(system.getsockopt(fd, level, optname, optval, optlen))) {
+        .SUCCESS => {},
         .BADF => unreachable,
         .NOTSOCK => unreachable,
-        .INVAL => unreachable,
         .FAULT => unreachable,
+        .INVAL => return error.InvalidOption,
         .NOPROTOOPT => return error.InvalidProtocolOption,
         .NOMEM => return error.SystemResources,
         .NOBUFS => return error.SystemResources,
         .ACCES => return error.AccessDenied,
+        .RANGE => return error.BufferTooSmall,
         else => |err| return unexpectedErrno(err),
     }
 }
@@ -6721,6 +6752,14 @@ pub const SetSockOptError = error{
     /// Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    /// This can mean many different things depending on the platform, the
+    /// option name, and conditions.  For example:
+    /// - That the socket was not listen()ing when setting SO_ACCEPTFILTER on BSDs.
+    /// - That an non-multicast IP address was set for IP_ADD_MEMBERSHIP on Linux.
+    /// - That the socket is shut down and the option requires otherwise
+    /// - etc...
+    InvalidOption,
+
     OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
@@ -6730,8 +6769,20 @@ pub const SetSockOptError = error{
 
 /// Set a socket's options.
 pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSockOptError!void {
+    try setsockoptRaw(fd, level, optname, opt.ptr, @intCast(opt.len));
+}
+
+/// This is the full raw setsockopt() interface.  The posix.setsockopt()
+/// interface will be sufficient and more-ergonomic for most normal socket
+/// options, but there are edge cases its interface cannot handle.
+///
+/// A known example is BSD SO_ACCEPTFILTER: to remove an existing filter (which
+/// is required before installing a different one), one must call setsockopt()
+/// with optval set to null.
+/// (ref: https://man.freebsd.org/cgi/man.cgi?query=setsockopt )
+pub fn setsockoptRaw(fd: socket_t, level: i32, optname: u32, optval: ?[*]const u8, optlen: socklen_t) SetSockOptError!void {
     if (native_os == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), @ptrCast(optval), @intCast(optlen));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 .WSANOTINITIALISED => unreachable,
@@ -6744,12 +6795,12 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         }
         return;
     } else {
-        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
+        switch (errno(system.setsockopt(fd, level, optname, @ptrCast(optval), optlen))) {
             .SUCCESS => {},
             .BADF => unreachable, // always a race condition
             .NOTSOCK => unreachable, // always a race condition
-            .INVAL => unreachable,
             .FAULT => unreachable,
+            .INVAL => return error.InvalidOption,
             .DOM => return error.TimeoutTooBig,
             .ISCONN => return error.AlreadyConnected,
             .NOPROTOOPT => return error.InvalidProtocolOption,
