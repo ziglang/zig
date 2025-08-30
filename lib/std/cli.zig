@@ -293,7 +293,7 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                     file_writer.interface.flush() catch {};
                 }
             } else {
-                printGeneratedHelp(writer, prog, named_fields);
+                printGeneratedHelp(named_fields, positional_fields, writer, prog);
             }
             if (exit_on_error) {
                 std.process.exit(0);
@@ -304,7 +304,7 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
         if (!the_rest_is_positional and arg.len >= 2 and arg[0] == '-' and isAlphabetic(arg[1])) {
             // Always invalid.
             // Examples: -h, -flag, -I/path
-            return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
+            return usageError(named_fields, positional_fields, writer, "unrecognized argument: {s}", .{arg}, prog, exit_on_error);
         }
         if (!the_rest_is_positional and mem.eql(u8, arg, "--")) {
             // Stop recognizing named arguments. Everything else is positional.
@@ -314,14 +314,14 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
         if (the_rest_is_positional or !(arg.len >= 3 and arg[0] == '-' and arg[1] == '-')) {
             // Positional.
             // Examples: "", "a", "-", "-1", "other"
-            if (positional_field_index >= positional_fields.len) return usageError(writer, "unexpected positional argument: {s}", .{arg}, exit_on_error);
+            if (positional_field_index >= positional_fields.len) return usageError(named_fields, positional_fields, writer, "unexpected positional argument: {s}", .{arg}, prog, exit_on_error);
             inline for (positional_fields, 0..) |field, i| {
                 if (positional_field_index == i) {
                     if (getArrayChild(field.type)) |C| {
-                        try @field(positional_array_lists, field.name).append(allocator, try parseValue(C, arg, field.name, writer, exit_on_error));
+                        try @field(positional_array_lists, field.name).append(allocator, try parseValue(named_fields, positional_fields, C, arg, field.name, writer, prog, exit_on_error));
                         // Don't increment positional_field_index.
                     } else {
-                        @field(result.positional, field.name) = try parseValue(field.type, arg, field.name, writer, exit_on_error);
+                        @field(result.positional, field.name) = try parseValue(named_fields, positional_fields, field.type, arg, field.name, writer, prog, exit_on_error);
                         positional_field_index += 1;
                     }
                     break;
@@ -349,25 +349,25 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
             if (mem.eql(u8, field.name, arg_name)) {
                 named_fields_seen[i] = true;
                 if (field.type == bool) {
-                    if (immediate_value != null) return usageError(writer, "cannot specify value for bool argument: {s}", .{arg}, exit_on_error);
+                    if (immediate_value != null) return usageError(named_fields, positional_fields, writer, "cannot specify value for bool argument: {s}", .{arg}, prog, exit_on_error);
                     @field(result.named, field.name) = !no_prefixed;
                     break;
                 }
-                if (no_prefixed) return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
+                if (no_prefixed) return usageError(named_fields, positional_fields, writer, "unrecognized argument: {s}", .{arg}, prog, exit_on_error);
 
                 // All other argument types require a value.
-                const arg_value = immediate_value orelse iter.next() orelse return usageError(writer, "expected argument after --{s}", .{field.name}, exit_on_error);
+                const arg_value = immediate_value orelse iter.next() orelse return usageError(named_fields, positional_fields, writer, "expected argument after --{s}", .{field.name}, prog, exit_on_error);
 
                 if (getArrayChild(field.type)) |C| {
-                    try @field(named_array_lists, field.name).append(allocator, try parseValue(C, arg_value, field.name, writer, exit_on_error));
+                    try @field(named_array_lists, field.name).append(allocator, try parseValue(named_fields, positional_fields, C, arg_value, field.name, writer, prog, exit_on_error));
                 } else {
-                    @field(result.named, field.name) = try parseValue(field.type, arg_value, field.name, writer, exit_on_error);
+                    @field(result.named, field.name) = try parseValue(named_fields, positional_fields, field.type, arg_value, field.name, writer, prog, exit_on_error);
                 }
                 break;
             }
         } else {
             // Didn't match anything.
-            return usageError(writer, "unrecognized argument: {s}", .{arg}, exit_on_error);
+            return usageError(named_fields, positional_fields, writer, "unrecognized argument: {s}", .{arg}, prog, exit_on_error);
         }
     }
 
@@ -384,9 +384,9 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                     @field(result.named, field.name) = default;
                 } else {
                     if (field.type == bool) {
-                        return usageError(writer, "missing required argument: --" ++ field.name ++ " or --no-" ++ field.name, .{}, exit_on_error);
+                        return usageError(named_fields, positional_fields, writer, "missing required argument: --" ++ field.name ++ " or --no-" ++ field.name, .{}, prog, exit_on_error);
                     } else {
-                        return usageError(writer, "missing required argument: --" ++ field.name, .{}, exit_on_error);
+                        return usageError(named_fields, positional_fields, writer, "missing required argument: --" ++ field.name, .{}, prog, exit_on_error);
                     }
                 }
             }
@@ -403,7 +403,7 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
                 if (field.defaultValue()) |default| {
                     @field(result.positional, field.name) = default;
                 } else {
-                    return usageError(writer, "missing required argument: " ++ field.name, .{}, exit_on_error);
+                    return usageError(named_fields, positional_fields, writer, "missing required argument: " ++ field.name, .{}, prog, exit_on_error);
                 }
             }
         }
@@ -413,22 +413,22 @@ fn innerParse(comptime Args: type, allocator: Allocator, iter: anytype, prog: []
 }
 
 /// arg_value is []const u8 or [:0]const u8.
-fn parseValue(comptime T: type, arg_value: anytype, comptime field_name: []const u8, writer: ?*Writer, exit_on_error: bool) !T {
+fn parseValue(comptime named_fields: []const StructField, comptime positional_fields: []const StructField, comptime T: type, arg_value: anytype, comptime field_name: []const u8, writer: ?*Writer, prog: []const u8, exit_on_error: bool) !T {
     switch (@typeInfo(T)) {
         .bool => comptime unreachable, // Handled elsewhere.
         .float => {
             return std.fmt.parseFloat(T, arg_value) catch |err| {
-                return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field_name, arg_value, @errorName(err) }, exit_on_error);
+                return usageError(named_fields, positional_fields, writer, "unable to parse --{s}={s}: {s}", .{ field_name, arg_value, @errorName(err) }, prog, exit_on_error);
             };
         },
         .int => {
             return std.fmt.parseInt(T, arg_value, 0) catch |err| {
-                return usageError(writer, "unable to parse --{s}={s}: {s}", .{ field_name, arg_value, @errorName(err) }, exit_on_error);
+                return usageError(named_fields, positional_fields, writer, "unable to parse --{s}={s}: {s}", .{ field_name, arg_value, @errorName(err) }, prog, exit_on_error);
             };
         },
         .@"enum" => {
             return std.meta.stringToEnum(T, arg_value) orelse {
-                return usageError(writer, "unrecognized value: --{s}={s}, expected one of: {s}", .{ field_name, arg_value, enumValuesExpr(T) }, exit_on_error);
+                return usageError(named_fields, positional_fields, writer, "unrecognized value: --{s}={s}, expected one of: {s}", .{ field_name, arg_value, enumValuesExpr(T) }, prog, exit_on_error);
             };
         },
         .pointer => |ptrInfo| {
@@ -574,12 +574,20 @@ fn ArrayListsForFields(comptime fields: []const StructField) type {
 /// call this function to produce the same error behavior as if this API's validation failed.
 /// An error message will be written to `options.writer` or stderr by default, and `error.Usage` is returned.
 /// The given `msg` template is prefixed by `"error: "` and suffixed by a newline and a prompt to try passing in `--help`.
-/// `options.prog` is not used by this function, but could be in the future.
+/// `options.prog` is not used by this function, but could be in the future. TODO: yes it is.
 ///
 /// This function calls `std.process.exit` with an error status unless `options.exit` is set to `false`, in which case it returns `error.Usage`.
 /// This matches the default behavior of `parse`, not `parseIter` or `parseSlice`.
-pub fn @"error"(comptime msg: []const u8, args: anytype, options: Options) error{Usage} {
-    return usageError(options.writer, msg, args, options.exit orelse true);
+pub fn @"error"(comptime Args: type, comptime msg: []const u8, msg_args: anytype, options: Options) error{Usage} {
+    const named_fields, const positional_fields = comptime checkArgsType(Args);
+    var buf: [0x1000]u8 = undefined;
+    const prog: ?[]const u8 = options.prog orelse blk: {
+        var fba: std.heap.FixedBufferAllocator = .init(&buf);
+        var iter = ArgIterator.initWithAllocator(fba.allocator()) catch break :blk null;
+        const argv0 = iter.next();
+        break :blk if (argv0) |arg| std.fs.path.basename(arg) else null;
+    };
+    return usageError(named_fields, positional_fields, options.writer, msg, msg_args, prog orelse "<prog>", options.exit orelse true);
 }
 
 test @"error" {
@@ -597,25 +605,8 @@ test @"error" {
     const args = try parseSlice(Args, arena.allocator(), &[_][]const u8{ "--output=o.txt", "i.txt" }, .{});
 
     if (std.fs.path.isAbsolute(args.named.output)) {
-        return std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, .{ .exit = false });
+        return std.cli.@"error"(Args, "--output must not be absolute: {s}", .{args.named.output}, .{ .exit = false });
     }
-}
-
-fn usageError(writer: ?*Writer, comptime msg: []const u8, args: anytype, exit_on_error: bool) error{Usage} {
-    const whole_msg =
-        "error: " ++ msg ++ "\n" ++
-        \\try --help for full help info
-        \\
-        ;
-    if (writer) |w| {
-        w.print(whole_msg, args) catch {};
-    } else {
-        std.debug.print(whole_msg, args);
-    }
-    if (exit_on_error) {
-        std.process.exit(1);
-    }
-    return error.Usage;
 }
 
 fn ArgIteratorSlice(comptime String: type) type {
@@ -644,53 +635,125 @@ fn enumValuesExpr(comptime Enum: type) []const u8 {
     return values_str;
 }
 
-fn printGeneratedHelp(writer: ?*Writer, prog: []const u8, comptime named_fields: []const StructField) void {
-    const msg = //
-        \\usage: {s} [options] [arg...]
-        \\
-        \\arguments:{s}
-        \\  --help
-        \\
-    ;
-    comptime var arguments_str: []const u8 = "";
+fn usageError(comptime named_fields: []const StructField, comptime positional_fields: []const StructField, writer: ?*Writer, comptime msg: []const u8, args: anytype, prog: []const u8, exit_on_error: bool) error{Usage} {
+    const whole_msg =
+        "error: " ++ msg ++ "\n" ++ //
+        "usage: {s} " ++ comptime usageLineFmt(named_fields, positional_fields) ++ "\n" ++
+            \\try --help for full help info
+            \\
+        ;
+    if (writer) |w| {
+        w.print(whole_msg, args ++ .{prog}) catch {};
+    } else {
+        std.debug.print(whole_msg, args ++ .{prog});
+    }
+    if (exit_on_error) {
+        std.process.exit(1);
+    }
+    return error.Usage;
+}
+
+/// returns a string with all "{" escaped for passing into std.fmt.
+fn usageLineFmt(comptime named_fields: []const StructField, comptime positional_fields: []const StructField) []const u8 {
+    comptime var usage_parts: []const []const u8 = &.{};
+    var at_least_one_optional_named_argument = false;
+    inline for (named_fields) |field| {
+        if (field.default_value_ptr != null) {
+            // Don't mention optional named arguments.
+            at_least_one_optional_named_argument = true;
+            continue;
+        }
+        usage_parts = usage_parts ++ .{switch (@typeInfo(field.type)) {
+            .bool => "--[no-]" ++ field.name,
+            .int, .float => "--" ++ field.name ++ "=" ++ @typeName(field.type),
+            .@"enum" => "--" ++ field.name ++ "=" ++ enumValuesExpr(field.type),
+            else => blk: {
+                comptime assert(@typeInfo(field.type).pointer.size == .slice and @typeInfo(field.type).pointer.child == u8);
+                break :blk "--" ++ field.name ++ "=string";
+            },
+        }};
+    }
+
+    if (at_least_one_optional_named_argument) {
+        // Prepend with an [options] placeholder.
+        usage_parts = [_][]const u8{"[options]"} ++ usage_parts;
+    }
+
+    inline for (positional_fields) |field| {
+        if (field.default_value_ptr != null) {
+            if (getArrayChild(field.type) != null) {
+                // Array
+                usage_parts = usage_parts ++ .{"[" ++ field.name ++ "...]"};
+            } else {
+                // Scalar
+                usage_parts = usage_parts ++ .{"[" ++ field.name ++ "]"};
+            }
+        } else {
+            usage_parts = usage_parts ++ .{field.name};
+        }
+    }
+
+    comptime var usage_str: []const u8 = "";
+    inline for (usage_parts) |part| {
+        if (usage_str.len > 0) {
+            usage_str = usage_str ++ " ";
+        }
+        usage_str = usage_str ++ part;
+    }
+    return escapeFmt(usage_str);
+}
+fn printGeneratedHelp(comptime named_fields: []const StructField, comptime positional_fields: []const StructField, writer: ?*Writer, prog: []const u8) void {
+    comptime var arguments_table: []const []const []const u8 = &.{};
+
+    comptime var arguments_str: []const u8 = ""; // TODO: delete
+
+    if (positional_fields.len > 0) {
+        arguments_table = arguments_table ++ .{&[_][]const u8{"positional arguments:"}};
+    }
+    //inline for (positional_fields) |field| {}
+
+    arguments_table = arguments_table ++ .{&[_][]const u8{"named arguments:"}}; // The --help option is always there.
     inline for (named_fields) |field| {
         switch (@typeInfo(field.type)) {
             .bool => {
                 if (field.defaultValue()) |default| {
                     if (default) {
-                        arguments_str = arguments_str ++ "\n  --no-" ++ field.name ++ "  default: --" ++ field.name;
+                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --no-" ++ field.name, "default: --" ++ field.name }};
                     } else {
-                        arguments_str = arguments_str ++ "\n  --" ++ field.name ++ "  default: --no-" ++ field.name;
+                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --" ++ field.name, "default: --no-" ++ field.name }};
                     }
                 } else {
-                    arguments_str = arguments_str ++ "\n  --" ++ field.name ++ "  or  --no-" ++ field.name ++ "  required";
+                    arguments_table = arguments_table ++ .{&[_][]const u8{ "  --[no-]" ++ field.name, "required" }};
                 }
             },
             .int, .float => {
-                arguments_str = arguments_str ++ "\n  --" ++ field.name ++ " " ++ @typeName(field.type);
-                if (field.defaultValue()) |default| {
-                    arguments_str = arguments_str ++ "  default: " ++ std.fmt.comptimePrint("{}", .{default});
-                } else {
-                    arguments_str = arguments_str ++ "  required";
-                }
+                arguments_table = arguments_table ++ .{&[_][]const u8{
+                    "  --" ++ field.name ++ "=" ++ @typeName(field.type),
+                    if (field.defaultValue()) |default|
+                        "default: " ++ std.fmt.comptimePrint("{}", .{default})
+                    else
+                        "required",
+                }};
             },
             .@"enum" => {
-                arguments_str = arguments_str ++ "\n  --" ++ field.name ++ " " ++ comptime enumValuesExpr(field.type);
-                if (field.defaultValue()) |default| {
-                    arguments_str = arguments_str ++ "  default: " ++ quoteIfEmpty(@tagName(default));
-                } else {
-                    arguments_str = arguments_str ++ "  required";
-                }
+                arguments_table = arguments_table ++ .{&[_][]const u8{
+                    "  --" ++ field.name ++ "=" ++ comptime enumValuesExpr(field.type),
+                    if (field.defaultValue()) |default|
+                        "default: " ++ @tagName(default)
+                    else
+                        "required",
+                }};
             },
             .pointer => |ptrInfo| {
                 if (ptrInfo.size == .slice and ptrInfo.child == u8) {
-                    // String.
-                    arguments_str = arguments_str ++ "\n  --" ++ field.name ++ " string";
-                    if (field.defaultValue()) |default| {
-                        arguments_str = arguments_str ++ "  default: " ++ quoteIfEmpty(default);
-                    } else {
-                        arguments_str = arguments_str ++ "  required";
-                    }
+                    // String
+                    arguments_table = arguments_table ++ .{&[_][]const u8{
+                        "  --" ++ field.name ++ "=string",
+                        if (field.defaultValue()) |default|
+                            "default: " ++ quoteIfEmpty(default)
+                        else
+                            "required",
+                    }};
                 } else {
                     // Array
                     const type_name = switch (@typeInfo(ptrInfo.child)) {
@@ -703,18 +766,43 @@ fn printGeneratedHelp(writer: ?*Writer, prog: []const u8, comptime named_fields:
                     arguments_str = arguments_str ++ "\n  " ++ //
                         "--" ++ field.name ++ " " ++ type_name ++ " " ++ //
                         "[--" ++ field.name ++ " " ++ type_name ++ " ...]";
+                    arguments_table = arguments_table ++ .{&[_][]const u8{
+                        "  --" ++ field.name ++ "=" ++ type_name ++ " " ++ //
+                            "[--" ++ field.name ++ "=" ++ type_name ++ " ...]",
+                    }};
                 }
             },
-            else => @compileError("Unsupported field type: " ++ @typeName(field.type)),
+            else => comptime unreachable,
         }
     }
+
+    arguments_table = arguments_table ++ .{&[_][]const u8{ "  --help", "print this help and exit" }};
+
+    comptime var width = 0;
+    inline for (arguments_table) |row| {
+        width = @max(width, row[0].len);
+    }
+
+    comptime var help_str: []const u8 = "";
+    inline for (arguments_table) |row| {
+        help_str = help_str ++ "\n";
+        inline for (row, 0..) |cell, c| {
+            help_str = help_str ++ cell;
+            if (c == 0 and row.len > 1) {
+                help_str = help_str ++ " " ** (width + 2 - cell.len);
+            }
+        }
+    }
+
+    const msg = "usage: {s} " ++ comptime usageLineFmt(named_fields, positional_fields) ++ //
+        escapeFmt(help_str) ++ "\n";
     if (writer) |w| {
-        w.print(msg, .{ prog, arguments_str }) catch {};
+        w.print(msg, .{prog}) catch {};
         w.flush() catch {};
     } else {
         var buffer: [0x100]u8 = undefined;
         var file_writer = std.fs.File.stdout().writer(&buffer);
-        file_writer.interface.print(msg, .{ prog, arguments_str }) catch {};
+        file_writer.interface.print(msg, .{prog}) catch {};
         file_writer.interface.flush() catch {};
     }
 }
@@ -722,6 +810,26 @@ fn printGeneratedHelp(writer: ?*Writer, prog: []const u8, comptime named_fields:
 inline fn quoteIfEmpty(comptime s: []const u8) []const u8 {
     if (s.len == 0) return "''";
     return s;
+}
+
+inline fn escapeFmt(comptime s: []const u8) []const u8 {
+    var result: []const u8 = "";
+    comptime var cursor = 0;
+    for (s, 0..) |c, i| {
+        switch (c) {
+            '{' => {
+                result = result ++ s[cursor..i] ++ "{{";
+                cursor = i + 1;
+            },
+            '}' => {
+                result = result ++ s[cursor..i] ++ "}}";
+                cursor = i + 1;
+            },
+            else => {},
+        }
+    }
+    result = result ++ s[cursor..];
+    return result;
 }
 
 var failing_writer: Writer = .failing;
@@ -1310,8 +1418,8 @@ test "actually calling error" {
         "--output=/absolute/path", "too", "many", "other", "args",
     }, .{});
 
-    try testing.expectEqual(error.Usage, std.cli.@"error"("--output must not be absolute: {s}", .{args.named.output}, silent_options));
-    try testing.expectEqual(error.Usage, std.cli.@"error"("expected exactly 1 positional arg", .{}, silent_options));
+    try testing.expectEqual(error.Usage, @"error"(Args, "--output must not be absolute: {s}", .{args.named.output}, silent_options));
+    try testing.expectEqual(error.Usage, @"error"(Args, "expected exactly 1 positional arg", .{}, silent_options));
 }
 
 test "custom help" {
