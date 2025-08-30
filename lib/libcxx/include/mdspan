@@ -33,10 +33,14 @@ namespace std {
   template<class ElementType>
     class default_accessor;
 
+  // [mdspan.accessor.aligned], class template aligned_accessor
+  template<class ElementType, size_t ByteAlignment>
+    class aligned_accessor; // since C++26
+
   // [mdspan.mdspan], class template mdspan
   template<class ElementType, class Extents, class LayoutPolicy = layout_right,
            class AccessorPolicy = default_accessor<ElementType>>
-    class mdspan; // not implemented yet
+    class mdspan;
 }
 
 // extents synopsis
@@ -269,6 +273,38 @@ namespace std {
   };
 }
 
+// aligned_accessor synopsis
+
+namespace std {
+  template<class ElementType, size_t ByteAlignment>
+  struct aligned_accessor {
+    using offset_policy = default_accessor<ElementType>;
+    using element_type = ElementType;
+    using reference = ElementType&;
+    using data_handle_type = ElementType*;
+
+    static constexpr size_t byte_alignment = ByteAlignment;
+
+    constexpr aligned_accessor() noexcept = default;
+
+    template<class OtherElementType, size_t OtherByteAlignment>
+      constexpr aligned_accessor(
+        aligned_accessor<OtherElementType, OtherByteAlignment>) noexcept;
+
+    template<class OtherElementType>
+      explicit constexpr aligned_accessor(
+        default_accessor<OtherElementType>) noexcept;
+
+    template<class OtherElementType>
+    constexpr operator default_accessor<OtherElementType>() const noexcept;
+
+    constexpr reference access(data_handle_type p, size_t i) const noexcept;
+
+    constexpr typename offset_policy::data_handle_type
+      offset(data_handle_type p, size_t i) const noexcept;
+  };
+}
+
 // mdspan synopsis
 
 namespace std {
@@ -409,12 +445,17 @@ namespace std {
 #define _LIBCPP_MDSPAN
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/mdspan>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 
 #  if _LIBCPP_STD_VER >= 23
-#    include <__fwd/mdspan.h>
+#    include <__fwd/mdspan.h> // TODO(boomanaiden154): This is currently a
+                              // non-standard extension to include
+                              // std::dynamic_extent tracked by LWG issue 4275.
+                              // This comment should be deleted or the include
+                              // deleted upon resolution.
+#    include <__fwd/span.h>
 #    include <__mdspan/default_accessor.h>
 #    include <__mdspan/extents.h>
 #    include <__mdspan/layout_left.h>

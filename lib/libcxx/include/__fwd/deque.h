@@ -19,7 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, class _Allocator = allocator<_Tp> >
-class _LIBCPP_TEMPLATE_VIS deque;
+class deque;
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -22,6 +22,7 @@ pub const Os = struct {
         contiki,
         fuchsia,
         hermit,
+        managarm,
 
         aix,
         haiku,
@@ -157,6 +158,8 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+
+                .managarm,
 
                 .haiku,
                 .plan9,
@@ -387,6 +390,8 @@ pub const Os = struct {
             return switch (tag) {
                 .freestanding,
                 .other,
+
+                .managarm,
 
                 .haiku,
                 .plan9,
@@ -895,6 +900,7 @@ pub const Abi = enum {
             .contiki,
             .fuchsia,
             .hermit,
+            .managarm,
             .plan9,
             .serenity,
             .zos,
@@ -1175,7 +1181,7 @@ pub const Cpu = struct {
         pub const Set = struct {
             ints: [usize_count]usize,
 
-            pub const needed_bit_count = 288;
+            pub const needed_bit_count = 317;
             pub const byte_count = (needed_bit_count + 7) / 8;
             pub const usize_count = (byte_count + (@sizeOf(usize) - 1)) / @sizeOf(usize);
             pub const Index = std.math.Log2Int(std.meta.Int(.unsigned, usize_count * @bitSizeOf(usize)));
@@ -1908,6 +1914,10 @@ pub const Cpu = struct {
                 .riscv64, .riscv64be => &riscv.cpu.baseline_rv64,
                 .s390x => &s390x.cpu.arch8, // gcc/clang do not have a generic s390x model.
                 .sparc => &sparc.cpu.v9, // glibc does not work with 'plain' v8.
+                .sparc64 => switch (os.tag) {
+                    .solaris => &sparc.cpu.ultrasparc3,
+                    else => generic(arch),
+                },
                 .x86 => &x86.cpu.pentium4,
                 .x86_64 => switch (os.tag) {
                     .driverkit => &x86.cpu.nehalem,
@@ -2090,6 +2100,7 @@ pub fn requiresLibC(target: *const Target) bool {
         .netbsd,
         .freestanding,
         .fuchsia,
+        .managarm,
         .ps3,
         .zos,
         .rtems,
@@ -2202,6 +2213,7 @@ pub const DynamicLinker = struct {
 
             .contiki,
             .hermit,
+            .managarm, // Needs to be double-checked.
 
             .aix,
             .plan9,
@@ -2617,6 +2629,8 @@ pub const DynamicLinker = struct {
 
             // TODO go over each item in this list and either move it to the above list, or
             // implement the standard dynamic linker path code for it.
+            .managarm,
+
             .ps3,
             .ps4,
             .ps5,
@@ -3144,6 +3158,7 @@ pub fn cTypeBitSize(target: *const Target, c_type: CType) u16 {
 
         .ps3,
         .contiki,
+        .managarm,
         .opengl,
         => @panic("specify the C integer and float type sizes for this OS"),
     }
@@ -3162,6 +3177,10 @@ pub fn cTypeAlignment(target: *const Target, c_type: CType) u16 {
                 },
                 else => {},
             },
+            else => {},
+        },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
             else => {},
         },
         .powerpc, .powerpcle, .powerpc64, .powerpc64le => switch (target.os.tag) {
@@ -3265,6 +3284,10 @@ pub fn cTypePreferredAlignment(target: *const Target, c_type: CType) u16 {
                 .longdouble => return 4,
                 else => {},
             },
+        },
+        .m68k => switch (c_type) {
+            .int, .uint, .long, .ulong => return 2,
+            else => {},
         },
         .wasm32, .wasm64 => switch (target.os.tag) {
             .emscripten => switch (c_type) {

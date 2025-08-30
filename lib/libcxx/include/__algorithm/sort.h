@@ -17,6 +17,7 @@
 #include <__algorithm/partial_sort.h>
 #include <__algorithm/unwrap_iter.h>
 #include <__assert>
+#include <__bit/bit_log2.h>
 #include <__bit/blsr.h>
 #include <__bit/countl.h>
 #include <__bit/countr.h>
@@ -34,7 +35,7 @@
 #include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_trivially_copyable.h>
-#include <__type_traits/remove_cvref.h>
+#include <__type_traits/make_unsigned.h>
 #include <__utility/move.h>
 #include <__utility/pair.h>
 #include <climits>
@@ -52,8 +53,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 template <class _Compare, class _Iter, class _Tp = typename iterator_traits<_Iter>::value_type>
 inline const bool __use_branchless_sort =
     __libcpp_is_contiguous_iterator<_Iter>::value && __is_cheap_to_copy<_Tp> && is_arithmetic<_Tp>::value &&
-    (__desugars_to_v<__less_tag, __remove_cvref_t<_Compare>, _Tp, _Tp> ||
-     __desugars_to_v<__greater_tag, __remove_cvref_t<_Compare>, _Tp, _Tp>);
+    (__desugars_to_v<__less_tag, _Compare, _Tp, _Tp> || __desugars_to_v<__greater_tag, _Compare, _Tp, _Tp>);
 
 namespace __detail {
 
@@ -359,10 +359,10 @@ inline _LIBCPP_HIDE_FROM_ABI void __swap_bitmap_pos(
   // Swap one pair on each iteration as long as both bitsets have at least one
   // element for swapping.
   while (__left_bitset != 0 && __right_bitset != 0) {
-    difference_type __tz_left  = __libcpp_ctz(__left_bitset);
-    __left_bitset              = __libcpp_blsr(__left_bitset);
-    difference_type __tz_right = __libcpp_ctz(__right_bitset);
-    __right_bitset             = __libcpp_blsr(__right_bitset);
+    difference_type __tz_left  = std::__countr_zero(__left_bitset);
+    __left_bitset              = std::__libcpp_blsr(__left_bitset);
+    difference_type __tz_right = std::__countr_zero(__right_bitset);
+    __right_bitset             = std::__libcpp_blsr(__right_bitset);
     _Ops::iter_swap(__first + __tz_left, __last - __tz_right);
   }
 }
@@ -458,7 +458,7 @@ inline _LIBCPP_HIDE_FROM_ABI void __swap_bitmap_pos_within(
     // Swap within the left side.  Need to find set positions in the reverse
     // order.
     while (__left_bitset != 0) {
-      difference_type __tz_left = __detail::__block_size - 1 - __libcpp_clz(__left_bitset);
+      difference_type __tz_left = __detail::__block_size - 1 - std::__countl_zero(__left_bitset);
       __left_bitset &= (static_cast<uint64_t>(1) << __tz_left) - 1;
       _RandomAccessIterator __it = __first + __tz_left;
       if (__it != __lm1) {
@@ -471,7 +471,7 @@ inline _LIBCPP_HIDE_FROM_ABI void __swap_bitmap_pos_within(
     // Swap within the right side.  Need to find set positions in the reverse
     // order.
     while (__right_bitset != 0) {
-      difference_type __tz_right = __detail::__block_size - 1 - __libcpp_clz(__right_bitset);
+      difference_type __tz_right = __detail::__block_size - 1 - std::__countl_zero(__right_bitset);
       __right_bitset &= (static_cast<uint64_t>(1) << __tz_right) - 1;
       _RandomAccessIterator __it = __lm1 - __tz_right;
       if (__it != __first) {
@@ -828,25 +828,6 @@ void __introsort(_RandomAccessIterator __first,
   }
 }
 
-template <typename _Number>
-inline _LIBCPP_HIDE_FROM_ABI _Number __log2i(_Number __n) {
-  if (__n == 0)
-    return 0;
-  if (sizeof(__n) <= sizeof(unsigned))
-    return sizeof(unsigned) * CHAR_BIT - 1 - __libcpp_clz(static_cast<unsigned>(__n));
-  if (sizeof(__n) <= sizeof(unsigned long))
-    return sizeof(unsigned long) * CHAR_BIT - 1 - __libcpp_clz(static_cast<unsigned long>(__n));
-  if (sizeof(__n) <= sizeof(unsigned long long))
-    return sizeof(unsigned long long) * CHAR_BIT - 1 - __libcpp_clz(static_cast<unsigned long long>(__n));
-
-  _Number __log2 = 0;
-  while (__n > 1) {
-    __log2++;
-    __n >>= 1;
-  }
-  return __log2;
-}
-
 template <class _Comp, class _RandomAccessIterator>
 void __sort(_RandomAccessIterator, _RandomAccessIterator, _Comp);
 
@@ -880,7 +861,7 @@ template <class _AlgPolicy, class _RandomAccessIterator, class _Comp>
 _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void
 __sort_dispatch(_RandomAccessIterator __first, _RandomAccessIterator __last, _Comp& __comp) {
   typedef typename iterator_traits<_RandomAccessIterator>::difference_type difference_type;
-  difference_type __depth_limit = 2 * std::__log2i(__last - __first);
+  difference_type __depth_limit = 2 * std::__bit_log2(std::__to_unsigned_like(__last - __first));
 
   // Only use bitset partitioning for arithmetic types.  We should also check
   // that the default comparator is in use so that we are sure that there are no

@@ -338,7 +338,7 @@ _LIBCPP_HIDE_FROM_ABI typename _FormatContext::iterator __format_integer(
   if (__specs.__std_.__type_ != __format_spec::__type::__hexadecimal_upper_case) [[likely]]
     return __formatter::__write(__first, __last, __ctx.out(), __specs);
 
-  return __formatter::__write_transformed(__first, __last, __ctx.out(), __specs, __formatter::__hex_to_upper);
+  return __formatter::__write_transformed(__first, __last, __ctx.out(), __specs, std::__hex_to_upper);
 }
 
 template <unsigned_integral _Tp, class _CharT, class _FormatContext>
@@ -404,17 +404,17 @@ __format_integer(_Tp __value, _FormatContext& __ctx, __format_spec::__parsed_spe
 //
 
 template <class _CharT>
-struct _LIBCPP_TEMPLATE_VIS __bool_strings;
+struct __bool_strings;
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS __bool_strings<char> {
+struct __bool_strings<char> {
   static constexpr string_view __true{"true"};
   static constexpr string_view __false{"false"};
 };
 
 #  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
-struct _LIBCPP_TEMPLATE_VIS __bool_strings<wchar_t> {
+struct __bool_strings<wchar_t> {
   static constexpr wstring_view __true{L"true"};
   static constexpr wstring_view __false{L"false"};
 };

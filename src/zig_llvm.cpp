@@ -153,8 +153,16 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
         opt.EmulatedTLS = true;
     }
 
-    TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
-            OL, JIT);
+    TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(
+        llvm::Triple(Triple),
+        CPU,
+        Features,
+        opt,
+        RM,
+        CM,
+        OL,
+        JIT);
+
     return reinterpret_cast<LLVMTargetMachineRef>(TM);
 }
 

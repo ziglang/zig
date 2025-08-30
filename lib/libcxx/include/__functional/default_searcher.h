@@ -27,7 +27,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 // default searcher
 template <class _ForwardIterator, class _BinaryPredicate = equal_to<>>
-class _LIBCPP_TEMPLATE_VIS default_searcher {
+class default_searcher {
 public:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20
   default_searcher(_ForwardIterator __f, _ForwardIterator __l, _BinaryPredicate __p = _BinaryPredicate())

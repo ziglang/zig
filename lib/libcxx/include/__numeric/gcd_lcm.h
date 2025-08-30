@@ -10,15 +10,16 @@
 #ifndef _LIBCPP___NUMERIC_GCD_LCM_H
 #define _LIBCPP___NUMERIC_GCD_LCM_H
 
-#include <__algorithm/min.h>
 #include <__assert>
 #include <__bit/countr.h>
 #include <__config>
+#include <__memory/addressof.h>
 #include <__type_traits/common_type.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/is_signed.h>
 #include <__type_traits/make_unsigned.h>
+#include <__type_traits/remove_cv.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -115,7 +116,7 @@ constexpr _LIBCPP_HIDE_FROM_ABI common_type_t<_Tp, _Up> lcm(_Tp __m, _Up __n) {
   _Rp __val1 = __ct_abs<_Rp, _Tp>()(__m) / std::gcd(__m, __n);
   _Rp __val2 = __ct_abs<_Rp, _Up>()(__n);
   _Rp __res;
-  [[maybe_unused]] bool __overflow = __builtin_mul_overflow(__val1, __val2, &__res);
+  [[maybe_unused]] bool __overflow = __builtin_mul_overflow(__val1, __val2, std::addressof(__res));
   _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(!__overflow, "Overflow in lcm");
   return __res;
 }

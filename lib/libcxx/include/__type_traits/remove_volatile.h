@@ -27,11 +27,11 @@ template <class _Tp>
 using __remove_volatile_t _LIBCPP_NODEBUG = __remove_volatile(_Tp);
 #else
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS remove_volatile {
+struct remove_volatile {
   typedef _Tp type;
 };
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS remove_volatile<volatile _Tp> {
+struct remove_volatile<volatile _Tp> {
   typedef _Tp type;
 };
 

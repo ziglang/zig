@@ -11,35 +11,42 @@
 #define _LIBCPP___LOCALE
 
 #include <__config>
-#include <__locale_dir/locale_base_api.h>
-#include <__memory/shared_count.h>
-#include <__mutex/once_flag.h>
-#include <__type_traits/make_unsigned.h>
-#include <__utility/no_destroy.h>
-#include <__utility/private_constructor_tag.h>
-#include <cctype>
-#include <clocale>
-#include <cstdint>
-#include <cstdlib>
-#include <string>
+
+#if _LIBCPP_HAS_LOCALIZATION
+
+#  include <__locale_dir/locale_base_api.h>
+#  include <__memory/addressof.h>
+#  include <__memory/shared_count.h>
+#  include <__mutex/once_flag.h>
+#  include <__type_traits/make_unsigned.h>
+#  include <__utility/no_destroy.h>
+#  include <__utility/private_constructor_tag.h>
+#  include <cctype>
+#  include <clocale>
+#  include <cstdint>
+#  include <cstdlib>
+#  include <string>
 
 // Some platforms require more includes than others. Keep the includes on all plaforms for now.
-#include <cstddef>
-#include <cstring>
+#  include <cstddef>
+#  include <cstring>
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
-#  include <cwchar>
-#else
-#  include <__std_mbstate_t.h>
-#endif
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
+#    include <cwchar>
+#  else
+#    include <__std_mbstate_t.h>
+#  endif
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 class _LIBCPP_EXPORTED_FROM_ABI locale;
+
+template <class _CharT>
+class collate;
 
 template <class _Facet>
 _LIBCPP_HIDE_FROM_ABI bool has_facet(const locale&) _NOEXCEPT;
@@ -49,8 +56,10 @@ _LIBCPP_HIDE_FROM_ABI const _Facet& use_facet(const locale&);
 
 class _LIBCPP_EXPORTED_FROM_ABI locale {
 public:
-  // locale is essentially a shared_ptr that doesn't support weak_ptrs and never got a move constructor.
+  // locale is essentially a shared_ptr that doesn't support weak_ptrs and never got a move constructor,
+  // so it is trivially relocatable. Like shared_ptr, it is also replaceable.
   using __trivially_relocatable _LIBCPP_NODEBUG = locale;
+  using __replaceable _LIBCPP_NODEBUG           = locale;
 
   // types:
   class _LIBCPP_EXPORTED_FROM_ABI facet;
@@ -80,17 +89,25 @@ public:
   const locale& operator=(const locale&) _NOEXCEPT;
 
   template <class _Facet>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS locale combine(const locale&) const;
+  _LIBCPP_HIDE_FROM_ABI locale combine(const locale& __other) const {
+    if (!std::has_facet<_Facet>(__other))
+      __throw_runtime_error("locale::combine: locale missing facet");
+
+    return locale(*this, std::addressof(const_cast<_Facet&>(std::use_facet<_Facet>(__other))));
+  }
 
   // locale operations:
   string name() const;
   bool operator==(const locale&) const;
-#if _LIBCPP_STD_VER <= 17
+#  if _LIBCPP_STD_VER <= 17
   _LIBCPP_HIDE_FROM_ABI bool operator!=(const locale& __y) const { return !(*this == __y); }
-#endif
+#  endif
   template <class _CharT, class _Traits, class _Allocator>
-  _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS bool
-  operator()(const basic_string<_CharT, _Traits, _Allocator>&, const basic_string<_CharT, _Traits, _Allocator>&) const;
+  _LIBCPP_HIDE_FROM_ABI bool operator()(const basic_string<_CharT, _Traits, _Allocator>& __x,
+                                        const basic_string<_CharT, _Traits, _Allocator>& __y) const {
+    return std::use_facet<std::collate<_CharT> >(*this).compare(
+               __x.data(), __x.data() + __x.size(), __y.data(), __y.data() + __y.size()) < 0;
+  }
 
   // global locale objects:
   static locale global(const locale&);
@@ -152,14 +169,6 @@ inline _LIBCPP_HIDE_FROM_ABI locale::locale(const locale& __other, _Facet* __f) 
 }
 
 template <class _Facet>
-locale locale::combine(const locale& __other) const {
-  if (!std::has_facet<_Facet>(__other))
-    __throw_runtime_error("locale::combine: locale missing facet");
-
-  return locale(*this, &const_cast<_Facet&>(std::use_facet<_Facet>(__other)));
-}
-
-template <class _Facet>
 inline _LIBCPP_HIDE_FROM_ABI bool has_facet(const locale& __l) _NOEXCEPT {
   return __l.has_facet(_Facet::id);
 }
@@ -172,7 +181,7 @@ inline _LIBCPP_HIDE_FROM_ABI const _Facet& use_facet(const locale& __l) {
 // template <class _CharT> class collate;
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS collate : public locale::facet {
+class collate : public locale::facet {
 public:
   typedef _CharT char_type;
   typedef basic_string<char_type> string_type;
@@ -237,14 +246,14 @@ long collate<_CharT>::do_hash(const char_type* __lo, const char_type* __hi) cons
 }
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<char>;
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>;
-#endif
+#  endif
 
 // template <class CharT> class collate_byname;
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS collate_byname;
+class collate_byname;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI collate_byname<char> : public collate<char> {
@@ -264,7 +273,7 @@ protected:
   string_type do_transform(const char_type* __lo, const char_type* __hi) const override;
 };
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI collate_byname<wchar_t> : public collate<wchar_t> {
   __locale::__locale_t __l_;
@@ -283,20 +292,13 @@ protected:
       const char_type* __lo1, const char_type* __hi1, const char_type* __lo2, const char_type* __hi2) const override;
   string_type do_transform(const char_type* __lo, const char_type* __hi) const override;
 };
-#endif
-
-template <class _CharT, class _Traits, class _Allocator>
-bool locale::operator()(const basic_string<_CharT, _Traits, _Allocator>& __x,
-                        const basic_string<_CharT, _Traits, _Allocator>& __y) const {
-  return std::use_facet<std::collate<_CharT> >(*this).compare(
-             __x.data(), __x.data() + __x.size(), __y.data(), __y.data() + __y.size()) < 0;
-}
+#  endif
 
 // template <class charT> class ctype
 
 class _LIBCPP_EXPORTED_FROM_ABI ctype_base {
 public:
-#if defined(_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE)
+#  if defined(_LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE)
   typedef unsigned long mask;
   static const mask space  = 1 << 0;
   static const mask print  = 1 << 1;
@@ -308,14 +310,14 @@ public:
   static const mask punct  = 1 << 7;
   static const mask xdigit = 1 << 8;
   static const mask blank  = 1 << 9;
-#  if defined(__BIONIC__)
+#    if defined(__BIONIC__)
   // Historically this was a part of regex_traits rather than ctype_base. The
   // historical value of the constant is preserved for ABI compatibility.
   static const mask __regex_word = 0x8000;
-#  else
+#    else
   static const mask __regex_word = 1 << 10;
-#  endif // defined(__BIONIC__)
-#elif defined(__GLIBC__)
+#    endif // defined(__BIONIC__)
+#  elif defined(__GLIBC__)
   typedef unsigned short mask;
   static const mask space  = _ISspace;
   static const mask print  = _ISprint;
@@ -327,12 +329,12 @@ public:
   static const mask punct  = _ISpunct;
   static const mask xdigit = _ISxdigit;
   static const mask blank  = _ISblank;
-#  if defined(__mips__) || (BYTE_ORDER == BIG_ENDIAN)
+#    if defined(__mips__) || (BYTE_ORDER == BIG_ENDIAN)
   static const mask __regex_word = static_cast<mask>(_ISbit(15));
-#  else
+#    else
   static const mask __regex_word = 0x80;
-#  endif
-#elif defined(_LIBCPP_MSVCRT_LIKE)
+#    endif
+#  elif defined(_LIBCPP_MSVCRT_LIKE)
   typedef unsigned short mask;
   static const mask space        = _SPACE;
   static const mask print        = _BLANK | _PUNCT | _ALPHA | _DIGIT;
@@ -345,16 +347,16 @@ public:
   static const mask xdigit       = _HEX;
   static const mask blank        = _BLANK;
   static const mask __regex_word = 0x4000; // 0x8000 and 0x0100 and 0x00ff are used
-#  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
-#  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
-#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
-#  ifdef __APPLE__
+#    define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
+#    define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
+#  elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
+#    ifdef __APPLE__
   typedef uint32_t mask;
-#  elif defined(__FreeBSD__)
+#    elif defined(__FreeBSD__)
   typedef unsigned long mask;
-#  elif defined(__NetBSD__)
+#    elif defined(__NetBSD__)
   typedef unsigned short mask;
-#  endif
+#    endif
   static const mask space  = _CTYPE_S;
   static const mask print  = _CTYPE_R;
   static const mask cntrl  = _CTYPE_C;
@@ -365,16 +367,16 @@ public:
   static const mask punct  = _CTYPE_P;
   static const mask xdigit = _CTYPE_X;
 
-#  if defined(__NetBSD__)
+#    if defined(__NetBSD__)
   static const mask blank = _CTYPE_BL;
   // NetBSD defines classes up to 0x2000
   // see sys/ctype_bits.h, _CTYPE_Q
   static const mask __regex_word = 0x8000;
-#  else
+#    else
   static const mask blank        = _CTYPE_B;
   static const mask __regex_word = 0x80;
-#  endif
-#elif defined(_AIX)
+#    endif
+#  elif defined(_AIX)
   typedef unsigned int mask;
   static const mask space        = _ISSPACE;
   static const mask print        = _ISPRINT;
@@ -387,7 +389,7 @@ public:
   static const mask xdigit       = _ISXDIGIT;
   static const mask blank        = _ISBLANK;
   static const mask __regex_word = 0x8000;
-#elif defined(_NEWLIB_VERSION)
+#  elif defined(_NEWLIB_VERSION)
   // Same type as Newlib's _ctype_ array in newlib/libc/include/ctype.h.
   typedef char mask;
   // In case char is signed, static_cast is needed to avoid warning on
@@ -404,11 +406,11 @@ public:
   static const mask blank  = static_cast<mask>(_B);
   // mask is already fully saturated, use a different type in regex_type_traits.
   static const unsigned short __regex_word = 0x100;
-#  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
-#  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
-#  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_XDIGIT
-#elif defined(__MVS__)
-#  if defined(__NATIVE_ASCII_F)
+#    define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_PRINT
+#    define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
+#    define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_XDIGIT
+#  elif defined(__MVS__)
+#    if defined(__NATIVE_ASCII_F)
   typedef unsigned int mask;
   static const mask space  = _ISSPACE_A;
   static const mask print  = _ISPRINT_A;
@@ -420,7 +422,7 @@ public:
   static const mask punct  = _ISPUNCT_A;
   static const mask xdigit = _ISXDIGIT_A;
   static const mask blank  = _ISBLANK_A;
-#  else
+#    else
   typedef unsigned short mask;
   static const mask space  = __ISSPACE;
   static const mask print  = __ISPRINT;
@@ -432,11 +434,11 @@ public:
   static const mask punct  = __ISPUNCT;
   static const mask xdigit = __ISXDIGIT;
   static const mask blank  = __ISBLANK;
-#  endif
+#    endif
   static const mask __regex_word = 0x8000;
-#else
-#  error unknown rune table for this platform -- do you mean to define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE?
-#endif
+#  else
+#    error unknown rune table for this platform -- do you mean to define _LIBCPP_PROVIDES_DEFAULT_RUNE_TABLE?
+#  endif
   static const mask alnum = alpha | digit;
   static const mask graph = alnum | punct;
 
@@ -448,9 +450,9 @@ public:
 };
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS ctype;
+class ctype;
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype<wchar_t> : public locale::facet, public ctype_base {
 public:
@@ -515,7 +517,7 @@ protected:
   virtual const char_type*
   do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const;
 };
-#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_isascii(int __c) { return (__c & ~0x7F) == 0; }
 
@@ -580,25 +582,13 @@ public:
 
   static locale::id id;
 
-#ifdef _CACHED_RUNES
+#  ifdef _CACHED_RUNES
   static const size_t table_size = _CACHED_RUNES;
-#else
+#  else
   static const size_t table_size = 256; // FIXME: Don't hardcode this.
-#endif
+#  endif
   _LIBCPP_HIDE_FROM_ABI const mask* table() const _NOEXCEPT { return __tab_; }
   static const mask* classic_table() _NOEXCEPT;
-#if defined(__GLIBC__) || defined(__EMSCRIPTEN__)
-  static const int* __classic_upper_table() _NOEXCEPT;
-  static const int* __classic_lower_table() _NOEXCEPT;
-#endif
-#if defined(__NetBSD__)
-  static const short* __classic_upper_table() _NOEXCEPT;
-  static const short* __classic_lower_table() _NOEXCEPT;
-#endif
-#if defined(__MVS__)
-  static const unsigned short* __classic_upper_table() _NOEXCEPT;
-  static const unsigned short* __classic_lower_table() _NOEXCEPT;
-#endif
 
 protected:
   ~ctype() override;
@@ -615,7 +605,7 @@ protected:
 // template <class CharT> class ctype_byname;
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS ctype_byname;
+class ctype_byname;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<char> : public ctype<char> {
@@ -633,7 +623,7 @@ protected:
   const char_type* do_tolower(char_type* __low, const char_type* __high) const override;
 };
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<wchar_t> : public ctype<wchar_t> {
   __locale::__locale_t __l_;
@@ -658,7 +648,7 @@ protected:
   const char_type*
   do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const override;
 };
-#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 template <class _CharT>
 inline _LIBCPP_HIDE_FROM_ABI bool isspace(_CharT __c, const locale& __loc) {
@@ -741,7 +731,7 @@ public:
 // template <class internT, class externT, class stateT> class codecvt;
 
 template <class _InternT, class _ExternT, class _StateT>
-class _LIBCPP_TEMPLATE_VIS codecvt;
+class codecvt;
 
 // template <> class codecvt<char, char, mbstate_t>
 
@@ -824,7 +814,7 @@ protected:
 
 // template <> class codecvt<wchar_t, char, mbstate_t>
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI codecvt<wchar_t, char, mbstate_t> : public locale::facet, public codecvt_base {
   __locale::__locale_t __l_;
@@ -903,7 +893,7 @@ protected:
   virtual int do_length(state_type&, const extern_type* __frm, const extern_type* __end, size_t __mx) const;
   virtual int do_max_length() const _NOEXCEPT;
 };
-#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // template <> class codecvt<char16_t, char, mbstate_t> // deprecated in C++20
 
@@ -985,7 +975,7 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#if _LIBCPP_HAS_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 
 // template <> class codecvt<char16_t, char8_t, mbstate_t> // C++20
 
@@ -1066,7 +1056,7 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#endif
+#  endif
 
 // template <> class codecvt<char32_t, char, mbstate_t> // deprecated in C++20
 
@@ -1148,7 +1138,7 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#if _LIBCPP_HAS_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 
 // template <> class codecvt<char32_t, char8_t, mbstate_t> // C++20
 
@@ -1229,12 +1219,12 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#endif
+#  endif
 
 // template <class _InternT, class _ExternT, class _StateT> class codecvt_byname
 
 template <class _InternT, class _ExternT, class _StateT>
-class _LIBCPP_TEMPLATE_VIS codecvt_byname : public codecvt<_InternT, _ExternT, _StateT> {
+class codecvt_byname : public codecvt<_InternT, _ExternT, _StateT> {
 public:
   _LIBCPP_HIDE_FROM_ABI explicit codecvt_byname(const char* __nm, size_t __refs = 0)
       : codecvt<_InternT, _ExternT, _StateT>(__nm, __refs) {}
@@ -1251,17 +1241,17 @@ codecvt_byname<_InternT, _ExternT, _StateT>::~codecvt_byname() {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char, mbstate_t>;
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>;
-#endif
+#  endif
 extern template class _LIBCPP_DEPRECATED_IN_CXX20
 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>; // deprecated in C++20
 extern template class _LIBCPP_DEPRECATED_IN_CXX20
 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>; // deprecated in C++20
-#if _LIBCPP_HAS_CHAR8_T
+#  if _LIBCPP_HAS_CHAR8_T
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>; // C++20
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>; // C++20
-#endif
+#  endif
 
 template <size_t _Np>
 struct __narrow_to_utf8 {
@@ -1298,7 +1288,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI __narrow_to_utf8<16> : public codecvt<char16_t,
       const char16_t* __wn = (const char16_t*)__wb;
       __r = do_out(__mb, (const char16_t*)__wb, (const char16_t*)__we, __wn, __buf, __buf + __sz, __bn);
       if (__r == codecvt_base::error || __wn == (const char16_t*)__wb)
-        __throw_runtime_error("locale not supported");
+        std::__throw_runtime_error("locale not supported");
       for (const char* __p = __buf; __p < __bn; ++__p, ++__s)
         *__s = *__p;
       __wb = (const _CharT*)__wn;
@@ -1326,7 +1316,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI __narrow_to_utf8<32> : public codecvt<char32_t,
       const char32_t* __wn = (const char32_t*)__wb;
       __r = do_out(__mb, (const char32_t*)__wb, (const char32_t*)__we, __wn, __buf, __buf + __sz, __bn);
       if (__r == codecvt_base::error || __wn == (const char32_t*)__wb)
-        __throw_runtime_error("locale not supported");
+        std::__throw_runtime_error("locale not supported");
       for (const char* __p = __buf; __p < __bn; ++__p, ++__s)
         *__s = *__p;
       __wb = (const _CharT*)__wn;
@@ -1370,7 +1360,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI __widen_from_utf8<16> : public codecvt<char16_t
       const char* __nn = __nb;
       __r              = do_in(__mb, __nb, __ne - __nb > __sz ? __nb + __sz : __ne, __nn, __buf, __buf + __sz, __bn);
       if (__r == codecvt_base::error || __nn == __nb)
-        __throw_runtime_error("locale not supported");
+        std::__throw_runtime_error("locale not supported");
       for (const char16_t* __p = __buf; __p < __bn; ++__p, ++__s)
         *__s = *__p;
       __nb = __nn;
@@ -1398,7 +1388,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI __widen_from_utf8<32> : public codecvt<char32_t
       const char* __nn = __nb;
       __r              = do_in(__mb, __nb, __ne - __nb > __sz ? __nb + __sz : __ne, __nn, __buf, __buf + __sz, __bn);
       if (__r == codecvt_base::error || __nn == __nb)
-        __throw_runtime_error("locale not supported");
+        std::__throw_runtime_error("locale not supported");
       for (const char32_t* __p = __buf; __p < __bn; ++__p, ++__s)
         *__s = *__p;
       __nb = __nn;
@@ -1410,7 +1400,7 @@ struct _LIBCPP_EXPORTED_FROM_ABI __widen_from_utf8<32> : public codecvt<char32_t
 // template <class charT> class numpunct
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS numpunct;
+class numpunct;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct<char> : public locale::facet {
@@ -1441,7 +1431,7 @@ protected:
   string __grouping_;
 };
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct<wchar_t> : public locale::facet {
 public:
@@ -1470,12 +1460,12 @@ protected:
   char_type __thousands_sep_;
   string __grouping_;
 };
-#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // template <class charT> class numpunct_byname
 
 template <class _CharT>
-class _LIBCPP_TEMPLATE_VIS numpunct_byname;
+class numpunct_byname;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct_byname<char> : public numpunct<char> {
@@ -1493,7 +1483,7 @@ private:
   void __init(const char*);
 };
 
-#if _LIBCPP_HAS_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct_byname<wchar_t> : public numpunct<wchar_t> {
 public:
@@ -1509,8 +1499,10 @@ protected:
 private:
   void __init(const char*);
 };
-#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+#  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 _LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP_HAS_LOCALIZATION
 
 #endif // _LIBCPP___LOCALE

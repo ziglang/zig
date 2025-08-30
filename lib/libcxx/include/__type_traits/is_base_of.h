@@ -19,8 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Bp, class _Dp>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_base_of
-    : public integral_constant<bool, __is_base_of(_Bp, _Dp)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_base_of : integral_constant<bool, __is_base_of(_Bp, _Dp)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Bp, class _Dp>
@@ -31,8 +30,7 @@ _LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_base_of_v = __is_base_of(_Bp
 #  if __has_builtin(__builtin_is_virtual_base_of)
 
 template <class _Base, class _Derived>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_virtual_base_of
-    : public bool_constant<__builtin_is_virtual_base_of(_Base, _Derived)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_virtual_base_of : bool_constant<__builtin_is_virtual_base_of(_Base, _Derived)> {};
 
 template <class _Base, class _Derived>
 _LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_virtual_base_of_v = __builtin_is_virtual_base_of(_Base, _Derived);
