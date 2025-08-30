@@ -55,7 +55,7 @@ typedef enum _WSD_PROTOCOL_TYPE {
   WSD_PT_UDP = 0x01,
   WSD_PT_HTTP = 0x02,
   WSD_PT_HTTPS = 0x04,
-  WSD_PT_ALL = 0xff,
+  WSD_PT_ALL = 0xff
 } WSD_PROTOCOL_TYPE;
 
 typedef enum _WSDEventType {

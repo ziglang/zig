@@ -94,11 +94,11 @@ private:
 _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(basic_format_parse_context);
 
 using format_parse_context = basic_format_parse_context<char>;
-#  ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#  if _LIBCPP_HAS_WIDE_CHARACTERS
 using wformat_parse_context = basic_format_parse_context<wchar_t>;
 #  endif
 
-#endif //_LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 

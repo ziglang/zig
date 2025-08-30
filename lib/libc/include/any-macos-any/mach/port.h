@@ -195,40 +195,37 @@ typedef natural_t mach_port_right_t;
 #define MACH_PORT_RIGHT_LABELH          ((mach_port_right_t) 5) /* obsolete right */
 #define MACH_PORT_RIGHT_NUMBER          ((mach_port_right_t) 6) /* right not implemented */
 
+#define MACH_PORT_TYPE(right)                                   \
+	((mach_port_type_t)(((mach_port_type_t) 1)              \
+	<< ((right) + ((mach_port_right_t) 16))))
 
 typedef natural_t mach_port_type_t;
 typedef mach_port_type_t *mach_port_type_array_t;
 
-#define MACH_PORT_TYPE(right)                                           \
-	        ((mach_port_type_t)(((mach_port_type_t) 1)              \
-	        << ((right) + ((mach_port_right_t) 16))))
-#define MACH_PORT_TYPE_NONE         ((mach_port_type_t) 0L)
-#define MACH_PORT_TYPE_SEND         MACH_PORT_TYPE(MACH_PORT_RIGHT_SEND)
-#define MACH_PORT_TYPE_RECEIVE      MACH_PORT_TYPE(MACH_PORT_RIGHT_RECEIVE)
-#define MACH_PORT_TYPE_SEND_ONCE    MACH_PORT_TYPE(MACH_PORT_RIGHT_SEND_ONCE)
-#define MACH_PORT_TYPE_PORT_SET     MACH_PORT_TYPE(MACH_PORT_RIGHT_PORT_SET)
-#define MACH_PORT_TYPE_DEAD_NAME    MACH_PORT_TYPE(MACH_PORT_RIGHT_DEAD_NAME)
-#define MACH_PORT_TYPE_LABELH       MACH_PORT_TYPE(MACH_PORT_RIGHT_LABELH) /* obsolete */
-
+#define MACH_PORT_TYPE_NONE             ((mach_port_type_t) 0L)
+#define MACH_PORT_TYPE_SEND             MACH_PORT_TYPE(MACH_PORT_RIGHT_SEND)
+#define MACH_PORT_TYPE_RECEIVE          MACH_PORT_TYPE(MACH_PORT_RIGHT_RECEIVE)
+#define MACH_PORT_TYPE_SEND_ONCE        MACH_PORT_TYPE(MACH_PORT_RIGHT_SEND_ONCE)
+#define MACH_PORT_TYPE_PORT_SET         MACH_PORT_TYPE(MACH_PORT_RIGHT_PORT_SET)
+#define MACH_PORT_TYPE_DEAD_NAME        MACH_PORT_TYPE(MACH_PORT_RIGHT_DEAD_NAME)
+#define MACH_PORT_TYPE_LABELH           MACH_PORT_TYPE(MACH_PORT_RIGHT_LABELH) /* obsolete */
+/* Dummy type bits that mach_port_type/mach_port_names can return. */
+#define MACH_PORT_TYPE_DNREQUEST        0x80000000
+#define MACH_PORT_TYPE_SPREQUEST        0x40000000
+#define MACH_PORT_TYPE_SPREQUEST_DELAYED 0x20000000
 
 /* Convenient combinations. */
 
 #define MACH_PORT_TYPE_SEND_RECEIVE                                     \
-	        (MACH_PORT_TYPE_SEND|MACH_PORT_TYPE_RECEIVE)
+	(MACH_PORT_TYPE_SEND|MACH_PORT_TYPE_RECEIVE)
 #define MACH_PORT_TYPE_SEND_RIGHTS                                      \
-	        (MACH_PORT_TYPE_SEND|MACH_PORT_TYPE_SEND_ONCE)
+	(MACH_PORT_TYPE_SEND|MACH_PORT_TYPE_SEND_ONCE)
 #define MACH_PORT_TYPE_PORT_RIGHTS                                      \
-	        (MACH_PORT_TYPE_SEND_RIGHTS|MACH_PORT_TYPE_RECEIVE)
+	(MACH_PORT_TYPE_SEND_RIGHTS|MACH_PORT_TYPE_RECEIVE)
 #define MACH_PORT_TYPE_PORT_OR_DEAD                                     \
-	        (MACH_PORT_TYPE_PORT_RIGHTS|MACH_PORT_TYPE_DEAD_NAME)
+	(MACH_PORT_TYPE_PORT_RIGHTS|MACH_PORT_TYPE_DEAD_NAME)
 #define MACH_PORT_TYPE_ALL_RIGHTS                                       \
-	        (MACH_PORT_TYPE_PORT_OR_DEAD|MACH_PORT_TYPE_PORT_SET)
-
-/* Dummy type bits that mach_port_type/mach_port_names can return. */
-
-#define MACH_PORT_TYPE_DNREQUEST                0x80000000
-#define MACH_PORT_TYPE_SPREQUEST                0x40000000
-#define MACH_PORT_TYPE_SPREQUEST_DELAYED        0x20000000
+	(MACH_PORT_TYPE_PORT_OR_DEAD|MACH_PORT_TYPE_PORT_SET)
 
 /* User-references for capabilities. */
 
@@ -368,7 +365,7 @@ typedef struct mach_service_port_info * mach_service_port_info_t;
 #define MPO_REPLY_PORT                     0x1000  /* Designate port as a reply port. */
 #define MPO_ENFORCE_REPLY_PORT_SEMANTICS   0x2000  /* When talking to this port, local port of mach msg needs to follow reply port semantics.*/
 #define MPO_PROVISIONAL_REPLY_PORT         0x4000  /* Designate port as a provisional reply port. */
-#define MPO_PROVISIONAL_ID_PROT_OPTOUT     0x8000  /* Opted out of EXCEPTION_IDENTITY_PROTECTED violation for now */
+#define MPO_EXCEPTION_PORT                 0x8000  /* Used for hardened exceptions - immovable */
 
 
 /*
@@ -397,47 +394,58 @@ typedef mach_port_options_t *mach_port_options_ptr_t;
  */
 #define GUARD_TYPE_MACH_PORT    0x1
 
-/* Reasons for exception for a guarded mach port */
+/*
+ * Reasons for exception for a guarded mach port
+ *
+ * Arguments are documented in doc/mach_ipc/guard_exceptions.md,
+ * please update when adding a new type.
+ *
+ * Note: these had been designed as bitfields,
+ *       hence the weird spaced values,
+ *       but are truly an enum, please add new values in the "holes".
+ */
 enum mach_port_guard_exception_codes {
-	kGUARD_EXC_DESTROY                   = 1,
-	kGUARD_EXC_MOD_REFS                  = 2,
-	kGUARD_EXC_INVALID_OPTIONS           = 3,
-	kGUARD_EXC_SET_CONTEXT               = 4,
-	kGUARD_EXC_THREAD_SET_STATE          = 5,
-	kGUARD_EXC_UNGUARDED                 = 1u << 3,
-	kGUARD_EXC_INCORRECT_GUARD           = 1u << 4,
-	kGUARD_EXC_IMMOVABLE                 = 1u << 5,
-	kGUARD_EXC_STRICT_REPLY              = 1u << 6,
-	kGUARD_EXC_MSG_FILTERED              = 1u << 7,
+	kGUARD_EXC_DESTROY                      = 1,
+	kGUARD_EXC_MOD_REFS                     = 2,
+	kGUARD_EXC_INVALID_OPTIONS              = 3,
+	kGUARD_EXC_SET_CONTEXT                  = 4,
+	kGUARD_EXC_THREAD_SET_STATE             = 5,
+	kGUARD_EXC_EXCEPTION_BEHAVIOR_ENFORCE   = 6,
+	kGUARD_EXC_SERVICE_PORT_VIOLATION_FATAL = 7,        /* unused, for future sp defense enablement */
+	kGUARD_EXC_UNGUARDED                    = 8,
+	kGUARD_EXC_INCORRECT_GUARD              = 16,
+	kGUARD_EXC_IMMOVABLE                    = 32,
+	kGUARD_EXC_STRICT_REPLY                 = 64,
+	kGUARD_EXC_MSG_FILTERED                 = 128,
 	/* start of [optionally] non-fatal guards */
-	kGUARD_EXC_INVALID_RIGHT         = 1u << 8,
-	kGUARD_EXC_INVALID_NAME          = 1u << 9,
-	kGUARD_EXC_INVALID_VALUE         = 1u << 10,
-	kGUARD_EXC_INVALID_ARGUMENT      = 1u << 11,
-	kGUARD_EXC_RIGHT_EXISTS          = 1u << 12,
-	kGUARD_EXC_KERN_NO_SPACE         = 1u << 13,
-	kGUARD_EXC_KERN_FAILURE          = 1u << 14,
-	kGUARD_EXC_KERN_RESOURCE         = 1u << 15,
-	kGUARD_EXC_SEND_INVALID_REPLY    = 1u << 16,
-	kGUARD_EXC_SEND_INVALID_VOUCHER  = 1u << 17,
-	kGUARD_EXC_SEND_INVALID_RIGHT    = 1u << 18,
-	kGUARD_EXC_RCV_INVALID_NAME      = 1u << 19,
+	kGUARD_EXC_INVALID_RIGHT                = 256,
+	kGUARD_EXC_INVALID_NAME                 = 512,
+	kGUARD_EXC_INVALID_VALUE                = 1u << 10,
+	kGUARD_EXC_INVALID_ARGUMENT             = 1u << 11, /* really kGUARD_EXC_ALREADY_GUARDED */
+	kGUARD_EXC_RIGHT_EXISTS                 = 1u << 12, /* unused */
+	kGUARD_EXC_KERN_NO_SPACE                = 1u << 13, /* unused */
+	kGUARD_EXC_KERN_FAILURE                 = 1u << 14, /* really kGUARD_EXC_INVALID_PDREQUEST */
+	kGUARD_EXC_KERN_RESOURCE                = 1u << 15, /* unused */
+	kGUARD_EXC_SEND_INVALID_REPLY           = 1u << 16,
+	kGUARD_EXC_SEND_INVALID_VOUCHER         = 1u << 17,
+	kGUARD_EXC_SEND_INVALID_RIGHT           = 1u << 18,
+	kGUARD_EXC_RCV_INVALID_NAME             = 1u << 19,
 	/* start of always non-fatal guards */
-	kGUARD_EXC_RCV_GUARDED_DESC             = 1u << 20, /* for development only */
+	kGUARD_EXC_RCV_GUARDED_DESC             = 0x00100000,     /* for development only */
+	kGUARD_EXC_SERVICE_PORT_VIOLATION_NON_FATAL = 0x00100001, /* unused, for future sp defense enablement */
+	kGUARD_EXC_PROVISIONAL_REPLY_PORT       = 0x00100002,
 	kGUARD_EXC_MOD_REFS_NON_FATAL           = 1u << 21,
 	kGUARD_EXC_IMMOVABLE_NON_FATAL          = 1u << 22,
 	kGUARD_EXC_REQUIRE_REPLY_PORT_SEMANTICS = 1u << 23,
-	kGUARD_EXC_EXCEPTION_BEHAVIOR_ENFORCE   = 1u << 24,
 };
 
-#define MAX_FATAL_kGUARD_EXC_CODE (1u << 7)
+#define MAX_FATAL_kGUARD_EXC_CODE               kGUARD_EXC_MSG_FILTERED
+#define MAX_OPTIONAL_kGUARD_EXC_CODE            kGUARD_EXC_RCV_INVALID_NAME
 
 /*
  * Mach port guard flags.
  */
 #define MPG_FLAGS_NONE                             (0x00ull)
-
-#define MAX_OPTIONAL_kGUARD_EXC_CODE (1u << 19)
 
 /*
  * These flags are used as bits in the subcode of kGUARD_EXC_STRICT_REPLY exceptions.

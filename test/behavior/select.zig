@@ -4,11 +4,12 @@ const mem = std.mem;
 const expect = std.testing.expect;
 
 test "@select vectors" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try comptime selectVectors();
     try selectVectors();
@@ -34,13 +35,12 @@ fn selectVectors() !void {
 }
 
 test "@select arrays" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and
-        !comptime std.Target.x86.featureSetHas(builtin.cpu.features, .avx2)) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     try comptime selectArrays();
     try selectArrays();
@@ -63,4 +63,25 @@ fn selectArrays() !void {
     _ = .{ &x, &y, &z };
     const xyz = @select(f32, x, y, z);
     try expect(mem.eql(f32, &@as([4]f32, xyz), &[4]f32{ 0.0, 312.1, -145.9, -3381.233 }));
+}
+
+test "@select compare result" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_llvm and builtin.cpu.arch == .hexagon) return error.SkipZigTest;
+
+    const S = struct {
+        fn min(comptime V: type, lhs: V, rhs: V) V {
+            return @select(@typeInfo(V).vector.child, lhs < rhs, lhs, rhs);
+        }
+
+        fn doTheTest() !void {
+            try expect(@reduce(.And, min(@Vector(4, f32), .{ -1, 2, -3, 4 }, .{ 1, -2, 3, -4 }) == @Vector(4, f32){ -1, -2, -3, -4 }));
+            try expect(@reduce(.And, min(@Vector(2, f64), .{ -1, 2 }, .{ 1, -2 }) == @Vector(2, f64){ -1, -2 }));
+        }
+    };
+
+    try S.doTheTest();
+    try comptime S.doTheTest();
 }

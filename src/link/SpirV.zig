@@ -1,68 +1,54 @@
-//! SPIR-V Spec documentation: https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html
-//! According to above documentation, a SPIR-V module has the following logical layout:
-//! Header.
-//! OpCapability instructions.
-//! OpExtension instructions.
-//! OpExtInstImport instructions.
-//! A single OpMemoryModel instruction.
-//! All entry points, declared with OpEntryPoint instructions.
-//! All execution-mode declarators; OpExecutionMode and OpExecutionModeId instructions.
-//! Debug instructions:
-//! - First, OpString, OpSourceExtension, OpSource, OpSourceContinued (no forward references).
-//! - OpName and OpMemberName instructions.
-//! - OpModuleProcessed instructions.
-//! All annotation (decoration) instructions.
-//! All type declaration instructions, constant instructions, global variable declarations, (preferably) OpUndef instructions.
-//! All function declarations without a body (extern functions presumably).
-//! All regular functions.
-
-// Because SPIR-V requires re-compilation anyway, and so hot swapping will not work
-// anyway, we simply generate all the code in flushModule. This keeps
-// things considerably simpler.
-
-const SpirV = @This();
-
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const Path = std.Build.Cache.Path;
 const assert = std.debug.assert;
 const log = std.log.scoped(.link);
-const Path = std.Build.Cache.Path;
 
 const Zcu = @import("../Zcu.zig");
 const InternPool = @import("../InternPool.zig");
 const Compilation = @import("../Compilation.zig");
 const link = @import("../link.zig");
-const codegen = @import("../codegen/spirv.zig");
-const trace = @import("../tracy.zig").trace;
-const build_options = @import("build_options");
 const Air = @import("../Air.zig");
-const Liveness = @import("../Liveness.zig");
 const Type = @import("../Type.zig");
-const Value = @import("../Value.zig");
+const CodeGen = @import("../codegen/spirv/CodeGen.zig");
+const Module = @import("../codegen/spirv/Module.zig");
+const trace = @import("../tracy.zig").trace;
+const BinaryModule = @import("SpirV/BinaryModule.zig");
+const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
 
-const SpvModule = @import("../codegen/spirv/Module.zig");
-const Section = @import("../codegen/spirv/Section.zig");
 const spec = @import("../codegen/spirv/spec.zig");
-const IdResult = spec.IdResult;
+const Id = spec.Id;
 const Word = spec.Word;
 
-const BinaryModule = @import("SpirV/BinaryModule.zig");
+const Linker = @This();
 
 base: link.File,
-
-object: codegen.Object,
+module: Module,
+cg: CodeGen,
 
 pub fn createEmpty(
     arena: Allocator,
     comp: *Compilation,
     emit: Path,
     options: link.File.OpenOptions,
-) !*SpirV {
+) !*Linker {
     const gpa = comp.gpa;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
-    const self = try arena.create(SpirV);
-    self.* = .{
+    assert(!comp.config.use_lld); // Caught by Compilation.Config.resolve
+    assert(!comp.config.use_llvm); // Caught by Compilation.Config.resolve
+    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve
+    switch (target.cpu.arch) {
+        .spirv32, .spirv64 => {},
+        else => unreachable, // Caught by Compilation.Config.resolve.
+    }
+    switch (target.os.tag) {
+        .opencl, .opengl, .vulkan => {},
+        else => unreachable, // Caught by Compilation.Config.resolve.
+    }
+
+    const linker = try arena.create(Linker);
+    linker.* = .{
         .base = .{
             .tag = .spirv,
             .comp = comp,
@@ -72,24 +58,32 @@ pub fn createEmpty(
             .stack_size = options.stack_size orelse 0,
             .allow_shlib_undefined = options.allow_shlib_undefined orelse false,
             .file = null,
-            .disable_lld_caching = options.disable_lld_caching,
             .build_id = options.build_id,
         },
-        .object = codegen.Object.init(gpa),
+        .module = .{
+            .gpa = gpa,
+            .arena = arena,
+            .zcu = comp.zcu.?,
+        },
+        .cg = .{
+            // These fields are populated in generate()
+            .pt = undefined,
+            .air = undefined,
+            .liveness = undefined,
+            .owner_nav = undefined,
+            .module = undefined,
+            .control_flow = .{ .structured = .{} },
+            .base_line = undefined,
+        },
     };
-    errdefer self.deinit();
+    errdefer linker.deinit();
 
-    switch (target.cpu.arch) {
-        .spirv, .spirv32, .spirv64 => {},
-        else => unreachable, // Caught by Compilation.Config.resolve.
-    }
+    linker.base.file = try emit.root_dir.handle.createFile(emit.sub_path, .{
+        .truncate = true,
+        .read = true,
+    });
 
-    switch (target.os.tag) {
-        .opencl, .opengl, .vulkan => {},
-        else => unreachable, // Caught by Compilation.Config.resolve.
-    }
-
-    return self;
+    return linker;
 }
 
 pub fn open(
@@ -97,59 +91,93 @@ pub fn open(
     comp: *Compilation,
     emit: Path,
     options: link.File.OpenOptions,
-) !*SpirV {
-    const target = comp.root_mod.resolved_target.result;
-    const use_lld = build_options.have_llvm and comp.config.use_lld;
-    const use_llvm = comp.config.use_llvm;
-
-    assert(!use_llvm); // Caught by Compilation.Config.resolve.
-    assert(!use_lld); // Caught by Compilation.Config.resolve.
-    assert(target.ofmt == .spirv); // Caught by Compilation.Config.resolve.
-
-    const spirv = try createEmpty(arena, comp, emit, options);
-    errdefer spirv.base.destroy();
-
-    // TODO: read the file and keep valid parts instead of truncating
-    const file = try emit.root_dir.handle.createFile(emit.sub_path, .{
-        .truncate = true,
-        .read = true,
-    });
-    spirv.base.file = file;
-    return spirv;
+) !*Linker {
+    return createEmpty(arena, comp, emit, options);
 }
 
-pub fn deinit(self: *SpirV) void {
-    self.object.deinit();
+pub fn deinit(linker: *Linker) void {
+    linker.cg.deinit();
+    linker.module.deinit();
 }
 
-pub fn updateFunc(self: *SpirV, pt: Zcu.PerThread, func_index: InternPool.Index, air: Air, liveness: Liveness) !void {
-    if (build_options.skip_non_native) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
+fn generate(
+    linker: *Linker,
+    pt: Zcu.PerThread,
+    nav_index: InternPool.Nav.Index,
+    air: Air,
+    liveness: Air.Liveness,
+    do_codegen: bool,
+) !void {
+    const zcu = pt.zcu;
+    const gpa = zcu.gpa;
+    const structured_cfg = zcu.navFileScope(nav_index).mod.?.structured_cfg;
 
+    linker.cg.control_flow.deinit(gpa);
+    linker.cg.args.clearRetainingCapacity();
+    linker.cg.inst_results.clearRetainingCapacity();
+    linker.cg.id_scratch.clearRetainingCapacity();
+    linker.cg.prologue.reset();
+    linker.cg.body.reset();
+
+    linker.cg = .{
+        .pt = pt,
+        .air = air,
+        .liveness = liveness,
+        .owner_nav = nav_index,
+        .module = &linker.module,
+        .control_flow = switch (structured_cfg) {
+            true => .{ .structured = .{} },
+            false => .{ .unstructured = .{} },
+        },
+        .base_line = zcu.navSrcLine(nav_index),
+
+        .args = linker.cg.args,
+        .inst_results = linker.cg.inst_results,
+        .id_scratch = linker.cg.id_scratch,
+        .prologue = linker.cg.prologue,
+        .body = linker.cg.body,
+    };
+
+    linker.cg.genNav(do_codegen) catch |err| switch (err) {
+        error.CodegenFail => switch (zcu.codegenFailMsg(nav_index, linker.cg.error_msg.?)) {
+            error.CodegenFail => {},
+            error.OutOfMemory => |e| return e,
+        },
+        else => |other| {
+            // There might be an error that happened *after* linker.error_msg
+            // was already allocated, so be sure to free it.
+            if (linker.cg.error_msg) |error_msg| {
+                error_msg.deinit(gpa);
+            }
+
+            return other;
+        },
+    };
+}
+
+pub fn updateFunc(
+    linker: *Linker,
+    pt: Zcu.PerThread,
+    func_index: InternPool.Index,
+    air: *const Air,
+    liveness: *const ?Air.Liveness,
+) !void {
+    const nav = pt.zcu.funcInfo(func_index).owner_nav;
+    // TODO: Separate types for generating decls and functions?
+    try linker.generate(pt, nav, air.*, liveness.*.?, true);
+}
+
+pub fn updateNav(linker: *Linker, pt: Zcu.PerThread, nav: InternPool.Nav.Index) link.File.UpdateNavError!void {
     const ip = &pt.zcu.intern_pool;
-    const func = pt.zcu.funcInfo(func_index);
-    log.debug("lowering function {}", .{ip.getNav(func.owner_nav).name.fmt(ip)});
-
-    try self.object.updateFunc(pt, func_index, air, liveness);
-}
-
-pub fn updateNav(self: *SpirV, pt: Zcu.PerThread, nav: InternPool.Nav.Index) !void {
-    if (build_options.skip_non_native) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
-
-    const ip = &pt.zcu.intern_pool;
-    log.debug("lowering nav {}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
-
-    try self.object.updateNav(pt, nav);
+    log.debug("lowering nav {f}({d})", .{ ip.getNav(nav).fqn.fmt(ip), nav });
+    try linker.generate(pt, nav, undefined, undefined, false);
 }
 
 pub fn updateExports(
-    self: *SpirV,
+    linker: *Linker,
     pt: Zcu.PerThread,
     exported: Zcu.Exported,
-    export_indices: []const u32,
+    export_indices: []const Zcu.Export.Index,
 ) !void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
@@ -157,25 +185,25 @@ pub fn updateExports(
         .nav => |nav| nav,
         .uav => |uav| {
             _ = uav;
-            @panic("TODO: implement SpirV linker code for exporting a constant value");
+            @panic("TODO: implement Linker linker code for exporting a constant value");
         },
     };
     const nav_ty = ip.getNav(nav_index).typeOf(ip);
     const target = zcu.getTarget();
     if (ip.isFunctionType(nav_ty)) {
-        const spv_decl_index = try self.object.resolveNav(zcu, nav_index);
+        const spv_decl_index = try linker.module.resolveNav(ip, nav_index);
         const cc = Type.fromInterned(nav_ty).fnCallingConvention(zcu);
-        const execution_model: spec.ExecutionModel = switch (target.os.tag) {
-            .vulkan => switch (cc) {
-                .spirv_vertex => .Vertex,
-                .spirv_fragment => .Fragment,
-                .spirv_kernel => .GLCompute,
+        const exec_model: spec.ExecutionModel = switch (target.os.tag) {
+            .vulkan, .opengl => switch (cc) {
+                .spirv_vertex => .vertex,
+                .spirv_fragment => .fragment,
+                .spirv_kernel => .gl_compute,
                 // TODO: We should integrate with the Linkage capability and export this function
                 .spirv_device => return,
                 else => unreachable,
             },
             .opencl => switch (cc) {
-                .spirv_kernel => .Kernel,
+                .spirv_kernel => .kernel,
                 // TODO: We should integrate with the Linkage capability and export this function
                 .spirv_device => return,
                 else => unreachable,
@@ -184,11 +212,12 @@ pub fn updateExports(
         };
 
         for (export_indices) |export_idx| {
-            const exp = zcu.all_exports.items[export_idx];
-            try self.object.spv.declareEntryPoint(
+            const exp = export_idx.ptr(zcu);
+            try linker.module.declareEntryPoint(
                 spv_decl_index,
                 exp.opts.name.toSlice(ip),
-                execution_model,
+                exec_model,
+                null,
             );
         }
     }
@@ -196,19 +225,16 @@ pub fn updateExports(
     // TODO: Export regular functions, variables, etc using Linkage attributes.
 }
 
-pub fn freeDecl(self: *SpirV, decl_index: InternPool.DeclIndex) void {
-    _ = self;
-    _ = decl_index;
-}
-
-pub fn flush(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    return self.flushModule(arena, tid, prog_node);
-}
-
-pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.Progress.Node) link.File.FlushError!void {
-    if (build_options.skip_non_native) {
-        @panic("Attempted to compile for architecture that was disabled by build configuration");
-    }
+pub fn flush(
+    linker: *Linker,
+    arena: Allocator,
+    tid: Zcu.PerThread.Id,
+    prog_node: std.Progress.Node,
+) link.File.FlushError!void {
+    // The goal is to never use this because it's only needed if we need to
+    // write to InternPool, but flush is too late to be writing to the
+    // InternPool.
+    _ = tid;
 
     const tracy = trace(@src());
     defer tracy.end();
@@ -216,34 +242,26 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
     const sub_prog_node = prog_node.start("Flush Module", 0);
     defer sub_prog_node.end();
 
-    const spv = &self.object.spv;
-
-    const comp = self.base.comp;
+    const comp = linker.base.comp;
+    const diags = &comp.link_diags;
     const gpa = comp.gpa;
-    const target = comp.getTarget();
-    _ = tid;
-
-    try writeCapabilities(spv, target);
-    try writeMemoryModel(spv, target);
 
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-
-    var error_info = std.ArrayList(u8).init(self.object.gpa);
+    var error_info: std.io.Writer.Allocating = .init(linker.module.gpa);
     defer error_info.deinit();
 
-    try error_info.appendSlice("zig_errors:");
-    const ip = &self.base.comp.zcu.?.intern_pool;
+    error_info.writer.writeAll("zig_errors:") catch return error.OutOfMemory;
+    const ip = &linker.base.comp.zcu.?.intern_pool;
     for (ip.global_error_set.getNamesFromMainThread()) |name| {
         // Errors can contain pretty much any character - to encode them in a string we must escape
         // them somehow. Easiest here is to use some established scheme, one which also preseves the
         // name if it contains no strange characters is nice for debugging. URI encoding fits the bill.
         // We're using : as separator, which is a reserved character.
-
-        try error_info.append(':');
-        try std.Uri.Component.percentEncode(
-            error_info.writer(),
+        error_info.writer.writeByte(':') catch return error.OutOfMemory;
+        std.Uri.Component.percentEncode(
+            &error_info.writer,
             name.toSlice(ip),
             struct {
                 fn isValidChar(c: u8) bool {
@@ -253,95 +271,28 @@ pub fn flushModule(self: *SpirV, arena: Allocator, tid: Zcu.PerThread.Id, prog_n
                     };
                 }
             }.isValidChar,
-        );
+        ) catch return error.OutOfMemory;
     }
-    try spv.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
-        .extension = error_info.items,
+    try linker.module.sections.debug_strings.emit(gpa, .OpSourceExtension, .{
+        .extension = error_info.written(),
     });
 
-    const module = try spv.finalize(arena, target);
+    const module = try linker.module.finalize(arena);
     errdefer arena.free(module);
 
-    const linked_module = self.linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
+    const linked_module = linkModule(arena, module, sub_prog_node) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
-        else => |other| {
-            log.err("error while linking: {s}", .{@errorName(other)});
-            return error.FlushFailure;
-        },
+        else => |other| return diags.fail("error while linking: {s}", .{@errorName(other)}),
     };
 
-    try self.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module));
+    linker.base.file.?.writeAll(std.mem.sliceAsBytes(linked_module)) catch |err|
+        return diags.fail("failed to write: {s}", .{@errorName(err)});
 }
 
-fn linkModule(self: *SpirV, a: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
-    _ = self;
-
-    const lower_invocation_globals = @import("SpirV/lower_invocation_globals.zig");
-    const prune_unused = @import("SpirV/prune_unused.zig");
-    const dedup = @import("SpirV/deduplicate.zig");
-
-    var parser = try BinaryModule.Parser.init(a);
+fn linkModule(arena: Allocator, module: []Word, progress: std.Progress.Node) ![]Word {
+    var parser = try BinaryModule.Parser.init(arena);
     defer parser.deinit();
     var binary = try parser.parse(module);
-
     try lower_invocation_globals.run(&parser, &binary, progress);
-    try prune_unused.run(&parser, &binary, progress);
-    try dedup.run(&parser, &binary, progress);
-
-    return binary.finalize(a);
-}
-
-fn writeCapabilities(spv: *SpvModule, target: std.Target) !void {
-    const gpa = spv.gpa;
-    // TODO: Integrate with a hypothetical feature system
-    const caps: []const spec.Capability = switch (target.os.tag) {
-        .opencl => &.{ .Kernel, .Addresses, .Int8, .Int16, .Int64, .Float64, .Float16, .Vector16, .GenericPointer },
-        .vulkan => &.{ .Shader, .PhysicalStorageBufferAddresses, .Int8, .Int16, .Int64, .Float64, .Float16, .VariablePointers, .VariablePointersStorageBuffer },
-        else => unreachable,
-    };
-
-    for (caps) |cap| {
-        try spv.sections.capabilities.emit(gpa, .OpCapability, .{
-            .capability = cap,
-        });
-    }
-
-    switch (target.os.tag) {
-        .vulkan => {
-            try spv.sections.extensions.emit(gpa, .OpExtension, .{
-                .name = "SPV_KHR_physical_storage_buffer",
-            });
-        },
-        else => {},
-    }
-}
-
-fn writeMemoryModel(spv: *SpvModule, target: std.Target) !void {
-    const gpa = spv.gpa;
-
-    const addressing_model: spec.AddressingModel = switch (target.os.tag) {
-        .opencl => switch (target.cpu.arch) {
-            .spirv32 => .Physical32,
-            .spirv64 => .Physical64,
-            else => unreachable,
-        },
-        .opengl, .vulkan => switch (target.cpu.arch) {
-            .spirv32 => .Logical, // TODO: I don't think this will ever be implemented.
-            .spirv64 => .PhysicalStorageBuffer64,
-            else => unreachable,
-        },
-        else => unreachable,
-    };
-
-    const memory_model: spec.MemoryModel = switch (target.os.tag) {
-        .opencl => .OpenCL,
-        .opengl => .GLSL450,
-        .vulkan => .GLSL450,
-        else => unreachable,
-    };
-
-    try spv.sections.memory_model.emit(gpa, .OpMemoryModel, .{
-        .addressing_model = addressing_model,
-        .memory_model = memory_model,
-    });
+    return binary.finalize(arena);
 }

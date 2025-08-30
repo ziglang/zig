@@ -12,12 +12,10 @@ const expect = std.testing.expect;
 ///  - log2(nan)   = nan
 pub fn log2(x: anytype) @TypeOf(x) {
     const T = @TypeOf(x);
-    switch (@typeInfo(T)) {
-        .comptime_float => {
-            return @as(comptime_float, @log2(x));
-        },
-        .float => return @log2(x),
+    return switch (@typeInfo(T)) {
+        .comptime_float, .float => @log2(x),
         .comptime_int => comptime {
+            std.debug.assert(x > 0);
             var x_shifted = x;
             // First, calculate floorPowerOfTwo(x)
             var shift_amt = 1;
@@ -34,12 +32,15 @@ pub fn log2(x: anytype) @TypeOf(x) {
             }
             return result;
         },
-        .int => |IntType| switch (IntType.signedness) {
-            .signed => @compileError("log2 not implemented for signed integers"),
-            .unsigned => return math.log2_int(T, x),
-        },
+        .int => |int_info| math.log2_int(switch (int_info.signedness) {
+            .signed => @Type(.{ .int = .{
+                .signedness = .unsigned,
+                .bits = int_info.bits -| 1,
+            } }),
+            .unsigned => T,
+        }, @intCast(x)),
         else => @compileError("log2 not implemented for " ++ @typeName(T)),
-    }
+    };
 }
 
 test log2 {

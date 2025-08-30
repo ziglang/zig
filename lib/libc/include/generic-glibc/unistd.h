@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -1138,10 +1138,16 @@ extern int lockf64 (int __fd, int __cmd, __off64_t __len) __wur;
        while (__result == -1L && errno == EINTR);			      \
        __result; }))
 
+// zig patch: copy_file_range was added in glibc 2.27
+#if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 27) || __GLIBC__ > 2
+
 /* Copy LENGTH bytes from INFD to OUTFD.  */
 ssize_t copy_file_range (int __infd, __off64_t *__pinoff,
 			 int __outfd, __off64_t *__poutoff,
 			 size_t __length, unsigned int __flags);
+
+#endif /* glibc 2.27 or later */
+
 #endif /* __USE_GNU */
 
 #if defined __USE_POSIX199309 || defined __USE_UNIX98
@@ -1203,6 +1209,8 @@ int getentropy (void *__buffer, size_t __length) __wur
 #endif
 
 #ifdef __USE_GNU
+// zig patch: check target glibc version
+# if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 34) || __GLIBC__ > 2
 /* Close all file descriptors in the range FD up to MAX_FD.  The flag FLAGS
    are define by the CLOSE_RANGE prefix.  This function behaves like close
    on the range and gaps where the file descriptor is invalid or errors
@@ -1210,6 +1218,7 @@ int getentropy (void *__buffer, size_t __length) __wur
    successor or -1 for failure (and sets errno accordingly).  */
 extern int close_range (unsigned int __fd, unsigned int __max_fd,
 			int __flags) __THROW;
+# endif
 #endif
 
 /* Define some macros helping to catch buffer overflows.  */

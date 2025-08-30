@@ -178,6 +178,10 @@
 
 /*
  * msync() flags
+ *
+ * When making a new MS_*, update tests vm_parameter_validation_[user|kern]
+ * and their expected results; they deliberately call VM functions with invalid
+ * msync values and you may be turning one of those invalid msyncs valid.
  */
 #define MS_ASYNC        0x0001  /* [MF|SIO] return immediately */
 #define MS_INVALIDATE   0x0002  /* [MF|SIO] invalidate all cached data */
@@ -192,6 +196,10 @@
 
 /*
  * Advice to madvise
+ *
+ * When making a new MADV_*, update tests vm_parameter_validation_[user|kern]
+ * and their expected results; they deliberately call VM functions with invalid
+ * madvise values and you may be turning one of those invalid madvises valid.
  */
 #define POSIX_MADV_NORMAL       0       /* [MC1] no further special treatment */
 #define POSIX_MADV_RANDOM       1       /* [MC1] expect random page refs */
@@ -211,6 +219,7 @@
 #define MADV_FREE_REUSE         8       /* caller wants to reuse those pages */
 #define MADV_CAN_REUSE          9
 #define MADV_PAGEOUT            10      /* page out now (internal only) */
+#define MADV_ZERO               11      /* zero pages without faulting in additional pages */
 
 /*
  * Return bits from mincore

@@ -125,6 +125,7 @@
 #define x86_THREAD_FULL_STATE64         23
 #define x86_INSTRUCTION_STATE           24
 #define x86_LAST_BRANCH_STATE           25
+#define THREAD_STATE_FLAVORS            26     /* This must be updated to 1 more than the highest numerical state flavor */
 
 /*
  * Largest state on this machine:

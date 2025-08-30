@@ -37,8 +37,7 @@ namespace ranges {
 template <class _InIter, class _OutIter>
 using move_backward_result = in_out_result<_InIter, _OutIter>;
 
-namespace __move_backward {
-struct __fn {
+struct __move_backward {
   template <class _InIter, class _Sent, class _OutIter>
   _LIBCPP_HIDE_FROM_ABI constexpr static move_backward_result<_InIter, _OutIter>
   __move_backward_impl(_InIter __first, _Sent __last, _OutIter __result) {
@@ -60,10 +59,9 @@ struct __fn {
     return __move_backward_impl(ranges::begin(__range), ranges::end(__range), std::move(__result));
   }
 };
-} // namespace __move_backward
 
 inline namespace __cpo {
-inline constexpr auto move_backward = __move_backward::__fn{};
+inline constexpr auto move_backward = __move_backward{};
 } // namespace __cpo
 } // namespace ranges
 

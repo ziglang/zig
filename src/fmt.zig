@@ -1,3 +1,11 @@
+const std = @import("std");
+const mem = std.mem;
+const fs = std.fs;
+const process = std.process;
+const Allocator = std.mem.Allocator;
+const Color = std.zig.Color;
+const fatal = std.process.fatal;
+
 const usage_fmt =
     \\Usage: zig fmt [file]...
     \\
@@ -13,6 +21,7 @@ const usage_fmt =
     \\                         if the list is non-empty
     \\  --ast-check            Run zig ast-check on every file
     \\  --exclude [file]       Exclude file or directory from formatting
+    \\  --zon                  Treat all input files as ZON, regardless of file extension
     \\
     \\
 ;
@@ -21,26 +30,25 @@ const Fmt = struct {
     seen: SeenMap,
     any_error: bool,
     check_ast: bool,
+    force_zon: bool,
     color: Color,
     gpa: Allocator,
     arena: Allocator,
-    out_buffer: std.ArrayList(u8),
+    out_buffer: std.Io.Writer.Allocating,
+    stdout_writer: *fs.File.Writer,
 
     const SeenMap = std.AutoHashMap(fs.File.INode, void);
 };
 
-pub fn run(
-    gpa: Allocator,
-    arena: Allocator,
-    args: []const []const u8,
-) !void {
+pub fn run(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     var color: Color = .auto;
-    var stdin_flag: bool = false;
-    var check_flag: bool = false;
-    var check_ast_flag: bool = false;
-    var input_files = std.ArrayList([]const u8).init(gpa);
+    var stdin_flag = false;
+    var check_flag = false;
+    var check_ast_flag = false;
+    var force_zon = false;
+    var input_files = std.array_list.Managed([]const u8).init(gpa);
     defer input_files.deinit();
-    var excluded_files = std.ArrayList([]const u8).init(gpa);
+    var excluded_files = std.array_list.Managed([]const u8).init(gpa);
     defer excluded_files.deinit();
 
     {
@@ -49,8 +57,7 @@ pub fn run(
             const arg = args[i];
             if (mem.startsWith(u8, arg, "-")) {
                 if (mem.eql(u8, arg, "-h") or mem.eql(u8, arg, "--help")) {
-                    const stdout = std.io.getStdOut().writer();
-                    try stdout.writeAll(usage_fmt);
+                    try fs.File.stdout().writeAll(usage_fmt);
                     return process.cleanExit();
                 } else if (mem.eql(u8, arg, "--color")) {
                     if (i + 1 >= args.len) {
@@ -74,6 +81,8 @@ pub fn run(
                     i += 1;
                     const next_arg = args[i];
                     try excluded_files.append(next_arg);
+                } else if (mem.eql(u8, arg, "--zon")) {
+                    force_zon = true;
                 } else {
                     fatal("unrecognized parameter: '{s}'", .{arg});
                 }
@@ -88,57 +97,81 @@ pub fn run(
             fatal("cannot use --stdin with positional arguments", .{});
         }
 
-        const stdin = std.io.getStdIn();
-        const source_code = std.zig.readSourceFileToEndAlloc(gpa, stdin, null) catch |err| {
+        const stdin: fs.File = .stdin();
+        var stdio_buffer: [1024]u8 = undefined;
+        var file_reader: fs.File.Reader = stdin.reader(&stdio_buffer);
+        const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| {
             fatal("unable to read stdin: {}", .{err});
         };
         defer gpa.free(source_code);
 
-        var tree = std.zig.Ast.parse(gpa, source_code, .zig) catch |err| {
+        var tree = std.zig.Ast.parse(gpa, source_code, if (force_zon) .zon else .zig) catch |err| {
             fatal("error parsing stdin: {}", .{err});
         };
         defer tree.deinit(gpa);
 
         if (check_ast_flag) {
-            var zir = try std.zig.AstGen.generate(gpa, tree);
+            if (!force_zon) {
+                var zir = try std.zig.AstGen.generate(gpa, tree);
+                defer zir.deinit(gpa);
 
-            if (zir.hasCompileErrors()) {
-                var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-                try wip_errors.init(gpa);
-                defer wip_errors.deinit();
-                try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
-                var error_bundle = try wip_errors.toOwnedBundle("");
-                defer error_bundle.deinit(gpa);
-                error_bundle.renderToStdErr(color.renderOptions());
-                process.exit(2);
+                if (zir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZirErrorMessages(zir, tree, source_code, "<stdin>");
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    process.exit(2);
+                }
+            } else {
+                const zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
+                defer zoir.deinit(gpa);
+
+                if (zoir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZoirErrorMessages(zoir, tree, source_code, "<stdin>");
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(color.renderOptions());
+                    process.exit(2);
+                }
             }
         } else if (tree.errors.len != 0) {
             try std.zig.printAstErrorsToStderr(gpa, tree, "<stdin>", color);
             process.exit(2);
         }
-        const formatted = try tree.render(gpa);
+        const formatted = try tree.renderAlloc(gpa);
         defer gpa.free(formatted);
 
         if (check_flag) {
-            const code: u8 = @intFromBool(mem.eql(u8, formatted, source_code));
+            const code: u8 = @intFromBool(!mem.eql(u8, formatted, source_code));
             process.exit(code);
         }
 
-        return std.io.getStdOut().writeAll(formatted);
+        return fs.File.stdout().writeAll(formatted);
     }
 
     if (input_files.items.len == 0) {
         fatal("expected at least one source file argument", .{});
     }
 
-    var fmt = Fmt{
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
+
+    var fmt: Fmt = .{
         .gpa = gpa,
         .arena = arena,
-        .seen = Fmt.SeenMap.init(gpa),
+        .seen = .init(gpa),
         .any_error = false,
         .check_ast = check_ast_flag,
+        .force_zon = force_zon,
         .color = color,
-        .out_buffer = std.ArrayList(u8).init(gpa),
+        .out_buffer = .init(gpa),
+        .stdout_writer = &stdout_writer,
     };
     defer fmt.seen.deinit();
     defer fmt.out_buffer.deinit();
@@ -162,44 +195,13 @@ pub fn run(
     for (input_files.items) |file_path| {
         try fmtPath(&fmt, file_path, check_flag, fs.cwd(), file_path);
     }
+    try fmt.stdout_writer.interface.flush();
     if (fmt.any_error) {
         process.exit(1);
     }
 }
 
-const FmtError = error{
-    SystemResources,
-    OperationAborted,
-    IoPending,
-    BrokenPipe,
-    Unexpected,
-    WouldBlock,
-    Canceled,
-    FileClosed,
-    DestinationAddressRequired,
-    DiskQuota,
-    FileTooBig,
-    InputOutput,
-    NoSpaceLeft,
-    AccessDenied,
-    OutOfMemory,
-    RenameAcrossMountPoints,
-    ReadOnlyFileSystem,
-    LinkQuotaExceeded,
-    FileBusy,
-    EndOfStream,
-    Unseekable,
-    NotOpenForWriting,
-    UnsupportedEncoding,
-    ConnectionResetByPeer,
-    SocketNotConnected,
-    LockViolation,
-    NetNameDeleted,
-    InvalidArgument,
-    ProcessNotFound,
-} || fs.File.OpenError;
-
-fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) FmtError!void {
+fn fmtPath(fmt: *Fmt, file_path: []const u8, check_mode: bool, dir: fs.Dir, sub_path: []const u8) !void {
     fmtPathFile(fmt, file_path, check_mode, dir, sub_path) catch |err| switch (err) {
         error.IsDir, error.AccessDenied => return fmtPathDir(fmt, file_path, check_mode, dir, sub_path),
         else => {
@@ -216,7 +218,7 @@ fn fmtPathDir(
     check_mode: bool,
     parent_dir: fs.Dir,
     parent_sub_path: []const u8,
-) FmtError!void {
+) !void {
     var dir = try parent_dir.openDir(parent_sub_path, .{ .iterate = true });
     defer dir.close();
 
@@ -252,7 +254,7 @@ fn fmtPathFile(
     check_mode: bool,
     dir: fs.Dir,
     sub_path: []const u8,
-) FmtError!void {
+) !void {
     const source_file = try dir.openFile(sub_path, .{});
     var file_closed = false;
     errdefer if (!file_closed) source_file.close();
@@ -262,12 +264,15 @@ fn fmtPathFile(
     if (stat.kind == .directory)
         return error.IsDir;
 
+    var read_buffer: [1024]u8 = undefined;
+    var file_reader: fs.File.Reader = source_file.reader(&read_buffer);
+    file_reader.size = stat.size;
+
     const gpa = fmt.gpa;
-    const source_code = try std.zig.readSourceFileToEndAlloc(
-        gpa,
-        source_file,
-        std.math.cast(usize, stat.size) orelse return error.FileTooBig,
-    );
+    const source_code = std.zig.readSourceFileToEndAlloc(gpa, &file_reader) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        else => |e| return e,
+    };
     defer gpa.free(source_code);
 
     source_file.close();
@@ -276,7 +281,13 @@ fn fmtPathFile(
     // Add to set after no longer possible to get error.IsDir.
     if (try fmt.seen.fetchPut(stat.inode, {})) |_| return;
 
-    var tree = try std.zig.Ast.parse(gpa, source_code, .zig);
+    const mode: std.zig.Ast.Mode = mode: {
+        if (fmt.force_zon) break :mode .zon;
+        if (mem.endsWith(u8, sub_path, ".zon")) break :mode .zon;
+        break :mode .zig;
+    };
+
+    var tree = try std.zig.Ast.parse(gpa, source_code, mode);
     defer tree.deinit(gpa);
 
     if (tree.errors.len != 0) {
@@ -289,48 +300,68 @@ fn fmtPathFile(
         if (stat.size > std.zig.max_src_size)
             return error.FileTooBig;
 
-        var zir = try std.zig.AstGen.generate(gpa, tree);
-        defer zir.deinit(gpa);
+        switch (mode) {
+            .zig => {
+                var zir = try std.zig.AstGen.generate(gpa, tree);
+                defer zir.deinit(gpa);
 
-        if (zir.hasCompileErrors()) {
-            var wip_errors: std.zig.ErrorBundle.Wip = undefined;
-            try wip_errors.init(gpa);
-            defer wip_errors.deinit();
-            try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
-            var error_bundle = try wip_errors.toOwnedBundle("");
-            defer error_bundle.deinit(gpa);
-            error_bundle.renderToStdErr(fmt.color.renderOptions());
-            fmt.any_error = true;
+                if (zir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZirErrorMessages(zir, tree, source_code, file_path);
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    fmt.any_error = true;
+                }
+            },
+            .zon => {
+                var zoir = try std.zig.ZonGen.generate(gpa, tree, .{});
+                defer zoir.deinit(gpa);
+
+                if (zoir.hasCompileErrors()) {
+                    var wip_errors: std.zig.ErrorBundle.Wip = undefined;
+                    try wip_errors.init(gpa);
+                    defer wip_errors.deinit();
+                    try wip_errors.addZoirErrorMessages(zoir, tree, source_code, file_path);
+                    var error_bundle = try wip_errors.toOwnedBundle("");
+                    defer error_bundle.deinit(gpa);
+                    error_bundle.renderToStdErr(fmt.color.renderOptions());
+                    fmt.any_error = true;
+                }
+            },
         }
     }
 
     // As a heuristic, we make enough capacity for the same as the input source.
-    fmt.out_buffer.shrinkRetainingCapacity(0);
+    fmt.out_buffer.clearRetainingCapacity();
     try fmt.out_buffer.ensureTotalCapacity(source_code.len);
 
-    try tree.renderToArrayList(&fmt.out_buffer, .{});
-    if (mem.eql(u8, fmt.out_buffer.items, source_code))
+    tree.render(gpa, &fmt.out_buffer.writer, .{}) catch |err| switch (err) {
+        error.WriteFailed, error.OutOfMemory => return error.OutOfMemory,
+    };
+    if (mem.eql(u8, fmt.out_buffer.written(), source_code))
         return;
 
     if (check_mode) {
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
         fmt.any_error = true;
     } else {
-        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode });
+        var af = try dir.atomicFile(sub_path, .{ .mode = stat.mode, .write_buffer = &.{} });
         defer af.deinit();
 
-        try af.file.writeAll(fmt.out_buffer.items);
+        try af.file_writer.interface.writeAll(fmt.out_buffer.written());
         try af.finish();
-        const stdout = std.io.getStdOut().writer();
-        try stdout.print("{s}\n", .{file_path});
+        try fmt.stdout_writer.interface.print("{s}\n", .{file_path});
     }
 }
 
-const std = @import("std");
-const mem = std.mem;
-const fs = std.fs;
-const process = std.process;
-const Allocator = std.mem.Allocator;
-const Color = std.zig.Color;
-const fatal = std.process.fatal;
+/// Provided for debugging/testing purposes; unused by the compiler.
+pub fn main() !void {
+    const gpa = std.heap.smp_allocator;
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    const arena = arena_instance.allocator();
+    const args = try process.argsAlloc(arena);
+    return run(gpa, arena, args[1..]);
+}

@@ -10,9 +10,6 @@
 #define _LIBCPP___UTILITY_AS_CONST_H
 
 #include <__config>
-#include <__type_traits/add_const.h>
-#include <__utility/forward.h>
-#include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -22,7 +19,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr add_const_t<_Tp>& as_const(_Tp& __t) noexcept {
+[[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr const _Tp& as_const(_Tp& __t) noexcept {
   return __t;
 }
 

@@ -24,7 +24,7 @@ export fn incompatiblePointers4() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :5:9: error: incompatible types: '?@Vector(10, i32)' and '@Vector(11, i32)'

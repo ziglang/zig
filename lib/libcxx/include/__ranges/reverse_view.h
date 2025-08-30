@@ -47,7 +47,8 @@ class reverse_view : public view_interface<reverse_view<_View>> {
   // We cache begin() whenever ranges::next is not guaranteed O(1) to provide an
   // amortized O(1) begin() method.
   static constexpr bool _UseCache = !random_access_range<_View> && !common_range<_View>;
-  using _Cache = _If<_UseCache, __non_propagating_cache<reverse_iterator<iterator_t<_View>>>, __empty_cache>;
+  using _Cache _LIBCPP_NODEBUG =
+      _If<_UseCache, __non_propagating_cache<reverse_iterator<iterator_t<_View>>>, __empty_cache>;
   _LIBCPP_NO_UNIQUE_ADDRESS _Cache __cached_begin_ = _Cache();
   _LIBCPP_NO_UNIQUE_ADDRESS _View __base_          = _View();
 

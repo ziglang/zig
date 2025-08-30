@@ -1,8 +1,8 @@
 const assert = @import("std").debug.assert;
 const testing = @import("std").testing;
 
-const updateHidden = @extern(*const fn (u32) callconv(.C) void, .{ .name = "updateHidden" });
-const getHidden = @extern(*const fn () callconv(.C) u32, .{ .name = "getHidden" });
+const updateHidden = @extern(*const fn (u32) callconv(.c) void, .{ .name = "updateHidden" });
+const getHidden = @extern(*const fn () callconv(.c) u32, .{ .name = "getHidden" });
 
 const T = extern struct { x: u32 };
 

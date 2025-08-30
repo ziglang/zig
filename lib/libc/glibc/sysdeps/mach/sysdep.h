@@ -1,4 +1,4 @@
-/* Copyright (C) 1994-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1994-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -19,6 +19,11 @@
 
 /* Get the Mach definitions of ENTRY and kernel_trap.  */
 #include <mach/machine/syscall_sw.h>
+
+/* This macro is defined in Mach system headers, but string functions use it
+   with different definitions depending on whether being compiled for
+   wide-characters or not.  */
+#undef P2ALIGN
 
 /* The Mach definitions assume underscores should be prepended to
    symbol names.  Redefine them to do so only when appropriate.  */

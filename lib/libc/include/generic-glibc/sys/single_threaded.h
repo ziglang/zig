@@ -1,5 +1,5 @@
 /* Support for single-thread optimizations.
-   Copyright (C) 2020-2024 Free Software Foundation, Inc.
+   Copyright (C) 2020-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,6 +15,11 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
+
+// zig patch: sys/single_threaded.h header was added in glibc 2.32
+#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 32
+   #error "sys/single_threaded.h did not exist before glibc 2.32"
+#endif /* error for glibc before 2.32 */
 
 #ifndef _SYS_SINGLE_THREADED_H
 #define _SYS_SINGLE_THREADED_H

@@ -15,9 +15,10 @@ const TokenWithExpansionLocs = Tree.TokenWithExpansionLocs;
 const Attribute = @import("Attribute.zig");
 const features = @import("features.zig");
 const Hideset = @import("Hideset.zig");
+const Writer = std.Io.Writer;
 
 const DefineMap = std.StringHashMapUnmanaged(Macro);
-const RawTokenList = std.ArrayList(RawToken);
+const RawTokenList = std.array_list.Managed(RawToken);
 const max_include_depth = 200;
 
 /// Errors that can be returned when expanding a macro.
@@ -84,7 +85,7 @@ tokens: Token.List = .{},
 /// Do not directly mutate this; must be kept in sync with `tokens`
 expansion_entries: std.MultiArrayList(ExpansionEntry) = .{},
 token_buf: RawTokenList,
-char_buf: std.ArrayList(u8),
+char_buf: std.array_list.Managed(u8),
 /// Counter that is incremented each time preprocess() is called
 /// Can be used to distinguish multiple preprocessings of the same file
 preprocess_count: u32 = 0,
@@ -131,7 +132,7 @@ pub fn init(comp: *Compilation) Preprocessor {
         .gpa = comp.gpa,
         .arena = std.heap.ArenaAllocator.init(comp.gpa),
         .token_buf = RawTokenList.init(comp.gpa),
-        .char_buf = std.ArrayList(u8).init(comp.gpa),
+        .char_buf = std.array_list.Managed(u8).init(comp.gpa),
         .poisoned_identifiers = std.StringHashMap(void).init(comp.gpa),
         .top_expansion_buf = ExpandBuf.init(comp.gpa),
         .hideset = .{ .comp = comp },
@@ -811,10 +812,9 @@ fn verboseLog(pp: *Preprocessor, raw: RawToken, comptime fmt: []const u8, args: 
     const source = pp.comp.getSource(raw.source);
     const line_col = source.lineCol(.{ .id = raw.source, .line = raw.line, .byte_offset = raw.start });
 
-    const stderr = std.io.getStdErr().writer();
-    var buf_writer = std.io.bufferedWriter(stderr);
-    const writer = buf_writer.writer();
-    defer buf_writer.flush() catch {};
+    var stderr_buffer: [64]u8 = undefined;
+    var writer = std.debug.lockStderrWriter(&stderr_buffer);
+    defer std.debug.unlockStderrWriter();
     writer.print("{s}:{d}:{d}: ", .{ source.path, line_col.line_no, line_col.col }) catch return;
     writer.print(fmt, args) catch return;
     writer.writeByte('\n') catch return;
@@ -983,7 +983,7 @@ fn expr(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!bool {
         .tok_i = @intCast(token_state.tokens_len),
         .arena = pp.arena.allocator(),
         .in_macro = true,
-        .strings = std.ArrayListAligned(u8, 4).init(pp.comp.gpa),
+        .strings = std.array_list.Managed(u8).init(pp.comp.gpa),
 
         .data = undefined,
         .value_map = undefined,
@@ -1141,7 +1141,7 @@ fn skipToNl(tokenizer: *Tokenizer) void {
     }
 }
 
-const ExpandBuf = std.ArrayList(TokenWithExpansionLocs);
+const ExpandBuf = std.array_list.Managed(TokenWithExpansionLocs);
 fn removePlacemarkers(buf: *ExpandBuf) void {
     var i: usize = buf.items.len -% 1;
     while (i < buf.items.len) : (i -%= 1) {
@@ -1152,7 +1152,7 @@ fn removePlacemarkers(buf: *ExpandBuf) void {
     }
 }
 
-const MacroArguments = std.ArrayList([]const TokenWithExpansionLocs);
+const MacroArguments = std.array_list.Managed([]const TokenWithExpansionLocs);
 fn deinitMacroArguments(allocator: Allocator, args: *const MacroArguments) void {
     for (args.items) |item| {
         for (item) |tok| TokenWithExpansionLocs.free(tok.expansion_locs, allocator);
@@ -1194,24 +1194,21 @@ fn expandObjMacro(pp: *Preprocessor, simple_macro: *const Macro) Error!ExpandBuf
             .macro_file => {
                 const start = pp.comp.generated_buf.items.len;
                 const source = pp.comp.getSource(pp.expansion_source_loc.id);
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("\"{s}\"\n", .{source.path});
+                try pp.comp.generated_buf.print(pp.gpa, "\"{s}\"\n", .{source.path});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .string_literal, tok));
             },
             .macro_line => {
                 const start = pp.comp.generated_buf.items.len;
                 const source = pp.comp.getSource(pp.expansion_source_loc.id);
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{d}\n", .{source.physicalLine(pp.expansion_source_loc)});
+                try pp.comp.generated_buf.print(pp.gpa, "{d}\n", .{source.physicalLine(pp.expansion_source_loc)});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .pp_num, tok));
             },
             .macro_counter => {
                 defer pp.counter += 1;
                 const start = pp.comp.generated_buf.items.len;
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{d}\n", .{pp.counter});
+                try pp.comp.generated_buf.print(pp.gpa, "{d}\n", .{pp.counter});
 
                 buf.appendAssumeCapacity(try pp.makeGeneratedToken(start, .pp_num, tok));
             },
@@ -1683,8 +1680,7 @@ fn expandFuncMacro(
                     break :blk false;
                 } else try pp.handleBuiltinMacro(raw.id, arg, macro_tok.loc);
                 const start = pp.comp.generated_buf.items.len;
-                const w = pp.comp.generated_buf.writer(pp.gpa);
-                try w.print("{}\n", .{@intFromBool(result)});
+                try pp.comp.generated_buf.print(pp.gpa, "{}\n", .{@intFromBool(result)});
                 try buf.append(try pp.makeGeneratedToken(start, .pp_num, tokFromRaw(raw)));
             },
             .macro_param_has_c_attribute => {
@@ -2076,7 +2072,7 @@ fn collectMacroFuncArguments(
     var parens: u32 = 0;
     var args = MacroArguments.init(pp.gpa);
     errdefer deinitMacroArguments(pp.gpa, &args);
-    var curArgument = std.ArrayList(TokenWithExpansionLocs).init(pp.gpa);
+    var curArgument = std.array_list.Managed(TokenWithExpansionLocs).init(pp.gpa);
     defer curArgument.deinit();
     while (true) {
         var tok = try nextBufToken(pp, tokenizer, buf, start_idx, end_idx, extend_buf);
@@ -2446,7 +2442,7 @@ pub fn expandedSlice(pp: *const Preprocessor, tok: anytype) []const u8 {
 
 /// Concat two tokens and add the result to pp.generated
 fn pasteTokens(pp: *Preprocessor, lhs_toks: *ExpandBuf, rhs_toks: []const TokenWithExpansionLocs) Error!void {
-    const lhs = while (lhs_toks.popOrNull()) |lhs| {
+    const lhs = while (lhs_toks.pop()) |lhs| {
         if ((pp.comp.langopts.preserve_comments_in_macros and lhs.id == .comment) or
             (lhs.id != .macro_ws and lhs.id != .comment))
             break lhs;
@@ -2646,7 +2642,7 @@ fn define(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken) Error!
 /// Handle a function like #define directive.
 fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macro_name: RawToken, l_paren: RawToken) Error!void {
     assert(macro_name.id.isMacroIdentifier());
-    var params = std.ArrayList([]const u8).init(pp.gpa);
+    var params = std.array_list.Managed([]const u8).init(pp.gpa);
     defer params.deinit();
 
     // Parse the parameter list.
@@ -2676,7 +2672,7 @@ fn defineFn(pp: *Preprocessor, tokenizer: *Tokenizer, define_tok: RawToken, macr
         tok = tokenizer.nextNoWS();
         if (tok.id == .ellipsis) {
             try pp.err(tok, .gnu_va_macro);
-            gnu_var_args = params.pop();
+            gnu_var_args = params.pop().?;
             const r_paren = tokenizer.nextNoWS();
             if (r_paren.id != .r_paren) {
                 try pp.err(r_paren, .missing_paren_param_list);
@@ -2989,18 +2985,16 @@ fn embed(pp: *Preprocessor, tokenizer: *Tokenizer) MacroError!void {
     // TODO: We currently only support systems with CHAR_BIT == 8
     // If the target's CHAR_BIT is not 8, we need to write out correctly-sized embed_bytes
     // and correctly account for the target's endianness
-    const writer = pp.comp.generated_buf.writer(pp.gpa);
-
     {
         const byte = embed_bytes[0];
         const start = pp.comp.generated_buf.items.len;
-        try writer.print("{d}", .{byte});
+        try pp.comp.generated_buf.print(pp.gpa, "{d}", .{byte});
         pp.addTokenAssumeCapacity(try pp.makeGeneratedToken(start, .embed_byte, filename_tok));
     }
 
     for (embed_bytes[1..]) |byte| {
         const start = pp.comp.generated_buf.items.len;
-        try writer.print(",{d}", .{byte});
+        try pp.comp.generated_buf.print(pp.gpa, ",{d}", .{byte});
         pp.addTokenAssumeCapacity(.{ .id = .comma, .loc = .{ .id = .generated, .byte_offset = @intCast(start) } });
         pp.addTokenAssumeCapacity(try pp.makeGeneratedToken(start + 1, .embed_byte, filename_tok));
     }
@@ -3242,7 +3236,7 @@ fn findIncludeSource(pp: *Preprocessor, tokenizer: *Tokenizer, first: RawToken, 
 
 fn printLinemarker(
     pp: *Preprocessor,
-    w: anytype,
+    w: *Writer,
     line_no: u32,
     source: Source,
     start_resume: enum(u8) { start, @"resume", none },
@@ -3262,7 +3256,8 @@ fn printLinemarker(
         // containing the same bytes as the input regardless of encoding.
         else => {
             try w.writeAll("\\x");
-            try std.fmt.formatInt(byte, 16, .lower, .{ .width = 2, .fill = '0' }, w);
+            // TODO try w.printInt(byte, 16, .lower, .{ .width = 2, .fill = '0' });
+            try w.print("{x:0>2}", .{byte});
         },
     };
     try w.writeByte('"');
@@ -3301,7 +3296,7 @@ pub const DumpMode = enum {
 /// Pretty-print the macro define or undef at location `loc`.
 /// We re-tokenize the directive because we are printing a macro that may have the same name as one in
 /// `pp.defines` but a different definition (due to being #undef'ed and then redefined)
-fn prettyPrintMacro(pp: *Preprocessor, w: anytype, loc: Source.Location, parts: enum { name_only, name_and_body }) !void {
+fn prettyPrintMacro(pp: *Preprocessor, w: *Writer, loc: Source.Location, parts: enum { name_only, name_and_body }) !void {
     const source = pp.comp.getSource(loc.id);
     var tokenizer: Tokenizer = .{
         .buf = source.buf,
@@ -3339,7 +3334,7 @@ fn prettyPrintMacro(pp: *Preprocessor, w: anytype, loc: Source.Location, parts: 
     }
 }
 
-fn prettyPrintMacrosOnly(pp: *Preprocessor, w: anytype) !void {
+fn prettyPrintMacrosOnly(pp: *Preprocessor, w: *Writer) !void {
     var it = pp.defines.valueIterator();
     while (it.next()) |macro| {
         if (macro.is_builtin) continue;
@@ -3351,7 +3346,7 @@ fn prettyPrintMacrosOnly(pp: *Preprocessor, w: anytype) !void {
 }
 
 /// Pretty print tokens and try to preserve whitespace.
-pub fn prettyPrintTokens(pp: *Preprocessor, w: anytype, macro_dump_mode: DumpMode) !void {
+pub fn prettyPrintTokens(pp: *Preprocessor, w: *Writer, macro_dump_mode: DumpMode) !void {
     if (macro_dump_mode == .macros_only) {
         return pp.prettyPrintMacrosOnly(w);
     }
@@ -3471,7 +3466,7 @@ test "Preserve pragma tokens sometimes" {
     const allocator = std.testing.allocator;
     const Test = struct {
         fn runPreprocessor(source_text: []const u8) ![]const u8 {
-            var buf = std.ArrayList(u8).init(allocator);
+            var buf = std.array_list.Managed(u8).init(allocator);
             defer buf.deinit();
 
             var comp = Compilation.init(allocator, std.fs.cwd());
@@ -3602,7 +3597,7 @@ test "Include guards" {
 
             _ = try comp.addSourceFromBuffer(path, "int bar = 5;\n");
 
-            var buf = std.ArrayList(u8).init(allocator);
+            var buf = std.array_list.Managed(u8).init(allocator);
             defer buf.deinit();
 
             var writer = buf.writer();

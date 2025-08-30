@@ -65,10 +65,7 @@ pub const MutableValue = union(enum) {
                 .ty = sv.ty,
                 .val = (try sv.child.intern(pt, arena)).toIntern(),
             } }),
-            .repeated => |sv| try pt.intern(.{ .aggregate = .{
-                .ty = sv.ty,
-                .storage = .{ .repeated_elem = (try sv.child.intern(pt, arena)).toIntern() },
-            } }),
+            .repeated => |sv| return pt.aggregateSplatValue(.fromInterned(sv.ty), try sv.child.intern(pt, arena)),
             .bytes => |b| try pt.intern(.{ .aggregate = .{
                 .ty = b.ty,
                 .storage = .{ .bytes = try pt.zcu.intern_pool.getOrPutString(pt.zcu.gpa, pt.tid, b.data, .maybe_embedded_nulls) },
@@ -78,10 +75,7 @@ pub const MutableValue = union(enum) {
                 for (a.elems, elems) |mut_elem, *interned_elem| {
                     interned_elem.* = (try mut_elem.intern(pt, arena)).toIntern();
                 }
-                return Value.fromInterned(try pt.intern(.{ .aggregate = .{
-                    .ty = a.ty,
-                    .storage = .{ .elems = elems },
-                } }));
+                return pt.aggregateValue(.fromInterned(a.ty), elems);
             },
             .slice => |s| try pt.intern(.{ .slice = .{
                 .ty = s.ty,
@@ -256,11 +250,11 @@ pub const MutableValue = union(enum) {
                     },
                     .pointer => {
                         const ptr_ty = ip.indexToKey(ty_ip).ptr_type;
-                        if (ptr_ty.flags.size != .Slice) return;
+                        if (ptr_ty.flags.size != .slice) return;
                         const ptr = try arena.create(MutableValue);
                         const len = try arena.create(MutableValue);
                         ptr.* = .{ .interned = try pt.intern(.{ .undef = ip.slicePtrType(ty_ip) }) };
-                        len.* = .{ .interned = try pt.intern(.{ .undef = .usize_type }) };
+                        len.* = .{ .interned = .undef_usize };
                         mv.* = .{ .slice = .{
                             .ty = ty_ip,
                             .ptr = ptr,
@@ -464,7 +458,7 @@ pub const MutableValue = union(enum) {
                         return switch (field_idx) {
                             Value.slice_ptr_index => .{ .interned = Value.fromInterned(ip_index).slicePtr(pt.zcu).toIntern() },
                             Value.slice_len_index => .{ .interned = switch (pt.zcu.intern_pool.indexToKey(ip_index)) {
-                                .undef => try pt.intern(.{ .undef = .usize_type }),
+                                .undef => .undef_usize,
                                 .slice => |s| s.len,
                                 else => unreachable,
                             } },

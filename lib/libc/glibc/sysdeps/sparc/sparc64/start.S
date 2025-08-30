@@ -1,5 +1,5 @@
 /* Startup code for elf64-sparc
-   Copyright (C) 1997-2024 Free Software Foundation, Inc.
+   Copyright (C) 1997-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -73,6 +73,10 @@ _start:
      registered with atexit().  If we are statically linked, this will
      be NULL.  */
 	mov     %g1, %o5
+
+  /* Provide the highest stack address to update the __libc_stack_end (used
+     to enable executable stacks if required).  */
+	stx	%sp, [%sp+STACK_BIAS+22*8]
 
   /* Let libc do the rest of the initialization, and call main.  */
 	call    __libc_start_main

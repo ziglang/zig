@@ -3,6 +3,7 @@
 
 #include <__typedef_off_t.h>
 #include <__struct_timespec.h>
+#include <unistd.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,6 +11,12 @@ extern "C" {
 
 struct stat;
 struct timespec;
+
+/// Populate libc's preopen tables. This is normally done automatically
+/// just before it's needed, however if you call `__wasi_fd_renumber` or
+/// `__wasi_fd_close` directly, and you need the preopens to be accurate
+/// afterward, you should call this before doing so.
+void __wasilibc_populate_preopens(void);
 
 /// Register the given pre-opened file descriptor under the given path.
 ///
@@ -57,6 +64,13 @@ int __wasilibc_rename_oldat(int olddirfd, const char *oldpath, const char *newpa
     __attribute__((__warn_unused_result__));
 int __wasilibc_rename_newat(const char *oldpath, int newdirfd, const char *newpath)
     __attribute__((__warn_unused_result__));
+
+/// Enable busywait in futex on current thread.
+void __wasilibc_enable_futex_busywait_on_current_thread(void);
+
+/// Fill a buffer with random bytes
+int __wasilibc_random(void* buffer, size_t len)
+   __attribute__((__warn_unused_result__));
 
 #ifdef __cplusplus
 }

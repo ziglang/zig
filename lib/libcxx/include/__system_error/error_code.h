@@ -17,7 +17,6 @@
 #include <__system_error/errc.h>
 #include <__system_error/error_category.h>
 #include <__system_error/error_condition.h>
-#include <cstddef>
 #include <string>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)

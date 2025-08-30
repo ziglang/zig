@@ -1,5 +1,4 @@
-const adler = @import("hash/adler.zig");
-pub const Adler32 = adler.Adler32;
+pub const Adler32 = @import("hash/Adler32.zig");
 
 const auto_hash = @import("hash/auto_hash.zig");
 pub const autoHash = auto_hash.autoHash;
@@ -79,9 +78,8 @@ fn uint16(input: u16) u16 {
     return x;
 }
 
-/// DEPRECATED: use std.hash.int()
 /// Source: https://github.com/skeeto/hash-prospector
-pub fn uint32(input: u32) u32 {
+fn uint32(input: u32) u32 {
     var x: u32 = input;
     x = (x ^ (x >> 17)) *% 0xed5ad4bb;
     x = (x ^ (x >> 11)) *% 0xac4c1b51;
@@ -117,7 +115,7 @@ test int {
 }
 
 test {
-    _ = adler;
+    _ = Adler32;
     _ = auto_hash;
     _ = crc;
     _ = fnv;

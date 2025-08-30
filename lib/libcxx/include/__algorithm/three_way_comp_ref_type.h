@@ -61,10 +61,10 @@ struct __debug_three_way_comp {
 // Pass the comparator by lvalue reference. Or in the debug mode, using a debugging wrapper that stores a reference.
 #  if _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG
 template <class _Comp>
-using __three_way_comp_ref_type = __debug_three_way_comp<_Comp>;
+using __three_way_comp_ref_type _LIBCPP_NODEBUG = __debug_three_way_comp<_Comp>;
 #  else
 template <class _Comp>
-using __three_way_comp_ref_type = _Comp&;
+using __three_way_comp_ref_type _LIBCPP_NODEBUG = _Comp&;
 #  endif
 
 #endif // _LIBCPP_STD_VER >= 20

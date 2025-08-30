@@ -51,18 +51,18 @@
 enum BGTYPE {
     BT_IMAGEFILE = 0,
     BT_BORDERFILL = 1,
-    BT_NONE = 2,
+    BT_NONE = 2
 };
 
 enum IMAGELAYOUT {
     IL_VERTICAL = 0,
-    IL_HORIZONTAL = 1,
+    IL_HORIZONTAL = 1
 };
 
 enum BORDERTYPE {
     BT_RECT = 0,
     BT_ROUNDRECT = 1,
-    BT_ELLIPSE = 2,
+    BT_ELLIPSE = 2
 };
 
 enum FILLTYPE {
@@ -70,31 +70,31 @@ enum FILLTYPE {
     FT_VERTGRADIENT = 1,
     FT_HORZGRADIENT = 2,
     FT_RADIALGRADIENT = 3,
-    FT_TILEIMAGE = 4,
+    FT_TILEIMAGE = 4
 };
 
 enum SIZINGTYPE {
     ST_TRUESIZE = 0,
     ST_STRETCH = 1,
-    ST_TILE = 2,
+    ST_TILE = 2
 };
 
 enum HALIGN {
     HA_LEFT = 0,
     HA_CENTER = 1,
-    HA_RIGHT = 2,
+    HA_RIGHT = 2
 };
 
 enum CONTENTALIGNMENT {
     CA_LEFT = 0,
     CA_CENTER = 1,
-    CA_RIGHT = 2,
+    CA_RIGHT = 2
 };
 
 enum VALIGN {
     VA_TOP = 0,
     VA_CENTER = 1,
-    VA_BOTTOM = 2,
+    VA_BOTTOM = 2
 };
 
 enum OFFSETTYPE {
@@ -111,7 +111,7 @@ enum OFFSETTYPE {
     OT_LEFTOFLASTBUTTON = 10,
     OT_RIGHTOFLASTBUTTON = 11,
     OT_ABOVELASTBUTTON = 12,
-    OT_BELOWLASTBUTTON = 13,
+    OT_BELOWLASTBUTTON = 13
 };
 
 enum ICONEFFECT {
@@ -119,37 +119,37 @@ enum ICONEFFECT {
     ICE_GLOW = 1,
     ICE_SHADOW = 2,
     ICE_PULSE = 3,
-    ICE_ALPHA = 4,
+    ICE_ALPHA = 4
 };
 
 enum TEXTSHADOWTYPE {
     TST_NONE = 0,
     TST_SINGLE = 1,
-    TST_CONTINUOUS = 2,
+    TST_CONTINUOUS = 2
 };
 
 enum GLYPHTYPE {
     GT_NONE = 0,
     GT_IMAGEGLYPH = 1,
-    GT_FONTGLYPH = 2,
+    GT_FONTGLYPH = 2
 };
 
 enum IMAGESELECTTYPE {
     IST_NONE = 0,
     IST_SIZE = 1,
-    IST_DPI = 2,
+    IST_DPI = 2
 };
 
 enum TRUESIZESCALINGTYPE {
     TSST_NONE = 0,
     TSST_SIZE = 1,
-    TSST_DPI = 2,
+    TSST_DPI = 2
 };
 
 enum GLYPHFONTSIZINGTYPE {
     GFST_NONE = 0,
     GFST_SIZE = 1,
-    GFST_DPI = 2,
+    GFST_DPI = 2
 };
 
 #define TMT_RESERVEDLOW 0
@@ -413,12 +413,12 @@ static const WCHAR VSCLASS_LINK[] = {'L','I','N','K',0};
 #endif
 
 enum LINKPARTS {
-    LP_HYPERLINK = 1,
+    LP_HYPERLINK = 1
 };
 
 enum HYPERLINKSTATES {
     HLS_NORMALTEXT = 1,
-    HLS_LINKTEXT = 2,
+    HLS_LINKTEXT = 2
 };
 
 /* EMPTYMARKUP class */
@@ -431,12 +431,12 @@ static const WCHAR VSCLASS_EMPTYMARKUP[] = {'E','M','P','T','Y','M','A','R','K',
 #endif
 
 enum EMPTYMARKUPPARTS {
-    EMP_MARKUPTEXT = 1,
+    EMP_MARKUPTEXT = 1
 };
 
 enum MARKUPTEXTSTATES {
     EMT_NORMALTEXT = 1,
-    EMT_LINKTEXT = 2,
+    EMT_LINKTEXT = 2
 };
 
 /* STATIC class */
@@ -449,7 +449,7 @@ static const WCHAR VSCLASS_STATIC[] = {'S','T','A','T','I','C',0};
 #endif
 
 enum STATICPARTS {
-    STAT_TEXT = 1,
+    STAT_TEXT = 1
 };
 
 /* PAGE class */
@@ -465,7 +465,7 @@ enum PAGEPARTS {
     PGRP_UP = 1,
     PGRP_DOWN = 2,
     PGRP_UPHORZ = 3,
-    PGRP_DOWNHORZ = 4,
+    PGRP_DOWNHORZ = 4
 };
 
 /* MONTHCAL class */
@@ -488,7 +488,7 @@ enum MONTHCALPARTS {
     MC_TRAILINGGRIDCELL = 8,
     MC_TRAILINGGRIDCELLUPPER = 9,
     MC_NAVNEXT = 10,
-    MC_NAVPREV = 11,
+    MC_NAVPREV = 11
 };
 
 enum GRIDCELLBACKGROUNDSTATES {
@@ -496,47 +496,47 @@ enum GRIDCELLBACKGROUNDSTATES {
     MCGCB_HOT = 2,
     MCGCB_SELECTEDHOT = 3,
     MCGCB_SELECTEDNOTFOCUSED = 4,
-    MCGCB_TODAY = 5,
+    MCGCB_TODAY = 5
 };
 
 enum GRIDCELLSTATES {
     MCGC_HOT = 1,
     MCGC_HASSTATE = 2,
     MCGC_HASSTATEHOT = 3,
-    MCGC_TODAY = 4,
+    MCGC_TODAY = 4
 };
 
 enum GRIDCELLUPPERSTATES {
     MCGCU_HOT = 1,
     MCGCU_HASSTATE = 2,
-    MCGCU_HASSTATEHOT = 3,
+    MCGCU_HASSTATEHOT = 3
 };
 
 enum TRAILINGGRIDCELLSTATES {
     MCTGC_HOT = 1,
     MCTGC_HASSTATE = 2,
     MCTGC_HASSTATEHOT = 3,
-    MCTGC_TODAY = 4,
+    MCTGC_TODAY = 4
 };
 
 enum TRAILINGGRIDCELLUPPERSTATES {
     MCTGCU_HOT = 1,
     MCTGCU_HASSTATE = 2,
-    MCTGCU_HASSTATEHOT = 3,
+    MCTGCU_HASSTATEHOT = 3
 };
 
 enum NAVNEXTSTATES {
     MCNN_NORMAL = 1,
     MCNN_HOT = 2,
     MCNN_PRESSED = 3,
-    MCNN_DISABLED = 4,
+    MCNN_DISABLED = 4
 };
 
 enum NAVPREVSTATES {
     MCNP_NORMAL = 1,
     MCNP_HOT = 2,
     MCNP_PRESSED = 3,
-    MCNP_DISABLED = 4,
+    MCNP_DISABLED = 4
 };
 
 /* CLOCK class */
@@ -549,13 +549,13 @@ static const WCHAR VSCLASS_CLOCK[] = {'C','L','O','C','K',0};
 #endif
 
 enum CLOCKPARTS {
-    CLP_TIME = 1,
+    CLP_TIME = 1
 };
 
 enum CLOCKSTATES {
     CLS_NORMAL = 1,
     CLS_HOT = 2,
-    CLS_PRESSED = 3,
+    CLS_PRESSED = 3
 };
 
 /* TRAYNOTIFY class */
@@ -569,7 +569,7 @@ static const WCHAR VSCLASS_TRAYNOTIFY[] = {'T','R','A','Y','N','O','T','I','F','
 
 enum TRAYNOTIFYPARTS {
     TNP_BACKGROUND = 1,
-    TNP_ANIMBACKGROUND = 2,
+    TNP_ANIMBACKGROUND = 2
 };
 
 /* TASKBAR class */
@@ -589,7 +589,7 @@ enum TASKBARPARTS {
     TBP_SIZINGBARBOTTOM = 5,
     TBP_SIZINGBARRIGHT = 6,
     TBP_SIZINGBARTOP = 7,
-    TBP_SIZINGBARLEFT = 8,
+    TBP_SIZINGBARLEFT = 8
 };
 
 /* TASKBAND class */
@@ -604,7 +604,7 @@ static const WCHAR VSCLASS_TASKBAND[] = {'T','A','S','K','B','A','N','D',0};
 enum TASKBANDPARTS {
     TDP_GROUPCOUNT = 1,
     TDP_FLASHBUTTON = 2,
-    TDP_FLASHBUTTONGROUPMENU = 3,
+    TDP_FLASHBUTTONGROUPMENU = 3
 };
 
 /* STARTPANEL class */
@@ -635,7 +635,7 @@ enum STARTPANELPARTS {
     SPP_SEARCHVIEW = 16,
     SPP_MOREPROGRAMSARROWBACK = 17,
     SPP_TOPMATCH = 18,
-    SPP_LOGOFFSPLITBUTTONDROPDOWN = 19,
+    SPP_LOGOFFSPLITBUTTONDROPDOWN = 19
 };
 
 enum MOREPROGRAMSTABSTATES {
@@ -643,7 +643,7 @@ enum MOREPROGRAMSTABSTATES {
     SPMPT_HOT = 2,
     SPMPT_SELECTED = 3,
     SPMPT_DISABLED = 4,
-    SPMPT_FOCUSED = 5,
+    SPMPT_FOCUSED = 5
 };
 
 enum SOFTWAREEXPLORERSTATES {
@@ -651,7 +651,7 @@ enum SOFTWAREEXPLORERSTATES {
     SPSE_HOT = 2,
     SPSE_SELECTED = 3,
     SPSE_DISABLED = 4,
-    SPSE_FOCUSED = 5,
+    SPSE_FOCUSED = 5
 };
 
 enum OPENBOXSTATES {
@@ -659,25 +659,25 @@ enum OPENBOXSTATES {
     SPOB_HOT = 2,
     SPOB_SELECTED = 3,
     SPOB_DISABLED = 4,
-    SPOB_FOCUSED = 5,
+    SPOB_FOCUSED = 5
 };
 
 enum MOREPROGRAMSARROWSTATES {
     SPS_NORMAL = 1,
     SPS_HOT = 2,
-    SPS_PRESSED = 3,
+    SPS_PRESSED = 3
 };
 
 enum MOREPROGRAMSARROWBACKSTATES {
     SPSB_NORMAL = 1,
     SPSB_HOT = 2,
-    SPSB_PRESSED = 3,
+    SPSB_PRESSED = 3
 };
 
 enum LOGOFFBUTTONSSTATES {
     SPLS_NORMAL = 1,
     SPLS_HOT = 2,
-    SPLS_PRESSED = 3,
+    SPLS_PRESSED = 3
 };
 
 /* MENUBAND class */
@@ -691,7 +691,7 @@ static const WCHAR VSCLASS_MENUBAND[] = {'M','E','N','U','B','A','N','D',0};
 
 enum MENUBANDPARTS {
     MDP_NEWAPPBUTTON = 1,
-    MDP_SEPERATOR = 2,
+    MDP_SEPERATOR = 2
 };
 
 enum MENUBANDSTATES {
@@ -700,7 +700,7 @@ enum MENUBANDSTATES {
     MDS_PRESSED = 3,
     MDS_DISABLED = 4,
     MDS_CHECKED = 5,
-    MDS_HOTCHECKED = 6,
+    MDS_HOTCHECKED = 6
 };
 
 #endif /* __VSSYM32_H__ */

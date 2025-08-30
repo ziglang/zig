@@ -113,33 +113,36 @@ template <class T, class Container>
 
 */
 
-#include <__algorithm/ranges_copy.h>
-#include <__config>
-#include <__fwd/stack.h>
-#include <__iterator/back_insert_iterator.h>
-#include <__iterator/iterator_traits.h>
-#include <__memory/uses_allocator.h>
-#include <__ranges/access.h>
-#include <__ranges/concepts.h>
-#include <__ranges/container_compatible_range.h>
-#include <__ranges/from_range.h>
-#include <__type_traits/is_same.h>
-#include <__utility/forward.h>
-#include <deque>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/stack>
+#else
+#  include <__algorithm/ranges_copy.h>
+#  include <__config>
+#  include <__fwd/stack.h>
+#  include <__iterator/back_insert_iterator.h>
+#  include <__iterator/iterator_traits.h>
+#  include <__memory/uses_allocator.h>
+#  include <__ranges/access.h>
+#  include <__ranges/concepts.h>
+#  include <__ranges/container_compatible_range.h>
+#  include <__ranges/from_range.h>
+#  include <__type_traits/is_same.h>
+#  include <__utility/forward.h>
+#  include <deque>
+#  include <version>
 
 // standard-mandated includes
 
 // [stack.syn]
-#include <compare>
-#include <initializer_list>
+#  include <compare>
+#  include <initializer_list>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
@@ -172,7 +175,7 @@ public:
     return *this;
   }
 
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI stack(stack&& __q) noexcept(is_nothrow_move_constructible<container_type>::value)
       : c(std::move(__q.c)) {}
 
@@ -182,7 +185,7 @@ public:
   }
 
   _LIBCPP_HIDE_FROM_ABI explicit stack(container_type&& __c) : c(std::move(__c)) {}
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI explicit stack(const container_type& __c) : c(__c) {}
 
@@ -198,7 +201,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   stack(const stack& __s, const _Alloc& __a, __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
       : c(__s.c, __a) {}
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   template <class _Alloc>
   _LIBCPP_HIDE_FROM_ABI
   stack(container_type&& __c, const _Alloc& __a, __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
@@ -207,9 +210,9 @@ public:
   _LIBCPP_HIDE_FROM_ABI
   stack(stack&& __s, const _Alloc& __a, __enable_if_t<uses_allocator<container_type, _Alloc>::value>* = 0)
       : c(std::move(__s.c), __a) {}
-#endif // _LIBCPP_CXX03_LANG
+#  endif // _LIBCPP_CXX03_LANG
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
   template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI stack(_InputIterator __first, _InputIterator __last) : c(__first, __last) {}
 
@@ -229,18 +232,18 @@ public:
   _LIBCPP_HIDE_FROM_ABI stack(from_range_t, _Range&& __range, const _Alloc& __alloc)
       : c(from_range, std::forward<_Range>(__range), __alloc) {}
 
-#endif
+#  endif
 
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI bool empty() const { return c.empty(); }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI bool empty() const { return c.empty(); }
   _LIBCPP_HIDE_FROM_ABI size_type size() const { return c.size(); }
   _LIBCPP_HIDE_FROM_ABI reference top() { return c.back(); }
   _LIBCPP_HIDE_FROM_ABI const_reference top() const { return c.back(); }
 
   _LIBCPP_HIDE_FROM_ABI void push(const value_type& __v) { c.push_back(__v); }
-#ifndef _LIBCPP_CXX03_LANG
+#  ifndef _LIBCPP_CXX03_LANG
   _LIBCPP_HIDE_FROM_ABI void push(value_type&& __v) { c.push_back(std::move(__v)); }
 
-#  if _LIBCPP_STD_VER >= 23
+#    if _LIBCPP_STD_VER >= 23
   template <_ContainerCompatibleRange<_Tp> _Range>
   _LIBCPP_HIDE_FROM_ABI void push_range(_Range&& __range) {
     if constexpr (requires(container_type& __c) { __c.append_range(std::forward<_Range>(__range)); }) {
@@ -249,22 +252,22 @@ public:
       ranges::copy(std::forward<_Range>(__range), std::back_inserter(c));
     }
   }
-#  endif
+#    endif
 
   template <class... _Args>
   _LIBCPP_HIDE_FROM_ABI
-#  if _LIBCPP_STD_VER >= 17
+#    if _LIBCPP_STD_VER >= 17
   decltype(auto)
   emplace(_Args&&... __args) {
     return c.emplace_back(std::forward<_Args>(__args)...);
   }
-#  else
+#    else
   void
   emplace(_Args&&... __args) {
     c.emplace_back(std::forward<_Args>(__args)...);
   }
-#  endif
-#endif // _LIBCPP_CXX03_LANG
+#    endif
+#  endif // _LIBCPP_CXX03_LANG
 
   _LIBCPP_HIDE_FROM_ABI void pop() { c.pop_back(); }
 
@@ -273,7 +276,7 @@ public:
     swap(c, __s.c);
   }
 
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI const _Container& __get_container() const { return c; }
 
   template <class _T1, class _OtherContainer>
   friend bool operator==(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
@@ -282,7 +285,7 @@ public:
   friend bool operator<(const stack<_T1, _OtherContainer>& __x, const stack<_T1, _OtherContainer>& __y);
 };
 
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
 template <class _Container, class = enable_if_t<!__is_allocator<_Container>::value> >
 stack(_Container) -> stack<typename _Container::value_type, _Container>;
 
@@ -291,9 +294,9 @@ template <class _Container,
           class = enable_if_t<!__is_allocator<_Container>::value>,
           class = enable_if_t<uses_allocator<_Container, _Alloc>::value> >
 stack(_Container, _Alloc) -> stack<typename _Container::value_type, _Container>;
-#endif
+#  endif
 
-#if _LIBCPP_STD_VER >= 23
+#  if _LIBCPP_STD_VER >= 23
 template <class _InputIterator, __enable_if_t<__has_input_iterator_category<_InputIterator>::value, int> = 0>
 stack(_InputIterator, _InputIterator) -> stack<__iter_value_type<_InputIterator>>;
 
@@ -313,7 +316,7 @@ stack(from_range_t,
       _Range&&,
       _Alloc) -> stack<ranges::range_value_t<_Range>, deque<ranges::range_value_t<_Range>, _Alloc>>;
 
-#endif
+#  endif
 
 template <class _Tp, class _Container>
 inline _LIBCPP_HIDE_FROM_ABI bool operator==(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y) {
@@ -345,7 +348,7 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator<=(const stack<_Tp, _Container>& __x, 
   return !(__y < __x);
 }
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
 
 template <class _Tp, three_way_comparable _Container>
 _LIBCPP_HIDE_FROM_ABI compare_three_way_result_t<_Container>
@@ -354,7 +357,7 @@ operator<=>(const stack<_Tp, _Container>& __x, const stack<_Tp, _Container>& __y
   return __x.__get_container() <=> __y.__get_container();
 }
 
-#endif
+#  endif
 
 template <class _Tp, class _Container, __enable_if_t<__is_swappable_v<_Container>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI void swap(stack<_Tp, _Container>& __x, stack<_Tp, _Container>& __y)
@@ -370,10 +373,11 @@ _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <concepts>
-#  include <functional>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <concepts>
+#    include <functional>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STACK

@@ -17,8 +17,6 @@ pub const Token = struct {
         .{ "anyframe", .keyword_anyframe },
         .{ "anytype", .keyword_anytype },
         .{ "asm", .keyword_asm },
-        .{ "async", .keyword_async },
-        .{ "await", .keyword_await },
         .{ "break", .keyword_break },
         .{ "callconv", .keyword_callconv },
         .{ "catch", .keyword_catch },
@@ -55,7 +53,6 @@ pub const Token = struct {
         .{ "try", .keyword_try },
         .{ "union", .keyword_union },
         .{ "unreachable", .keyword_unreachable },
-        .{ "usingnamespace", .keyword_usingnamespace },
         .{ "var", .keyword_var },
         .{ "volatile", .keyword_volatile },
         .{ "while", .keyword_while },
@@ -146,8 +143,6 @@ pub const Token = struct {
         keyword_anyframe,
         keyword_anytype,
         keyword_asm,
-        keyword_async,
-        keyword_await,
         keyword_break,
         keyword_callconv,
         keyword_catch,
@@ -184,7 +179,6 @@ pub const Token = struct {
         keyword_try,
         keyword_union,
         keyword_unreachable,
-        keyword_usingnamespace,
         keyword_var,
         keyword_volatile,
         keyword_while,
@@ -273,8 +267,6 @@ pub const Token = struct {
                 .keyword_anyframe => "anyframe",
                 .keyword_anytype => "anytype",
                 .keyword_asm => "asm",
-                .keyword_async => "async",
-                .keyword_await => "await",
                 .keyword_break => "break",
                 .keyword_callconv => "callconv",
                 .keyword_catch => "catch",
@@ -311,7 +303,6 @@ pub const Token = struct {
                 .keyword_try => "try",
                 .keyword_union => "union",
                 .keyword_unreachable => "unreachable",
-                .keyword_usingnamespace => "usingnamespace",
                 .keyword_var => "var",
                 .keyword_volatile => "volatile",
                 .keyword_while => "while",
@@ -1712,7 +1703,7 @@ test "invalid tabs and carriage returns" {
 }
 
 test "fuzzable properties upheld" {
-    return std.testing.fuzz(testPropertiesUpheld, .{});
+    return std.testing.fuzz({}, testPropertiesUpheld, .{});
 }
 
 fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !void {
@@ -1730,7 +1721,8 @@ fn testTokenize(source: [:0]const u8, expected_token_tags: []const Token.Tag) !v
     try std.testing.expectEqual(source.len, last_token.loc.end);
 }
 
-fn testPropertiesUpheld(source: []const u8) anyerror!void {
+fn testPropertiesUpheld(context: void, source: []const u8) anyerror!void {
+    _ = context;
     const source0 = try std.testing.allocator.dupeZ(u8, source);
     defer std.testing.allocator.free(source0);
     var tokenizer = Tokenizer.init(source0);

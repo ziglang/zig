@@ -44,6 +44,7 @@ struct addrinfo {
 #define EAI_NONAME     -2
 #define EAI_AGAIN      -3
 #define EAI_FAIL       -4
+#define EAI_NODATA     -5
 #define EAI_FAMILY     -6
 #define EAI_SOCKTYPE   -7
 #define EAI_SERVICE    -8
@@ -118,8 +119,13 @@ struct hostent *gethostbyaddr (const void *, socklen_t, int);
 #ifdef __GNUC__
 __attribute__((const))
 #endif
+#ifdef __wasilibc_unmodified_upstream
 int *__h_errno_location(void);
 #define h_errno (*__h_errno_location())
+#elif (defined __wasilibc_use_wasip2)
+extern _Thread_local int h_errno;
+#define h_errno h_errno
+#endif
 #define HOST_NOT_FOUND 1
 #define TRY_AGAIN      2
 #define NO_RECOVERY    3

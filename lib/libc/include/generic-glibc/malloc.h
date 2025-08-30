@@ -1,5 +1,5 @@
 /* Prototypes and definition for malloc implementation.
-   Copyright (C) 1996-2024 Free Software Foundation, Inc.
+   Copyright (C) 1996-2025 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -52,7 +52,7 @@ extern void *realloc (void *__ptr, size_t __size)
 __THROW __attribute_warn_unused_result__ __attribute_alloc_size__ ((2));
 
 /*
- * reallocarray introduced in glibc 2.26
+ * zig patch: reallocarray introduced in glibc 2.26
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2

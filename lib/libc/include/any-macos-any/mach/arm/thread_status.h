@@ -60,6 +60,7 @@
 #define ARM_EXCEPTION_STATE64    7
 //      ARM_THREAD_STATE_LAST    8 /* legacy */
 #define ARM_THREAD_STATE32       9
+#define ARM_EXCEPTION_STATE64_V2 10
 
 
 /* API */
@@ -72,6 +73,30 @@
 
 #define ARM_PAGEIN_STATE         27
 
+/* API */
+#define ARM_SME_STATE            28
+#define ARM_SVE_Z_STATE1         29
+#define ARM_SVE_Z_STATE2         30
+#define ARM_SVE_P_STATE          31
+#define ARM_SME_ZA_STATE1        32
+#define ARM_SME_ZA_STATE2        33
+#define ARM_SME_ZA_STATE3        34
+#define ARM_SME_ZA_STATE4        35
+#define ARM_SME_ZA_STATE5        36
+#define ARM_SME_ZA_STATE6        37
+#define ARM_SME_ZA_STATE7        38
+#define ARM_SME_ZA_STATE8        39
+#define ARM_SME_ZA_STATE9        40
+#define ARM_SME_ZA_STATE10       41
+#define ARM_SME_ZA_STATE11       42
+#define ARM_SME_ZA_STATE12       42
+#define ARM_SME_ZA_STATE13       44
+#define ARM_SME_ZA_STATE14       45
+#define ARM_SME_ZA_STATE15       46
+#define ARM_SME_ZA_STATE16       47
+#define ARM_SME2_STATE           48
+
+#define THREAD_STATE_FLAVORS     50     /* This must be updated to 1 more than the highest numerical state flavor */
 
 #ifndef ARM_STATE_FLAVOR_IS_OTHER_VALID
 #define ARM_STATE_FLAVOR_IS_OTHER_VALID(_flavor_) 0
@@ -91,12 +116,18 @@
 	 (x == ARM_THREAD_STATE32) ||         \
 	 (x == ARM_THREAD_STATE64) ||         \
 	 (x == ARM_EXCEPTION_STATE64) ||      \
+	 (x == ARM_EXCEPTION_STATE64_V2) ||      \
 	 (x == ARM_NEON_STATE) ||             \
 	 (x == ARM_NEON_STATE64) ||           \
 	 (x == ARM_DEBUG_STATE32) ||          \
 	 (x == ARM_DEBUG_STATE64) ||          \
 	 (x == ARM_PAGEIN_STATE) ||           \
 	 (ARM_STATE_FLAVOR_IS_OTHER_VALID(x)))
+/*
+ * VALID_THREAD_STATE_FLAVOR() intentionally excludes ARM_SME_STATE through
+ * ARM_SME2_STATE, since these are not currently supported inside Mach exception
+ * ports.
+ */
 
 struct arm_state_hdr {
 	uint32_t flavor;
@@ -123,6 +154,9 @@ typedef _STRUCT_ARM_THREAD_STATE64 arm_thread_state64_t;
 /* Set pc field of arm_thread_state64_t to a function pointer */
 #define arm_thread_state64_set_pc_fptr(ts, fptr) \
 	        __darwin_arm_thread_state64_set_pc_fptr(ts, fptr)
+/* Set pc field of arm_thread_state64_t to an already signed function pointer */
+#define arm_thread_state64_set_pc_presigned_fptr(ts, fptr) \
+	        __darwin_arm_thread_state64_set_pc_presigned_fptr(ts, fptr)
 /* Return lr field of arm_thread_state64_t as a data pointer value */
 #define arm_thread_state64_get_lr(ts) \
 	        __darwin_arm_thread_state64_get_lr(ts)
@@ -134,6 +168,9 @@ typedef _STRUCT_ARM_THREAD_STATE64 arm_thread_state64_t;
 /* Set lr field of arm_thread_state64_t to a function pointer */
 #define arm_thread_state64_set_lr_fptr(ts, fptr) \
 	        __darwin_arm_thread_state64_set_lr_fptr(ts, fptr)
+/* Set lr field of arm_thread_state64_t to an already signed function pointer */
+#define arm_thread_state64_set_lr_presigned_fptr(ts, fptr) \
+	        __darwin_arm_thread_state64_set_lr_presigned_fptr(ts, fptr)
 /* Return sp field of arm_thread_state64_t as a data pointer value */
 #define arm_thread_state64_get_sp(ts) \
 	        __darwin_arm_thread_state64_get_sp(ts)
@@ -182,11 +219,18 @@ typedef _STRUCT_ARM_NEON_STATE64      arm_neon_state64_t;
 typedef _STRUCT_ARM_EXCEPTION_STATE   arm_exception_state_t;
 typedef _STRUCT_ARM_EXCEPTION_STATE   arm_exception_state32_t;
 typedef _STRUCT_ARM_EXCEPTION_STATE64 arm_exception_state64_t;
+typedef _STRUCT_ARM_EXCEPTION_STATE64_V2 arm_exception_state64_v2_t;
 
 typedef _STRUCT_ARM_DEBUG_STATE32     arm_debug_state32_t;
 typedef _STRUCT_ARM_DEBUG_STATE64     arm_debug_state64_t;
 
 typedef _STRUCT_ARM_PAGEIN_STATE      arm_pagein_state_t;
+
+typedef _STRUCT_ARM_SME_STATE         arm_sme_state_t;
+typedef _STRUCT_ARM_SVE_Z_STATE       arm_sve_z_state_t;
+typedef _STRUCT_ARM_SVE_P_STATE       arm_sve_p_state_t;
+typedef _STRUCT_ARM_SME_ZA_STATE      arm_sme_za_state_t;
+typedef _STRUCT_ARM_SME2_STATE        arm_sme2_state_t;
 
 /*
  * Otherwise not ARM64 kernel and we must preserve legacy ARM definitions of
@@ -209,6 +253,9 @@ typedef _STRUCT_ARM_LEGACY_DEBUG_STATE arm_debug_state_t;
 #define ARM_EXCEPTION_STATE64_COUNT ((mach_msg_type_number_t) \
 	(sizeof (arm_exception_state64_t)/sizeof(uint32_t)))
 
+#define ARM_EXCEPTION_STATE64_V2_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_exception_state64_v2_t)/sizeof(uint32_t)))
+
 #define ARM_DEBUG_STATE_COUNT ((mach_msg_type_number_t) \
 	(sizeof (arm_debug_state_t)/sizeof(uint32_t)))
 
@@ -226,6 +273,21 @@ typedef _STRUCT_ARM_LEGACY_DEBUG_STATE arm_debug_state_t;
 
 #define ARM_NEON_STATE64_COUNT ((mach_msg_type_number_t) \
 	(sizeof (arm_neon_state64_t)/sizeof(uint32_t)))
+
+#define ARM_SME_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_sme_state_t)/sizeof(uint32_t)))
+
+#define ARM_SVE_Z_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_sve_z_state_t)/sizeof(uint32_t)))
+
+#define ARM_SVE_P_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_sve_p_state_t)/sizeof(uint32_t)))
+
+#define ARM_SME_ZA_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_sme_za_state_t)/sizeof(uint32_t)))
+
+#define ARM_SME2_STATE_COUNT ((mach_msg_type_number_t) \
+	(sizeof (arm_sme2_state_t)/sizeof(uint32_t)))
 
 #define MACHINE_THREAD_STATE       ARM_THREAD_STATE
 #define MACHINE_THREAD_STATE_COUNT ARM_UNIFIED_THREAD_STATE_COUNT

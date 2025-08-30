@@ -10,11 +10,13 @@
 #ifndef _LIBCPP_EXPERIMENTAL___SIMD_SIMD_H
 #define _LIBCPP_EXPERIMENTAL___SIMD_SIMD_H
 
+#include <__config>
+#include <__cstddef/size_t.h>
+#include <__type_traits/enable_if.h>
+#include <__type_traits/is_integral.h>
 #include <__type_traits/is_same.h>
 #include <__type_traits/remove_cvref.h>
 #include <__utility/forward.h>
-#include <cstddef>
-#include <experimental/__config>
 #include <experimental/__simd/declaration.h>
 #include <experimental/__simd/reference.h>
 #include <experimental/__simd/traits.h>
@@ -25,14 +27,28 @@
 _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL
 inline namespace parallelism_v2 {
 
+template <class _Simd, class _Impl, bool>
+class __simd_int_operators {};
+
+template <class _Simd, class _Impl>
+class __simd_int_operators<_Simd, _Impl, true> {
+public:
+  // unary operators for integral _Tp
+  _LIBCPP_HIDE_FROM_ABI _Simd operator~() const noexcept {
+    return _Simd(_Impl::__bitwise_not((*static_cast<const _Simd*>(this)).__s_), _Simd::__storage_tag);
+  }
+};
+
 // class template simd [simd.class]
 // TODO: implement simd class
 template <class _Tp, class _Abi>
-class simd {
-  using _Impl    = __simd_operations<_Tp, _Abi>;
-  using _Storage = typename _Impl::_SimdStorage;
+class simd : public __simd_int_operators<simd<_Tp, _Abi>, __simd_operations<_Tp, _Abi>, is_integral_v<_Tp>> {
+  using _Impl _LIBCPP_NODEBUG    = __simd_operations<_Tp, _Abi>;
+  using _Storage _LIBCPP_NODEBUG = typename _Impl::_SimdStorage;
 
   _Storage __s_;
+
+  friend class __simd_int_operators<simd, _Impl, true>;
 
 public:
   using value_type = _Tp;
@@ -43,6 +59,12 @@ public:
   static _LIBCPP_HIDE_FROM_ABI constexpr size_t size() noexcept { return simd_size_v<value_type, abi_type>; }
 
   _LIBCPP_HIDE_FROM_ABI simd() noexcept = default;
+
+  // explicit conversion from and to implementation-defined types
+  struct __storage_tag_t {};
+  static constexpr __storage_tag_t __storage_tag{};
+  explicit _LIBCPP_HIDE_FROM_ABI operator _Storage() const { return __s_; }
+  explicit _LIBCPP_HIDE_FROM_ABI simd(const _Storage& __s, __storage_tag_t) : __s_(__s) {}
 
   // broadcast constructor
   template <class _Up, enable_if_t<__can_broadcast_v<value_type, __remove_cvref_t<_Up>>, int> = 0>
@@ -84,6 +106,37 @@ public:
   // scalar access [simd.subscr]
   _LIBCPP_HIDE_FROM_ABI reference operator[](size_t __i) noexcept { return reference(__s_, __i); }
   _LIBCPP_HIDE_FROM_ABI value_type operator[](size_t __i) const noexcept { return __s_.__get(__i); }
+
+  // simd unary operators
+  _LIBCPP_HIDE_FROM_ABI simd& operator++() noexcept {
+    _Impl::__increment(__s_);
+    return *this;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI simd operator++(int) noexcept {
+    simd __r = *this;
+    _Impl::__increment(__s_);
+    return __r;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI simd& operator--() noexcept {
+    _Impl::__decrement(__s_);
+    return *this;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI simd operator--(int) noexcept {
+    simd __r = *this;
+    _Impl::__decrement(__s_);
+    return __r;
+  }
+
+  _LIBCPP_HIDE_FROM_ABI mask_type operator!() const noexcept {
+    return mask_type(_Impl::__negate(__s_), mask_type::__storage_tag);
+  }
+
+  _LIBCPP_HIDE_FROM_ABI simd operator+() const noexcept { return *this; }
+
+  _LIBCPP_HIDE_FROM_ABI simd operator-() const noexcept { return simd(_Impl::__unary_minus(__s_), __storage_tag); }
 };
 
 template <class _Tp, class _Abi>

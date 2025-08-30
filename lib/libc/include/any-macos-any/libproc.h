@@ -129,6 +129,10 @@ int proc_clear_dirty(pid_t pid, uint32_t flags);
 
 int proc_terminate(pid_t pid, int *sig);
 int proc_terminate_all_rsr(int sig);
+int proc_signal_with_audittoken(audit_token_t *audittoken, int sig);
+int proc_terminate_with_audittoken(audit_token_t *audittoken, int *sig);
+int proc_signal_delegate(audit_token_t instigator, audit_token_t target, int sig);
+int proc_terminate_delegate(audit_token_t instigator, audit_token_t target, int *sig);
 
 /*
  * NO_SMT means that on an SMT CPU, this thread must be scheduled alone,
@@ -163,10 +167,6 @@ int proc_setthread_csm(uint32_t flags) __API_AVAILABLE(macos(11.0));
 #define PROC_CSM_TECS        0x0004  /* Execute VERW on every return to user mode */
 
 int proc_udata_info(int pid, int flavor, void *buffer, int buffersize);
-
-#if __has_include(<libproc_private.h>)
-#include <libproc_private.h>
-#endif
 
 __END_DECLS
 

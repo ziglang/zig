@@ -76,6 +76,10 @@ typedef int             vm_prot_t;
 
 /*
  *	Protection values, defined as bits within the vm_prot_t type
+ *
+ *  When making a new VM_PROT_*, update tests vm_parameter_validation_[user|kern]
+ *  and their expected results; they deliberately call VM functions with invalid
+ *  vm_prot values and you may be turning one of those invalid protections valid.
  */
 
 #define VM_PROT_NONE    ((vm_prot_t) 0x00)

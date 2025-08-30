@@ -12,7 +12,7 @@
 
 #include <__config>
 #include <__locale_dir/locale_base_api.h>
-#include <__memory/shared_ptr.h> // __shared_count
+#include <__memory/shared_count.h>
 #include <__mutex/once_flag.h>
 #include <__type_traits/make_unsigned.h>
 #include <__utility/no_destroy.h>
@@ -27,7 +27,7 @@
 #include <cstddef>
 #include <cstring>
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 #  include <cwchar>
 #else
 #  include <__std_mbstate_t.h>
@@ -50,7 +50,7 @@ _LIBCPP_HIDE_FROM_ABI const _Facet& use_facet(const locale&);
 class _LIBCPP_EXPORTED_FROM_ABI locale {
 public:
   // locale is essentially a shared_ptr that doesn't support weak_ptrs and never got a move constructor.
-  using __trivially_relocatable = locale;
+  using __trivially_relocatable _LIBCPP_NODEBUG = locale;
 
   // types:
   class _LIBCPP_EXPORTED_FROM_ABI facet;
@@ -60,8 +60,9 @@ public:
 
   static const category // values assigned here are for exposition only
       none    = 0,
-      collate = LC_COLLATE_MASK, ctype = LC_CTYPE_MASK, monetary = LC_MONETARY_MASK, numeric = LC_NUMERIC_MASK,
-      time = LC_TIME_MASK, messages = LC_MESSAGES_MASK, all = collate | ctype | monetary | numeric | time | messages;
+      collate = _LIBCPP_COLLATE_MASK, ctype = _LIBCPP_CTYPE_MASK, monetary = _LIBCPP_MONETARY_MASK,
+      numeric = _LIBCPP_NUMERIC_MASK, time = _LIBCPP_TIME_MASK, messages = _LIBCPP_MESSAGES_MASK,
+      all = collate | ctype | monetary | numeric | time | messages;
 
   // construct/copy/destroy:
   locale() _NOEXCEPT;
@@ -236,7 +237,7 @@ long collate<_CharT>::do_hash(const char_type* __lo, const char_type* __hi) cons
 }
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<char>;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS collate<wchar_t>;
 #endif
 
@@ -247,7 +248,7 @@ class _LIBCPP_TEMPLATE_VIS collate_byname;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI collate_byname<char> : public collate<char> {
-  locale_t __l_;
+  __locale::__locale_t __l_;
 
 public:
   typedef char char_type;
@@ -263,10 +264,10 @@ protected:
   string_type do_transform(const char_type* __lo, const char_type* __hi) const override;
 };
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI collate_byname<wchar_t> : public collate<wchar_t> {
-  locale_t __l_;
+  __locale::__locale_t __l_;
 
 public:
   typedef wchar_t char_type;
@@ -348,7 +349,7 @@ public:
 #  define _LIBCPP_CTYPE_MASK_IS_COMPOSITE_ALPHA
 #elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__)
 #  ifdef __APPLE__
-  typedef __uint32_t mask;
+  typedef uint32_t mask;
 #  elif defined(__FreeBSD__)
   typedef unsigned long mask;
 #  elif defined(__NetBSD__)
@@ -449,7 +450,7 @@ public:
 template <class _CharT>
 class _LIBCPP_TEMPLATE_VIS ctype;
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype<wchar_t> : public locale::facet, public ctype_base {
 public:
@@ -514,7 +515,9 @@ protected:
   virtual const char_type*
   do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const;
 };
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif // _LIBCPP_HAS_WIDE_CHARACTERS
+
+inline _LIBCPP_HIDE_FROM_ABI bool __libcpp_isascii(int __c) { return (__c & ~0x7F) == 0; }
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype<char> : public locale::facet, public ctype_base {
@@ -527,25 +530,25 @@ public:
   explicit ctype(const mask* __tab = nullptr, bool __del = false, size_t __refs = 0);
 
   _LIBCPP_HIDE_FROM_ABI bool is(mask __m, char_type __c) const {
-    return isascii(__c) ? (__tab_[static_cast<int>(__c)] & __m) != 0 : false;
+    return std::__libcpp_isascii(__c) ? (__tab_[static_cast<int>(__c)] & __m) != 0 : false;
   }
 
   _LIBCPP_HIDE_FROM_ABI const char_type* is(const char_type* __low, const char_type* __high, mask* __vec) const {
     for (; __low != __high; ++__low, ++__vec)
-      *__vec = isascii(*__low) ? __tab_[static_cast<int>(*__low)] : 0;
+      *__vec = std::__libcpp_isascii(*__low) ? __tab_[static_cast<int>(*__low)] : 0;
     return __low;
   }
 
   _LIBCPP_HIDE_FROM_ABI const char_type* scan_is(mask __m, const char_type* __low, const char_type* __high) const {
     for (; __low != __high; ++__low)
-      if (isascii(*__low) && (__tab_[static_cast<int>(*__low)] & __m))
+      if (std::__libcpp_isascii(*__low) && (__tab_[static_cast<int>(*__low)] & __m))
         break;
     return __low;
   }
 
   _LIBCPP_HIDE_FROM_ABI const char_type* scan_not(mask __m, const char_type* __low, const char_type* __high) const {
     for (; __low != __high; ++__low)
-      if (!isascii(*__low) || !(__tab_[static_cast<int>(*__low)] & __m))
+      if (!std::__libcpp_isascii(*__low) || !(__tab_[static_cast<int>(*__low)] & __m))
         break;
     return __low;
   }
@@ -616,7 +619,7 @@ class _LIBCPP_TEMPLATE_VIS ctype_byname;
 
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<char> : public ctype<char> {
-  locale_t __l_;
+  __locale::__locale_t __l_;
 
 public:
   explicit ctype_byname(const char*, size_t = 0);
@@ -630,10 +633,10 @@ protected:
   const char_type* do_tolower(char_type* __low, const char_type* __high) const override;
 };
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI ctype_byname<wchar_t> : public ctype<wchar_t> {
-  locale_t __l_;
+  __locale::__locale_t __l_;
 
 public:
   explicit ctype_byname(const char*, size_t = 0);
@@ -655,7 +658,7 @@ protected:
   const char_type*
   do_narrow(const char_type* __low, const char_type* __high, char __dfault, char* __dest) const override;
 };
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 template <class _CharT>
 inline _LIBCPP_HIDE_FROM_ABI bool isspace(_CharT __c, const locale& __loc) {
@@ -821,10 +824,10 @@ protected:
 
 // template <> class codecvt<wchar_t, char, mbstate_t>
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI codecvt<wchar_t, char, mbstate_t> : public locale::facet, public codecvt_base {
-  locale_t __l_;
+  __locale::__locale_t __l_;
 
 public:
   typedef wchar_t intern_type;
@@ -900,7 +903,7 @@ protected:
   virtual int do_length(state_type&, const extern_type* __frm, const extern_type* __end, size_t __mx) const;
   virtual int do_max_length() const _NOEXCEPT;
 };
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // template <> class codecvt<char16_t, char, mbstate_t> // deprecated in C++20
 
@@ -982,7 +985,7 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#if _LIBCPP_HAS_CHAR8_T
 
 // template <> class codecvt<char16_t, char8_t, mbstate_t> // C++20
 
@@ -1145,7 +1148,7 @@ protected:
   virtual int do_max_length() const _NOEXCEPT;
 };
 
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#if _LIBCPP_HAS_CHAR8_T
 
 // template <> class codecvt<char32_t, char8_t, mbstate_t> // C++20
 
@@ -1248,14 +1251,14 @@ codecvt_byname<_InternT, _ExternT, _StateT>::~codecvt_byname() {}
 _LIBCPP_SUPPRESS_DEPRECATED_POP
 
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char, char, mbstate_t>;
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<wchar_t, char, mbstate_t>;
 #endif
 extern template class _LIBCPP_DEPRECATED_IN_CXX20
 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char, mbstate_t>; // deprecated in C++20
 extern template class _LIBCPP_DEPRECATED_IN_CXX20
 _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char, mbstate_t>; // deprecated in C++20
-#ifndef _LIBCPP_HAS_NO_CHAR8_T
+#if _LIBCPP_HAS_CHAR8_T
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char16_t, char8_t, mbstate_t>; // C++20
 extern template class _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS codecvt_byname<char32_t, char8_t, mbstate_t>; // C++20
 #endif
@@ -1438,7 +1441,7 @@ protected:
   string __grouping_;
 };
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct<wchar_t> : public locale::facet {
 public:
@@ -1467,7 +1470,7 @@ protected:
   char_type __thousands_sep_;
   string __grouping_;
 };
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 // template <class charT> class numpunct_byname
 
@@ -1490,7 +1493,7 @@ private:
   void __init(const char*);
 };
 
-#ifndef _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
 class _LIBCPP_EXPORTED_FROM_ABI numpunct_byname<wchar_t> : public numpunct<wchar_t> {
 public:
@@ -1506,7 +1509,7 @@ protected:
 private:
   void __init(const char*);
 };
-#endif // _LIBCPP_HAS_NO_WIDE_CHARACTERS
+#endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 _LIBCPP_END_NAMESPACE_STD
 

@@ -6,6 +6,7 @@ pub const Error = error{
     InvalidFileDescriptor,
     NameTooLong,
     TooBig,
+    AccessDenied,
     PermissionDenied,
     InputOutput,
     FileSystem,
@@ -40,17 +41,17 @@ pub const Attr = struct {
         }
     }
 
-    pub fn get(self: Attr) Error!u16 {
-        var flags: c_short = undefined;
+    pub fn get(self: Attr) Error!std.c.POSIX_SPAWN {
+        var flags: std.c.POSIX_SPAWN = undefined;
         switch (errno(std.c.posix_spawnattr_getflags(&self.attr, &flags))) {
-            .SUCCESS => return @as(u16, @bitCast(flags)),
+            .SUCCESS => return flags,
             .INVAL => unreachable,
             else => |err| return unexpectedErrno(err),
         }
     }
 
-    pub fn set(self: *Attr, flags: u16) Error!void {
-        switch (errno(std.c.posix_spawnattr_setflags(&self.attr, @as(c_short, @bitCast(flags))))) {
+    pub fn set(self: *Attr, flags: std.c.POSIX_SPAWN) Error!void {
+        switch (errno(std.c.posix_spawnattr_setflags(&self.attr, flags))) {
             .SUCCESS => return,
             .INVAL => unreachable,
             else => |err| return unexpectedErrno(err),
@@ -161,8 +162,8 @@ pub fn spawn(
     path: []const u8,
     actions: ?Actions,
     attr: ?Attr,
-    argv: [*:null]?[*:0]const u8,
-    envp: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
 ) Error!std.c.pid_t {
     const posix_path = try std.posix.toPosixPath(path);
     return spawnZ(&posix_path, actions, attr, argv, envp);
@@ -172,8 +173,8 @@ pub fn spawnZ(
     path: [*:0]const u8,
     actions: ?Actions,
     attr: ?Attr,
-    argv: [*:null]?[*:0]const u8,
-    envp: [*:null]?[*:0]const u8,
+    argv: [*:null]const ?[*:0]const u8,
+    envp: [*:null]const ?[*:0]const u8,
 ) Error!std.c.pid_t {
     var pid: std.c.pid_t = undefined;
     switch (errno(std.c.posix_spawn(
@@ -188,7 +189,7 @@ pub fn spawnZ(
         .@"2BIG" => return error.TooBig,
         .NOMEM => return error.SystemResources,
         .BADF => return error.InvalidFileDescriptor,
-        .ACCES => return error.PermissionDenied,
+        .ACCES => return error.AccessDenied,
         .IO => return error.InputOutput,
         .LOOP => return error.FileSystem,
         .NAMETOOLONG => return error.NameTooLong,

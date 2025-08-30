@@ -7,14 +7,55 @@
 //! and known jump labels for blocks.
 
 const Mir = @This();
+const InternPool = @import("../../InternPool.zig");
+const Wasm = @import("../../link/Wasm.zig");
+const Emit = @import("Emit.zig");
+const Alignment = InternPool.Alignment;
 
+const builtin = @import("builtin");
 const std = @import("std");
+const assert = std.debug.assert;
+const leb = std.leb;
 
-/// A struct of array that represents each individual wasm
 instructions: std.MultiArrayList(Inst).Slice,
 /// A slice of indexes where the meaning of the data is determined by the
 /// `Inst.Tag` value.
 extra: []const u32,
+locals: []const std.wasm.Valtype,
+prologue: Prologue,
+
+/// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
+/// Value is the explicit alignment if greater than natural alignment, `.none` otherwise.
+uavs: std.AutoArrayHashMapUnmanaged(InternPool.Index, Alignment),
+/// Not directly used by `Emit`, but the linker needs this to merge it with a global set.
+indirect_function_set: std.AutoArrayHashMapUnmanaged(InternPool.Nav.Index, void),
+/// Not directly used by `Emit`, but the linker needs this to ensure these types are interned.
+func_tys: std.AutoArrayHashMapUnmanaged(InternPool.Index, void),
+/// Not directly used by `Emit`, but the linker needs this to add it to its own refcount.
+error_name_table_ref_count: u32,
+
+pub const Prologue = extern struct {
+    flags: Flags,
+    sp_local: u32,
+    stack_size: u32,
+    bottom_stack_local: u32,
+
+    pub const Flags = packed struct(u32) {
+        stack_alignment: Alignment,
+        padding: u26 = 0,
+    };
+
+    pub const none: Prologue = .{
+        .sp_local = 0,
+        .flags = .{ .stack_alignment = .none },
+        .stack_size = 0,
+        .bottom_stack_local = 0,
+    };
+
+    pub fn isNone(p: *const Prologue) bool {
+        return p.flags.stack_alignment != .none;
+    }
+};
 
 pub const Inst = struct {
     /// The opcode that represents this instruction
@@ -26,16 +67,14 @@ pub const Inst = struct {
     /// The position of a given MIR isntruction with the instruction list.
     pub const Index = u32;
 
-    /// Contains all possible wasm opcodes the Zig compiler may emit
-    /// Rather than re-using std.wasm.Opcode, we only declare the opcodes
-    /// we need, and also use this possibility to document how to access
-    /// their payload.
-    ///
-    /// Note: Uses its actual opcode value representation to easily convert
-    /// to and from its binary representation.
+    /// Some tags match wasm opcode values to facilitate trivial lowering.
     pub const Tag = enum(u8) {
-        /// Uses `nop`
+        /// Uses `tag`.
         @"unreachable" = 0x00,
+        /// Emits epilogue begin debug information. Marks the end of the function.
+        ///
+        /// Uses `tag` (no additional data).
+        dbg_epilogue_begin,
         /// Creates a new block that can be jump from.
         ///
         /// Type of the block is given in data `block_type`
@@ -44,56 +83,92 @@ pub const Inst = struct {
         ///
         /// Type of the loop is given in data `block_type`
         loop = 0x03,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of an unnamed constant. When emitting an object
+        /// file, this adds a relocation.
+        ///
+        /// This may not refer to a function.
+        ///
+        /// Uses `ip_index`.
+        uav_ref,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of an unnamed constant, offset by an integer value.
+        /// When emitting an object file, this adds a relocation.
+        ///
+        /// This may not refer to a function.
+        ///
+        /// Uses `payload` pointing to a `UavRefOff`.
+        uav_ref_off,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of a named constant.
+        ///
+        /// May not refer to a function.
+        ///
+        /// Uses `nav_index`.
+        nav_ref,
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) which is the
+        /// memory address of named constant, offset by an integer value.
+        /// When emitting an object file, this adds a relocation.
+        ///
+        /// May not refer to a function.
+        ///
+        /// Uses `payload` pointing to a `NavRefOff`.
+        nav_ref_off,
+        /// Lowers to an i32_const which is the index of the function in the
+        /// table section.
+        ///
+        /// Uses `nav_index`.
+        func_ref,
         /// Inserts debug information about the current line and column
         /// of the source code
         ///
         /// Uses `payload` of which the payload type is `DbgLineColumn`
-        dbg_line = 0x06,
-        /// Emits epilogue begin debug information
-        ///
-        /// Uses `nop`
-        dbg_epilogue_begin = 0x07,
-        /// Emits prologue end debug information
-        ///
-        /// Uses `nop`
-        dbg_prologue_end = 0x08,
+        dbg_line,
+        /// Lowers to an i32_const containing the number of unique Zig error
+        /// names.
+        /// Uses `tag`.
+        errors_len,
         /// Represents the end of a function body or an initialization expression
         ///
-        /// Payload is `nop`
+        /// Uses `tag` (no additional data).
         end = 0x0B,
         /// Breaks from the current block to a label
         ///
-        /// Data is `label` where index represents the label to jump to
+        /// Uses `label` where index represents the label to jump to
         br = 0x0C,
         /// Breaks from the current block if the stack value is non-zero
         ///
-        /// Data is `label` where index represents the label to jump to
+        /// Uses `label` where index represents the label to jump to
         br_if = 0x0D,
         /// Jump table that takes the stack value as an index where each value
         /// represents the label to jump to.
         ///
         /// Data is extra of which the Payload's type is `JumpTable`
-        br_table = 0x0E,
+        br_table,
         /// Returns from the function
         ///
-        /// Uses `nop`
+        /// Uses `tag`.
         @"return" = 0x0F,
-        /// Calls a function by its index
+        /// Lowers to an i32_const (wasm32) or i64_const (wasm64) containing
+        /// the base address of the table of error code names, with each
+        /// element being a null-terminated slice.
         ///
-        /// Uses `label`
-        call = 0x10,
+        /// Uses `tag`.
+        error_name_table_ref,
+        /// Calls a function using `nav_index`.
+        call_nav,
         /// Calls a function pointer by its function signature
         /// and index into the function table.
         ///
-        /// Uses `label`
-        call_indirect = 0x11,
-        /// Contains a symbol to a function pointer
-        /// uses `label`
+        /// Uses `ip_index`; the `InternPool.Index` is the function type.
+        call_indirect,
+        /// Calls a function by its index.
         ///
-        /// Note: This uses `0x16` as value which is reserved by the WebAssembly
-        /// specification but unused, meaning we must update this if the specification were to
-        /// use this value.
-        function_index = 0x16,
+        /// The function is the auto-generated tag name function for the type
+        /// provided in `ip_index`.
+        call_tag_name,
+        /// Lowers to a `call` instruction, using `intrinsic`.
+        call_intrinsic,
         /// Pops three values from the stack and pushes
         /// the first or second value dependent on the third value.
         /// Uses `tag`
@@ -112,15 +187,11 @@ pub const Inst = struct {
         ///
         /// Uses `label`
         local_tee = 0x22,
-        /// Loads a (mutable) global at given index onto the stack
+        /// Pops a value from the stack and sets the stack pointer global.
+        /// The value must be the same type as the stack pointer global.
         ///
-        /// Uses `label`
-        global_get = 0x23,
-        /// Pops a value from the stack and sets the global at given index.
-        /// Note: Both types must be equal and global must be marked mutable.
-        ///
-        /// Uses `label`.
-        global_set = 0x24,
+        /// Uses `tag` (no additional data).
+        global_set_sp,
         /// Loads a 32-bit integer from memory (data section) onto the stack
         /// Pops the value from the stack which represents the offset into memory.
         ///
@@ -256,19 +327,19 @@ pub const Inst = struct {
         /// Loads a 32-bit signed immediate value onto the stack
         ///
         /// Uses `imm32`
-        i32_const = 0x41,
+        i32_const,
         /// Loads a i64-bit signed immediate value onto the stack
         ///
         /// uses `payload` of type `Imm64`
-        i64_const = 0x42,
+        i64_const,
         /// Loads a 32-bit float value onto the stack.
         ///
         /// Uses `float32`
-        f32_const = 0x43,
+        f32_const,
         /// Loads a 64-bit float value onto the stack.
         ///
         /// Uses `payload` of type `Float64`
-        f64_const = 0x44,
+        f64_const,
         /// Uses `tag`
         i32_eqz = 0x45,
         /// Uses `tag`
@@ -522,25 +593,19 @@ pub const Inst = struct {
         ///
         /// The `data` field depends on the extension instruction and
         /// may contain additional data.
-        misc_prefix = 0xFC,
+        misc_prefix,
         /// The instruction consists of a simd opcode.
         /// The actual simd-opcode is found at payload's index.
         ///
         /// The `data` field depends on the simd instruction and
         /// may contain additional data.
-        simd_prefix = 0xFD,
+        simd_prefix,
         /// The instruction consists of an atomics opcode.
         /// The actual atomics-opcode is found at payload's index.
         ///
         /// The `data` field depends on the atomics instruction and
         /// may contain additional data.
         atomics_prefix = 0xFE,
-        /// Contains a symbol to a memory address
-        /// Uses `label`
-        ///
-        /// Note: This uses `0xFF` as value as it is unused and not reserved
-        /// by the wasm specification, making it safe to use.
-        memory_address = 0xFF,
 
         /// From a given wasm opcode, returns a MIR tag.
         pub fn fromOpcode(opcode: std.wasm.Opcode) Tag {
@@ -560,33 +625,105 @@ pub const Inst = struct {
         /// Uses no additional data
         tag: void,
         /// Contains the result type of a block
-        ///
-        /// Used by `block` and `loop`
-        block_type: u8,
-        /// Contains an u32 index into a wasm section entry, such as a local.
-        /// Note: This is not an index to another instruction.
-        ///
-        /// Used by e.g. `local_get`, `local_set`, etc.
+        block_type: std.wasm.BlockType,
+        /// Label: Each structured control instruction introduces an implicit label.
+        /// Labels are targets for branch instructions that reference them with
+        /// label indices. Unlike with other index spaces, indexing of labels
+        /// is relative by nesting depth, that is, label 0 refers to the
+        /// innermost structured control instruction enclosing the referring
+        /// branch instruction, while increasing indices refer to those farther
+        /// out. Consequently, labels can only be referenced from within the
+        /// associated structured control instruction.
         label: u32,
+        /// Local: The index space for locals is only accessible inside a function and
+        /// includes the parameters of that function, which precede the local
+        /// variables.
+        local: u32,
         /// A 32-bit immediate value.
-        ///
-        /// Used by `i32_const`
         imm32: i32,
         /// A 32-bit float value
-        ///
-        /// Used by `f32_float`
         float32: f32,
         /// Index into `extra`. Meaning of what can be found there is context-dependent.
-        ///
-        /// Used by e.g. `br_table`
         payload: u32,
+
+        ip_index: InternPool.Index,
+        nav_index: InternPool.Nav.Index,
+        intrinsic: Intrinsic,
+
+        comptime {
+            switch (builtin.mode) {
+                .Debug, .ReleaseSafe => {},
+                .ReleaseFast, .ReleaseSmall => assert(@sizeOf(Data) == 4),
+            }
+        }
     };
 };
 
-pub fn deinit(self: *Mir, gpa: std.mem.Allocator) void {
-    self.instructions.deinit(gpa);
-    gpa.free(self.extra);
-    self.* = undefined;
+pub fn deinit(mir: *Mir, gpa: std.mem.Allocator) void {
+    mir.instructions.deinit(gpa);
+    gpa.free(mir.extra);
+    gpa.free(mir.locals);
+    mir.uavs.deinit(gpa);
+    mir.indirect_function_set.deinit(gpa);
+    mir.func_tys.deinit(gpa);
+    mir.* = undefined;
+}
+
+pub fn lower(mir: *const Mir, wasm: *Wasm, code: *std.ArrayListUnmanaged(u8)) std.mem.Allocator.Error!void {
+    const gpa = wasm.base.comp.gpa;
+
+    // Write the locals in the prologue of the function body.
+    try code.ensureUnusedCapacity(gpa, 5 + mir.locals.len * 6 + 38);
+
+    var w: std.Io.Writer = .fixed(code.unusedCapacitySlice());
+
+    w.writeLeb128(@as(u32, @intCast(mir.locals.len))) catch unreachable;
+
+    for (mir.locals) |local| {
+        w.writeLeb128(@as(u32, 1)) catch unreachable;
+        w.writeByte(@intFromEnum(local)) catch unreachable;
+    }
+
+    // Stack management section of function prologue.
+    const stack_alignment = mir.prologue.flags.stack_alignment;
+    if (stack_alignment.toByteUnits()) |align_bytes| {
+        const sp_global: Wasm.GlobalIndex = .stack_pointer;
+        // load stack pointer
+        w.writeByte(@intFromEnum(std.wasm.Opcode.global_get)) catch unreachable;
+        w.writeUleb128(@intFromEnum(sp_global)) catch unreachable;
+        // store stack pointer so we can restore it when we return from the function
+        w.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        w.writeUleb128(mir.prologue.sp_local) catch unreachable;
+        // get the total stack size
+        const aligned_stack: i32 = @intCast(stack_alignment.forward(mir.prologue.stack_size));
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        w.writeSleb128(aligned_stack) catch unreachable;
+        // subtract it from the current stack pointer
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_sub)) catch unreachable;
+        // Get negative stack alignment
+        const neg_stack_align = @as(i32, @intCast(align_bytes)) * -1;
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_const)) catch unreachable;
+        w.writeSleb128(neg_stack_align) catch unreachable;
+        // Bitwise-and the value to get the new stack pointer to ensure the
+        // pointers are aligned with the abi alignment.
+        w.writeByte(@intFromEnum(std.wasm.Opcode.i32_and)) catch unreachable;
+        // The bottom will be used to calculate all stack pointer offsets.
+        w.writeByte(@intFromEnum(std.wasm.Opcode.local_tee)) catch unreachable;
+        w.writeUleb128(mir.prologue.bottom_stack_local) catch unreachable;
+        // Store the current stack pointer value into the global stack pointer so other function calls will
+        // start from this value instead and not overwrite the current stack.
+        w.writeByte(@intFromEnum(std.wasm.Opcode.global_set)) catch unreachable;
+        w.writeUleb128(@intFromEnum(sp_global)) catch unreachable;
+    }
+
+    code.items.len += w.end;
+
+    var emit: Emit = .{
+        .mir = mir.*,
+        .wasm = wasm,
+        .code = code,
+    };
+    try emit.lowerToCode();
 }
 
 pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data: T, end: usize } {
@@ -596,6 +733,12 @@ pub fn extraData(self: *const Mir, comptime T: type, index: usize) struct { data
     inline for (fields) |field| {
         @field(result, field.name) = switch (field.type) {
             u32 => self.extra[i],
+            i32 => @bitCast(self.extra[i]),
+            Wasm.UavsObjIndex,
+            Wasm.UavsExeIndex,
+            InternPool.Nav.Index,
+            InternPool.Index,
+            => @enumFromInt(self.extra[i]),
             else => |field_type| @compileError("Unsupported field type " ++ @typeName(field_type)),
         };
         i += 1;
@@ -609,28 +752,19 @@ pub const JumpTable = struct {
     length: u32,
 };
 
-/// Stores an unsigned 64bit integer
-/// into a 32bit most significant bits field
-/// and a 32bit least significant bits field.
-///
-/// This uses an unsigned integer rather than a signed integer
-/// as we can easily store those into `extra`
 pub const Imm64 = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn fromU64(imm: u64) Imm64 {
+    pub fn init(full: u64) Imm64 {
         return .{
-            .msb = @as(u32, @truncate(imm >> 32)),
-            .lsb = @as(u32, @truncate(imm)),
+            .msb = @truncate(full >> 32),
+            .lsb = @truncate(full),
         };
     }
 
-    pub fn toU64(self: Imm64) u64 {
-        var result: u64 = 0;
-        result |= @as(u64, self.msb) << 32;
-        result |= @as(u64, self.lsb);
-        return result;
+    pub fn toInt(i: Imm64) u64 {
+        return (@as(u64, i.msb) << 32) | @as(u64, i.lsb);
     }
 };
 
@@ -638,23 +772,16 @@ pub const Float64 = struct {
     msb: u32,
     lsb: u32,
 
-    pub fn fromFloat64(float: f64) Float64 {
-        const tmp = @as(u64, @bitCast(float));
+    pub fn init(f: f64) Float64 {
+        const int: u64 = @bitCast(f);
         return .{
-            .msb = @as(u32, @truncate(tmp >> 32)),
-            .lsb = @as(u32, @truncate(tmp)),
+            .msb = @truncate(int >> 32),
+            .lsb = @truncate(int),
         };
     }
 
-    pub fn toF64(self: Float64) f64 {
-        @as(f64, @bitCast(self.toU64()));
-    }
-
-    pub fn toU64(self: Float64) u64 {
-        var result: u64 = 0;
-        result |= @as(u64, self.msb) << 32;
-        result |= @as(u64, self.lsb);
-        return result;
+    pub fn toInt(f: Float64) u64 {
+        return (@as(u64, f.msb) << 32) | @as(u64, f.lsb);
     }
 };
 
@@ -663,15 +790,214 @@ pub const MemArg = struct {
     alignment: u32,
 };
 
-/// Represents a memory address, which holds both the pointer
-/// or the parent pointer and the offset to it.
-pub const Memory = struct {
-    pointer: u32,
-    offset: u32,
+pub const UavRefOff = struct {
+    value: InternPool.Index,
+    offset: i32,
+};
+
+pub const NavRefOff = struct {
+    nav_index: InternPool.Nav.Index,
+    offset: i32,
 };
 
 /// Maps a source line with wasm bytecode
 pub const DbgLineColumn = struct {
     line: u32,
     column: u32,
+};
+
+/// Tag names exactly match the corresponding symbol name.
+pub const Intrinsic = enum(u32) {
+    __addhf3,
+    __addtf3,
+    __addxf3,
+    __ashlti3,
+    __ashrti3,
+    __bitreversedi2,
+    __bitreversesi2,
+    __bswapdi2,
+    __bswapsi2,
+    __ceilh,
+    __ceilx,
+    __cosh,
+    __cosx,
+    __divhf3,
+    __divtf3,
+    __divti3,
+    __divxf3,
+    __eqtf2,
+    __eqxf2,
+    __exp2h,
+    __exp2x,
+    __exph,
+    __expx,
+    __extenddftf2,
+    __extenddfxf2,
+    __extendhfsf2,
+    __extendhftf2,
+    __extendhfxf2,
+    __extendsftf2,
+    __extendsfxf2,
+    __extendxftf2,
+    __fabsh,
+    __fabsx,
+    __fixdfdi,
+    __fixdfsi,
+    __fixdfti,
+    __fixhfdi,
+    __fixhfsi,
+    __fixhfti,
+    __fixsfdi,
+    __fixsfsi,
+    __fixsfti,
+    __fixtfdi,
+    __fixtfsi,
+    __fixtfti,
+    __fixunsdfdi,
+    __fixunsdfsi,
+    __fixunsdfti,
+    __fixunshfdi,
+    __fixunshfsi,
+    __fixunshfti,
+    __fixunssfdi,
+    __fixunssfsi,
+    __fixunssfti,
+    __fixunstfdi,
+    __fixunstfsi,
+    __fixunstfti,
+    __fixunsxfdi,
+    __fixunsxfsi,
+    __fixunsxfti,
+    __fixxfdi,
+    __fixxfsi,
+    __fixxfti,
+    __floatdidf,
+    __floatdihf,
+    __floatdisf,
+    __floatditf,
+    __floatdixf,
+    __floatsidf,
+    __floatsihf,
+    __floatsisf,
+    __floatsitf,
+    __floatsixf,
+    __floattidf,
+    __floattihf,
+    __floattisf,
+    __floattitf,
+    __floattixf,
+    __floatundidf,
+    __floatundihf,
+    __floatundisf,
+    __floatunditf,
+    __floatundixf,
+    __floatunsidf,
+    __floatunsihf,
+    __floatunsisf,
+    __floatunsitf,
+    __floatunsixf,
+    __floatuntidf,
+    __floatuntihf,
+    __floatuntisf,
+    __floatuntitf,
+    __floatuntixf,
+    __floorh,
+    __floorx,
+    __fmah,
+    __fmax,
+    __fmaxh,
+    __fmaxx,
+    __fminh,
+    __fminx,
+    __fmodh,
+    __fmodx,
+    __getf2,
+    __gexf2,
+    __gttf2,
+    __gtxf2,
+    __letf2,
+    __lexf2,
+    __log10h,
+    __log10x,
+    __log2h,
+    __log2x,
+    __logh,
+    __logx,
+    __lshrti3,
+    __lttf2,
+    __ltxf2,
+    __modti3,
+    __mulhf3,
+    __mulodi4,
+    __muloti4,
+    __multf3,
+    __multi3,
+    __mulxf3,
+    __netf2,
+    __nexf2,
+    __roundh,
+    __roundx,
+    __sinh,
+    __sinx,
+    __sqrth,
+    __sqrtx,
+    __subhf3,
+    __subtf3,
+    __subxf3,
+    __tanh,
+    __tanx,
+    __trunch,
+    __truncsfhf2,
+    __trunctfdf2,
+    __trunctfhf2,
+    __trunctfsf2,
+    __trunctfxf2,
+    __truncx,
+    __truncxfdf2,
+    __truncxfhf2,
+    __truncxfsf2,
+    __udivti3,
+    __umodti3,
+    ceilq,
+    cos,
+    cosf,
+    cosq,
+    exp,
+    exp2,
+    exp2f,
+    exp2q,
+    expf,
+    expq,
+    fabsq,
+    floorq,
+    fma,
+    fmaf,
+    fmaq,
+    fmax,
+    fmaxf,
+    fmaxq,
+    fmin,
+    fminf,
+    fminq,
+    fmod,
+    fmodf,
+    fmodq,
+    log,
+    log10,
+    log10f,
+    log10q,
+    log2,
+    log2f,
+    log2q,
+    logf,
+    logq,
+    roundq,
+    sin,
+    sinf,
+    sinq,
+    sqrtq,
+    tan,
+    tanf,
+    tanq,
+    truncq,
 };

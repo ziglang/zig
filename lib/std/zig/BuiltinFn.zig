@@ -4,7 +4,6 @@ pub const Tag = enum {
     align_cast,
     align_of,
     as,
-    async_call,
     atomic_load,
     atomic_rmw,
     atomic_store,
@@ -15,6 +14,7 @@ pub const Tag = enum {
     branch_hint,
     breakpoint,
     disable_instrumentation,
+    disable_intrinsics,
     mul_add,
     byte_swap,
     bit_reverse,
@@ -54,7 +54,6 @@ pub const Tag = enum {
     frame,
     Frame,
     frame_address,
-    frame_size,
     has_decl,
     has_field,
     import,
@@ -67,6 +66,7 @@ pub const Tag = enum {
     max,
     memcpy,
     memset,
+    memmove,
     min,
     wasm_memory_size,
     wasm_memory_grow,
@@ -183,13 +183,6 @@ pub const list = list: {
             },
         },
         .{
-            "@asyncCall",
-            .{
-                .tag = .async_call,
-                .param_count = 4,
-            },
-        },
-        .{
             "@atomicLoad",
             .{
                 .tag = .atomic_load,
@@ -258,6 +251,14 @@ pub const list = list: {
             "@disableInstrumentation",
             .{
                 .tag = .disable_instrumentation,
+                .param_count = 0,
+                .illegal_outside_function = true,
+            },
+        },
+        .{
+            "@disableIntrinsics",
+            .{
+                .tag = .disable_intrinsics,
                 .param_count = 0,
                 .illegal_outside_function = true,
             },
@@ -541,13 +542,6 @@ pub const list = list: {
             },
         },
         .{
-            "@frameSize",
-            .{
-                .tag = .frame_size,
-                .param_count = 1,
-            },
-        },
-        .{
             "@hasDecl",
             .{
                 .tag = .has_decl,
@@ -629,6 +623,13 @@ pub const list = list: {
             "@memset",
             .{
                 .tag = .memset,
+                .param_count = 2,
+            },
+        },
+        .{
+            "@memmove",
+            .{
+                .tag = .memmove,
                 .param_count = 2,
             },
         },

@@ -21,7 +21,7 @@ pub fn isPtrTo(comptime id: std.builtin.TypeId) TraitFn {
 
 pub fn isSingleItemPtr(comptime T: type) bool {
     if (comptime is(.pointer)(T)) {
-        return @typeInfo(T).pointer.size == .One;
+        return @typeInfo(T).pointer.size == .one;
     }
     return false;
 }
@@ -36,7 +36,6 @@ pub fn is(comptime id: std.builtin.TypeId) TraitFn {
 }
 
 // error
-// backend=llvm
-// target=native
 //
 // :8:48: error: expected type 'type', found 'bool'
+// :5:21: note: generic function instantiated here

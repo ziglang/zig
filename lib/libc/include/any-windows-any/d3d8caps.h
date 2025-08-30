@@ -20,7 +20,7 @@
 #define __WINE_D3D8CAPS_H
 
 #ifdef __i386__
-#include <pshpack4.h>
+#pragma pack(push,4)
 #endif
 
 /*
@@ -290,7 +290,7 @@ typedef struct _D3DCAPS8 {
 } D3DCAPS8;
 
 #ifdef __i386__
-#include <poppack.h>
+#pragma pack(pop)
 #endif
 
 #endif  /* __WINE_D3D8CAPS_H */

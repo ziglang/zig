@@ -24,8 +24,8 @@ pub fn main() Error!void {
 }
 
 // error
-// backend=llvm
-// target=native
+// backend=stage2
+// target=x86_64-linux
 //
 // :23:29: error: expected type 'error{InvalidCharacter}', found '@typeInfo(@typeInfo(@TypeOf(tmp.fooey)).@"fn".return_type.?).error_union.error_set'
 // :23:29: note: 'error.InvalidDirection' not a member of destination error set

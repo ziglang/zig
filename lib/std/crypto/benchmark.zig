@@ -391,7 +391,7 @@ const CryptoPwhash = struct {
     params: *const anyopaque,
     name: []const u8,
 };
-const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8 };
+const bcrypt_params = crypto.pwhash.bcrypt.Params{ .rounds_log = 8, .silently_truncate_password = true };
 const pwhashes = [_]CryptoPwhash{
     .{
         .ty = crypto.pwhash.bcrypt,
@@ -458,7 +458,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();

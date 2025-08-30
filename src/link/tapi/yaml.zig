@@ -172,7 +172,7 @@ pub const Value = union(enum) {
 
             return Value{ .map = out_map };
         } else if (node.cast(Node.List)) |list| {
-            var out_list = std.ArrayList(Value).init(arena);
+            var out_list = std.array_list.Managed(Value).init(arena);
             try out_list.ensureUnusedCapacity(list.values.items.len);
 
             for (list.values.items) |elem| {
@@ -211,7 +211,7 @@ pub const Value = union(enum) {
             .float => return Value{ .float = math.lossyCast(f64, input) },
 
             .@"struct" => |info| if (info.is_tuple) {
-                var list = std.ArrayList(Value).init(arena);
+                var list = std.array_list.Managed(Value).init(arena);
                 errdefer list.deinit();
                 try list.ensureTotalCapacityPrecise(info.fields.len);
 
@@ -248,7 +248,7 @@ pub const Value = union(enum) {
             .array => return encode(arena, &input),
 
             .pointer => |info| switch (info.size) {
-                .One => switch (@typeInfo(info.child)) {
+                .one => switch (@typeInfo(info.child)) {
                     .array => |child_info| {
                         const Slice = []const child_info.child;
                         return encode(arena, @as(Slice, input));
@@ -257,12 +257,12 @@ pub const Value = union(enum) {
                         @compileError("Unhandled type: {s}" ++ @typeName(info.child));
                     },
                 },
-                .Slice => {
+                .slice => {
                     if (info.child == u8) {
                         return Value{ .string = try arena.dupe(u8, input) };
                     }
 
-                    var list = std.ArrayList(Value).init(arena);
+                    var list = std.array_list.Managed(Value).init(arena);
                     errdefer list.deinit();
                     try list.ensureTotalCapacityPrecise(input.len);
 
@@ -298,7 +298,7 @@ pub const Value = union(enum) {
 pub const Yaml = struct {
     arena: ArenaAllocator,
     tree: ?Tree = null,
-    docs: std.ArrayList(Value),
+    docs: std.array_list.Managed(Value),
 
     pub fn deinit(self: *Yaml) void {
         self.arena.deinit();
@@ -311,7 +311,7 @@ pub const Yaml = struct {
         var tree = Tree.init(arena.allocator());
         try tree.parse(source);
 
-        var docs = std.ArrayList(Value).init(arena.allocator());
+        var docs = std.array_list.Managed(Value).init(arena.allocator());
         try docs.ensureTotalCapacityPrecise(tree.docs.items.len);
 
         for (tree.docs.items) |node| {
@@ -357,7 +357,7 @@ pub const Yaml = struct {
             },
             .pointer => |info| {
                 switch (info.size) {
-                    .Slice => {
+                    .slice => {
                         var parsed = try self.arena.allocator().alloc(info.child, self.docs.items.len);
                         for (self.docs.items, 0..) |doc, i| {
                             parsed[i] = try self.parseValue(info.child, doc);
@@ -446,7 +446,7 @@ pub const Yaml = struct {
         const arena = self.arena.allocator();
 
         switch (ptr_info.size) {
-            .Slice => {
+            .slice => {
                 if (ptr_info.child == u8) {
                     return value.asString();
                 }

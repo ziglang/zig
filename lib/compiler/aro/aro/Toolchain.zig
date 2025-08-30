@@ -83,9 +83,7 @@ pub fn discover(tc: *Toolchain) !void {
 
     const target = tc.getTarget();
     tc.inner = switch (target.os.tag) {
-        .elfiamcu,
-        .linux,
-        => if (target.cpu.arch == .hexagon)
+        .linux => if (target.cpu.arch == .hexagon)
             .{ .unknown = {} } // TODO
         else if (target.cpu.arch.isMIPS())
             .{ .unknown = {} } // TODO
@@ -159,9 +157,9 @@ pub fn getLinkerPath(tc: *const Toolchain, buf: []u8) ![]const u8 {
             return use_linker;
         }
     } else {
-        var linker_name = try std.ArrayList(u8).initCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
+        var linker_name = try std.array_list.Managed(u8).initCapacity(tc.driver.comp.gpa, 5 + use_linker.len); // "ld64." ++ use_linker
         defer linker_name.deinit();
-        if (tc.getTarget().isDarwin()) {
+        if (tc.getTarget().os.tag.isDarwin()) {
             linker_name.appendSliceAssumeCapacity("ld64.");
         } else {
             linker_name.appendSliceAssumeCapacity("ld.");
@@ -200,7 +198,7 @@ fn possibleProgramNames(raw_triple: ?[]const u8, name: []const u8, buf: *[64]u8)
 }
 
 /// Add toolchain `file_paths` to argv as `-L` arguments
-pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn addFilePathLibArgs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     try argv.ensureUnusedCapacity(tc.file_paths.items.len);
 
     var bytes_needed: usize = 0;
@@ -334,7 +332,7 @@ pub fn addPathFromComponents(tc: *Toolchain, components: []const []const u8, des
 
 /// Add linker args to `argv`. Does not add path to linker executable as first item; that must be handled separately
 /// Items added to `argv` will be string literals or owned by `tc.arena` so they must not be individually freed
-pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     return switch (tc.inner) {
         .uninitialized => unreachable,
         .linux => |*linux| linux.buildLinkerArgs(tc, argv),
@@ -343,7 +341,7 @@ pub fn buildLinkerArgs(tc: *Toolchain, argv: *std.ArrayList([]const u8)) !void {
 }
 
 fn getDefaultRuntimeLibKind(tc: *const Toolchain) RuntimeLibKind {
-    if (tc.getTarget().isAndroid()) {
+    if (tc.getTarget().abi.isAndroid()) {
         return .compiler_rt;
     }
     return .libgcc;
@@ -369,7 +367,7 @@ pub fn getCompilerRt(tc: *const Toolchain, component: []const u8, file_kind: Fil
 
 fn getLibGCCKind(tc: *const Toolchain) LibGCCKind {
     const target = tc.getTarget();
-    if (tc.driver.static_libgcc or tc.driver.static or tc.driver.static_pie or target.isAndroid()) {
+    if (tc.driver.static_libgcc or tc.driver.static or tc.driver.static_pie or target.abi.isAndroid()) {
         return .static;
     }
     if (tc.driver.shared_libgcc) {
@@ -384,7 +382,7 @@ fn getUnwindLibKind(tc: *const Toolchain) !UnwindLibKind {
         switch (tc.getRuntimeLibKind()) {
             .compiler_rt => {
                 const target = tc.getTarget();
-                if (target.isAndroid() or target.os.tag == .aix) {
+                if (target.abi.isAndroid() or target.os.tag == .aix) {
                     return .compiler_rt;
                 } else {
                     return .none;
@@ -414,17 +412,16 @@ fn getAsNeededOption(is_solaris: bool, needed: bool) []const u8 {
     }
 }
 
-fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+fn addUnwindLibrary(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const unw = try tc.getUnwindLibKind();
     const target = tc.getTarget();
-    if ((target.isAndroid() and unw == .libgcc) or
-        target.os.tag == .elfiamcu or
+    if ((target.abi.isAndroid() and unw == .libgcc) or
         target.ofmt == .wasm or
         target_util.isWindowsMSVCEnvironment(target) or
         unw == .none) return;
 
     const lgk = tc.getLibGCCKind();
-    const as_needed = lgk == .unspecified and !target.isAndroid() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
+    const as_needed = lgk == .unspecified and !target.abi.isAndroid() and !target_util.isCygwinMinGW(target) and target.os.tag != .aix;
     if (as_needed) {
         try argv.append(getAsNeededOption(target.os.tag == .solaris, true));
     }
@@ -453,7 +450,7 @@ fn addUnwindLibrary(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !voi
     }
 }
 
-fn addLibGCC(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+fn addLibGCC(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const libgcc_kind = tc.getLibGCCKind();
     if (libgcc_kind == .static or libgcc_kind == .unspecified) {
         try argv.append("-lgcc");
@@ -464,7 +461,7 @@ fn addLibGCC(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
     }
 }
 
-pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !void {
+pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.array_list.Managed([]const u8)) !void {
     const target = tc.getTarget();
     const rlt = tc.getRuntimeLibKind();
     switch (rlt) {
@@ -483,7 +480,7 @@ pub fn addRuntimeLibs(tc: *const Toolchain, argv: *std.ArrayList([]const u8)) !v
         },
     }
 
-    if (target.isAndroid() and !tc.driver.static and !tc.driver.static_pie) {
+    if (target.abi.isAndroid() and !tc.driver.static and !tc.driver.static_pie) {
         try argv.append("-ldl");
     }
 }

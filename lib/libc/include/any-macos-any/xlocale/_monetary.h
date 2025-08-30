@@ -28,10 +28,12 @@
 #include <_types.h>
 #include <sys/_types/_size_t.h>
 #include <sys/_types/_ssize_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
-ssize_t	strfmon_l(char *, size_t, locale_t, const char *, ...)
+ssize_t	strfmon_l(char *_LIBC_COUNT(__maxsize), size_t __maxsize, locale_t, const char *, ...)
 		__strfmonlike(4, 5);
 __END_DECLS
 

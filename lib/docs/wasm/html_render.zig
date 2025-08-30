@@ -1,6 +1,8 @@
 const std = @import("std");
 const Ast = std.zig.Ast;
 const assert = std.debug.assert;
+const ArrayList = std.ArrayList;
+const Writer = std.Io.Writer;
 
 const Walk = @import("Walk");
 const Decl = Walk.Decl;
@@ -30,7 +32,7 @@ pub const Annotation = struct {
 
 pub fn fileSourceHtml(
     file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     root_node: Ast.Node.Index,
     options: RenderSourceOptions,
 ) !void {
@@ -38,17 +40,13 @@ pub fn fileSourceHtml(
     const file = file_index.get();
 
     const g = struct {
-        var field_access_buffer: std.ArrayListUnmanaged(u8) = .empty;
+        var field_access_buffer: ArrayList(u8) = .empty;
     };
-
-    const token_tags = ast.tokens.items(.tag);
-    const token_starts = ast.tokens.items(.start);
-    const main_tokens = ast.nodes.items(.main_token);
 
     const start_token = ast.firstToken(root_node);
     const end_token = ast.lastToken(root_node) + 1;
 
-    var cursor: usize = token_starts[start_token];
+    var cursor: usize = ast.tokenStart(start_token);
 
     var indent: usize = 0;
     if (std.mem.lastIndexOf(u8, ast.source[0..cursor], "\n")) |newline_index| {
@@ -64,8 +62,8 @@ pub fn fileSourceHtml(
     var next_annotate_index: usize = 0;
 
     for (
-        token_tags[start_token..end_token],
-        token_starts[start_token..end_token],
+        ast.tokens.items(.tag)[start_token..end_token],
+        ast.tokens.items(.start)[start_token..end_token],
         start_token..,
     ) |tag, start, token_index| {
         const between = ast.source[cursor..start];
@@ -92,7 +90,7 @@ pub fn fileSourceHtml(
             if (next_annotate_index >= options.source_location_annotations.len) break;
             const next_annotation = options.source_location_annotations[next_annotate_index];
             if (cursor <= next_annotation.file_byte_offset) break;
-            try out.writer(gpa).print("<span id=\"{s}{d}\"></span>", .{
+            try out.print(gpa, "<span id=\"{s}{d}\"></span>", .{
                 options.annotation_prefix, next_annotation.dom_id,
             });
             next_annotate_index += 1;
@@ -105,8 +103,6 @@ pub fn fileSourceHtml(
             .keyword_align,
             .keyword_and,
             .keyword_asm,
-            .keyword_async,
-            .keyword_await,
             .keyword_break,
             .keyword_catch,
             .keyword_comptime,
@@ -143,7 +139,6 @@ pub fn fileSourceHtml(
             .keyword_try,
             .keyword_union,
             .keyword_unreachable,
-            .keyword_usingnamespace,
             .keyword_var,
             .keyword_volatile,
             .keyword_allowzero,
@@ -184,7 +179,7 @@ pub fn fileSourceHtml(
             .identifier => i: {
                 if (options.fn_link != .none) {
                     const fn_link = options.fn_link.get();
-                    const fn_token = main_tokens[fn_link.ast_node];
+                    const fn_token = ast.nodeMainToken(fn_link.ast_node);
                     if (token_index == fn_token + 1) {
                         try out.appendSlice(gpa, "<a class=\"tok-fn\" href=\"#");
                         _ = missing_feature_url_escape;
@@ -196,7 +191,7 @@ pub fn fileSourceHtml(
                     }
                 }
 
-                if (token_index > 0 and token_tags[token_index - 1] == .keyword_fn) {
+                if (token_index > 0 and ast.tokenTag(token_index - 1) == .keyword_fn) {
                     try out.appendSlice(gpa, "<span class=\"tok-fn\">");
                     try appendEscaped(out, slice);
                     try out.appendSlice(gpa, "</span>");
@@ -325,7 +320,7 @@ pub fn fileSourceHtml(
     }
 }
 
-fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usize) !void {
+fn appendUnindented(out: *ArrayList(u8), s: []const u8, indent: usize) !void {
     var it = std.mem.splitScalar(u8, s, '\n');
     var is_first_line = true;
     while (it.next()) |line| {
@@ -339,7 +334,7 @@ fn appendUnindented(out: *std.ArrayListUnmanaged(u8), s: []const u8, indent: usi
     }
 }
 
-pub fn appendEscaped(out: *std.ArrayListUnmanaged(u8), s: []const u8) !void {
+pub fn appendEscaped(out: *ArrayList(u8), s: []const u8) !void {
     for (s) |c| {
         try out.ensureUnusedCapacity(gpa, 6);
         switch (c) {
@@ -354,20 +349,15 @@ pub fn appendEscaped(out: *std.ArrayListUnmanaged(u8), s: []const u8) !void {
 
 fn walkFieldAccesses(
     file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     node: Ast.Node.Index,
 ) Oom!void {
     const ast = file_index.get_ast();
-    const node_tags = ast.nodes.items(.tag);
-    assert(node_tags[node] == .field_access);
-    const node_datas = ast.nodes.items(.data);
-    const main_tokens = ast.nodes.items(.main_token);
-    const object_node = node_datas[node].lhs;
-    const dot_token = main_tokens[node];
-    const field_ident = dot_token + 1;
-    switch (node_tags[object_node]) {
+    assert(ast.nodeTag(node) == .field_access);
+    const object_node, const field_ident = ast.nodeData(node).node_and_token;
+    switch (ast.nodeTag(object_node)) {
         .identifier => {
-            const lhs_ident = main_tokens[object_node];
+            const lhs_ident = ast.nodeMainToken(object_node);
             try resolveIdentLink(file_index, out, lhs_ident);
         },
         .field_access => {
@@ -383,7 +373,7 @@ fn walkFieldAccesses(
 
 fn resolveIdentLink(
     file_index: Walk.File.Index,
-    out: *std.ArrayListUnmanaged(u8),
+    out: *ArrayList(u8),
     ident_token: Ast.TokenIndex,
 ) Oom!void {
     const decl_index = file_index.get().lookup_token(ident_token);
@@ -403,7 +393,7 @@ fn unindent(s: []const u8, indent: usize) []const u8 {
     return s[indent_idx..];
 }
 
-pub fn resolveDeclLink(decl_index: Decl.Index, out: *std.ArrayListUnmanaged(u8)) Oom!void {
+pub fn resolveDeclLink(decl_index: Decl.Index, out: *ArrayList(u8)) Oom!void {
     const decl = decl_index.get();
     switch (decl.categorize()) {
         .alias => |alias_decl| try alias_decl.get().fqn(out),

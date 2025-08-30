@@ -80,7 +80,7 @@ const P = packed struct {
 
 test "@offsetOf" {
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     // Packed structs have fixed memory layout
     try expect(@offsetOf(P, "a") == 0);
@@ -233,6 +233,8 @@ test "@sizeOf comparison against zero" {
 }
 
 test "hardcoded address in typeof expression" {
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
     const S = struct {
         fn func() @TypeOf(@as(*[]u8, @ptrFromInt(0x10)).*[0]) {
             return 0;
@@ -268,7 +270,6 @@ test "bitSizeOf comptime_int" {
 }
 
 test "runtime instructions inside typeof in comptime only scope" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -324,9 +325,8 @@ test "lazy abi size used in comparison" {
 }
 
 test "peer type resolution with @TypeOf doesn't trigger dependency loop check" {
-    if (builtin.zig_backend == .stage2_x86) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const T = struct {
         next: @TypeOf(null, @as(*const @This(), undefined)),
@@ -359,14 +359,46 @@ extern fn c_fputs([*c]const u8, noalias [*c]FILE) c_int;
 extern fn c_ftell([*c]FILE) c_long;
 extern fn c_fopen([*c]const u8, [*c]const u8) [*c]FILE;
 
+const exp = struct {
+    export fn c_printf(a: [*c]const u8) c_int {
+        _ = a;
+        unreachable;
+    }
+    export fn c_fputs(a: [*c]const u8, noalias b: [*c]FILE) c_int {
+        _ = a;
+        _ = b;
+        unreachable;
+    }
+    export fn c_ftell(a: [*c]FILE) c_long {
+        _ = a;
+        unreachable;
+    }
+    export fn c_fopen(a: [*c]const u8, b: [*c]const u8) [*c]FILE {
+        _ = a;
+        _ = b;
+        unreachable;
+    }
+};
+comptime {
+    _ = exp;
+}
+
 test "Extern function calls in @TypeOf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const S = extern struct {
         state: c_short,
 
         extern fn s_do_thing([*c]const @This(), b: c_int) c_short;
     };
+    const E = struct {
+        export fn s_do_thing(a: [*c]const @This(), b: c_int) c_short {
+            _ = a;
+            _ = b;
+            unreachable;
+        }
+    };
+    _ = E;
 
     const Test = struct {
         fn test_fn_1(a: anytype, b: anytype) @TypeOf(c_printf("%d %s\n", a, b)) {
@@ -388,8 +420,6 @@ test "Extern function calls in @TypeOf" {
 }
 
 test "Peer resolution of extern function calls in @TypeOf" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
-
     const Test = struct {
         fn test_fn() @TypeOf(c_ftell(null), c_fputs(null, null)) {
             return 0;
@@ -405,9 +435,7 @@ test "Peer resolution of extern function calls in @TypeOf" {
 }
 
 test "Extern function calls, dereferences and field access in @TypeOf" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
 
     const Test = struct {
         fn test_fn_1(a: c_long) @TypeOf(c_fopen("test", "r").*) {

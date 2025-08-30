@@ -20,6 +20,7 @@
 # include <sys/stat.h>
 
 # include <rtld-malloc.h>
+# include <internal-sigset.h>
 
 extern __typeof (strtol_l) __strtol_l;
 extern __typeof (strtoul_l) __strtoul_l;
@@ -76,6 +77,12 @@ libc_hidden_proto (__isoc23_strtoull_l)
 # undef strtoull_l
 # define strtoull_l __isoc23_strtoull_l
 #endif
+
+extern void __abort_fork_reset_child (void) attribute_hidden;
+extern void __abort_lock_rdlock (internal_sigset_t *set) attribute_hidden;
+extern void __abort_lock_wrlock (internal_sigset_t *set) attribute_hidden;
+extern void __abort_lock_unlock (const internal_sigset_t *set)
+     attribute_hidden;
 
 libc_hidden_proto (exit)
 libc_hidden_proto (abort)
@@ -360,6 +367,21 @@ struct abort_msg_s
 };
 extern struct abort_msg_s *__abort_msg;
 libc_hidden_proto (__abort_msg)
+
+enum readonly_error_type
+{
+  readonly_noerror,
+  readonly_area_writable,
+  readonly_procfs_inaccessible,
+  readonly_procfs_open_fail,
+};
+
+extern enum readonly_error_type __readonly_area (const void *ptr,
+						 size_t size)
+     attribute_hidden;
+extern enum readonly_error_type __readonly_area_fallback (const void *ptr,
+							  size_t size)
+     attribute_hidden;
 
 # if IS_IN (rtld)
 extern __typeof (unsetenv) unsetenv attribute_hidden;

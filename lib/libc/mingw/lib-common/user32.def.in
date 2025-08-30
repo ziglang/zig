@@ -115,6 +115,7 @@ CreateMDIWindowA
 CreateMDIWindowW
 CreateMenu
 CreatePopupMenu
+CreateSyntheticPointerDevice
 CreateSystemThreads
 CreateWindowExA
 CreateWindowExW
@@ -178,6 +179,7 @@ DestroyDCompositionHwndTarget
 DestroyIcon
 DestroyMenu
 DestroyReasons
+DestroySyntheticPointerDevice
 DestroyWindow
 DeviceEventWorker
 DialogBoxIndirectParamA
@@ -325,6 +327,8 @@ GetDCEx
 GetDesktopID
 GetDesktopWindow
 GetDialogBaseUnits
+GetDialogControlDpiChangeBehavior
+GetDialogDpiChangeBehavior
 GetDisplayAutoRotationPreferences
 GetDisplayConfigBufferSizes
 GetDlgCtrlID
@@ -333,9 +337,12 @@ GetDlgItemInt
 GetDlgItemTextA
 GetDlgItemTextW
 GetDoubleClickTime
+GetDpiAwarenessContextForProcess
 GetDpiForMonitorInternal
 GetDpiForSystem
 GetDpiForWindow
+GetDpiFromDpiAwarenessContext
+GetExtendedPointerDeviceProperty
 GetFocus
 GetForegroundWindow
 GetGestureConfig
@@ -440,6 +447,7 @@ GetShellWindow
 GetSubMenu
 GetSysColor
 GetSysColorBrush
+GetSystemDpiForProcess
 GetSystemMenu
 GetSystemMetrics
 GetSystemMetricsForDpi
@@ -448,6 +456,7 @@ GetTabbedTextExtentW
 GetTaskmanWindow
 GetThreadDesktop
 GetThreadDpiAwarenessContext
+GetThreadDpiHostingBehavior
 GetTitleBarInfo
 GetTopLevelWindow
 GetTopWindow
@@ -468,6 +477,7 @@ GetWindowContextHelpId
 GetWindowDC
 GetWindowDisplayAffinity
 GetWindowDpiAwarenessContext
+GetWindowDpiHostingBehavior
 GetWindowFeedbackSetting
 GetWindowInfo
 GetWindowLongA
@@ -515,6 +525,7 @@ InjectDeviceInput
 InjectKeyboardInput
 InjectMouseInput
 InjectPointerInput
+InjectSyntheticPointerInput
 InjectTouchInput
 InsertMenuA
 InsertMenuItemA
@@ -672,6 +683,7 @@ QuerySendMessage
 RIMAddInputObserver
 RIMAreSiblingDevices
 RIMDeviceIoControl
+RIMEnableMonitorMappingForDevice
 RIMFreeInputBuffer
 RIMGetDevicePreparsedData
 RIMGetDevicePreparsedDataLockfree
@@ -706,6 +718,7 @@ RegisterDManipHook
 RegisterDeviceNotificationA
 RegisterDeviceNotificationW
 RegisterErrorReportingDialog
+RegisterForTooltipDismissNotification
 RegisterFrostWindow
 RegisterGhostWindow
 RegisterHotKey
@@ -758,6 +771,7 @@ SendMessageW
 SendNotifyMessageA
 SendNotifyMessageW
 SetActiveWindow
+SetAdditionalForegroundBoostProcesses
 SetCapture
 SetCaretBlinkTime
 SetCaretPos
@@ -775,6 +789,8 @@ SetCursorContents
 SetCursorPos
 SetDebugErrorLevel
 SetDeskWallpaper
+SetDialogControlDpiChangeBehavior
+SetDialogDpiChangeBehavior
 SetDisplayAutoRotationPreferences
 SetDisplayConfig
 SetDlgItemInt
@@ -811,6 +827,7 @@ SetProcessDPIAware
 SetProcessDefaultLayout
 SetProcessDpiAwarenessContext
 SetProcessDpiAwarenessInternal
+SetProcessLaunchForegroundPolicy
 SetProcessRestrictionExemption
 SetProcessWindowStation
 SetProgmanWindow
@@ -831,6 +848,7 @@ SetSystemTimer
 SetTaskmanWindow
 SetThreadDesktop
 SetThreadDpiAwarenessContext
+SetThreadDpiHostingBehavior
 SetThreadInputBlocked
 SetTimer
 SetUserObjectInformationA
@@ -859,6 +877,8 @@ SetWindowsHookA
 SetWindowsHookExA
 SetWindowsHookExW
 SetWindowsHookW
+ShellMigrateWindow
+ShellSetWindowPos
 ShowCaret
 ShowCursor
 ShowOwnedPopups

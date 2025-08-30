@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -21,63 +21,27 @@
 
 #include <sysdeps/generic/sysdep.h>
 
-#ifdef __LP64__
-# define AARCH64_R(NAME)	R_AARCH64_ ## NAME
-# define PTR_REG(n)		x##n
-# define PTR_LOG_SIZE		3
-# define PTR_ARG(n)
-# define SIZE_ARG(n)
-#else
-# define AARCH64_R(NAME)	R_AARCH64_P32_ ## NAME
-# define PTR_REG(n)		w##n
-# define PTR_LOG_SIZE		2
-# define PTR_ARG(n)		mov     w##n, w##n
-# define SIZE_ARG(n)		mov     w##n, w##n
-#endif
-
-#define PTR_SIZE	(1<<PTR_LOG_SIZE)
-
-#ifndef __ASSEMBLER__
-/* Strip pointer authentication code from pointer p.  */
-static inline void *
-strip_pac (void *p)
-{
-  register void *ra asm ("x30") = (p);
-  asm ("hint 7 // xpaclri" : "+r"(ra));
-  return ra;
-}
-
-/* This is needed when glibc is built with -mbranch-protection=pac-ret
-   with a gcc that is affected by PR target/94891.  */
-# if HAVE_AARCH64_PAC_RET
-#  undef RETURN_ADDRESS
-#  define RETURN_ADDRESS(n) strip_pac (__builtin_return_address (n))
-# endif
-#endif
-
 #ifdef	__ASSEMBLER__
+
+/* CFI directive for return address.  */
+#define cfi_negate_ra_state	.cfi_negate_ra_state
 
 /* Syntactic details of assembler.  */
 
 #define ASM_SIZE_DIRECTIVE(name) .size name,.-name
 
-/* Branch Target Identitication support.  */
-#if HAVE_AARCH64_BTI
-# define BTI_C		hint	34
-# define BTI_J		hint	36
-#else
-# define BTI_C		nop
-# define BTI_J		nop
-#endif
-
-/* Return address signing support (pac-ret).  */
-#define PACIASP		hint	25
-#define AUTIASP		hint	29
+/* Guarded Control Stack support.  */
+#define CHKFEAT_X16	hint	40
+#define MRS_GCSPR(x)	mrs	x, s3_3_c2_c5_1
+#define GCSPOPM(x)	sysl	x, #3, c7, c7, #1
+#define GCSSS1(x)	sys	#3, c7, c7, #2, x
+#define GCSSS2(x)	sysl	x, #3, c7, c7, #3
 
 /* GNU_PROPERTY_AARCH64_* macros from elf.h for use in asm code.  */
 #define FEATURE_1_AND 0xc0000000
 #define FEATURE_1_BTI 1
 #define FEATURE_1_PAC 2
+#define FEATURE_1_GCS 4
 
 /* Add a NT_GNU_PROPERTY_TYPE_0 note.  */
 #define GNU_PROPERTY(type, value)	\
@@ -95,11 +59,7 @@ strip_pac (void *p)
 
 /* Add GNU property note with the supported features to all asm code
    where sysdep.h is included.  */
-#if HAVE_AARCH64_BTI && HAVE_AARCH64_PAC_RET
-GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI|FEATURE_1_PAC)
-#elif HAVE_AARCH64_BTI
-GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
-#endif
+GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI|FEATURE_1_PAC|FEATURE_1_GCS)
 
 /* Define an entry point visible from C.  */
 #define ENTRY(name)						\
@@ -108,7 +68,7 @@ GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
   .p2align 6;							\
   C_LABEL(name)							\
   cfi_startproc;						\
-  BTI_C;							\
+  bti	c;							\
   CALL_MCOUNT
 
 /* Define an entry point visible from C.  */
@@ -118,7 +78,7 @@ GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
   .p2align align;						\
   C_LABEL(name)							\
   cfi_startproc;						\
-  BTI_C;							\
+  bti	c;							\
   CALL_MCOUNT
 
 /* Define an entry point visible from C with a specified alignment and
@@ -135,7 +95,7 @@ GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
   .endr;							\
   C_LABEL(name)							\
   cfi_startproc;						\
-  BTI_C;							\
+  bti	c;							\
   CALL_MCOUNT
 
 #undef	END
@@ -185,33 +145,6 @@ GNU_PROPERTY (FEATURE_1_AND, FEATURE_1_BTI)
 /* Local label name for asm code.  */
 #ifndef L
 # define L(name)         .L##name
-#endif
-
-/* Load or store to/from a pc-relative EXPR into/from R, using T.
-   Note R and T are register numbers and not register names.  */
-#define LDST_PCREL(OP, R, T, EXPR)			\
-	adrp	x##T, EXPR;				\
-	OP	PTR_REG (R), [x##T, #:lo12:EXPR];	\
-
-/* Load or store to/from a got-relative EXPR into/from R, using T.
-   Note R and T are register numbers and not register names.  */
-#define LDST_GLOBAL(OP, R, T,  EXPR)			\
-	adrp	x##T, :got:EXPR;			\
-	ldr	PTR_REG (T), [x##T, #:got_lo12:EXPR];	\
-	OP	PTR_REG (R), [x##T];
-
-/* Load an immediate into R.
-   Note R is a register number and not a register name.  */
-#ifdef __LP64__
-# define MOVL(R, NAME)					\
-	movz	PTR_REG (R), #:abs_g3:NAME;		\
-	movk	PTR_REG (R), #:abs_g2_nc:NAME;		\
-	movk	PTR_REG (R), #:abs_g1_nc:NAME;		\
-	movk	PTR_REG (R), #:abs_g0_nc:NAME;
-#else
-# define MOVL(R, NAME)					\
-	movz	PTR_REG (R), #:abs_g1:NAME;		\
-	movk	PTR_REG (R), #:abs_g0_nc:NAME;
 #endif
 
 /* Since C identifiers are not normally prefixed with an underscore

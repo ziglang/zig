@@ -11,7 +11,5 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
-// :1:20: error: use of undefined value here causes undefined behavior
+// :1:20: error: use of undefined value here causes illegal behavior

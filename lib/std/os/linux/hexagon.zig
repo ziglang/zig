@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const iovec = std.posix.iovec;
 const iovec_const = std.posix.iovec_const;
@@ -14,8 +15,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("trap0(#1)"
         : [ret] "={r0}" (-> usize),
         : [number] "{r6}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -23,8 +23,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r0}" (-> usize),
         : [number] "{r6}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -33,8 +32,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r6}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -44,8 +42,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -56,8 +53,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -69,8 +65,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -91,11 +86,10 @@ pub fn syscall6(
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
           [arg6] "{r5}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         r0,   r1,    r2,    r3,  r4,   r5,  +0
     //
@@ -117,6 +111,13 @@ pub fn clone() callconv(.Naked) usize {
         \\
         \\ p0 = cmp.eq(r0, #0)
         \\ if (!p0) dealloc_return
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined r31
+    );
+    asm volatile (
+        \\ r30 = #0
+        \\ r31 = #0
         \\
         \\ r0 = r10
         \\ callr r11
@@ -129,13 +130,12 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ trap0(#0)
         :
         : [number] "{r6}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub const F = struct {
@@ -242,8 +242,6 @@ pub const Stat = extern struct {
 };
 
 pub const Elf_Symndx = u32;
-
-pub const MMAP2_UNIT = 4096;
 
 pub const VDSO = void;
 

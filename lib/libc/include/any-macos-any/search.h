@@ -10,11 +10,14 @@
 #define _SEARCH_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <_types.h>
 #include <sys/_types/_size_t.h>
 
+_LIBC_SINGLE_BY_DEFAULT()
+
 typedef	struct entry {
-	char	*key;
+	char *_LIBC_CSTR	key;
 	void	*data;
 } ENTRY;
 
@@ -31,7 +34,7 @@ typedef	enum {
 
 #ifdef _SEARCH_PRIVATE
 typedef	struct node {
-	char         *key;
+	char *_LIBC_CSTR	key;
 	struct node  *llink, *rlink;
 } node_t;
 
@@ -46,9 +49,9 @@ int	 hcreate(size_t);
 void	 hdestroy(void);
 ENTRY	*hsearch(ENTRY, ACTION);
 void	 insque(void *, void *);
-void	*lfind(const void *, const void *, size_t *, size_t,
+void	*lfind(const void *, const void *_LIBC_UNSAFE_INDEXABLE, size_t *, size_t,
 	    int (*)(const void *, const void *));
-void	*lsearch(const void *, void *, size_t *, size_t,
+void	*lsearch(const void *, void *, size_t *_LIBC_UNSAFE_INDEXABLE, size_t,
 	    int (*)(const void *, const void *));
 void	 remque(void *);
 void	*tdelete(const void * __restrict, void ** __restrict,

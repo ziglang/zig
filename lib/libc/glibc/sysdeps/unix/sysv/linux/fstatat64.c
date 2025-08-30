@@ -1,5 +1,5 @@
 /* Get file status.  Linux version.
-   Copyright (C) 2020-2024 Free Software Foundation, Inc.
+   Copyright (C) 2020-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,6 +15,8 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
+
+/* zig patch: fixes to make this file compile */
 
 #define __fstatat __redirect___fstatat
 #define fstatat   __redirect_fstatat
@@ -104,7 +106,7 @@ fstatat64_time64_stat (int fd, const char *file, struct __stat64_t64 *buf,
 #else
 # ifdef __NR_fstatat64
   /* All kABIs with non-LFS support and with old 32-bit time_t support
-     e.g. arm, csky, i386, hppa, m68k, microblaze, nios2, sh, powerpc32,
+     e.g. arm, csky, i386, hppa, m68k, microblaze, sh, powerpc32,
      and sparc32.  */
   struct stat64 st64;
   r = INTERNAL_SYSCALL_CALL (fstatat64, fd, file, &st64, flag);

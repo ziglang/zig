@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2000-2021 Apple Inc. All rights reserved.
+ * Copyright (c) 2000-2023 Apple Inc. All rights reserved.
  *
  * @APPLE_OSREFERENCE_LICENSE_HEADER_START@
  *
@@ -66,6 +66,7 @@
 
 #include <sys/appleapiopts.h>
 
+#include <net/if.h>
 #include <sys/ioccom.h>
 
 /* Socket ioctl's. */
@@ -77,9 +78,6 @@
 #define SIOCSPGRP        _IOW('s',  8, int)             /* set process group */
 #define SIOCGPGRP        _IOR('s',  9, int)             /* get process group */
 
-/*
- * OSIOCGIF* ioctls are deprecated; they are kept for binary compatibility.
- */
 #define SIOCSIFADDR     _IOW('i', 12, struct ifreq)     /* set ifnet address */
 #define SIOCSIFDSTADDR   _IOW('i', 14, struct ifreq)    /* set p-p address */
 #define SIOCSIFFLAGS     _IOW('i', 16, struct ifreq)    /* set ifnet flags */
@@ -140,7 +138,6 @@
  */
 #define SIOCGIFXMEDIA   _IOWR('i', 72, struct ifmediareq) /* get net extended media */
 
-
 #define SIOCSIFCAP       _IOW('i', 90, struct ifreq)    /* set IF features */
 #define SIOCGIFCAP      _IOWR('i', 91, struct ifreq)    /* get IF features */
 
@@ -165,7 +162,6 @@
 #define SIOCSIFASYNCMAP _IOW('i', 125, struct ifreq)    /* set ppp asyncmap */
 
 
-
 #define SIOCGIFMAC      _IOWR('i', 130, struct ifreq)   /* deprecated */
 #define SIOCSIFMAC      _IOW('i', 131, struct ifreq)    /* deprecated */
 #define SIOCSIFKPI      _IOW('i', 134, struct ifreq) /* set interface kext param - root only */
@@ -177,6 +173,8 @@
 
 #define SIOCSIF6LOWPAN  _IOW('i', 196, struct ifreq)    /* set 6LOWPAN config */
 #define SIOCGIF6LOWPAN  _IOWR('i', 197, struct ifreq)   /* get 6LOWPAN config */
+
+#define SIOCGIFDIRECTLINK _IOWR('i', 222, struct ifreq) /* get DIRECTLINK */
 
 
 #endif /* !_SYS_SOCKIO_H_ */

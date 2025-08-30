@@ -17,5 +17,5 @@ fn div(a: i16, b: i16) i16 {
     return @divTrunc(a, b);
 }
 // run
-// backend=llvm
-// target=native
+// backend=stage2,llvm
+// target=x86_64-linux,aarch64-linux

@@ -8,6 +8,7 @@
 
 #include <wasi/api.h>
 #include <errno.h>
+#include <poll.h>
 
 int pselect(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
             fd_set *restrict errorfds, const struct timespec *restrict timeout,
@@ -33,93 +34,66 @@ int pselect(int nfds, fd_set *restrict readfds, fd_set *restrict writefds,
   if (writefds == NULL)
     writefds = &empty;
 
-  // Determine the maximum number of events.
-  size_t maxevents = readfds->__nfds + writefds->__nfds + 1;
-  __wasi_subscription_t subscriptions[maxevents];
-  size_t nsubscriptions = 0;
-
-  // Convert the readfds set.
+  struct pollfd poll_fds[readfds->__nfds + writefds->__nfds];
+  size_t poll_nfds = 0;
+  
   for (size_t i = 0; i < readfds->__nfds; ++i) {
     int fd = readfds->__fds[i];
     if (fd < nfds) {
-      __wasi_subscription_t *subscription = &subscriptions[nsubscriptions++];
-      *subscription = (__wasi_subscription_t){
-          .userdata = fd,
-          .u.tag = __WASI_EVENTTYPE_FD_READ,
-          .u.u.fd_read.file_descriptor = fd,
-      };
+        poll_fds[poll_nfds++] = (struct pollfd){
+            .fd = fd,
+            .events = POLLRDNORM,
+            .revents = 0
+        };
     }
   }
-
-  // Convert the writefds set.
+  
   for (size_t i = 0; i < writefds->__nfds; ++i) {
     int fd = writefds->__fds[i];
     if (fd < nfds) {
-      __wasi_subscription_t *subscription = &subscriptions[nsubscriptions++];
-      *subscription = (__wasi_subscription_t){
-          .userdata = fd,
-          .u.tag = __WASI_EVENTTYPE_FD_WRITE,
-          .u.u.fd_write.file_descriptor = fd,
+      poll_fds[poll_nfds++] = (struct pollfd){
+          .fd = fd,
+          .events = POLLWRNORM,
+          .revents = 0
       };
     }
   }
 
-  // Create extra event for the timeout.
-  if (timeout != NULL) {
-    __wasi_subscription_t *subscription = &subscriptions[nsubscriptions++];
-    *subscription = (__wasi_subscription_t){
-        .u.tag = __WASI_EVENTTYPE_CLOCK,
-        .u.u.clock.id = __WASI_CLOCKID_REALTIME,
-    };
-    if (!timespec_to_timestamp_clamp(timeout, &subscription->u.u.clock.timeout)) {
+  int poll_timeout;
+  if (timeout) {
+    uint64_t timeout_u64;
+    if (!timespec_to_timestamp_clamp(timeout, &timeout_u64) ) {
       errno = EINVAL;
       return -1;
     }
-  }
 
-  // Execute poll().
-  size_t nevents;
-  __wasi_event_t events[nsubscriptions];
-  __wasi_errno_t error =
-      __wasi_poll_oneoff(subscriptions, events, nsubscriptions, &nevents);
-  if (error != 0) {
-    // WASI's poll requires at least one subscription, or else it returns
-    // `EINVAL`. Since a `pselect` with nothing to wait for is valid in POSIX,
-    // return `ENOTSUP` to indicate that we don't support that case.
-    //
-    // Wasm has no signal handling, so if none of the user-provided `pollfd`
-    // elements, nor the timeout, led us to producing even one subscription
-    // to wait for, there would be no way for the poll to wake up. WASI
-    // returns `EINVAL` in this case, but for users of `poll`, `ENOTSUP` is
-    // more likely to be understood.
-    if (nsubscriptions == 0)
-      errno = ENOTSUP;
-    else
-      errno = error;
+    // Convert nanoseconds to milliseconds:
+    timeout_u64 /= 1000000;
+
+    if (timeout_u64 > INT_MAX) {
+      timeout_u64 = INT_MAX;
+    }
+
+    poll_timeout = (int) timeout_u64;
+  } else {
+    poll_timeout = -1;
+  };
+  
+  if (poll(poll_fds, poll_nfds, poll_timeout) < 0) {
     return -1;
   }
 
-  // Test for EBADF.
-  for (size_t i = 0; i < nevents; ++i) {
-    const __wasi_event_t *event = &events[i];
-    if ((event->type == __WASI_EVENTTYPE_FD_READ ||
-         event->type == __WASI_EVENTTYPE_FD_WRITE) &&
-        event->error == __WASI_ERRNO_BADF) {
-      errno = EBADF;
-      return -1;
-    }
-  }
-
-  // Clear and set entries in the result sets.
   FD_ZERO(readfds);
   FD_ZERO(writefds);
-  for (size_t i = 0; i < nevents; ++i) {
-    const __wasi_event_t *event = &events[i];
-    if (event->type == __WASI_EVENTTYPE_FD_READ) {
-      readfds->__fds[readfds->__nfds++] = event->userdata;
-    } else if (event->type == __WASI_EVENTTYPE_FD_WRITE) {
-      writefds->__fds[writefds->__nfds++] = event->userdata;
+  for (size_t i = 0; i < poll_nfds; ++i) {
+    struct pollfd* pollfd = poll_fds + i;
+    if ((pollfd->revents & POLLRDNORM) != 0) {
+      readfds->__fds[readfds->__nfds++] = pollfd->fd;
+    }
+    if ((pollfd->revents & POLLWRNORM) != 0) {
+      writefds->__fds[writefds->__nfds++] = pollfd->fd;
     }
   }
+  
   return readfds->__nfds + writefds->__nfds;
 }

@@ -6,6 +6,7 @@ pub fn main() void {
         const Big = @Type(.{ .@"enum" = .{
             .tag_type = u16,
             .fields = make_fields: {
+                @setEvalBranchQuota(500000);
                 var fields: [1001]std.builtin.Type.EnumField = undefined;
                 for (&fields, 0..) |*field, i| {
                     field.* = .{ .name = std.fmt.comptimePrint("field_{d}", .{i}), .value = i };
@@ -31,6 +32,7 @@ pub fn main() void {
     var bounded_multiset = std.enums.BoundedEnumMultiset(big.Big, u8).init(.{});
     _ = &bounded_multiset;
 
+    @setEvalBranchQuota(3000);
     var array = std.enums.EnumArray(big.Big, u8).init(undefined);
     array = std.enums.EnumArray(big.Big, u8).initDefault(123, .{});
 }

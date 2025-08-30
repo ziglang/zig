@@ -12,7 +12,6 @@
 #include <__algorithm/comp.h>
 #include <__algorithm/comp_ref_type.h>
 #include <__config>
-#include <__iterator/iterator_traits.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -35,13 +34,13 @@ __is_sorted_until(_ForwardIterator __first, _ForwardIterator __last, _Compare __
 }
 
 template <class _ForwardIterator, class _Compare>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 is_sorted_until(_ForwardIterator __first, _ForwardIterator __last, _Compare __comp) {
   return std::__is_sorted_until<__comp_ref_type<_Compare> >(__first, __last, __comp);
 }
 
 template <class _ForwardIterator>
-_LIBCPP_NODISCARD inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
+[[__nodiscard__]] inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 _ForwardIterator
 is_sorted_until(_ForwardIterator __first, _ForwardIterator __last) {
   return std::is_sorted_until(__first, __last, __less<>());
 }

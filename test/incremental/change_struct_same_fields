@@ -1,6 +1,7 @@
-#target=x86_64-linux-selfhosted
+//#target=x86_64-linux-selfhosted
 #target=x86_64-linux-cbe
 #target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
 #update=initial version
 #file=main.zig
 const S = extern struct { x: u8, y: u8 };
@@ -9,7 +10,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
@@ -25,7 +27,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );
@@ -41,7 +44,8 @@ pub fn main() !void {
     try foo(&val);
 }
 fn foo(val: *const S) !void {
-    try std.io.getStdOut().writer().print(
+    var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+    try stdout_writer.interface.print(
         "{d} {d}\n",
         .{ val.x, val.y },
     );

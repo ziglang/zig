@@ -29,8 +29,8 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
         pos += @sizeOf(ar_hdr);
 
         if (!mem.eql(u8, &hdr.ar_fmag, ARFMAG)) {
-            return diags.failParse(path, "invalid header delimiter: expected '{s}', found '{s}'", .{
-                std.fmt.fmtSliceEscapeLower(ARFMAG), std.fmt.fmtSliceEscapeLower(&hdr.ar_fmag),
+            return diags.failParse(path, "invalid header delimiter: expected '{f}', found '{f}'", .{
+                std.ascii.hexEscape(ARFMAG, .lower), std.ascii.hexEscape(&hdr.ar_fmag, .lower),
             });
         }
 
@@ -71,7 +71,7 @@ pub fn unpack(self: *Archive, macho_file: *MachO, path: Path, handle_index: File
             .mtime = hdr.date() catch 0,
         };
 
-        log.debug("extracting object '{}' from archive '{}'", .{ object.path, path });
+        log.debug("extracting object '{f}' from archive '{f}'", .{ object.path, path });
 
         try self.objects.append(gpa, object);
     }
@@ -81,34 +81,20 @@ pub fn writeHeader(
     object_name: []const u8,
     object_size: usize,
     format: Format,
-    writer: anytype,
+    writer: *Writer,
 ) !void {
-    var hdr: ar_hdr = .{
-        .ar_name = undefined,
-        .ar_date = undefined,
-        .ar_uid = undefined,
-        .ar_gid = undefined,
-        .ar_mode = undefined,
-        .ar_size = undefined,
-        .ar_fmag = undefined,
-    };
-    @memset(mem.asBytes(&hdr), 0x20);
-    inline for (@typeInfo(ar_hdr).@"struct".fields) |field| {
-        var stream = std.io.fixedBufferStream(&@field(hdr, field.name));
-        stream.writer().print("0", .{}) catch unreachable;
-    }
-    @memcpy(&hdr.ar_fmag, ARFMAG);
+    var hdr: ar_hdr = .{};
 
     const object_name_len = mem.alignForward(usize, object_name.len + 1, ptrWidth(format));
     const total_object_size = object_size + object_name_len;
 
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_name);
-        stream.writer().print("#1/{d}", .{object_name_len}) catch unreachable;
+        var stream: Writer = .fixed(&hdr.ar_name);
+        stream.print("#1/{d}", .{object_name_len}) catch unreachable;
     }
     {
-        var stream = std.io.fixedBufferStream(&hdr.ar_size);
-        stream.writer().print("{d}", .{total_object_size}) catch unreachable;
+        var stream: Writer = .fixed(&hdr.ar_size);
+        stream.print("{d}", .{total_object_size}) catch unreachable;
     }
 
     try writer.writeAll(mem.asBytes(&hdr));
@@ -116,7 +102,7 @@ pub fn writeHeader(
 
     const padding = object_name_len - object_name.len - 1;
     if (padding > 0) {
-        try writer.writeByteNTimes(0, padding);
+        try writer.splatByteAll(0, padding);
     }
 }
 
@@ -138,33 +124,27 @@ pub const SYMDEF64_SORTED = "__.SYMDEF_64 SORTED";
 
 pub const ar_hdr = extern struct {
     /// Member file name, sometimes / terminated.
-    ar_name: [16]u8,
-
+    ar_name: [16]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// File date, decimal seconds since Epoch.
-    ar_date: [12]u8,
-
+    ar_date: [12]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// User ID, in ASCII format.
-    ar_uid: [6]u8,
-
+    ar_uid: [6]u8 = "0\x20\x20\x20\x20\x20".*,
     /// Group ID, in ASCII format.
-    ar_gid: [6]u8,
-
+    ar_gid: [6]u8 = "0\x20\x20\x20\x20\x20".*,
     /// File mode, in ASCII octal.
-    ar_mode: [8]u8,
-
+    ar_mode: [8]u8 = "0\x20\x20\x20\x20\x20\x20\x20".*,
     /// File size, in ASCII decimal.
-    ar_size: [10]u8,
-
+    ar_size: [10]u8 = "0\x20\x20\x20\x20\x20\x20\x20\x20\x20".*,
     /// Always contains ARFMAG.
-    ar_fmag: [2]u8,
+    ar_fmag: [2]u8 = ARFMAG.*,
 
     fn date(self: ar_hdr) !u64 {
-        const value = mem.trimRight(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_date, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u64, value, 10);
     }
 
     fn size(self: ar_hdr) !u32 {
-        const value = mem.trimRight(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
+        const value = mem.trimEnd(u8, &self.ar_size, &[_]u8{@as(u8, 0x20)});
         return std.fmt.parseInt(u32, value, 10);
     }
 
@@ -178,7 +158,7 @@ pub const ar_hdr = extern struct {
     fn nameLength(self: ar_hdr) !?u32 {
         const value = &self.ar_name;
         if (!mem.startsWith(u8, value, "#1/")) return null;
-        const trimmed = mem.trimRight(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
+        const trimmed = mem.trimEnd(u8, self.ar_name["#1/".len..], &[_]u8{0x20});
         return try std.fmt.parseInt(u32, trimmed, 10);
     }
 };
@@ -201,7 +181,7 @@ pub const ArSymtab = struct {
         return ptr_width + ar.entries.items.len * 2 * ptr_width + ptr_width + mem.alignForward(usize, ar.strtab.buffer.items.len, ptr_width);
     }
 
-    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: anytype) !void {
+    pub fn write(ar: ArSymtab, format: Format, macho_file: *MachO, writer: *Writer) !void {
         const ptr_width = ptrWidth(format);
         // Header
         try writeHeader(SYMDEF, ar.size(format), format, writer);
@@ -226,34 +206,27 @@ pub const ArSymtab = struct {
         // Strtab
         try writer.writeAll(ar.strtab.buffer.items);
         if (padding > 0) {
-            try writer.writeByteNTimes(0, padding);
+            try writer.splatByteAll(0, padding);
         }
     }
 
-    const FormatContext = struct {
+    const PrintFormat = struct {
         ar: ArSymtab,
         macho_file: *MachO,
+
+        fn default(f: PrintFormat, bw: *Writer) Writer.Error!void {
+            const ar = f.ar;
+            const macho_file = f.macho_file;
+            for (ar.entries.items, 0..) |entry, i| {
+                const name = ar.strtab.getAssumeExists(entry.off);
+                const file = macho_file.getFile(entry.file).?;
+                try bw.print("  {d}: {s} in file({d})({f})\n", .{ i, name, entry.file, file.fmtPath() });
+            }
+        }
     };
 
-    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(format2) {
+    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(PrintFormat, PrintFormat.default) {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
-    }
-
-    fn format2(
-        ctx: FormatContext,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        const ar = ctx.ar;
-        const macho_file = ctx.macho_file;
-        for (ar.entries.items, 0..) |entry, i| {
-            const name = ar.strtab.getAssumeExists(entry.off);
-            const file = macho_file.getFile(entry.file).?;
-            try writer.print("  {d}: {s} in file({d})({})\n", .{ i, name, entry.file, file.fmtPath() });
-        }
     }
 
     const Entry = struct {
@@ -282,7 +255,7 @@ pub fn ptrWidth(format: Format) usize {
     };
 }
 
-pub fn writeInt(format: Format, value: u64, writer: anytype) !void {
+pub fn writeInt(format: Format, value: u64, writer: *Writer) !void {
     switch (format) {
         .p32 => try writer.writeInt(u32, std.math.cast(u32, value) orelse return error.Overflow, .little),
         .p64 => try writer.writeInt(u64, value, .little),
@@ -304,8 +277,9 @@ const log = std.log.scoped(.link);
 const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
-const Allocator = mem.Allocator;
+const Allocator = std.mem.Allocator;
 const Path = std.Build.Cache.Path;
+const Writer = std.Io.Writer;
 
 const Archive = @This();
 const File = @import("file.zig").File;

@@ -12,10 +12,10 @@ comptime {
     @export(&__floatditf, .{ .name = "__floatditf", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __floatditf(a: i64) callconv(.C) f128 {
+pub fn __floatditf(a: i64) callconv(.c) f128 {
     return floatFromInt(f128, a);
 }
 
-fn _Qp_xtoq(c: *f128, a: i64) callconv(.C) void {
+fn _Qp_xtoq(c: *f128, a: i64) callconv(.c) void {
     c.* = floatFromInt(f128, a);
 }

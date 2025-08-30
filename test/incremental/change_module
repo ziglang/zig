@@ -1,0 +1,65 @@
+#target=x86_64-linux-selfhosted
+#target=x86_64-linux-cbe
+#target=x86_64-windows-cbe
+#target=wasm32-wasi-selfhosted
+#module=foo=foo.zig
+
+#update=initial version
+#file=main.zig
+pub fn main() void {
+    _ = @import("foo");
+    //_ = @import("other.zig");
+}
+#file=foo.zig
+comptime {
+    _ = @import("other.zig");
+}
+#file=other.zig
+fn f() void {
+    @compileLog(@src().module);
+}
+comptime {
+    f();
+}
+#expect_error=other.zig:2:5: error: found compile log statement
+#expect_compile_log=@as([:0]const u8, "foo"[0..3])
+
+#update=change module of other.zig
+#file=main.zig
+pub fn main() void {
+    _ = @import("foo");
+    _ = @import("other.zig");
+}
+#file=foo.zig
+comptime {
+    //_ = @import("other.zig");
+}
+#expect_error=other.zig:2:5: error: found compile log statement
+#expect_compile_log=@as([:0]const u8, "root"[0..4])
+
+#update=put other.zig in both modules
+#file=main.zig
+pub fn main() void {
+    _ = @import("foo");
+    _ = @import("other.zig");
+}
+#file=foo.zig
+comptime {
+    _ = @import("other.zig");
+}
+#expect_error=foo.zig:1:1: error: file exists in modules 'root' and 'foo'
+#expect_error=foo.zig:1:1: note: files must belong to only one module
+#expect_error=main.zig:3:17: note: file is imported here by the root of module 'root'
+#expect_error=foo.zig:2:17: note: file is imported here by the root of module 'foo'
+
+#update=put other.zig in no modules
+#file=main.zig
+pub fn main() void {
+    _ = @import("foo");
+    //_ = @import("other.zig");
+}
+#file=foo.zig
+comptime {
+    //_ = @import("other.zig");
+}
+#expect_stdout=""

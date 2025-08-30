@@ -33,7 +33,7 @@ __unexpected(unexpected_handler func)
 {
     func();
     // unexpected handler should not return
-    abort_message("unexpected_handler unexpectedly returned");
+    __abort_message("unexpected_handler unexpectedly returned");
 }
 
 __attribute__((noreturn))
@@ -58,13 +58,13 @@ __terminate(terminate_handler func) noexcept
 #endif // _LIBCXXABI_NO_EXCEPTIONS
         func();
         // handler should not return
-        abort_message("terminate_handler unexpectedly returned");
+        __abort_message("terminate_handler unexpectedly returned");
 #ifndef _LIBCXXABI_NO_EXCEPTIONS
     }
     catch (...)
     {
         // handler should not throw exception
-        abort_message("terminate_handler unexpectedly threw an exception");
+        __abort_message("terminate_handler unexpectedly threw an exception");
     }
 #endif // _LIBCXXABI_NO_EXCEPTIONS
 }

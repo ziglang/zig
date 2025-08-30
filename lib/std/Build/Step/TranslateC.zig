@@ -10,8 +10,8 @@ pub const base_id: Step.Id = .translate_c;
 
 step: Step,
 source: std.Build.LazyPath,
-include_dirs: std.ArrayList(std.Build.Module.IncludeDir),
-c_macros: std.ArrayList([]const u8),
+include_dirs: std.array_list.Managed(std.Build.Module.IncludeDir),
+c_macros: std.array_list.Managed([]const u8),
 out_basename: []const u8,
 target: std.Build.ResolvedTarget,
 optimize: std.builtin.OptimizeMode,
@@ -38,8 +38,8 @@ pub fn create(owner: *std.Build, options: Options) *TranslateC {
             .makeFn = make,
         }),
         .source = source,
-        .include_dirs = std.ArrayList(std.Build.Module.IncludeDir).init(owner.allocator),
-        .c_macros = std.ArrayList([]const u8).init(owner.allocator),
+        .include_dirs = std.array_list.Managed(std.Build.Module.IncludeDir).init(owner.allocator),
+        .c_macros = std.array_list.Managed([]const u8).init(owner.allocator),
         .out_basename = undefined,
         .target = options.target,
         .optimize = options.optimize,
@@ -63,24 +63,15 @@ pub fn getOutput(translate_c: *TranslateC) std.Build.LazyPath {
     return .{ .generated = .{ .file = &translate_c.output_file } };
 }
 
-/// Creates a step to build an executable from the translated source.
-pub fn addExecutable(translate_c: *TranslateC, options: AddExecutableOptions) *Step.Compile {
-    return translate_c.step.owner.addExecutable(.{
-        .root_source_file = translate_c.getOutput(),
-        .name = options.name orelse "translated_c",
-        .version = options.version,
-        .target = options.target orelse translate_c.target,
-        .optimize = options.optimize orelse translate_c.optimize,
-        .linkage = options.linkage,
-    });
-}
-
 /// Creates a module from the translated source and adds it to the package's
 /// module set making it available to other packages which depend on this one.
 /// `createModule` can be used instead to create a private module.
 pub fn addModule(translate_c: *TranslateC, name: []const u8) *std.Build.Module {
     return translate_c.step.owner.addModule(name, .{
         .root_source_file = translate_c.getOutput(),
+        .target = translate_c.target,
+        .optimize = translate_c.optimize,
+        .link_libc = translate_c.link_libc,
     });
 }
 
@@ -162,7 +153,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const b = step.owner;
     const translate_c: *TranslateC = @fieldParentPtr("step", step);
 
-    var argv_list = std.ArrayList([]const u8).init(b.allocator);
+    var argv_list = std.array_list.Managed([]const u8).init(b.allocator);
     try argv_list.append(b.graph.zig_exe);
     try argv_list.append("translate-c");
     if (translate_c.link_libc) {
@@ -171,6 +162,12 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     if (!translate_c.use_clang) {
         try argv_list.append("-fno-clang");
     }
+
+    try argv_list.append("--cache-dir");
+    try argv_list.append(b.cache_root.path orelse ".");
+
+    try argv_list.append("--global-cache-dir");
+    try argv_list.append(b.graph.global_cache_root.path orelse ".");
 
     try argv_list.append("--listen=-");
 
@@ -196,7 +193,7 @@ fn make(step: *Step, options: Step.MakeOptions) !void {
     const c_source_path = translate_c.source.getPath2(b, step);
     try argv_list.append(c_source_path);
 
-    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false);
+    const output_dir = try step.evalZigProcess(argv_list.items, prog_node, false, options.web_server, options.gpa);
 
     const basename = std.fs.path.stem(std.fs.path.basename(c_source_path));
     translate_c.out_basename = b.fmt("{s}.zig", .{basename});

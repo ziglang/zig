@@ -83,6 +83,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .memset,
             .memset_safe,
             .memcpy,
+            .memmove,
             .atomic_store_unordered,
             .atomic_store_monotonic,
             .atomic_store_release,
@@ -104,6 +105,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .fptrunc,
             .fpext,
             .intcast,
+            .intcast_safe,
             .trunc,
             .optional_payload,
             .optional_payload_ptr,
@@ -128,6 +130,8 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .array_to_slice,
             .int_from_float,
             .int_from_float_optimized,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             .float_from_int,
             .splat,
             .error_set_has_value,
@@ -169,7 +173,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -179,7 +183,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -207,8 +211,6 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .is_non_err,
             .is_err_ptr,
             .is_non_err_ptr,
-            .int_from_ptr,
-            .int_from_bool,
             .ret,
             .ret_safe,
             .ret_load,
@@ -249,12 +251,22 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(extra.struct_operand, zcu)) return false;
             },
 
-            .shuffle => {
-                const extra = air.extraData(Air.Shuffle, data.ty_pl.payload).data;
-                if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
-                if (!checkRef(extra.a, zcu)) return false;
-                if (!checkRef(extra.b, zcu)) return false;
-                if (!checkVal(Value.fromInterned(extra.mask), zcu)) return false;
+            .shuffle_one => {
+                const unwrapped = air.unwrapShuffleOne(zcu, inst);
+                if (!checkType(unwrapped.result_ty, zcu)) return false;
+                if (!checkRef(unwrapped.operand, zcu)) return false;
+                for (unwrapped.mask) |m| switch (m.unwrap()) {
+                    .elem => {},
+                    .value => |val| if (!checkVal(.fromInterned(val), zcu)) return false,
+                };
+            },
+
+            .shuffle_two => {
+                const unwrapped = air.unwrapShuffleTwo(zcu, inst);
+                if (!checkType(unwrapped.result_ty, zcu)) return false;
+                if (!checkRef(unwrapped.operand_a, zcu)) return false;
+                if (!checkRef(unwrapped.operand_b, zcu)) return false;
+                // No values to check because there are no comptime-known values other than undef
             },
 
             .cmpxchg_weak,
@@ -270,7 +282,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .aggregate_init => {
                 const ty = data.ty_pl.ty.toType();
                 const elems_len: usize = @intCast(ty.arrayLen(zcu));
-                const elems: []const Air.Inst.Ref = @ptrCast(air.extra[data.ty_pl.payload..][0..elems_len]);
+                const elems: []const Air.Inst.Ref = @ptrCast(air.extra.items[data.ty_pl.payload..][0..elems_len]);
                 if (!checkType(ty, zcu)) return false;
                 if (ty.zigTypeTag(zcu) == .@"struct") {
                     for (elems, 0..) |elem, elem_idx| {
@@ -311,6 +323,10 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(bin.rhs, zcu)) return false;
             },
 
+            .runtime_nav_ptr => {
+                if (!checkType(.fromInterned(data.ty_nav.ty), zcu)) return false;
+            },
+
             .select,
             .mul_add,
             => {
@@ -332,7 +348,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
             .call_never_inline,
             => {
                 const extra = air.extraData(Air.Call, data.pl_op.payload);
-                const args: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.args_len]);
+                const args: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..extra.data.args_len]);
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 for (args) |arg| if (!checkRef(arg, zcu)) return false;
             },
@@ -349,7 +365,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -360,7 +376,7 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(extra.data.ptr, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.body_len]),
                     zcu,
                 )) return false;
             },
@@ -370,12 +386,12 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkRef(data.pl_op.operand, zcu)) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end..][0..extra.data.then_body_len]),
+                    @ptrCast(air.extra.items[extra.end..][0..extra.data.then_body_len]),
                     zcu,
                 )) return false;
                 if (!checkBody(
                     air,
-                    @ptrCast(air.extra[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]),
+                    @ptrCast(air.extra.items[extra.end + extra.data.then_body_len ..][0..extra.data.else_body_len]),
                     zcu,
                 )) return false;
             },
@@ -400,8 +416,9 @@ fn checkBody(air: Air, body: []const Air.Inst.Index, zcu: *Zcu) bool {
                 if (!checkType(data.ty_pl.ty.toType(), zcu)) return false;
                 // Luckily, we only care about the inputs and outputs, so we don't have to do
                 // the whole null-terminated string dance.
-                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end..][0..extra.data.outputs_len]);
-                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra[extra.end + extra.data.outputs_len ..][0..extra.data.inputs_len]);
+                const outputs_len = extra.data.flags.outputs_len;
+                const outputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end..][0..outputs_len]);
+                const inputs: []const Air.Inst.Ref = @ptrCast(air.extra.items[extra.end + outputs_len ..][0..extra.data.inputs_len]);
                 for (outputs) |output| if (output != .none and !checkRef(output, zcu)) return false;
                 for (inputs) |input| if (input != .none and !checkRef(input, zcu)) return false;
             },
@@ -440,6 +457,7 @@ fn checkRef(ref: Air.Inst.Ref, zcu: *Zcu) bool {
 pub fn checkVal(val: Value, zcu: *Zcu) bool {
     const ty = val.typeOf(zcu);
     if (!checkType(ty, zcu)) return false;
+    if (val.isUndef(zcu)) return true;
     if (ty.toIntern() == .type_type and !checkType(val.toType(), zcu)) return false;
     // Check for lazy values
     switch (zcu.intern_pool.indexToKey(val.toIntern())) {
@@ -455,9 +473,8 @@ pub fn checkVal(val: Value, zcu: *Zcu) bool {
 
 pub fn checkType(ty: Type, zcu: *Zcu) bool {
     const ip = &zcu.intern_pool;
-    return switch (ty.zigTypeTagOrPoison(zcu) catch |err| switch (err) {
-        error.GenericPoison => return true,
-    }) {
+    if (ty.isGenericPoison()) return true;
+    return switch (ty.zigTypeTag(zcu)) {
         .type,
         .void,
         .bool,

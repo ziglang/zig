@@ -19,5 +19,5 @@ export fn entry2() void {
 
 // error
 //
-// :14:5: error: 'never_inline' call of inline function
-// :17:5: error: 'never_inline' call of inline function
+// :14:5: error: cannot perform inline call with 'never_inline' modifier
+// :17:5: error: cannot perform inline call with 'never_inline' modifier

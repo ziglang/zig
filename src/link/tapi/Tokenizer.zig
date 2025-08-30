@@ -297,7 +297,7 @@ fn testExpected(source: []const u8, expected: []const Token.Id) !void {
         .buffer = source,
     };
 
-    var given = std.ArrayList(Token.Id).init(testing.allocator);
+    var given = std.array_list.Managed(Token.Id).init(testing.allocator);
     defer given.deinit();
 
     while (true) {

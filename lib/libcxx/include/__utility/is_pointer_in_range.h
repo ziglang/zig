@@ -57,6 +57,14 @@ __is_pointer_in_range(const _Tp* __begin, const _Tp* __end, const _Up* __ptr) {
          reinterpret_cast<const char*>(__ptr) < reinterpret_cast<const char*>(__end);
 }
 
+template <class _Tp, class _Up>
+_LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 bool
+__is_overlapping_range(const _Tp* __begin, const _Tp* __end, const _Up* __begin2) {
+  auto __size = __end - __begin;
+  auto __end2 = __begin2 + __size;
+  return std::__is_pointer_in_range(__begin, __end, __begin2) || std::__is_pointer_in_range(__begin2, __end2, __begin);
+}
+
 _LIBCPP_END_NAMESPACE_STD
 
 #endif // _LIBCPP___UTILITY_IS_POINTER_IN_RANGE_H

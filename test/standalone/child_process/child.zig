@@ -27,12 +27,12 @@ fn run(allocator: std.mem.Allocator) !void {
     }
 
     // test stdout pipe; parent verifies
-    try std.io.getStdOut().writer().writeAll("hello from stdout");
+    try std.fs.File.stdout().writeAll("hello from stdout");
 
     // test stdin pipe from parent
     const hello_stdin = "hello from stdin";
     var buf: [hello_stdin.len]u8 = undefined;
-    const stdin = std.io.getStdIn().reader();
+    const stdin: std.fs.File = .stdin();
     const n = try stdin.readAll(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdin)) {
         testError("stdin: '{s}'; want '{s}'", .{ buf[0..n], hello_stdin });
@@ -40,7 +40,8 @@ fn run(allocator: std.mem.Allocator) !void {
 }
 
 fn testError(comptime fmt: []const u8, args: anytype) void {
-    const stderr = std.io.getStdErr().writer();
+    var stderr_writer = std.fs.File.stderr().writer(&.{});
+    const stderr = &stderr_writer.interface;
     stderr.print("CHILD TEST ERROR: ", .{}) catch {};
     stderr.print(fmt, args) catch {};
     if (fmt[fmt.len - 1] != '\n') {

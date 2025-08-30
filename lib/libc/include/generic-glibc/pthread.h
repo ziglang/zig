@@ -1,4 +1,4 @@
-/* Copyright (C) 2002-2024 Free Software Foundation, Inc.
+/* Copyright (C) 2002-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -152,7 +152,7 @@ enum
 
 
 /* Conditional variable handling.  */
-#define PTHREAD_COND_INITIALIZER { { {0}, {0}, {0, 0}, {0, 0}, 0, 0, {0, 0} } }
+#define PTHREAD_COND_INITIALIZER { { {0}, {0}, {0, 0}, 0, 0, {0, 0}, 0, 0 } }
 
 
 /* Cleanup buffers */
@@ -1315,6 +1315,11 @@ extern int pthread_setspecific (pthread_key_t __key,
 extern int pthread_getcpuclockid (pthread_t __thread_id,
 				  __clockid_t *__clock_id)
      __THROW __nonnull ((2));
+#endif
+
+#ifdef __USE_GNU
+/* Return the Linux TID for THREAD_ID.  Returns -1 on failure.  */
+extern pid_t pthread_gettid_np (pthread_t __thread_id);
 #endif
 
 

@@ -2,13 +2,13 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
-const ArrayList = std.ArrayList;
+const ArrayList = std.array_list.Managed;
 
-const Scanner = @import("./scanner.zig").Scanner;
-const Token = @import("./scanner.zig").Token;
-const AllocWhen = @import("./scanner.zig").AllocWhen;
-const default_max_value_len = @import("./scanner.zig").default_max_value_len;
-const isNumberFormattedLikeAnInteger = @import("./scanner.zig").isNumberFormattedLikeAnInteger;
+const Scanner = @import("Scanner.zig");
+const Token = Scanner.Token;
+const AllocWhen = Scanner.AllocWhen;
+const default_max_value_len = Scanner.default_max_value_len;
+const isNumberFormattedLikeAnInteger = Scanner.isNumberFormattedLikeAnInteger;
 
 const Value = @import("./dynamic.zig").Value;
 const Array = @import("./dynamic.zig").Array;
@@ -451,12 +451,12 @@ pub fn innerParse(
 
         .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
-                .One => {
+                .one => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     r.* = try innerParse(ptrInfo.child, allocator, source, options);
                     return r;
                 },
-                .Slice => {
+                .slice => {
                     switch (try source.peekNextTokenType()) {
                         .array_begin => {
                             _ = try source.next();
@@ -476,9 +476,8 @@ pub fn innerParse(
                                 arraylist.appendAssumeCapacity(try innerParse(ptrInfo.child, allocator, source, options));
                             }
 
-                            if (ptrInfo.sentinel) |some| {
-                                const sentinel_value = @as(*align(1) const ptrInfo.child, @ptrCast(some)).*;
-                                return try arraylist.toOwnedSliceSentinel(sentinel_value);
+                            if (ptrInfo.sentinel()) |s| {
+                                return try arraylist.toOwnedSliceSentinel(s);
                             }
 
                             return try arraylist.toOwnedSlice();
@@ -487,11 +486,11 @@ pub fn innerParse(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
 
                             // Dynamic length string.
-                            if (ptrInfo.sentinel) |sentinel_ptr| {
+                            if (ptrInfo.sentinel()) |s| {
                                 // Use our own array list so we can append the sentinel.
                                 var value_list = ArrayList(u8).init(allocator);
                                 _ = try source.allocNextIntoArrayList(&value_list, .alloc_always);
-                                return try value_list.toOwnedSliceSentinel(@as(*const u8, @ptrCast(sentinel_ptr)).*);
+                                return try value_list.toOwnedSliceSentinel(s);
                             }
                             if (ptrInfo.is_const) {
                                 switch (try source.nextAllocMax(allocator, options.allocate.?, options.max_value_len.?)) {
@@ -568,8 +567,8 @@ pub fn innerParseFromValue(
             switch (source) {
                 .float => |f| {
                     if (@round(f) != f) return error.InvalidNumber;
-                    if (f > std.math.maxInt(T)) return error.Overflow;
-                    if (f < std.math.minInt(T)) return error.Overflow;
+                    if (f > @as(@TypeOf(f), @floatFromInt(std.math.maxInt(T)))) return error.Overflow;
+                    if (f < @as(@TypeOf(f), @floatFromInt(std.math.minInt(T)))) return error.Overflow;
                     return @as(T, @intFromFloat(f));
                 },
                 .integer => |i| {
@@ -596,7 +595,7 @@ pub fn innerParseFromValue(
 
             switch (source) {
                 .float => return error.InvalidEnumTag,
-                .integer => |i| return std.meta.intToEnum(T, i),
+                .integer => |i| return std.enums.fromInt(T, i) orelse return error.InvalidEnumTag,
                 .number_string, .string => |s| return sliceToEnum(T, s),
                 else => return error.UnexpectedToken,
             }
@@ -706,16 +705,16 @@ pub fn innerParseFromValue(
 
         .pointer => |ptrInfo| {
             switch (ptrInfo.size) {
-                .One => {
+                .one => {
                     const r: *ptrInfo.child = try allocator.create(ptrInfo.child);
                     r.* = try innerParseFromValue(ptrInfo.child, allocator, source, options);
                     return r;
                 },
-                .Slice => {
+                .slice => {
                     switch (source) {
                         .array => |array| {
-                            const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, array.items.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
+                            const r = if (ptrInfo.sentinel()) |sentinel|
+                                try allocator.allocSentinel(ptrInfo.child, array.items.len, sentinel)
                             else
                                 try allocator.alloc(ptrInfo.child, array.items.len);
 
@@ -729,8 +728,8 @@ pub fn innerParseFromValue(
                             if (ptrInfo.child != u8) return error.UnexpectedToken;
                             // Dynamic length string.
 
-                            const r = if (ptrInfo.sentinel) |sentinel_ptr|
-                                try allocator.allocSentinel(ptrInfo.child, s.len, @as(*align(1) const ptrInfo.child, @ptrCast(sentinel_ptr)).*)
+                            const r = if (ptrInfo.sentinel()) |sentinel|
+                                try allocator.allocSentinel(ptrInfo.child, s.len, sentinel)
                             else
                                 try allocator.alloc(ptrInfo.child, s.len);
                             @memcpy(r[0..], s);
@@ -771,7 +770,7 @@ fn sliceToInt(comptime T: type, slice: []const u8) !T {
     // Try to coerce a float to an integer.
     const float = try std.fmt.parseFloat(f128, slice);
     if (@round(float) != float) return error.InvalidNumber;
-    if (float > std.math.maxInt(T) or float < std.math.minInt(T)) return error.Overflow;
+    if (float > @as(f128, @floatFromInt(std.math.maxInt(T))) or float < @as(f128, @floatFromInt(std.math.minInt(T)))) return error.Overflow;
     return @as(T, @intCast(@as(i128, @intFromFloat(float))));
 }
 
@@ -781,14 +780,13 @@ fn sliceToEnum(comptime T: type, slice: []const u8) !T {
     // Check for a numeric value.
     if (!isNumberFormattedLikeAnInteger(slice)) return error.InvalidEnumTag;
     const n = std.fmt.parseInt(@typeInfo(T).@"enum".tag_type, slice, 10) catch return error.InvalidEnumTag;
-    return std.meta.intToEnum(T, n);
+    return std.enums.fromInt(T, n) orelse return error.InvalidEnumTag;
 }
 
 fn fillDefaultStructValues(comptime T: type, r: *T, fields_seen: *[@typeInfo(T).@"struct".fields.len]bool) !void {
     inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
         if (!fields_seen[i]) {
-            if (field.default_value) |default_ptr| {
-                const default = @as(*align(1) const field.type, @ptrCast(default_ptr)).*;
+            if (field.defaultValue()) |default| {
                 @field(r, field.name) = default;
             } else {
                 return error.MissingField;

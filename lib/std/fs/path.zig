@@ -18,7 +18,6 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 const mem = std.mem;
-const fmt = std.fmt;
 const ascii = std.ascii;
 const Allocator = mem.Allocator;
 const math = std.math;
@@ -28,8 +27,8 @@ const fs = std.fs;
 const process = std.process;
 const native_os = builtin.target.os.tag;
 
-pub const sep_windows = '\\';
-pub const sep_posix = '/';
+pub const sep_windows: u8 = '\\';
+pub const sep_posix: u8 = '/';
 pub const sep = switch (native_os) {
     .windows, .uefi => sep_windows,
     else => sep_posix,
@@ -42,8 +41,8 @@ pub const sep_str = switch (native_os) {
     else => sep_str_posix,
 };
 
-pub const delimiter_windows = ';';
-pub const delimiter_posix = ':';
+pub const delimiter_windows: u8 = ';';
+pub const delimiter_posix: u8 = ':';
 pub const delimiter = if (native_os == .windows) delimiter_windows else delimiter_posix;
 
 /// Returns if the given byte is a valid path separator
@@ -147,6 +146,33 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, formatJoin) {
+    return .{ .data = paths };
+}
+
+fn formatJoin(paths: []const []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+    const first_path_idx = for (paths, 0..) |p, idx| {
+        if (p.len != 0) break idx;
+    } else return;
+
+    try w.writeAll(paths[first_path_idx]); // first component
+    var prev_path = paths[first_path_idx];
+    for (paths[first_path_idx + 1 ..]) |this_path| {
+        if (this_path.len == 0) continue; // skip empty components
+        const prev_sep = isSep(prev_path[prev_path.len - 1]);
+        const this_sep = isSep(this_path[0]);
+        if (!prev_sep and !this_sep) {
+            try w.writeByte(sep);
+        }
+        if (prev_sep and this_sep) {
+            try w.writeAll(this_path[1..]); // skip redundant separator
+        } else {
+            try w.writeAll(this_path);
+        }
+        prev_path = this_path;
+    }
+}
+
 fn testJoinMaybeZUefi(paths: []const []const u8, expected: []const u8, zero: bool) !void {
     const uefiIsSep = struct {
         fn isSep(byte: u8) bool {
@@ -201,8 +227,8 @@ test join {
         try testJoinMaybeZWindows(&[_][]const u8{ "c:\\a\\", "b\\", "c" }, "c:\\a\\b\\c", zero);
 
         try testJoinMaybeZWindows(
-            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "io.zig" },
-            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\io.zig",
+            &[_][]const u8{ "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std", "ab.zig" },
+            "c:\\home\\andy\\dev\\zig\\build\\lib\\zig\\std\\ab.zig",
             zero,
         );
 
@@ -226,8 +252,8 @@ test join {
         try testJoinMaybeZPosix(&[_][]const u8{ "/a/", "b/", "c" }, "/a/b/c", zero);
 
         try testJoinMaybeZPosix(
-            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "io.zig" },
-            "/home/andy/dev/zig/build/lib/zig/std/io.zig",
+            &[_][]const u8{ "/home/andy/dev/zig/build/lib/zig/std", "ab.zig" },
+            "/home/andy/dev/zig/build/lib/zig/std/ab.zig",
             zero,
         );
 
@@ -551,7 +577,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
     }
 
     // Allocate result and fill in the disk designator.
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     const disk_designator_len: usize = l: {
@@ -672,7 +698,7 @@ pub fn resolveWindows(allocator: Allocator, paths: []const []const u8) ![]u8 {
 pub fn resolvePosix(allocator: Allocator, paths: []const []const u8) Allocator.Error![]u8 {
     assert(paths.len > 0);
 
-    var result = std.ArrayList(u8).init(allocator);
+    var result = std.array_list.Managed(u8).init(allocator);
     defer result.deinit();
 
     var negative_count: usize = 0;

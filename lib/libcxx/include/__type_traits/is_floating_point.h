@@ -27,11 +27,12 @@ template <>          struct __libcpp_is_floating_point<long double> : public tru
 // clang-format on
 
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_floating_point : public __libcpp_is_floating_point<__remove_cv_t<_Tp> > {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_floating_point
+    : public __libcpp_is_floating_point<__remove_cv_t<_Tp> > {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_floating_point_v = is_floating_point<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_floating_point_v = is_floating_point<_Tp>::value;
 #endif
 
 _LIBCPP_END_NAMESPACE_STD

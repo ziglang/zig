@@ -37,7 +37,7 @@ noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
 }
 
 // No-OS entrypoint
-export fn _start() callconv(.C) noreturn {
+export fn _start() callconv(.c) noreturn {
     var expected: [4]usize = undefined;
     var unwound: [4]usize = undefined;
     frame0(&expected, &unwound);
@@ -58,8 +58,7 @@ export fn _start() callconv(.C) noreturn {
         \\syscall
         :
         : [missed] "{edi}" (missed),
-        : "edi", "eax"
-    );
+        : .{ .edi = true, .eax = true });
 
     while (true) {} // unreached
 }

@@ -16,7 +16,7 @@ pub fn main() anyerror!void {
     try tmp.dir.setAsCwd();
     defer tmp.parent_dir.setAsCwd() catch {};
 
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 128);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 128);
     defer buf.deinit();
     try buf.appendSlice("@echo off\n");
     try buf.append('"');
@@ -73,6 +73,31 @@ pub fn main() anyerror!void {
     try testExec(allocator, &.{ "\"hello^\"world\"", "hello &echo oh no >file.txt" }, null);
     try testExec(allocator, &.{"&whoami.exe"}, null);
 
+    // Ensure that trailing space and . characters can't lead to unexpected bat/cmd script execution.
+    // In many Windows APIs (including CreateProcess), trailing space and . characters are stripped
+    // from paths, so if a path with trailing . and space character(s) is passed directly to
+    // CreateProcess, then it could end up executing a batch/cmd script that naive extension detection
+    // would not flag as .bat/.cmd.
+    //
+    // Note that we expect an error here, though, which *is* a valid mitigation, but also an implementation detail.
+    // This error is caused by the use of a wildcard with NtQueryDirectoryFile to optimize PATHEXT searching. That is,
+    // the trailing characters in the app name will lead to a FileNotFound error as the wildcard-appended path will not
+    // match any real paths on the filesystem (e.g. `foo.bat .. *` will not match `foo.bat`; only `foo.bat*` will).
+    //
+    // This being an error matches the behavior of running a command via the command line of cmd.exe, too:
+    //
+    //     > "args1.bat .. "
+    //     '"args1.bat .. "' is not recognized as an internal or external command,
+    //     operable program or batch file.
+    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, "args1.bat .. ", &.{"abc"}, null));
+    const absolute_with_trailing = blk: {
+        const absolute_path = try std.fs.realpathAlloc(allocator, "args1.bat");
+        defer allocator.free(absolute_path);
+        break :blk try std.mem.concat(allocator, u8, &.{ absolute_path, " .. " });
+    };
+    defer allocator.free(absolute_with_trailing);
+    try std.testing.expectError(error.FileNotFound, testExecBat(allocator, absolute_with_trailing, &.{"abc"}, null));
+
     var env = env: {
         var env = try std.process.getEnvMap(allocator);
         errdefer env.deinit();
@@ -102,7 +127,7 @@ fn testExec(allocator: std.mem.Allocator, args: []const []const u8, env: ?*std.p
 }
 
 fn testExecBat(allocator: std.mem.Allocator, bat: []const u8, args: []const []const u8, env: ?*std.process.EnvMap) !void {
-    var argv = try std.ArrayList([]const u8).initCapacity(allocator, 1 + args.len);
+    var argv = try std.array_list.Managed([]const u8).initCapacity(allocator, 1 + args.len);
     defer argv.deinit();
     argv.appendAssumeCapacity(bat);
     argv.appendSliceAssumeCapacity(args);

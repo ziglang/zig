@@ -1,29 +1,28 @@
 const std = @import("std");
 
-pub const requires_stage2 = true;
-
 pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Test it");
     b.default_step = test_step;
 
     add(b, test_step, .Debug);
-    add(b, test_step, .ReleaseFast);
-    add(b, test_step, .ReleaseSmall);
-    add(b, test_step, .ReleaseSafe);
 }
 
 fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.OptimizeMode) void {
     const exe = b.addExecutable(.{
         .name = "lib",
-        .root_source_file = b.path("lib.zig"),
-        .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
-        .optimize = optimize,
-        .strip = false,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("lib.zig"),
+            .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding }),
+            .optimize = optimize,
+            .strip = false,
+        }),
     });
     exe.entry = .disabled;
     exe.use_llvm = false;
     exe.use_lld = false;
     exe.root_module.export_symbol_names = &.{"foo"};
+    // Don't pull in ubsan, since we're just expecting a very minimal executable.
+    exe.bundle_ubsan_rt = false;
     b.installArtifact(exe);
 
     const check_exe = exe.checkObject();

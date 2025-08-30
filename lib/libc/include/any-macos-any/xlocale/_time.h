@@ -25,13 +25,16 @@
 #define _XLOCALE__TIME_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <sys/_types/_size_t.h>
 #include <_types.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
-size_t	 strftime_l(char * __restrict, size_t, const char * __restrict,
-		const struct tm * __restrict, locale_t)
+size_t	 strftime_l(char * __restrict _LIBC_COUNT(__n), size_t __n,
+		const char * __restrict, const struct tm * __restrict, locale_t)
 		__DARWIN_ALIAS(strftime_l) __strftimelike(3);
 char	*strptime_l(const char * __restrict, const char * __restrict,
 		struct tm * __restrict, locale_t) 

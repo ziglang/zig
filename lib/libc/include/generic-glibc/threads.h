@@ -1,5 +1,5 @@
 /* ISO C11 Standard: 7.26 - Thread support library  <threads.h>.
-   Copyright (C) 2018-2024 Free Software Foundation, Inc.
+   Copyright (C) 2018-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -15,6 +15,12 @@
    You should have received a copy of the GNU Lesser General Public
    License along with the GNU C Library; if not, see
    <https://www.gnu.org/licenses/>.  */
+
+
+// zig patch: threads header was added in glibc 2.28
+#if __GLIBC__ == 2 && __GLIBC_MINOR__ < 28
+   #error "threads.h did not exist before glibc 2.28"
+#endif /* error for glibc before 2.28 */
 
 #ifndef _THREADS_H
 #define _THREADS_H	1

@@ -6,6 +6,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const testing = std.testing;
+const Writer = std.io.Writer;
 
 const CheckObject = @This();
 
@@ -17,7 +18,7 @@ pub const base_id: Step.Id = .check_object;
 step: Step,
 source: std.Build.LazyPath,
 max_bytes: usize = 20 * 1024 * 1024,
-checks: std.ArrayList(Check),
+checks: std.array_list.Managed(Check),
 obj_format: std.Target.ObjectFormat,
 
 pub fn create(
@@ -28,14 +29,14 @@ pub fn create(
     const gpa = owner.allocator;
     const check_object = gpa.create(CheckObject) catch @panic("OOM");
     check_object.* = .{
-        .step = Step.init(.{
+        .step = .init(.{
             .id = base_id,
             .name = "CheckObject",
             .owner = owner,
             .makeFn = make,
         }),
         .source = source.dupe(owner),
-        .checks = std.ArrayList(Check).init(gpa),
+        .checks = std.array_list.Managed(Check).init(gpa),
         .obj_format = obj_format,
     };
     check_object.source.addStepDependencies(&check_object.step);
@@ -80,7 +81,7 @@ const Action = struct {
         const hay = mem.trim(u8, haystack, " ");
         const phrase = mem.trim(u8, act.phrase.resolve(b, step), " ");
 
-        var candidate_vars = std.ArrayList(struct { name: []const u8, value: u64 }).init(b.allocator);
+        var candidate_vars: std.array_list.Managed(struct { name: []const u8, value: u64 }) = .init(b.allocator);
         var hay_it = mem.tokenizeScalar(u8, hay, ' ');
         var needle_it = mem.tokenizeScalar(u8, phrase, ' ');
 
@@ -156,8 +157,8 @@ const Action = struct {
     fn computeCmp(act: Action, b: *std.Build, step: *Step, global_vars: anytype) !bool {
         const gpa = step.owner.allocator;
         const phrase = act.phrase.resolve(b, step);
-        var op_stack = std.ArrayList(enum { add, sub, mod, mul }).init(gpa);
-        var values = std.ArrayList(u64).init(gpa);
+        var op_stack = std.array_list.Managed(enum { add, sub, mod, mul }).init(gpa);
+        var values = std.array_list.Managed(u64).init(gpa);
 
         var it = mem.tokenizeScalar(u8, phrase, ' ');
         while (it.next()) |next| {
@@ -229,18 +230,11 @@ const ComputeCompareExpected = struct {
         literal: u64,
     },
 
-    pub fn format(
-        value: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        if (fmt.len != 0) std.fmt.invalidFmtError(fmt, value);
-        _ = options;
-        try writer.print("{s} ", .{@tagName(value.op)});
+    pub fn format(value: ComputeCompareExpected, w: *Writer) Writer.Error!void {
+        try w.print("{t} ", .{value.op});
         switch (value.value) {
-            .variable => |name| try writer.writeAll(name),
-            .literal => |x| try writer.print("{x}", .{x}),
+            .variable => |name| try w.writeAll(name),
+            .literal => |x| try w.print("{x}", .{x}),
         }
     }
 };
@@ -248,22 +242,22 @@ const ComputeCompareExpected = struct {
 const Check = struct {
     kind: Kind,
     payload: Payload,
-    data: std.ArrayList(u8),
-    actions: std.ArrayList(Action),
+    data: std.array_list.Managed(u8),
+    actions: std.array_list.Managed(Action),
 
     fn create(allocator: Allocator, kind: Kind) Check {
         return .{
             .kind = kind,
             .payload = .{ .none = {} },
-            .data = std.ArrayList(u8).init(allocator),
-            .actions = std.ArrayList(Action).init(allocator),
+            .data = std.array_list.Managed(u8).init(allocator),
+            .actions = std.array_list.Managed(Action).init(allocator),
         };
     }
 
     fn dumpSection(allocator: Allocator, name: [:0]const u8) Check {
         var check = Check.create(allocator, .dump_section);
         const off: u32 = @intCast(check.data.items.len);
-        check.data.writer().print("{s}\x00", .{name}) catch @panic("OOM");
+        check.data.print("{s}\x00", .{name}) catch @panic("OOM");
         check.payload = .{ .dump_section = off };
         return check;
     }
@@ -563,11 +557,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         src_path.sub_path,
         check_object.max_bytes,
         null,
-        @alignOf(u64),
+        .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{'}': {s}", .{ src_path, @errorName(err) });
+    ) catch |err| return step.fail("unable to read '{f}': {s}", .{
+        std.fmt.alt(src_path, .formatEscapeChar), @errorName(err),
+    });
 
-    var vars = std.StringHashMap(u64).init(gpa);
+    var vars: std.StringHashMap(u64) = .init(gpa);
     for (check_object.checks.items) |chk| {
         if (chk.kind == .compute_compare) {
             assert(chk.actions.items.len == 1);
@@ -581,7 +577,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 return step.fail(
                     \\
                     \\========= comparison failed for action: ===========
-                    \\{s} {}
+                    \\{s} {f}
                     \\===================================================
                 , .{ act.phrase.resolve(b, step), act.expected.? });
             }
@@ -600,7 +596,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         // we either format message string with escaped codes, or not to aid debugging
         // the failed test.
         const fmtMessageString = struct {
-            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(formatMessageString) {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(Ctx, formatMessageString) {
                 return .{ .data = .{
                     .kind = kind,
                     .msg = msg,
@@ -612,17 +608,10 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                 msg: []const u8,
             };
 
-            fn formatMessageString(
-                ctx: Ctx,
-                comptime unused_fmt_string: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = unused_fmt_string;
-                _ = options;
+            fn formatMessageString(ctx: Ctx, w: *Writer) !void {
                 switch (ctx.kind) {
-                    .dump_section => try writer.print("{s}", .{std.fmt.fmtSliceEscapeLower(ctx.msg)}),
-                    else => try writer.writeAll(ctx.msg),
+                    .dump_section => try w.print("{f}", .{std.ascii.hexEscape(ctx.msg, .lower)}),
+                    else => try w.writeAll(ctx.msg),
                 }
             }
         }.fmtMessageString;
@@ -637,11 +626,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -657,11 +646,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find: ==========================
-                            \\*{s}*
+                            \\*{f}*
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: =================================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -676,11 +665,11 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected not to find: ===================
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does contain it: ========
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
                             fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
@@ -696,13 +685,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
                         return step.fail(
                             \\
                             \\========= expected to find and extract: ==============
-                            \\{s}
+                            \\{f}
                             \\========= but parsed file does not contain it: =======
-                            \\{s}
+                            \\{f}
                             \\========= file path: ==============================
-                            \\{}
+                            \\{f}
                         , .{
-                            act.phrase.resolve(b, step),
+                            fmtMessageString(chk.kind, act.phrase.resolve(b, step)),
                             fmtMessageString(chk.kind, output),
                             src_path,
                         });
@@ -963,7 +952,7 @@ const MachODumper = struct {
                 .UUID => {
                     const uuid = lc.cast(macho.uuid_command).?;
                     try writer.writeByte('\n');
-                    try writer.print("uuid {x}", .{std.fmt.fmtSliceHexLower(&uuid.uuid)});
+                    try writer.print("uuid {x}", .{&uuid.uuid});
                 },
 
                 .DATA_IN_CODE,
@@ -1225,7 +1214,7 @@ const MachODumper = struct {
         }
 
         fn dumpRebaseInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var rebases = std.ArrayList(u64).init(ctx.gpa);
+            var rebases = std.array_list.Managed(u64).init(ctx.gpa);
             defer rebases.deinit();
             try ctx.parseRebaseInfo(data, &rebases);
             mem.sort(u64, rebases.items, {}, std.sort.asc(u64));
@@ -1234,15 +1223,13 @@ const MachODumper = struct {
             }
         }
 
-        fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.ArrayList(u64)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
+        fn parseRebaseInfo(ctx: ObjectContext, data: []const u8, rebases: *std.array_list.Managed(u64)) !void {
+            var reader: std.Io.Reader = .fixed(data);
 
             var seg_id: ?u8 = null;
             var offset: u64 = 0;
             while (true) {
-                const byte = reader.readByte() catch break;
+                const byte = reader.takeByte() catch break;
                 const opc = byte & macho.REBASE_OPCODE_MASK;
                 const imm = byte & macho.REBASE_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1250,17 +1237,17 @@ const MachODumper = struct {
                     macho.REBASE_OPCODE_SET_TYPE_IMM => {},
                     macho.REBASE_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try reader.takeLeb128(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_IMM_SCALED => {
                         offset += imm * @sizeOf(u64);
                     },
                     macho.REBASE_OPCODE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try reader.takeLeb128(u64);
                         offset += addend;
                     },
                     macho.REBASE_OPCODE_DO_REBASE_ADD_ADDR_ULEB => {
-                        const addend = try std.leb.readUleb128(u64, reader);
+                        const addend = try reader.takeLeb128(u64);
                         const seg = ctx.segments.items[seg_id.?];
                         const addr = seg.vmaddr + offset;
                         try rebases.append(addr);
@@ -1277,11 +1264,11 @@ const MachODumper = struct {
                                 ntimes = imm;
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
+                                ntimes = try reader.takeLeb128(u64);
                             },
                             macho.REBASE_OPCODE_DO_REBASE_ULEB_TIMES_SKIPPING_ULEB => {
-                                ntimes = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                ntimes = try reader.takeLeb128(u64);
+                                skip = try reader.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1324,14 +1311,15 @@ const MachODumper = struct {
         };
 
         fn dumpBindInfo(ctx: ObjectContext, data: []const u8, writer: anytype) !void {
-            var bindings = std.ArrayList(Binding).init(ctx.gpa);
+            var bindings = std.array_list.Managed(Binding).init(ctx.gpa);
             defer {
                 for (bindings.items) |*b| {
                     b.deinit(ctx.gpa);
                 }
                 bindings.deinit();
             }
-            try ctx.parseBindInfo(data, &bindings);
+            var data_reader: std.Io.Reader = .fixed(data);
+            try ctx.parseBindInfo(&data_reader, &bindings);
             mem.sort(Binding, bindings.items, {}, Binding.lessThan);
             for (bindings.items) |binding| {
                 try writer.print("0x{x} [addend: {d}]", .{ binding.address, binding.addend });
@@ -1346,22 +1334,18 @@ const MachODumper = struct {
             }
         }
 
-        fn parseBindInfo(ctx: ObjectContext, data: []const u8, bindings: *std.ArrayList(Binding)) !void {
-            var stream = std.io.fixedBufferStream(data);
-            var creader = std.io.countingReader(stream.reader());
-            const reader = creader.reader();
-
+        fn parseBindInfo(ctx: ObjectContext, reader: *std.Io.Reader, bindings: *std.array_list.Managed(Binding)) !void {
             var seg_id: ?u8 = null;
             var tag: Binding.Tag = .self;
             var ordinal: u16 = 0;
             var offset: u64 = 0;
             var addend: i64 = 0;
 
-            var name_buf = std.ArrayList(u8).init(ctx.gpa);
+            var name_buf = std.array_list.Managed(u8).init(ctx.gpa);
             defer name_buf.deinit();
 
             while (true) {
-                const byte = reader.readByte() catch break;
+                const byte = reader.takeByte() catch break;
                 const opc = byte & macho.BIND_OPCODE_MASK;
                 const imm = byte & macho.BIND_IMMEDIATE_MASK;
                 switch (opc) {
@@ -1382,18 +1366,17 @@ const MachODumper = struct {
                     },
                     macho.BIND_OPCODE_SET_SEGMENT_AND_OFFSET_ULEB => {
                         seg_id = imm;
-                        offset = try std.leb.readUleb128(u64, reader);
+                        offset = try reader.takeLeb128(u64);
                     },
                     macho.BIND_OPCODE_SET_SYMBOL_TRAILING_FLAGS_IMM => {
                         name_buf.clearRetainingCapacity();
-                        try reader.readUntilDelimiterArrayList(&name_buf, 0, std.math.maxInt(u32));
-                        try name_buf.append(0);
+                        try name_buf.appendSlice(try reader.takeDelimiterInclusive(0));
                     },
                     macho.BIND_OPCODE_SET_ADDEND_SLEB => {
-                        addend = try std.leb.readIleb128(i64, reader);
+                        addend = try reader.takeLeb128(i64);
                     },
                     macho.BIND_OPCODE_ADD_ADDR_ULEB => {
-                        const x = try std.leb.readUleb128(u64, reader);
+                        const x = try reader.takeLeb128(u64);
                         offset = @intCast(@as(i64, @intCast(offset)) + @as(i64, @bitCast(x)));
                     },
                     macho.BIND_OPCODE_DO_BIND,
@@ -1408,14 +1391,14 @@ const MachODumper = struct {
                         switch (opc) {
                             macho.BIND_OPCODE_DO_BIND => {},
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_ULEB => {
-                                add_addr = try std.leb.readUleb128(u64, reader);
+                                add_addr = try reader.takeLeb128(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ADD_ADDR_IMM_SCALED => {
                                 add_addr = imm * @sizeOf(u64);
                             },
                             macho.BIND_OPCODE_DO_BIND_ULEB_TIMES_SKIPPING_ULEB => {
-                                count = try std.leb.readUleb128(u64, reader);
-                                skip = try std.leb.readUleb128(u64, reader);
+                                count = try reader.takeLeb128(u64);
+                                skip = try reader.takeLeb128(u64);
                             },
                             else => unreachable,
                         }
@@ -1445,8 +1428,8 @@ const MachODumper = struct {
             var arena = std.heap.ArenaAllocator.init(ctx.gpa);
             defer arena.deinit();
 
-            var exports = std.ArrayList(Export).init(arena.allocator());
-            var it = TrieIterator{ .data = data };
+            var exports = std.array_list.Managed(Export).init(arena.allocator());
+            var it: TrieIterator = .{ .stream = .fixed(data) };
             try parseTrieNode(arena.allocator(), &it, "", &exports);
 
             mem.sort(Export, exports.items, {}, Export.lessThan);
@@ -1477,42 +1460,18 @@ const MachODumper = struct {
         }
 
         const TrieIterator = struct {
-            data: []const u8,
-            pos: usize = 0,
-
-            fn getStream(it: *TrieIterator) std.io.FixedBufferStream([]const u8) {
-                return std.io.fixedBufferStream(it.data[it.pos..]);
-            }
+            stream: std.Io.Reader,
 
             fn readUleb128(it: *TrieIterator) !u64 {
-                var stream = it.getStream();
-                var creader = std.io.countingReader(stream.reader());
-                const reader = creader.reader();
-                const value = try std.leb.readUleb128(u64, reader);
-                it.pos += creader.bytes_read;
-                return value;
+                return it.stream.takeLeb128(u64);
             }
 
             fn readString(it: *TrieIterator) ![:0]const u8 {
-                var stream = it.getStream();
-                const reader = stream.reader();
-
-                var count: usize = 0;
-                while (true) : (count += 1) {
-                    const byte = try reader.readByte();
-                    if (byte == 0) break;
-                }
-
-                const str = @as([*:0]const u8, @ptrCast(it.data.ptr + it.pos))[0..count :0];
-                it.pos += count + 1;
-                return str;
+                return it.stream.takeSentinel(0);
             }
 
             fn readByte(it: *TrieIterator) !u8 {
-                var stream = it.getStream();
-                const value = try stream.reader().readByte();
-                it.pos += 1;
-                return value;
+                return it.stream.takeByte();
             }
         };
 
@@ -1557,7 +1516,7 @@ const MachODumper = struct {
             arena: Allocator,
             it: *TrieIterator,
             prefix: []const u8,
-            exports: *std.ArrayList(Export),
+            exports: *std.array_list.Managed(Export),
         ) !void {
             const size = try it.readUleb128();
             if (size > 0) {
@@ -1609,10 +1568,10 @@ const MachODumper = struct {
                 const label = try it.readString();
                 const off = try it.readUleb128();
                 const prefix_label = try std.fmt.allocPrint(arena, "{s}{s}", .{ prefix, label });
-                const curr = it.pos;
-                it.pos = off;
+                const curr = it.stream.seek;
+                it.stream.seek = off;
                 try parseTrieNode(arena, it, prefix_label, exports);
-                it.pos = curr;
+                it.stream.seek = curr;
             }
         }
 
@@ -1632,8 +1591,9 @@ const MachODumper = struct {
         var ctx = ObjectContext{ .gpa = gpa, .data = bytes, .header = hdr };
         try ctx.parse();
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .headers => {
@@ -1798,8 +1758,9 @@ const ElfDumper = struct {
             try ctx.objects.append(gpa, .{ .name = name, .off = stream.pos, .len = size });
         }
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .archive_symtab => if (ctx.symtab.items.len > 0) {
@@ -1859,7 +1820,7 @@ const ElfDumper = struct {
                 files.putAssumeCapacityNoClobber(object.off - @sizeOf(elf.ar_hdr), object.name);
             }
 
-            var symbols = std.AutoArrayHashMap(usize, std.ArrayList([]const u8)).init(ctx.gpa);
+            var symbols = std.AutoArrayHashMap(usize, std.array_list.Managed([]const u8)).init(ctx.gpa);
             defer {
                 for (symbols.values()) |*value| {
                     value.deinit();
@@ -1870,7 +1831,7 @@ const ElfDumper = struct {
             for (ctx.symtab.items) |entry| {
                 const gop = try symbols.getOrPut(@intCast(entry.off));
                 if (!gop.found_existing) {
-                    gop.value_ptr.* = std.ArrayList([]const u8).init(ctx.gpa);
+                    gop.value_ptr.* = std.array_list.Managed([]const u8).init(ctx.gpa);
                 }
                 try gop.value_ptr.append(entry.name);
             }
@@ -1955,8 +1916,9 @@ const ElfDumper = struct {
             else => {},
         };
 
-        var output = std.ArrayList(u8).init(gpa);
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        const writer = &output.writer;
 
         switch (check.kind) {
             .headers => {
@@ -2012,7 +1974,7 @@ const ElfDumper = struct {
 
             for (ctx.phdrs, 0..) |phdr, phndx| {
                 try writer.print("phdr {d}\n", .{phndx});
-                try writer.print("type {s}\n", .{fmtPhType(phdr.p_type)});
+                try writer.print("type {f}\n", .{fmtPhType(phdr.p_type)});
                 try writer.print("vaddr {x}\n", .{phdr.p_vaddr});
                 try writer.print("paddr {x}\n", .{phdr.p_paddr});
                 try writer.print("offset {x}\n", .{phdr.p_offset});
@@ -2052,7 +2014,7 @@ const ElfDumper = struct {
             for (ctx.shdrs, 0..) |shdr, shndx| {
                 try writer.print("shdr {d}\n", .{shndx});
                 try writer.print("name {s}\n", .{ctx.getSectionName(shndx)});
-                try writer.print("type {s}\n", .{fmtShType(shdr.sh_type)});
+                try writer.print("type {f}\n", .{fmtShType(shdr.sh_type)});
                 try writer.print("addr {x}\n", .{shdr.sh_addr});
                 try writer.print("offset {x}\n", .{shdr.sh_offset});
                 try writer.print("size {x}\n", .{shdr.sh_size});
@@ -2270,7 +2232,7 @@ const ElfDumper = struct {
                     try writer.print(" {s}", .{sym_bind});
                 }
 
-                const sym_vis = @as(elf.STV, @enumFromInt(sym.st_other));
+                const sym_vis = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
                 try writer.print(" {s}", .{@tagName(sym_vis)});
 
                 const sym_name = switch (sym.st_type()) {
@@ -2325,18 +2287,11 @@ const ElfDumper = struct {
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
     }
 
-    fn fmtShType(sh_type: u32) std.fmt.Formatter(formatShType) {
+    fn fmtShType(sh_type: u32) std.fmt.Formatter(u32, formatShType) {
         return .{ .data = sh_type };
     }
 
-    fn formatShType(
-        sh_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatShType(sh_type: u32, writer: *Writer) Writer.Error!void {
         const name = switch (sh_type) {
             elf.SHT_NULL => "NULL",
             elf.SHT_PROGBITS => "PROGBITS",
@@ -2372,18 +2327,11 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(formatPhType) {
+    fn fmtPhType(ph_type: u32) std.fmt.Formatter(u32, formatPhType) {
         return .{ .data = ph_type };
     }
 
-    fn formatPhType(
-        ph_type: u32,
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
+    fn formatPhType(ph_type: u32, writer: *Writer) Writer.Error!void {
         const p_type = switch (ph_type) {
             elf.PT_NULL => "NULL",
             elf.PT_LOAD => "LOAD",
@@ -2423,14 +2371,28 @@ const WasmDumper = struct {
             return error.UnsupportedWasmVersion;
         }
 
-        var output = std.ArrayList(u8).init(gpa);
-        errdefer output.deinit();
-        const writer = output.writer();
+        var output: std.Io.Writer.Allocating = .init(gpa);
+        defer output.deinit();
+        parseAndDumpInner(step, check, bytes, &fbs, &output.writer) catch |err| switch (err) {
+            error.EndOfStream => try output.writer.writeAll("\n<UnexpectedEndOfStream>"),
+            else => |e| return e,
+        };
+        return output.toOwnedSlice();
+    }
+
+    fn parseAndDumpInner(
+        step: *Step,
+        check: Check,
+        bytes: []const u8,
+        fbs: *std.io.FixedBufferStream([]const u8),
+        writer: *std.Io.Writer,
+    ) !void {
+        const reader = fbs.reader();
 
         switch (check.kind) {
             .headers => {
                 while (reader.readByte()) |current_byte| {
-                    const section = std.meta.intToEnum(std.wasm.Section, current_byte) catch {
+                    const section = std.enums.fromInt(std.wasm.Section, current_byte) orelse {
                         return step.fail("Found invalid section id '{d}'", .{current_byte});
                     };
 
@@ -2442,8 +2404,6 @@ const WasmDumper = struct {
 
             else => return step.fail("invalid check kind for Wasm file format: {s}", .{@tagName(check.kind)}),
         }
-
-        return output.toOwnedSlice();
     }
 
     fn parseAndDumpSection(
@@ -2538,7 +2498,7 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
 
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, try reader.readByte()) catch {
+                    const kind = std.enums.fromInt(std.wasm.ExternalKind, try reader.readByte()) orelse {
                         return step.fail("invalid import kind", .{});
                     };
 
@@ -2600,7 +2560,7 @@ const WasmDumper = struct {
                     const name = data[fbs.pos..][0..name_len];
                     fbs.pos += name_len;
                     const kind_byte = try std.leb.readUleb128(u8, reader);
-                    const kind = std.meta.intToEnum(std.wasm.ExternalKind, kind_byte) catch {
+                    const kind = std.enums.fromInt(std.wasm.ExternalKind, kind_byte) orelse {
                         return step.fail("invalid export kind value '{d}'", .{kind_byte});
                     };
                     const index = try std.leb.readUleb128(u32, reader);
@@ -2651,7 +2611,7 @@ const WasmDumper = struct {
 
     fn parseDumpType(step: *Step, comptime E: type, reader: anytype, writer: anytype) !E {
         const byte = try reader.readByte();
-        const tag = std.meta.intToEnum(E, byte) catch {
+        const tag = std.enums.fromInt(E, byte) orelse {
             return step.fail("invalid wasm type value '{d}'", .{byte});
         };
         try writer.print("type {s}\n", .{@tagName(tag)});
@@ -2670,7 +2630,7 @@ const WasmDumper = struct {
 
     fn parseDumpInit(step: *Step, reader: anytype, writer: anytype) !void {
         const byte = try reader.readByte();
-        const opcode = std.meta.intToEnum(std.wasm.Opcode, byte) catch {
+        const opcode = std.enums.fromInt(std.wasm.Opcode, byte) orelse {
             return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
         switch (opcode) {
@@ -2682,7 +2642,7 @@ const WasmDumper = struct {
             else => unreachable,
         }
         const end_opcode = try std.leb.readUleb128(u8, reader);
-        if (end_opcode != std.wasm.opcode(.end)) {
+        if (end_opcode != @intFromEnum(std.wasm.Opcode.end)) {
             return step.fail("expected 'end' opcode in init expression", .{});
         }
     }

@@ -9,7 +9,7 @@ comptime {
     }
 }
 
-pub fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.C) ?[*]u8 {
+pub fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.c) ?[*]u8 {
     @setRuntimeSafety(false);
 
     if (len != 0) {
@@ -26,7 +26,7 @@ pub fn memset(dest: ?[*]u8, c: u8, len: usize) callconv(.C) ?[*]u8 {
     return dest;
 }
 
-pub fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.C) ?[*]u8 {
+pub fn __memset(dest: ?[*]u8, c: u8, n: usize, dest_n: usize) callconv(.c) ?[*]u8 {
     if (dest_n < n)
         @panic("buffer overflow");
     return memset(dest, c, n);

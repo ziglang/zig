@@ -12,4 +12,4 @@ fn incr(x: *comptime_int) void {
 //
 // :8:9: error: store to comptime variable depends on runtime condition
 // :3:9: note: runtime condition here
-// :4:22: note: called from here
+// :4:22: note: called at comptime here

@@ -184,6 +184,7 @@ typedef struct host_priority_info       *host_priority_info_t;
 #define HOST_EXPIRED_TASK_INFO  6       /* Statistics for expired tasks */
 
 
+
 struct host_load_info {
 	integer_t       avenrun[3];     /* scaled by LOAD_SCALE */
 	integer_t       mach_factor[3]; /* scaled by LOAD_SCALE */

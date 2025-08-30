@@ -26,12 +26,12 @@ comptime {
     @export(&ceill, .{ .name = "ceill", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __ceilh(x: f16) callconv(.C) f16 {
+pub fn __ceilh(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(ceilf(x));
 }
 
-pub fn ceilf(x: f32) callconv(.C) f32 {
+pub fn ceilf(x: f32) callconv(.c) f32 {
     var u: u32 = @bitCast(x);
     const e = @as(i32, @intCast((u >> 23) & 0xFF)) - 0x7F;
     var m: u32 = undefined;
@@ -64,7 +64,7 @@ pub fn ceilf(x: f32) callconv(.C) f32 {
     }
 }
 
-pub fn ceil(x: f64) callconv(.C) f64 {
+pub fn ceil(x: f64) callconv(.c) f64 {
     const f64_toint = 1.0 / math.floatEps(f64);
 
     const u: u64 = @bitCast(x);
@@ -95,12 +95,12 @@ pub fn ceil(x: f64) callconv(.C) f64 {
     }
 }
 
-pub fn __ceilx(x: f80) callconv(.C) f80 {
+pub fn __ceilx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(ceilq(x));
 }
 
-pub fn ceilq(x: f128) callconv(.C) f128 {
+pub fn ceilq(x: f128) callconv(.c) f128 {
     const f128_toint = 1.0 / math.floatEps(f128);
 
     const u: u128 = @bitCast(x);
@@ -129,7 +129,7 @@ pub fn ceilq(x: f128) callconv(.C) f128 {
     }
 }
 
-pub fn ceill(x: c_longdouble) callconv(.C) c_longdouble {
+pub fn ceill(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __ceilh(x),
         32 => return ceilf(x),

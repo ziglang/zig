@@ -16,11 +16,11 @@ comptime {
     @export(&__divtf3, .{ .name = "__divtf3", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __divtf3(a: f128, b: f128) callconv(.C) f128 {
+pub fn __divtf3(a: f128, b: f128) callconv(.c) f128 {
     return div(a, b);
 }
 
-fn _Qp_div(c: *f128, a: *const f128, b: *const f128) callconv(.C) void {
+fn _Qp_div(c: *f128, a: *const f128, b: *const f128) callconv(.c) void {
     c.* = div(a.*, b.*);
 }
 

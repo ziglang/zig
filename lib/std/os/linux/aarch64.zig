@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -17,8 +18,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
         : [ret] "={x0}" (-> usize),
         : [number] "{x8}" (@intFromEnum(number)),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,8 +26,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={x0}" (-> usize),
         : [number] "{x8}" (@intFromEnum(number)),
           [arg1] "{x0}" (arg1),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -36,8 +35,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{x8}" (@intFromEnum(number)),
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -47,8 +45,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{x0}" (arg1),
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -59,8 +56,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{x1}" (arg2),
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -72,8 +68,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{x2}" (arg3),
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -94,11 +89,10 @@ pub fn syscall6(
           [arg4] "{x3}" (arg4),
           [arg5] "{x4}" (arg5),
           [arg6] "{x5}" (arg6),
-        : "memory", "cc"
-    );
+        : .{ .memory = true });
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         x0,   x1,    w2,    x3,  x4,   x5,  x6
     //
@@ -120,8 +114,18 @@ pub fn clone() callconv(.Naked) usize {
         \\      cbz x0,1f
         \\      // parent
         \\      ret
+        \\
         \\      // child
-        \\1:    ldp x1,x0,[sp],#16
+        \\1:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\     .cfi_undefined lr
+    );
+    asm volatile (
+        \\      mov fp, 0
+        \\      mov lr, 0
+        \\
+        \\      ldp x1,x0,[sp],#16
         \\      blr x1
         \\      mov x8,#93 // SYS_exit
         \\      svc #0
@@ -130,21 +134,19 @@ pub fn clone() callconv(.Naked) usize {
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov x8, %[number]
             \\ svc #0
             :
             : [number] "i" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory", "cc"
-        ),
+            : .{ .memory = true }),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{x8}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory", "cc"
-        ),
+            : .{ .memory = true }),
     }
 }
 
@@ -186,30 +188,6 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    __pad1: i32 = 0,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    __pad2: socklen_t = 0,
-    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -278,7 +256,7 @@ pub const ucontext_t = extern struct {
     flags: usize,
     link: ?*ucontext_t,
     stack: stack_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     mcontext: mcontext_t,
 };
 

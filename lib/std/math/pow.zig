@@ -48,6 +48,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
     // pow(nan, y) = nan    for all y
     // pow(x, nan) = nan    for all x
     if (math.isNan(x) or math.isNan(y)) {
+        @branchHint(.unlikely);
         return math.nan(T);
     }
 
@@ -58,7 +59,7 @@ pub fn pow(comptime T: type, x: T, y: T) T {
 
     if (x == 0) {
         if (y < 0) {
-            // pow(+-0, y) = +- 0   for y an odd integer
+            // pow(+-0, y) = +-inf  for y an odd integer
             if (isOddInteger(y)) {
                 return math.copysign(math.inf(T), x);
             }
@@ -191,8 +192,8 @@ fn isOddInteger(x: f64) bool {
 }
 
 test isOddInteger {
-    try expect(isOddInteger(math.maxInt(i64) * 2) == false);
-    try expect(isOddInteger(math.maxInt(i64) * 2 + 1) == false);
+    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2)) == false);
+    try expect(isOddInteger(@floatFromInt(math.maxInt(i64) * 2 + 1)) == false);
     try expect(isOddInteger(1 << 53) == false);
     try expect(isOddInteger(12.0) == false);
     try expect(isOddInteger(15.0) == true);

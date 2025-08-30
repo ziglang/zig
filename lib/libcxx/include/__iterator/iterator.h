@@ -11,7 +11,7 @@
 #define _LIBCPP___ITERATOR_ITERATOR_H
 
 #include <__config>
-#include <cstddef>
+#include <__cstddef/ptrdiff_t.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header

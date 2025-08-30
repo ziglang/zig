@@ -518,7 +518,7 @@ pub const Instruction = union(Lir.Format) {
         };
     }
 
-    pub fn encode(inst: Instruction, writer: anytype) !void {
+    pub fn encode(inst: Instruction, writer: *std.Io.Writer) !void {
         try writer.writeInt(u32, inst.toU32(), .little);
     }
 

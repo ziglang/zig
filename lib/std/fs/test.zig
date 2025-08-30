@@ -320,14 +320,8 @@ test "accessAbsolute" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(testing.allocator, ".");
+    defer testing.allocator.free(base_path);
 
     try fs.accessAbsolute(base_path, .{});
 }
@@ -338,32 +332,62 @@ test "openDirAbsolute" {
     var tmp = tmpDir(.{});
     defer tmp.cleanup();
 
-    try tmp.dir.makeDir("subdir");
-    var arena = ArenaAllocator.init(testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
+    const tmp_ino = (try tmp.dir.stat()).inode;
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..], "subdir" });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    try tmp.dir.makeDir("subdir");
+    const sub_path = try tmp.dir.realpathAlloc(testing.allocator, "subdir");
+    defer testing.allocator.free(sub_path);
+
+    // Can open sub_path
+    var tmp_sub = try fs.openDirAbsolute(sub_path, .{});
+    defer tmp_sub.close();
+
+    const sub_ino = (try tmp_sub.stat()).inode;
 
     {
-        var dir = try fs.openDirAbsolute(base_path, .{});
-        defer dir.close();
-    }
+        // Can open sub_path + ".."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, ".." });
+        defer testing.allocator.free(dir_path);
 
-    for ([_][]const u8{ ".", ".." }) |sub_path| {
-        const dir_path = try fs.path.join(allocator, &.{ base_path, sub_path });
         var dir = try fs.openDirAbsolute(dir_path, .{});
         defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(tmp_ino, ino);
+    }
+
+    {
+        // Can open sub_path + "."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, "." });
+        defer testing.allocator.free(dir_path);
+
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(sub_ino, ino);
+    }
+
+    {
+        // Can open subdir + "..", with some extra "."
+        const dir_path = try fs.path.join(testing.allocator, &.{ sub_path, ".", "..", "." });
+        defer testing.allocator.free(dir_path);
+
+        var dir = try fs.openDirAbsolute(dir_path, .{});
+        defer dir.close();
+
+        const ino = (try dir.stat()).inode;
+        try testing.expectEqual(tmp_ino, ino);
     }
 }
 
 test "openDir cwd parent '..'" {
-    if (native_os == .wasi) return error.SkipZigTest;
-
-    var dir = try fs.cwd().openDir("..", .{});
+    var dir = fs.cwd().openDir("..", .{}) catch |err| {
+        if (native_os == .wasi and err == error.PermissionDenied) {
+            return; // This is okay. WASI disallows escaping from the fs sandbox
+        }
+        return err;
+    };
     defer dir.close();
 }
 
@@ -406,10 +430,7 @@ test "readLinkAbsolute" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(allocator, ".");
 
     {
         const target_path = try fs.path.join(allocator, &.{ base_path, "file.txt" });
@@ -443,7 +464,7 @@ test "Dir.Iterator" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -476,7 +497,7 @@ test "Dir.Iterator many entries" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    var entries = std.ArrayList(Dir.Entry).init(allocator);
+    var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
     // Create iterator.
     var iter = tmp_dir.dir.iterate();
@@ -510,7 +531,7 @@ test "Dir.Iterator twice" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         // Create iterator.
         var iter = tmp_dir.dir.iterate();
@@ -546,7 +567,7 @@ test "Dir.Iterator reset" {
 
     var i: u8 = 0;
     while (i < 2) : (i += 1) {
-        var entries = std.ArrayList(Dir.Entry).init(allocator);
+        var entries = std.array_list.Managed(Dir.Entry).init(allocator);
 
         while (try iter.next()) |entry| {
             // We cannot just store `entry` as on Windows, we're re-using the name buffer
@@ -596,7 +617,7 @@ fn entryEql(lhs: Dir.Entry, rhs: Dir.Entry) bool {
     return mem.eql(u8, lhs.name, rhs.name) and lhs.kind == rhs.kind;
 }
 
-fn contains(entries: *const std.ArrayList(Dir.Entry), el: Dir.Entry) bool {
+fn contains(entries: *const std.array_list.Managed(Dir.Entry), el: Dir.Entry) bool {
     for (entries.items) |entry| {
         if (entryEql(entry, el)) return true;
     }
@@ -745,7 +766,6 @@ test "directory operations on files" {
 test "file operations on directories" {
     // TODO: fix this test on FreeBSD. https://github.com/ziglang/zig/issues/1759
     if (native_os == .freebsd) return error.SkipZigTest;
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/20747
 
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -756,18 +776,30 @@ test "file operations on directories" {
             try testing.expectError(error.IsDir, ctx.dir.createFile(test_dir_name, .{}));
             try testing.expectError(error.IsDir, ctx.dir.deleteFile(test_dir_name));
             switch (native_os) {
-                // no error when reading a directory.
-                .dragonfly, .netbsd => {},
-                // Currently, WASI will return error.Unexpected (via ENOTCAPABLE) when attempting fd_read on a directory handle.
-                // TODO: Re-enable on WASI once https://github.com/bytecodealliance/wasmtime/issues/1935 is resolved.
-                .wasi => {},
+                .dragonfly, .netbsd => {
+                    // no error when reading a directory. See https://github.com/ziglang/zig/issues/5732
+                    const buf = try ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize));
+                    testing.allocator.free(buf);
+                },
+                .wasi => {
+                    // WASI return EBADF, which gets mapped to NotOpenForReading.
+                    // See https://github.com/bytecodealliance/wasmtime/issues/1935
+                    try testing.expectError(error.NotOpenForReading, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
+                },
                 else => {
                     try testing.expectError(error.IsDir, ctx.dir.readFileAlloc(testing.allocator, test_dir_name, std.math.maxInt(usize)));
                 },
             }
-            // Note: The `.mode = .read_write` is necessary to ensure the error occurs on all platforms.
-            // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
-            try testing.expectError(error.IsDir, ctx.dir.openFile(test_dir_name, .{ .mode = .read_write }));
+
+            if (native_os == .wasi and builtin.link_libc) {
+                // wasmtime unexpectedly succeeds here, see https://github.com/ziglang/zig/issues/20747
+                const handle = try ctx.dir.openFile(test_dir_name, .{ .mode = .read_write });
+                handle.close();
+            } else {
+                // Note: The `.mode = .read_write` is necessary to ensure the error occurs on all platforms.
+                // TODO: Add a read-only test as well, see https://github.com/ziglang/zig/issues/5732
+                try testing.expectError(error.IsDir, ctx.dir.openFile(test_dir_name, .{ .mode = .read_write }));
+            }
 
             if (ctx.path_type == .absolute and comptime PathType.absolute.isSupported(builtin.os)) {
                 try testing.expectError(error.IsDir, fs.createFileAbsolute(test_dir_name, .{}));
@@ -990,10 +1022,7 @@ test "renameAbsolute" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp_dir.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp_dir.dir.realpathAlloc(allocator, ".");
 
     try testing.expectError(error.FileNotFound, fs.renameAbsolute(
         try fs.path.join(allocator, &.{ base_path, "missing_file_name" }),
@@ -1362,6 +1391,64 @@ test "pwritev, preadv" {
     try testing.expectEqualStrings(&buf2, "line1\n");
 }
 
+test "setEndPos" {
+    // https://github.com/ziglang/zig/issues/20747 (open fd does not have write permission)
+    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
+    if (builtin.cpu.arch.isMIPS64() and (builtin.abi == .gnuabin32 or builtin.abi == .muslabin32)) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/23806
+
+    var tmp = tmpDir(.{});
+    defer tmp.cleanup();
+
+    const file_name = "afile.txt";
+    try tmp.dir.writeFile(.{ .sub_path = file_name, .data = "ninebytes" });
+    const f = try tmp.dir.openFile(file_name, .{ .mode = .read_write });
+    defer f.close();
+
+    const initial_size = try f.getEndPos();
+    var buffer: [32]u8 = undefined;
+
+    {
+        try f.setEndPos(initial_size);
+        try testing.expectEqual(initial_size, try f.getEndPos());
+        try testing.expectEqual(initial_size, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("ninebytes", buffer[0..@intCast(initial_size)]);
+    }
+
+    {
+        const larger = initial_size + 4;
+        try f.setEndPos(larger);
+        try testing.expectEqual(larger, try f.getEndPos());
+        try testing.expectEqual(larger, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("ninebytes\x00\x00\x00\x00", buffer[0..@intCast(larger)]);
+    }
+
+    {
+        const smaller = initial_size - 5;
+        try f.setEndPos(smaller);
+        try testing.expectEqual(smaller, try f.getEndPos());
+        try testing.expectEqual(smaller, try f.preadAll(&buffer, 0));
+        try testing.expectEqualStrings("nine", buffer[0..@intCast(smaller)]);
+    }
+
+    try f.setEndPos(0);
+    try testing.expectEqual(0, try f.getEndPos());
+    try testing.expectEqual(0, try f.preadAll(&buffer, 0));
+
+    // Invalid file length should error gracefully. Actual limit is host
+    // and file-system dependent, but 1PB should fail on filesystems like
+    // EXT4 and NTFS.  But XFS or Btrfs support up to 8EiB files.
+    f.setEndPos(0x4_0000_0000_0000) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
+
+    f.setEndPos(std.math.maxInt(u63)) catch |err| if (err != error.FileTooBig) {
+        return err;
+    };
+
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u63) + 1));
+    try testing.expectError(error.FileTooBig, f.setEndPos(std.math.maxInt(u64)));
+}
+
 test "access file" {
     try testWithAllSupportedPathTypes(struct {
         fn impl(ctx: *TestContext) !void {
@@ -1383,7 +1470,6 @@ test "sendfile" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
@@ -1413,32 +1499,18 @@ test "sendfile" {
     const header2 = "second header\n";
     const trailer1 = "trailer1\n";
     const trailer2 = "second trailer\n";
-    var hdtr = [_]posix.iovec_const{
-        .{
-            .base = header1,
-            .len = header1.len,
-        },
-        .{
-            .base = header2,
-            .len = header2.len,
-        },
-        .{
-            .base = trailer1,
-            .len = trailer1.len,
-        },
-        .{
-            .base = trailer2,
-            .len = trailer2.len,
-        },
-    };
+    var headers: [2][]const u8 = .{ header1, header2 };
+    var trailers: [2][]const u8 = .{ trailer1, trailer2 };
 
     var written_buf: [100]u8 = undefined;
-    try dest_file.writeFileAll(src_file, .{
-        .in_offset = 1,
-        .in_len = 10,
-        .headers_and_trailers = &hdtr,
-        .header_count = 2,
-    });
+    var file_reader = src_file.reader(&.{});
+    var fallback_buffer: [50]u8 = undefined;
+    var file_writer = dest_file.writer(&fallback_buffer);
+    try file_writer.interface.writeVecAll(&headers);
+    try file_reader.seekTo(1);
+    try testing.expectEqual(10, try file_writer.interface.sendFileAll(&file_reader, .limited(10)));
+    try file_writer.interface.writeVecAll(&trailers);
+    try file_writer.interface.flush();
     const amt = try dest_file.preadAll(&written_buf, 0);
     try testing.expectEqualStrings("header1\nsecond header\nine1\nsecontrailer1\nsecond trailer\n", written_buf[0..amt]);
 }
@@ -1448,7 +1520,6 @@ test "copyRangeAll" {
     defer tmp.cleanup();
 
     try tmp.dir.makePath("os_test_tmp");
-    defer tmp.dir.deleteTree("os_test_tmp") catch {};
 
     var dir = try tmp.dir.openDir("os_test_tmp", .{});
     defer dir.close();
@@ -1510,9 +1581,10 @@ test "AtomicFile" {
             ;
 
             {
-                var af = try ctx.dir.atomicFile(test_out_file, .{});
+                var buffer: [100]u8 = undefined;
+                var af = try ctx.dir.atomicFile(test_out_file, .{ .write_buffer = &buffer });
                 defer af.deinit();
-                try af.file.writeAll(test_content);
+                try af.file_writer.interface.writeAll(test_content);
                 try af.finish();
             }
             const content = try ctx.dir.readFileAlloc(allocator, test_out_file, 9999);
@@ -1678,8 +1750,6 @@ test "read from locked file" {
 }
 
 test "walker" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1715,11 +1785,11 @@ test "walker" {
     var num_walked: usize = 0;
     while (try walker.next()) |entry| {
         testing.expect(expected_basenames.has(entry.basename)) catch |err| {
-            std.debug.print("found unexpected basename: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.basename)});
+            std.debug.print("found unexpected basename: {f}\n", .{std.ascii.hexEscape(entry.basename, .lower)});
             return err;
         };
         testing.expect(expected_paths.has(entry.path)) catch |err| {
-            std.debug.print("found unexpected path: {s}\n", .{std.fmt.fmtSliceEscapeLower(entry.path)});
+            std.debug.print("found unexpected path: {f}\n", .{std.ascii.hexEscape(entry.path, .lower)});
             return err;
         };
         // make sure that the entry.dir is the containing dir
@@ -1731,8 +1801,6 @@ test "walker" {
 }
 
 test "walker without fully iterating" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     var tmp = tmpDir(.{ .iterate = true });
     defer tmp.cleanup();
 
@@ -1754,8 +1822,6 @@ test "walker without fully iterating" {
 }
 
 test "'.' and '..' in fs.Dir functions" {
-    if (native_os == .wasi and builtin.link_libc) return error.SkipZigTest;
-
     if (native_os == .windows and builtin.cpu.arch == .aarch64) {
         // https://github.com/ziglang/zig/issues/17134
         return error.SkipZigTest;
@@ -1803,10 +1869,7 @@ test "'.' and '..' in absolute functions" {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const base_path = blk: {
-        const relative_path = try fs.path.join(allocator, &.{ ".zig-cache", "tmp", tmp.sub_path[0..] });
-        break :blk try fs.realpathAlloc(allocator, relative_path);
-    };
+    const base_path = try tmp.dir.realpathAlloc(allocator, ".");
 
     const subdir_path = try fs.path.join(allocator, &.{ base_path, "./subdir" });
     try fs.makeDirAbsolute(subdir_path);
@@ -1875,113 +1938,6 @@ test "chown" {
     var dir = try tmp.dir.openDir("test_dir", .{ .iterate = true });
     defer dir.close();
     try dir.chown(null, null);
-}
-
-test "File.Metadata" {
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    try testing.expectEqual(File.Kind.file, metadata.kind());
-    try testing.expectEqual(@as(u64, 0), metadata.size());
-    _ = metadata.accessed();
-    _ = metadata.modified();
-    _ = metadata.created();
-}
-
-test "File.Permissions" {
-    if (native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    try testing.expect(!permissions.readOnly());
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-
-    try file.setPermissions(permissions);
-    const new_permissions = (try file.metadata()).permissions();
-    try testing.expect(new_permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-}
-
-test "File.PermissionsUnix" {
-    if (native_os == .windows or native_os == .wasi)
-        return error.SkipZigTest;
-
-    var tmp = tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .mode = 0o666, .read = true });
-    defer file.close();
-
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-
-    permissions.setReadOnly(true);
-    try testing.expect(permissions.readOnly());
-    try testing.expect(!permissions.inner.unixHas(.user, .write));
-    permissions.inner.unixSet(.user, .{ .write = true });
-    try testing.expect(!permissions.readOnly());
-    try testing.expect(permissions.inner.unixHas(.user, .write));
-    try testing.expect(permissions.inner.mode & 0o400 != 0);
-
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-    permissions = (try file.metadata()).permissions();
-    try testing.expect(permissions.readOnly());
-
-    // Must be set to non-read-only to delete
-    permissions.setReadOnly(false);
-    try file.setPermissions(permissions);
-
-    const permissions_unix = File.PermissionsUnix.unixNew(0o754);
-    try testing.expect(permissions_unix.unixHas(.user, .execute));
-    try testing.expect(!permissions_unix.unixHas(.other, .execute));
-}
-
-test "delete a read-only file on windows" {
-    if (native_os != .windows)
-        return error.SkipZigTest;
-
-    var tmp = testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    const file = try tmp.dir.createFile("test_file", .{ .read = true });
-    defer file.close();
-    // Create a file and make it read-only
-    const metadata = try file.metadata();
-    var permissions = metadata.permissions();
-    permissions.setReadOnly(true);
-    try file.setPermissions(permissions);
-
-    // If the OS and filesystem support it, POSIX_SEMANTICS and IGNORE_READONLY_ATTRIBUTE
-    // is used meaning that the deletion of a read-only file will succeed.
-    // Otherwise, this delete will fail and the read-only flag must be unset before it's
-    // able to be deleted.
-    const delete_result = tmp.dir.deleteFile("test_file");
-    if (delete_result) {
-        try testing.expectError(error.FileNotFound, tmp.dir.deleteFile("test_file"));
-    } else |err| {
-        try testing.expectEqual(@as(anyerror, error.AccessDenied), err);
-        // Now make the file not read-only
-        permissions.setReadOnly(false);
-        try file.setPermissions(permissions);
-        try tmp.dir.deleteFile("test_file");
-    }
 }
 
 test "delete a setAsCwd directory on Windows" {
@@ -2101,4 +2057,91 @@ test "invalid UTF-8/WTF-8 paths" {
             }
         }
     }.impl);
+}
+
+test "read file non vectored" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "hello, world!\n";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var file_reader: std.fs.File.Reader = .init(file, &.{});
+
+    var write_buffer: [100]u8 = undefined;
+    var w: std.Io.Writer = .fixed(&write_buffer);
+
+    var i: usize = 0;
+    while (true) {
+        i += file_reader.interface.stream(&w, .limited(3)) catch |err| switch (err) {
+            error.EndOfStream => break,
+            else => |e| return e,
+        };
+    }
+    try testing.expectEqualStrings(contents, w.buffered());
+    try testing.expectEqual(contents.len, i);
+}
+
+test "seek keeping partial buffer" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const contents = "0123456789";
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    {
+        var file_writer: std.fs.File.Writer = .init(file, &.{});
+        try file_writer.interface.writeAll(contents);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [3]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    try testing.expectEqual(0, file_reader.logicalPos());
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+
+    if (file_reader.interface.bufferedLen() != 3) {
+        // Pass the test if the OS doesn't give us vectored reads.
+        return;
+    }
+
+    try testing.expectEqual(4, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+    try file_reader.seekTo(6);
+    try testing.expectEqual(6, file_reader.logicalPos());
+    try testing.expectEqual(7, file_reader.pos);
+
+    try testing.expectEqualStrings("0123", &buf);
+
+    const n = try file_reader.interface.readSliceShort(&buf);
+    try testing.expectEqual(4, n);
+
+    try testing.expectEqualStrings("6789", &buf);
+}
+
+test "seekBy" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var reader = f.readerStreaming(&.{});
+    try reader.seekBy(2);
+
+    var buffer: [20]u8 = undefined;
+    const n = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(15, n);
+    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
 }

@@ -22,6 +22,7 @@
 #include <__iterator/reverse_iterator.h>
 #include <__ranges/access.h>
 #include <__ranges/concepts.h>
+#include <__ranges/size.h>
 #include <__utility/move.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -36,8 +37,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __ends_with {
-struct __fn {
+struct __ends_with {
   template <class _Iter1, class _Sent1, class _Iter2, class _Sent2, class _Pred, class _Proj1, class _Proj2>
   _LIBCPP_HIDE_FROM_ABI static constexpr bool __ends_with_fn_impl_bidirectional(
       _Iter1 __first1,
@@ -185,10 +185,9 @@ struct __fn {
     }
   }
 };
-} // namespace __ends_with
 
 inline namespace __cpo {
-inline constexpr auto ends_with = __ends_with::__fn{};
+inline constexpr auto ends_with = __ends_with{};
 } // namespace __cpo
 } // namespace ranges
 

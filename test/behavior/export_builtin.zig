@@ -4,7 +4,11 @@ const expect = std.testing.expect;
 
 test "exporting enum value" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         const E = enum(c_int) { one, two };
@@ -18,10 +22,9 @@ test "exporting enum value" {
 
 test "exporting with internal linkage" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
 
     const S = struct {
-        fn foo() callconv(.C) void {}
+        fn foo() callconv(.c) void {}
         comptime {
             @export(&foo, .{ .name = "exporting_with_internal_linkage_foo", .linkage = .internal });
         }
@@ -31,7 +34,11 @@ test "exporting with internal linkage" {
 
 test "exporting using namespace access" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
+
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
 
     const S = struct {
         const Inner = struct {
@@ -46,15 +53,14 @@ test "exporting using namespace access" {
 }
 
 test "exporting comptime-known value" {
-    if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_x86_64 and
-        (builtin.target.ofmt != .elf and
-        builtin.target.ofmt != .macho and
-        builtin.target.ofmt != .coff)) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
+
+    if (builtin.cpu.arch.isWasm()) {
+        // https://github.com/ziglang/zig/issues/4866
+        return error.SkipZigTest;
+    }
 
     const x: u32 = 10;
     @export(&x, .{ .name = "exporting_comptime_known_value_foo" });

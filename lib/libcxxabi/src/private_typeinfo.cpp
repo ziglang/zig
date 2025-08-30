@@ -41,9 +41,11 @@
 // Defining _LIBCXXABI_FORGIVING_DYNAMIC_CAST does not help since can_catch() calls
 // is_equal() with use_strcmp=false so the string names are not compared.
 
-#include <cstdint>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <string.h>
+
 #include "abort_message.h"
 
 #ifdef _LIBCXXABI_FORGIVING_DYNAMIC_CAST
@@ -589,10 +591,9 @@ __base_class_type_info::has_unambiguous_public_base(__dynamic_cast_info* info,
     // .. and reset the pointer.
     adjustedPtr = nullptr;
   }
-    __base_type->has_unambiguous_public_base(
-            info,
-            static_cast<char*>(adjustedPtr) + offset_to_base,
-            (__offset_flags & __public_mask) ? path_below : not_public_path);
+  __base_type->has_unambiguous_public_base(
+      info, reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(adjustedPtr) + offset_to_base),
+      (__offset_flags & __public_mask) ? path_below : not_public_path);
 }
 
 void

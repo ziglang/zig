@@ -1,5 +1,5 @@
 /* struct termios definition.  Linux/generic version.
-   Copyright (C) 2019-2024 Free Software Foundation, Inc.
+   Copyright (C) 2019-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -29,8 +29,15 @@ struct termios
     tcflag_t c_lflag;		/* local mode flags */
     cc_t c_line;			/* line discipline */
     cc_t c_cc[NCCS];		/* control characters */
-    speed_t c_ispeed;		/* input speed */
-    speed_t c_ospeed;		/* output speed */
+    /* Input and output baud rates.  */
+    __extension__ union {
+      speed_t __ispeed;
+      speed_t c_ispeed;
+    };
 #define _HAVE_STRUCT_TERMIOS_C_ISPEED 1
+    __extension__ union {
+      speed_t __ospeed;
+      speed_t c_ospeed;
+    };
 #define _HAVE_STRUCT_TERMIOS_C_OSPEED 1
   };

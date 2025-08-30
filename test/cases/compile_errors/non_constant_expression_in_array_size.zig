@@ -15,5 +15,5 @@ export fn entry() usize {
 // target=native
 //
 // :6:12: error: unable to resolve comptime value
-// :6:12: note: value being returned at comptime must be comptime-known
-// :2:12: note: called from here
+// :2:12: note: called at comptime from here
+// :1:13: note: struct fields must be comptime-known

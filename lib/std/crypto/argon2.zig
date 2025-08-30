@@ -14,7 +14,7 @@ const pwhash = crypto.pwhash;
 
 const Thread = std.Thread;
 const Blake2b512 = blake2.Blake2b512;
-const Blocks = std.ArrayListAligned([block_length]u64, 16);
+const Blocks = std.array_list.AlignedManaged([block_length]u64, .@"16");
 const H0 = [Blake2b512.digest_length + 8]u8;
 
 const EncodingError = crypto.errors.EncodingError;
@@ -252,7 +252,7 @@ fn processBlocksMt(
     lanes: u32,
     segments: u32,
 ) KdfError!void {
-    var threads_list = try std.ArrayList(Thread).initCapacity(allocator, threads);
+    var threads_list = try std.array_list.Managed(Thread).initCapacity(allocator, threads);
     defer threads_list.deinit();
 
     var n: u32 = 0;
@@ -496,6 +496,7 @@ pub fn kdf(
     if (password.len > max_int) return KdfError.WeakParameters;
     if (salt.len < 8 or salt.len > max_int) return KdfError.WeakParameters;
     if (params.t < 1 or params.p < 1) return KdfError.WeakParameters;
+    if (params.m / 8 < params.p) return KdfError.WeakParameters;
 
     var h0 = initHash(password, salt, params, derived_key.len, mode);
     const memory = @max(
@@ -506,7 +507,7 @@ pub fn kdf(
     var blocks = try Blocks.initCapacity(allocator, memory);
     defer blocks.deinit();
 
-    blocks.appendNTimesAssumeCapacity([_]u64{0} ** block_length, memory);
+    blocks.appendNTimesAssumeCapacity(@splat(0), memory);
 
     initBlocks(&blocks, &h0, memory, params.p);
     try processBlocks(allocator, &blocks, params.t, memory, params.p, mode);

@@ -1,4 +1,4 @@
-/* Copyright (C) 1997-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1997-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -349,6 +349,11 @@ typedef struct
 
 /* Compute absolute value of N.  */
 extern intmax_t imaxabs (intmax_t __n) __THROW __attribute__ ((__const__));
+
+
+#if __GLIBC_USE (ISOC2Y)
+extern uintmax_t uimaxabs (intmax_t __n) __THROW __attribute__ ((__const__));
+#endif
 
 /* Return the `imaxdiv_t' representation of the value of NUMER over DENOM. */
 extern imaxdiv_t imaxdiv (intmax_t __numer, intmax_t __denom)

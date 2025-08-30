@@ -1,9 +1,11 @@
 const std = @import("std");
-const CodePage = @import("code_pages.zig").CodePage;
+const code_pages = @import("code_pages.zig");
+const SupportedCodePage = code_pages.SupportedCodePage;
 const lang = @import("lang.zig");
 const res = @import("res.zig");
 const Allocator = std.mem.Allocator;
 const lex = @import("lex.zig");
+const cvtres = @import("cvtres.zig");
 
 /// This is what /SL 100 will set the maximum string literal length to
 pub const max_string_literal_length_100_percent = 8192;
@@ -13,6 +15,9 @@ pub const usage_string_after_command_name =
     \\
     \\The sequence -- can be used to signify when to stop parsing options.
     \\This is necessary when the input path begins with a forward slash.
+    \\
+    \\Supported option prefixes are /, -, and --, so e.g. /h, -h, and --h all work.
+    \\Drop-in compatible with the Microsoft Resource Compiler.
     \\
     \\Supported Win32 RC Options:
     \\  /?, /h                  Print this help and exit.
@@ -56,27 +61,39 @@ pub const usage_string_after_command_name =
     \\                            the .rc includes or otherwise depends on.
     \\  /:depfile-fmt <value>     Output format of the depfile, if /:depfile is set.
     \\    json                    (default) A top-level JSON array of paths
-    \\  /:mingw-includes <path>   Path to a directory containing MinGW include files. If
-    \\                            not specified, bundled MinGW include files will be used.
+    \\  /:input-format <value>    If not specified, the input format is inferred.
+    \\    rc                      (default if input format cannot be inferred)
+    \\    res                     Compiled .rc file, implies /:output-format coff
+    \\    rcpp                    Preprocessed .rc file, implies /:no-preprocess
+    \\  /:output-format <value>   If not specified, the output format is inferred.
+    \\    res                     (default if output format cannot be inferred)
+    \\    coff                    COFF object file (extension: .obj or .o)
+    \\    rcpp                    Preprocessed .rc file, implies /p
+    \\  /:target <arch>           Set the target machine for COFF object files.
+    \\                            Can be specified either as PE/COFF machine constant
+    \\                            name (X64, ARM64, etc) or Zig/LLVM CPU name (x86_64,
+    \\                            aarch64, etc). The default is X64 (aka x86_64).
+    \\                            Also accepts a full Zig/LLVM triple, but everything
+    \\                            except the architecture is ignored.
     \\
     \\Note: For compatibility reasons, all custom options start with :
     \\
 ;
 
-pub fn writeUsage(writer: anytype, command_name: []const u8) !void {
+pub fn writeUsage(writer: *std.Io.Writer, command_name: []const u8) !void {
     try writer.writeAll("Usage: ");
     try writer.writeAll(command_name);
     try writer.writeAll(usage_string_after_command_name);
 }
 
 pub const Diagnostics = struct {
-    errors: std.ArrayListUnmanaged(ErrorDetails) = .empty,
+    errors: std.ArrayList(ErrorDetails) = .empty,
     allocator: Allocator,
 
     pub const ErrorDetails = struct {
         arg_index: usize,
         arg_span: ArgSpan = .{},
-        msg: std.ArrayListUnmanaged(u8) = .empty,
+        msg: std.ArrayList(u8) = .empty,
         type: Type = .err,
         print_args: bool = true,
 
@@ -108,13 +125,12 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErr(self: *Diagnostics, args: []const []const u8, config: std.io.tty.Config) void {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        const stderr = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
         self.renderToWriter(args, stderr, config) catch return;
     }
 
-    pub fn renderToWriter(self: *Diagnostics, args: []const []const u8, writer: anytype, config: std.io.tty.Config) !void {
+    pub fn renderToWriter(self: *Diagnostics, args: []const []const u8, writer: *std.io.Writer, config: std.io.tty.Config) !void {
         for (self.errors.items) |err_details| {
             try renderErrorMessage(writer, config, err_details, args);
         }
@@ -130,13 +146,13 @@ pub const Diagnostics = struct {
 
 pub const Options = struct {
     allocator: Allocator,
-    input_filename: []const u8 = &[_]u8{},
-    output_filename: []const u8 = &[_]u8{},
-    extra_include_paths: std.ArrayListUnmanaged([]const u8) = .empty,
+    input_source: IoSource = .{ .filename = &[_]u8{} },
+    output_source: IoSource = .{ .filename = &[_]u8{} },
+    extra_include_paths: std.ArrayList([]const u8) = .empty,
     ignore_include_env_var: bool = false,
     preprocess: Preprocess = .yes,
     default_language_id: ?u16 = null,
-    default_code_page: ?CodePage = null,
+    default_code_page: ?SupportedCodePage = null,
     verbose: bool = false,
     symbols: std.StringArrayHashMapUnmanaged(SymbolValue) = .empty,
     null_terminate_string_table_strings: bool = false,
@@ -148,10 +164,30 @@ pub const Options = struct {
     auto_includes: AutoIncludes = .any,
     depfile_path: ?[]const u8 = null,
     depfile_fmt: DepfileFormat = .json,
-    mingw_includes_dir: ?[]const u8 = null,
+    input_format: InputFormat = .rc,
+    output_format: OutputFormat = .res,
+    coff_options: cvtres.CoffOptions = .{},
 
+    pub const IoSource = union(enum) {
+        stdio: std.fs.File,
+        filename: []const u8,
+    };
     pub const AutoIncludes = enum { any, msvc, gnu, none };
     pub const DepfileFormat = enum { json };
+    pub const InputFormat = enum { rc, res, rcpp };
+    pub const OutputFormat = enum {
+        res,
+        coff,
+        rcpp,
+
+        pub fn extension(format: OutputFormat) []const u8 {
+            return switch (format) {
+                .rcpp => ".rcpp",
+                .coff => ".obj",
+                .res => ".res",
+            };
+        }
+    };
     pub const Preprocess = enum { no, yes, only };
     pub const SymbolAction = enum { define, undefine };
     pub const SymbolValue = union(SymbolAction) {
@@ -198,9 +234,10 @@ pub const Options = struct {
         try self.symbols.put(self.allocator, duped_key, .{ .undefine = {} });
     }
 
-    /// If the current input filename both:
+    /// If the current input filename:
     /// - does not have an extension, and
-    /// - does not exist in the cwd
+    /// - does not exist in the cwd, and
+    /// - the input format is .rc
     /// then this function will append `.rc` to the input filename
     ///
     /// Note: This behavior is different from the Win32 compiler.
@@ -213,14 +250,18 @@ pub const Options = struct {
     /// of the .rc extension being omitted from the CLI args, but still
     /// work fine if the file itself does not have an extension.
     pub fn maybeAppendRC(options: *Options, cwd: std.fs.Dir) !void {
-        if (std.fs.path.extension(options.input_filename).len == 0) {
-            cwd.access(options.input_filename, .{}) catch |err| switch (err) {
+        switch (options.input_source) {
+            .stdio => return,
+            .filename => {},
+        }
+        if (options.input_format == .rc and std.fs.path.extension(options.input_source.filename).len == 0) {
+            cwd.access(options.input_source.filename, .{}) catch |err| switch (err) {
                 error.FileNotFound => {
-                    var filename_bytes = try options.allocator.alloc(u8, options.input_filename.len + 3);
-                    @memcpy(filename_bytes[0..options.input_filename.len], options.input_filename);
+                    var filename_bytes = try options.allocator.alloc(u8, options.input_source.filename.len + 3);
+                    @memcpy(filename_bytes[0..options.input_source.filename.len], options.input_source.filename);
                     @memcpy(filename_bytes[filename_bytes.len - 3 ..], ".rc");
-                    options.allocator.free(options.input_filename);
-                    options.input_filename = filename_bytes;
+                    options.allocator.free(options.input_source.filename);
+                    options.input_source = .{ .filename = filename_bytes };
                 },
                 else => {},
             };
@@ -232,8 +273,14 @@ pub const Options = struct {
             self.allocator.free(extra_include_path);
         }
         self.extra_include_paths.deinit(self.allocator);
-        self.allocator.free(self.input_filename);
-        self.allocator.free(self.output_filename);
+        switch (self.input_source) {
+            .stdio => {},
+            .filename => |filename| self.allocator.free(filename),
+        }
+        switch (self.output_source) {
+            .stdio => {},
+            .filename => |filename| self.allocator.free(filename),
+        }
         var symbol_it = self.symbols.iterator();
         while (symbol_it.next()) |entry| {
             self.allocator.free(entry.key_ptr.*);
@@ -243,14 +290,26 @@ pub const Options = struct {
         if (self.depfile_path) |depfile_path| {
             self.allocator.free(depfile_path);
         }
-        if (self.mingw_includes_dir) |mingw_includes_dir| {
-            self.allocator.free(mingw_includes_dir);
+        if (self.coff_options.define_external_symbol) |symbol_name| {
+            self.allocator.free(symbol_name);
         }
     }
 
-    pub fn dumpVerbose(self: *const Options, writer: anytype) !void {
-        try writer.print("Input filename: {s}\n", .{self.input_filename});
-        try writer.print("Output filename: {s}\n", .{self.output_filename});
+    pub fn dumpVerbose(self: *const Options, writer: *std.Io.Writer) !void {
+        const input_source_name = switch (self.input_source) {
+            .stdio => "<stdin>",
+            .filename => |filename| filename,
+        };
+        const output_source_name = switch (self.output_source) {
+            .stdio => "<stdout>",
+            .filename => |filename| filename,
+        };
+        try writer.print("Input filename: {s} (format={s})\n", .{ input_source_name, @tagName(self.input_format) });
+        try writer.print("Output filename: {s} (format={s})\n", .{ output_source_name, @tagName(self.output_format) });
+        if (self.output_format == .coff) {
+            try writer.print(" Target machine type for COFF: {s}\n", .{@tagName(self.coff_options.target)});
+        }
+
         if (self.extra_include_paths.items.len > 0) {
             try writer.writeAll(" Extra include paths:\n");
             for (self.extra_include_paths.items) |extra_include_path| {
@@ -294,9 +353,9 @@ pub const Options = struct {
 
         const language_id = self.default_language_id orelse res.Language.default;
         const language_name = language_name: {
-            if (std.meta.intToEnum(lang.LanguageId, language_id)) |lang_enum_val| {
+            if (std.enums.fromInt(lang.LanguageId, language_id)) |lang_enum_val| {
                 break :language_name @tagName(lang_enum_val);
-            } else |_| {}
+            }
             if (language_id == lang.LOCALE_CUSTOM_UNSPECIFIED) {
                 break :language_name "LOCALE_CUSTOM_UNSPECIFIED";
             }
@@ -334,6 +393,7 @@ pub const Arg = struct {
     }
 
     pub fn optionWithoutPrefix(self: Arg, option_len: usize) []const u8 {
+        if (option_len == 0) return self.name();
         return self.name()[0..option_len];
     }
 
@@ -358,8 +418,33 @@ pub const Arg = struct {
         };
     }
 
+    pub fn looksLikeFilepath(self: Arg) bool {
+        const meets_min_requirements = self.prefix == .slash and isSupportedInputExtension(std.fs.path.extension(self.full));
+        if (!meets_min_requirements) return false;
+
+        const could_be_fo_option = could_be_fo_option: {
+            var window_it = std.mem.window(u8, self.full[1..], 2, 1);
+            while (window_it.next()) |window| {
+                if (std.ascii.eqlIgnoreCase(window, "fo")) break :could_be_fo_option true;
+                // If we see '/' before "fo", then it's not possible for this to be a valid
+                // `/fo` option.
+                if (window[0] == '/') break;
+            }
+            break :could_be_fo_option false;
+        };
+        if (!could_be_fo_option) return true;
+
+        // It's still possible for a file path to look like a /fo option but not actually
+        // be one, e.g. `/foo/bar.rc`. As a last ditch effort to reduce false negatives,
+        // check if the file path exists and, if so, then we ignore the 'could be /fo option'-ness
+        std.fs.accessAbsolute(self.full, .{}) catch return false;
+        return true;
+    }
+
     pub const Value = struct {
         slice: []const u8,
+        /// Amount to increment the arg index to skip over both the option and the value arg(s)
+        /// e.g. 1 if /<option><value>, 2 if /<option> <value>
         index_increment: u2 = 1,
 
         pub fn argSpan(self: Value, arg: Arg) Diagnostics.ErrorDetails.ArgSpan {
@@ -394,6 +479,7 @@ pub const Arg = struct {
 
     pub const Context = struct {
         index: usize,
+        option_len: usize,
         arg: Arg,
         value: Value,
     };
@@ -408,7 +494,18 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
     errdefer options.deinit();
 
     var output_filename: ?[]const u8 = null;
-    var output_filename_context: Arg.Context = undefined;
+    var output_filename_context: union(enum) {
+        unspecified: void,
+        positional: usize,
+        arg: Arg.Context,
+    } = .{ .unspecified = {} };
+    var output_format: ?Options.OutputFormat = null;
+    var output_format_context: Arg.Context = undefined;
+    var input_format: ?Options.InputFormat = null;
+    var input_format_context: Arg.Context = undefined;
+    var input_filename_arg_i: usize = undefined;
+    var preprocess_only_context: Arg.Context = undefined;
+    var depfile_context: Arg.Context = undefined;
 
     var arg_i: usize = 0;
     next_arg: while (arg_i < args.len) {
@@ -423,13 +520,21 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 // - or / on its own is an error
                 else => {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid option: {s}", .{arg.prefixSlice()});
+                    try err_details.msg.print(allocator, "invalid option: {s}", .{arg.prefixSlice()});
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     continue :next_arg;
                 },
             }
+        }
+
+        const args_remaining = args.len - arg_i;
+        if (args_remaining <= 2 and arg.looksLikeFilepath()) {
+            var err_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i };
+            try err_details.msg.appendSlice(allocator, "this argument was inferred to be a filepath, so argument parsing was terminated");
+            try diagnostics.append(err_details);
+
+            break;
         }
 
         while (arg.name().len > 0) {
@@ -440,55 +545,67 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             if (std.ascii.startsWithIgnoreCase(arg_name, ":no-preprocess")) {
                 options.preprocess = .no;
                 arg.name_offset += ":no-preprocess".len;
-            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":mingw-includes")) {
-                const value = arg.value(":mingw-includes".len, arg_i, args) catch {
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":output-format")) {
+                const value = arg.value(":output-format".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":mingw-includes".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":output-format".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
-                if (options.mingw_includes_dir) |overwritten_path| {
-                    allocator.free(overwritten_path);
-                    options.mingw_includes_dir = null;
-                }
-                const path = try allocator.dupe(u8, value.slice);
-                errdefer allocator.free(path);
-                options.mingw_includes_dir = path;
+                output_format = std.meta.stringToEnum(Options.OutputFormat, value.slice) orelse blk: {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
+                    try err_details.msg.print(allocator, "invalid output format setting: {s} ", .{value.slice});
+                    try diagnostics.append(err_details);
+                    break :blk output_format;
+                };
+                output_format_context = .{ .index = arg_i, .option_len = ":output-format".len, .arg = arg, .value = value };
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":auto-includes")) {
                 const value = arg.value(":auto-includes".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":auto-includes".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":auto-includes".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 options.auto_includes = std.meta.stringToEnum(Options.AutoIncludes, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid auto includes setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid auto includes setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk options.auto_includes;
                 };
                 arg_i += value.index_increment;
                 continue :next_arg;
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":input-format")) {
+                const value = arg.value(":input-format".len, arg_i, args) catch {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":input-format".len) });
+                    try diagnostics.append(err_details);
+                    arg_i += 1;
+                    break :next_arg;
+                };
+                input_format = std.meta.stringToEnum(Options.InputFormat, value.slice) orelse blk: {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
+                    try err_details.msg.print(allocator, "invalid input format setting: {s} ", .{value.slice});
+                    try diagnostics.append(err_details);
+                    break :blk input_format;
+                };
+                input_format_context = .{ .index = arg_i, .option_len = ":input-format".len, .arg = arg, .value = value };
+                arg_i += value.index_increment;
+                continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile-fmt")) {
                 const value = arg.value(":depfile-fmt".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile-fmt".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile-fmt".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
                 options.depfile_fmt = std.meta.stringToEnum(Options.DepfileFormat, value.slice) orelse blk: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid depfile format setting: {s} ", .{value.slice});
+                    try err_details.msg.print(allocator, "invalid depfile format setting: {s} ", .{value.slice});
                     try diagnostics.append(err_details);
                     break :blk options.depfile_fmt;
                 };
@@ -497,8 +614,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, ":depfile")) {
                 const value = arg.value(":depfile".len, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile".len) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":depfile".len) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -510,6 +626,29 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const path = try allocator.dupe(u8, value.slice);
                 errdefer allocator.free(path);
                 options.depfile_path = path;
+                depfile_context = .{ .index = arg_i, .option_len = ":depfile".len, .arg = arg, .value = value };
+                arg_i += value.index_increment;
+                continue :next_arg;
+            } else if (std.ascii.startsWithIgnoreCase(arg_name, ":target")) {
+                const value = arg.value(":target".len, arg_i, args) catch {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(":target".len) });
+                    try diagnostics.append(err_details);
+                    arg_i += 1;
+                    break :next_arg;
+                };
+                // Take the substring up to the first dash so that a full target triple
+                // can be used, e.g. x86_64-windows-gnu becomes x86_64
+                var target_it = std.mem.splitScalar(u8, value.slice, '-');
+                const arch_str = target_it.first();
+                const arch = cvtres.supported_targets.Arch.fromStringIgnoreCase(arch_str) orelse {
+                    var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
+                    try err_details.msg.print(allocator, "invalid or unsupported target architecture: {s}", .{arch_str});
+                    try diagnostics.append(err_details);
+                    arg_i += value.index_increment;
+                    continue :next_arg;
+                };
+                options.coff_options.target = arch.toCoffMachineType();
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "nologo")) {
@@ -528,13 +667,11 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                         .prefix_len = arg.prefixSlice().len,
                         .value_offset = arg.name_offset + 3,
                     } };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value for {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
+                    try err_details.msg.print(allocator, "missing value for {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
                     try diagnostics.append(err_details);
                 }
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(3) });
                 try diagnostics.append(err_details);
                 arg_i += 1;
                 continue :next_arg;
@@ -543,16 +680,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             else if (std.ascii.startsWithIgnoreCase(arg_name, "tn")) {
                 const value = arg.value(2, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 2;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -564,16 +699,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(2, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 2;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -581,8 +714,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             // Unsupported MUI options that do not need a value
             else if (std.ascii.startsWithIgnoreCase(arg_name, "g1")) {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(2) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 2;
             }
@@ -595,28 +727,25 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 std.ascii.startsWithIgnoreCase(arg_name, "ta"))
             {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(2) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 2;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "fo")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing output path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing output path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
                 };
-                output_filename_context = .{ .index = arg_i, .arg = arg, .value = value };
+                output_filename_context = .{ .arg = .{ .index = arg_i, .option_len = "fo".len, .arg = arg, .value = value } };
                 output_filename = value.slice;
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "sl")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -624,24 +753,20 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const percent_str = value.slice;
                 const percent: u32 = parsePercent(percent_str) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid percent format '{s}'", .{percent_str});
+                    try err_details.msg.print(allocator, "invalid percent format '{s}'", .{percent_str});
                     try diagnostics.append(err_details);
                     var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = false, .arg_index = arg_i };
-                    var note_writer = note_details.msg.writer(allocator);
-                    try note_writer.writeAll("string length percent must be an integer between 1 and 100 (inclusive)");
+                    try note_details.msg.appendSlice(allocator, "string length percent must be an integer between 1 and 100 (inclusive)");
                     try diagnostics.append(note_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
                 if (percent == 0 or percent > 100) {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("percent out of range: {} (parsed from '{s}')", .{ percent, percent_str });
+                    try err_details.msg.print(allocator, "percent out of range: {} (parsed from '{s}')", .{ percent, percent_str });
                     try diagnostics.append(err_details);
                     var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = false, .arg_index = arg_i };
-                    var note_writer = note_details.msg.writer(allocator);
-                    try note_writer.writeAll("string length percent must be an integer between 1 and 100 (inclusive)");
+                    try note_details.msg.appendSlice(allocator, "string length percent must be an integer between 1 and 100 (inclusive)");
                     try diagnostics.append(note_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -653,8 +778,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "ln")) {
                 const value = arg.value(2, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
+                    try err_details.msg.print(allocator, "missing language tag after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(2) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -662,16 +786,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const tag = value.slice;
                 options.default_language_id = lang.tagToInt(tag) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid language tag: {s}", .{tag});
+                    try err_details.msg.print(allocator, "invalid language tag: {s}", .{tag});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
                 if (options.default_language_id.? == lang.LOCALE_CUSTOM_UNSPECIFIED) {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("language tag '{s}' does not have an assigned ID so it will be resolved to LOCALE_CUSTOM_UNSPECIFIED (id=0x{x})", .{ tag, lang.LOCALE_CUSTOM_UNSPECIFIED });
+                    try err_details.msg.print(allocator, "language tag '{s}' does not have an assigned ID so it will be resolved to LOCALE_CUSTOM_UNSPECIFIED (id=0x{x})", .{ tag, lang.LOCALE_CUSTOM_UNSPECIFIED });
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
@@ -679,8 +801,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "l")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing language ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing language ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -688,8 +809,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const num_str = value.slice;
                 options.default_language_id = lang.parseInt(num_str) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid language ID: {s}", .{num_str});
+                    try err_details.msg.print(allocator, "invalid language ID: {s}", .{num_str});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
@@ -708,16 +828,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(1, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 1;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -730,16 +848,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             {
                 const value = arg.value(1, arg_i, args) catch no_value: {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing value after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     // dummy zero-length slice starting where the value would have been
                     const value_start = arg.name_offset + 1;
                     break :no_value Arg.Value{ .slice = arg.full[value_start..value_start] };
                 };
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg_i += value.index_increment;
                 continue :next_arg;
@@ -747,15 +863,13 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             // 1 char unsupported LCX/LCE options that do not need a value
             else if (std.ascii.startsWithIgnoreCase(arg_name, "t")) {
                 var err_details = Diagnostics.ErrorDetails{ .type = .err, .arg_index = arg_i, .arg_span = arg.optionSpan(1) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "the {s}{s} option is unsupported", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "c")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing code page ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing code page ID after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -763,26 +877,23 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 const num_str = value.slice;
                 const code_page_id = std.fmt.parseUnsigned(u16, num_str, 10) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("invalid code page ID: {s}", .{num_str});
+                    try err_details.msg.print(allocator, "invalid code page ID: {s}", .{num_str});
                     try diagnostics.append(err_details);
                     arg_i += value.index_increment;
                     continue :next_arg;
                 };
-                options.default_code_page = CodePage.getByIdentifierEnsureSupported(code_page_id) catch |err| switch (err) {
+                options.default_code_page = code_pages.getByIdentifierEnsureSupported(code_page_id) catch |err| switch (err) {
                     error.InvalidCodePage => {
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                        var msg_writer = err_details.msg.writer(allocator);
-                        try msg_writer.print("invalid or unknown code page ID: {}", .{code_page_id});
+                        try err_details.msg.print(allocator, "invalid or unknown code page ID: {}", .{code_page_id});
                         try diagnostics.append(err_details);
                         arg_i += value.index_increment;
                         continue :next_arg;
                     },
                     error.UnsupportedCodePage => {
                         var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                        var msg_writer = err_details.msg.writer(allocator);
-                        try msg_writer.print("unsupported code page: {s} (id={})", .{
-                            @tagName(CodePage.getByIdentifier(code_page_id) catch unreachable),
+                        try err_details.msg.print(allocator, "unsupported code page: {s} (id={})", .{
+                            @tagName(code_pages.getByIdentifier(code_page_id) catch unreachable),
                             code_page_id,
                         });
                         try diagnostics.append(err_details);
@@ -800,12 +911,12 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "p")) {
                 options.preprocess = .only;
+                preprocess_only_context = .{ .index = arg_i, .option_len = "p".len, .arg = arg, .value = undefined };
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "i")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing include path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing include path after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -833,15 +944,13 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                 // Undocumented option with unknown function
                 // TODO: More investigation to figure out what it does (if anything)
                 var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = arg.optionSpan(1) };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("option {s}{s} has no effect (it is undocumented and its function is unknown in the Win32 RC compiler)", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                try err_details.msg.print(allocator, "option {s}{s} has no effect (it is undocumented and its function is unknown in the Win32 RC compiler)", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                 try diagnostics.append(err_details);
                 arg.name_offset += 1;
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "d")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing symbol to define after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing symbol to define after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -856,8 +965,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     try options.define(symbol, symbol_value);
                 } else {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("symbol \"{s}\" is not a valid identifier and therefore cannot be defined", .{symbol});
+                    try err_details.msg.print(allocator, "symbol \"{s}\" is not a valid identifier and therefore cannot be defined", .{symbol});
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
@@ -865,8 +973,7 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
             } else if (std.ascii.startsWithIgnoreCase(arg_name, "u")) {
                 const value = arg.value(1, arg_i, args) catch {
                     var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.missingSpan() };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("missing symbol to undefine after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
+                    try err_details.msg.print(allocator, "missing symbol to undefine after {s}{s} option", .{ arg.prefixSlice(), arg.optionWithoutPrefix(1) });
                     try diagnostics.append(err_details);
                     arg_i += 1;
                     break :next_arg;
@@ -876,16 +983,14 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
                     try options.undefine(symbol);
                 } else {
                     var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = arg_i, .arg_span = value.argSpan(arg) };
-                    var msg_writer = err_details.msg.writer(allocator);
-                    try msg_writer.print("symbol \"{s}\" is not a valid identifier and therefore cannot be undefined", .{symbol});
+                    try err_details.msg.print(allocator, "symbol \"{s}\" is not a valid identifier and therefore cannot be undefined", .{symbol});
                     try diagnostics.append(err_details);
                 }
                 arg_i += value.index_increment;
                 continue :next_arg;
             } else {
                 var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i, .arg_span = arg.optionAndAfterSpan() };
-                var msg_writer = err_details.msg.writer(allocator);
-                try msg_writer.print("invalid option: {s}{s}", .{ arg.prefixSlice(), arg.name() });
+                try err_details.msg.print(allocator, "invalid option: {s}{s}", .{ arg.prefixSlice(), arg.name() });
                 try diagnostics.append(err_details);
                 arg_i += 1;
                 continue :next_arg;
@@ -900,73 +1005,271 @@ pub fn parse(allocator: Allocator, args: []const []const u8, diagnostics: *Diagn
 
     const positionals = args[arg_i..];
 
-    if (positionals.len < 1) {
+    if (positionals.len == 0) {
         var err_details = Diagnostics.ErrorDetails{ .print_args = false, .arg_index = arg_i };
-        var msg_writer = err_details.msg.writer(allocator);
-        try msg_writer.writeAll("missing input filename");
+        try err_details.msg.appendSlice(allocator, "missing input filename");
         try diagnostics.append(err_details);
 
-        const last_arg = args[args.len - 1];
-        if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and std.ascii.endsWithIgnoreCase(last_arg, ".rc")) {
-            var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
-            var note_writer = note_details.msg.writer(allocator);
-            try note_writer.writeAll("if this argument was intended to be the input filename, then -- should be specified in front of it to exclude it from option parsing");
-            try diagnostics.append(note_details);
+        if (args.len > 0) {
+            const last_arg = args[args.len - 1];
+            if (arg_i > 0 and last_arg.len > 0 and last_arg[0] == '/' and isSupportedInputExtension(std.fs.path.extension(last_arg))) {
+                var note_details = Diagnostics.ErrorDetails{ .type = .note, .print_args = true, .arg_index = arg_i - 1 };
+                try note_details.msg.appendSlice(allocator, "if this argument was intended to be the input filename, adding -- in front of it will exclude it from option parsing");
+                try diagnostics.append(note_details);
+            }
         }
 
         // This is a fatal enough problem to justify an early return, since
         // things after this rely on the value of the input filename.
         return error.ParseError;
     }
-    options.input_filename = try allocator.dupe(u8, positionals[0]);
+    options.input_source = .{ .filename = try allocator.dupe(u8, positionals[0]) };
+    input_filename_arg_i = arg_i;
+
+    const InputFormatSource = enum {
+        inferred_from_input_filename,
+        input_format_arg,
+    };
+
+    var input_format_source: InputFormatSource = undefined;
+    if (input_format == null) {
+        const ext = std.fs.path.extension(options.input_source.filename);
+        if (std.ascii.eqlIgnoreCase(ext, ".res")) {
+            input_format = .res;
+        } else if (std.ascii.eqlIgnoreCase(ext, ".rcpp")) {
+            input_format = .rcpp;
+        } else {
+            input_format = .rc;
+        }
+        input_format_source = .inferred_from_input_filename;
+    } else {
+        input_format_source = .input_format_arg;
+    }
 
     if (positionals.len > 1) {
         if (output_filename != null) {
             var err_details = Diagnostics.ErrorDetails{ .arg_index = arg_i + 1 };
-            var msg_writer = err_details.msg.writer(allocator);
-            try msg_writer.writeAll("output filename already specified");
+            try err_details.msg.appendSlice(allocator, "output filename already specified");
             try diagnostics.append(err_details);
             var note_details = Diagnostics.ErrorDetails{
                 .type = .note,
-                .arg_index = output_filename_context.value.index(output_filename_context.index),
-                .arg_span = output_filename_context.value.argSpan(output_filename_context.arg),
+                .arg_index = output_filename_context.arg.index,
+                .arg_span = output_filename_context.arg.value.argSpan(output_filename_context.arg.arg),
             };
-            var note_writer = note_details.msg.writer(allocator);
-            try note_writer.writeAll("output filename previously specified here");
+            try note_details.msg.appendSlice(allocator, "output filename previously specified here");
             try diagnostics.append(note_details);
         } else {
             output_filename = positionals[1];
+            output_filename_context = .{ .positional = arg_i + 1 };
         }
     }
+
+    const OutputFormatSource = enum {
+        inferred_from_input_filename,
+        inferred_from_output_filename,
+        output_format_arg,
+        unable_to_infer_from_input_filename,
+        unable_to_infer_from_output_filename,
+        inferred_from_preprocess_only,
+    };
+
+    var output_format_source: OutputFormatSource = undefined;
     if (output_filename == null) {
-        var buf = std.ArrayList(u8).init(allocator);
-        errdefer buf.deinit();
-
-        if (std.fs.path.dirname(options.input_filename)) |dirname| {
-            var end_pos = dirname.len;
-            // We want to ensure that we write a path separator at the end, so if the dirname
-            // doesn't end with a path sep then include the char after the dirname
-            // which must be a path sep.
-            if (!std.fs.path.isSep(dirname[dirname.len - 1])) end_pos += 1;
-            try buf.appendSlice(options.input_filename[0..end_pos]);
-        }
-        try buf.appendSlice(std.fs.path.stem(options.input_filename));
-        if (options.preprocess == .only) {
-            try buf.appendSlice(".rcpp");
+        if (output_format == null) {
+            output_format_source = .inferred_from_input_filename;
+            const input_ext = std.fs.path.extension(options.input_source.filename);
+            if (std.ascii.eqlIgnoreCase(input_ext, ".res")) {
+                output_format = .coff;
+            } else if (options.preprocess == .only and (input_format.? == .rc or std.ascii.eqlIgnoreCase(input_ext, ".rc"))) {
+                output_format = .rcpp;
+                output_format_source = .inferred_from_preprocess_only;
+            } else {
+                if (!std.ascii.eqlIgnoreCase(input_ext, ".res")) {
+                    output_format_source = .unable_to_infer_from_input_filename;
+                }
+                output_format = .res;
+            }
         } else {
-            try buf.appendSlice(".res");
+            output_format_source = .output_format_arg;
         }
-
-        options.output_filename = try buf.toOwnedSlice();
+        options.output_source = .{ .filename = try filepathWithExtension(allocator, options.input_source.filename, output_format.?.extension()) };
     } else {
-        options.output_filename = try allocator.dupe(u8, output_filename.?);
+        options.output_source = .{ .filename = try allocator.dupe(u8, output_filename.?) };
+        if (output_format == null) {
+            output_format_source = .inferred_from_output_filename;
+            const ext = std.fs.path.extension(options.output_source.filename);
+            if (std.ascii.eqlIgnoreCase(ext, ".obj") or std.ascii.eqlIgnoreCase(ext, ".o")) {
+                output_format = .coff;
+            } else if (std.ascii.eqlIgnoreCase(ext, ".rcpp")) {
+                output_format = .rcpp;
+            } else {
+                if (!std.ascii.eqlIgnoreCase(ext, ".res")) {
+                    output_format_source = .unable_to_infer_from_output_filename;
+                }
+                output_format = .res;
+            }
+        } else {
+            output_format_source = .output_format_arg;
+        }
+    }
+
+    options.input_format = input_format.?;
+    options.output_format = output_format.?;
+
+    // Check for incompatible options
+    var print_input_format_source_note: bool = false;
+    var print_output_format_source_note: bool = false;
+    if (options.depfile_path != null and (options.input_format == .res or options.output_format == .rcpp)) {
+        var err_details = Diagnostics.ErrorDetails{ .type = .warning, .arg_index = depfile_context.index, .arg_span = depfile_context.value.argSpan(depfile_context.arg) };
+        if (options.input_format == .res) {
+            try err_details.msg.print(allocator, "the {s}{s} option was ignored because the input format is '{s}'", .{
+                depfile_context.arg.prefixSlice(),
+                depfile_context.arg.optionWithoutPrefix(depfile_context.option_len),
+                @tagName(options.input_format),
+            });
+            print_input_format_source_note = true;
+        } else if (options.output_format == .rcpp) {
+            try err_details.msg.print(allocator, "the {s}{s} option was ignored because the output format is '{s}'", .{
+                depfile_context.arg.prefixSlice(),
+                depfile_context.arg.optionWithoutPrefix(depfile_context.option_len),
+                @tagName(options.output_format),
+            });
+            print_output_format_source_note = true;
+        }
+        try diagnostics.append(err_details);
+    }
+    if (!isSupportedTransformation(options.input_format, options.output_format)) {
+        var err_details = Diagnostics.ErrorDetails{ .arg_index = input_filename_arg_i, .print_args = false };
+        try err_details.msg.print(allocator, "input format '{s}' cannot be converted to output format '{s}'", .{ @tagName(options.input_format), @tagName(options.output_format) });
+        try diagnostics.append(err_details);
+        print_input_format_source_note = true;
+        print_output_format_source_note = true;
+    }
+    if (options.preprocess == .only and options.output_format != .rcpp) {
+        var err_details = Diagnostics.ErrorDetails{ .arg_index = preprocess_only_context.index };
+        try err_details.msg.print(allocator, "the {s}{s} option cannot be used with output format '{s}'", .{
+            preprocess_only_context.arg.prefixSlice(),
+            preprocess_only_context.arg.optionWithoutPrefix(preprocess_only_context.option_len),
+            @tagName(options.output_format),
+        });
+        try diagnostics.append(err_details);
+        print_output_format_source_note = true;
+    }
+    if (print_input_format_source_note) {
+        switch (input_format_source) {
+            .inferred_from_input_filename => {
+                var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = input_filename_arg_i };
+                try err_details.msg.appendSlice(allocator, "the input format was inferred from the input filename");
+                try diagnostics.append(err_details);
+            },
+            .input_format_arg => {
+                var err_details = Diagnostics.ErrorDetails{
+                    .type = .note,
+                    .arg_index = input_format_context.index,
+                    .arg_span = input_format_context.value.argSpan(input_format_context.arg),
+                };
+                try err_details.msg.appendSlice(allocator, "the input format was specified here");
+                try diagnostics.append(err_details);
+            },
+        }
+    }
+    if (print_output_format_source_note) {
+        switch (output_format_source) {
+            .inferred_from_input_filename, .unable_to_infer_from_input_filename => {
+                var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = input_filename_arg_i };
+                if (output_format_source == .inferred_from_input_filename) {
+                    try err_details.msg.appendSlice(allocator, "the output format was inferred from the input filename");
+                } else {
+                    try err_details.msg.appendSlice(allocator, "the output format was unable to be inferred from the input filename, so the default was used");
+                }
+                try diagnostics.append(err_details);
+            },
+            .inferred_from_output_filename, .unable_to_infer_from_output_filename => {
+                var err_details: Diagnostics.ErrorDetails = switch (output_filename_context) {
+                    .positional => |i| .{ .type = .note, .arg_index = i },
+                    .arg => |ctx| .{ .type = .note, .arg_index = ctx.index, .arg_span = ctx.value.argSpan(ctx.arg) },
+                    .unspecified => unreachable,
+                };
+                if (output_format_source == .inferred_from_output_filename) {
+                    try err_details.msg.appendSlice(allocator, "the output format was inferred from the output filename");
+                } else {
+                    try err_details.msg.appendSlice(allocator, "the output format was unable to be inferred from the output filename, so the default was used");
+                }
+                try diagnostics.append(err_details);
+            },
+            .output_format_arg => {
+                var err_details = Diagnostics.ErrorDetails{
+                    .type = .note,
+                    .arg_index = output_format_context.index,
+                    .arg_span = output_format_context.value.argSpan(output_format_context.arg),
+                };
+                try err_details.msg.appendSlice(allocator, "the output format was specified here");
+                try diagnostics.append(err_details);
+            },
+            .inferred_from_preprocess_only => {
+                var err_details = Diagnostics.ErrorDetails{ .type = .note, .arg_index = preprocess_only_context.index };
+                try err_details.msg.print(allocator, "the output format was inferred from the usage of the {s}{s} option", .{
+                    preprocess_only_context.arg.prefixSlice(),
+                    preprocess_only_context.arg.optionWithoutPrefix(preprocess_only_context.option_len),
+                });
+                try diagnostics.append(err_details);
+            },
+        }
     }
 
     if (diagnostics.hasError()) {
         return error.ParseError;
     }
 
+    // Implied settings from input/output formats
+    if (options.output_format == .rcpp) options.preprocess = .only;
+    if (options.input_format == .res) options.output_format = .coff;
+    if (options.input_format == .rcpp) options.preprocess = .no;
+
     return options;
+}
+
+pub fn filepathWithExtension(allocator: Allocator, path: []const u8, ext: []const u8) ![]const u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    errdefer buf.deinit(allocator);
+    if (std.fs.path.dirname(path)) |dirname| {
+        var end_pos = dirname.len;
+        // We want to ensure that we write a path separator at the end, so if the dirname
+        // doesn't end with a path sep then include the char after the dirname
+        // which must be a path sep.
+        if (!std.fs.path.isSep(dirname[dirname.len - 1])) end_pos += 1;
+        try buf.appendSlice(allocator, path[0..end_pos]);
+    }
+    try buf.appendSlice(allocator, std.fs.path.stem(path));
+    try buf.appendSlice(allocator, ext);
+    return try buf.toOwnedSlice(allocator);
+}
+
+pub fn isSupportedInputExtension(ext: []const u8) bool {
+    if (std.ascii.eqlIgnoreCase(ext, ".rc")) return true;
+    if (std.ascii.eqlIgnoreCase(ext, ".res")) return true;
+    if (std.ascii.eqlIgnoreCase(ext, ".rcpp")) return true;
+    return false;
+}
+
+pub fn isSupportedTransformation(input: Options.InputFormat, output: Options.OutputFormat) bool {
+    return switch (input) {
+        .rc => switch (output) {
+            .res => true,
+            .coff => true,
+            .rcpp => true,
+        },
+        .res => switch (output) {
+            .res => false,
+            .coff => true,
+            .rcpp => false,
+        },
+        .rcpp => switch (output) {
+            .res => true,
+            .coff => true,
+            .rcpp => false,
+        },
+    };
 }
 
 /// Returns true if the str is a valid C identifier for use in a #define/#undef macro
@@ -1040,7 +1343,7 @@ test parsePercent {
     try std.testing.expectError(error.InvalidFormat, parsePercent("~1"));
 }
 
-pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, err_details: Diagnostics.ErrorDetails, args: []const []const u8) !void {
+pub fn renderErrorMessage(writer: *std.io.Writer, config: std.io.tty.Config, err_details: Diagnostics.ErrorDetails, args: []const []const u8) !void {
     try config.setColor(writer, .dim);
     try writer.writeAll("<cli>");
     try config.setColor(writer, .reset);
@@ -1118,27 +1421,27 @@ pub fn renderErrorMessage(writer: anytype, config: std.io.tty.Config, err_detail
     try writer.writeByte('\n');
 
     try config.setColor(writer, .green);
-    try writer.writeByteNTimes(' ', prefix.len);
+    try writer.splatByteAll(' ', prefix.len);
     // Special case for when the option is *only* a prefix (e.g. invalid option: -)
     if (err_details.arg_span.prefix_len == arg_with_name.len) {
-        try writer.writeByteNTimes('^', err_details.arg_span.prefix_len);
+        try writer.splatByteAll('^', err_details.arg_span.prefix_len);
     } else {
-        try writer.writeByteNTimes('~', err_details.arg_span.prefix_len);
-        try writer.writeByteNTimes(' ', err_details.arg_span.name_offset - err_details.arg_span.prefix_len);
+        try writer.splatByteAll('~', err_details.arg_span.prefix_len);
+        try writer.splatByteAll(' ', err_details.arg_span.name_offset - err_details.arg_span.prefix_len);
         if (!err_details.arg_span.point_at_next_arg and err_details.arg_span.value_offset == 0) {
             try writer.writeByte('^');
-            try writer.writeByteNTimes('~', name_slice.len - 1);
+            try writer.splatByteAll('~', name_slice.len - 1);
         } else if (err_details.arg_span.value_offset > 0) {
-            try writer.writeByteNTimes('~', err_details.arg_span.value_offset - err_details.arg_span.name_offset);
+            try writer.splatByteAll('~', err_details.arg_span.value_offset - err_details.arg_span.name_offset);
             try writer.writeByte('^');
             if (err_details.arg_span.value_offset < arg_with_name.len) {
-                try writer.writeByteNTimes('~', arg_with_name.len - err_details.arg_span.value_offset - 1);
+                try writer.splatByteAll('~', arg_with_name.len - err_details.arg_span.value_offset - 1);
             }
         } else if (err_details.arg_span.point_at_next_arg) {
-            try writer.writeByteNTimes('~', arg_with_name.len - err_details.arg_span.name_offset + 1);
+            try writer.splatByteAll('~', arg_with_name.len - err_details.arg_span.name_offset + 1);
             try writer.writeByte('^');
             if (next_arg_len > 0) {
-                try writer.writeByteNTimes('~', next_arg_len - 1);
+                try writer.splatByteAll('~', next_arg_len - 1);
             }
         }
     }
@@ -1167,21 +1470,21 @@ fn testParseOutput(args: []const []const u8, expected_output: []const u8) !?Opti
     var diagnostics = Diagnostics.init(std.testing.allocator);
     defer diagnostics.deinit();
 
-    var output = std.ArrayList(u8).init(std.testing.allocator);
+    var output: std.io.Writer.Allocating = .init(std.testing.allocator);
     defer output.deinit();
 
     var options = parse(std.testing.allocator, args, &diagnostics) catch |err| switch (err) {
         error.ParseError => {
-            try diagnostics.renderToWriter(args, output.writer(), .no_color);
-            try std.testing.expectEqualStrings(expected_output, output.items);
+            try diagnostics.renderToWriter(args, &output.writer, .no_color);
+            try std.testing.expectEqualStrings(expected_output, output.written());
             return null;
         },
         else => |e| return e,
     };
     errdefer options.deinit();
 
-    try diagnostics.renderToWriter(args, output.writer(), .no_color);
-    try std.testing.expectEqualStrings(expected_output, output.items);
+    try diagnostics.renderToWriter(args, &output.writer, .no_color);
+    try std.testing.expectEqualStrings(expected_output, output.written());
     return options;
 }
 
@@ -1258,17 +1561,43 @@ test "parse errors: basic" {
         \\
         \\
     );
-    try testParseError(&.{"/some/absolute/path/parsed/as/an/option.rc"},
-        \\<cli>: error: the /s option is unsupported
-        \\ ... /some/absolute/path/parsed/as/an/option.rc
-        \\     ~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        \\<cli>: error: missing input filename
-        \\
-        \\<cli>: note: if this argument was intended to be the input filename, then -- should be specified in front of it to exclude it from option parsing
-        \\ ... /some/absolute/path/parsed/as/an/option.rc
-        \\     ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        \\
-    );
+}
+
+test "inferred absolute filepaths" {
+    {
+        var options = try testParseWarning(&.{ "/fo", "foo.res", "/home/absolute/path.rc" },
+            \\<cli>: note: this argument was inferred to be a filepath, so argument parsing was terminated
+            \\ ... /home/absolute/path.rc
+            \\     ^~~~~~~~~~~~~~~~~~~~~~
+            \\
+        );
+        defer options.deinit();
+    }
+    {
+        var options = try testParseWarning(&.{ "/home/absolute/path.rc", "foo.res" },
+            \\<cli>: note: this argument was inferred to be a filepath, so argument parsing was terminated
+            \\ ... /home/absolute/path.rc ...
+            \\     ^~~~~~~~~~~~~~~~~~~~~~
+            \\
+        );
+        defer options.deinit();
+    }
+    {
+        // Only the last two arguments are checked, so the /h is parsed as an option
+        var options = try testParse(&.{ "/home/absolute/path.rc", "foo.rc", "foo.res" });
+        defer options.deinit();
+
+        try std.testing.expect(options.print_help_and_exit);
+    }
+    {
+        var options = try testParse(&.{ "/xvFO/some/absolute/path.res", "foo.rc" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(true, options.verbose);
+        try std.testing.expectEqual(true, options.ignore_include_env_var);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("/some/absolute/path.res", options.output_source.filename);
+    }
 }
 
 test "parse errors: /ln" {
@@ -1292,8 +1621,8 @@ test "parse: options" {
         defer options.deinit();
 
         try std.testing.expectEqual(true, options.verbose);
-        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
-        try std.testing.expectEqualStrings("foo.res", options.output_filename);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("foo.res", options.output_source.filename);
     }
     {
         var options = try testParse(&.{ "/vx", "foo.rc" });
@@ -1301,8 +1630,8 @@ test "parse: options" {
 
         try std.testing.expectEqual(true, options.verbose);
         try std.testing.expectEqual(true, options.ignore_include_env_var);
-        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
-        try std.testing.expectEqualStrings("foo.res", options.output_filename);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("foo.res", options.output_source.filename);
     }
     {
         var options = try testParse(&.{ "/xv", "foo.rc" });
@@ -1310,8 +1639,8 @@ test "parse: options" {
 
         try std.testing.expectEqual(true, options.verbose);
         try std.testing.expectEqual(true, options.ignore_include_env_var);
-        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
-        try std.testing.expectEqualStrings("foo.res", options.output_filename);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("foo.res", options.output_source.filename);
     }
     {
         var options = try testParse(&.{ "/xvFObar.res", "foo.rc" });
@@ -1319,8 +1648,8 @@ test "parse: options" {
 
         try std.testing.expectEqual(true, options.verbose);
         try std.testing.expectEqual(true, options.ignore_include_env_var);
-        try std.testing.expectEqualStrings("foo.rc", options.input_filename);
-        try std.testing.expectEqualStrings("bar.res", options.output_filename);
+        try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
+        try std.testing.expectEqualStrings("bar.res", options.output_source.filename);
     }
 }
 
@@ -1484,24 +1813,208 @@ test "parse: unsupported LCX/LCE-related options" {
     );
 }
 
+test "parse: output filename specified twice" {
+    try testParseError(&.{ "/fo", "foo.res", "foo.rc", "foo.res" },
+        \\<cli>: error: output filename already specified
+        \\ ... foo.res
+        \\     ^~~~~~~
+        \\<cli>: note: output filename previously specified here
+        \\ ... /fo foo.res ...
+        \\     ~~~~^~~~~~~
+        \\
+    );
+}
+
+test "parse: input and output formats" {
+    {
+        try testParseError(&.{ "/:output-format", "rcpp", "foo.res" },
+            \\<cli>: error: input format 'res' cannot be converted to output format 'rcpp'
+            \\
+            \\<cli>: note: the input format was inferred from the input filename
+            \\ ... foo.res
+            \\     ^~~~~~~
+            \\<cli>: note: the output format was specified here
+            \\ ... /:output-format rcpp ...
+            \\     ~~~~~~~~~~~~~~~~^~~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "foo.res", "foo.rcpp" },
+            \\<cli>: error: input format 'res' cannot be converted to output format 'rcpp'
+            \\
+            \\<cli>: note: the input format was inferred from the input filename
+            \\ ... foo.res ...
+            \\     ^~~~~~~
+            \\<cli>: note: the output format was inferred from the output filename
+            \\ ... foo.rcpp
+            \\     ^~~~~~~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "/:input-format", "res", "foo" },
+            \\<cli>: error: input format 'res' cannot be converted to output format 'res'
+            \\
+            \\<cli>: note: the input format was specified here
+            \\ ... /:input-format res ...
+            \\     ~~~~~~~~~~~~~~~^~~
+            \\<cli>: note: the output format was unable to be inferred from the input filename, so the default was used
+            \\ ... foo
+            \\     ^~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "/p", "/:input-format", "res", "foo" },
+            \\<cli>: error: input format 'res' cannot be converted to output format 'res'
+            \\
+            \\<cli>: error: the /p option cannot be used with output format 'res'
+            \\ ... /p ...
+            \\     ^~
+            \\<cli>: note: the input format was specified here
+            \\ ... /:input-format res ...
+            \\     ~~~~~~~~~~~~~~~^~~
+            \\<cli>: note: the output format was unable to be inferred from the input filename, so the default was used
+            \\ ... foo
+            \\     ^~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "/:output-format", "coff", "/p", "foo.rc" },
+            \\<cli>: error: the /p option cannot be used with output format 'coff'
+            \\ ... /p ...
+            \\     ^~
+            \\<cli>: note: the output format was specified here
+            \\ ... /:output-format coff ...
+            \\     ~~~~~~~~~~~~~~~~^~~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "/fo", "foo.res", "/p", "foo.rc" },
+            \\<cli>: error: the /p option cannot be used with output format 'res'
+            \\ ... /p ...
+            \\     ^~
+            \\<cli>: note: the output format was inferred from the output filename
+            \\ ... /fo foo.res ...
+            \\     ~~~~^~~~~~~
+            \\
+        );
+    }
+    {
+        try testParseError(&.{ "/p", "foo.rc", "foo.o" },
+            \\<cli>: error: the /p option cannot be used with output format 'coff'
+            \\ ... /p ...
+            \\     ^~
+            \\<cli>: note: the output format was inferred from the output filename
+            \\ ... foo.o
+            \\     ^~~~~
+            \\
+        );
+    }
+    {
+        var options = try testParse(&.{"foo.rc"});
+        defer options.deinit();
+
+        try std.testing.expectEqual(.rc, options.input_format);
+        try std.testing.expectEqual(.res, options.output_format);
+    }
+    {
+        var options = try testParse(&.{"foo.rcpp"});
+        defer options.deinit();
+
+        try std.testing.expectEqual(.no, options.preprocess);
+        try std.testing.expectEqual(.rcpp, options.input_format);
+        try std.testing.expectEqual(.res, options.output_format);
+    }
+    {
+        var options = try testParse(&.{ "foo.rc", "foo.rcpp" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(.only, options.preprocess);
+        try std.testing.expectEqual(.rc, options.input_format);
+        try std.testing.expectEqual(.rcpp, options.output_format);
+    }
+    {
+        var options = try testParse(&.{ "foo.rc", "foo.obj" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(.rc, options.input_format);
+        try std.testing.expectEqual(.coff, options.output_format);
+    }
+    {
+        var options = try testParse(&.{ "/fo", "foo.o", "foo.rc" });
+        defer options.deinit();
+
+        try std.testing.expectEqual(.rc, options.input_format);
+        try std.testing.expectEqual(.coff, options.output_format);
+    }
+    {
+        var options = try testParse(&.{"foo.res"});
+        defer options.deinit();
+
+        try std.testing.expectEqual(.res, options.input_format);
+        try std.testing.expectEqual(.coff, options.output_format);
+    }
+    {
+        var options = try testParseWarning(&.{ "/:depfile", "foo.json", "foo.rc", "foo.rcpp" },
+            \\<cli>: warning: the /:depfile option was ignored because the output format is 'rcpp'
+            \\ ... /:depfile foo.json ...
+            \\     ~~~~~~~~~~^~~~~~~~
+            \\<cli>: note: the output format was inferred from the output filename
+            \\ ... foo.rcpp
+            \\     ^~~~~~~~
+            \\
+        );
+        defer options.deinit();
+
+        try std.testing.expectEqual(.rc, options.input_format);
+        try std.testing.expectEqual(.rcpp, options.output_format);
+    }
+    {
+        var options = try testParseWarning(&.{ "/:depfile", "foo.json", "foo.res", "foo.o" },
+            \\<cli>: warning: the /:depfile option was ignored because the input format is 'res'
+            \\ ... /:depfile foo.json ...
+            \\     ~~~~~~~~~~^~~~~~~~
+            \\<cli>: note: the input format was inferred from the input filename
+            \\ ... foo.res ...
+            \\     ^~~~~~~
+            \\
+        );
+        defer options.deinit();
+
+        try std.testing.expectEqual(.res, options.input_format);
+        try std.testing.expectEqual(.coff, options.output_format);
+    }
+}
+
 test "maybeAppendRC" {
     var tmp = std.testing.tmpDir(.{});
     defer tmp.cleanup();
 
     var options = try testParse(&.{"foo"});
     defer options.deinit();
-    try std.testing.expectEqualStrings("foo", options.input_filename);
+    try std.testing.expectEqualStrings("foo", options.input_source.filename);
 
     // Create the file so that it's found. In this scenario, .rc should not get
     // appended.
     var file = try tmp.dir.createFile("foo", .{});
     file.close();
     try options.maybeAppendRC(tmp.dir);
-    try std.testing.expectEqualStrings("foo", options.input_filename);
+    try std.testing.expectEqualStrings("foo", options.input_source.filename);
 
-    // Now delete the file and try again. Since the verbatim name is no longer found
-    // and the input filename does not have an extension, .rc should get appended.
+    // Now delete the file and try again. But this time change the input format
+    // to non-rc.
     try tmp.dir.deleteFile("foo");
+    options.input_format = .res;
     try options.maybeAppendRC(tmp.dir);
-    try std.testing.expectEqualStrings("foo.rc", options.input_filename);
+    try std.testing.expectEqualStrings("foo", options.input_source.filename);
+
+    // Finally, reset the input format to rc. Since the verbatim name is no longer found
+    // and the input filename does not have an extension, .rc should get appended.
+    options.input_format = .rc;
+    try options.maybeAppendRC(tmp.dir);
+    try std.testing.expectEqualStrings("foo.rc", options.input_source.filename);
 }

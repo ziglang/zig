@@ -31,26 +31,31 @@ namespace std {
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/stop_token>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_THREADS)
+#  if _LIBCPP_HAS_THREADS
 
-#  if _LIBCPP_STD_VER >= 20
-#    include <__stop_token/stop_callback.h>
-#    include <__stop_token/stop_source.h>
-#    include <__stop_token/stop_token.h>
+#    if _LIBCPP_STD_VER >= 20
+#      include <__stop_token/stop_callback.h>
+#      include <__stop_token/stop_source.h>
+#      include <__stop_token/stop_token.h>
+#    endif
+
+#    include <version>
+
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
+
+#  endif // _LIBCPP_HAS_THREADS
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstddef>
+#    include <iosfwd>
 #  endif
-
-#  include <version>
-
-#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#    pragma GCC system_header
-#  endif
-
-#endif // !defined(_LIBCPP_HAS_NO_THREADS)
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <iosfwd>
-#endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_STOP_TOKEN

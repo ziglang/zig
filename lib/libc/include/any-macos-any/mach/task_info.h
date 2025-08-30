@@ -403,12 +403,21 @@ struct task_vm_info {
 
 	/* added for rev6 */
 	int64_t ledger_swapins;
+
+	/* added for rev7 */
+	int64_t ledger_tag_neural_nofootprint_total;
+	int64_t ledger_tag_neural_nofootprint_peak;
 };
 typedef struct task_vm_info     task_vm_info_data_t;
 typedef struct task_vm_info     *task_vm_info_t;
 #define TASK_VM_INFO_COUNT      ((mach_msg_type_number_t) \
 	        (sizeof (task_vm_info_data_t) / sizeof (natural_t)))
-#define TASK_VM_INFO_REV6_COUNT TASK_VM_INFO_COUNT
+/*
+ * The capacity of task_info_t in mach_types.defs also needs to be adjusted
+ */
+#define TASK_VM_INFO_REV7_COUNT TASK_VM_INFO_COUNT
+#define TASK_VM_INFO_REV6_COUNT /* doesn't include neural total and peak */ \
+	((mach_msg_type_number_t) (TASK_VM_INFO_REV7_COUNT - 4))
 #define TASK_VM_INFO_REV5_COUNT /* doesn't include ledger swapins */ \
 	((mach_msg_type_number_t) (TASK_VM_INFO_REV6_COUNT - 2))
 #define TASK_VM_INFO_REV4_COUNT /* doesn't include decompressions */ \
@@ -492,6 +501,15 @@ typedef struct task_flags_info * task_flags_info_t;
 #define TASK_DEBUG_INFO_INTERNAL    29 /* Used for kernel internal development tests. */
 
 
+
+#define TASK_SECURITY_CONFIG_INFO  32 /* Runtime security mitigations configuration for the task */
+struct task_security_config_info {
+	uint32_t  config;                       /* Configuration bitmask */
+};
+
+typedef struct task_security_config_info * task_security_config_info_t;
+#define TASK_SECURITY_CONFIG_INFO_COUNT  ((mach_msg_type_number_t) \
+	        (sizeof(struct task_security_config_info) / sizeof(natural_t)))
 
 /*
  * Type to control EXC_GUARD delivery options for a task

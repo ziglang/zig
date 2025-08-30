@@ -32,8 +32,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace ranges {
-namespace __replace {
-struct __fn {
+struct __replace {
   template <input_iterator _Iter, sentinel_for<_Iter> _Sent, class _Type1, class _Type2, class _Proj = identity>
     requires indirectly_writable<_Iter, const _Type2&> &&
              indirect_binary_predicate<ranges::equal_to, projected<_Iter, _Proj>, const _Type1*>
@@ -52,10 +51,9 @@ struct __fn {
     return ranges::__replace_if_impl(ranges::begin(__range), ranges::end(__range), __pred, __new_value, __proj);
   }
 };
-} // namespace __replace
 
 inline namespace __cpo {
-inline constexpr auto replace = __replace::__fn{};
+inline constexpr auto replace = __replace{};
 } // namespace __cpo
 } // namespace ranges
 

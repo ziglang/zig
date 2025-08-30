@@ -1,5 +1,5 @@
 /* Checking macros for stdlib functions.
-   Copyright (C) 2005-2024 Free Software Foundation, Inc.
+   Copyright (C) 2005-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -43,16 +43,16 @@ __NTH (realpath (const char *__restrict __name,
 					     "bytes long buffer")
 #endif
 {
-  size_t sz = __glibc_objsize (__resolved);
+  size_t __sz = __glibc_objsize (__resolved);
 
-  if (sz == (size_t) -1)
+  if (__sz == (size_t) -1)
     return __realpath_alias (__name, __resolved);
 
 #if !__fortify_use_clang && defined _LIBC_LIMITS_H_ && defined PATH_MAX
-  if (__glibc_unsafe_len (PATH_MAX, sizeof (char), sz))
-    return __realpath_chk_warn (__name, __resolved, sz);
+  if (__glibc_unsafe_len (PATH_MAX, sizeof (char), __sz))
+    return __realpath_chk_warn (__name, __resolved, __sz);
 #endif
-  return __realpath_chk (__name, __resolved, sz);
+  return __realpath_chk (__name, __resolved, __sz);
 }
 
 

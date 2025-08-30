@@ -8,6 +8,6 @@ comptime {
     }
 }
 
-pub fn __divxc3(a: f80, b: f80, c: f80, d: f80) callconv(.C) Complex(f80) {
+pub fn __divxc3(a: f80, b: f80, c: f80, d: f80) callconv(.c) Complex(f80) {
     return divc3.divc3(f80, a, b, c, d);
 }

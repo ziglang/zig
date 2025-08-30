@@ -126,6 +126,11 @@
  *  and thread identity.
  */
 
+#define EXCEPTION_STATE_IDENTITY_PROTECTED   5
+/*	Send a catch_exception_raise_state_identity_protected message including protected task
+ *  and thread identity plus the thread state.
+ */
+
 #define MACH_EXCEPTION_BACKTRACE_PREFERRED   0x20000000
 /* Prefer sending a catch_exception_raise_backtrace message, if applicable */
 

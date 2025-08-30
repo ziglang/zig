@@ -17,8 +17,7 @@ pub fn syscall0(number: SYS) usize {
     return asm volatile ("svc #0"
         : [ret] "={r0}" (-> usize),
         : [number] "{r7}" (@intFromEnum(number)),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -26,8 +25,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r0}" (-> usize),
         : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -36,8 +34,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r7}" (@intFromEnum(number)),
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -47,8 +44,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r0}" (arg1),
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -59,8 +55,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r1}" (arg2),
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -72,8 +67,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r2}" (arg3),
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
 pub fn syscall6(
@@ -94,11 +88,10 @@ pub fn syscall6(
           [arg4] "{r3}" (arg4),
           [arg5] "{r4}" (arg5),
           [arg6] "{r5}" (arg6),
-        : "memory"
-    );
+        : .{ .memory = true });
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         r0,   r1,    r2,    r3,  +0,   +4,  +8
     //
@@ -120,52 +113,51 @@ pub fn clone() callconv(.Naked) usize {
         \\    ldmfd sp!,{r4,r5,r6,r7}
         \\    bx lr
         \\
-        \\1:  mov r0,r6
+        \\    // https://github.com/llvm/llvm-project/issues/115891
+        \\1:  mov r7, #0
+        \\    mov r11, #0
+        \\    mov lr, #0
+        \\
+        \\    mov r0,r6
         \\    bl 3f
-        \\2:  mov r7,#1 // SYS_exit
+        \\    mov r7,#1 // SYS_exit
         \\    svc 0
-        \\    b 2b
+        \\
         \\3:  bx r5
     );
 }
 
-pub fn restore() callconv(.Naked) noreturn {
+pub fn restore() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov r7, %[number]
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
     }
 }
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     switch (@import("builtin").zig_backend) {
         .stage2_c => asm volatile (
             \\ mov r7, %[number]
             \\ svc #0
             :
             : [number] "I" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
         else => asm volatile (
             \\ svc #0
             :
             : [number] "{r7}" (@intFromEnum(SYS.rt_sigreturn)),
-            : "memory"
-        ),
+            : .{ .memory = true }),
     }
 }
-
-pub const MMAP2_UNIT = 4096;
 
 pub const F = struct {
     pub const DUPFD = 0;
@@ -232,26 +224,6 @@ pub const Flock = extern struct {
     len: off_t,
     pid: pid_t,
     __unused: [4]u8,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: i32,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: i32,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -334,7 +306,7 @@ pub const ucontext_t = extern struct {
     link: ?*ucontext_t,
     stack: stack_t,
     mcontext: mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     regspace: [64]u64,
 };
 

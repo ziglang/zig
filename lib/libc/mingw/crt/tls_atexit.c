@@ -169,4 +169,4 @@ static void WINAPI tls_callback(HANDLE hDllHandle, DWORD dwReason, LPVOID __UNUS
   }
 }
 
-_CRTALLOC(".CRT$XLB") PIMAGE_TLS_CALLBACK __xl_b = (PIMAGE_TLS_CALLBACK) tls_callback;
+_CRTALLOC(".CRT$XLB") PIMAGE_TLS_CALLBACK __xl_b = tls_callback;

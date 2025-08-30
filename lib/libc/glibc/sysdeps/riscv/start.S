@@ -1,5 +1,5 @@
 /* Startup code compliant to the ELF RISC-V ABI.
-   Copyright (C) 1995-2024 Free Software Foundation, Inc.
+   Copyright (C) 1995-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -87,6 +87,7 @@ load_gp:
 	ret
 
 	.section .preinit_array,"aw"
+	.align PTRLOG
 	.dc.a load_gp
 
 /* Define a symbol for the first piece of initialized data.  */

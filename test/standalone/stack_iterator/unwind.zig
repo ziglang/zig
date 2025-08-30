@@ -10,7 +10,7 @@ noinline fn frame3(expected: *[4]usize, unwound: *[4]usize) void {
     testing.expect(debug.getContext(&context)) catch @panic("failed to getContext");
 
     const debug_info = debug.getSelfDebugInfo() catch @panic("failed to openSelfDebugInfo");
-    var it = debug.StackIterator.initWithContext(expected[0], debug_info, &context) catch @panic("failed to initWithContext");
+    var it = debug.StackIterator.initWithContext(expected[0], debug_info, &context, @frameAddress()) catch @panic("failed to initWithContext");
     defer it.deinit();
 
     for (unwound) |*addr| {
@@ -31,7 +31,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movl $7, %%edi
                         \\movl $6, %%esi
                         \\movl $5, %%ebp
-                        ::: "ebx", "ecx", "edx", "edi", "esi", "ebp");
+                        ::: .{ .ebx = true, .ecx = true, .edx = true, .edi = true, .esi = true, .ebp = true });
                 } else {
                     asm volatile (
                         \\movl $3, %%ebx
@@ -39,7 +39,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movl $2, %%edx
                         \\movl $7, %%edi
                         \\movl $6, %%esi
-                        ::: "ebx", "ecx", "edx", "edi", "esi");
+                        ::: .{ .ebx = true, .ecx = true, .edx = true, .edi = true, .esi = true });
                 }
             },
             .x86_64 => {
@@ -51,7 +51,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movq $14, %%r14
                         \\movq $15, %%r15
                         \\movq $6, %%rbp
-                        ::: "rbx", "r12", "r13", "r14", "r15", "rbp");
+                        ::: .{ .rbx = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true, .rbp = true });
                 } else {
                     asm volatile (
                         \\movq $3, %%rbx
@@ -59,7 +59,7 @@ noinline fn frame2(expected: *[4]usize, unwound: *[4]usize) void {
                         \\movq $13, %%r13
                         \\movq $14, %%r14
                         \\movq $15, %%r15
-                        ::: "rbx", "r12", "r13", "r14", "r15");
+                        ::: .{ .rbx = true, .r12 = true, .r13 = true, .r14 = true, .r15 = true });
                 }
             },
             else => {},
@@ -88,7 +88,7 @@ noinline fn frame0(expected: *[4]usize, unwound: *[4]usize) void {
 
 pub fn main() !void {
     // Disabled until the DWARF unwinder bugs on .aarch64 are solved
-    if (builtin.omit_frame_pointer and comptime builtin.target.isDarwin() and builtin.cpu.arch == .aarch64) return;
+    if (builtin.omit_frame_pointer and comptime builtin.target.os.tag.isDarwin() and builtin.cpu.arch == .aarch64) return;
 
     if (!std.debug.have_ucontext or !std.debug.have_getcontext) return;
 

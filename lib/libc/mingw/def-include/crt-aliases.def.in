@@ -1,0 +1,619 @@
+#include "func.def.in"
+
+#define ADD_UNDERSCORE(symbol) symbol == _ ## symbol
+#define ADD_UNDERSCORE_DATA(symbol) symbol DATA == _ ## symbol
+#define ADD_UNDERSCORE_DATA_DLL(symbol) symbol DATA == _ ## symbol ## _dll
+#define ADD_DOUBLE_UNDERSCORE(symbol) symbol == __ ## symbol
+
+; This is list of symbol aliases from the Visual C++ 1.0 oldnames.lib library
+; FIXME: some of these symbol aliases are commented, check and document why
+#ifdef UCRTBASE
+; access is provided as an alias for __mingw_access
+#else
+ADD_UNDERSCORE(access)
+#endif
+#ifndef CRTAPP
+; ADD_UNDERSCORE(cgets)
+ADD_UNDERSCORE(chdir)
+#endif
+ADD_UNDERSCORE(chmod)
+ADD_UNDERSCORE(chsize)
+ADD_UNDERSCORE(close)
+#ifndef CRTAPP
+; ADD_UNDERSCORE(cprintf)
+; ADD_UNDERSCORE(cputs)
+#endif
+ADD_UNDERSCORE(creat)
+#ifndef CRTAPP
+; ADD_UNDERSCORE(cscanf)
+ADD_UNDERSCORE(cwait)
+#endif
+#if defined(UCRTBASE)
+; daylight variable is provided by misc/ucrt_tzset.c
+#elif defined(CRTDLL)
+ADD_UNDERSCORE_DATA_DLL(daylight)
+#else
+ADD_UNDERSCORE_DATA(daylight)
+#endif
+ADD_UNDERSCORE(dup)
+ADD_UNDERSCORE(dup2)
+ADD_UNDERSCORE(ecvt)
+#if defined(UCRTBASE)
+; _environ variable is not available in ucrtbase.dll and there is no replacement for it
+#elif defined(CRTDLL)
+; ADD_UNDERSCORE_DATA_DLL(environ)
+#else
+; ADD_UNDERSCORE_DATA(environ)
+#endif
+ADD_UNDERSCORE(eof)
+#ifndef CRTAPP
+ADD_UNDERSCORE(execl)
+ADD_UNDERSCORE(execle)
+ADD_UNDERSCORE(execlp)
+ADD_UNDERSCORE(execlpe)
+ADD_UNDERSCORE(execv)
+ADD_UNDERSCORE(execve)
+ADD_UNDERSCORE(execvp)
+ADD_UNDERSCORE(execvpe)
+#endif
+ADD_UNDERSCORE(fcloseall)
+ADD_UNDERSCORE(fcvt)
+ADD_UNDERSCORE(fdopen)
+ADD_UNDERSCORE(fgetchar)
+ADD_UNDERSCORE(filelength)
+ADD_UNDERSCORE(fileno)
+; ADD_UNDERSCORE(flushall)
+ADD_UNDERSCORE(fputchar)
+#ifdef FIXED_SIZE_SYMBOLS
+#ifndef CRTDLL
+ADD_UNDERSCORE(fstat)
+#endif
+#else
+F32(fstat == _fstat32)
+F64(fstat == _fstat64i32)
+#endif
+#ifdef FIXED_SIZE_SYMBOLS
+ADD_UNDERSCORE(ftime)
+#else
+F32(ftime == _ftime32)
+F64(ftime == _ftime64)
+#endif
+#if defined(UCRTBASE)
+; HUGE alias and _HUGE variable are provided by math/_huge.c
+#elif defined(CRTDLL)
+ADD_UNDERSCORE_DATA_DLL(HUGE)
+#else
+ADD_UNDERSCORE_DATA(HUGE)
+#endif
+ADD_UNDERSCORE(gcvt)
+#ifndef CRTAPP
+ADD_UNDERSCORE(getch)
+ADD_UNDERSCORE(getche)
+ADD_UNDERSCORE(getcwd)
+#endif
+#ifdef UCRTBASE
+; ucrtbase.dll has got _getpid for all archs
+ADD_UNDERSCORE(getpid)
+#elif !defined(CRTAPP)
+; msvcrt.dll for arm/arm64 lacks _getpid
+F_X86_ANY(ADD_UNDERSCORE(getpid))
+#endif
+#ifndef CRTAPP
+ADD_UNDERSCORE(getw)
+#endif
+ADD_UNDERSCORE(isatty)
+ADD_UNDERSCORE(itoa)
+#ifndef CRTAPP
+ADD_UNDERSCORE(kbhit)
+#endif
+ADD_UNDERSCORE(lfind)
+; ADD_UNDERSCORE(locking)
+ADD_UNDERSCORE(lsearch)
+ADD_UNDERSCORE(lseek)
+ADD_UNDERSCORE(ltoa)
+ADD_UNDERSCORE(memccpy)
+ADD_UNDERSCORE(memicmp)
+ADD_UNDERSCORE(mkdir)
+ADD_UNDERSCORE(mktemp)
+; onexit function alias is provided by misc/_onexit.c
+ADD_UNDERSCORE(open)
+#ifndef CRTAPP
+ADD_UNDERSCORE(putch)
+ADD_UNDERSCORE(putenv)
+#endif
+ADD_UNDERSCORE(putw)
+ADD_UNDERSCORE(read)
+ADD_UNDERSCORE(rmdir)
+ADD_UNDERSCORE(rmtmp)
+ADD_UNDERSCORE(setmode)
+ADD_UNDERSCORE(sopen)
+#ifndef CRTAPP
+ADD_UNDERSCORE(spawnl)
+ADD_UNDERSCORE(spawnle)
+ADD_UNDERSCORE(spawnlp)
+ADD_UNDERSCORE(spawnlpe)
+ADD_UNDERSCORE(spawnv)
+ADD_UNDERSCORE(spawnve)
+ADD_UNDERSCORE(spawnvp)
+ADD_UNDERSCORE(spawnvpe)
+#endif
+#ifdef UCRTBASE
+F32(stat == _stat32)
+F64(stat == _stat64i32)
+#else
+; stat for non-UCRT is provided by mingw to workaround trailing slash issue in _stat
+#endif
+#ifdef NO_STRCMPI_ALIAS
+; Symbol _strcmpi is natively present and defined in the library def file
+; So define strcmpi as an alias to _strcmpi
+ADD_UNDERSCORE(strcmpi)
+#else
+; Symbol _strcmpi is not present in the library, it provides only _stricmp symbol
+; So define strcmpi as an alias to _stricmp
+strcmpi == _stricmp
+#endif
+ADD_UNDERSCORE(strdup)
+ADD_UNDERSCORE(stricmp)
+ADD_UNDERSCORE(strlwr)
+ADD_UNDERSCORE(strnicmp)
+ADD_UNDERSCORE(strnset)
+ADD_UNDERSCORE(strrev)
+ADD_UNDERSCORE(strset)
+ADD_UNDERSCORE(strupr)
+ADD_UNDERSCORE(swab)
+#if defined(UCRTBASE)
+; _sys_errlist variable is not available in ucrtbase.dll and there is no replacement for it
+#else
+// sys_errlist variable is without _dll suffix in crtdll.dll
+; ADD_UNDERSCORE_DATA(sys_errlist)
+#endif
+#if defined(UCRTBASE)
+; _sys_nerr variable is not available in ucrtbase.dll and there is no replacement for it
+#elif defined(CRTDLL)
+; ADD_UNDERSCORE_DATA_DLL(sys_nerr)
+#else
+; ADD_UNDERSCORE_DATA(sys_nerr)
+#endif
+ADD_UNDERSCORE(tell)
+ADD_UNDERSCORE(tempnam)
+#if defined(UCRTBASE)
+; timezone variable is provided by misc/ucrt_tzset.c
+#elif defined(CRTDLL)
+ADD_UNDERSCORE_DATA_DLL(timezone)
+#else
+ADD_UNDERSCORE_DATA(timezone)
+#endif
+#if defined(UCRTBASE)
+; tzname variable is provided by misc/ucrt_tzset.c
+#else
+// tzname variable is without _dll suffix in crtdll.dll
+ADD_UNDERSCORE_DATA(tzname)
+#endif
+#if defined(UCRTBASE)
+; tzset function is provided by misc/ucrt_tzset.c
+#else
+ADD_UNDERSCORE(tzset)
+#endif
+; ADD_UNDERSCORE(ultoa)
+ADD_UNDERSCORE(umask)
+#ifndef CRTAPP
+ADD_UNDERSCORE(ungetch)
+#endif
+ADD_UNDERSCORE(unlink)
+#ifdef FIXED_SIZE_SYMBOLS
+ADD_UNDERSCORE(utime)
+#else
+F32(utime == _utime32)
+F64(utime == _utime64)
+#endif
+ADD_UNDERSCORE(write)
+
+; This is list of symbol aliases added in the Visual C++ 2.0 oldnames.lib library
+; All these symbols with leading underscore are present also in pre-2.0 CRT versions: crtdll.dll and msvcrt10.dll
+; ADD_UNDERSCORE(control87)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+ADD_UNDERSCORE(fpreset)
+#else
+; ADD_UNDERSCORE(fpreset) ; Alias fpreset is set in CRT_fp10.c and CRT_fp8.c
+#endif
+ADD_UNDERSCORE(wcsdup)
+ADD_UNDERSCORE(wcsicmp)
+ADD_UNDERSCORE(wcsicoll)
+ADD_UNDERSCORE(wcslwr)
+ADD_UNDERSCORE(wcsnicmp)
+ADD_UNDERSCORE(wcsnset)
+ADD_UNDERSCORE(wcsrev)
+ADD_UNDERSCORE(wcsset)
+ADD_UNDERSCORE(wcsupr)
+
+; This is list of symbol aliases added in the Visual C++ 4.0 oldnames.lib library
+; All these symbols with leading underscore are present also in pre-4.0 CRT versions: crtdll.dll, msvcrt10.dll and msvcrt20.dll
+; ADD_UNDERSCORE(cabs)
+#ifdef UCRTBASE
+; hypot is natively exported from UCRT
+#else
+ADD_UNDERSCORE(hypot)
+#endif
+ADD_UNDERSCORE(j0)
+ADD_UNDERSCORE(j1)
+ADD_UNDERSCORE(jn)
+ADD_UNDERSCORE(y0)
+ADD_UNDERSCORE(y1)
+ADD_UNDERSCORE(yn)
+
+; This is list of symbol aliases for C95 functions
+#ifdef WITH_GET_PUT_WCHAR_ALIASES
+getwc == fgetwc
+getwchar == _fgetwchar
+putwc == fputwc
+putwchar == _fputwchar
+#endif
+#ifdef USE_WCSTOK_S_FOR_WCSTOK
+wcstok == wcstok_s
+#endif
+
+; This is list of symbol aliases for C99 functions
+; ADD_UNDERSCORE(logb)
+#ifdef WITH_NEXTAFTER_ALIAS
+ADD_UNDERSCORE(nextafter)
+#endif
+
+; This is list of symbol aliases for C99 ARM long double functions
+; They are defined as aliases to regular double symbols as on ARM, long double is equal to regular double
+F_LD64(acosl == acos)
+F_LD64(asinl == asin)
+F_LD64(atan2l == atan2)
+F_LD64(atanl == atan)
+F_LD64(ceill == ceil)
+F_LD64(cosl == cos)
+F_LD64(expl == exp)
+F_LD64(floorl == floor)
+F_LD64(fmodl == fmod)
+F_LD64(log10l == log10)
+F_LD64(logl == log)
+; FIXME: Why is powl alias defined only for UCRT?
+#ifdef UCRTBASE
+F_LD64(powl == pow)
+#endif
+F_LD64(sinl == sin)
+F_LD64(tanl == tan)
+F_LD64(_chgsignl == _chgsign)
+
+; This is list of symbol aliases for C11 functions
+#ifdef UCRTBASE
+F32(timespec_get == _timespec32_get)
+F64(timespec_get == _timespec64_get)
+#endif
+
+; This is list of symbol aliases for POSIX functions
+ADD_DOUBLE_UNDERSCORE(isascii)
+ADD_DOUBLE_UNDERSCORE(toascii)
+#ifndef CRTAPP
+ADD_UNDERSCORE(pclose)
+ADD_UNDERSCORE(popen)
+#endif
+; ADD_UNDERSCORE(scalb)
+
+; This is list of symbol aliases for Large File Specification (extension to Single UNIX Specification)
+#ifndef NO_FPOS64_ALIASES
+; fgetpos and fsetpos are already 64-bit
+fgetpos64 == fgetpos
+fsetpos64 == fsetpos
+#endif
+#ifdef UCRTBASE
+stat32 == _stat32
+stat32i64 == _stat32i64
+stat64 == _stat64
+stat64i32 == _stat64i32
+#else
+; stat for non-UCRT is provided by mingw to workaround trailing slash issue in _stat
+#endif
+#ifdef FIXED_SIZE_SYMBOLS
+// NO_FIXED_SIZE_64_ALIAS means that DLL provides the native _fstat64 symbol
+#if defined(NO_FIXED_SIZE_64_ALIAS) && !defined(NO_FSTAT64_ALIAS)
+fstat64 == _fstat64
+#endif
+#else
+fstat64 == _fstat64
+#endif
+
+; This is list of symbol aliases for GNU functions which are not part of POSIX or ISO C
+strcasecmp == _stricmp
+strncasecmp == _strnicmp
+
+; This is list of various symbol aliases which are needed for compatibility
+; Some symbols in some version of CRT library were added and some other symbols were removed or renamed
+; This list provides some level of backward and forward compatibility
+
+#ifndef NO_STRCMPI_ALIAS
+_strcmpi == _stricmp
+#endif
+
+#ifdef WITH_IOB_FUNC_ALIAS
+__iob_func == __p__iob
+#endif
+
+#ifdef WITH_TZ_ALIASES
+__daylight == __p__daylight
+#ifndef NO_DSTBIAS
+__dstbias == __p__dstbias
+#endif
+__timezone == __p__timezone
+__tzname == __p__tzname
+#endif
+
+#ifdef WITH_ATOLL_ALIAS
+atoll == _atoi64
+_wtoll == _wtoi64
+#endif
+
+#ifdef WITH_ATOLL_L_ALIAS
+_atoll_l == _atoi64_l
+_wtoll_l == _wtoi64_l
+#endif
+
+#ifdef WITH_LLABS_ALIAS
+llabs == _abs64
+imaxabs == _abs64
+#elif defined(WITH_IMAXABS_ALIAS)
+imaxabs == llabs
+#endif
+
+#ifdef WITH_IMAXDIV_ALIAS
+imaxdiv == lldiv
+#endif
+
+#ifdef WITH_STRTO64_ALIAS
+strtoll == _strtoi64
+strtoull == _strtoui64
+strtoimax == _strtoi64
+strtoumax == _strtoui64
+wcstoll == _wcstoi64
+wcstoull == _wcstoui64
+wcstoimax == _wcstoi64
+wcstoumax == _wcstoui64
+#endif
+
+#ifdef WITH_STRTO64_L_ALIAS
+_strtoll_l == _strtoi64_l
+_strtoull_l == _strtoui64_l
+_strtoimax_l == _strtoi64_l
+_strtoumax_l == _strtoui64_l
+_wcstoll_l == _wcstoi64_l
+_wcstoull_l == _wcstoui64_l
+_wcstoimax_l == _wcstoi64_l
+_wcstoumax_l == _wcstoui64_l
+#endif
+
+; This is list of find symbol aliases, every CRT library has either find symbols with SIZE suffix or without them
+#ifdef FIXED_SIZE_SYMBOLS
+F32(_findfirst32 == _findfirst)
+F64(_findfirst64i32 == _findfirst)
+#ifndef NO_I64_FIXED_SIZE
+F32(_findfirst32i64 == _findfirsti64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_findfirst64 == _findfirsti64)
+#endif
+#endif
+F32(_findnext32 == _findnext)
+F64(_findnext64i32 == _findnext)
+#ifndef NO_I64_FIXED_SIZE
+F32(_findnext32i64 == _findnexti64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_findnext64 == _findnexti64)
+#endif
+#endif
+#ifndef NO_WIDE_FIXED_SIZE
+F32(_wfindfirst32 == _wfindfirst)
+F64(_wfindfirst64i32 == _wfindfirst)
+#ifndef NO_I64_FIXED_SIZE
+F32(_wfindfirst32i64 == _wfindfirsti64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_wfindfirst64 == _wfindfirsti64)
+#endif
+#endif
+F32(_wfindnext32 == _wfindnext)
+F64(_wfindnext64i32 == _wfindnext)
+#ifndef NO_I64_FIXED_SIZE
+F32(_wfindnext32i64 == _wfindnexti64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_wfindnext64 == _wfindnexti64)
+#endif
+#endif
+#endif
+#else
+F32(_findfirst == _findfirst32)
+F64(_findfirst == _findfirst64i32)
+F32(_findfirsti64 == _findfirst32i64)
+F64(_findfirsti64 == _findfirst64)
+F32(_findnext == _findnext32)
+F64(_findnext == _findnext64i32)
+F32(_findnexti64 == _findnext32i64)
+F64(_findnexti64 == _findnext64)
+F32(_wfindfirst == _wfindfirst32)
+F64(_wfindfirst == _wfindfirst64i32)
+F32(_wfindfirsti64 == _wfindfirst32i64)
+F64(_wfindfirsti64 == _wfindfirst64)
+F32(_wfindnext == _wfindnext32)
+F64(_wfindnext == _wfindnext64i32)
+F32(_wfindnexti64 == _wfindnext32i64)
+F64(_wfindnexti64 == _wfindnext64)
+#endif
+
+; This is list of stat symbol aliases, every CRT library has either stat symbols with SIZE suffix or without them
+#ifdef FIXED_SIZE_SYMBOLS
+#ifndef CRTDLL
+F32(_fstat32 == _fstat)
+#endif
+F64(_fstat64i32 == _fstat)
+#ifndef NO_I64_FIXED_SIZE
+F32(_fstat32i64 == _fstati64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_fstat64 == _fstati64)
+#endif
+#endif
+#ifndef CRTDLL
+F32(_stat32 == _stat)
+#endif
+F64(_stat64i32 == _stat)
+#ifndef NO_I64_FIXED_SIZE
+F32(_stat32i64 == _stati64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_stat64 == _stati64)
+#endif
+#endif
+#ifndef NO_WIDE_FIXED_SIZE
+F32(_wstat32 == _wstat)
+F64(_wstat64i32 == _wstat)
+#ifndef NO_I64_FIXED_SIZE
+F32(_wstat32i64 == _wstati64)
+#ifndef NO_FIXED_SIZE_64_ALIAS
+F64(_wstat64 == _wstati64)
+#endif
+#endif
+#endif
+#else
+F32(_fstat == _fstat32)
+F64(_fstat == _fstat64i32)
+F32(_fstati64 == _fstat32i64)
+F64(_fstati64 == _fstat64)
+F32(_stat == _stat32)
+F64(_stat == _stat64i32)
+F32(_stati64 == _stat32i64)
+F64(_stati64 == _stat64)
+F32(_wstat == _wstat32)
+F64(_wstat == _wstat64i32)
+F32(_wstati64 == _wstat32i64)
+F64(_wstati64 == _wstat64)
+#endif
+
+; This is list of time symbol aliases, every CRT library except msvcrt.dll has either time symbols with SIZE suffix or without them
+#ifndef NO_TIME_ALIAS
+#ifdef FIXED_SIZE_SYMBOLS
+F32(_ctime32 == ctime)
+F64(_ctime64 == ctime)
+F32(_difftime32 == difftime)
+F64(_difftime64 == difftime)
+F32(_ftime32 == _ftime)
+F64(_ftime64 == _ftime)
+F32(_futime32 == _futime)
+F64(_futime64 == _futime)
+F32(_gmtime32 == gmtime)
+F64(_gmtime64 == gmtime)
+F32(_localtime32 == localtime)
+F64(_localtime64 == localtime)
+; Skip _mkgmtime as it is present only in msvcrt.dll
+F32(_mktime32 == mktime)
+F64(_mktime64 == mktime)
+F32(_time32 == time)
+F64(_time64 == time)
+F32(_utime32 == _utime)
+F64(_utime64 == _utime)
+#ifndef NO_WIDE_FIXED_SIZE
+F32(_wctime32 == _wctime)
+F64(_wctime64 == _wctime)
+F32(_wutime32 == _wutime)
+F64(_wutime64 == _wutime)
+#endif
+#else
+F32(ctime == _ctime32)
+F64(ctime == _ctime64)
+F32(difftime == _difftime32)
+F64(difftime == _difftime64)
+F32(_ftime == _ftime32)
+F64(_ftime == _ftime64)
+F32(_futime == _futime32)
+F64(_futime == _futime64)
+F32(gmtime == _gmtime32)
+F64(gmtime == _gmtime64)
+F32(localtime == _localtime32)
+F64(localtime == _localtime64)
+F32(_mkgmtime == _mkgmtime32)
+F64(_mkgmtime == _mkgmtime64)
+F32(mktime == _mktime32)
+F64(mktime == _mktime64)
+F32(time == _time32)
+F64(time == _time64)
+F32(_utime == _utime32)
+F64(_utime == _utime64)
+F32(_wctime == _wctime32)
+F64(_wctime == _wctime64)
+F32(_wutime == _wutime32)
+F64(_wutime == _wutime64)
+#endif
+#endif
+
+; This is list of symbols which are present in msvcrt but not in UCRT
+#ifdef UCRTBASE
+__lconv_init == __initialize_lconv_for_unsigned_char
+__set_app_type == _set_app_type
+__p__daylight == __daylight
+__p__dstbias == __dstbias
+__p__timezone == __timezone
+__p__tzname == __tzname
+#endif
+
+; This is list of printf/scanf symbol aliases with __ms_ prefix
+#ifndef UCRTBASE
+__ms_fprintf == fprintf
+__ms_fscanf == fscanf
+__ms_fwprintf == fwprintf
+__ms_fwscanf == fwscanf
+__ms_printf == printf
+__ms_scanf == scanf
+__ms_sprintf == sprintf
+__ms_sscanf == sscanf
+__ms_swscanf == swscanf
+__ms_vfprintf == vfprintf
+__ms_vfwprintf == vfwprintf
+__ms_vprintf == vprintf
+__ms_vsprintf == vsprintf
+__ms_vwprintf == vwprintf
+__ms_wprintf == wprintf
+__ms_wscanf == wscanf
+#endif
+
+; This is list of additional symbol aliases not available in any library as neither native symbols nor aliases
+; FIXME: check if these really are needed
+
+; This is wstat and wstat64 symbol available only in mingw but for a long time
+#ifdef UCRTBASE
+F32(wstat == _wstat32)
+F64(wstat == _wstat64i32)
+wstat32 == _wstat32
+wstat32i64 == _wstat32i64
+wstat64 == _wstat64
+wstat64i32 == _wstat64i32
+#else
+; wstat for non-UCRT is provided by mingw to workaround trailing slash issue in _wstat
+#endif
+
+; Origin of the symbol wcscmpi is unknown. This symbol is not present in
+; crtdll.dll and neither in any msvcr* version. The only source of wcscmpi is
+; wcstr.h header file from the Microsoft Visual C++ 1.0 (32-bit for NT) and
+; Microsoft Windows NT 3.1 SDK where wcscmpi and _wcscmpi are defined as
+; macros which expand to _wcsicmp. So the raw wcscmpi is not linkable symbol
+; even in the old Visual C++ versions.
+wcscmpi == _wcsicmp
+
+; Origin of these symbols is unknown too.
+ADD_UNDERSCORE(chgsign)
+ADD_UNDERSCORE(fgetwchar)
+ADD_UNDERSCORE(finite)
+ADD_UNDERSCORE(fpclass)
+ADD_UNDERSCORE(fputwchar)
+#ifndef CRTAPP
+ADD_UNDERSCORE(heapwalk)
+#endif
+ADD_DOUBLE_UNDERSCORE(iscsymf)
+ADD_DOUBLE_UNDERSCORE(iscsym)
+#ifndef CRTAPP
+ADD_UNDERSCORE(searchenv)
+#endif
+ADD_UNDERSCORE(stricoll)
+#ifndef UCRTBASE
+ADD_UNDERSCORE(vsnprintf_s)
+#endif
+#ifndef CRTAPP
+ADD_UNDERSCORE(wpopen)
+#endif

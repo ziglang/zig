@@ -13,17 +13,19 @@ comptime {
     @export(&__sqrtx, .{ .name = "__sqrtx", .linkage = common.linkage, .visibility = common.visibility });
     if (common.want_ppc_abi) {
         @export(&sqrtq, .{ .name = "sqrtf128", .linkage = common.linkage, .visibility = common.visibility });
+    } else if (common.want_sparc_abi) {
+        @export(&_Qp_sqrt, .{ .name = "_Qp_sqrt", .linkage = common.linkage, .visibility = common.visibility });
     }
     @export(&sqrtq, .{ .name = "sqrtq", .linkage = common.linkage, .visibility = common.visibility });
     @export(&sqrtl, .{ .name = "sqrtl", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-pub fn __sqrth(x: f16) callconv(.C) f16 {
+pub fn __sqrth(x: f16) callconv(.c) f16 {
     // TODO: more efficient implementation
     return @floatCast(sqrtf(x));
 }
 
-pub fn sqrtf(x: f32) callconv(.C) f32 {
+pub fn sqrtf(x: f32) callconv(.c) f32 {
     const tiny: f32 = 1.0e-30;
     const sign: i32 = @bitCast(@as(u32, 0x80000000));
     var ix: i32 = @bitCast(x);
@@ -102,7 +104,7 @@ pub fn sqrtf(x: f32) callconv(.C) f32 {
 /// NOTE: The original code is full of implicit signed -> unsigned assumptions and u32 wraparound
 /// behaviour. Most intermediate i32 values are changed to u32 where appropriate but there are
 /// potentially some edge cases remaining that are not handled in the same way.
-pub fn sqrt(x: f64) callconv(.C) f64 {
+pub fn sqrt(x: f64) callconv(.c) f64 {
     const tiny: f64 = 1.0e-300;
     const sign: u32 = 0x80000000;
     const u: u64 = @bitCast(x);
@@ -232,17 +234,21 @@ pub fn sqrt(x: f64) callconv(.C) f64 {
     return @bitCast(uz);
 }
 
-pub fn __sqrtx(x: f80) callconv(.C) f80 {
+pub fn __sqrtx(x: f80) callconv(.c) f80 {
     // TODO: more efficient implementation
     return @floatCast(sqrtq(x));
 }
 
-pub fn sqrtq(x: f128) callconv(.C) f128 {
+pub fn sqrtq(x: f128) callconv(.c) f128 {
     // TODO: more correct implementation
     return sqrt(@floatCast(x));
 }
 
-pub fn sqrtl(x: c_longdouble) callconv(.C) c_longdouble {
+fn _Qp_sqrt(c: *f128, a: *f128) callconv(.c) void {
+    c.* = sqrt(@floatCast(a.*));
+}
+
+pub fn sqrtl(x: c_longdouble) callconv(.c) c_longdouble {
     switch (@typeInfo(c_longdouble).float.bits) {
         16 => return __sqrth(x),
         32 => return sqrtf(x),

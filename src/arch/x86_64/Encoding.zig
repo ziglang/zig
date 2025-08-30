@@ -30,9 +30,10 @@ pub fn findByMnemonic(
     prefix: Instruction.Prefix,
     mnemonic: Mnemonic,
     ops: []const Instruction.Operand,
+    target: *const std.Target,
 ) !?Encoding {
-    var input_ops = [1]Op{.none} ** 4;
-    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op);
+    var input_ops: [4]Op = @splat(.none);
+    for (input_ops[0..ops.len], ops) |*input_op, op| input_op.* = Op.fromOperand(op, target);
 
     const rex_required = for (ops) |op| switch (op) {
         .reg => |r| switch (r) {
@@ -49,7 +50,7 @@ pub fn findByMnemonic(
         else => {},
     } else false;
     const rex_extended = for (ops) |op| {
-        if (op.isBaseExtended() or op.isIndexExtended()) break true;
+        if (op.baseExtEnc() != 0b00 or op.indexExtEnc() != 0b00) break true;
     } else false;
 
     if ((rex_required or rex_extended) and rex_invalid) return error.CannotEncode;
@@ -57,6 +58,43 @@ pub fn findByMnemonic(
     var shortest_enc: ?Encoding = null;
     var shortest_len: ?usize = null;
     next: for (mnemonic_to_encodings_map[@intFromEnum(mnemonic)]) |data| {
+        if (!switch (data.feature) {
+            .none => true,
+            .@"32bit" => switch (target.cpu.arch) {
+                else => unreachable,
+                .x86 => true,
+                .x86_64 => false,
+            },
+            .@"64bit" => switch (target.cpu.arch) {
+                else => unreachable,
+                .x86 => false,
+                .x86_64 => true,
+            },
+            inline .@"invpcid 32bit", .@"rdpid 32bit" => |tag| switch (target.cpu.arch) {
+                else => unreachable,
+                .x86 => target.cpu.has(
+                    .x86,
+                    @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 32bit".len]),
+                ),
+                .x86_64 => false,
+            },
+            inline .@"invpcid 64bit", .@"rdpid 64bit", .@"prefetchi 64bit" => |tag| switch (target.cpu.arch) {
+                else => unreachable,
+                .x86 => false,
+                .x86_64 => target.cpu.has(
+                    .x86,
+                    @field(std.Target.x86.Feature, @tagName(tag)[0 .. @tagName(tag).len - " 64bit".len]),
+                ),
+            },
+            .prefetch => target.cpu.hasAny(.x86, &.{ .sse, .prfchw, .prefetchi, .prefetchwt1 }),
+            inline else => |tag| has_features: {
+                comptime var feature_it = std.mem.splitScalar(u8, @tagName(tag), ' ');
+                comptime var features: []const std.Target.x86.Feature = &.{};
+                inline while (comptime feature_it.next()) |feature| features = features ++ .{@field(std.Target.x86.Feature, feature)};
+                break :has_features target.cpu.hasAll(.x86, features);
+            },
+        }) continue;
+
         switch (data.mode) {
             .none, .short => if (rex_required) continue,
             .rex, .rex_short => if (!rex_required) continue,
@@ -64,7 +102,7 @@ pub fn findByMnemonic(
         }
         for (input_ops, data.ops) |input_op, data_op| if (!input_op.isSubset(data_op)) continue :next;
 
-        const enc = Encoding{ .mnemonic = mnemonic, .data = data };
+        const enc: Encoding = .{ .mnemonic = mnemonic, .data = data };
         if (shortest_enc) |previous_shortest_enc| {
             const len = estimateInstructionLength(prefix, enc, ops);
             const previous_shortest_len = shortest_len orelse
@@ -115,20 +153,12 @@ pub fn mandatoryPrefix(encoding: *const Encoding) ?u8 {
 
 pub fn modRmExt(encoding: Encoding) u3 {
     return switch (encoding.data.op_en) {
-        .m, .mi, .m1, .mc, .vmi => encoding.data.modrm_ext,
+        .ia, .m, .mi, .m1, .mc, .vm, .vmi => encoding.data.modrm_ext,
         else => unreachable,
     };
 }
 
-pub fn format(
-    encoding: Encoding,
-    comptime fmt: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = options;
-    _ = fmt;
-
+pub fn format(encoding: Encoding, writer: *std.io.Writer) std.io.Writer.Error!void {
     var opc = encoding.opcode();
     if (encoding.data.mode.isVex()) {
         try writer.writeAll("VEX.");
@@ -149,7 +179,7 @@ pub fn format(
             },
         }
 
-        try writer.print(".{}", .{std.fmt.fmtSliceHexUpper(opc[0 .. opc.len - 1])});
+        try writer.print(".{X}", .{opc[0 .. opc.len - 1]});
         opc = opc[opc.len - 1 ..];
 
         try writer.writeAll(".W");
@@ -165,9 +195,14 @@ pub fn format(
     for (opc) |byte| try writer.print("{x:0>2} ", .{byte});
 
     switch (encoding.data.op_en) {
-        .zo, .fd, .td, .i, .zi, .d => {},
-        .o, .oi => {
-            const tag = switch (encoding.data.ops[0]) {
+        .z, .fd, .td, .i, .zi, .ii, .d => {},
+        .o, .zo, .oz, .oi => {
+            const op = switch (encoding.data.op_en) {
+                .o, .oz, .oi => encoding.data.ops[0],
+                .zo => encoding.data.ops[1],
+                else => unreachable,
+            };
+            const tag = switch (op) {
                 .r8 => "rb",
                 .r16 => "rw",
                 .r32 => "rd",
@@ -176,17 +211,24 @@ pub fn format(
             };
             try writer.print("+{s} ", .{tag});
         },
-        .m, .mi, .m1, .mc, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
-        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr => try writer.writeAll("/r "),
+        .ia, .m, .mi, .m1, .mc, .vm, .vmi => try writer.print("/{d} ", .{encoding.modRmExt()}),
+        .mr, .rm, .rmi, .mri, .mrc, .rm0, .rvm, .rvmr, .rvmi, .mvr, .rmv => try writer.writeAll("/r "),
     }
 
     switch (encoding.data.op_en) {
-        .i, .d, .zi, .oi, .mi, .rmi, .mri, .vmi, .rvmi => {
-            const op = switch (encoding.data.op_en) {
-                .i, .d => encoding.data.ops[0],
-                .zi, .oi, .mi => encoding.data.ops[1],
-                .rmi, .mri, .vmi => encoding.data.ops[2],
-                .rvmi => encoding.data.ops[3],
+        .i, .d, .zi, .ii, .ia, .oi, .mi, .rmi, .mri, .vmi, .rvmi => for (0..2) |i| {
+            const op = switch (i) {
+                0 => switch (encoding.data.op_en) {
+                    .i, .ii, .ia, .d => encoding.data.ops[0],
+                    .zi, .oi, .mi => encoding.data.ops[1],
+                    .rmi, .mri, .vmi => encoding.data.ops[2],
+                    .rvmi => encoding.data.ops[3],
+                    else => unreachable,
+                },
+                1 => switch (encoding.data.op_en) {
+                    .ii => encoding.data.ops[1],
+                    else => break,
+                },
                 else => unreachable,
             };
             const tag = switch (op) {
@@ -202,13 +244,13 @@ pub fn format(
             try writer.print("{s} ", .{tag});
         },
         .rvmr => try writer.writeAll("/is4 "),
-        .zo, .fd, .td, .o, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .rvm, .mvr => {},
+        .z, .fd, .td, .o, .zo, .oz, .m, .m1, .mc, .mr, .rm, .mrc, .rm0, .vm, .rvm, .mvr, .rmv => {},
     }
 
     try writer.print("{s} ", .{@tagName(encoding.mnemonic)});
 
     for (encoding.data.ops) |op| switch (op) {
-        .none, .o16, .o32, .o64 => break,
+        .none => break,
         else => try writer.print("{s} ", .{@tagName(op)}),
     };
 
@@ -237,153 +279,199 @@ pub const Mnemonic = enum {
     @".cfi_escape",
     // zig fmt: off
     // General-purpose
-    adc, add, @"and",
-    bsf, bsr, bswap, bt, btc, btr, bts,
-    call, cbw, cdq, cdqe, clflush,
+    aaa, aad, aam, aas, adc, add, @"and", arpl,
+    bound, bsf, bsr, bswap, bt, btc, btr, bts,
+    call, cbw, cdq, cdqe,
+    clac, clc, cld, cldemote, clflush, clflushopt, cli, clts, clui, clrssbsy, clwb, cmc,
     cmova, cmovae, cmovb, cmovbe, cmovc, cmove, cmovg, cmovge, cmovl, cmovle, cmovna,
     cmovnae, cmovnb, cmovnbe, cmovnc, cmovne, cmovng, cmovnge, cmovnl, cmovnle, cmovno,
     cmovnp, cmovns, cmovnz, cmovo, cmovp, cmovpe, cmovpo, cmovs, cmovz,
-    cmp,
-    cmps, cmpsb, cmpsd, cmpsq, cmpsw,
-    cmpxchg, cmpxchg8b, cmpxchg16b,
+    cmp, cmps, cmpsb, cmpsd, cmpsq, cmpsw, cmpxchg, cmpxchg8b, cmpxchg16b,
     cpuid, cqo, cwd, cwde,
-    dec, div, idiv, imul, inc, int3,
-    ja, jae, jb, jbe, jc, jrcxz, je, jg, jge, jl, jle, jna, jnae, jnb, jnbe,
-    jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, js, jz,
-    jmp, 
-    lea, lfence,
+    daa, das, dec, div,
+    endbr32, endbr64, enqcmd, enqcmds, enter,
+    hlt, hreset,
+    idiv, imul, in, inc, incsspd, incsspq, ins, insb, insd, insw,
+    int, int1, int3, into, invd, invlpg, invpcid, iret, iretd, iretq, iretw,
+    ja, jae, jb, jbe, jc, jcxz, je, jecxz, jg, jge, jl, jle, jmp, jna, jnae, jnb, jnbe,
+    jnc, jne, jng, jnge, jnl, jnle, jno, jnp, jns, jnz, jo, jp, jpe, jpo, jrcxz, js, jz,
+    lahf, lar, lea, leave, lfence, lgdt, lidt, lldt, lmsw, loop, loope, loopne,
     lods, lodsb, lodsd, lodsq, lodsw,
-    lzcnt,
+    lsl, ltr,
     mfence, mov, movbe,
     movs, movsb, movsd, movsq, movsw,
     movsx, movsxd, movzx, mul,
     neg, nop, not,
-    @"or",
-    pause, pop, popcnt, popfq, push, pushfq,
-    rcl, rcr, ret, rol, ror,
-    sal, sar, sbb,
+    @"or", out, outs, outsb, outsd, outsw,
+    pause, pop, popf, popfd, popfq, push, pushfq,
+    rcl, rcr,
+    rdfsbase, rdgsbase, rdmsr, rdpid, rdpkru, rdpmc, rdrand, rdseed, rdsspd, rdsspq, rdtsc, rdtscp,
+    ret, rol, ror, rsm,
+    sahf, sal, sar, sbb,
     scas, scasb, scasd, scasq, scasw,
-    shl, shld, shr, shrd, sub, syscall,
+    senduipi, serialize,
+    shl, shld, shr, shrd,
+    stac, stc, std, sti, str, stui,
+    sub, swapgs, syscall, sysenter, sysexit, sysret,
     seta, setae, setb, setbe, setc, sete, setg, setge, setl, setle, setna, setnae,
     setnb, setnbe, setnc, setne, setng, setnge, setnl, setnle, setno, setnp, setns,
     setnz, seto, setp, setpe, setpo, sets, setz,
-    sfence,
+    sfence, sidt, sldt, smsw,
     stos, stosb, stosd, stosq, stosw,
-    @"test", tzcnt,
-    ud2,
-    xadd, xchg, xgetbv, xor,
+    @"test", testui, tpause,
+    ud0, ud1, ud2, uiret, umonitor, umwait,
+    verr, verw, wrfsbase, wrgsbase, wrmsr, wrpkru, wrssd, wrssq, wrussd, wrussq,
+    xadd, xchg, xgetbv, xlat, xlatb, xor,
     // X87
-    fabs, fchs, ffree, fisttp, fld, fldenv, fnstenv, fst, fstenv, fstp,
+    f2xm1, fabs, fadd, faddp, fbld, fbstp, fchs, fclex,
+    fcmovb, fcmovbe, fcmove, fcmovnb, fcmovnbe, fcmovne, fcmovnu, fcmovu,
+    fcom, fcomi, fcomip, fcomp, fcompp, fcos,
+    fdecstp, fdiv, fdivp, fdivr, fdivrp, ffree,
+    fiadd, ficom, ficomp, fidiv, fidivr, fild, fimul, fincstp, finit,
+    fist, fistp, fisub, fisubr,
+    fld, fld1, fldcw, fldenv, fldl2e, fldl2t, fldlg2, fldln2, fldpi, fldz,
+    fmul, fmulp,
+    fnclex, fninit, fnop, fnsave, fnstcw, fnstenv, fnstsw,
+    fpatan, fprem, fprem1, fptan, frndint, frstor,
+    fsave, fscale, fsin, fsincos, fsqrt,
+    fst, fstcw, fstenv, fstp, fstsw,
+    fsub, fsubp, fsubr, fsubrp,
+    ftst, fucom, fucomi, fucomip, fucomp, fucompp,
+    fwait, fxam, fxch, fxtract, fyl2x, fyl2xp1, wait,
     // MMX
-    movd, movq,
+    emms, movd, movq,
     packssdw, packsswb, packuswb,
-    paddb, paddd, paddq, paddsb, paddsw, paddusb, paddusw, paddw,
+    paddb, paddd, paddsb, paddsw, paddusb, paddusw, paddw,
     pand, pandn, por, pxor,
     pcmpeqb, pcmpeqd, pcmpeqw,
     pcmpgtb, pcmpgtd, pcmpgtw,
-    pmulhw, pmullw,
+    pmaddwd, pmulhw, pmullw,
     pslld, psllq, psllw,
     psrad, psraw,
     psrld, psrlq, psrlw,
-    psubb, psubd, psubq, psubsb, psubsw, psubusb, psubusw, psubw,
+    psubb, psubd, psubsb, psubsw, psubusb, psubusw, psubw,
     // SSE
     addps, addss,
-    andps,
-    andnps,
-    cmpps, cmpss,
+    andnps, andps,
+    cmpps, cmpss, comiss,
     cvtpi2ps, cvtps2pi, cvtsi2ss, cvtss2si, cvttps2pi, cvttss2si,
     divps, divss,
+    fxrstor, fxrstor64, fxsave, fxsave64,
     ldmxcsr,
     maxps, maxss,
     minps, minss,
-    movaps, movhlps, movlhps,
+    movaps, movhlps, movhps, movlhps, movlps,
     movmskps,
     movss, movups,
     mulps, mulss,
     orps,
+    pavgb, pavgw,
     pextrw, pinsrw,
-    pmaxsw, pmaxub, pminsw, pminub, pmovmskb,
+    pmaxsw, pmaxub, pminsw, pminub, pmovmskb, pmulhuw,
+    prefetchit0, prefetchit1, prefetchnta, prefetcht0, prefetcht1, prefetcht2, prefetchw, prefetchwt1,
+    psadbw, pshufw,
     shufps,
     sqrtps, sqrtss,
     stmxcsr,
     subps, subss,
-    ucomiss,
+    ucomiss, unpckhps, unpcklps,
     xorps,
     // SSE2
     addpd, addsd,
     andpd,
     andnpd,
     cmppd, //cmpsd,
+    comisd,
     cvtdq2pd, cvtdq2ps, cvtpd2dq, cvtpd2pi, cvtpd2ps, cvtpi2pd,
     cvtps2dq, cvtps2pd, cvtsd2si, cvtsd2ss, cvtsi2sd, cvtss2sd,
     cvttpd2dq, cvttpd2pi, cvttps2dq, cvttsd2si,
     divpd, divsd,
+    gf2p8affineinvqb, gf2p8affineqb, gf2p8mulb,
     maxpd, maxsd,
     minpd, minsd,
     movapd,
-    movdqa, movdqu,
-    movmskpd,
+    movdq2q, movdqa, movdqu,
+    movhpd, movlpd,
+    movmskpd, movq2dq,
     //movsd,
     movupd,
     mulpd, mulsd,
     orpd,
+    paddq, pmuludq,
     pshufd, pshufhw, pshuflw,
-    pslldq, psrldq,
+    pslldq, psrldq, psubq,
     punpckhbw, punpckhdq, punpckhqdq, punpckhwd,
     punpcklbw, punpckldq, punpcklqdq, punpcklwd,
     shufpd,
     sqrtpd, sqrtsd,
     subpd, subsd,
-    ucomisd,
+    ucomisd, unpckhpd, unpcklpd,
     xorpd,
     // SSE3
+    addsubpd, addsubps,
+    fisttp,
+    haddpd, haddps,
+    hsubpd, hsubps,
+    lddqu,
     movddup, movshdup, movsldup,
     // SSSE3
-    pabsb, pabsd, pabsw, palignr, pshufb,
+    pabsb, pabsd, pabsw, palignr,
+    phaddw, phaddsw, phaddd, phsubw, phsubsw, phsubd,
+    pmaddubsw, pmulhrsw, pshufb,
+    psignb, psignd, psignw,
     // SSE4.1
     blendpd, blendps, blendvpd, blendvps,
+    dppd, dpps,
     extractps,
     insertps,
     packusdw,
     pblendvb, pblendw,
     pcmpeqq,
     pextrb, pextrd, pextrq,
+    phminposuw,
     pinsrb, pinsrd, pinsrq,
     pmaxsb, pmaxsd, pmaxud, pmaxuw, pminsb, pminsd, pminud, pminuw,
     pmovsxbd, pmovsxbq, pmovsxbw, pmovsxdq, pmovsxwd, pmovsxwq,
     pmovzxbd, pmovzxbq, pmovzxbw, pmovzxdq, pmovzxwd, pmovzxwq,
-    pmulld,
+    pmuldq, pmulld,
+    ptest,
     roundpd, roundps, roundsd, roundss,
     // SSE4.2
-    pcmpgtq,
+    crc32, pcmpgtq,
+    // ABM
+    lzcnt, popcnt,
     // PCLMUL
     pclmulqdq,
     // AES
     aesdec, aesdeclast, aesenc, aesenclast, aesimc, aeskeygenassist,
     // SHA
-    sha256msg1, sha256msg2, sha256rnds2,
+    sha1rnds4, sha1nexte, sha1msg1, sha1msg2, sha256msg1, sha256msg2, sha256rnds2,
     // AVX
-    vaddpd, vaddps, vaddsd, vaddss,
+    vaddpd, vaddps, vaddsd, vaddss, vaddsubpd, vaddsubps,
     vaesdec, vaesdeclast, vaesenc, vaesenclast, vaesimc, vaeskeygenassist,
     vandnpd, vandnps, vandpd, vandps,
     vblendpd, vblendps, vblendvpd, vblendvps,
     vbroadcastf128, vbroadcastsd, vbroadcastss,
-    vcmppd, vcmpps, vcmpsd, vcmpss,
+    vcmppd, vcmpps, vcmpsd, vcmpss, vcomisd, vcomiss,
     vcvtdq2pd, vcvtdq2ps, vcvtpd2dq, vcvtpd2ps,
     vcvtps2dq, vcvtps2pd, vcvtsd2si, vcvtsd2ss,
     vcvtsi2sd, vcvtsi2ss, vcvtss2sd, vcvtss2si,
     vcvttpd2dq, vcvttps2dq, vcvttsd2si, vcvttss2si,
     vdivpd, vdivps, vdivsd, vdivss,
+    vdppd, vdpps,
     vextractf128, vextractps,
+    vgf2p8affineinvqb, vgf2p8affineqb, vgf2p8mulb,
+    vhaddpd, vhaddps, vhsubpd, vhsubps,
     vinsertf128, vinsertps,
-    vldmxcsr,
+    vlddqu, vldmxcsr,
+    vmaskmovpd, vmaskmovps,
     vmaxpd, vmaxps, vmaxsd, vmaxss,
     vminpd, vminps, vminsd, vminss,
     vmovapd, vmovaps,
     vmovd,
     vmovddup,
     vmovdqa, vmovdqu,
-    vmovhlps, vmovlhps,
+    vmovhlps, vmovhpd, vmovhps, vmovlhps, vmovlpd, vmovlps,
     vmovmskpd, vmovmskps,
     vmovq,
     vmovsd,
@@ -395,24 +483,29 @@ pub const Mnemonic = enum {
     vpabsb, vpabsd, vpabsw,
     vpackssdw, vpacksswb, vpackusdw, vpackuswb,
     vpaddb, vpaddd, vpaddq, vpaddsb, vpaddsw, vpaddusb, vpaddusw, vpaddw,
-    vpalignr, vpand, vpandn,
+    vpalignr, vpand, vpandn, vpavgb, vpavgw,
     vpblendvb, vpblendw, vpclmulqdq,
     vpcmpeqb, vpcmpeqd, vpcmpeqq, vpcmpeqw,
     vpcmpgtb, vpcmpgtd, vpcmpgtq, vpcmpgtw,
+    vperm2f128, vpermilpd, vpermilps,
     vpextrb, vpextrd, vpextrq, vpextrw,
+    vphaddw, vphaddsw, vphaddd, vphminposuw, vphsubw, vphsubsw, vphsubd,
     vpinsrb, vpinsrd, vpinsrq, vpinsrw,
+    vpmaddubsw, vpmaddwd,
     vpmaxsb, vpmaxsd, vpmaxsw, vpmaxub, vpmaxud, vpmaxuw,
     vpminsb, vpminsd, vpminsw, vpminub, vpminud, vpminuw,
     vpmovmskb,
     vpmovsxbd, vpmovsxbq, vpmovsxbw, vpmovsxdq, vpmovsxwd, vpmovsxwq,
     vpmovzxbd, vpmovzxbq, vpmovzxbw, vpmovzxdq, vpmovzxwd, vpmovzxwq,
-    vpmulhw, vpmulld, vpmullw,
+    vpmuldq, vpmulhrsw, vpmulhuw, vpmulhw, vpmulld, vpmullw, vpmuludq,
     vpor,
-    vpshufb, vpshufd, vpshufhw, vpshuflw,
+    vpsadbw, vpshufb, vpshufd, vpshufhw, vpshuflw,
+    vpsignb, vpsignd, vpsignw,
     vpslld, vpslldq, vpsllq, vpsllw,
     vpsrad, vpsraq, vpsraw,
     vpsrld, vpsrldq, vpsrlq, vpsrlw,
     vpsubb, vpsubd, vpsubq, vpsubsb, vpsubsw, vpsubusb, vpsubusw, vpsubw,
+    vptest,
     vpunpckhbw, vpunpckhdq, vpunpckhqdq, vpunpckhwd,
     vpunpcklbw, vpunpckldq, vpunpcklqdq, vpunpcklwd,
     vpxor,
@@ -421,7 +514,13 @@ pub const Mnemonic = enum {
     vsqrtpd, vsqrtps, vsqrtsd, vsqrtss,
     vstmxcsr,
     vsubpd, vsubps, vsubsd, vsubss,
+    vtestpd, vtestps,
+    vucomisd, vucomiss, vunpckhpd, vunpckhps, vunpcklpd, vunpcklps,
     vxorpd, vxorps,
+    // BMI
+    andn, bextr, blsi, blsmsk, blsr, tzcnt,
+    // BMI2
+    bzhi, mulx, pdep, pext, rorx, sarx, shlx, shrx,
     // F16C
     vcvtph2ps, vcvtps2ph,
     // FMA
@@ -432,76 +531,87 @@ pub const Mnemonic = enum {
     // AVX2
     vbroadcasti128, vpbroadcastb, vpbroadcastd, vpbroadcastq, vpbroadcastw,
     vextracti128, vinserti128, vpblendd,
+    vperm2i128, vpermd, vpermpd, vpermps, vpermq,
+    vpmaskmovd, vpmaskmovq,
+    vpsllvd, vpsllvq, vpsravd, vpsrlvd, vpsrlvq,
+    // ADX
+    adcx, adox,
+    // AESKLE
+    aesdec128kl, aesdec256kl, aesenc128kl, aesenc256kl, encodekey128, encodekey256, loadiwkey,
+    // AESKLEWIDE_KL
+    aesdecwide128kl, aesdecwide256kl, aesencwide128kl, aesencwide256kl,
     // zig fmt: on
 };
 
 pub const OpEn = enum {
     // zig fmt: off
-    zo,
-    o, oi,
-    i, zi,
+    z,
+    o, zo, oz, oi,
+    i, zi, ii, ia,
     d, m,
     fd, td,
     m1, mc, mi, mr, rm,
     rmi, mri, mrc,
-    rm0, vmi, rvm, rvmr, rvmi, mvr,
+    rm0, vm, vmi, rvm, rvmr, rvmi, mvr, rmv,
     // zig fmt: on
 };
 
 pub const Op = enum {
     // zig fmt: off
     none,
-    o16, o32, o64,
     unity,
     imm8, imm16, imm32, imm64,
     imm8s, imm16s, imm32s,
     al, ax, eax, rax,
-    cl,
+    cl, dx,
     rip, eip, ip,
     r8, r16, r32, r64,
     rm8, rm16, rm32, rm64,
     r32_m8, r32_m16, r64_m16,
     m8, m16, m32, m64, m80, m128, m256,
     rel8, rel16, rel32,
-    m,
-    moffs,
+    m, moffs, mrip8,
     sreg,
-    st, mm, mm_m64,
+    st0, st, mm, mm_m64,
     xmm0, xmm, xmm_m8, xmm_m16, xmm_m32, xmm_m64, xmm_m128,
     ymm, ymm_m256,
+    cr, dr,
     // zig fmt: on
 
-    pub fn fromOperand(operand: Instruction.Operand) Op {
+    pub fn fromOperand(operand: Instruction.Operand, target: *const std.Target) Op {
         return switch (operand) {
             .none => .none,
 
             .reg => |reg| switch (reg.class()) {
-                .general_purpose => if (reg.to64() == .rax)
-                    switch (reg) {
-                        .al => .al,
-                        .ax => .ax,
-                        .eax => .eax,
-                        .rax => .rax,
+                .general_purpose => switch (reg) {
+                    .al => .al,
+                    .ax => .ax,
+                    .eax => .eax,
+                    .rax => .rax,
+                    .cl => .cl,
+                    .dx => .dx,
+                    else => switch (reg.size().bitSize(target)) {
+                        8 => .r8,
+                        16 => .r16,
+                        32 => .r32,
+                        64 => .r64,
                         else => unreachable,
-                    }
-                else if (reg == .cl)
-                    .cl
-                else switch (reg.bitSize()) {
-                    8 => .r8,
-                    16 => .r16,
-                    32 => .r32,
-                    64 => .r64,
-                    else => unreachable,
+                    },
                 },
+                .gphi => .r8,
                 .segment => .sreg,
-                .x87 => .st,
+                .x87 => switch (reg) {
+                    .st0 => .st0,
+                    else => .st,
+                },
                 .mmx => .mm,
-                .sse => if (reg == .xmm0)
-                    .xmm0
-                else switch (reg.bitSize()) {
-                    128 => .xmm,
-                    256 => .ymm,
-                    else => unreachable,
+                .sse => switch (reg) {
+                    .xmm0 => .xmm0,
+                    else => switch (reg.size().bitSize(target)) {
+                        128 => .xmm,
+                        256 => .ymm,
+                        else => unreachable,
+                    },
                 },
                 .ip => switch (reg) {
                     .rip => .rip,
@@ -509,13 +619,25 @@ pub const Op = enum {
                     .ip => .ip,
                     else => unreachable,
                 },
+                .cr => .cr,
+                .dr => .dr,
             },
 
             .mem => |mem| switch (mem) {
                 .moffs => .moffs,
-                .sib, .rip => switch (mem.bitSize()) {
+                .sib => switch (mem.bitSize(target)) {
                     0 => .m,
                     8 => .m8,
+                    16 => .m16,
+                    32 => .m32,
+                    64 => .m64,
+                    80 => .m80,
+                    128 => .m128,
+                    256 => .m256,
+                    else => unreachable,
+                },
+                .rip => switch (mem.bitSize(target)) {
+                    0, 8 => .mrip8,
                     16 => .m16,
                     32 => .m32,
                     64 => .m64,
@@ -557,17 +679,35 @@ pub const Op = enum {
         };
     }
 
+    pub fn toReg(op: Op) Register {
+        return switch (op) {
+            else => .none,
+            .al => .al,
+            .ax => .ax,
+            .eax => .eax,
+            .rax => .rax,
+            .cl => .cl,
+            .dx => .dx,
+            .rip => .rip,
+            .eip => .eip,
+            .ip => .ip,
+            .st0 => .st0,
+            .xmm0 => .xmm0,
+        };
+    }
+
     pub fn immBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
-            .al, .cl, .rip, .eip, .ip, .r8, .rm8, .r32_m8 => unreachable,
+            .none, .m, .moffs, .mrip8, .sreg => unreachable,
+            .al, .cl, .dx, .rip, .eip, .ip, .r8, .rm8, .r32_m8 => unreachable,
             .ax, .r16, .rm16 => unreachable,
             .eax, .r32, .rm32, .r32_m16 => unreachable,
             .rax, .r64, .rm64, .r64_m16 => unreachable,
-            .st, .mm, .mm_m64 => unreachable,
+            .st0, .st, .mm, .mm_m64 => unreachable,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => unreachable,
             .ymm, .ymm_m256 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
+            .cr, .dr => unreachable,
             .unity => 1,
             .imm8, .imm8s, .rel8 => 8,
             .imm16, .imm16s, .rel16 => 16,
@@ -578,15 +718,15 @@ pub const Op = enum {
 
     pub fn regBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .none, .m, .moffs, .mrip8, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256 => unreachable,
             .al, .cl, .r8, .rm8 => 8,
-            .ax, .ip, .r16, .rm16 => 16,
+            .ax, .dx, .ip, .r16, .rm16 => 16,
             .eax, .eip, .r32, .rm32, .r32_m8, .r32_m16 => 32,
-            .rax, .rip, .r64, .rm64, .r64_m16, .mm, .mm_m64 => 64,
-            .st => 80,
+            .rax, .rip, .r64, .rm64, .r64_m16, .mm, .mm_m64, .cr, .dr => 64,
+            .st0, .st => 80,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => 128,
             .ymm, .ymm_m256 => 256,
         };
@@ -594,12 +734,13 @@ pub const Op = enum {
 
     pub fn memBitSize(op: Op) u64 {
         return switch (op) {
-            .none, .o16, .o32, .o64, .moffs, .m, .sreg => unreachable,
+            .none, .m, .moffs, .sreg => unreachable,
             .unity, .imm8, .imm8s, .imm16, .imm16s, .imm32, .imm32s, .imm64 => unreachable,
             .rel8, .rel16, .rel32 => unreachable,
-            .al, .cl, .r8, .ax, .ip, .r16, .eax, .eip, .r32, .rax, .rip, .r64 => unreachable,
-            .st, .mm, .xmm0, .xmm, .ymm => unreachable,
-            .m8, .rm8, .r32_m8, .xmm_m8 => 8,
+            .al, .cl, .r8, .ax, .dx, .ip, .r16, .eax, .eip, .r32, .rax, .rip, .r64 => unreachable,
+            .st0, .st, .mm, .xmm0, .xmm, .ymm => unreachable,
+            .cr, .dr => unreachable,
+            .mrip8, .m8, .rm8, .r32_m8, .xmm_m8 => 8,
             .m16, .rm16, .r32_m16, .r64_m16, .xmm_m16 => 16,
             .m32, .rm32, .xmm_m32 => 32,
             .m64, .rm64, .mm_m64, .xmm_m64 => 64,
@@ -626,14 +767,15 @@ pub const Op = enum {
         // zig fmt: off
         return switch (op) {
             .al, .ax, .eax, .rax,
-            .cl,
+            .cl, .dx,
             .ip, .eip, .rip,
             .r8, .r16, .r32, .r64,
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
-            .st, .mm, .mm_m64,
+            .st0, .st, .mm, .mm_m64,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm, .ymm_m256,
+            .cr, .dr,
             => true,
             else => false,
         };
@@ -643,7 +785,7 @@ pub const Op = enum {
     pub fn isImmediate(op: Op) bool {
         // zig fmt: off
         return switch (op) {
-            .imm8, .imm16, .imm32, .imm64, 
+            .imm8, .imm16, .imm32, .imm64,
             .imm8s, .imm16s, .imm32s,
             .rel8, .rel16, .rel32,
             .unity,
@@ -659,7 +801,7 @@ pub const Op = enum {
             .rm8, .rm16, .rm32, .rm64,
             .r32_m8, .r32_m16, .r64_m16,
             .m8, .m16, .m32, .m64, .m80, .m128, .m256,
-            .m,
+            .m, .moffs, .mrip8,
             .mm_m64,
             .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128,
             .ymm_m256,
@@ -679,38 +821,36 @@ pub const Op = enum {
     pub fn class(op: Op) bits.Register.Class {
         return switch (op) {
             else => unreachable,
-            .al, .ax, .eax, .rax, .cl => .general_purpose,
+            .al, .ax, .eax, .rax, .cl, .dx => .general_purpose,
             .r8, .r16, .r32, .r64 => .general_purpose,
             .rm8, .rm16, .rm32, .rm64 => .general_purpose,
             .r32_m8, .r32_m16, .r64_m16 => .general_purpose,
             .sreg => .segment,
-            .st => .x87,
+            .st0, .st => .x87,
             .mm, .mm_m64 => .mmx,
             .xmm0, .xmm, .xmm_m8, .xmm_m16, .xmm_m32, .xmm_m64, .xmm_m128 => .sse,
             .ymm, .ymm_m256 => .sse,
             .rip, .eip, .ip => .ip,
+            .cr => .cr,
+            .dr => .dr,
         };
     }
 
     /// Given an operand `op` checks if `target` is a subset for the purposes of the encoding.
     pub fn isSubset(op: Op, target: Op) bool {
         switch (op) {
-            .o16, .o32, .o64 => unreachable,
-            .moffs, .sreg => return op == target,
-            .none => switch (target) {
-                .o16, .o32, .o64, .none => return true,
-                else => return false,
-            },
+            .none, .m, .moffs, .sreg => return op == target,
             else => {
                 if (op.isRegister() and target.isRegister()) {
-                    return switch (target) {
-                        .cl, .al, .ax, .eax, .rax, .xmm0 => op == target,
-                        else => op.class() == target.class() and op.regBitSize() == target.regBitSize(),
+                    return switch (target.toReg()) {
+                        .none => op.class() == target.class() and op.regBitSize() == target.regBitSize(),
+                        else => op == target,
                     };
                 }
                 if (op.isMemory() and target.isMemory()) {
                     switch (target) {
                         .m => return true,
+                        .moffs, .mrip8 => return op == target,
                         else => return op.memBitSize() == target.memBitSize(),
                     }
                 }
@@ -741,6 +881,7 @@ pub const Mode = enum {
     none,
     short, long,
     rex, rex_short,
+    wait,
     vex_128_w0, vex_128_w1, vex_128_wig,
     vex_256_w0, vex_256_w1, vex_256_wig,
     vex_lig_w0, vex_lig_w1, vex_lig_wig,
@@ -803,64 +944,113 @@ pub const Mode = enum {
 
 pub const Feature = enum {
     none,
+    @"32bit",
+    @"64bit",
+    adx,
     aes,
     @"aes avx",
     avx,
     avx2,
     bmi,
+    bmi2,
+    cldemote,
+    clflushopt,
+    clwb,
+    cmov,
+    @"cmov x87",
+    crc32,
+    enqcmd,
     f16c,
     fma,
+    fsgsbase,
+    fxsr,
+    gfni,
+    @"gfni avx",
+    hreset,
+    @"invpcid 32bit",
+    @"invpcid 64bit",
+    kl,
     lzcnt,
+    mmx,
     movbe,
     pclmul,
     @"pclmul avx",
+    pku,
     popcnt,
+    prefetch,
+    @"prefetchi 64bit",
+    prefetchwt1,
+    prfchw,
+    rdrnd,
+    rdseed,
+    @"rdpid 32bit",
+    @"rdpid 64bit",
+    sahf,
+    serialize,
+    shstk,
+    smap,
     sse,
     sse2,
     sse3,
+    @"sse3 x87",
     sse4_1,
     sse4_2,
     ssse3,
     sha,
+    uintr,
     vaes,
     vpclmulqdq,
+    waitpkg,
+    widekl,
     x87,
 };
 
 fn estimateInstructionLength(prefix: Prefix, encoding: Encoding, ops: []const Operand) usize {
-    var inst = Instruction{
+    var inst: Instruction = .{
         .prefix = prefix,
         .encoding = encoding,
-        .ops = [1]Operand{.none} ** 4,
+        .ops = @splat(.none),
     };
     @memcpy(inst.ops[0..ops.len], ops);
 
-    var cwriter = std.io.countingWriter(std.io.null_writer);
-    inst.encode(cwriter.writer(), .{
+    // By using a buffer with maximum length of encoded instruction, we can use
+    // the `end` field of the Writer for the count.
+    var buf: [16]u8 = undefined;
+    var trash: std.io.Writer.Discarding = .init(&buf);
+    inst.encode(&trash.writer, .{
         .allow_frame_locs = true,
         .allow_symbols = true,
-    }) catch unreachable; // Not allowed to fail here unless OOM.
-    return @as(usize, @intCast(cwriter.bytes_written));
+    }) catch {
+        // Since the function signature for encode() does not mention under what
+        // conditions it can fail, I have changed `unreachable` to `@panic` here.
+        // This is a TODO item since it indicates this function
+        // (`estimateInstructionLength`) has the wrong function signature.
+        @panic("unexpected failure to encode");
+    };
+    return trash.writer.end;
 }
 
 const mnemonic_to_encodings_map = init: {
-    @setEvalBranchQuota(5_000);
+    @setEvalBranchQuota(5_900);
+    const ModrmExt = u3;
+    const Entry = struct { Mnemonic, OpEn, []const Op, []const u8, ModrmExt, Mode, Feature };
+    const encodings: []const Entry = @import("encodings.zon");
+
     const mnemonic_count = @typeInfo(Mnemonic).@"enum".fields.len;
-    var mnemonic_map: [mnemonic_count][]Data = .{&.{}} ** mnemonic_count;
-    const encodings = @import("encodings.zig");
-    for (encodings.table) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
-    var data_storage: [encodings.table.len]Data = undefined;
-    var storage_i: usize = 0;
+    var mnemonic_map: [mnemonic_count][]Data = @splat(&.{});
+    for (encodings) |entry| mnemonic_map[@intFromEnum(entry[0])].len += 1;
+    var data_storage: [encodings.len]Data = undefined;
+    var storage_index: usize = 0;
     for (&mnemonic_map) |*value| {
-        value.ptr = data_storage[storage_i..].ptr;
-        storage_i += value.len;
+        value.ptr = data_storage[storage_index..].ptr;
+        storage_index += value.len;
     }
-    var mnemonic_i: [mnemonic_count]usize = .{0} ** mnemonic_count;
-    const ops_len = @typeInfo(std.meta.FieldType(Data, .ops)).array.len;
-    const opc_len = @typeInfo(std.meta.FieldType(Data, .opc)).array.len;
-    for (encodings.table) |entry| {
-        const i = &mnemonic_i[@intFromEnum(entry[0])];
-        mnemonic_map[@intFromEnum(entry[0])][i.*] = .{
+    var mnemonic_index: [mnemonic_count]usize = @splat(0);
+    const ops_len = @typeInfo(@FieldType(Data, "ops")).array.len;
+    const opc_len = @typeInfo(@FieldType(Data, "opc")).array.len;
+    for (encodings) |entry| {
+        const index = &mnemonic_index[@intFromEnum(entry[0])];
+        mnemonic_map[@intFromEnum(entry[0])][index.*] = .{
             .op_en = entry[1],
             .ops = (entry[2] ++ .{.none} ** (ops_len - entry[2].len)).*,
             .opc_len = entry[3].len,
@@ -869,14 +1059,14 @@ const mnemonic_to_encodings_map = init: {
             .mode = entry[5],
             .feature = entry[6],
         };
-        i.* += 1;
+        index.* += 1;
     }
     const final_storage = data_storage;
-    var final_map: [mnemonic_count][]const Data = .{&.{}} ** mnemonic_count;
-    storage_i = 0;
+    var final_map: [mnemonic_count][]const Data = @splat(&.{});
+    storage_index = 0;
     for (&final_map, mnemonic_map) |*final_value, value| {
-        final_value.* = final_storage[storage_i..][0..value.len];
-        storage_i += value.len;
+        final_value.* = final_storage[storage_index..][0..value.len];
+        storage_index += value.len;
     }
     break :init final_map;
 };

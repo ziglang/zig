@@ -7,18 +7,22 @@ const CpuModel = std.Target.Cpu.Model;
 pub const Feature = enum {
     atomics,
     bulk_memory,
+    bulk_memory_opt,
+    call_indirect_overlong,
     exception_handling,
     extended_const,
-    half_precision,
+    fp16,
     multimemory,
     multivalue,
     mutable_globals,
+    nontrapping_bulk_memory_len0,
     nontrapping_fptoint,
     reference_types,
     relaxed_simd,
     sign_ext,
     simd128,
     tail_call,
+    wide_arithmetic,
 };
 
 pub const featureSet = CpuFeature.FeatureSetFns(Feature).featureSet;
@@ -38,6 +42,18 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.bulk_memory)] = .{
         .llvm_name = "bulk-memory",
         .description = "Enable bulk memory operations",
+        .dependencies = featureSet(&[_]Feature{
+            .bulk_memory_opt,
+        }),
+    };
+    result[@intFromEnum(Feature.bulk_memory_opt)] = .{
+        .llvm_name = "bulk-memory-opt",
+        .description = "Enable bulk memory optimization operations",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
+    result[@intFromEnum(Feature.call_indirect_overlong)] = .{
+        .llvm_name = "call-indirect-overlong",
+        .description = "Enable overlong encoding for call_indirect immediates",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.exception_handling)] = .{
@@ -50,9 +66,9 @@ pub const all_features = blk: {
         .description = "Enable extended const expressions",
         .dependencies = featureSet(&[_]Feature{}),
     };
-    result[@intFromEnum(Feature.half_precision)] = .{
-        .llvm_name = "half-precision",
-        .description = "Enable half precision instructions",
+    result[@intFromEnum(Feature.fp16)] = .{
+        .llvm_name = "fp16",
+        .description = "Enable FP16 instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.multimemory)] = .{
@@ -70,6 +86,13 @@ pub const all_features = blk: {
         .description = "Enable mutable globals",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.nontrapping_bulk_memory_len0)] = .{
+        .llvm_name = null,
+        .description = "Bulk memory operations with a zero length do not trap",
+        .dependencies = featureSet(&[_]Feature{
+            .bulk_memory_opt,
+        }),
+    };
     result[@intFromEnum(Feature.nontrapping_fptoint)] = .{
         .llvm_name = "nontrapping-fptoint",
         .description = "Enable non-trapping float-to-int conversion operators",
@@ -78,7 +101,9 @@ pub const all_features = blk: {
     result[@intFromEnum(Feature.reference_types)] = .{
         .llvm_name = "reference-types",
         .description = "Enable reference types",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .call_indirect_overlong,
+        }),
     };
     result[@intFromEnum(Feature.relaxed_simd)] = .{
         .llvm_name = "relaxed-simd",
@@ -100,6 +125,11 @@ pub const all_features = blk: {
         .description = "Enable tail call instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.wide_arithmetic)] = .{
+        .llvm_name = "wide-arithmetic",
+        .description = "Enable wide-arithmetic instructions",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     const ti = @typeInfo(Feature);
     for (&result, 0..) |*elem, i| {
         elem.index = i;
@@ -117,7 +147,7 @@ pub const cpu = struct {
             .bulk_memory,
             .exception_handling,
             .extended_const,
-            .half_precision,
+            .fp16,
             .multimemory,
             .multivalue,
             .mutable_globals,
@@ -133,9 +163,24 @@ pub const cpu = struct {
         .name = "generic",
         .llvm_name = "generic",
         .features = featureSet(&[_]Feature{
+            .bulk_memory,
             .multivalue,
             .mutable_globals,
+            .nontrapping_fptoint,
             .reference_types,
+            .sign_ext,
+        }),
+    };
+    pub const lime1: CpuModel = .{
+        .name = "lime1",
+        .llvm_name = "lime1",
+        .features = featureSet(&[_]Feature{
+            .bulk_memory_opt,
+            .call_indirect_overlong,
+            .extended_const,
+            .multivalue,
+            .mutable_globals,
+            .nontrapping_fptoint,
             .sign_ext,
         }),
     };

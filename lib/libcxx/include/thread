@@ -86,45 +86,48 @@ void sleep_for(const chrono::duration<Rep, Period>& rel_time);
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/thread>
+#else
+#  include <__config>
 
-#if !defined(_LIBCPP_HAS_NO_THREADS)
+#  if _LIBCPP_HAS_THREADS
 
-#  include <__thread/formatter.h>
-#  include <__thread/jthread.h>
-#  include <__thread/support.h>
-#  include <__thread/this_thread.h>
-#  include <__thread/thread.h>
-#  include <version>
+#    include <__thread/this_thread.h>
+#    include <__thread/thread.h>
+
+#    if _LIBCPP_STD_VER >= 20
+#      include <__thread/jthread.h>
+#    endif
+
+#    if _LIBCPP_STD_VER >= 23
+#      include <__thread/formatter.h>
+#    endif
+
+#    include <version>
 
 // standard-mandated includes
 
 // [thread.syn]
-#  include <compare>
+#    include <compare>
 
-#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#    pragma GCC system_header
+#    if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#      pragma GCC system_header
+#    endif
+
+#  endif // _LIBCPP_HAS_THREADS
+
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
+#    include <chrono>
 #  endif
 
-#endif // !defined(_LIBCPP_HAS_NO_THREADS)
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES)
-#  include <cstddef>
-#  include <ctime>
-#  include <iosfwd>
-#  include <ratio>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 17
-#  include <chrono>
-#endif
-
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <cstring>
-#  include <functional>
-#  include <new>
-#  include <system_error>
-#  include <type_traits>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <cstring>
+#    include <functional>
+#    include <new>
+#    include <system_error>
+#    include <type_traits>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_THREAD

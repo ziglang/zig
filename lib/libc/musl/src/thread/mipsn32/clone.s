@@ -25,7 +25,8 @@ __clone:
 	nop
 	jr	$ra
 	nop
-1:	lw	$25, 0($sp)	# function pointer
+1:	move	$fp, $0
+	lw	$25, 0($sp)	# function pointer
 	lw	$4, 4($sp)	# argument pointer
 	jalr	$25		# call the user's function
 	nop

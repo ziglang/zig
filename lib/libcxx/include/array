@@ -19,17 +19,17 @@ template <class T, size_t N >
 struct array
 {
     // types:
-    typedef T & reference;
-    typedef const T & const_reference;
-    typedef implementation defined iterator;
-    typedef implementation defined const_iterator;
-    typedef size_t size_type;
-    typedef ptrdiff_t difference_type;
-    typedef T value_type;
-    typedef T* pointer;
-    typedef const T* const_pointer;
-    typedef std::reverse_iterator<iterator> reverse_iterator;
-    typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+    using value_type             = T;
+    using pointer                = T*;
+    using const_pointer          = const T*;
+    using reference              = T&;
+    using const_reference        = const T&;
+    using size_type              = size_t;
+    using difference_type        = ptrdiff_t;
+    using iterator               = implementation-defined;
+    using const_iterator         = implementation-defined;
+    using reverse_iterator       = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
     // No explicit construct/copy/destroy for aggregate type
     void fill(const T& u);                                      // constexpr in C++20
@@ -111,78 +111,88 @@ template <size_t I, class T, size_t N> const T&& get(const array<T, N>&&) noexce
 
 */
 
-#include <__algorithm/equal.h>
-#include <__algorithm/fill_n.h>
-#include <__algorithm/lexicographical_compare.h>
-#include <__algorithm/lexicographical_compare_three_way.h>
-#include <__algorithm/swap_ranges.h>
-#include <__assert>
-#include <__config>
-#include <__fwd/array.h>
-#include <__iterator/reverse_iterator.h>
-#include <__iterator/wrap_iter.h>
-#include <__tuple/sfinae_helpers.h>
-#include <__type_traits/conditional.h>
-#include <__type_traits/conjunction.h>
-#include <__type_traits/is_array.h>
-#include <__type_traits/is_const.h>
-#include <__type_traits/is_constructible.h>
-#include <__type_traits/is_nothrow_constructible.h>
-#include <__type_traits/is_same.h>
-#include <__type_traits/is_swappable.h>
-#include <__type_traits/is_trivially_relocatable.h>
-#include <__type_traits/remove_cv.h>
-#include <__utility/empty.h>
-#include <__utility/integer_sequence.h>
-#include <__utility/move.h>
-#include <__utility/unreachable.h>
-#include <stdexcept>
-#include <version>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/array>
+#else
+#  include <__algorithm/equal.h>
+#  include <__algorithm/fill_n.h>
+#  include <__algorithm/lexicographical_compare.h>
+#  include <__algorithm/lexicographical_compare_three_way.h>
+#  include <__algorithm/swap_ranges.h>
+#  include <__assert>
+#  include <__config>
+#  include <__cstddef/ptrdiff_t.h>
+#  include <__fwd/array.h>
+#  include <__iterator/reverse_iterator.h>
+#  include <__iterator/static_bounded_iter.h>
+#  include <__iterator/wrap_iter.h>
+#  include <__tuple/sfinae_helpers.h>
+#  include <__type_traits/conditional.h>
+#  include <__type_traits/conjunction.h>
+#  include <__type_traits/enable_if.h>
+#  include <__type_traits/is_array.h>
+#  include <__type_traits/is_const.h>
+#  include <__type_traits/is_constructible.h>
+#  include <__type_traits/is_nothrow_constructible.h>
+#  include <__type_traits/is_same.h>
+#  include <__type_traits/is_swappable.h>
+#  include <__type_traits/is_trivially_relocatable.h>
+#  include <__type_traits/remove_cv.h>
+#  include <__utility/empty.h>
+#  include <__utility/integer_sequence.h>
+#  include <__utility/move.h>
+#  include <__utility/unreachable.h>
+#  include <stdexcept>
+#  include <version>
 
 // standard-mandated includes
 
 // [iterator.range]
-#include <__iterator/access.h>
-#include <__iterator/data.h>
-#include <__iterator/empty.h>
-#include <__iterator/reverse_access.h>
-#include <__iterator/size.h>
+#  include <__iterator/access.h>
+#  include <__iterator/data.h>
+#  include <__iterator/empty.h>
+#  include <__iterator/reverse_access.h>
+#  include <__iterator/size.h>
 
 // [array.syn]
-#include <compare>
-#include <initializer_list>
+#  include <compare>
+#  include <initializer_list>
 
 // [tuple.helper]
-#include <__tuple/tuple_element.h>
-#include <__tuple/tuple_size.h>
+#  include <__tuple/tuple_element.h>
+#  include <__tuple/tuple_size.h>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
 _LIBCPP_PUSH_MACROS
-#include <__undef_macros>
+#  include <__undef_macros>
 
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, size_t _Size>
 struct _LIBCPP_TEMPLATE_VIS array {
-  using __trivially_relocatable = __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, array, void>;
+  using __trivially_relocatable _LIBCPP_NODEBUG =
+      __conditional_t<__libcpp_is_trivially_relocatable<_Tp>::value, array, void>;
 
   // types:
-  using __self          = array;
-  using value_type      = _Tp;
-  using reference       = value_type&;
-  using const_reference = const value_type&;
-  using pointer         = value_type*;
-  using const_pointer   = const value_type*;
-#if defined(_LIBCPP_ABI_USE_WRAP_ITER_IN_STD_ARRAY)
+  using __self _LIBCPP_NODEBUG = array;
+  using value_type             = _Tp;
+  using reference              = value_type&;
+  using const_reference        = const value_type&;
+  using pointer                = value_type*;
+  using const_pointer          = const value_type*;
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+  using iterator       = __static_bounded_iter<pointer, _Size>;
+  using const_iterator = __static_bounded_iter<const_pointer, _Size>;
+#  elif defined(_LIBCPP_ABI_USE_WRAP_ITER_IN_STD_ARRAY)
   using iterator       = __wrap_iter<pointer>;
   using const_iterator = __wrap_iter<const_pointer>;
-#else
+#  else
   using iterator       = pointer;
   using const_iterator = const_pointer;
-#endif
+#  endif
   using size_type              = size_t;
   using difference_type        = ptrdiff_t;
   using reverse_iterator       = std::reverse_iterator<iterator>;
@@ -200,13 +210,33 @@ struct _LIBCPP_TEMPLATE_VIS array {
   }
 
   // iterators:
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator begin() _NOEXCEPT { return iterator(data()); }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator begin() const _NOEXCEPT {
-    return const_iterator(data());
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator begin() _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<_Size>(data(), data());
+#  else
+    return iterator(data());
+#  endif
   }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator end() _NOEXCEPT { return iterator(data() + _Size); }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator begin() const _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<_Size>(data(), data());
+#  else
+    return const_iterator(data());
+#  endif
+  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator end() _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<_Size>(data() + _Size, data());
+#  else
+    return iterator(data() + _Size);
+#  endif
+  }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator end() const _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<_Size>(data() + _Size, data());
+#  else
     return const_iterator(data() + _Size);
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reverse_iterator rbegin() _NOEXCEPT {
@@ -232,7 +262,7 @@ struct _LIBCPP_TEMPLATE_VIS array {
   // capacity:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type size() const _NOEXCEPT { return _Size; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type max_size() const _NOEXCEPT { return _Size; }
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return _Size == 0; }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return _Size == 0; }
 
   // element access:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference operator[](size_type __n) _NOEXCEPT {
@@ -270,20 +300,28 @@ struct _LIBCPP_TEMPLATE_VIS array {
 template <class _Tp>
 struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   // types:
-  typedef array __self;
-  typedef _Tp value_type;
-  typedef value_type& reference;
-  typedef const value_type& const_reference;
-  typedef value_type* iterator;
-  typedef const value_type* const_iterator;
-  typedef value_type* pointer;
-  typedef const value_type* const_pointer;
-  typedef size_t size_type;
-  typedef ptrdiff_t difference_type;
-  typedef std::reverse_iterator<iterator> reverse_iterator;
-  typedef std::reverse_iterator<const_iterator> const_reverse_iterator;
+  using __self _LIBCPP_NODEBUG = array;
+  using value_type             = _Tp;
+  using reference              = value_type&;
+  using const_reference        = const value_type&;
+  using pointer                = value_type*;
+  using const_pointer          = const value_type*;
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+  using iterator       = __static_bounded_iter<pointer, 0>;
+  using const_iterator = __static_bounded_iter<const_pointer, 0>;
+#  elif defined(_LIBCPP_ABI_USE_WRAP_ITER_IN_STD_ARRAY)
+  using iterator       = __wrap_iter<pointer>;
+  using const_iterator = __wrap_iter<const_pointer>;
+#  else
+  using iterator       = pointer;
+  using const_iterator = const_pointer;
+#  endif
+  using size_type              = size_t;
+  using difference_type        = ptrdiff_t;
+  using reverse_iterator       = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
 
-  typedef __conditional_t<is_const<_Tp>::value, const __empty, __empty> _EmptyType;
+  using _EmptyType _LIBCPP_NODEBUG = __conditional_t<is_const<_Tp>::value, const __empty, __empty>;
 
   struct _ArrayInStructT {
     _Tp __data_[1];
@@ -303,13 +341,33 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   }
 
   // iterators:
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator begin() _NOEXCEPT { return iterator(data()); }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator begin() const _NOEXCEPT {
-    return const_iterator(data());
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator begin() _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<0>(data(), data());
+#  else
+    return iterator(data());
+#  endif
   }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator end() _NOEXCEPT { return iterator(data()); }
-  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator end() const _NOEXCEPT {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator begin() const _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<0>(data(), data());
+#  else
     return const_iterator(data());
+#  endif
+  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 iterator end() _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<0>(data(), data());
+#  else
+    return iterator(data());
+#  endif
+  }
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 const_iterator end() const _NOEXCEPT {
+#  if defined(_LIBCPP_ABI_BOUNDED_ITERATORS_IN_STD_ARRAY)
+    return std::__make_static_bounded_iter<0>(data(), data());
+#  else
+    return const_iterator(data());
+#  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reverse_iterator rbegin() _NOEXCEPT {
@@ -335,7 +393,7 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   // capacity:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type size() const _NOEXCEPT { return 0; }
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR size_type max_size() const _NOEXCEPT { return 0; }
-  _LIBCPP_NODISCARD _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return true; }
+  [[__nodiscard__]] _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR bool empty() const _NOEXCEPT { return true; }
 
   // element access:
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX17 reference operator[](size_type) _NOEXCEPT {
@@ -379,10 +437,10 @@ struct _LIBCPP_TEMPLATE_VIS array<_Tp, 0> {
   }
 };
 
-#if _LIBCPP_STD_VER >= 17
+#  if _LIBCPP_STD_VER >= 17
 template <class _Tp, class... _Args, class = enable_if_t<__all<_IsSame<_Tp, _Args>::value...>::value> >
 array(_Tp, _Args...) -> array<_Tp, 1 + sizeof...(_Args)>;
-#endif
+#  endif
 
 template <class _Tp, size_t _Size>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 bool
@@ -390,7 +448,7 @@ operator==(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
   return std::equal(__x.begin(), __x.end(), __y.begin());
 }
 
-#if _LIBCPP_STD_VER <= 17
+#  if _LIBCPP_STD_VER <= 17
 
 template <class _Tp, size_t _Size>
 inline _LIBCPP_HIDE_FROM_ABI bool operator!=(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
@@ -417,16 +475,15 @@ inline _LIBCPP_HIDE_FROM_ABI bool operator>=(const array<_Tp, _Size>& __x, const
   return !(__x < __y);
 }
 
-#else // _LIBCPP_STD_VER <= 17
+#  else // _LIBCPP_STD_VER <= 17
 
 template <class _Tp, size_t _Size>
 _LIBCPP_HIDE_FROM_ABI constexpr __synth_three_way_result<_Tp>
 operator<=>(const array<_Tp, _Size>& __x, const array<_Tp, _Size>& __y) {
-  return std::lexicographical_compare_three_way(
-      __x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
+  return std::lexicographical_compare_three_way(__x.begin(), __x.end(), __y.begin(), __y.end(), std::__synth_three_way);
 }
 
-#endif // _LIBCPP_STD_VER <= 17
+#  endif // _LIBCPP_STD_VER <= 17
 
 template <class _Tp, size_t _Size, __enable_if_t<_Size == 0 || __is_swappable_v<_Tp>, int> = 0>
 inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX20 void swap(array<_Tp, _Size>& __x, array<_Tp, _Size>& __y)
@@ -440,7 +497,7 @@ struct _LIBCPP_TEMPLATE_VIS tuple_size<array<_Tp, _Size> > : public integral_con
 template <size_t _Ip, class _Tp, size_t _Size>
 struct _LIBCPP_TEMPLATE_VIS tuple_element<_Ip, array<_Tp, _Size> > {
   static_assert(_Ip < _Size, "Index out of bounds in std::tuple_element<> (std::array)");
-  typedef _Tp type;
+  using type = _Tp;
 };
 
 template <size_t _Ip, class _Tp, size_t _Size>
@@ -467,7 +524,7 @@ inline _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX14 const _Tp&& get(const
   return std::move(__a.__elems_[_Ip]);
 }
 
-#if _LIBCPP_STD_VER >= 20
+#  if _LIBCPP_STD_VER >= 20
 
 template <typename _Tp, size_t _Size, size_t... _Index>
 _LIBCPP_HIDE_FROM_ABI constexpr array<remove_cv_t<_Tp>, _Size>
@@ -497,19 +554,21 @@ to_array(_Tp (&&__arr)[_Size]) noexcept(is_nothrow_move_constructible_v<_Tp>) {
   return std::__to_array_rvalue_impl(std::move(__arr), make_index_sequence<_Size>());
 }
 
-#endif // _LIBCPP_STD_VER >= 20
+#  endif // _LIBCPP_STD_VER >= 20
 
 _LIBCPP_END_NAMESPACE_STD
 
 _LIBCPP_POP_MACROS
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <algorithm>
-#  include <concepts>
-#  include <cstdlib>
-#  include <iterator>
-#  include <type_traits>
-#  include <utility>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <algorithm>
+#    include <concepts>
+#    include <cstdlib>
+#    include <iterator>
+#    include <new>
+#    include <type_traits>
+#    include <utility>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_ARRAY

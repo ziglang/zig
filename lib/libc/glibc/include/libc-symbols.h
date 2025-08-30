@@ -1,6 +1,6 @@
 /* Support macros for making weak and strong aliases for symbols,
    and for using symbol sets and linker warnings with GNU ld.
-   Copyright (C) 1995-2024 Free Software Foundation, Inc.
+   Copyright (C) 1995-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -59,6 +59,8 @@
 # define IN_MODULE (-1)
 #endif
 
+#include <libc-misc.h>
+
 #ifndef _ISOMAC
 
 /* This is defined for the compilation of all C library code.  features.h
@@ -81,8 +83,6 @@
 #if defined __FAST_MATH__ && !defined TEST_FAST_MATH
 # error "glibc must not be compiled with -ffast-math"
 #endif
-
-#include <config.h>
 
 /* Obtain the definition of symbol_version_reference.  */
 #include <libc-symver.h>
@@ -155,7 +155,7 @@
   extern __typeof (name) aliasname __attribute__ ((weak, alias (#name))) \
     __attribute_copy__ (name);
 
-/* Zig patch.  weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
+/* zig patch: weak_hidden_alias was removed from glibc v2.36 (v2.37?), Zig
    needs it for the v2.32 and earlier {f,l,}stat wrappers, so only include
    in this header for 2.32 and earlier. */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ <= 32) || __GLIBC__ < 2
@@ -220,7 +220,7 @@
 #define __make_section_unallocated(section_string)	\
   asm (".section " section_string "\n\t.previous");
 
-/* Tacking on "\n\t#" to the section name makes gcc put it's bogus
+/* Tacking on "\n\t#" to the section name makes gcc put its bogus
    section attributes on what looks like a comment to the assembler.  */
 #ifdef HAVE_SECTION_QUOTES
 # define __sec_comment "\"\n\t#\""
@@ -280,7 +280,7 @@ for linking")
 
 
 /*
-
+
 */
 
 #ifdef HAVE_GNU_RETAIN
@@ -373,15 +373,6 @@ for linking")
 
 #define attribute_relro __attribute__ ((section (".data.rel.ro")))
 
-
-/* Used to disable stack protection in sensitive places, like ifunc
-   resolvers and early static TLS init.  */
-#ifdef HAVE_CC_NO_STACK_PROTECTOR
-# define inhibit_stack_protector \
-    __attribute__ ((__optimize__ ("-fno-stack-protector")))
-#else
-# define inhibit_stack_protector
-#endif
 
 /* The following macros are used for PLT bypassing within libc.so
    (and if needed other libraries similarly).
@@ -817,16 +808,6 @@ for linking")
 #define libm_ifunc(name, expr)				\
   __ifunc (name, name, expr, void, libm_ifunc_init)
 
-/* Add the compiler optimization to inhibit loop transformation to library
-   calls.  This is used to avoid recursive calls in memset and memmove
-   default implementations.  */
-#ifdef HAVE_CC_INHIBIT_LOOP_TO_LIBCALL
-# define inhibit_loop_to_libcall \
-    __attribute__ ((__optimize__ ("-fno-tree-loop-distribute-patterns")))
-#else
-# define inhibit_loop_to_libcall
-#endif
-
 /* These macros facilitate sharing source files with gnulib.
 
    They are here instead of sys/cdefs.h because they should not be

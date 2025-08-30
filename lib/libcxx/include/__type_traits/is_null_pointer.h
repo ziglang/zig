@@ -10,8 +10,8 @@
 #define _LIBCPP___TYPE_TRAITS_IS_NULL_POINTER_H
 
 #include <__config>
+#include <__cstddef/nullptr_t.h>
 #include <__type_traits/integral_constant.h>
-#include <cstddef>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -24,11 +24,12 @@ inline const bool __is_null_pointer_v = __is_same(__remove_cv(_Tp), nullptr_t);
 
 #if _LIBCPP_STD_VER >= 14
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_null_pointer : integral_constant<bool, __is_null_pointer_v<_Tp>> {};
+struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_null_pointer
+    : integral_constant<bool, __is_null_pointer_v<_Tp>> {};
 
 #  if _LIBCPP_STD_VER >= 17
 template <class _Tp>
-inline constexpr bool is_null_pointer_v = __is_null_pointer_v<_Tp>;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_null_pointer_v = __is_null_pointer_v<_Tp>;
 #  endif
 #endif // _LIBCPP_STD_VER >= 14
 

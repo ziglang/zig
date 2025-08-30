@@ -519,7 +519,7 @@ fn option(arg: []const u8, name: []const u8) ?[]const u8 {
 
 fn addSource(d: *Driver, path: []const u8) !Source {
     if (mem.eql(u8, "-", path)) {
-        const stdin = std.io.getStdIn().reader();
+        const stdin = std.fs.File.stdin().deprecatedReader();
         const input = try stdin.readAllAlloc(d.comp.gpa, std.math.maxInt(u32));
         defer d.comp.gpa.free(input);
         return d.comp.addSourceFromBuffer("<stdin>", input);
@@ -541,7 +541,7 @@ pub fn fatal(d: *Driver, comptime fmt: []const u8, args: anytype) error{ FatalEr
 }
 
 pub fn renderErrors(d: *Driver) void {
-    Diagnostics.render(d.comp, d.detectConfig(std.io.getStdErr()));
+    Diagnostics.render(d.comp, d.detectConfig(std.fs.File.stderr()));
 }
 
 pub fn detectConfig(d: *Driver, file: std.fs.File) std.io.tty.Config {
@@ -585,13 +585,15 @@ pub fn errorDescription(e: anyerror) []const u8 {
     };
 }
 
+var stdout_buffer: [4096]u8 = undefined;
+
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn main(d: *Driver, tc: *Toolchain, args: []const []const u8, comptime fast_exit: bool) !void {
-    var macro_buf = std.ArrayList(u8).init(d.comp.gpa);
+    var macro_buf = std.array_list.Managed(u8).init(d.comp.gpa);
     defer macro_buf.deinit();
 
-    const std_out = std.io.getStdOut().writer();
+    const std_out = std.fs.File.stdout().deprecatedWriter();
     if (try parseArgs(d, std_out, macro_buf.writer(), args)) return;
 
     const linking = !(d.only_preprocess or d.only_syntax or d.only_compile or d.only_preprocess_and_compile);
@@ -686,15 +688,15 @@ fn processSource(
             std.fs.cwd().createFile(some, .{}) catch |er|
                 return d.fatal("unable to create output file '{s}': {s}", .{ some, errorDescription(er) })
         else
-            std.io.getStdOut();
+            std.fs.File.stdout();
         defer if (d.output_name != null) file.close();
+        var file_buffer: [1024]u8 = undefined;
+        var file_writer = file.writer(&file_buffer);
 
-        var buf_w = std.io.bufferedWriter(file.writer());
-
-        pp.prettyPrintTokens(buf_w.writer(), dump_mode) catch |er|
+        pp.prettyPrintTokens(&file_writer.interface, dump_mode) catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
 
-        buf_w.flush() catch |er|
+        file_writer.interface.flush() catch |er|
             return d.fatal("unable to write result: {s}", .{errorDescription(er)});
         if (fast_exit) std.process.exit(0); // Not linking, no need for cleanup.
         return;
@@ -704,10 +706,9 @@ fn processSource(
     defer tree.deinit();
 
     if (d.verbose_ast) {
-        const stdout = std.io.getStdOut();
-        var buf_writer = std.io.bufferedWriter(stdout.writer());
-        tree.dump(d.detectConfig(stdout), buf_writer.writer()) catch {};
-        buf_writer.flush() catch {};
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        tree.dump(d.detectConfig(.stdout()), &stdout_writer.interface) catch {};
+        stdout_writer.interface.flush() catch {};
     }
 
     const prev_errors = d.comp.diagnostics.errors;
@@ -734,10 +735,9 @@ fn processSource(
     defer ir.deinit(d.comp.gpa);
 
     if (d.verbose_ir) {
-        const stdout = std.io.getStdOut();
-        var buf_writer = std.io.bufferedWriter(stdout.writer());
-        ir.dump(d.comp.gpa, d.detectConfig(stdout), buf_writer.writer()) catch {};
-        buf_writer.flush() catch {};
+        var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
+        ir.dump(d.comp.gpa, d.detectConfig(.stdout()), &stdout_writer.interface) catch {};
+        stdout_writer.interface.flush() catch {};
     }
 
     var render_errors: Ir.Renderer.ErrorList = .{};
@@ -806,10 +806,10 @@ fn processSource(
 }
 
 fn dumpLinkerArgs(items: []const []const u8) !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
     for (items, 0..) |item, i| {
         if (i > 0) try stdout.writeByte(' ');
-        try stdout.print("\"{}\"", .{std.zig.fmtEscapes(item)});
+        try stdout.print("\"{f}\"", .{std.zig.fmtString(item)});
     }
     try stdout.writeByte('\n');
 }
@@ -817,7 +817,7 @@ fn dumpLinkerArgs(items: []const []const u8) !void {
 /// The entry point of the Aro compiler.
 /// **MAY call `exit` if `fast_exit` is set.**
 pub fn invokeLinker(d: *Driver, tc: *Toolchain, comptime fast_exit: bool) !void {
-    var argv = std.ArrayList([]const u8).init(d.comp.gpa);
+    var argv = std.array_list.Managed([]const u8).init(d.comp.gpa);
     defer argv.deinit();
 
     var linker_path_buf: [std.fs.max_path_bytes]u8 = undefined;

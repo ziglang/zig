@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
    Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
@@ -654,7 +654,7 @@ extern int lcong48_r (unsigned short int __param[7],
      __THROW __nonnull ((1, 2));
 
 /*
- * arc4random* symbols introduced in glibc 2.36:
+ * zig patch: arc4random* symbols introduced in glibc 2.36:
  * https://sourceware.org/git/?p=glibc.git;a=blob;f=NEWS;h=8420a65cd06874ee09518366b8fba746a557212a;hb=6f4e0fcfa2d2b0915816a3a3a1d48b4763a7dee2
  */
 #  if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36) || __GLIBC__ > 2
@@ -693,7 +693,7 @@ extern void *realloc (void *__ptr, size_t __size)
 extern void free (void *__ptr) __THROW;
 
 /*
- * reallocarray introduced in glibc 2.26
+ * zig patch: reallocarray introduced in glibc 2.26
  * https://sourceware.org/git/?p=glibc.git;a=commit;h=2e0bbbfbf95fc9e22692e93658a6fbdd2d4554da
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 26) || __GLIBC__ > 2
@@ -739,7 +739,7 @@ extern void *aligned_alloc (size_t __alignment, size_t __size)
 #endif
 
 /* Abort execution and generate a core-dump.  */
-extern void abort (void) __THROW __attribute__ ((__noreturn__));
+extern void abort (void) __THROW __attribute__ ((__noreturn__)) __COLD;
 
 
 /* Register a function to be called when `exit' is called.  */
@@ -997,6 +997,12 @@ __extension__ extern long long int llabs (long long int __x)
      __THROW __attribute__ ((__const__)) __wur;
 #endif
 
+#if __GLIBC_USE (ISOC2Y)
+extern unsigned int uabs (int __x) __THROW __attribute__ ((__const__)) __wur;
+extern unsigned long int ulabs (long int __x) __THROW __attribute__ ((__const__)) __wur;
+__extension__ extern unsigned long long int ullabs (long long int __x)
+     __THROW __attribute__ ((__const__)) __wur;
+#endif
 
 /* Return the `div_t', `ldiv_t' or `lldiv_t' representation
    of the value of NUMER over DENOM. */

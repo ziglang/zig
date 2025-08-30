@@ -1,4 +1,5 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
+   Copyright The GNU Toolchain Authors.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -31,6 +32,7 @@
 #endif
 
 #include <bits/types.h>
+#include <bits/wordsize.h>
 
 struct _IO_FILE;
 struct _IO_marker;
@@ -70,7 +72,9 @@ struct _IO_FILE
   struct _IO_FILE *_chain;
 
   int _fileno;
-  int _flags2;
+  int _flags2:24;
+  /* Fallback buffer to use when malloc fails to allocate one.  */
+  char _short_backupbuf[1];
   __off_t _old_offset; /* This used to be _offset but it's too small.  */
 
   /* 1+column number of pbase(); 0 is unknown. */
@@ -94,8 +98,15 @@ struct _IO_FILE_complete
   void *_freeres_buf;
   struct _IO_FILE **_prevchain;
   int _mode;
+#if __WORDSIZE == 64
+  int _unused3;
+#endif
+  __uint64_t _total_written;
+#if __WORDSIZE == 32
+  int _unused3;
+#endif
   /* Make sure we don't get into trouble again.  */
-  char _unused2[15 * sizeof (int) - 5 * sizeof (void *)];
+  char _unused2[12 * sizeof (int) - 5 * sizeof (void *)];
 };
 
 /* These macros are used by bits/stdio.h and internal headers.  */

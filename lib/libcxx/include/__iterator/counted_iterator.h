@@ -11,6 +11,7 @@
 #define _LIBCPP___ITERATOR_COUNTED_ITERATOR_H
 
 #include <__assert>
+#include <__compare/ordering.h>
 #include <__concepts/assignable.h>
 #include <__concepts/common_with.h>
 #include <__concepts/constructible.h>
@@ -28,7 +29,6 @@
 #include <__type_traits/add_pointer.h>
 #include <__type_traits/conditional.h>
 #include <__utility/move.h>
-#include <compare>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -132,7 +132,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI constexpr decltype(auto) operator++(int) {
     _LIBCPP_ASSERT_UNCATEGORIZED(__count_ > 0, "Iterator already at or past end.");
     --__count_;
-#  ifndef _LIBCPP_HAS_NO_EXCEPTIONS
+#  if _LIBCPP_HAS_EXCEPTIONS
     try {
       return __current_++;
     } catch (...) {
@@ -141,7 +141,7 @@ public:
     }
 #  else
     return __current_++;
-#  endif // _LIBCPP_HAS_NO_EXCEPTIONS
+#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
 
   _LIBCPP_HIDE_FROM_ABI constexpr counted_iterator operator++(int)
@@ -249,7 +249,7 @@ public:
     return __rhs.__count_ <=> __lhs.__count_;
   }
 
-  _LIBCPP_HIDE_FROM_ABI friend constexpr iter_rvalue_reference_t<_Iter>
+  _LIBCPP_HIDE_FROM_ABI friend constexpr decltype(auto)
   iter_move(const counted_iterator& __i) noexcept(noexcept(ranges::iter_move(__i.__current_)))
     requires input_iterator<_Iter>
   {

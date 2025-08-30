@@ -46,8 +46,7 @@ _LIBCPP_HIDE_FROM_ABI constexpr _Ip __min_element_impl(_Ip __first, _Sp __last, 
   return __first;
 }
 
-namespace __min_element {
-struct __fn {
+struct __min_element {
   template <forward_iterator _Ip,
             sentinel_for<_Ip> _Sp,
             class _Proj                                             = identity,
@@ -65,10 +64,9 @@ struct __fn {
     return ranges::__min_element_impl(ranges::begin(__r), ranges::end(__r), __comp, __proj);
   }
 };
-} // namespace __min_element
 
 inline namespace __cpo {
-inline constexpr auto min_element = __min_element::__fn{};
+inline constexpr auto min_element = __min_element{};
 } // namespace __cpo
 } // namespace ranges
 

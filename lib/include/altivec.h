@@ -2502,37 +2502,37 @@ vec_cmplt(vector unsigned long long __a, vector unsigned long long __b) {
 
 static __inline__ vector unsigned char __ATTRS_o_ai
 vec_popcnt(vector signed char __a) {
-  return (vector unsigned char)__builtin_altivec_vpopcntb(
+  return (vector unsigned char)__builtin_elementwise_popcount(
       (vector unsigned char)__a);
 }
 static __inline__ vector unsigned char __ATTRS_o_ai
 vec_popcnt(vector unsigned char __a) {
-  return __builtin_altivec_vpopcntb(__a);
+  return __builtin_elementwise_popcount(__a);
 }
 static __inline__ vector unsigned short __ATTRS_o_ai
 vec_popcnt(vector signed short __a) {
-  return (vector unsigned short)__builtin_altivec_vpopcnth(
+  return (vector unsigned short)__builtin_elementwise_popcount(
       (vector unsigned short)__a);
 }
 static __inline__ vector unsigned short __ATTRS_o_ai
 vec_popcnt(vector unsigned short __a) {
-  return __builtin_altivec_vpopcnth(__a);
+  return __builtin_elementwise_popcount(__a);
 }
 static __inline__ vector unsigned int __ATTRS_o_ai
 vec_popcnt(vector signed int __a) {
-  return __builtin_altivec_vpopcntw((vector unsigned int)__a);
+  return __builtin_elementwise_popcount((vector unsigned int)__a);
 }
 static __inline__ vector unsigned int __ATTRS_o_ai
 vec_popcnt(vector unsigned int __a) {
-  return __builtin_altivec_vpopcntw(__a);
+  return __builtin_elementwise_popcount(__a);
 }
 static __inline__ vector unsigned long long __ATTRS_o_ai
 vec_popcnt(vector signed long long __a) {
-  return __builtin_altivec_vpopcntd((vector unsigned long long)__a);
+  return __builtin_elementwise_popcount((vector unsigned long long)__a);
 }
 static __inline__ vector unsigned long long __ATTRS_o_ai
 vec_popcnt(vector unsigned long long __a) {
-  return __builtin_altivec_vpopcntd(__a);
+  return __builtin_elementwise_popcount(__a);
 }
 
 #define vec_vclz vec_cntlz

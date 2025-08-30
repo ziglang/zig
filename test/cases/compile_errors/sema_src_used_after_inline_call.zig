@@ -18,9 +18,7 @@ export fn entry() void {
 }
 
 // error
-// backend=stage2
-// target=native
 //
 // :13:30: error: expected type 'u32', found 'i32'
 // :13:30: note: unsigned 32-bit int cannot represent all possible signed 32-bit values
-// :17:33: note: called from here
+// :17:33: note: called inline here

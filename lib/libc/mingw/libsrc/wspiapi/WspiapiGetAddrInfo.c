@@ -14,7 +14,7 @@ WspiapiGetAddrInfo(const char *nodename, const char *servname,
   int err;
 
   if (!pfGetAddrInfo)
-    pfGetAddrInfo = (WSPIAPI_PGETADDRINFO) WspiapiLoad (0);
+    pfGetAddrInfo = (void*) WspiapiLoad (0);
   err = (*pfGetAddrInfo) (nodename, servname, hints, res);
   WSASetLastError (err);
   return err;

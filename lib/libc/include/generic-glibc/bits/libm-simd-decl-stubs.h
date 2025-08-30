@@ -1,5 +1,5 @@
 /* Empty definitions required for __MATHCALL_VEC unfolding in mathcalls.h.
-   Copyright (C) 2014-2024 Free Software Foundation, Inc.
+   Copyright (C) 2014-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -253,6 +253,17 @@
 #define __DECL_SIMD_log1pf64x
 #define __DECL_SIMD_log1pf128x
 
+#define __DECL_SIMD_logp1
+#define __DECL_SIMD_logp1f
+#define __DECL_SIMD_logp1l
+#define __DECL_SIMD_logp1f16
+#define __DECL_SIMD_logp1f32
+#define __DECL_SIMD_logp1f64
+#define __DECL_SIMD_logp1f128
+#define __DECL_SIMD_logp1f32x
+#define __DECL_SIMD_logp1f64x
+#define __DECL_SIMD_logp1f128x
+
 #define __DECL_SIMD_atanh
 #define __DECL_SIMD_atanhf
 #define __DECL_SIMD_atanhl
@@ -329,4 +340,81 @@
 #define __DECL_SIMD_tanf32x
 #define __DECL_SIMD_tanf64x
 #define __DECL_SIMD_tanf128x
+
+#define __DECL_SIMD_sinpi
+#define __DECL_SIMD_sinpif
+#define __DECL_SIMD_sinpil
+#define __DECL_SIMD_sinpif16
+#define __DECL_SIMD_sinpif32
+#define __DECL_SIMD_sinpif64
+#define __DECL_SIMD_sinpif128
+#define __DECL_SIMD_sinpif32x
+#define __DECL_SIMD_sinpif64x
+#define __DECL_SIMD_sinpif128x
+
+#define __DECL_SIMD_cospi
+#define __DECL_SIMD_cospif
+#define __DECL_SIMD_cospil
+#define __DECL_SIMD_cospif16
+#define __DECL_SIMD_cospif32
+#define __DECL_SIMD_cospif64
+#define __DECL_SIMD_cospif128
+#define __DECL_SIMD_cospif32x
+#define __DECL_SIMD_cospif64x
+#define __DECL_SIMD_cospif128x
+
+#define __DECL_SIMD_tanpi
+#define __DECL_SIMD_tanpif
+#define __DECL_SIMD_tanpil
+#define __DECL_SIMD_tanpif16
+#define __DECL_SIMD_tanpif32
+#define __DECL_SIMD_tanpif64
+#define __DECL_SIMD_tanpif128
+#define __DECL_SIMD_tanpif32x
+#define __DECL_SIMD_tanpif64x
+#define __DECL_SIMD_tanpif128x
+
+#define __DECL_SIMD_acospi
+#define __DECL_SIMD_acospif
+#define __DECL_SIMD_acospil
+#define __DECL_SIMD_acospif16
+#define __DECL_SIMD_acospif32
+#define __DECL_SIMD_acospif64
+#define __DECL_SIMD_acospif128
+#define __DECL_SIMD_acospif32x
+#define __DECL_SIMD_acospif64x
+#define __DECL_SIMD_acospif128x
+
+#define __DECL_SIMD_asinpi
+#define __DECL_SIMD_asinpif
+#define __DECL_SIMD_asinpil
+#define __DECL_SIMD_asinpif16
+#define __DECL_SIMD_asinpif32
+#define __DECL_SIMD_asinpif64
+#define __DECL_SIMD_asinpif128
+#define __DECL_SIMD_asinpif32x
+#define __DECL_SIMD_asinpif64x
+#define __DECL_SIMD_asinpif128x
+
+#define __DECL_SIMD_atanpi
+#define __DECL_SIMD_atanpif
+#define __DECL_SIMD_atanpil
+#define __DECL_SIMD_atanpif16
+#define __DECL_SIMD_atanpif32
+#define __DECL_SIMD_atanpif64
+#define __DECL_SIMD_atanpif128
+#define __DECL_SIMD_atanpif32x
+#define __DECL_SIMD_atanpif64x
+#define __DECL_SIMD_atanpif128x
+
+#define __DECL_SIMD_atan2pi
+#define __DECL_SIMD_atan2pif
+#define __DECL_SIMD_atan2pil
+#define __DECL_SIMD_atan2pif16
+#define __DECL_SIMD_atan2pif32
+#define __DECL_SIMD_atan2pif64
+#define __DECL_SIMD_atan2pif128
+#define __DECL_SIMD_atan2pif32x
+#define __DECL_SIMD_atan2pif64x
+#define __DECL_SIMD_atan2pif128x
 #endif

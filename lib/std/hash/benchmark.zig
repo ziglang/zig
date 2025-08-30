@@ -329,6 +329,7 @@ fn usage() void {
         \\  --count     [int]
         \\  --key-size  [int]
         \\  --iterative-only
+        \\  --small-key-only
         \\  --help
         \\
     , .{});
@@ -339,7 +340,7 @@ fn mode(comptime x: comptime_int) comptime_int {
 }
 
 pub fn main() !void {
-    const stdout = std.io.getStdOut().writer();
+    const stdout = std.fs.File.stdout().deprecatedWriter();
 
     var buffer: [1024]u8 = undefined;
     var fixed = std.heap.FixedBufferAllocator.init(buffer[0..]);
@@ -349,6 +350,7 @@ pub fn main() !void {
     var count: usize = mode(128 * MiB);
     var key_size: ?usize = null;
     var seed: u32 = 0;
+    var test_small_key_only = false;
     var test_iterative_only = false;
     var test_arrays = false;
 
@@ -399,6 +401,8 @@ pub fn main() !void {
             }
         } else if (std.mem.eql(u8, args[i], "--iterative-only")) {
             test_iterative_only = true;
+        } else if (std.mem.eql(u8, args[i], "--small-key-only")) {
+            test_small_key_only = true;
         } else if (std.mem.eql(u8, args[i], "--include-array")) {
             test_arrays = true;
         } else if (std.mem.eql(u8, args[i], "--help")) {
@@ -408,6 +412,12 @@ pub fn main() !void {
             usage();
             std.process.exit(1);
         }
+    }
+
+    if (test_iterative_only and test_small_key_only) {
+        try stdout.print("Cannot use iterative-only and small-key-only together!\n", .{});
+        usage();
+        std.process.exit(1);
     }
 
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -421,7 +431,7 @@ pub fn main() !void {
 
                 // Always reseed prior to every call so we are hashing the same buffer contents.
                 // This allows easier comparison between different implementations.
-                if (H.has_iterative_api) {
+                if (H.has_iterative_api and !test_small_key_only) {
                     prng.seed(seed);
                     const result = try benchmarkHash(H, count, allocator);
                     try stdout.print("   iterative: {:5} MiB/s [{x:0<16}]\n", .{ result.throughput / (1 * MiB), result.hash });

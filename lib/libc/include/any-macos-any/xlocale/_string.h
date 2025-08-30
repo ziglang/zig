@@ -25,15 +25,19 @@
 #define _XLOCALE__STRING_H_
 
 #include <sys/cdefs.h>
+#include <_bounds.h>
 #include <sys/_types/_size_t.h>
-#include <_xlocale.h>
+#include <__xlocale.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 __BEGIN_DECLS
 int	 strcoll_l(const char *, const char *, locale_t);
-size_t	 strxfrm_l(char *, const char *, size_t, locale_t);
+size_t	 strxfrm_l(char *_LIBC_COUNT(__n), const char *, size_t __n, locale_t);
 int	 strcasecmp_l(const char *, const char *, locale_t);
 char    *strcasestr_l(const char *, const char *, locale_t);
-int	 strncasecmp_l(const char *, const char *, size_t, locale_t);
+int	 strncasecmp_l(const char *_LIBC_UNSAFE_INDEXABLE,
+        const char *_LIBC_UNSAFE_INDEXABLE, size_t, locale_t);
 __END_DECLS
 
 #endif /* _XLOCALE__STRING_H_ */

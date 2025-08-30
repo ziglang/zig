@@ -8,6 +8,6 @@ comptime {
     @export(&__negtf2, .{ .name = "__negtf2", .linkage = common.linkage, .visibility = common.visibility });
 }
 
-fn __negtf2(a: f128) callconv(.C) f128 {
+fn __negtf2(a: f128) callconv(.c) f128 {
     return common.fneg(a);
 }

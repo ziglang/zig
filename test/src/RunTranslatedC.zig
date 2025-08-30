@@ -6,7 +6,7 @@ target: std.Build.ResolvedTarget,
 
 const TestCase = struct {
     name: []const u8,
-    sources: ArrayList(SourceFile),
+    sources: std.array_list.Managed(SourceFile),
     expected_stdout: []const u8,
     allow_warnings: bool,
 
@@ -34,7 +34,7 @@ pub fn create(
     const tc = self.b.allocator.create(TestCase) catch unreachable;
     tc.* = TestCase{
         .name = name,
-        .sources = ArrayList(TestCase.SourceFile).init(self.b.allocator),
+        .sources = std.array_list.Managed(TestCase.SourceFile).init(self.b.allocator),
         .expected_stdout = expected_stdout,
         .allow_warnings = allow_warnings,
     };
@@ -84,9 +84,12 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
     });
 
     translate_c.step.name = b.fmt("{s} translate-c", .{annotated_case_name});
-    const exe = translate_c.addExecutable(.{});
+    const exe = b.addExecutable(.{
+        .name = "translated_c",
+        .root_module = translate_c.createModule(),
+    });
     exe.step.name = b.fmt("{s} build-exe", .{annotated_case_name});
-    exe.linkLibC();
+    exe.root_module.link_libc = true;
     const run = b.addRunArtifact(exe);
     run.step.name = b.fmt("{s} run", .{annotated_case_name});
     if (!case.allow_warnings) {
@@ -100,7 +103,6 @@ pub fn addCase(self: *RunTranslatedCContext, case: *const TestCase) void {
 
 const RunTranslatedCContext = @This();
 const std = @import("std");
-const ArrayList = std.ArrayList;
 const fmt = std.fmt;
 const mem = std.mem;
 const fs = std.fs;

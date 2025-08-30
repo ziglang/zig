@@ -214,7 +214,9 @@ template <class Predicate> // deprecated in C++17, removed in C++20
 binary_negate<Predicate> not2(const Predicate& pred);
 
 template <class F>
-constexpr unspecified not_fn(F&& f); // C++17, constexpr in C++20
+  constexpr unspecified not_fn(F&& f);     // C++17, constexpr in C++20
+template <auto f>
+  constexpr unspecified not_fn() noexcept; // C++26
 
 // [func.bind.partial], function templates bind_front and bind_back
 template<class F, class... Args>
@@ -395,7 +397,7 @@ const_mem_fun_ref_t<S,T>    mem_fun_ref(S (T::*f)() const);                     
 template <class S, class T, class A>
 const_mem_fun1_ref_t<S,T,A> mem_fun_ref(S (T::*f)(A) const);                    // deprecated in C++11, removed in C++17
 
-template<class R, class T> constexpr unspecified mem_fn(R T::*);                // constexpr in C++20
+template<class R, class T> constexpr unspecified mem_fn(R T::*) noexcept;       // constexpr in C++20
 
 class bad_function_call
     : public exception
@@ -527,72 +529,76 @@ POLICY:  For non-variadic implementations, the number of arguments is limited
 
 */
 
-#include <__config>
+#if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
+#  include <__cxx03/functional>
+#else
+#  include <__config>
 
-#include <__functional/binary_function.h>
-#include <__functional/binary_negate.h>
-#include <__functional/bind.h>
-#include <__functional/binder1st.h>
-#include <__functional/binder2nd.h>
-#include <__functional/hash.h>
-#include <__functional/mem_fn.h> // TODO: deprecate
-#include <__functional/mem_fun_ref.h>
-#include <__functional/operations.h>
-#include <__functional/pointer_to_binary_function.h>
-#include <__functional/pointer_to_unary_function.h>
-#include <__functional/reference_wrapper.h>
-#include <__functional/unary_function.h>
-#include <__functional/unary_negate.h>
+#  include <__functional/binary_function.h>
+#  include <__functional/binary_negate.h>
+#  include <__functional/bind.h>
+#  include <__functional/binder1st.h>
+#  include <__functional/binder2nd.h>
+#  include <__functional/hash.h>
+#  include <__functional/mem_fn.h> // TODO: deprecate
+#  include <__functional/mem_fun_ref.h>
+#  include <__functional/operations.h>
+#  include <__functional/pointer_to_binary_function.h>
+#  include <__functional/pointer_to_unary_function.h>
+#  include <__functional/reference_wrapper.h>
+#  include <__functional/unary_function.h>
+#  include <__functional/unary_negate.h>
 
-#ifndef _LIBCPP_CXX03_LANG
-#  include <__functional/function.h>
-#endif
+#  ifndef _LIBCPP_CXX03_LANG
+#    include <__functional/function.h>
+#  endif
 
-#if _LIBCPP_STD_VER >= 17
-#  include <__functional/boyer_moore_searcher.h>
-#  include <__functional/default_searcher.h>
-#  include <__functional/invoke.h>
-#  include <__functional/not_fn.h>
-#endif
+#  if _LIBCPP_STD_VER >= 17
+#    include <__functional/boyer_moore_searcher.h>
+#    include <__functional/default_searcher.h>
+#    include <__functional/invoke.h>
+#    include <__functional/not_fn.h>
+#  endif
 
-#if _LIBCPP_STD_VER >= 20
-#  include <__functional/bind_back.h>
-#  include <__functional/bind_front.h>
-#  include <__functional/identity.h>
-#  include <__functional/ranges_operations.h>
-#  include <__type_traits/unwrap_ref.h>
-#endif
+#  if _LIBCPP_STD_VER >= 20
+#    include <__functional/bind_back.h>
+#    include <__functional/bind_front.h>
+#    include <__functional/identity.h>
+#    include <__functional/ranges_operations.h>
+#    include <__type_traits/unwrap_ref.h>
+#  endif
 
-#include <version>
+#  include <version>
 
-#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
-#  pragma GCC system_header
-#endif
+#  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#    pragma GCC system_header
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && defined(_LIBCPP_CXX03_LANG)
-#  include <limits>
-#  include <new>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && defined(_LIBCPP_CXX03_LANG)
+#    include <limits>
+#    include <new>
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 14
-#  include <array>
-#  include <initializer_list>
-#  include <unordered_map>
-#  include <vector>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 14
+#    include <array>
+#    include <initializer_list>
+#    include <unordered_map>
+#  endif
 
-#if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
-#  include <atomic>
-#  include <concepts>
-#  include <cstdlib>
-#  include <exception>
-#  include <iosfwd>
-#  include <memory>
-#  include <stdexcept>
-#  include <tuple>
-#  include <type_traits>
-#  include <typeinfo>
-#  include <utility>
-#endif
+#  if !defined(_LIBCPP_REMOVE_TRANSITIVE_INCLUDES) && _LIBCPP_STD_VER <= 20
+#    include <atomic>
+#    include <concepts>
+#    include <cstdlib>
+#    include <exception>
+#    include <iosfwd>
+#    include <memory>
+#    include <stdexcept>
+#    include <tuple>
+#    include <type_traits>
+#    include <typeinfo>
+#    include <utility>
+#    include <vector>
+#  endif
+#endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
 
 #endif // _LIBCPP_FUNCTIONAL

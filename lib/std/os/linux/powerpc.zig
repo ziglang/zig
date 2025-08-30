@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("../../std.zig");
 const maxInt = std.math.maxInt;
 const linux = std.os.linux;
@@ -21,8 +22,7 @@ pub fn syscall0(number: SYS) usize {
         \\ 1:
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall1(number: SYS, arg1: usize) usize {
@@ -34,8 +34,7 @@ pub fn syscall1(number: SYS, arg1: usize) usize {
         : [ret] "={r3}" (-> usize),
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
@@ -48,8 +47,7 @@ pub fn syscall2(number: SYS, arg1: usize, arg2: usize) usize {
         : [number] "{r0}" (@intFromEnum(number)),
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
@@ -63,8 +61,7 @@ pub fn syscall3(number: SYS, arg1: usize, arg2: usize, arg3: usize) usize {
           [arg1] "{r3}" (arg1),
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize) usize {
@@ -79,8 +76,7 @@ pub fn syscall4(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize)
           [arg2] "{r4}" (arg2),
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize) usize {
@@ -96,8 +92,7 @@ pub fn syscall5(number: SYS, arg1: usize, arg2: usize, arg3: usize, arg4: usize,
           [arg3] "{r5}" (arg3),
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
 pub fn syscall6(
@@ -122,25 +117,24 @@ pub fn syscall6(
           [arg4] "{r6}" (arg4),
           [arg5] "{r7}" (arg5),
           [arg6] "{r8}" (arg6),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true, .ctr = true, .xer = true });
 }
 
-pub fn clone() callconv(.Naked) usize {
+pub fn clone() callconv(.naked) usize {
     // __clone(func, stack, flags, arg, ptid, tls, ctid)
     //         3,    4,     5,     6,   7,    8,   9
     //
     // syscall(SYS_clone, flags, stack, ptid, tls, ctid)
     //         0          3,     4,     5,    6,   7
     asm volatile (
-        \\ # store non-volatile regs r30, r31 on stack in order to put our
+        \\ # store non-volatile regs r29, r30 on stack in order to put our
         \\ # start func and its arg there
-        \\ stwu 30, -16(1)
-        \\ stw 31, 4(1)
+        \\ stwu 29, -16(1)
+        \\ stw 30, 4(1)
         \\
-        \\ # save r3 (func) into r30, and r6(arg) into r31
-        \\ mr 30, 3
-        \\ mr 31, 6
+        \\ # save r3 (func) into r29, and r6(arg) into r30
+        \\ mr 29, 3
+        \\ mr 30, 6
         \\
         \\ # create initial stack frame for new thread
         \\ clrrwi 4, 4, 4
@@ -167,40 +161,43 @@ pub fn clone() callconv(.Naked) usize {
         \\ # compare sc result with 0
         \\ cmpwi cr7, 3, 0
         \\
-        \\ # if not 0, jump to end
-        \\ bne cr7, 2f
+        \\ # if not 0, restore stack and return
+        \\ beq cr7, 2f
+        \\ lwz 29, 0(1)
+        \\ lwz 30, 4(1)
+        \\ addi 1, 1, 16
+        \\ blr
         \\
         \\ #else: we're the child
+        \\ 2:
+    );
+    if (builtin.unwind_tables != .none or !builtin.strip_debug_info) asm volatile (
+        \\ .cfi_undefined lr
+    );
+    asm volatile (
+        \\ li 31, 0
+        \\ mtlr 0
+        \\
         \\ #call funcptr: move arg (d) into r3
-        \\ mr 3, 31
-        \\ #move r30 (funcptr) into CTR reg
-        \\ mtctr 30
+        \\ mr 3, 30
+        \\ #move r29 (funcptr) into CTR reg
+        \\ mtctr 29
         \\ # call CTR reg
         \\ bctrl
         \\ # mov SYS_exit into r0 (the exit param is already in r3)
         \\ li 0, 1
         \\ sc
-        \\
-        \\ 2:
-        \\
-        \\ # restore stack
-        \\ lwz 30, 0(1)
-        \\ lwz 31, 4(1)
-        \\ addi 1, 1, 16
-        \\
-        \\ blr
     );
 }
 
 pub const restore = restore_rt;
 
-pub fn restore_rt() callconv(.Naked) noreturn {
+pub fn restore_rt() callconv(.naked) noreturn {
     asm volatile (
         \\ sc
         :
         : [number] "{r0}" (@intFromEnum(SYS.rt_sigreturn)),
-        : "memory", "cr0", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12"
-    );
+        : .{ .memory = true, .cr0 = true, .r4 = true, .r5 = true, .r6 = true, .r7 = true, .r8 = true, .r9 = true, .r10 = true, .r11 = true, .r12 = true });
 }
 
 pub const F = struct {
@@ -240,26 +237,6 @@ pub const Flock = extern struct {
     start: off_t,
     len: off_t,
     pid: pid_t,
-};
-
-pub const msghdr = extern struct {
-    name: ?*sockaddr,
-    namelen: socklen_t,
-    iov: [*]iovec,
-    iovlen: usize,
-    control: ?*anyopaque,
-    controllen: socklen_t,
-    flags: i32,
-};
-
-pub const msghdr_const = extern struct {
-    name: ?*const sockaddr,
-    namelen: socklen_t,
-    iov: [*]const iovec_const,
-    iovlen: usize,
-    control: ?*const anyopaque,
-    controllen: socklen_t,
-    flags: i32,
 };
 
 pub const blksize_t = i32;
@@ -336,14 +313,12 @@ pub const ucontext_t = extern struct {
     stack: stack_t,
     pad: [7]i32,
     regs: *mcontext_t,
-    sigmask: sigset_t,
+    sigmask: [1024 / @bitSizeOf(c_ulong)]c_ulong, // Currently a libc-compatible (1024-bit) sigmask
     pad2: [3]i32,
     mcontext: mcontext_t,
 };
 
 pub const Elf_Symndx = u32;
-
-pub const MMAP2_UNIT = 4096;
 
 /// TODO
 pub const getcontext = {};

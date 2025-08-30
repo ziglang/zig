@@ -1,5 +1,5 @@
 /* termios control mode definitions.  Linux/generic version.
-   Copyright (C) 2019-2024 Free Software Foundation, Inc.
+   Copyright (C) 2019-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -34,5 +34,7 @@
 #define CLOCAL	0004000
 
 #ifdef __USE_MISC
-# define ADDRB 04000000000
+# define ADDRB    04000000000
+# define CMSPAR  010000000000 /* Mark or space (stick) parity.  */
+# define CRTSCTS 020000000000 /* Flow control.  */
 #endif

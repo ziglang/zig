@@ -24,7 +24,7 @@ pub fn main() !void {
     // - replace function name with symbolic string when optimize_mode != .Debug
     // - skip empty lines
     const got: []const u8 = got_result: {
-        var buf = std.ArrayList(u8).init(arena);
+        var buf = std.array_list.Managed(u8).init(arena);
         defer buf.deinit();
         if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
         var it = mem.splitScalar(u8, stderr, '\n');
@@ -58,14 +58,23 @@ pub fn main() !void {
             try buf.appendSlice(line[pos + 1 .. marks[2] + delims[2].len]);
             try buf.appendSlice(" [address]");
             if (optimize_mode == .Debug) {
-                // On certain platforms (windows) or possibly depending on how we choose to link main
-                // the object file extension may be present so we simply strip any extension.
-                if (mem.indexOfScalar(u8, line[marks[4]..marks[5]], '.')) |idot| {
-                    try buf.appendSlice(line[marks[3] .. marks[4] + idot]);
-                    try buf.appendSlice(line[marks[5]..]);
+                try buf.appendSlice(line[marks[3] .. marks[4] + delims[4].len]);
+
+                const file_name = line[marks[4] + delims[4].len .. marks[5]];
+                // The LLVM backend currently uses the object file name in the debug info here.
+                // This actually violates the DWARF specification (DWARF5 § 3.1.1, lines 24-27).
+                // The self-hosted backend uses the root Zig source file of the module (in compilance with the spec).
+                if (std.mem.eql(u8, file_name, "test") or
+                    std.mem.eql(u8, file_name, "test_zcu.obj") or
+                    std.mem.endsWith(u8, file_name, ".zig"))
+                {
+                    try buf.appendSlice("[main_file]");
                 } else {
-                    try buf.appendSlice(line[marks[3]..]);
+                    // Something unexpected; include it verbatim.
+                    try buf.appendSlice(file_name);
                 }
+
+                try buf.appendSlice(line[marks[5]..]);
             } else {
                 try buf.appendSlice(line[marks[3] .. marks[3] + delims[3].len]);
                 try buf.appendSlice("[function]");
@@ -75,5 +84,5 @@ pub fn main() !void {
         break :got_result try buf.toOwnedSlice();
     };
 
-    try std.io.getStdOut().writeAll(got);
+    try std.fs.File.stdout().writeAll(got);
 }

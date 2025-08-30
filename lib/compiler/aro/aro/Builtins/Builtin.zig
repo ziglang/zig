@@ -119,8 +119,7 @@ pub fn nameFromUniqueIndex(index: u16, buf: []u8) []u8 {
 
     var node_index: u16 = 0;
     var count: u16 = index;
-    var fbs = std.io.fixedBufferStream(buf);
-    const w = fbs.writer();
+    var w: std.Io.Writer = .fixed(buf);
 
     while (true) {
         var sibling_index = dafsa[node_index].child_index;
@@ -142,7 +141,7 @@ pub fn nameFromUniqueIndex(index: u16, buf: []u8) []u8 {
         if (count == 0) break;
     }
 
-    return fbs.getWritten();
+    return w.buffered();
 }
 
 /// We're 1 bit shy of being able to fit this in a u32:

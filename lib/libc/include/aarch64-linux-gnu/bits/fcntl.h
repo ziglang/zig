@@ -1,5 +1,5 @@
 /* O_*, F_*, FD_* bit values for the AArch64 Linux ABI.
-   Copyright (C) 2011-2024 Free Software Foundation, Inc.
+   Copyright (C) 2011-2025 Free Software Foundation, Inc.
 
    This file is part of the GNU C Library.
 
@@ -25,17 +25,11 @@
 #define __O_NOFOLLOW	0100000
 #define __O_DIRECT	0200000
 
-#ifdef __ILP32__
-# define __O_LARGEFILE	0400000
-#else
-# define __O_LARGEFILE	0
-#endif
+#define __O_LARGEFILE	0
 
-#ifdef __LP64__
-# define F_GETLK64	5
-# define F_SETLK64	6
-# define F_SETLKW64	7
-#endif
+#define F_GETLK64	5
+#define F_SETLK64	6
+#define F_SETLKW64	7
 
 struct flock
   {

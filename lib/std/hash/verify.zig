@@ -45,7 +45,7 @@ pub fn smhasher(comptime hash_fn: anytype) u32 {
 
 pub fn iterativeApi(comptime Hash: anytype) !void {
     // Sum(1..32) = 528
-    var buf: [528]u8 = [_]u8{0} ** 528;
+    var buf: [528]u8 = @splat(0);
     var len: usize = 0;
     const seed = 0;
 

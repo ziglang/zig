@@ -104,6 +104,8 @@ typedef int64_t                 user_long_t;
 typedef u_int64_t               user_ulong_t;
 typedef int64_t                 user_time_t;
 typedef int64_t                 user_off_t;
+
+
 #define USER_ADDR_NULL  ((user_addr_t) 0)
 #define CAST_USER_ADDR_T(a_ptr)   ((user_addr_t)((uintptr_t)(a_ptr)))
 

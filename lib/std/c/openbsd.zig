@@ -81,11 +81,6 @@ pub extern "c" fn auth_checknologin(lc: *login_cap_t) void;
 
 pub extern "c" fn getpwuid_shadow(uid: uid_t) ?*passwd;
 pub extern "c" fn getpwnam_shadow(name: [*:0]const u8) ?*passwd;
-pub extern "c" fn getpwnam_r(name: [*:0]const u8, pw: *passwd, buf: [*]u8, buflen: usize, pwretp: *?*passwd) c_int;
-pub extern "c" fn getpwuid_r(uid: uid_t, pw: *passwd, buf: [*]u8, buflen: usize, pwretp: *?*passwd) c_int;
-pub extern "c" fn getpwent() ?*passwd;
-pub extern "c" fn setpwent() void;
-pub extern "c" fn endpwent() void;
 pub extern "c" fn setpassent(stayopen: c_int) c_int;
 pub extern "c" fn uid_from_user(name: [*:0]const u8, uid: *uid_t) c_int;
 pub extern "c" fn user_from_uid(uid: uid_t, noname: c_int) ?[*:0]const u8;

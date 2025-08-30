@@ -3,9 +3,10 @@ const builtin = @import("builtin");
 const Cases = @import("src/Cases.zig");
 
 pub fn addCases(ctx: *Cases, b: *std.Build) !void {
-    {
-        const case = ctx.obj("multiline error messages", b.graph.host);
-
+    // This test is currently disabled because the leading spaces aligning non-initial lines of the
+    // error message don't play nice with the test runner.
+    if (false) {
+        const case = ctx.obj("multiline error message", b.graph.host);
         case.addError(
             \\comptime {
             \\    @compileError("hello\nworld");
@@ -14,7 +15,12 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\:2:5: error: hello
             \\             world
         });
+    }
 
+    // This test is currently disabled because the leading spaces aligning non-initial lines of the
+    // error message don't play nice with the test runner.
+    if (false) {
+        const case = ctx.obj("multiline error message with trailing newline", b.graph.host);
         case.addError(
             \\comptime {
             \\    @compileError(
@@ -57,8 +63,9 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\}
         , &[_][]const u8{
             ":3:12: error: unable to resolve comptime value",
-            ":3:12: note: argument to function being called at comptime must be comptime-known",
-            ":2:55: note: expression is evaluated at comptime because the generic function was instantiated with a comptime-only return type",
+            ":3:19: note: call to generic function instantiated with comptime-only return type '?fn () void' is evaluated at comptime",
+            ":2:55: note: return type declared here",
+            ":3:19: note: use '*const fn () void' for a function pointer type",
         });
         case.addSourceFile("b.zig",
             \\pub const ElfDynLib = struct {
@@ -119,9 +126,10 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    _ = @import("foo.zig");
             \\}
         , &[_][]const u8{
-            ":1:1: error: file exists in multiple modules",
-            ":1:1: note: root of module foo",
-            ":3:17: note: imported from module root",
+            ":1:1: error: file exists in modules 'foo' and 'root'",
+            ":1:1: note: files must belong to only one module",
+            ":1:1: note: file is the root of module 'foo'",
+            ":3:17: note: file is imported here by the root of module 'root'",
         });
         case.addSourceFile("foo.zig",
             \\const dummy = 0;
@@ -193,12 +201,16 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
             \\    import.anytypeFunction(S{ .x = x, .y = u32 });
             \\}
         , &[_][]const u8{
-            ":4:33: error: runtime-known argument passed to comptime parameter",
-            ":1:38: note: declared comptime here",
-            ":8:36: error: runtime-known argument passed to comptime parameter",
-            ":2:41: note: declared comptime here",
+            ":4:33: error: unable to resolve comptime value",
+            ":4:33: note: argument to comptime parameter must be comptime-known",
+            ":1:29: note: parameter declared comptime here",
+            ":8:36: error: unable to resolve comptime value",
+            ":8:36: note: argument to comptime parameter must be comptime-known",
+            ":2:32: note: parameter declared comptime here",
             ":13:32: error: unable to resolve comptime value",
-            ":13:32: note: initializer of comptime only struct must be comptime-known",
+            ":13:32: note: initializer of comptime-only struct 'tmp.callAnytypeFunctionWithRuntimeComptimeOnlyType.S' must be comptime-known",
+            ":12:35: note: struct requires comptime because of this field",
+            ":12:35: note: types are not available at runtime",
         });
 
         case.addSourceFile("import.zig",
@@ -212,7 +224,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in string", b.graph.host);
 
         case.addError("_ = \"\x01Q\";", &[_][]const u8{
-            ":1:5: error: expected expression, found 'invalid token'",
+            ":1:6: error: string literal contains invalid byte: '\\x01'",
         });
     }
 
@@ -220,7 +232,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("invalid byte in comment", b.graph.host);
 
         case.addError("//\x01Q", &[_][]const u8{
-            ":1:1: error: expected type expression, found 'invalid token'",
+            ":1:3: error: comment contains invalid byte: '\\x01'",
         });
     }
 
@@ -228,7 +240,7 @@ pub fn addCases(ctx: *Cases, b: *std.Build) !void {
         const case = ctx.obj("control character in character literal", b.graph.host);
 
         case.addError("const c = '\x01';", &[_][]const u8{
-            ":1:11: error: expected expression, found 'invalid token'",
+            ":1:12: error: character literal contains invalid byte: '\\x01'",
         });
     }
 

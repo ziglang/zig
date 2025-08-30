@@ -14,6 +14,7 @@ const assert = std.debug.assert;
 const native_os = builtin.os.tag;
 const Allocator = std.mem.Allocator;
 const ChildProcess = @This();
+const ArrayList = std.ArrayList;
 
 pub const Id = switch (native_os) {
     .windows => windows.HANDLE,
@@ -73,15 +74,19 @@ cwd: ?[]const u8,
 /// Once that is done, `cwd` will be deprecated in favor of this field.
 cwd_dir: ?fs.Dir = null,
 
-err_pipe: ?if (native_os == .windows) void else [2]posix.fd_t,
+err_pipe: if (native_os == .windows) void else ?posix.fd_t,
 
 expand_arg0: Arg0Expand,
 
 /// Darwin-only. Disable ASLR for the child process.
 disable_aslr: bool = false,
 
-/// Darwin-only. Start child process in suspended state as if SIGSTOP was sent.
+/// Darwin and Windows only. Start child process in suspended state. For Darwin it's started
+/// as if SIGSTOP was sent.
 start_suspended: bool = false,
+
+/// Windows-only. Sets the CREATE_NO_WINDOW flag in CreateProcess.
+create_no_window: bool = false,
 
 /// Set to true to obtain rusage information for the child process.
 /// Depending on the target platform and implementation status, the
@@ -211,7 +216,7 @@ pub fn init(argv: []const []const u8, allocator: mem.Allocator) ChildProcess {
         .argv = argv,
         .id = undefined,
         .thread_handle = undefined,
-        .err_pipe = null,
+        .err_pipe = if (native_os == .windows) {} else null,
         .term = null,
         .env_map = null,
         .cwd = null,
@@ -269,7 +274,7 @@ pub fn killWindows(self: *ChildProcess, exit_code: windows.UINT) !Term {
     }
 
     windows.TerminateProcess(self.id, exit_code) catch |err| switch (err) {
-        error.PermissionDenied => {
+        error.AccessDenied => {
             // Usually when TerminateProcess triggers a ACCESS_DENIED error, it
             // indicates that the process has already exited, but there may be
             // some rare edge cases where our process handle no longer has the
@@ -293,17 +298,49 @@ pub fn killPosix(self: *ChildProcess) !Term {
         error.ProcessNotFound => return error.AlreadyTerminated,
         else => return err,
     };
-    self.waitUnwrapped();
+    self.waitUnwrappedPosix();
     return self.term.?;
 }
 
 pub const WaitError = SpawnError || std.os.windows.GetProcessMemoryInfoError;
 
+/// On some targets, `spawn` may not report all spawn errors, such as `error.InvalidExe`.
+/// This function will block until any spawn errors can be reported, and return them.
+pub fn waitForSpawn(self: *ChildProcess) SpawnError!void {
+    if (native_os == .windows) return; // `spawn` reports everything
+    if (self.term) |term| {
+        _ = term catch |spawn_err| return spawn_err;
+        return;
+    }
+
+    const err_pipe = self.err_pipe orelse return;
+    self.err_pipe = null;
+
+    // Wait for the child to report any errors in or before `execvpe`.
+    if (readIntFd(err_pipe)) |child_err_int| {
+        posix.close(err_pipe);
+        const child_err: SpawnError = @errorCast(@errorFromInt(child_err_int));
+        self.term = child_err;
+        return child_err;
+    } else |_| {
+        // Write end closed by CLOEXEC at the time of the `execvpe` call, indicating success!
+        posix.close(err_pipe);
+    }
+}
+
 /// Blocks until child process terminates and then cleans up all resources.
 pub fn wait(self: *ChildProcess) WaitError!Term {
-    const term = if (native_os == .windows) try self.waitWindows() else self.waitPosix();
+    try self.waitForSpawn(); // report spawn errors
+    if (self.term) |term| {
+        self.cleanupStreams();
+        return term;
+    }
+    switch (native_os) {
+        .windows => try self.waitUnwrappedWindows(),
+        else => self.waitUnwrappedPosix(),
+    }
     self.id = undefined;
-    return term;
+    return self.term.?;
 }
 
 pub const RunResult = struct {
@@ -312,17 +349,6 @@ pub const RunResult = struct {
     stderr: []u8,
 };
 
-fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
-    if (fifo.head != 0) fifo.realign();
-    const result = std.ArrayList(u8){
-        .items = fifo.buf[0..fifo.count],
-        .capacity = fifo.buf.len,
-        .allocator = fifo.allocator,
-    };
-    fifo.* = std.io.PollFifo.init(fifo.allocator);
-    return result;
-}
-
 /// Collect the output from the process's stdout and stderr. Will return once all output
 /// has been collected. This does not mean that the process has ended. `wait` should still
 /// be called to wait for and clean up the process.
@@ -330,35 +356,50 @@ fn fifoToOwnedArrayList(fifo: *std.io.PollFifo) std.ArrayList(u8) {
 /// The process must be started with stdout_behavior and stderr_behavior == .Pipe
 pub fn collectOutput(
     child: ChildProcess,
-    stdout: *std.ArrayList(u8),
-    stderr: *std.ArrayList(u8),
+    /// Used for `stdout` and `stderr`.
+    allocator: Allocator,
+    stdout: *ArrayList(u8),
+    stderr: *ArrayList(u8),
     max_output_bytes: usize,
 ) !void {
     assert(child.stdout_behavior == .Pipe);
     assert(child.stderr_behavior == .Pipe);
 
-    // we could make this work with multiple allocators but YAGNI
-    if (stdout.allocator.ptr != stderr.allocator.ptr or
-        stdout.allocator.vtable != stderr.allocator.vtable)
-    {
-        unreachable; // ChildProcess.collectOutput only supports 1 allocator
-    }
-
-    var poller = std.io.poll(stdout.allocator, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(allocator, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });
     defer poller.deinit();
 
-    while (try poller.poll()) {
-        if (poller.fifo(.stdout).count > max_output_bytes)
-            return error.StdoutStreamTooLong;
-        if (poller.fifo(.stderr).count > max_output_bytes)
-            return error.StderrStreamTooLong;
+    const stdout_r = poller.reader(.stdout);
+    stdout_r.buffer = stdout.allocatedSlice();
+    stdout_r.seek = 0;
+    stdout_r.end = stdout.items.len;
+
+    const stderr_r = poller.reader(.stderr);
+    stderr_r.buffer = stderr.allocatedSlice();
+    stderr_r.seek = 0;
+    stderr_r.end = stderr.items.len;
+
+    defer {
+        stdout.* = .{
+            .items = stdout_r.buffer[0..stdout_r.end],
+            .capacity = stdout_r.buffer.len,
+        };
+        stderr.* = .{
+            .items = stderr_r.buffer[0..stderr_r.end],
+            .capacity = stderr_r.buffer.len,
+        };
+        stdout_r.buffer = &.{};
+        stderr_r.buffer = &.{};
     }
 
-    stdout.* = fifoToOwnedArrayList(poller.fifo(.stdout));
-    stderr.* = fifoToOwnedArrayList(poller.fifo(.stderr));
+    while (try poller.poll()) {
+        if (stdout_r.bufferedLen() > max_output_bytes)
+            return error.StdoutStreamTooLong;
+        if (stderr_r.bufferedLen() > max_output_bytes)
+            return error.StderrStreamTooLong;
+    }
 }
 
 pub const RunError = posix.GetCwdError || posix.ReadError || SpawnError || posix.PollError || error{
@@ -388,41 +429,22 @@ pub fn run(args: struct {
     child.expand_arg0 = args.expand_arg0;
     child.progress_node = args.progress_node;
 
-    var stdout = std.ArrayList(u8).init(args.allocator);
-    var stderr = std.ArrayList(u8).init(args.allocator);
-    errdefer {
-        stdout.deinit();
-        stderr.deinit();
-    }
+    var stdout: ArrayList(u8) = .empty;
+    defer stdout.deinit(args.allocator);
+    var stderr: ArrayList(u8) = .empty;
+    defer stderr.deinit(args.allocator);
 
     try child.spawn();
-    try child.collectOutput(&stdout, &stderr, args.max_output_bytes);
+    errdefer {
+        _ = child.kill() catch {};
+    }
+    try child.collectOutput(args.allocator, &stdout, &stderr, args.max_output_bytes);
 
-    return RunResult{
+    return .{
+        .stdout = try stdout.toOwnedSlice(args.allocator),
+        .stderr = try stderr.toOwnedSlice(args.allocator),
         .term = try child.wait(),
-        .stdout = try stdout.toOwnedSlice(),
-        .stderr = try stderr.toOwnedSlice(),
     };
-}
-
-fn waitWindows(self: *ChildProcess) WaitError!Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
-        return term;
-    }
-
-    try self.waitUnwrappedWindows();
-    return self.term.?;
-}
-
-fn waitPosix(self: *ChildProcess) SpawnError!Term {
-    if (self.term) |term| {
-        self.cleanupStreams();
-        return term;
-    }
-
-    self.waitUnwrapped();
-    return self.term.?;
 }
 
 fn waitUnwrappedWindows(self: *ChildProcess) WaitError!void {
@@ -447,7 +469,7 @@ fn waitUnwrappedWindows(self: *ChildProcess) WaitError!void {
     return result;
 }
 
-fn waitUnwrapped(self: *ChildProcess) void {
+fn waitUnwrappedPosix(self: *ChildProcess) void {
     const res: posix.WaitPidResult = res: {
         if (self.request_resource_usage_statistics) {
             switch (native_os) {
@@ -469,7 +491,7 @@ fn waitUnwrapped(self: *ChildProcess) void {
 }
 
 fn handleWaitResult(self: *ChildProcess, status: u32) void {
-    self.term = self.cleanupAfterWait(status);
+    self.term = statusToTerm(status);
 }
 
 fn cleanupStreams(self: *ChildProcess) void {
@@ -485,46 +507,6 @@ fn cleanupStreams(self: *ChildProcess) void {
         stderr.close();
         self.stderr = null;
     }
-}
-
-fn cleanupAfterWait(self: *ChildProcess, status: u32) !Term {
-    if (self.err_pipe) |err_pipe| {
-        defer destroyPipe(err_pipe);
-
-        if (native_os == .linux) {
-            var fd = [1]posix.pollfd{posix.pollfd{
-                .fd = err_pipe[0],
-                .events = posix.POLL.IN,
-                .revents = undefined,
-            }};
-
-            // Check if the eventfd buffer stores a non-zero value by polling
-            // it, that's the error code returned by the child process.
-            _ = posix.poll(&fd, 0) catch unreachable;
-
-            // According to eventfd(2) the descriptor is readable if the counter
-            // has a value greater than 0
-            if ((fd[0].revents & posix.POLL.IN) != 0) {
-                const err_int = try readIntFd(err_pipe[0]);
-                return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
-            }
-        } else {
-            // Write maxInt(ErrInt) to the write end of the err_pipe. This is after
-            // waitpid, so this write is guaranteed to be after the child
-            // pid potentially wrote an error. This way we can do a blocking
-            // read on the error pipe and either get maxInt(ErrInt) (no error) or
-            // an error code.
-            try writeIntFd(err_pipe[1], maxInt(ErrInt));
-            const err_int = try readIntFd(err_pipe[0]);
-            // Here we potentially return the fork child's error from the parent
-            // pid.
-            if (err_int != maxInt(ErrInt)) {
-                return @as(SpawnError, @errorCast(@errorFromInt(err_int)));
-            }
-        }
-    }
-
-    return statusToTerm(status);
 }
 
 fn statusToTerm(status: u32) Term {
@@ -636,18 +618,9 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
         }
     };
 
-    // This pipe is used to communicate errors between the time of fork
-    // and execve from the child process to the parent process.
-    const err_pipe = blk: {
-        if (native_os == .linux) {
-            const fd = try posix.eventfd(0, linux.EFD.CLOEXEC);
-            // There's no distinction between the readable and the writeable
-            // end with eventfd
-            break :blk [2]posix.fd_t{ fd, fd };
-        } else {
-            break :blk try posix.pipe2(.{ .CLOEXEC = true });
-        }
-    };
+    // This pipe communicates to the parent errors in the child between `fork` and `execvpe`.
+    // It is closed by the child (via CLOEXEC) without writing if `execvpe` succeeds.
+    const err_pipe: [2]posix.fd_t = try posix.pipe2(.{ .CLOEXEC = true });
     errdefer destroyPipe(err_pipe);
 
     const pid_result = try posix.fork();
@@ -687,6 +660,11 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     // we are the parent
+    errdefer comptime unreachable; // The child is forked; we must not error from now on
+
+    posix.close(err_pipe[1]); // make sure only the child holds the write end open
+    self.err_pipe = err_pipe[0];
+
     const pid: i32 = @intCast(pid_result);
     if (self.stdin_behavior == .Pipe) {
         self.stdin = .{ .handle = stdin_pipe[1] };
@@ -705,7 +683,6 @@ fn spawnPosix(self: *ChildProcess) SpawnError!void {
     }
 
     self.id = pid;
-    self.err_pipe = err_pipe;
     self.term = null;
 
     if (self.stdin_behavior == .Pipe) {
@@ -889,6 +866,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
     const app_name_w = try unicode.wtf8ToWtf16LeAllocZ(self.allocator, app_basename_wtf8);
     defer self.allocator.free(app_name_w);
 
+    const flags: windows.CreateProcessFlags = .{
+        .create_suspended = self.start_suspended,
+        .create_unicode_environment = true,
+        .create_no_window = self.create_no_window,
+    };
+
     run: {
         const PATH: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATH")) orelse &[_:0]u16{};
         const PATHEXT: [:0]const u16 = process.getenvW(unicode.utf8ToUtf16LeStringLiteral("PATHEXT")) orelse &[_:0]u16{};
@@ -903,12 +886,12 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
         var cmd_line_cache = WindowsCommandLineCache.init(self.allocator, self.argv);
         defer cmd_line_cache.deinit();
 
-        var app_buf: std.ArrayListUnmanaged(u16) = .empty;
+        var app_buf: ArrayList(u16) = .empty;
         defer app_buf.deinit(self.allocator);
 
         try app_buf.appendSlice(self.allocator, app_name_w);
 
-        var dir_buf: std.ArrayListUnmanaged(u16) = .empty;
+        var dir_buf: ArrayList(u16) = .empty;
         defer dir_buf.deinit(self.allocator);
 
         if (cwd_path_w.len > 0) {
@@ -918,13 +901,8 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             if (dir_buf.items.len > 0) try dir_buf.append(self.allocator, fs.path.sep);
             try dir_buf.appendSlice(self.allocator, app_dir);
         }
-        if (dir_buf.items.len > 0) {
-            // Need to normalize the path, openDirW can't handle things like double backslashes
-            const normalized_len = windows.normalizePath(u16, dir_buf.items) catch return error.BadPathName;
-            dir_buf.shrinkRetainingCapacity(normalized_len);
-        }
 
-        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo) catch |no_path_err| {
+        windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo) catch |no_path_err| {
             const original_err = switch (no_path_err) {
                 // argv[0] contains unsupported characters that will never resolve to a valid exe.
                 error.InvalidArg0 => return error.FileNotFound,
@@ -947,12 +925,8 @@ fn spawnWindows(self: *ChildProcess) SpawnError!void {
             while (it.next()) |search_path| {
                 dir_buf.clearRetainingCapacity();
                 try dir_buf.appendSlice(self.allocator, search_path);
-                // Need to normalize the path, some PATH values can contain things like double
-                // backslashes which openDirW can't handle
-                const normalized_len = windows.normalizePath(u16, dir_buf.items) catch continue;
-                dir_buf.shrinkRetainingCapacity(normalized_len);
 
-                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, &siStartInfo, &piProcInfo)) {
+                if (windowsCreateProcessPathExt(self.allocator, &dir_buf, &app_buf, PATHEXT, &cmd_line_cache, envp_ptr, cwd_w_ptr, flags, &siStartInfo, &piProcInfo)) {
                     break :run;
                 } else |err| switch (err) {
                     // argv[0] contains unsupported characters that will never resolve to a valid exe.
@@ -1028,13 +1002,16 @@ fn forkChildErrReport(fd: i32, err: ChildProcess.SpawnError) noreturn {
 }
 
 fn writeIntFd(fd: i32, value: ErrInt) !void {
-    const file: File = .{ .handle = fd };
-    file.writer().writeInt(u64, @intCast(value), .little) catch return error.SystemResources;
+    var buffer: [8]u8 = undefined;
+    var fw: std.fs.File.Writer = .initStreaming(.{ .handle = fd }, &buffer);
+    fw.interface.writeInt(u64, value, .little) catch unreachable;
+    fw.interface.flush() catch return error.SystemResources;
 }
 
 fn readIntFd(fd: i32) !ErrInt {
-    const file: File = .{ .handle = fd };
-    return @intCast(file.reader().readInt(u64, .little) catch return error.SystemResources);
+    var buffer: [8]u8 = undefined;
+    var fr: std.fs.File.Reader = .initStreaming(.{ .handle = fd }, &buffer);
+    return @intCast(fr.interface.takeInt(u64, .little) catch return error.SystemResources);
 }
 
 const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
@@ -1045,12 +1022,13 @@ const ErrInt = std.meta.Int(.unsigned, @sizeOf(anyerror) * 8);
 /// Note: If the dir is the cwd, dir_buf should be empty (len = 0).
 fn windowsCreateProcessPathExt(
     allocator: mem.Allocator,
-    dir_buf: *std.ArrayListUnmanaged(u16),
-    app_buf: *std.ArrayListUnmanaged(u16),
+    dir_buf: *ArrayList(u16),
+    app_buf: *ArrayList(u16),
     pathext: [:0]const u16,
     cmd_line_cache: *WindowsCommandLineCache,
     envp_ptr: ?[*]u16,
     cwd_ptr: ?[*:0]u16,
+    flags: windows.CreateProcessFlags,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
 ) !void {
@@ -1201,7 +1179,7 @@ fn windowsCreateProcessPathExt(
             else
                 full_app_name;
 
-            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+            if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, flags, lpStartupInfo, lpProcessInformation)) |_| {
                 return;
             } else |err| switch (err) {
                 error.FileNotFound,
@@ -1256,7 +1234,7 @@ fn windowsCreateProcessPathExt(
         else
             full_app_name;
 
-        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, lpStartupInfo, lpProcessInformation)) |_| {
+        if (windowsCreateProcess(app_name_w.ptr, cmd_line_w.ptr, envp_ptr, cwd_ptr, flags, lpStartupInfo, lpProcessInformation)) |_| {
             return;
         } else |err| switch (err) {
             error.FileNotFound => continue,
@@ -1282,6 +1260,7 @@ fn windowsCreateProcess(
     cmd_line: [*:0]u16,
     envp_ptr: ?[*]u16,
     cwd_ptr: ?[*:0]u16,
+    flags: windows.CreateProcessFlags,
     lpStartupInfo: *windows.STARTUPINFOW,
     lpProcessInformation: *windows.PROCESS_INFORMATION,
 ) !void {
@@ -1308,7 +1287,7 @@ fn windowsCreateProcess(
         null,
         null,
         windows.TRUE,
-        windows.CREATE_UNICODE_ENVIRONMENT,
+        flags,
         @as(?*anyopaque, @ptrCast(envp_ptr)),
         cwd_ptr,
         lpStartupInfo,
@@ -1527,7 +1506,7 @@ const WindowsCommandLineCache = struct {
 /// Returns the absolute path of `cmd.exe` within the Windows system directory.
 /// The caller owns the returned slice.
 fn windowsCmdExePath(allocator: mem.Allocator) error{ OutOfMemory, Unexpected }![:0]u16 {
-    var buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 128);
+    var buf = try ArrayList(u16).initCapacity(allocator, 128);
     errdefer buf.deinit(allocator);
     while (true) {
         const unused_slice = buf.unusedCapacitySlice();
@@ -1566,7 +1545,7 @@ fn argvToCommandLineWindows(
     allocator: mem.Allocator,
     argv: []const []const u8,
 ) ArgvToCommandLineError![:0]u16 {
-    var buf = std.ArrayList(u8).init(allocator);
+    var buf = std.array_list.Managed(u8).init(allocator);
     defer buf.deinit();
 
     if (argv.len != 0) {
@@ -1746,7 +1725,7 @@ fn argvToScriptCommandLineWindows(
     /// Arguments, not including the script name itself. Expected to be encoded as WTF-8.
     script_args: []const []const u8,
 ) ArgvToScriptCommandLineError![:0]u16 {
-    var buf = try std.ArrayList(u8).initCapacity(allocator, 64);
+    var buf = try std.array_list.Managed(u8).initCapacity(allocator, 64);
     defer buf.deinit();
 
     // `/d` disables execution of AutoRun commands.

@@ -90,12 +90,16 @@
  * Common header for regex.h and xlocale/_regex.h
  */
 
-#ifndef __REGEX_H_
+#ifndef _REGEX_H_
+#define	_REGEX_H_
 #define	__REGEX_H_
 
+#include <_bounds.h>
 #include <_types.h>
 #include <Availability.h>
 #include <sys/_types/_size_t.h>
+
+_LIBC_SINGLE_BY_DEFAULT()
 
 /*********/
 /* types */
@@ -109,7 +113,7 @@ typedef __darwin_off_t regoff_t;
 typedef struct {
 	int re_magic;
 	size_t re_nsub;		/* number of parenthesized subexpressions */
-	const char *re_endp;	/* end pointer for REG_PEND */
+	const char *_LIBC_UNSAFE_INDEXABLE	re_endp;	/* end pointer for REG_PEND */
 	struct re_guts *re_g;	/* none of your business :-) */
 } regex_t;
 
@@ -118,4 +122,123 @@ typedef struct {
 	regoff_t rm_eo;		/* end of match */
 } regmatch_t;
 
-#endif /* !__REGEX_H_ */
+/*******************/
+/* regcomp() flags */
+/*******************/
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define	REG_BASIC	0000	/* Basic regular expressions (synonym for 0) */
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+
+#define	REG_EXTENDED	0001	/* Extended regular expressions */
+#define	REG_ICASE	0002	/* Compile ignoring upper/lower case */
+#define	REG_NOSUB	0004	/* Compile only reporting success/failure */
+#define	REG_NEWLINE	0010	/* Compile for newline-sensitive matching */
+
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define	REG_NOSPEC	0020	/* Compile turning off all special characters */
+
+#if __MAC_OS_X_VERSION_MIN_REQUIRED  >= __MAC_10_8 \
+ || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_6_0 \
+ || defined(__DRIVERKIT_VERSION_MIN_REQUIRED)
+#define	REG_LITERAL	REG_NOSPEC
+#endif
+
+#define	REG_PEND	0040	/* Use re_endp as end pointer */
+
+#if __MAC_OS_X_VERSION_MIN_REQUIRED  >= __MAC_10_8 \
+ || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_6_0 \
+ || defined(__DRIVERKIT_VERSION_MIN_REQUIRED)
+#define	REG_MINIMAL	0100	/* Compile using minimal repetition */
+#define	REG_UNGREEDY	REG_MINIMAL
+#endif
+
+#define	REG_DUMP	0200	/* Unused */
+
+#if __MAC_OS_X_VERSION_MIN_REQUIRED  >= __MAC_10_8 \
+ || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_6_0 \
+ || defined(__DRIVERKIT_VERSION_MIN_REQUIRED)
+#define	REG_ENHANCED	0400	/* Additional (non-POSIX) features */
+#endif
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+
+/********************/
+/* regerror() flags */
+/********************/
+#define	REG_ENOSYS	 (-1)	/* Reserved */
+#define	REG_NOMATCH	 1	/* regexec() function failed to match */
+#define	REG_BADPAT	 2	/* invalid regular expression */
+#define	REG_ECOLLATE	 3	/* invalid collating element */
+#define	REG_ECTYPE	 4	/* invalid character class */
+#define	REG_EESCAPE	 5	/* trailing backslash (\) */
+#define	REG_ESUBREG	 6	/* invalid backreference number */
+#define	REG_EBRACK	 7	/* brackets ([ ]) not balanced */
+#define	REG_EPAREN	 8	/* parentheses not balanced */
+#define	REG_EBRACE	 9	/* braces not balanced */
+#define	REG_BADBR	10	/* invalid repetition count(s) */
+#define	REG_ERANGE	11	/* invalid character range */
+#define	REG_ESPACE	12	/* out of memory */
+#define	REG_BADRPT	13	/* repetition-operator operand invalid */
+
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define	REG_EMPTY	14	/* Unused */
+#define	REG_ASSERT	15	/* Unused */
+#define	REG_INVARG	16	/* invalid argument to regex routine */
+#define	REG_ILLSEQ	17	/* illegal byte sequence */
+
+#define	REG_ATOI	255	/* convert name to number (!) */
+#define	REG_ITOA	0400	/* convert number to name (!) */
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+
+/*******************/
+/* regexec() flags */
+/*******************/
+#define	REG_NOTBOL	00001	/* First character not at beginning of line */
+#define	REG_NOTEOL	00002	/* Last character not at end of line */
+
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+#define	REG_STARTEND	00004	/* String start/end in pmatch[0] */
+#define	REG_TRACE	00400	/* Unused */
+#define	REG_LARGE	01000	/* Unused */
+#define	REG_BACKR	02000	/* force use of backref code */
+
+#if __MAC_OS_X_VERSION_MIN_REQUIRED  >= __MAC_10_8 \
+ || __IPHONE_OS_VERSION_MIN_REQUIRED >= __IPHONE_6_0 \
+ || defined(__DRIVERKIT_VERSION_MIN_REQUIRED)
+#define	REG_BACKTRACKING_MATCHER	REG_BACKR
+#endif
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+
+__BEGIN_DECLS
+int	regcomp(regex_t * __restrict, const char * __restrict, int) __DARWIN_ALIAS(regcomp);
+size_t	regerror(int, const regex_t * __restrict, char *_LIBC_COUNT(__errbuf_size) __restrict, size_t __errbuf_size) __cold;
+/*
+ * gcc under c99 mode won't compile "[ __restrict]" by itself.  As a workaround,
+ * a dummy argument name is added.
+ */
+int	regexec(const regex_t * __restrict, const char * __restrict, size_t __nmatch,
+		regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int);
+void	regfree(regex_t *);
+
+#if __DARWIN_C_LEVEL >= __DARWIN_C_FULL
+
+/* Darwin extensions */
+int	regncomp(regex_t * __restrict, const char *_LIBC_COUNT(__len) __restrict, size_t __len, int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+int	regnexec(const regex_t * __restrict, const char *_LIBC_COUNT(__len) __restrict, size_t __len,
+		size_t __nmatch, regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+int	regwcomp(regex_t * __restrict, const wchar_t * __restrict, int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+int	regwexec(const regex_t * __restrict, const wchar_t * __restrict, size_t __nmatch,
+		regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+int	regwncomp(regex_t * __restrict, const wchar_t * _LIBC_COUNT(__len) __restrict, size_t __len, int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+int	regwnexec(const regex_t * __restrict, const wchar_t * _LIBC_COUNT(__len) __restrict,
+		size_t __len, size_t __nmatch, regmatch_t __pmatch[ __restrict _LIBC_COUNT(__nmatch)], int)
+		__OSX_AVAILABLE_STARTING(__MAC_10_8, __IPHONE_6_0);
+
+#endif /* __DARWIN_C_LEVEL >= __DARWIN_C_FULL */
+__END_DECLS
+
+#endif /* !_REGEX_H_ */

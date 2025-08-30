@@ -80,18 +80,6 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime default_delim
             self.st.pad();
             self.st.squeeze(out[0..]);
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
@@ -191,18 +179,6 @@ fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime 
         pub fn fillBlock(self: *Self) void {
             self.st.fillBlock();
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
@@ -283,18 +259,6 @@ fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime
         /// Align the input to a block boundary.
         pub fn fillBlock(self: *Self) void {
             self.shaker.fillBlock();
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
         }
     };
 }
@@ -390,18 +354,6 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
             ctx.update(msg);
             ctx.final(out);
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
@@ -481,18 +433,6 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
                 self.xof_mode = true;
             }
             self.cshaker.squeeze(out);
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
         }
     };
 }

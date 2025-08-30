@@ -21,7 +21,7 @@ pub export fn simple() void {
 }
 
 // error
-// backend=llvm
+// backend=stage2
 // target=native
 //
 // :7:14: error: unreachable else prong; all cases already handled

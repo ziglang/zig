@@ -261,7 +261,7 @@ fn addObjcMethnameSection(self: *InternalObject, methname: []const u8, macho_fil
 
     sect.offset = @intCast(self.objc_methnames.items.len);
     try self.objc_methnames.ensureUnusedCapacity(gpa, methname.len + 1);
-    self.objc_methnames.writer(gpa).print("{s}\x00", .{methname}) catch unreachable;
+    self.objc_methnames.print(gpa, "{s}\x00", .{methname}) catch unreachable;
 
     const name_str = try self.addString(gpa, "ltmp");
     const sym_index = try self.addSymbol(gpa);
@@ -402,7 +402,7 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
 
     const gpa = macho_file.base.comp.gpa;
 
-    var buffer = std.ArrayList(u8).init(gpa);
+    var buffer = std.array_list.Managed(u8).init(gpa);
     defer buffer.deinit();
 
     const slice = self.sections.slice();
@@ -414,10 +414,11 @@ pub fn resolveLiterals(self: *InternalObject, lp: *MachO.LiteralPool, macho_file
         const rel = relocs[0];
         assert(rel.tag == .@"extern");
         const target = rel.getTargetSymbol(atom.*, macho_file).getAtom(macho_file).?;
-        const target_size = std.math.cast(usize, target.size) orelse return error.Overflow;
+        const target_size = try macho_file.cast(usize, target.size);
         try buffer.ensureUnusedCapacity(target_size);
         buffer.resize(target_size) catch unreachable;
-        @memcpy(buffer.items, try self.getSectionData(target.n_sect));
+        const section_data = try self.getSectionData(target.n_sect, macho_file);
+        @memcpy(buffer.items, section_data);
         const res = try lp.insert(gpa, header.type(), buffer.items);
         buffer.clearRetainingCapacity();
         if (!res.found_existing) {
@@ -582,6 +583,7 @@ pub fn calcSymtabSize(self: *InternalObject, macho_file: *MachO) void {
         const file = ref.getFile(macho_file) orelse continue;
         if (file.getIndex() != self.index) continue;
         if (sym.getName(macho_file).len == 0) continue;
+        if (macho_file.discard_local_symbols and sym.isLocal()) continue;
         sym.flags.output_symtab = true;
         if (sym.isLocal()) {
             sym.addExtra(.{ .symtab = self.output_symtab_ctx.nlocals }, macho_file);
@@ -607,10 +609,11 @@ pub fn writeAtoms(self: *InternalObject, macho_file: *MachO) !void {
         if (!atom.isAlive()) continue;
         const sect = atom.getInputSection(macho_file);
         if (sect.isZerofill()) continue;
-        const off = std.math.cast(usize, atom.value) orelse return error.Overflow;
-        const size = std.math.cast(usize, atom.size) orelse return error.Overflow;
+        const off = try macho_file.cast(usize, atom.value);
+        const size = try macho_file.cast(usize, atom.size);
         const buffer = macho_file.sections.items(.out)[atom.out_n_sect].items[off..][0..size];
-        @memcpy(buffer, try self.getSectionData(atom.n_sect));
+        const section_data = try self.getSectionData(atom.n_sect, macho_file);
+        @memcpy(buffer, section_data);
         try atom.resolveRelocs(macho_file, buffer);
     }
 }
@@ -644,13 +647,13 @@ fn addSection(self: *InternalObject, allocator: Allocator, segname: []const u8, 
     return n_sect;
 }
 
-fn getSectionData(self: *const InternalObject, index: u32) error{Overflow}![]const u8 {
+fn getSectionData(self: *const InternalObject, index: u32, macho_file: *MachO) error{LinkFailure}![]const u8 {
     const slice = self.sections.slice();
     assert(index < slice.items(.header).len);
     const sect = slice.items(.header)[index];
     const extra = slice.items(.extra)[index];
     if (extra.is_objc_methname) {
-        const size = std.math.cast(usize, sect.size) orelse return error.Overflow;
+        const size = try macho_file.cast(usize, sect.size);
         return self.objc_methnames.items[sect.offset..][0..size];
     } else if (extra.is_objc_selref)
         return &self.objc_selrefs
@@ -833,60 +836,46 @@ fn needsObjcMsgsendSymbol(self: InternalObject) bool {
     return false;
 }
 
-const FormatContext = struct {
+const Format = struct {
     self: *InternalObject,
     macho_file: *MachO,
-};
 
-pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatAtoms) {
-    return .{ .data = .{
-        .self = self,
-        .macho_file = macho_file,
-    } };
-}
-
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    try writer.writeAll("  atoms\n");
-    for (ctx.self.getAtoms()) |atom_index| {
-        const atom = ctx.self.getAtom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom.fmt(ctx.macho_file)});
-    }
-}
-
-pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(formatSymtab) {
-    return .{ .data = .{
-        .self = self,
-        .macho_file = macho_file,
-    } };
-}
-
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const macho_file = ctx.macho_file;
-    const self = ctx.self;
-    try writer.writeAll("  symbols\n");
-    for (self.symbols.items, 0..) |sym, i| {
-        const ref = self.getSymbolRef(@intCast(i), macho_file);
-        if (ref.getFile(macho_file) == null) {
-            // TODO any better way of handling this?
-            try writer.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
-        } else {
-            try writer.print("    {}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+    fn atoms(f: Format, w: *Writer) Writer.Error!void {
+        try w.writeAll("  atoms\n");
+        for (f.self.getAtoms()) |atom_index| {
+            const atom = f.self.getAtom(atom_index) orelse continue;
+            try w.print("    {f}\n", .{atom.fmt(f.macho_file)});
         }
     }
+
+    fn symtab(f: Format, w: *Writer) Writer.Error!void {
+        const macho_file = f.macho_file;
+        const self = f.self;
+        try w.writeAll("  symbols\n");
+        for (self.symbols.items, 0..) |sym, i| {
+            const ref = self.getSymbolRef(@intCast(i), macho_file);
+            if (ref.getFile(macho_file) == null) {
+                // TODO any better way of handling this?
+                try w.print("    {s} : unclaimed\n", .{sym.getName(macho_file)});
+            } else {
+                try w.print("    {f}\n", .{ref.getSymbol(macho_file).?.fmt(macho_file)});
+            }
+        }
+    }
+};
+
+pub fn fmtAtoms(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
+    return .{ .data = .{
+        .self = self,
+        .macho_file = macho_file,
+    } };
+}
+
+pub fn fmtSymtab(self: *InternalObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+    return .{ .data = .{
+        .self = self,
+        .macho_file = macho_file,
+    } };
 }
 
 const Section = struct {
@@ -905,6 +894,7 @@ const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
+const Writer = std.io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

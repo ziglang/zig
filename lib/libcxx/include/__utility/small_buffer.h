@@ -10,14 +10,16 @@
 #define _LIBCPP___UTILITY_SMALL_BUFFER_H
 
 #include <__config>
+#include <__cstddef/byte.h>
+#include <__cstddef/size_t.h>
 #include <__memory/construct_at.h>
+#include <__new/allocate.h>
+#include <__new/launder.h>
 #include <__type_traits/decay.h>
 #include <__type_traits/is_trivially_constructible.h>
 #include <__type_traits/is_trivially_destructible.h>
 #include <__utility/exception_guard.h>
 #include <__utility/forward.h>
-#include <cstddef>
-#include <new>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #  pragma GCC system_header
@@ -66,7 +68,7 @@ public:
     if constexpr (__fits_in_buffer<_Stored>) {
       return std::launder(reinterpret_cast<_Stored*>(__buffer_));
     } else {
-      byte* __allocation = static_cast<byte*>(::operator new[](sizeof(_Stored), align_val_t{alignof(_Stored)}));
+      byte* __allocation = reinterpret_cast<byte*>(std::__libcpp_allocate<_Stored>(__element_count(1)));
       std::construct_at(reinterpret_cast<byte**>(__buffer_), __allocation);
       return std::launder(reinterpret_cast<_Stored*>(__allocation));
     }
@@ -75,7 +77,7 @@ public:
   template <class _Stored>
   _LIBCPP_HIDE_FROM_ABI void __dealloc() noexcept {
     if constexpr (!__fits_in_buffer<_Stored>)
-      ::operator delete[](*reinterpret_cast<void**>(__buffer_), sizeof(_Stored), align_val_t{alignof(_Stored)});
+      std::__libcpp_deallocate<_Stored>(__get<_Stored>(), __element_count(1));
   }
 
   template <class _Stored, class... _Args>

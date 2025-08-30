@@ -1,14 +1,14 @@
 pub fn gcAtoms(elf_file: *Elf) !void {
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    var roots = std.ArrayList(*Atom).init(gpa);
+    var roots = std.array_list.Managed(*Atom).init(gpa);
     defer roots.deinit();
     try collectRoots(&roots, elf_file);
     mark(roots, elf_file);
     prune(elf_file);
 }
 
-fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
+fn collectRoots(roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
     if (elf_file.linkerDefinedPtr()) |obj| {
         if (obj.entrySymbol(elf_file)) |sym| {
             try markSymbol(sym, roots, elf_file);
@@ -82,7 +82,7 @@ fn collectRoots(roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
     }
 }
 
-fn markSymbol(sym: *Symbol, roots: *std.ArrayList(*Atom), elf_file: *Elf) !void {
+fn markSymbol(sym: *Symbol, roots: *std.array_list.Managed(*Atom), elf_file: *Elf) !void {
     if (sym.mergeSubsection(elf_file)) |msub| {
         msub.alive = true;
         return;
@@ -111,7 +111,7 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
                     const target_sym = elf_file.symbol(ref) orelse continue;
                     const target_atom = target_sym.atom(elf_file) orelse continue;
                     target_atom.alive = true;
-                    gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
+                    gc_track_live_log.debug("{f}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
                     if (markAtom(target_atom)) markLive(target_atom, elf_file);
                 }
             }
@@ -128,12 +128,12 @@ fn markLive(atom: *Atom, elf_file: *Elf) void {
         }
         const target_atom = target_sym.atom(elf_file) orelse continue;
         target_atom.alive = true;
-        gc_track_live_log.debug("{}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
+        gc_track_live_log.debug("{f}marking live atom({d})", .{ track_live_level, target_atom.atom_index });
         if (markAtom(target_atom)) markLive(target_atom, elf_file);
     }
 }
 
-fn mark(roots: std.ArrayList(*Atom), elf_file: *Elf) void {
+fn mark(roots: std.array_list.Managed(*Atom), elf_file: *Elf) void {
     for (roots.items) |root| {
         gc_track_live_log.debug("root atom({d})", .{root.atom_index});
         markLive(root, elf_file);
@@ -162,22 +162,6 @@ fn prune(elf_file: *Elf) void {
     }
 }
 
-pub fn dumpPrunedAtoms(elf_file: *Elf) !void {
-    const stderr = std.io.getStdErr().writer();
-    for (elf_file.objects.items) |index| {
-        const file = elf_file.file(index).?;
-        for (file.atoms()) |atom_index| {
-            const atom = file.atom(atom_index) orelse continue;
-            if (!atom.alive)
-                // TODO should we simply print to stderr?
-                try stderr.print("link: removing unused section '{s}' in file '{}'\n", .{
-                    atom.name(elf_file),
-                    atom.file(elf_file).?.fmtPath(),
-                });
-        }
-    }
-}
-
 const Level = struct {
     value: usize = 0,
 
@@ -185,15 +169,8 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(
-        self: *const @This(),
-        comptime unused_fmt_string: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = unused_fmt_string;
-        _ = options;
-        try writer.writeByteNTimes(' ', self.value);
+    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
+        try w.splatByteAll(' ', self.value);
     }
 };
 

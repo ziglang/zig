@@ -116,15 +116,17 @@ pub fn translate(
     var driver: aro.Driver = .{ .comp = comp };
     defer driver.deinit();
 
-    var macro_buf = std.ArrayList(u8).init(gpa);
+    var macro_buf: std.Io.Writer.Allocating = .init(gpa);
     defer macro_buf.deinit();
 
-    assert(!try driver.parseArgs(std.io.null_writer, macro_buf.writer(), args));
+    var trash: [64]u8 = undefined;
+    var discarding: std.Io.Writer.Discarding = .init(&trash);
+    assert(!try driver.parseArgs(&discarding.writer, &macro_buf.writer, args));
     assert(driver.inputs.items.len == 1);
     const source = driver.inputs.items[0];
 
     const builtin_macros = try comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try comp.addSourceFromBuffer("<command line>", macro_buf.items);
+    const user_macros = try comp.addSourceFromBuffer("<command line>", macro_buf.written());
 
     var pp = try aro.Preprocessor.initDefault(comp);
     defer pp.deinit();
@@ -168,6 +170,7 @@ pub fn translate(
         context.pattern_list.deinit(gpa);
     }
 
+    @setEvalBranchQuota(2000);
     inline for (@typeInfo(std.zig.c_builtins).@"struct".decls) |decl| {
         const builtin_fn = try ZigTag.pub_var_simple.create(arena, .{
             .name = decl.name,
@@ -412,11 +415,11 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_ty: Type) Error!void {
             break :blk ZigTag.opaque_literal.init();
         }
 
-        var fields = try std.ArrayList(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
+        var fields = try std.array_list.Managed(ast.Payload.Record.Field).initCapacity(c.gpa, record_decl.fields.len);
         defer fields.deinit();
 
         // TODO: Add support for flexible array field functions
-        var functions = std.ArrayList(ZigNode).init(c.gpa);
+        var functions = std.array_list.Managed(ZigNode).init(c.gpa);
         defer functions.deinit();
 
         var unnamed_field_count: u32 = 0;
@@ -697,11 +700,10 @@ fn transEnumDecl(c: *Context, scope: *Scope, enum_decl: *const Type.Enum, field_
 }
 
 fn getTypeStr(c: *Context, ty: Type) ![]const u8 {
-    var buf: std.ArrayListUnmanaged(u8) = .empty;
-    defer buf.deinit(c.gpa);
-    const w = buf.writer(c.gpa);
-    try ty.print(c.mapper, c.comp.langopts, w);
-    return c.arena.dupe(u8, buf.items);
+    var allocating: std.Io.Writer.Allocating = .init(c.gpa);
+    defer allocating.deinit();
+    ty.print(c.mapper, c.comp.langopts, &allocating.writer) catch return error.OutOfMemory;
+    return c.arena.dupe(u8, allocating.written());
 }
 
 fn transType(c: *Context, scope: *Scope, raw_ty: Type, qual_handling: Type.QualHandling, source_loc: TokenIndex) TypeError!ZigNode {
@@ -1205,7 +1207,7 @@ pub const PatternList = struct {
     /// Assumes that `ms` represents a tokenized function-like macro.
     fn buildArgsHash(allocator: mem.Allocator, ms: MacroSlicer, hash: *ArgsPositionMap) MacroProcessingError!void {
         assert(ms.tokens.len > 2);
-        assert(ms.tokens[0].id == .identifier or ms.tokens[0].id == .extended_identifier);
+        assert(ms.tokens[0].id.isMacroIdentifier());
         assert(ms.tokens[1].id == .l_paren);
 
         var i: usize = 2;
@@ -1233,7 +1235,7 @@ pub const PatternList = struct {
             const source = template[0];
             const impl = template[1];
 
-            var tok_list = std.ArrayList(CToken).init(allocator);
+            var tok_list = std.array_list.Managed(CToken).init(allocator);
             defer tok_list.deinit();
             try tokenizeMacro(source, &tok_list);
             const tokens = try allocator.dupe(CToken, tok_list.items);
@@ -1348,7 +1350,7 @@ pub const TypeError = Error || error{UnsupportedType};
 pub const TransError = TypeError || error{UnsupportedTranslation};
 
 pub const SymbolTable = std.StringArrayHashMap(ast.Node);
-pub const AliasList = std.ArrayList(struct {
+pub const AliasList = std.array_list.Managed(struct {
     alias: []const u8,
     name: []const u8,
 });
@@ -1396,7 +1398,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
         /// into the main arena.
         pub const Block = struct {
             base: ScopeExtraScope,
-            statements: std.ArrayList(ast.Node),
+            statements: std.array_list.Managed(ast.Node),
             variables: AliasList,
             mangle_count: u32 = 0,
             label: ?[]const u8 = null,
@@ -1428,7 +1430,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                         .id = .block,
                         .parent = parent,
                     },
-                    .statements = std.ArrayList(ast.Node).init(c.gpa),
+                    .statements = std.array_list.Managed(ast.Node).init(c.gpa),
                     .variables = AliasList.init(c.gpa),
                     .variable_discards = std.StringArrayHashMap(*ast.Payload.Discard).init(c.gpa),
                 };
@@ -1501,19 +1503,29 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 return scope.base.parent.?.getAlias(name);
             }
 
-            /// Finds the (potentially) mangled struct name for a locally scoped extern variable given the original declaration name.
+            /// Finds the (potentially) mangled struct name for a locally scoped extern variable or function given the original declaration name.
             ///
             /// Block scoped extern declarations translate to:
             ///     const MangledStructName = struct {extern [qualifiers] original_extern_variable_name: [type]};
             /// This finds MangledStructName given original_extern_variable_name for referencing correctly in transDeclRefExpr()
             pub fn getLocalExternAlias(scope: *Block, name: []const u8) ?[]const u8 {
                 for (scope.statements.items) |node| {
-                    if (node.tag() == .extern_local_var) {
-                        const parent_node = node.castTag(.extern_local_var).?;
-                        const init_node = parent_node.data.init.castTag(.var_decl).?;
-                        if (std.mem.eql(u8, init_node.data.name, name)) {
-                            return parent_node.data.name;
-                        }
+                    switch (node.tag()) {
+                        .extern_local_var => {
+                            const parent_node = node.castTag(.extern_local_var).?;
+                            const init_node = parent_node.data.init.castTag(.var_decl).?;
+                            if (std.mem.eql(u8, init_node.data.name, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        .extern_local_fn => {
+                            const parent_node = node.castTag(.extern_local_fn).?;
+                            const init_node = parent_node.data.init.castTag(.func).?;
+                            if (std.mem.eql(u8, init_node.data.name.?, name)) {
+                                return parent_node.data.name;
+                            }
+                        },
+                        else => {},
                     }
                 }
                 return null;
@@ -1546,7 +1558,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
             sym_table: SymbolTable,
             blank_macros: std.StringArrayHashMap(void),
             context: *ScopeExtraContext,
-            nodes: std.ArrayList(ast.Node),
+            nodes: std.array_list.Managed(ast.Node),
 
             pub fn init(c: *ScopeExtraContext) Root {
                 return .{
@@ -1557,7 +1569,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                     .sym_table = SymbolTable.init(c.gpa),
                     .blank_macros = std.StringArrayHashMap(void).init(c.gpa),
                     .context = c,
-                    .nodes = std.ArrayList(ast.Node).init(c.gpa),
+                    .nodes = std.array_list.Managed(ast.Node).init(c.gpa),
                 };
             }
 
@@ -1619,7 +1631,11 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
                 .root => null,
                 .block => ret: {
                     const block = @as(*Block, @fieldParentPtr("base", scope));
-                    break :ret block.getLocalExternAlias(name);
+                    const alias_name = block.getLocalExternAlias(name);
+                    if (alias_name) |_alias_name| {
+                        break :ret _alias_name;
+                    }
+                    break :ret scope.parent.?.getLocalExternAlias(name);
                 },
                 .loop, .do_loop, .condition => scope.parent.?.getLocalExternAlias(name),
             };
@@ -1690,7 +1706,7 @@ pub fn ScopeExtra(comptime ScopeExtraContext: type, comptime ScopeExtraType: typ
     };
 }
 
-pub fn tokenizeMacro(source: []const u8, tok_list: *std.ArrayList(CToken)) Error!void {
+pub fn tokenizeMacro(source: []const u8, tok_list: *std.array_list.Managed(CToken)) Error!void {
     var tokenizer: aro.Tokenizer = .{
         .buf = source,
         .source = .unused,
@@ -1717,7 +1733,7 @@ test "Macro matching" {
     const helper = struct {
         const MacroFunctions = std.zig.c_translation.Macros;
         fn checkMacro(allocator: mem.Allocator, pattern_list: PatternList, source: []const u8, comptime expected_match: ?[]const u8) !void {
-            var tok_list = std.ArrayList(CToken).init(allocator);
+            var tok_list = std.array_list.Managed(CToken).init(allocator);
             defer tok_list.deinit();
             try tokenizeMacro(source, &tok_list);
             const macro_slicer: MacroSlicer = .{ .source = source, .tokens = tok_list.items };
@@ -1766,7 +1782,8 @@ test "Macro matching" {
 fn renderErrorsAndExit(comp: *aro.Compilation) noreturn {
     defer std.process.exit(1);
 
-    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.io.getStdErr()));
+    var buffer: [1000]u8 = undefined;
+    var writer = aro.Diagnostics.defaultMsgWriter(std.io.tty.detectConfig(std.fs.File.stderr()), &buffer);
     defer writer.deinit(); // writer deinit must run *before* exit so that stderr is flushed
 
     var saw_error = false;
@@ -1804,11 +1821,12 @@ pub fn main() !void {
     var tree = translate(gpa, &aro_comp, args) catch |err| switch (err) {
         error.ParsingFailed, error.FatalError => renderErrorsAndExit(&aro_comp),
         error.OutOfMemory => return error.OutOfMemory,
-        error.StreamTooLong => std.zig.fatal("An input file was larger than 4GiB", .{}),
+        error.WriteFailed => return error.WriteFailed,
+        error.StreamTooLong => std.process.fatal("An input file was larger than 4GiB", .{}),
     };
     defer tree.deinit(gpa);
 
-    const formatted = try tree.render(arena);
-    try std.io.getStdOut().writeAll(formatted);
+    const formatted = try tree.renderAlloc(arena);
+    try std.fs.File.stdout().writeAll(formatted);
     return std.process.cleanExit();
 }

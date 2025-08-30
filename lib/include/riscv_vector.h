@@ -419,7 +419,6 @@ typedef __rvv_bfloat16m2x4_t vbfloat16m2x4_t;
 typedef __rvv_bfloat16m4_t vbfloat16m4_t;
 typedef __rvv_bfloat16m4x2_t vbfloat16m4x2_t;
 typedef __rvv_bfloat16m8_t vbfloat16m8_t;
-#define __riscv_v_intrinsic_overloading 1
 
 #ifdef __cplusplus
 }

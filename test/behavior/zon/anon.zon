@@ -1,0 +1,16 @@
+.{
+    .{
+        .bool_true = true,
+        .bool_false = false,
+        .string = "foo",
+    },
+    .{
+        null,
+        10,
+        36893488147419103232,
+        1.234,
+        'z',
+        .bar,
+        .{},
+    },
+}

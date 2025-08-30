@@ -1,4 +1,4 @@
-/* Copyright (C) 1991-2024 Free Software Foundation, Inc.
+/* Copyright (C) 1991-2025 Free Software Foundation, Inc.
    This file is part of the GNU C Library.
 
    The GNU C Library is free software; you can redistribute it and/or
@@ -195,7 +195,8 @@ extern void globfree64 (glob64_t *__pglob) __THROW;
 
    This function is not part of the interface specified by POSIX.2
    but several programs want to use it.  */
-extern int glob_pattern_p (const char *__pattern, int __quote) __THROW;
+extern int glob_pattern_p (const char *__pattern, int __quote) __THROW
+	__nonnull ((1));
 #endif
 
 __END_DECLS
