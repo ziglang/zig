@@ -177,7 +177,6 @@ debug_compiler_runtime_libs: bool,
 debug_compile_errors: bool,
 /// Do not check this field directly. Instead, use the `debugIncremental` wrapper function.
 debug_incremental: bool,
-incremental: bool,
 alloc_failure_occurred: bool = false,
 last_update_was_cache_hit: bool = false,
 
@@ -256,7 +255,9 @@ mutex: if (builtin.single_threaded) struct {
 test_filters: []const []const u8,
 
 link_task_wait_group: WaitGroup = .{},
-link_prog_node: std.Progress.Node = std.Progress.Node.none,
+link_prog_node: std.Progress.Node = .none,
+link_uav_prog_node: std.Progress.Node = .none,
+link_lazy_prog_node: std.Progress.Node = .none,
 
 llvm_opt_bisect_limit: c_int,
 
@@ -1746,7 +1747,6 @@ pub const CreateOptions = struct {
     debug_compiler_runtime_libs: bool = false,
     debug_compile_errors: bool = false,
     debug_incremental: bool = false,
-    incremental: bool = false,
     /// Normally when you create a `Compilation`, Zig will automatically build
     /// and link in required dependencies, such as compiler-rt and libc. When
     /// building such dependencies themselves, this flag must be set to avoid
@@ -1982,6 +1982,7 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             };
             if (have_zcu and (!need_llvm or use_llvm)) {
                 if (output_mode == .Obj) break :s .zcu;
+                if (options.config.use_new_linker) break :s .zcu;
                 switch (target_util.zigBackend(target, use_llvm)) {
                     else => {},
                     .stage2_aarch64, .stage2_x86_64 => if (target.ofmt == .coff) {
@@ -2188,8 +2189,8 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 .inherited = .{},
                 .global = options.config,
                 .parent = options.root_mod,
-            }) catch |err| return switch (err) {
-                error.OutOfMemory => |e| return e,
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
                 // None of these are possible because the configuration matches the root module
                 // which already passed these checks.
                 error.ValgrindUnsupportedOnTarget => unreachable,
@@ -2266,7 +2267,6 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
             .debug_compiler_runtime_libs = options.debug_compiler_runtime_libs,
             .debug_compile_errors = options.debug_compile_errors,
             .debug_incremental = options.debug_incremental,
-            .incremental = options.incremental,
             .root_name = root_name,
             .sysroot = sysroot,
             .windows_libs = .empty,
@@ -2409,6 +2409,8 @@ pub fn create(gpa: Allocator, arena: Allocator, diag: *CreateDiagnostic, options
                 // Synchronize with other matching comments: ZigOnlyHashStuff
                 hash.add(use_llvm);
                 hash.add(options.config.use_lib_llvm);
+                hash.add(options.config.use_lld);
+                hash.add(options.config.use_new_linker);
                 hash.add(options.config.dll_export_fns);
                 hash.add(options.config.is_test);
                 hash.addListOfBytes(options.test_filters);
@@ -3075,14 +3077,29 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
 
     // The linker progress node is set up here instead of in `performAllTheWork`, because
     // we also want it around during `flush`.
-    const have_link_node = comp.bin_file != null;
-    if (have_link_node) {
+    if (comp.bin_file) |lf| {
         comp.link_prog_node = main_progress_node.start("Linking", 0);
+        if (lf.cast(.elf2)) |elf| {
+            comp.link_prog_node.increaseEstimatedTotalItems(3);
+            comp.link_uav_prog_node = comp.link_prog_node.start("Constants", 0);
+            comp.link_lazy_prog_node = comp.link_prog_node.start("Synthetics", 0);
+            elf.mf.update_prog_node = comp.link_prog_node.start("Relocations", elf.mf.updates.items.len);
+        }
     }
-    defer if (have_link_node) {
+    defer {
         comp.link_prog_node.end();
         comp.link_prog_node = .none;
-    };
+        comp.link_uav_prog_node.end();
+        comp.link_uav_prog_node = .none;
+        comp.link_lazy_prog_node.end();
+        comp.link_lazy_prog_node = .none;
+        if (comp.bin_file) |lf| {
+            if (lf.cast(.elf2)) |elf| {
+                elf.mf.update_prog_node.end();
+                elf.mf.update_prog_node = .none;
+            }
+        }
+    }
 
     try comp.performAllTheWork(main_progress_node);
 
@@ -3099,6 +3116,8 @@ pub fn update(comp: *Compilation, main_progress_node: std.Progress.Node) UpdateE
                 // have been discovered and not filtered out.
                 try pt.populateTestFunctions();
             }
+
+            link.updateErrorData(pt);
 
             try pt.processExports();
         }
@@ -3474,6 +3493,8 @@ fn addNonIncrementalStuffToCacheManifest(
 
     man.hash.add(comp.config.use_llvm);
     man.hash.add(comp.config.use_lib_llvm);
+    man.hash.add(comp.config.use_lld);
+    man.hash.add(comp.config.use_new_linker);
     man.hash.add(comp.config.is_test);
     man.hash.add(comp.config.import_memory);
     man.hash.add(comp.config.export_memory);
@@ -4073,7 +4094,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
         defer sorted_failed_analysis.deinit(gpa);
         var added_any_analysis_error = false;
         for (sorted_failed_analysis.items(.key), sorted_failed_analysis.items(.value)) |anal_unit, error_msg| {
-            if (comp.incremental) {
+            if (comp.config.incremental) {
                 const refs = try zcu.resolveReferences();
                 if (!refs.contains(anal_unit)) continue;
             }
@@ -4240,7 +4261,7 @@ pub fn getAllErrorsAlloc(comp: *Compilation) error{OutOfMemory}!ErrorBundle {
 
     // TODO: eventually, this should be behind `std.debug.runtime_safety`. But right now, this is a
     // very common way for incremental compilation bugs to manifest, so let's always check it.
-    if (comp.zcu) |zcu| if (comp.incremental and bundle.root_list.items.len == 0) {
+    if (comp.zcu) |zcu| if (comp.config.incremental and bundle.root_list.items.len == 0) {
         for (zcu.transitive_failed_analysis.keys()) |failed_unit| {
             const refs = try zcu.resolveReferences();
             var ref = refs.get(failed_unit) orelse continue;
@@ -4949,7 +4970,7 @@ fn performAllTheWork(
             tr.stats.n_reachable_files = @intCast(zcu.alive_files.count());
         }
 
-        if (comp.incremental) {
+        if (comp.config.incremental) {
             const update_zir_refs_node = main_progress_node.start("Update ZIR References", 0);
             defer update_zir_refs_node.end();
             try pt.updateZirRefs();

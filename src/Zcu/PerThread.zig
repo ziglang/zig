@@ -1815,7 +1815,7 @@ fn createFileRootStruct(
     wip_ty.setName(ip, try file.internFullyQualifiedName(pt), .none);
     ip.namespacePtr(namespace_index).owner_type = wip_ty.index;
 
-    if (zcu.comp.incremental) {
+    if (zcu.comp.config.incremental) {
         try pt.addDependency(.wrap(.{ .type = wip_ty.index }), .{ .src_hash = tracked_inst });
     }
 

@@ -105,7 +105,7 @@ pub fn parseHeader(
         if (amt != buf.len) return error.UnexpectedEndOfFile;
     }
     if (!mem.eql(u8, ehdr.e_ident[0..4], "\x7fELF")) return error.BadMagic;
-    if (ehdr.e_ident[elf.EI_VERSION] != 1) return error.BadElfVersion;
+    if (ehdr.e_ident[elf.EI.VERSION] != 1) return error.BadElfVersion;
     if (ehdr.e_type != elf.ET.DYN) return error.NotSharedObject;
 
     if (target.toElfMachine() != ehdr.e_machine)

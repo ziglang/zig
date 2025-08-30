@@ -3166,7 +3166,7 @@ fn markTransitiveDependersPotentiallyOutdated(zcu: *Zcu, maybe_outdated: AnalUni
 }
 
 pub fn findOutdatedToAnalyze(zcu: *Zcu) Allocator.Error!?AnalUnit {
-    if (!zcu.comp.incremental) return null;
+    if (!zcu.comp.config.incremental) return null;
 
     if (zcu.outdated.count() == 0) {
         // Any units in `potentially_outdated` must just be stuck in loops with one another: none of those
