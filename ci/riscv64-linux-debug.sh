@@ -59,4 +59,5 @@ stage3-debug/bin/zig build test-cases test-modules test-unit test-c-abi test-sta
   -Dskip-run-translated-c \
   -Dtarget=native-native-musl \
   --search-prefix "$PREFIX" \
-  --zig-lib-dir "$PWD/../lib"
+  --zig-lib-dir "$PWD/../lib" \
+  --test-timeout-ms 60_000
