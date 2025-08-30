@@ -160,7 +160,7 @@ test parse {
             /// First positional (non-named) argument:
             input: [:0]const u8 = "",
             /// Second positional argument is declared as optional:
-            reptitions: u32 = 1,
+            repititions: u32 = 1,
             /// Receives the rest of the positional arguments.
             @"the-rest": []const [:0]const u8 = &.{},
         },
