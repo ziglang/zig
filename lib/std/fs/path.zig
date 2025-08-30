@@ -150,7 +150,7 @@ pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, 
     return .{ .data = paths };
 }
 
-fn formatJoin(paths: []const []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatJoin(paths: []const []const u8, w: *std.Io.Writer) std.Io.Writer.Error!void {
     const first_path_idx = for (paths, 0..) |p, idx| {
         if (p.len != 0) break idx;
     } else return;

@@ -121,7 +121,7 @@ pub fn eql(a: Type, b: Type, zcu: *const Zcu) bool {
     return a.toIntern() == b.toIntern();
 }
 
-pub fn format(ty: Type, writer: *std.io.Writer) !void {
+pub fn format(ty: Type, writer: *std.Io.Writer) !void {
     _ = ty;
     _ = writer;
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
@@ -140,7 +140,7 @@ const Format = struct {
     ty: Type,
     pt: Zcu.PerThread,
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         return print(f.ty, writer, f.pt);
     }
 };
@@ -151,13 +151,13 @@ pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
 
 /// This is a debug function. In order to print types in a meaningful way
 /// we also need access to the module.
-pub fn dump(start_type: Type, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn dump(start_type: Type, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     return writer.print("{any}", .{start_type.ip_index});
 }
 
 /// Prints a name suitable for `@typeName`.
 /// TODO: take an `opt_sema` to pass to `fmtValue` when printing sentinels.
-pub fn print(ty: Type, writer: *std.io.Writer, pt: Zcu.PerThread) std.io.Writer.Error!void {
+pub fn print(ty: Type, writer: *std.Io.Writer, pt: Zcu.PerThread) std.Io.Writer.Error!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(ty.toIntern())) {

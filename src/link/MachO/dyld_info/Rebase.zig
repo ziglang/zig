@@ -656,7 +656,7 @@ const macho = std.macho;
 const mem = std.mem;
 const testing = std.testing;
 const Allocator = mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const trace = @import("../../../tracy.zig").trace;
 const File = @import("../file.zig").File;

@@ -1,9 +1,9 @@
 const Limited = @This();
 
 const std = @import("../../std.zig");
-const Reader = std.io.Reader;
-const Writer = std.io.Writer;
-const Limit = std.io.Limit;
+const Reader = std.Io.Reader;
+const Writer = std.Io.Writer;
+const Limit = std.Io.Limit;
 
 unlimited: *Reader,
 remaining: Limit,

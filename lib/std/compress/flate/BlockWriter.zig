@@ -1,9 +1,8 @@
 //! Accepts list of tokens, decides what is best block type to write. What block
 //! type will provide best compression. Writes header and body of the block.
 const std = @import("std");
-const io = std.io;
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const BlockWriter = @This();
 const flate = @import("../flate.zig");

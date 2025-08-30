@@ -566,7 +566,7 @@ const InstTracking = struct {
         }
     }
 
-    pub fn format(inst_tracking: InstTracking, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(inst_tracking: InstTracking, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         if (!std.meta.eql(inst_tracking.long, inst_tracking.short)) try writer.print("|{}| ", .{inst_tracking.long});
         try writer.print("{}", .{inst_tracking.short});
     }
@@ -932,7 +932,7 @@ const FormatWipMirData = struct {
     func: *Func,
     inst: Mir.Inst.Index,
 };
-fn formatWipMir(data: FormatWipMirData, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatWipMir(data: FormatWipMirData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const pt = data.func.pt;
     const comp = pt.zcu.comp;
     var lower: Lower = .{
@@ -980,7 +980,7 @@ const FormatNavData = struct {
     ip: *const InternPool,
     nav_index: InternPool.Nav.Index,
 };
-fn formatNav(data: FormatNavData, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatNav(data: FormatNavData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
 fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(FormatNavData, formatNav) {
@@ -994,7 +994,7 @@ const FormatAirData = struct {
     func: *Func,
     inst: Air.Inst.Index,
 };
-fn formatAir(data: FormatAirData, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatAir(data: FormatAirData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     // Not acceptable implementation because it ignores `writer`:
     //data.func.air.dumpInst(data.inst, data.func.pt, data.func.liveness);
     _ = data;
@@ -1008,7 +1008,7 @@ fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, fo
 const FormatTrackingData = struct {
     func: *Func,
 };
-fn formatTracking(data: FormatTrackingData, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatTracking(data: FormatTrackingData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     var it = data.func.inst_tracking.iterator();
     while (it.next()) |entry| try writer.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }

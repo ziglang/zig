@@ -320,7 +320,7 @@ const Format = struct {
     symbol: Symbol,
     elf_file: *Elf,
 
-    fn name(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn name(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const elf_file = f.elf_file;
         const symbol = f.symbol;
         try writer.writeAll(symbol.name(elf_file));
@@ -335,7 +335,7 @@ const Format = struct {
         }
     }
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const symbol = f.symbol;
         const elf_file = f.elf_file;
         try writer.print("%{d} : {f} : @{x}", .{

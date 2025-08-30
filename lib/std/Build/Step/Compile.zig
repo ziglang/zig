@@ -2021,7 +2021,7 @@ fn checkCompileErrors(compile: *Compile) !void {
     const arena = compile.step.owner.allocator;
 
     const actual_errors = ae: {
-        var aw: std.io.Writer.Allocating = .init(arena);
+        var aw: std.Io.Writer.Allocating = .init(arena);
         defer aw.deinit();
         try actual_eb.renderToWriter(.{
             .ttyconf = .no_color,

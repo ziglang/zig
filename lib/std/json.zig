@@ -1,7 +1,7 @@
 //! JSON parsing and stringification conforming to RFC 8259. https://datatracker.ietf.org/doc/html/rfc8259
 //!
 //! The low-level `Scanner` API produces `Token`s from an input slice or successive slices of inputs,
-//! The `Reader` API connects a `std.io.GenericReader` to a `Scanner`.
+//! The `Reader` API connects a `std.Io.GenericReader` to a `Scanner`.
 //!
 //! The high-level `parseFromSlice` and `parseFromTokenSource` deserialize a JSON document into a Zig type.
 //! Parse into a dynamically-typed `Value` to load any JSON value for runtime inspection.
@@ -42,7 +42,7 @@ test Value {
 }
 
 test Stringify {
-    var out: std.io.Writer.Allocating = .init(testing.allocator);
+    var out: std.Io.Writer.Allocating = .init(testing.allocator);
     var write_stream: Stringify = .{
         .writer = &out.writer,
         .options = .{ .whitespace = .indent_2 },

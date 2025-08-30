@@ -2126,7 +2126,7 @@ pub const FunctionType = extern struct {
         wasm: *const Wasm,
         ft: FunctionType,
 
-        pub fn format(self: Formatter, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(self: Formatter, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const params = self.ft.params.slice(self.wasm);
             const returns = self.ft.returns.slice(self.wasm);
 
@@ -2905,7 +2905,7 @@ pub const Feature = packed struct(u8) {
         @"=",
     };
 
-    pub fn format(feature: Feature, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(feature: Feature, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{s} {s}", .{ @tagName(feature.prefix), @tagName(feature.tag) });
     }
 

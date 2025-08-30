@@ -9,7 +9,7 @@ const Progress = @This();
 const posix = std.posix;
 const is_big_endian = builtin.cpu.arch.endian() == .big;
 const is_windows = builtin.os.tag == .windows;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 /// `null` if the current node (and its children) should
 /// not print on update()

@@ -1,6 +1,20 @@
 //! All interned objects have both a value and a type.
 //! This data structure is self-contained.
 
+const builtin = @import("builtin");
+const std = @import("std");
+const Allocator = std.mem.Allocator;
+const assert = std.debug.assert;
+const BigIntConst = std.math.big.int.Const;
+const BigIntMutable = std.math.big.int.Mutable;
+const Cache = std.Build.Cache;
+const Limb = std.math.big.Limb;
+const Hash = std.hash.Wyhash;
+
+const InternPool = @This();
+const Zcu = @import("Zcu.zig");
+const Zir = std.zig.Zir;
+
 /// One item per thread, indexed by `tid`, which is dense and unique per thread.
 locals: []Local,
 /// Length must be a power of two and represents the number of simultaneous
@@ -1606,20 +1620,6 @@ fn getIndexMask(ip: *const InternPool, comptime BackingInt: type) u32 {
 
 const FieldMap = std.ArrayHashMapUnmanaged(void, void, std.array_hash_map.AutoContext(void), false);
 
-const builtin = @import("builtin");
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-const assert = std.debug.assert;
-const BigIntConst = std.math.big.int.Const;
-const BigIntMutable = std.math.big.int.Mutable;
-const Cache = std.Build.Cache;
-const Limb = std.math.big.Limb;
-const Hash = std.hash.Wyhash;
-
-const InternPool = @This();
-const Zcu = @import("Zcu.zig");
-const Zir = std.zig.Zir;
-
 /// An index into `maps` which might be `none`.
 pub const OptionalMapIndex = enum(u32) {
     none = std.math.maxInt(u32),
@@ -1895,7 +1895,7 @@ pub const NullTerminatedString = enum(u32) {
         ip: *const InternPool,
         id: bool,
     };
-    fn format(data: FormatData, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn format(data: FormatData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const slice = data.string.toSlice(data.ip);
         if (!data.id) {
             try writer.writeAll(slice);

@@ -1308,13 +1308,7 @@ fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kin
         return error.FileNotFound;
     }
 
-    const file = try comp.cwd.openFile(path, .{});
-    defer file.close();
-
-    const contents = file.readToEndAlloc(comp.gpa, std.math.maxInt(u32)) catch |err| switch (err) {
-        error.FileTooBig => return error.StreamTooLong,
-        else => |e| return e,
-    };
+    const contents = try comp.cwd.readFileAlloc(path, comp.gpa, .limited(std.math.maxInt(u32)));
     errdefer comp.gpa.free(contents);
 
     return comp.addSourceFromOwnedBuffer(contents, path, kind);
@@ -1433,19 +1427,7 @@ fn getFileContents(comp: *Compilation, path: []const u8, limit: ?u32) ![]const u
         return error.FileNotFound;
     }
 
-    const file = try comp.cwd.openFile(path, .{});
-    defer file.close();
-
-    var buf = std.array_list.Managed(u8).init(comp.gpa);
-    defer buf.deinit();
-
-    const max = limit orelse std.math.maxInt(u32);
-    file.deprecatedReader().readAllArrayList(&buf, max) catch |e| switch (e) {
-        error.StreamTooLong => if (limit == null) return e,
-        else => return e,
-    };
-
-    return buf.toOwnedSlice();
+    return comp.cwd.readFileAlloc(path, comp.gpa, .limited(limit orelse std.math.maxInt(u32)));
 }
 
 pub fn findEmbed(
@@ -1645,8 +1627,8 @@ test "addSourceFromReader" {
             var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
-            var buf_reader = std.io.fixedBufferStream(str);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "path", .user);
+            var buf_reader: std.Io.Reader = .fixed(str);
+            const source = try comp.addSourceFromReader(&buf_reader, "path", .user);
 
             try std.testing.expectEqualStrings(expected, source.buf);
             try std.testing.expectEqual(warning_count, @as(u32, @intCast(comp.diagnostics.list.items.len)));
@@ -1727,8 +1709,8 @@ test "ignore BOM at beginning of file" {
             var comp = Compilation.init(std.testing.allocator, std.fs.cwd());
             defer comp.deinit();
 
-            var buf_reader = std.io.fixedBufferStream(buf);
-            const source = try comp.addSourceFromReader(buf_reader.reader(), "file.c", .user);
+            var buf_reader: std.Io.Reader = .fixed(buf);
+            const source = try comp.addSourceFromReader(&buf_reader, "file.c", .user);
             const expected_output = if (mem.startsWith(u8, buf, BOM)) buf[BOM.len..] else buf;
             try std.testing.expectEqualStrings(expected_output, source.buf);
         }

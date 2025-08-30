@@ -405,6 +405,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 return;
             }
 
+            // Protects growing unnecessarily since better_capacity will be larger.
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_capacity);
@@ -664,9 +665,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, gpa: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
-            // This addition can never overflow because `self.items` can never occupy the whole address space
+            // This addition can never overflow because `self.items` can never occupy the whole address space.
             try self.ensureTotalCapacityPrecise(gpa, self.items.len + 1);
             self.appendAssumeCapacity(sentinel);
+            errdefer self.items.len -= 1;
             const result = try self.toOwnedSlice(gpa);
             return result[0 .. result.len - 1 :sentinel];
         }
@@ -1038,14 +1040,14 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         pub fn printAssumeCapacity(self: *Self, comptime fmt: []const u8, args: anytype) void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch unreachable;
             self.items.len += w.end;
         }
 
         pub fn printBounded(self: *Self, comptime fmt: []const u8, args: anytype) error{OutOfMemory}!void {
             comptime assert(T == u8);
-            var w: std.io.Writer = .fixed(self.unusedCapacitySlice());
+            var w: std.Io.Writer = .fixed(self.unusedCapacitySlice());
             w.print(fmt, args) catch return error.OutOfMemory;
             self.items.len += w.end;
         }
@@ -1361,7 +1363,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
+        pub fn growCapacity(current: usize, minimum: usize) usize {
             var new = current;
             while (true) {
                 new +|= new / 2 + init_capacity;

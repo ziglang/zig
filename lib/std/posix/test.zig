@@ -4,7 +4,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectError = testing.expectError;
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const elf = std.elf;
@@ -706,12 +705,11 @@ test "mmap" {
         );
         defer posix.munmap(data);
 
-        var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.reader();
+        var stream: std.Io.Reader = .fixed(data);
 
         var i: usize = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readInt(u32, .little));
+            try testing.expectEqual(i, try stream.takeInt(u32, .little));
         }
     }
 
@@ -730,12 +728,11 @@ test "mmap" {
         );
         defer posix.munmap(data);
 
-        var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.reader();
+        var stream: std.Io.Reader = .fixed(data);
 
         var i: usize = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readInt(u32, .little));
+            try testing.expectEqual(i, try stream.takeInt(u32, .little));
         }
     }
 }

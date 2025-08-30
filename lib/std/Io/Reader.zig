@@ -4,12 +4,12 @@ const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
 
 const std = @import("../std.zig");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
+const Limit = std.Io.Limit;
 const assert = std.debug.assert;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
-const Limit = std.io.Limit;
 
 pub const Limited = @import("Reader/Limited.zig");
 
@@ -292,6 +292,23 @@ pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocErro
     return buffer.toOwnedSlice(gpa);
 }
 
+pub fn allocRemainingAlignedSentinel(
+    r: *Reader,
+    gpa: Allocator,
+    limit: Limit,
+    comptime alignment: std.mem.Alignment,
+    comptime sentinel: ?u8,
+) LimitedAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var buffer: std.array_list.Aligned(u8, alignment) = .empty;
+    defer buffer.deinit(gpa);
+    try appendRemainingAligned(r, gpa, alignment, &buffer, limit);
+    if (sentinel) |s| {
+        return buffer.toOwnedSliceSentinel(gpa, s);
+    } else {
+        return buffer.toOwnedSlice(gpa);
+    }
+}
+
 /// Transfers all bytes from the current position to the end of the stream, up
 /// to `limit`, appending them to `list`.
 ///
@@ -308,15 +325,30 @@ pub fn appendRemaining(
     list: *ArrayList(u8),
     limit: Limit,
 ) LimitedAllocError!void {
-    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.allocatedSlice());
-    a.writer.end = list.items.len;
-    list.* = .empty;
-    defer {
-        list.* = .{
-            .items = a.writer.buffer[0..a.writer.end],
-            .capacity = a.writer.buffer.len,
-        };
-    }
+    return appendRemainingAligned(r, gpa, .of(u8), list, limit);
+}
+
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, appending them to `list`.
+///
+/// If `limit` is reached or exceeded, `error.StreamTooLong` is returned
+/// instead. In such case, the next byte that would be read will be the first
+/// one to exceed `limit`, and all preceeding bytes have been appended to
+/// `list`.
+///
+/// See also:
+/// * `appendRemaining`
+/// * `allocRemainingAligned`
+pub fn appendRemainingAligned(
+    r: *Reader,
+    gpa: Allocator,
+    comptime alignment: std.mem.Alignment,
+    list: *std.array_list.Aligned(u8, alignment),
+    limit: Limit,
+) LimitedAllocError!void {
+    var a = std.Io.Writer.Allocating.fromArrayListAligned(gpa, alignment, list);
+    defer list.* = a.toArrayListAligned(alignment);
+
     var remaining = limit;
     while (remaining.nonzero()) {
         const n = stream(r, &a.writer, remaining) catch |err| switch (err) {
@@ -1584,7 +1616,7 @@ test readVec {
 test "expected error.EndOfStream" {
     // Unit test inspired by https://github.com/ziglang/zig/issues/17733
     var buffer: [3]u8 = undefined;
-    var r: std.io.Reader = .fixed(&buffer);
+    var r: std.Io.Reader = .fixed(&buffer);
     r.end = 0; // capacity 3, but empty
     try std.testing.expectError(error.EndOfStream, r.takeEnum(enum(u8) { a, b }, .little));
     try std.testing.expectError(error.EndOfStream, r.take(3));
@@ -1637,15 +1669,6 @@ fn failingDiscard(r: *Reader, limit: Limit) Error!usize {
     _ = r;
     _ = limit;
     return error.ReadFailed;
-}
-
-pub fn adaptToOldInterface(r: *Reader) std.Io.AnyReader {
-    return .{ .context = r, .readFn = derpRead };
-}
-
-fn derpRead(context: *const anyopaque, buffer: []u8) anyerror!usize {
-    const r: *Reader = @ptrCast(@alignCast(@constCast(context)));
-    return r.readSliceShort(buffer);
 }
 
 test "readAlloc when the backing reader provides one byte at a time" {
@@ -1868,6 +1891,94 @@ pub fn writableVector(r: *Reader, buffer: [][]u8, data: []const []u8) Error!stru
         i += 1;
     }
     return .{ i, n };
+}
+
+test "deserialize signed LEB128" {
+    // Truncated
+    try testing.expectError(error.EndOfStream, testLeb128(i64, "\x80"));
+
+    // Overflow
+    try testing.expectError(error.Overflow, testLeb128(i8, "\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(i16, "\x80\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(i32, "\x80\x80\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(i8, "\xff\x7e"));
+    try testing.expectError(error.Overflow, testLeb128(i32, "\x80\x80\x80\x80\x08"));
+    try testing.expectError(error.Overflow, testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01"));
+
+    // Decode SLEB128
+    try testing.expect((try testLeb128(i64, "\x00")) == 0);
+    try testing.expect((try testLeb128(i64, "\x01")) == 1);
+    try testing.expect((try testLeb128(i64, "\x3f")) == 63);
+    try testing.expect((try testLeb128(i64, "\x40")) == -64);
+    try testing.expect((try testLeb128(i64, "\x41")) == -63);
+    try testing.expect((try testLeb128(i64, "\x7f")) == -1);
+    try testing.expect((try testLeb128(i64, "\x80\x01")) == 128);
+    try testing.expect((try testLeb128(i64, "\x81\x01")) == 129);
+    try testing.expect((try testLeb128(i64, "\xff\x7e")) == -129);
+    try testing.expect((try testLeb128(i64, "\x80\x7f")) == -128);
+    try testing.expect((try testLeb128(i64, "\x81\x7f")) == -127);
+    try testing.expect((try testLeb128(i64, "\xc0\x00")) == 64);
+    try testing.expect((try testLeb128(i64, "\xc7\x9f\x7f")) == -12345);
+    try testing.expect((try testLeb128(i8, "\xff\x7f")) == -1);
+    try testing.expect((try testLeb128(i16, "\xff\xff\x7f")) == -1);
+    try testing.expect((try testLeb128(i32, "\xff\xff\xff\xff\x7f")) == -1);
+    try testing.expect((try testLeb128(i32, "\x80\x80\x80\x80\x78")) == -0x80000000);
+    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == @as(i64, @bitCast(@as(u64, @intCast(0x8000000000000000)))));
+    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x40")) == -0x4000000000000000);
+    try testing.expect((try testLeb128(i64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x7f")) == -0x8000000000000000);
+
+    // Decode unnormalized SLEB128 with extra padding bytes.
+    try testing.expect((try testLeb128(i64, "\x80\x00")) == 0);
+    try testing.expect((try testLeb128(i64, "\x80\x80\x00")) == 0);
+    try testing.expect((try testLeb128(i64, "\xff\x00")) == 0x7f);
+    try testing.expect((try testLeb128(i64, "\xff\x80\x00")) == 0x7f);
+    try testing.expect((try testLeb128(i64, "\x80\x81\x00")) == 0x80);
+    try testing.expect((try testLeb128(i64, "\x80\x81\x80\x00")) == 0x80);
+}
+
+test "deserialize unsigned LEB128" {
+    // Truncated
+    try testing.expectError(error.EndOfStream, testLeb128(u64, "\x80"));
+    try testing.expectError(error.EndOfStream, testLeb128(u16, "\x80\x80\x84"));
+    try testing.expectError(error.EndOfStream, testLeb128(u32, "\x80\x80\x80\x80\x90"));
+
+    // Overflow
+    try testing.expectError(error.Overflow, testLeb128(u8, "\x80\x02"));
+    try testing.expectError(error.Overflow, testLeb128(u8, "\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(u16, "\x80\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(u32, "\x80\x80\x80\x80\x40"));
+    try testing.expectError(error.Overflow, testLeb128(u64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x40"));
+
+    // Decode ULEB128
+    try testing.expect((try testLeb128(u64, "\x00")) == 0);
+    try testing.expect((try testLeb128(u64, "\x01")) == 1);
+    try testing.expect((try testLeb128(u64, "\x3f")) == 63);
+    try testing.expect((try testLeb128(u64, "\x40")) == 64);
+    try testing.expect((try testLeb128(u64, "\x7f")) == 0x7f);
+    try testing.expect((try testLeb128(u64, "\x80\x01")) == 0x80);
+    try testing.expect((try testLeb128(u64, "\x81\x01")) == 0x81);
+    try testing.expect((try testLeb128(u64, "\x90\x01")) == 0x90);
+    try testing.expect((try testLeb128(u64, "\xff\x01")) == 0xff);
+    try testing.expect((try testLeb128(u64, "\x80\x02")) == 0x100);
+    try testing.expect((try testLeb128(u64, "\x81\x02")) == 0x101);
+    try testing.expect((try testLeb128(u64, "\x80\xc1\x80\x80\x10")) == 4294975616);
+    try testing.expect((try testLeb128(u64, "\x80\x80\x80\x80\x80\x80\x80\x80\x80\x01")) == 0x8000000000000000);
+
+    // Decode ULEB128 with extra padding bytes
+    try testing.expect((try testLeb128(u64, "\x80\x00")) == 0);
+    try testing.expect((try testLeb128(u64, "\x80\x80\x00")) == 0);
+    try testing.expect((try testLeb128(u64, "\xff\x00")) == 0x7f);
+    try testing.expect((try testLeb128(u64, "\xff\x80\x00")) == 0x7f);
+    try testing.expect((try testLeb128(u64, "\x80\x81\x00")) == 0x80);
+    try testing.expect((try testLeb128(u64, "\x80\x81\x80\x00")) == 0x80);
+}
+
+fn testLeb128(comptime T: type, encoded: []const u8) !T {
+    var reader: std.Io.Reader = .fixed(encoded);
+    const result = try reader.takeLeb128(T);
+    try testing.expect(reader.seek == reader.end);
+    return result;
 }
 
 test {

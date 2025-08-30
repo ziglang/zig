@@ -220,7 +220,7 @@ const Fuzzer = struct {
             const i = f.corpus.items.len;
             var buf: [30]u8 = undefined;
             const input_sub_path = std.fmt.bufPrint(&buf, "{d}", .{i}) catch unreachable;
-            const input = f.corpus_directory.handle.readFileAlloc(gpa, input_sub_path, 1 << 31) catch |err| switch (err) {
+            const input = f.corpus_directory.handle.readFileAlloc(input_sub_path, gpa, .limited(1 << 31)) catch |err| switch (err) {
                 error.FileNotFound => {
                     // Make this one the next input.
                     const input_file = f.corpus_directory.handle.createFile(input_sub_path, .{

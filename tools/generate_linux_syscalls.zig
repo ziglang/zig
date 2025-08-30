@@ -248,7 +248,7 @@ pub fn main() !void {
     try Io.Writer.flush(stdout);
 }
 
-fn usage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn usage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     try w.print(
         \\Usage: {s} /path/to/zig /path/to/linux
         \\Alternative Usage: zig run /path/to/git/zig/tools/generate_linux_syscalls.zig -- /path/to/zig /path/to/linux

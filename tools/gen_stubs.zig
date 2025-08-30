@@ -299,10 +299,9 @@ pub fn main() !void {
 
         // Read the ELF header.
         const elf_bytes = build_all_dir.readFileAllocOptions(
-            arena,
             libc_so_path,
-            100 * 1024 * 1024,
-            1 * 1024 * 1024,
+            arena,
+            .limited(100 * 1024 * 1024),
             .of(elf.Elf64_Ehdr),
             null,
         ) catch |err| {

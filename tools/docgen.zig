@@ -77,7 +77,8 @@ pub fn main() !void {
     var code_dir = try fs.cwd().openDir(code_dir_path, .{});
     defer code_dir.close();
 
-    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, max_doc_file_size);
+    var in_file_reader = in_file.reader(&.{});
+    const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .limited(max_doc_file_size));
 
     var tokenizer = Tokenizer.init(input_path, input_file_bytes);
     var toc = try genToc(arena, &tokenizer);
@@ -1039,10 +1040,8 @@ fn genHtml(
                 });
                 defer allocator.free(out_basename);
 
-                const contents = code_dir.readFileAlloc(allocator, out_basename, std.math.maxInt(u32)) catch |err| {
-                    return parseError(tokenizer, code.token, "unable to open '{s}': {s}", .{
-                        out_basename, @errorName(err),
-                    });
+                const contents = code_dir.readFileAlloc(out_basename, allocator, .limited(std.math.maxInt(u32))) catch |err| {
+                    return parseError(tokenizer, code.token, "unable to open '{s}': {t}", .{ out_basename, err });
                 };
                 defer allocator.free(contents);
 

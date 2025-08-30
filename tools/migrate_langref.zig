@@ -1,6 +1,5 @@
 const std = @import("std");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const print = std.debug.print;
 const mem = std.mem;
@@ -29,7 +28,8 @@ pub fn main() !void {
     var out_dir = try fs.cwd().openDir(fs.path.dirname(output_file).?, .{});
     defer out_dir.close();
 
-    const input_file_bytes = try in_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(u32));
+    var in_file_reader = in_file.reader(&.{});
+    const input_file_bytes = try in_file_reader.interface.allocRemaining(arena, .unlimited);
 
     var tokenizer = Tokenizer.init(input_file, input_file_bytes);
 

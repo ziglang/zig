@@ -311,7 +311,7 @@ pub const Os = struct {
 
         /// This function is defined to serialize a Zig source code representation of this
         /// type, that, when parsed, will deserialize into the same data.
-        pub fn format(wv: WindowsVersion, w: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(wv: WindowsVersion, w: *std.Io.Writer) std.Io.Writer.Error!void {
             if (std.enums.tagName(WindowsVersion, wv)) |name| {
                 var vecs: [2][]const u8 = .{ ".", name };
                 return w.writeVecAll(&vecs);

@@ -22,7 +22,7 @@ pub const Tree = struct {
         return @alignCast(@fieldParentPtr("base", self.node));
     }
 
-    pub fn dump(self: *Tree, writer: *std.io.Writer) !void {
+    pub fn dump(self: *Tree, writer: *std.Io.Writer) !void {
         try self.node.dump(self, writer, 0);
     }
 };
@@ -726,9 +726,9 @@ pub const Node = struct {
     pub fn dump(
         node: *const Node,
         tree: *const Tree,
-        writer: *std.io.Writer,
+        writer: *std.Io.Writer,
         indent: usize,
-    ) std.io.Writer.Error!void {
+    ) std.Io.Writer.Error!void {
         try writer.splatByteAll(' ', indent);
         try writer.writeAll(@tagName(node.id));
         switch (node.id) {

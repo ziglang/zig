@@ -1,5 +1,4 @@
 const std = @import("std");
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const warn = std.log.warn;
@@ -16,7 +15,7 @@ pub fn main() !void {
     var catted_anything = false;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
     const stdout = &stdout_writer.interface;
-    var stdin_reader = std.fs.File.stdin().reader(&.{});
+    var stdin_reader = std.fs.File.stdin().readerStreaming(&.{});
 
     const cwd = fs.cwd();
 

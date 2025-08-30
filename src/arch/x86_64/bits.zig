@@ -827,7 +827,7 @@ pub const Memory = struct {
             };
         }
 
-        pub fn format(s: Size, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn format(s: Size, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             if (s == .none) return;
             try writer.writeAll(@tagName(s));
             switch (s) {
@@ -892,7 +892,7 @@ pub const Immediate = union(enum) {
         return .{ .signed = x };
     }
 
-    pub fn format(imm: Immediate, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(imm: Immediate, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (imm) {
             inline else => |int| try writer.print("{d}", .{int}),
             .nav => |nav_off| try writer.print("Nav({d}) + {d}", .{ @intFromEnum(nav_off.nav), nav_off.off }),

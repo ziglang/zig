@@ -605,7 +605,7 @@ pub const GotSection = struct {
         got: GotSection,
         elf_file: *Elf,
 
-        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const got = f.got;
             const elf_file = f.elf_file;
             try writer.writeAll("GOT\n");
@@ -741,7 +741,7 @@ pub const PltSection = struct {
         plt: PltSection,
         elf_file: *Elf,
 
-        pub fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        pub fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const plt = f.plt;
             const elf_file = f.elf_file;
             try writer.writeAll("PLT\n");

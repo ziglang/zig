@@ -7,7 +7,7 @@ const builtin = @import("builtin");
 const DW = std.dwarf;
 const ir = @import("ir.zig");
 const log = std.log.scoped(.llvm);
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 gpa: Allocator,
 strip: bool,

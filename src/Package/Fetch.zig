@@ -655,10 +655,9 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
-        arena,
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
-        Manifest.max_bytes,
-        null,
+        arena,
+        .limited(Manifest.max_bytes),
         .@"1",
         0,
     ) catch |err| switch (err) {
@@ -2020,7 +2019,7 @@ const UnpackResult = struct {
         // output errors to string
         var errors = try fetch.error_bundle.toOwnedBundle("");
         defer errors.deinit(gpa);
-        var aw: std.io.Writer.Allocating = .init(gpa);
+        var aw: std.Io.Writer.Allocating = .init(gpa);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(
@@ -2329,7 +2328,7 @@ const TestFetchBuilder = struct {
         if (notes_len > 0) {
             try std.testing.expectEqual(notes_len, em.notes_len);
         }
-        var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var aw: std.Io.Writer.Allocating = .init(std.testing.allocator);
         defer aw.deinit();
         try errors.renderToWriter(.{ .ttyconf = .no_color }, &aw.writer);
         try std.testing.expectEqualStrings(msg, aw.written());

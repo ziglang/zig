@@ -322,14 +322,14 @@ pub fn addExtra(
         return error.FatalError;
 }
 
-pub fn render(comp: *Compilation, config: std.io.tty.Config) void {
+pub fn render(comp: *Compilation, config: std.Io.tty.Config) void {
     if (comp.diagnostics.list.items.len == 0) return;
     var buffer: [1000]u8 = undefined;
     var m = defaultMsgWriter(config, &buffer);
     defer m.deinit();
     renderMessages(comp, &m);
 }
-pub fn defaultMsgWriter(config: std.io.tty.Config, buffer: []u8) MsgWriter {
+pub fn defaultMsgWriter(config: std.Io.tty.Config, buffer: []u8) MsgWriter {
     return MsgWriter.init(config, buffer);
 }
 
@@ -451,7 +451,7 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
         },
         .normalized => {
             const f = struct {
-                pub fn f(bytes: []const u8, writer: *std.io.Writer) std.io.Writer.Error!void {
+                pub fn f(bytes: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
                     var it: std.unicode.Utf8Iterator = .{
                         .bytes = bytes,
                         .i = 0,
@@ -526,10 +526,10 @@ fn tagKind(d: *Diagnostics, tag: Tag, langopts: LangOpts) Kind {
 }
 
 const MsgWriter = struct {
-    writer: *std.io.Writer,
-    config: std.io.tty.Config,
+    writer: *std.Io.Writer,
+    config: std.Io.tty.Config,
 
-    fn init(config: std.io.tty.Config, buffer: []u8) MsgWriter {
+    fn init(config: std.Io.tty.Config, buffer: []u8) MsgWriter {
         return .{
             .writer = std.debug.lockStderrWriter(buffer),
             .config = config,
@@ -549,7 +549,7 @@ const MsgWriter = struct {
         m.writer.writeAll(msg) catch {};
     }
 
-    fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
+    fn setColor(m: *MsgWriter, color: std.Io.tty.Color) void {
         m.config.setColor(m.writer, color) catch {};
     }
 

@@ -520,7 +520,7 @@ const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const shared = f.shared;
         const elf_file = f.elf_file;
         try writer.writeAll("  globals\n");

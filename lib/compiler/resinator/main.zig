@@ -24,7 +24,7 @@ pub fn main() !void {
     const arena = arena_state.allocator();
 
     const stderr = std.fs.File.stderr();
-    const stderr_config = std.io.tty.detectConfig(stderr);
+    const stderr_config = std.Io.tty.detectConfig(stderr);
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -164,13 +164,14 @@ pub fn main() !void {
         } else {
             switch (options.input_source) {
                 .stdio => |file| {
-                    break :full_input file.readToEndAlloc(allocator, std.math.maxInt(usize)) catch |err| {
+                    var file_reader = file.reader(&.{});
+                    break :full_input file_reader.interface.allocRemaining(allocator, .unlimited) catch |err| {
                         try error_handler.emitMessage(allocator, .err, "unable to read input from stdin: {s}", .{@errorName(err)});
                         std.process.exit(1);
                     };
                 },
                 .filename => |input_filename| {
-                    break :full_input std.fs.cwd().readFileAlloc(allocator, input_filename, std.math.maxInt(usize)) catch |err| {
+                    break :full_input std.fs.cwd().readFileAlloc(input_filename, allocator, .unlimited) catch |err| {
                         try error_handler.emitMessage(allocator, .err, "unable to read input file path '{s}': {s}", .{ input_filename, @errorName(err) });
                         std.process.exit(1);
                     };
@@ -462,7 +463,10 @@ const IoStream = struct {
         pub fn readAll(self: Source, allocator: std.mem.Allocator) !Data {
             return switch (self) {
                 inline .file, .stdio => |file| .{
-                    .bytes = try file.readToEndAlloc(allocator, std.math.maxInt(usize)),
+                    .bytes = b: {
+                        var file_reader = file.reader(&.{});
+                        break :b try file_reader.interface.allocRemaining(allocator, .unlimited);
+                    },
                     .needs_free = true,
                 },
                 .memory => |list| .{ .bytes = list.items, .needs_free = false },
@@ -621,7 +625,7 @@ const SourceMappings = @import("source_mapping.zig").SourceMappings;
 
 const ErrorHandler = union(enum) {
     server: std.zig.Server,
-    tty: std.io.tty.Config,
+    tty: std.Io.tty.Config,
 
     pub fn emitCliDiagnostics(
         self: *ErrorHandler,
@@ -984,7 +988,7 @@ const MsgWriter = struct {
         m.buf.appendSlice(msg) catch {};
     }
 
-    pub fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
+    pub fn setColor(m: *MsgWriter, color: std.Io.tty.Color) void {
         _ = m;
         _ = color;
     }

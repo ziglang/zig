@@ -1442,7 +1442,7 @@ const Format = struct {
     object: *Object,
     elf_file: *Elf,
 
-    fn symtab(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  locals\n");
@@ -1461,7 +1461,7 @@ const Format = struct {
         }
     }
 
-    fn atoms(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn atoms(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  atoms\n");
         for (object.atoms_indexes.items) |atom_index| {
@@ -1470,7 +1470,7 @@ const Format = struct {
         }
     }
 
-    fn cies(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn cies(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  cies\n");
         for (object.cies.items, 0..) |cie, i| {
@@ -1478,7 +1478,7 @@ const Format = struct {
         }
     }
 
-    fn fdes(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn fdes(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         try writer.writeAll("  fdes\n");
         for (object.fdes.items, 0..) |fde, i| {
@@ -1486,7 +1486,7 @@ const Format = struct {
         }
     }
 
-    fn groups(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn groups(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const object = f.object;
         const elf_file = f.elf_file;
         try writer.writeAll("  groups\n");
@@ -1536,7 +1536,7 @@ pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(object: Object, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatPath(object: Object, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (object.archive) |ar| {
         try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {
