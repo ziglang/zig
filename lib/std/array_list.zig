@@ -664,9 +664,10 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// The caller owns the returned memory. ArrayList becomes empty.
         pub fn toOwnedSliceSentinel(self: *Self, gpa: Allocator, comptime sentinel: T) Allocator.Error!SentinelSlice(sentinel) {
-            // This addition can never overflow because `self.items` can never occupy the whole address space
+            // This addition can never overflow because `self.items` can never occupy the whole address space.
             try self.ensureTotalCapacityPrecise(gpa, self.items.len + 1);
             self.appendAssumeCapacity(sentinel);
+            errdefer self.items.len -= 1;
             const result = try self.toOwnedSlice(gpa);
             return result[0 .. result.len - 1 :sentinel];
         }
@@ -1361,7 +1362,7 @@ pub fn Aligned(comptime T: type, comptime alignment: ?mem.Alignment) type {
 
         /// Called when memory growth is necessary. Returns a capacity larger than
         /// minimum that grows super-linearly.
-        fn growCapacity(current: usize, minimum: usize) usize {
+        pub fn growCapacity(current: usize, minimum: usize) usize {
             var new = current;
             while (true) {
                 new +|= new / 2 + init_capacity;

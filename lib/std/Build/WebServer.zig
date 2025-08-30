@@ -446,7 +446,7 @@ pub fn serveFile(
     // The desired API is actually sendfile, which will require enhancing http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = path.root_dir.handle.readFileAlloc(gpa, path.sub_path, 10 * 1024 * 1024) catch |err| {
+    const file_contents = path.root_dir.handle.readFileAlloc(path.sub_path, gpa, .limited(10 * 1024 * 1024)) catch |err| {
         log.err("failed to read '{f}': {s}", .{ path, @errorName(err) });
         return error.AlreadyReported;
     };

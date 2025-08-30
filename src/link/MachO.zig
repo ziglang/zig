@@ -4361,7 +4361,7 @@ fn inferSdkVersion(comp: *Compilation, sdk_layout: SdkLayout) ?std.SemanticVersi
 // The file/property is also available with vendored libc.
 fn readSdkVersionFromSettings(arena: Allocator, dir: []const u8) ![]const u8 {
     const sdk_path = try fs.path.join(arena, &.{ dir, "SDKSettings.json" });
-    const contents = try fs.cwd().readFileAlloc(arena, sdk_path, std.math.maxInt(u16));
+    const contents = try fs.cwd().readFileAlloc(sdk_path, arena, .limited(std.math.maxInt(u16)));
     const parsed = try std.json.parseFromSlice(std.json.Value, arena, contents, .{});
     if (parsed.value.object.get("MinimalDisplayName")) |ver| return ver.string;
     return error.SdkVersionFailure;

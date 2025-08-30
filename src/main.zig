@@ -5443,7 +5443,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                         // that are missing.
                         const s = fs.path.sep_str;
                         const tmp_sub_path = "tmp" ++ s ++ results_tmp_file_nonce;
-                        const stdout = dirs.local_cache.handle.readFileAlloc(arena, tmp_sub_path, 50 * 1024 * 1024) catch |err| {
+                        const stdout = dirs.local_cache.handle.readFileAlloc(tmp_sub_path, arena, .limited(50 * 1024 * 1024)) catch |err| {
                             fatal("unable to read results of configure phase from '{f}{s}': {s}", .{
                                 dirs.local_cache, tmp_sub_path, @errorName(err),
                             });
@@ -5826,7 +5826,7 @@ const ArgIteratorResponseFile = process.ArgIteratorGeneral(.{ .comments = true, 
 /// Initialize the arguments from a Response File. "*.rsp"
 fn initArgIteratorResponseFile(allocator: Allocator, resp_file_path: []const u8) !ArgIteratorResponseFile {
     const max_bytes = 10 * 1024 * 1024; // 10 MiB of command line arguments is a reasonable limit
-    const cmd_line = try fs.cwd().readFileAlloc(allocator, resp_file_path, max_bytes);
+    const cmd_line = try fs.cwd().readFileAlloc(resp_file_path, allocator, .limited(max_bytes));
     errdefer allocator.free(cmd_line);
 
     return ArgIteratorResponseFile.initTakeOwnership(allocator, cmd_line);
@@ -7350,10 +7350,9 @@ fn loadManifest(
 ) !struct { Package.Manifest, Ast } {
     const manifest_bytes = while (true) {
         break options.dir.readFileAllocOptions(
-            arena,
             Package.Manifest.basename,
-            Package.Manifest.max_bytes,
-            null,
+            arena,
+            .limited(Package.Manifest.max_bytes),
             .@"1",
             0,
         ) catch |err| switch (err) {
@@ -7435,7 +7434,7 @@ const Templates = struct {
         }
 
         const max_bytes = 10 * 1024 * 1024;
-        const contents = templates.dir.readFileAlloc(arena, template_path, max_bytes) catch |err| {
+        const contents = templates.dir.readFileAlloc(template_path, arena, .limited(max_bytes)) catch |err| {
             fatal("unable to read template file '{s}': {s}", .{ template_path, @errorName(err) });
         };
         templates.buffer.clearRetainingCapacity();

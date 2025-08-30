@@ -647,7 +647,7 @@ fn setDylibOrdinal(ordinal: i16, writer: *std.Io.Writer) !void {
 fn setAddend(addend: i64, writer: *std.Io.Writer) !void {
     log.debug(">>> set addend: {x}", .{addend});
     try writer.writeByte(macho.BIND_OPCODE_SET_ADDEND_SLEB);
-    try std.leb.writeIleb128(writer, addend);
+    try writer.writeSleb128(addend);
 }
 
 fn doBind(writer: *std.Io.Writer) !void {

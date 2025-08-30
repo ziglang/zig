@@ -553,14 +553,13 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
 
     const src_path = check_object.source.getPath3(b, step);
     const contents = src_path.root_dir.handle.readFileAllocOptions(
-        gpa,
         src_path.sub_path,
-        check_object.max_bytes,
-        null,
+        gpa,
+        .limited(check_object.max_bytes),
         .of(u64),
         null,
-    ) catch |err| return step.fail("unable to read '{f}': {s}", .{
-        std.fmt.alt(src_path, .formatEscapeChar), @errorName(err),
+    ) catch |err| return step.fail("unable to read '{f}': {t}", .{
+        std.fmt.alt(src_path, .formatEscapeChar), err,
     });
 
     var vars: std.StringHashMap(u64) = .init(gpa);

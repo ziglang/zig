@@ -173,7 +173,7 @@ fn serveDocsFile(
     // The desired API is actually sendfile, which will require enhancing std.http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = try context.lib_dir.readFileAlloc(gpa, name, 10 * 1024 * 1024);
+    const file_contents = try context.lib_dir.readFileAlloc(name, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{
@@ -263,7 +263,7 @@ fn serveWasm(
     });
     // std.http.Server does not have a sendfile API yet.
     const bin_path = try wasm_base_path.join(arena, bin_name);
-    const file_contents = try bin_path.root_dir.handle.readFileAlloc(gpa, bin_path.sub_path, 10 * 1024 * 1024);
+    const file_contents = try bin_path.root_dir.handle.readFileAlloc(bin_path.sub_path, gpa, .limited(10 * 1024 * 1024));
     defer gpa.free(file_contents);
     try request.respond(file_contents, .{
         .extra_headers = &.{

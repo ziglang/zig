@@ -282,7 +282,7 @@ pub fn getName(self: Thread, buffer_ptr: *[max_name_len:0]u8) GetNameError!?[]co
             defer file.close();
 
             var file_reader = file.readerStreaming(&.{});
-            const data_len = file_reader.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
+            const data_len = file_reader.interface.readSliceShort(buffer_ptr[0 .. max_name_len + 1]) catch |err| switch (err) {
                 error.ReadFailed => return file_reader.err.?,
             };
             return if (data_len >= 1) buffer[0 .. data_len - 1] else null;

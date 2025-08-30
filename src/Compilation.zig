@@ -6576,7 +6576,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
         // Read depfile and update cache manifest
         {
             const dep_basename = fs.path.basename(out_dep_path);
-            const dep_file_contents = try zig_cache_tmp_dir.readFileAlloc(arena, dep_basename, 50 * 1024 * 1024);
+            const dep_file_contents = try zig_cache_tmp_dir.readFileAlloc(dep_basename, arena, .limited(50 * 1024 * 1024));
             defer arena.free(dep_file_contents);
 
             const value = try std.json.parseFromSliceLeaky(std.json.Value, arena, dep_file_contents, .{});

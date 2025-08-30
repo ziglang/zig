@@ -292,6 +292,23 @@ pub fn allocRemaining(r: *Reader, gpa: Allocator, limit: Limit) LimitedAllocErro
     return buffer.toOwnedSlice(gpa);
 }
 
+pub fn allocRemainingAlignedSentinel(
+    r: *Reader,
+    gpa: Allocator,
+    limit: Limit,
+    comptime alignment: std.mem.Alignment,
+    comptime sentinel: ?u8,
+) LimitedAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var buffer: std.array_list.Aligned(u8, alignment) = .empty;
+    defer buffer.deinit(gpa);
+    try appendRemainingAligned(r, gpa, alignment, &buffer, limit);
+    if (sentinel) |s| {
+        return buffer.toOwnedSliceSentinel(gpa, s);
+    } else {
+        return buffer.toOwnedSlice(gpa);
+    }
+}
+
 /// Transfers all bytes from the current position to the end of the stream, up
 /// to `limit`, appending them to `list`.
 ///
@@ -308,15 +325,30 @@ pub fn appendRemaining(
     list: *ArrayList(u8),
     limit: Limit,
 ) LimitedAllocError!void {
-    var a: std.Io.Writer.Allocating = .initOwnedSlice(gpa, list.allocatedSlice());
-    a.writer.end = list.items.len;
-    list.* = .empty;
-    defer {
-        list.* = .{
-            .items = a.writer.buffer[0..a.writer.end],
-            .capacity = a.writer.buffer.len,
-        };
-    }
+    return appendRemainingAligned(r, gpa, .of(u8), list, limit);
+}
+
+/// Transfers all bytes from the current position to the end of the stream, up
+/// to `limit`, appending them to `list`.
+///
+/// If `limit` is reached or exceeded, `error.StreamTooLong` is returned
+/// instead. In such case, the next byte that would be read will be the first
+/// one to exceed `limit`, and all preceeding bytes have been appended to
+/// `list`.
+///
+/// See also:
+/// * `appendRemaining`
+/// * `allocRemainingAligned`
+pub fn appendRemainingAligned(
+    r: *Reader,
+    gpa: Allocator,
+    comptime alignment: std.mem.Alignment,
+    list: *std.array_list.Aligned(u8, alignment),
+    limit: Limit,
+) LimitedAllocError!void {
+    var a = std.Io.Writer.Allocating.fromArrayListAligned(gpa, alignment, list);
+    defer list.* = a.toArrayListAligned(alignment);
+
     var remaining = limit;
     while (remaining.nonzero()) {
         const n = stream(r, &a.writer, remaining) catch |err| switch (err) {

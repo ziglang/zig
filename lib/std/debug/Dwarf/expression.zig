@@ -851,7 +851,7 @@ pub fn Builder(comptime options: Options) type {
                     },
                     .signed => {
                         try writer.writeByte(OP.consts);
-                        try leb.writeIleb128(writer, value);
+                        try writer.writeLeb128(value);
                     },
                 },
             }
@@ -885,19 +885,19 @@ pub fn Builder(comptime options: Options) type {
         // 2.5.1.2: Register Values
         pub fn writeFbreg(writer: *Writer, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeBreg(writer: *Writer, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeBregx(writer: *Writer, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
             try writer.writeUleb128(register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeRegvalType(writer: *Writer, register: anytype, offset: anytype) !void {

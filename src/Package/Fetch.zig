@@ -655,10 +655,9 @@ fn loadManifest(f: *Fetch, pkg_root: Cache.Path) RunError!void {
     const eb = &f.error_bundle;
     const arena = f.arena.allocator();
     const manifest_bytes = pkg_root.root_dir.handle.readFileAllocOptions(
-        arena,
         try fs.path.join(arena, &.{ pkg_root.sub_path, Manifest.basename }),
-        Manifest.max_bytes,
-        null,
+        arena,
+        .limited(Manifest.max_bytes),
         .@"1",
         0,
     ) catch |err| switch (err) {

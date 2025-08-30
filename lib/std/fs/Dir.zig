@@ -1977,41 +1977,59 @@ pub fn readFile(self: Dir, file_path: []const u8, buffer: []u8) ![]u8 {
     return buffer[0..end_index];
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
-pub fn readFileAlloc(self: Dir, allocator: mem.Allocator, file_path: []const u8, max_bytes: usize) ![]u8 {
-    return self.readFileAllocOptions(allocator, file_path, max_bytes, null, .of(u8), null);
+pub const ReadFileAllocError = File.OpenError || File.ReadError || Allocator.Error || error{
+    /// File size reached or exceeded the provided limit.
+    StreamTooLong,
+};
+
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+///
+/// If the file size is already known, a better alternative is to initialize a
+/// `File.Reader`.
+///
+/// If the file size cannot be obtained, an error is returned. If
+/// this is a realistic possibility, a better alternative is to initialize a
+/// `File.Reader` which handles this seamlessly.
+pub fn readFileAlloc(
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    sub_path: []const u8,
+    /// Used to allocate the result.
+    gpa: Allocator,
+    /// If reached or exceeded, `error.StreamTooLong` is returned instead.
+    limit: std.Io.Limit,
+) ReadFileAllocError![]u8 {
+    return readFileAllocOptions(dir, sub_path, gpa, limit, .of(u8), null);
 }
 
-/// On success, caller owns returned buffer.
-/// If the file is larger than `max_bytes`, returns `error.FileTooBig`.
-/// If `size_hint` is specified the initial buffer size is calculated using
-/// that value, otherwise the effective file size is used instead.
-/// Allows specifying alignment and a sentinel value.
-/// On Windows, `file_path` should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
-/// On WASI, `file_path` should be encoded as valid UTF-8.
-/// On other platforms, `file_path` is an opaque sequence of bytes with no particular encoding.
+/// Reads all the bytes from the named file. On success, caller owns returned
+/// buffer.
+///
+/// If the file size is already known, a better alternative is to initialize a
+/// `File.Reader`.
 pub fn readFileAllocOptions(
-    self: Dir,
-    allocator: mem.Allocator,
-    file_path: []const u8,
-    max_bytes: usize,
-    size_hint: ?usize,
+    dir: Dir,
+    /// On Windows, should be encoded as [WTF-8](https://simonsapin.github.io/wtf-8/).
+    /// On WASI, should be encoded as valid UTF-8.
+    /// On other platforms, an opaque sequence of bytes with no particular encoding.
+    sub_path: []const u8,
+    /// Used to allocate the result.
+    gpa: Allocator,
+    /// If reached or exceeded, `error.StreamTooLong` is returned instead.
+    limit: std.Io.Limit,
     comptime alignment: std.mem.Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    var file = try self.openFile(file_path, .{});
+    comptime sentinel: ?u8,
+) ReadFileAllocError!(if (sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
+    var file = try dir.openFile(sub_path, .{});
     defer file.close();
-
-    // If the file size doesn't fit a usize it'll be certainly greater than
-    // `max_bytes`
-    const stat_size = size_hint orelse std.math.cast(usize, try file.getEndPos()) orelse
-        return error.FileTooBig;
-
-    return file.readToEndAllocOptions(allocator, max_bytes, stat_size, alignment, optional_sentinel);
+    var file_reader = file.reader(&.{});
+    return file_reader.interface.allocRemainingAlignedSentinel(gpa, limit, alignment, sentinel) catch |err| switch (err) {
+        error.ReadFailed => return file_reader.err.?,
+        error.OutOfMemory, error.StreamTooLong => |e| return e,
+    };
 }
 
 pub const DeleteTreeError = error{

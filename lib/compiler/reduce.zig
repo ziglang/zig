@@ -398,10 +398,9 @@ fn transformationsToFixups(
 
 fn parse(gpa: Allocator, file_path: []const u8) !Ast {
     const source_code = std.fs.cwd().readFileAllocOptions(
-        gpa,
         file_path,
-        std.math.maxInt(u32),
-        null,
+        gpa,
+        .limited(std.math.maxInt(u32)),
         .fromByteUnits(1),
         0,
     ) catch |err| {
