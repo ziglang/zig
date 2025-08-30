@@ -1025,7 +1025,7 @@ fn formatTerm(term: ?std.process.Child.Term, w: *std.Io.Writer) std.Io.Writer.Er
         try w.writeAll("exited with any code");
     }
 }
-fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Formatter(?std.process.Child.Term, formatTerm) {
+fn fmtTerm(term: ?std.process.Child.Term) std.fmt.Alt(?std.process.Child.Term, formatTerm) {
     return .{ .data = term };
 }
 

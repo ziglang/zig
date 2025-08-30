@@ -47,7 +47,7 @@ pub const Fde = struct {
         return object.relocs.items[fde.rel_index..][0..fde.rel_num];
     }
 
-    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(fde: Fde, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .elf_file = elf_file,
@@ -130,7 +130,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(cie: Cie, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .elf_file = elf_file,

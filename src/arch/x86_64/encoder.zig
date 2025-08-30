@@ -301,7 +301,7 @@ pub const Instruction = struct {
             }
         };
 
-        pub fn fmt(op: Operand, enc_op: Encoding.Op) std.fmt.Formatter(Format, Format.default) {
+        pub fn fmt(op: Operand, enc_op: Encoding.Op) std.fmt.Alt(Format, Format.default) {
             return .{ .data = .{ .op = op, .enc_op = enc_op } };
         }
     };

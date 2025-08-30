@@ -153,7 +153,7 @@ const FormatRelocTypeCtx = struct {
     cpu_arch: std.Target.Cpu.Arch,
 };
 
-pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(FormatRelocTypeCtx, formatRelocType) {
+pub fn fmtRelocType(r_type: u32, cpu_arch: std.Target.Cpu.Arch) std.fmt.Alt(FormatRelocTypeCtx, formatRelocType) {
     return .{ .data = .{
         .r_type = r_type,
         .cpu_arch = cpu_arch,

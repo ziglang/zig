@@ -157,7 +157,7 @@ pub const Section = struct {
         }
     };
 
-    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(msec: Section, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .msec = msec,
             .elf_file = elf_file,
@@ -211,7 +211,7 @@ pub const Subsection = struct {
         return msec.bytes.items[msub.string_index..][0..msub.size];
     }
 
-    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(msub: Subsection, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .msub = msub,
             .elf_file = elf_file,

@@ -79,7 +79,7 @@ pub const Cie = struct {
         return true;
     }
 
-    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(cie: Cie, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .cie = cie,
             .macho_file = macho_file,
@@ -208,7 +208,7 @@ pub const Fde = struct {
         return fde.getObject(macho_file).getAtom(fde.lsda);
     }
 
-    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(fde: Fde, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .fde = fde,
             .macho_file = macho_file,

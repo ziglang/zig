@@ -3053,7 +3053,7 @@ const ImportTable = struct {
         }
     };
 
-    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Formatter(Format, Format.default) {
+    fn fmtDebug(itab: ImportTable, ctx: Context) fmt.Alt(Format, Format.default) {
         return .{ .data = .{ .itab = itab, .ctx = ctx } };
     }
 

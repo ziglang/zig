@@ -111,7 +111,7 @@ pub const String = enum(u32) {
         return printEscapedString(string_slice, quote_behavior, w);
     }
 
-    pub fn fmt(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: String, builder: *const Builder) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{
             .string = self,
             .builder = builder,
@@ -119,7 +119,7 @@ pub const String = enum(u32) {
         } };
     }
 
-    pub fn fmtQ(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+    pub fn fmtQ(self: String, builder: *const Builder) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{
             .string = self,
             .builder = builder,
@@ -127,7 +127,7 @@ pub const String = enum(u32) {
         } };
     }
 
-    pub fn fmtRaw(self: String, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+    pub fn fmtRaw(self: String, builder: *const Builder) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{
             .string = self,
             .builder = builder,
@@ -846,7 +846,7 @@ pub const Type = enum(u32) {
             },
         }
     }
-    pub fn fmt(self: Type, builder: *const Builder, mode: FormatData.Mode) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: Type, builder: *const Builder, mode: FormatData.Mode) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .type = self, .builder = builder, .mode = mode } };
     }
 
@@ -1325,7 +1325,7 @@ pub const Attribute = union(Kind) {
                 .none => unreachable,
             }
         }
-        pub fn fmt(self: Index, builder: *const Builder, mode: FormatData.mode) std.fmt.Formatter(FormatData, format) {
+        pub fn fmt(self: Index, builder: *const Builder, mode: FormatData.mode) std.fmt.Alt(FormatData, format) {
             return .{ .data = .{ .attribute_index = self, .builder = builder, .mode = mode } };
         }
 
@@ -1609,7 +1609,7 @@ pub const Attributes = enum(u32) {
             .flags = data.flags,
         }, w);
     }
-    pub fn fmt(self: Attributes, builder: *const Builder, flags: FormatData.Flags) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: Attributes, builder: *const Builder, flags: FormatData.Flags) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .attributes = self, .builder = builder, .flags = flags } };
     }
 };
@@ -1803,7 +1803,7 @@ pub const Linkage = enum(u4) {
     fn formatOptional(data: ?Linkage, w: *Writer) Writer.Error!void {
         if (data) |linkage| try w.print(" {s}", .{@tagName(linkage)});
     }
-    pub fn fmtOptional(self: ?Linkage) std.fmt.Formatter(?Linkage, formatOptional) {
+    pub fn fmtOptional(self: ?Linkage) std.fmt.Alt(?Linkage, formatOptional) {
         return .{ .data = self };
     }
 };
@@ -2208,7 +2208,7 @@ pub const StrtabString = enum(u32) {
         self: StrtabString,
         builder: *const Builder,
         quote_behavior: ?QuoteBehavior,
-    ) std.fmt.Formatter(FormatData, format) {
+    ) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{
             .string = self,
             .builder = builder,
@@ -2387,7 +2387,7 @@ pub const Global = struct {
                 data.global.unwrap(data.builder).name(data.builder).fmt(data.builder, .quote_unless_valid_identifier),
             });
         }
-        pub fn fmt(self: Index, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+        pub fn fmt(self: Index, builder: *const Builder) std.fmt.Alt(FormatData, format) {
             return .{ .data = .{ .global = self, .builder = builder } };
         }
 
@@ -4852,7 +4852,7 @@ pub const Function = struct {
                 function: Function.Index,
                 builder: *Builder,
                 flags: FormatFlags,
-            ) std.fmt.Formatter(FormatData, format) {
+            ) std.fmt.Alt(FormatData, format) {
                 return .{ .data = .{
                     .instruction = self,
                     .function = function,
@@ -7790,7 +7790,7 @@ pub const Constant = enum(u32) {
             .global => |global| try w.print("{f}", .{global.fmt(data.builder)}),
         }
     }
-    pub fn fmt(self: Constant, builder: *Builder, flags: FormatFlags) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: Constant, builder: *Builder, flags: FormatFlags) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{
             .constant = self,
             .builder = builder,
@@ -7868,7 +7868,7 @@ pub const Value = enum(u32) {
             .metadata => unreachable,
         }
     }
-    pub fn fmt(self: Value, function: Function.Index, builder: *Builder, flags: FormatFlags) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(self: Value, function: Function.Index, builder: *Builder, flags: FormatFlags) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .value = self, .function = function, .builder = builder, .flags = flags } };
     }
 };
@@ -7902,7 +7902,7 @@ pub const MetadataString = enum(u32) {
     fn format(data: FormatData, w: *Writer) Writer.Error!void {
         try printEscapedString(data.metadata_string.slice(data.builder), .always_quote, w);
     }
-    fn fmt(self: MetadataString, builder: *const Builder) std.fmt.Formatter(FormatData, format) {
+    fn fmt(self: MetadataString, builder: *const Builder) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .metadata_string = self, .builder = builder } };
     }
 };
@@ -8411,7 +8411,7 @@ pub const Metadata = enum(u32) {
         inline fn fmt(formatter: *Formatter, prefix: []const u8, node: anytype, special: ?FormatFlags) switch (@TypeOf(node)) {
             Metadata => Allocator.Error,
             else => error{},
-        }!std.fmt.Formatter(FormatData, format) {
+        }!std.fmt.Alt(FormatData, format) {
             const Node = @TypeOf(node);
             const MaybeNode = switch (@typeInfo(Node)) {
                 .optional => Node,
@@ -8456,7 +8456,7 @@ pub const Metadata = enum(u32) {
             prefix: []const u8,
             value: Value,
             function: Function.Index,
-        ) Allocator.Error!std.fmt.Formatter(FormatData, format) {
+        ) Allocator.Error!std.fmt.Alt(FormatData, format) {
             return .{ .data = .{
                 .formatter = formatter,
                 .prefix = prefix,
@@ -8539,7 +8539,7 @@ pub const Metadata = enum(u32) {
             fmt_str = fmt_str ++ "(";
             inline for (fields[2..], names) |*field, name| {
                 fmt_str = fmt_str ++ "{[" ++ name ++ "]f}";
-                const T = std.fmt.Formatter(FormatData, format);
+                const T = std.fmt.Alt(FormatData, format);
                 field.* = .{
                     .name = name,
                     .type = T,

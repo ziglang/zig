@@ -462,12 +462,12 @@ pub const FormatId = struct {
 };
 
 /// Return a formatter for escaping a double quoted Zig string.
-pub fn fmtString(bytes: []const u8) std.fmt.Formatter([]const u8, stringEscape) {
+pub fn fmtString(bytes: []const u8) std.fmt.Alt([]const u8, stringEscape) {
     return .{ .data = bytes };
 }
 
 /// Return a formatter for escaping a single quoted Zig string.
-pub fn fmtChar(c: u21) std.fmt.Formatter(u21, charEscape) {
+pub fn fmtChar(c: u21) std.fmt.Alt(u21, charEscape) {
     return .{ .data = c };
 }
 

@@ -225,7 +225,7 @@ pub const ArSymtab = struct {
         }
     };
 
-    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Formatter(PrintFormat, PrintFormat.default) {
+    pub fn fmt(ar: ArSymtab, macho_file: *MachO) std.fmt.Alt(PrintFormat, PrintFormat.default) {
         return .{ .data = .{ .ar = ar, .macho_file = macho_file } };
     }
 

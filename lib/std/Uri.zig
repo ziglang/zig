@@ -359,7 +359,7 @@ pub const Format = struct {
     }
 };
 
-pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(uri: *const Uri, flags: Format.Flags) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{ .uri = uri, .flags = flags } };
 }
 

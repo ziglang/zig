@@ -1904,11 +1904,11 @@ pub const NullTerminatedString = enum(u32) {
         }
     }
 
-    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+    pub fn fmt(string: NullTerminatedString, ip: *const InternPool) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .string = string, .ip = ip, .id = false } };
     }
 
-    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Formatter(FormatData, format) {
+    pub fn fmtId(string: NullTerminatedString, ip: *const InternPool) std.fmt.Alt(FormatData, format) {
         return .{ .data = .{ .string = string, .ip = ip, .id = true } };
     }
 

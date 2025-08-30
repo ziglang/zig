@@ -147,7 +147,7 @@ pub fn toStringZ(p: Path, allocator: Allocator) Allocator.Error![:0]u8 {
     return std.fmt.allocPrintSentinel(allocator, "{f}", .{p}, 0);
 }
 
-pub fn fmtEscapeString(path: Path) std.fmt.Formatter(Path, formatEscapeString) {
+pub fn fmtEscapeString(path: Path) std.fmt.Alt(Path, formatEscapeString) {
     return .{ .data = path };
 }
 
@@ -162,7 +162,7 @@ pub fn formatEscapeString(path: Path, writer: *std.Io.Writer) std.Io.Writer.Erro
 }
 
 /// Deprecated, use double quoted escape to print paths.
-pub fn fmtEscapeChar(path: Path) std.fmt.Formatter(Path, formatEscapeChar) {
+pub fn fmtEscapeChar(path: Path) std.fmt.Alt(Path, formatEscapeChar) {
     return .{ .data = path };
 }
 

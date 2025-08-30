@@ -231,7 +231,7 @@ pub fn renderInlineNodeText(
     }
 }
 
-pub fn fmtHtml(bytes: []const u8) std.fmt.Formatter([]const u8, formatHtml) {
+pub fn fmtHtml(bytes: []const u8) std.fmt.Alt([]const u8, formatHtml) {
     return .{ .data = bytes };
 }
 

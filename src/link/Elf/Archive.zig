@@ -215,7 +215,7 @@ pub const ArSymtab = struct {
         }
     };
 
-    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(ar: ArSymtab, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .ar = ar,
             .elf_file = elf_file,
