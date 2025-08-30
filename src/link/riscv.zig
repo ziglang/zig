@@ -113,5 +113,5 @@ pub const Eflags = packed struct(u32) {
 const mem = std.mem;
 const std = @import("std");
 
-const encoding = @import("../arch/riscv64/encoding.zig");
+const encoding = @import("../codegen/riscv64/encoding.zig");
 const Instruction = encoding.Instruction;
