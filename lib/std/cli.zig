@@ -40,15 +40,37 @@ pub const Error = error{
 /// `Args` is a struct that you define looking like this:
 /// ```
 /// const Args = struct {
+///     pub const description = "this program does a thing";
 ///     named: struct {
-///         // ...
+///         verbose: bool = false,
+///         output: [:0]const u8,
+///         pub const output_help = "path to output file";
 ///     },
 ///     positional: struct {
-///         // ...
+///         input: []const u8,
+///         args: []const []const u8 = &.{},
 ///     },
 /// };
 /// ```
-/// Either or both of `named` and `positional` may be omitted, which is effectively equivalent to them having no fields.
+/// Which results in this generated `--help` output:
+/// ```
+/// usage: <prog> [options] --output=string input [args...]
+///
+/// this program does a thing
+///
+/// positional arguments:
+///   input                string. required
+///   args                 string. can be specified multiple times
+///
+/// named arguments:
+///   --verbose            default: --no-verbose
+///   --output=string      required. path to output file
+///   --help               print this help and exit
+/// ```
+/// Either or both of `named` and `positional` may be omitted, which is effectively equivalent to declaring them as `struct {}`.
+/// If `description` is declared, it is concatenated into the help output.
+/// If any `pub const <name>_help` accompanies a field `<name>` in either `named` or `positional`,
+/// it is included in that argument's help text.
 ///
 /// The sequence of arg strings from the `ArgIterator` is parsed to determine named and positional arguments.
 ///
@@ -160,7 +182,7 @@ test parse {
             /// First positional (non-named) argument:
             input: [:0]const u8 = "",
             /// Second positional argument is declared as optional:
-            repititions: u32 = 1,
+            repetitions: u32 = 1,
             /// Receives the rest of the positional arguments.
             @"the-rest": []const [:0]const u8 = &.{},
         },
@@ -717,20 +739,20 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
                 arguments_table = arguments_table ++ .{&[_][]const u8{
                     "  " ++ field.name,
                     @typeName(field.type) ++ "  " ++
-                        if (field.defaultValue()) |default|
+                        (if (field.defaultValue()) |default|
                             "default: " ++ std.fmt.comptimePrint("{}", .{default})
                         else
-                            "required",
+                            "required") ++ argHelp(Args, "positional", field.name),
                 }};
             },
             .@"enum" => {
                 arguments_table = arguments_table ++ .{&[_][]const u8{
                     "  " ++ field.name,
                     comptime enumValuesExpr(field.type) ++ ". " ++
-                        if (field.defaultValue()) |default|
+                        (if (field.defaultValue()) |default|
                             "default: " ++ @tagName(default)
                         else
-                            "required",
+                            "required") ++ argHelp(Args, "positional", field.name),
                 }};
             },
             .pointer => |ptrInfo| {
@@ -739,10 +761,10 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
                     arguments_table = arguments_table ++ .{&[_][]const u8{
                         "  " ++ field.name,
                         "string. " ++
-                            if (field.defaultValue()) |default|
+                            (if (field.defaultValue()) |default|
                                 "default: " ++ quoteIfEmpty(default)
                             else
-                                "required",
+                                "required") ++ argHelp(Args, "positional", field.name),
                     }};
                 } else {
                     // Array
@@ -755,7 +777,7 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
                     };
                     arguments_table = arguments_table ++ .{&[_][]const u8{
                         "  " ++ field.name,
-                        type_name ++ ". can be specified multiple times",
+                        type_name ++ ". can be specified multiple times" ++ argHelp(Args, "positional", field.name),
                     }};
                 }
             },
@@ -769,31 +791,31 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
             .bool => {
                 if (field.defaultValue()) |default| {
                     if (default) {
-                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --no-" ++ field.name, "default: --" ++ field.name }};
+                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --no-" ++ field.name, "default: --" ++ field.name ++ argHelp(Args, "named", field.name) }};
                     } else {
-                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --" ++ field.name, "default: --no-" ++ field.name }};
+                        arguments_table = arguments_table ++ .{&[_][]const u8{ "  --" ++ field.name, "default: --no-" ++ field.name ++ argHelp(Args, "named", field.name) }};
                     }
                 } else {
-                    arguments_table = arguments_table ++ .{&[_][]const u8{ "  --[no-]" ++ field.name, "required" }};
+                    arguments_table = arguments_table ++ .{&[_][]const u8{ "  --[no-]" ++ field.name, "required" ++ argHelp(Args, "named", field.name) }};
                 }
             },
             .int, .float => {
                 arguments_table = arguments_table ++ .{&[_][]const u8{
                     "  --" ++ field.name ++ "=" ++ @typeName(field.type),
-                    if (field.defaultValue()) |default|
+                    (if (field.defaultValue()) |default|
                         "default: " ++ std.fmt.comptimePrint("{}", .{default})
                     else
-                        "required",
+                        "required") ++ argHelp(Args, "named", field.name),
                 }};
             },
             .@"enum" => {
                 arguments_table = arguments_table ++ .{&[_][]const u8{
                     "  --" ++ field.name ++ "=enum",
-                    comptime enumValuesExpr(field.type) ++ "  " ++
-                        if (field.defaultValue()) |default|
+                    comptime enumValuesExpr(field.type) ++ ". " ++
+                        (if (field.defaultValue()) |default|
                             "default: " ++ @tagName(default)
                         else
-                            "required",
+                            "required") ++ argHelp(Args, "named", field.name),
                 }};
             },
             .pointer => |ptrInfo| {
@@ -801,10 +823,10 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
                     // String
                     arguments_table = arguments_table ++ .{&[_][]const u8{
                         "  --" ++ field.name ++ "=string",
-                        if (field.defaultValue()) |default|
+                        (if (field.defaultValue()) |default|
                             "default: " ++ quoteIfEmpty(default)
                         else
-                            "required",
+                            "required") ++ argHelp(Args, "named", field.name),
                     }};
                 } else {
                     // Array
@@ -817,7 +839,7 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
                     };
                     arguments_table = arguments_table ++ .{&[_][]const u8{
                         "  --" ++ field.name ++ "=" ++ type_name,
-                        "can be specified multiple times",
+                        "can be specified multiple times" ++ argHelp(Args, "named", field.name),
                     }};
                 }
             },
@@ -833,6 +855,9 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
     }
 
     comptime var help_str: []const u8 = "";
+    if (@hasDecl(Args, "description")) {
+        help_str = "\n\n" ++ Args.description;
+    }
     inline for (arguments_table) |row| {
         help_str = help_str ++ "\n";
         inline for (row, 0..) |cell, c| {
@@ -854,6 +879,13 @@ fn printGeneratedHelp(comptime Args: type, writer: ?*Writer, prog: []const u8) v
         file_writer.interface.print(msg, .{prog}) catch {};
         file_writer.interface.flush() catch {};
     }
+}
+
+inline fn argHelp(comptime Args: type, comptime named_or_positional: []const u8, comptime field_name: []const u8) []const u8 {
+    const N = @FieldType(Args, named_or_positional);
+    comptime assert(@hasField(N, field_name));
+    if (!@hasDecl(N, field_name ++ "_help")) return "";
+    return ". " ++ @field(N, field_name ++ "_help");
 }
 
 inline fn quoteIfEmpty(comptime s: []const u8) []const u8 {
