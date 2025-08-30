@@ -920,10 +920,7 @@ pub fn sendFileHeader(
 
 /// Asserts nonzero buffer capacity.
 pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
-    const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = try file_reader.read(dest);
-    w.advance(n);
-    return n;
+    return file_reader.interface.stream(w, limit);
 }
 
 /// Number of bytes logically written is returned. This excludes bytes from
@@ -2729,7 +2726,7 @@ test "discarding sendFile" {
     var w_buffer: [256]u8 = undefined;
     var discarding: Writer.Discarding = .init(&w_buffer);
 
-    _ = try file_reader.interface.streamRemaining(&discarding.writer);
+    try testing.expectEqual(1, discarding.writer.sendFileAll(&file_reader, .unlimited));
 }
 
 test "allocating sendFile" {
@@ -2748,8 +2745,31 @@ test "allocating sendFile" {
 
     var allocating: Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
+    try allocating.ensureUnusedCapacity(1);
 
-    _ = try file_reader.interface.streamRemaining(&allocating.writer);
+    try testing.expectEqual(1, allocating.writer.sendFileAll(&file_reader, .unlimited));
+    try testing.expectEqualStrings("h", allocating.writer.buffered());
+}
+
+test "sendFileReading with buffered contents" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
+    defer file.close();
+    var r_buffer: [2]u8 = undefined;
+    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
+    try file_writer.interface.writeAll("abcd");
+    try file_writer.interface.flush();
+
+    var file_reader = file_writer.moveToReader();
+    try file_reader.seekTo(0);
+    try file_reader.interface.fill(2);
+
+    var w_buffer: [1]u8 = undefined;
+    var discarding: Writer.Discarding = .init(&w_buffer);
+
+    try testing.expectEqual(4, discarding.writer.sendFileReadingAll(&file_reader, .unlimited));
 }
 
 test writeStruct {
