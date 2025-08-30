@@ -1040,7 +1040,31 @@ pub fn printValue(
         0 => @compileError("a format specifier is required"),
         1 => switch (fmt[0]) {
             '*' => return w.printAddress(value),
-            'f' => return value.format(w),
+            'f' => switch (@typeInfo(T)) {
+                .pointer => |ptr_info| switch (ptr_info.size) {
+                    .slice => {
+                        try w.writeAll("{ ");
+                        for (value, 0..) |elem, i| {
+                            try w.printValue(fmt, options, elem, max_depth - 1);
+                            if (i != value.len - 1) {
+                                try w.writeAll(", ");
+                            }
+                        }
+                        try w.writeAll(" }");
+                    },
+                },
+                .array => {
+                    try w.writeAll("{ ");
+                    for (value, 0..) |elem, i| {
+                        try w.printValue(fmt, options, elem, max_depth - 1);
+                        if (i < value.len - 1) {
+                            try w.writeAll(", ");
+                        }
+                    }
+                    try w.writeAll(" }");
+                },
+                else => return value.format(w),
+            },
             'd' => switch (@typeInfo(T)) {
                 .float, .comptime_float => return printFloat(w, value, options.toNumber(.decimal, .lower)),
                 .int, .comptime_int => return printInt(w, value, 10, .lower, options),
