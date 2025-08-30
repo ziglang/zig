@@ -13,7 +13,7 @@ pub fn main() !void {
     const input_path = args[1];
     const optimize_mode_text = args[2];
 
-    const input_bytes = try std.fs.cwd().readFileAlloc(arena, input_path, 5 * 1024 * 1024);
+    const input_bytes = try std.fs.cwd().readFileAlloc(input_path, arena, .limited(5 * 1024 * 1024));
     const optimize_mode = std.meta.stringToEnum(std.builtin.OptimizeMode, optimize_mode_text).?;
 
     var stderr = input_bytes;
