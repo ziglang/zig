@@ -195,12 +195,12 @@ pub const Decompress = struct {
         };
     }
 
-    fn streamStore(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+    fn streamStore(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
         const d: *Decompress = @fieldParentPtr("interface", r);
         return d.store.read(w, limit);
     }
 
-    fn streamDeflate(r: *Reader, w: *Writer, limit: std.io.Limit) Reader.StreamError!usize {
+    fn streamDeflate(r: *Reader, w: *Writer, limit: std.Io.Limit) Reader.StreamError!usize {
         const d: *Decompress = @fieldParentPtr("interface", r);
         return flate.Decompress.read(&d.inflate, w, limit);
     }

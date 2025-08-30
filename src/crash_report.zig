@@ -2,7 +2,6 @@ const std = @import("std");
 const builtin = @import("builtin");
 const build_options = @import("build_options");
 const debug = std.debug;
-const io = std.io;
 const print_zir = @import("print_zir.zig");
 const windows = std.os.windows;
 const posix = std.posix;

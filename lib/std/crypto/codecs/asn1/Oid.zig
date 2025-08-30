@@ -4,7 +4,7 @@
 //! organizations, or policy documents.
 encoded: []const u8,
 
-pub const InitError = std.fmt.ParseIntError || error{MissingPrefix} || std.io.FixedBufferStream(u8).WriteError;
+pub const InitError = std.fmt.ParseIntError || error{MissingPrefix} || std.Io.Writer.Error;
 
 pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
     var split = std.mem.splitScalar(u8, dot_notation, '.');
@@ -14,8 +14,7 @@ pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
     const first = try std.fmt.parseInt(u8, first_str, 10);
     const second = try std.fmt.parseInt(u8, second_str, 10);
 
-    var stream = std.io.fixedBufferStream(out);
-    var writer = stream.writer();
+    var writer: std.Io.Writer = .fixed(out);
 
     try writer.writeByte(first * 40 + second);
 
@@ -37,7 +36,7 @@ pub fn fromDot(dot_notation: []const u8, out: []u8) InitError!Oid {
         i += 1;
     }
 
-    return .{ .encoded = stream.getWritten() };
+    return .{ .encoded = writer.buffered() };
 }
 
 test fromDot {
@@ -80,9 +79,9 @@ test toDot {
     var buf: [256]u8 = undefined;
 
     for (test_cases) |t| {
-        var stream = std.io.fixedBufferStream(&buf);
-        try toDot(Oid{ .encoded = t.encoded }, stream.writer());
-        try std.testing.expectEqualStrings(t.dot_notation, stream.getWritten());
+        var stream: std.Io.Writer = .fixed(&buf);
+        try toDot(Oid{ .encoded = t.encoded }, &stream);
+        try std.testing.expectEqualStrings(t.dot_notation, stream.written());
     }
 }
 

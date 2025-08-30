@@ -162,7 +162,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const macho = std.macho;
 const math = std.math;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Atom = @import("Atom.zig");
 const MachO = @import("../MachO.zig");

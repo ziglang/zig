@@ -76,9 +76,9 @@ pub const Config = union(enum) {
         reset_attributes: u16,
     };
 
-    pub const SetColorError = std.os.windows.SetConsoleTextAttributeError || std.io.Writer.Error;
+    pub const SetColorError = std.os.windows.SetConsoleTextAttributeError || std.Io.Writer.Error;
 
-    pub fn setColor(conf: Config, w: *std.io.Writer, color: Color) SetColorError!void {
+    pub fn setColor(conf: Config, w: *std.Io.Writer, color: Color) SetColorError!void {
         nosuspend switch (conf) {
             .no_color => return,
             .escape_codes => {

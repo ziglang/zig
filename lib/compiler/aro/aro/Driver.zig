@@ -519,8 +519,8 @@ fn option(arg: []const u8, name: []const u8) ?[]const u8 {
 
 fn addSource(d: *Driver, path: []const u8) !Source {
     if (mem.eql(u8, "-", path)) {
-        const stdin = std.fs.File.stdin().deprecatedReader();
-        const input = try stdin.readAllAlloc(d.comp.gpa, std.math.maxInt(u32));
+        var stdin_reader: std.fs.File.Reader = .initStreaming(.stdin(), &.{});
+        const input = try stdin_reader.interface.allocRemaining(d.comp.gpa, .limited(std.math.maxInt(u32)));
         defer d.comp.gpa.free(input);
         return d.comp.addSourceFromBuffer("<stdin>", input);
     }
@@ -544,7 +544,7 @@ pub fn renderErrors(d: *Driver) void {
     Diagnostics.render(d.comp, d.detectConfig(std.fs.File.stderr()));
 }
 
-pub fn detectConfig(d: *Driver, file: std.fs.File) std.io.tty.Config {
+pub fn detectConfig(d: *Driver, file: std.fs.File) std.Io.tty.Config {
     if (d.color == true) return .escape_codes;
     if (d.color == false) return .no_color;
 

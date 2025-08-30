@@ -106,7 +106,7 @@ pub const Guid = extern struct {
     node: [6]u8,
 
     /// Format GUID into hexadecimal lowercase xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx format
-    pub fn format(self: Guid, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: Guid, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const time_low = @byteSwap(self.time_low);
         const time_mid = @byteSwap(self.time_mid);
         const time_high_and_version = @byteSwap(self.time_high_and_version);

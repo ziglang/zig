@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const io = std.io;
 const fmt = std.fmt;
 const mem = std.mem;
 const process = std.process;
@@ -11,8 +10,9 @@ const Watch = std.Build.Watch;
 const WebServer = std.Build.WebServer;
 const Allocator = std.mem.Allocator;
 const fatal = std.process.fatal;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 const runner = @This();
+const tty = std.Io.tty;
 
 pub const root = @import("@build");
 pub const dependencies = @import("@dependencies");
@@ -576,7 +576,7 @@ const Run = struct {
 
     claimed_rss: usize,
     summary: Summary,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     stderr: File,
 
     fn cleanExit(run: Run) void {
@@ -819,7 +819,7 @@ const PrintNode = struct {
     last: bool = false,
 };
 
-fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !void {
+fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: tty.Config) !void {
     const parent = node.parent orelse return;
     if (parent.parent == null) return;
     try printPrefix(parent, stderr, ttyconf);
@@ -833,7 +833,7 @@ fn printPrefix(node: *PrintNode, stderr: *Writer, ttyconf: std.io.tty.Config) !v
     }
 }
 
-fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
+fn printChildNodePrefix(stderr: *Writer, ttyconf: tty.Config) !void {
     try stderr.writeAll(switch (ttyconf) {
         .no_color, .windows_api => "+- ",
         .escape_codes => "\x1B\x28\x30\x6d\x71\x1B\x28\x42 ", // └─
@@ -843,7 +843,7 @@ fn printChildNodePrefix(stderr: *Writer, ttyconf: std.io.tty.Config) !void {
 fn printStepStatus(
     s: *Step,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     run: *const Run,
 ) !void {
     switch (s.state) {
@@ -923,7 +923,7 @@ fn printStepStatus(
 fn printStepFailure(
     s: *Step,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
 ) !void {
     if (s.result_error_bundle.errorMessageCount() > 0) {
         try ttyconf.setColor(stderr, .red);
@@ -977,7 +977,7 @@ fn printTreeStep(
     s: *Step,
     run: *const Run,
     stderr: *Writer,
-    ttyconf: std.io.tty.Config,
+    ttyconf: tty.Config,
     parent_node: *PrintNode,
     step_stack: *std.AutoArrayHashMapUnmanaged(*Step, void),
 ) !void {
@@ -1494,9 +1494,9 @@ fn uncleanExit() error{UncleanExit} {
 const Color = std.zig.Color;
 const Summary = enum { all, new, failures, none };
 
-fn get_tty_conf(color: Color, stderr: File) std.io.tty.Config {
+fn get_tty_conf(color: Color, stderr: File) tty.Config {
     return switch (color) {
-        .auto => std.io.tty.detectConfig(stderr),
+        .auto => tty.detectConfig(stderr),
         .on => .escape_codes,
         .off => .no_color,
     };

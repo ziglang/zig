@@ -7,7 +7,6 @@ const File = @This();
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const posix = std.posix;
-const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const linux = std.os.linux;
@@ -805,42 +804,6 @@ pub fn updateTimes(
     try posix.futimens(self.handle, &times);
 }
 
-/// Deprecated in favor of `Reader`.
-pub fn readToEndAlloc(self: File, allocator: Allocator, max_bytes: usize) ![]u8 {
-    return self.readToEndAllocOptions(allocator, max_bytes, null, .of(u8), null);
-}
-
-/// Deprecated in favor of `Reader`.
-pub fn readToEndAllocOptions(
-    self: File,
-    allocator: Allocator,
-    max_bytes: usize,
-    size_hint: ?usize,
-    comptime alignment: Alignment,
-    comptime optional_sentinel: ?u8,
-) !(if (optional_sentinel) |s| [:s]align(alignment.toByteUnits()) u8 else []align(alignment.toByteUnits()) u8) {
-    // If no size hint is provided fall back to the size=0 code path
-    const size = size_hint orelse 0;
-
-    // The file size returned by stat is used as hint to set the buffer
-    // size. If the reported size is zero, as it happens on Linux for files
-    // in /proc, a small buffer is allocated instead.
-    const initial_cap = @min((if (size > 0) size else 1024), max_bytes) + @intFromBool(optional_sentinel != null);
-    var array_list = try std.array_list.AlignedManaged(u8, alignment).initCapacity(allocator, initial_cap);
-    defer array_list.deinit();
-
-    self.deprecatedReader().readAllArrayListAligned(alignment, &array_list, max_bytes) catch |err| switch (err) {
-        error.StreamTooLong => return error.FileTooBig,
-        else => |e| return e,
-    };
-
-    if (optional_sentinel) |sentinel| {
-        return try array_list.toOwnedSliceSentinel(sentinel);
-    } else {
-        return try array_list.toOwnedSlice();
-    }
-}
-
 pub const ReadError = posix.ReadError;
 pub const PReadError = posix.PReadError;
 
@@ -1087,14 +1050,6 @@ pub fn copyRangeAll(in: File, in_offset: u64, out: File, out_offset: u64, len: u
         out_off += amt_copied;
     }
     return total_bytes_copied;
-}
-
-/// Deprecated in favor of `Reader`.
-pub const DeprecatedReader = io.GenericReader(File, ReadError, read);
-
-/// Deprecated in favor of `Reader`.
-pub fn deprecatedReader(file: File) DeprecatedReader {
-    return .{ .context = file };
 }
 
 /// Memoizes key information about a file handle such as:

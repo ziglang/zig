@@ -70,7 +70,7 @@ pub fn main() !void {
     const zig_path = opt_zig orelse fatal("missing zig compiler path (--zig)", .{});
     const cache_root = opt_cache_root orelse fatal("missing cache root path (--cache-root)", .{});
 
-    const source_bytes = try fs.cwd().readFileAlloc(arena, input_path, std.math.maxInt(u32));
+    const source_bytes = try fs.cwd().readFileAlloc(input_path, arena, .limited(std.math.maxInt(u32)));
     const code = try parseManifest(arena, source_bytes);
     const source = stripManifest(source_bytes);
 

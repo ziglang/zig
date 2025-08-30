@@ -3869,7 +3869,7 @@ fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(FormatShdr, forma
     } };
 }
 
-fn formatShdr(ctx: FormatShdr, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatShdr(ctx: FormatShdr, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const shdr = ctx.shdr;
     try writer.print("{s} : @{x} ({x}) : align({x}) : size({x}) : entsize({x}) : flags({f})", .{
         ctx.elf_file.getShString(shdr.sh_name), shdr.sh_offset,
@@ -3883,7 +3883,7 @@ pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(u64, formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
-fn formatShdrFlags(sh_flags: u64, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatShdrFlags(sh_flags: u64, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (elf.SHF_WRITE & sh_flags != 0) {
         try writer.writeAll("W");
     }
@@ -3940,7 +3940,7 @@ fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(FormatPhdr, forma
     } };
 }
 
-fn formatPhdr(ctx: FormatPhdr, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const phdr = ctx.phdr;
     const write = phdr.p_flags & elf.PF_W != 0;
     const read = phdr.p_flags & elf.PF_R != 0;
@@ -3971,7 +3971,7 @@ pub fn dumpState(self: *Elf) std.fmt.Formatter(*Elf, fmtDumpState) {
     return .{ .data = self };
 }
 
-fn fmtDumpState(self: *Elf, writer: *std.io.Writer) std.io.Writer.Error!void {
+fn fmtDumpState(self: *Elf, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     const shared_objects = self.shared_objects.values();
 
     if (self.zigObjectPtr()) |zig_object| {
@@ -4189,7 +4189,7 @@ pub const Ref = struct {
         return ref.index == other.index and ref.file == other.file;
     }
 
-    pub fn format(ref: Ref, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(ref: Ref, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("ref({d},{d})", .{ ref.index, ref.file });
     }
 };

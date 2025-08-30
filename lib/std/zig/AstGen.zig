@@ -11339,7 +11339,7 @@ fn parseStrLit(
 ) InnerError!void {
     const raw_string = bytes[offset..];
     const result = r: {
-        var aw: std.io.Writer.Allocating = .fromArrayList(astgen.gpa, buf);
+        var aw: std.Io.Writer.Allocating = .fromArrayList(astgen.gpa, buf);
         defer buf.* = aw.toArrayList();
         break :r std.zig.string_literal.parseWrite(&aw.writer, raw_string) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,
@@ -13785,7 +13785,7 @@ fn lowerAstErrors(astgen: *AstGen) error{OutOfMemory}!void {
     const tree = astgen.tree;
     assert(tree.errors.len > 0);
 
-    var msg: std.io.Writer.Allocating = .init(gpa);
+    var msg: std.Io.Writer.Allocating = .init(gpa);
     defer msg.deinit();
     const msg_w = &msg.writer;
 

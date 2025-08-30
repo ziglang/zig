@@ -254,7 +254,7 @@ pub fn main() !void {
                         .file, .sym_link => {
                             const rel_path = try std.fs.path.relative(allocator, target_include_dir, full_path);
                             const max_size = 2 * 1024 * 1024 * 1024;
-                            const raw_bytes = try std.fs.cwd().readFileAlloc(allocator, full_path, max_size);
+                            const raw_bytes = try std.fs.cwd().readFileAlloc(full_path, allocator, .limited(max_size));
                             const trimmed = std.mem.trim(u8, raw_bytes, " \r\n\t");
                             total_bytes += raw_bytes.len;
                             const hash = try allocator.alloc(u8, 32);

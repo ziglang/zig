@@ -1785,7 +1785,7 @@ const mem = std.mem;
 const target_util = @import("../../target.zig");
 const trace = @import("../../tracy.zig").trace;
 const std = @import("std");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Archive = @import("Archive.zig");

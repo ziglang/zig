@@ -1,7 +1,6 @@
 const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
-const io = std.io;
 const maxInt = std.math.maxInt;
 
 test "zig fmt: remove extra whitespace at start and end of file with comment between" {

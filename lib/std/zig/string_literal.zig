@@ -1,7 +1,7 @@
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const utf8Encode = std.unicode.utf8Encode;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const ParseError = error{
     OutOfMemory,
@@ -45,7 +45,7 @@ pub const Error = union(enum) {
         raw_string: []const u8,
     };
 
-    fn formatMessage(self: FormatMessage, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn formatMessage(self: FormatMessage, writer: *Writer) Writer.Error!void {
         switch (self.err) {
             .invalid_escape_character => |bad_index| try writer.print(
                 "invalid escape character: '{c}'",
@@ -358,7 +358,7 @@ pub fn parseWrite(writer: *Writer, bytes: []const u8) Writer.Error!Result {
 /// Higher level API. Does not return extra info about parse errors.
 /// Caller owns returned memory.
 pub fn parseAlloc(allocator: std.mem.Allocator, bytes: []const u8) ParseError![]u8 {
-    var aw: std.io.Writer.Allocating = .init(allocator);
+    var aw: Writer.Allocating = .init(allocator);
     defer aw.deinit();
     const result = parseWrite(&aw.writer, bytes) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,

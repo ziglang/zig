@@ -3094,7 +3094,7 @@ const math = std.math;
 const mem = std.mem;
 const Path = std.Build.Cache.Path;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const eh_frame = @import("eh_frame.zig");
 const trace = @import("../../tracy.zig").trace;

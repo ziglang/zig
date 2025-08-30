@@ -62,7 +62,7 @@ pub const Error = error{
     InvalidTypeLength,
 
     TruncatedIntegralType,
-} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero };
+} || abi.RegBytesError || error{ EndOfStream, Overflow, OutOfMemory, DivisionByZero, ReadFailed };
 
 /// A stack machine that can decode and run DWARF expressions.
 /// Expressions can be decoded for non-native address size and endianness,
@@ -178,61 +178,60 @@ pub fn StackMachine(comptime options: Options) type {
             }
         }
 
-        pub fn readOperand(stream: *std.io.FixedBufferStream([]const u8), opcode: u8, context: Context) !?Operand {
-            const reader = stream.reader();
+        pub fn readOperand(reader: *std.Io.Reader, opcode: u8, context: Context) !?Operand {
             return switch (opcode) {
-                OP.addr => generic(try reader.readInt(addr_type, options.endian)),
+                OP.addr => generic(try reader.takeInt(addr_type, options.endian)),
                 OP.call_ref => switch (context.format) {
-                    .@"32" => generic(try reader.readInt(u32, options.endian)),
-                    .@"64" => generic(try reader.readInt(u64, options.endian)),
+                    .@"32" => generic(try reader.takeInt(u32, options.endian)),
+                    .@"64" => generic(try reader.takeInt(u64, options.endian)),
                 },
                 OP.const1u,
                 OP.pick,
-                => generic(try reader.readByte()),
+                => generic(try reader.takeByte()),
                 OP.deref_size,
                 OP.xderef_size,
-                => .{ .type_size = try reader.readByte() },
-                OP.const1s => generic(try reader.readByteSigned()),
+                => .{ .type_size = try reader.takeByte() },
+                OP.const1s => generic(try reader.takeByteSigned()),
                 OP.const2u,
                 OP.call2,
-                => generic(try reader.readInt(u16, options.endian)),
-                OP.call4 => generic(try reader.readInt(u32, options.endian)),
-                OP.const2s => generic(try reader.readInt(i16, options.endian)),
+                => generic(try reader.takeInt(u16, options.endian)),
+                OP.call4 => generic(try reader.takeInt(u32, options.endian)),
+                OP.const2s => generic(try reader.takeInt(i16, options.endian)),
                 OP.bra,
                 OP.skip,
-                => .{ .branch_offset = try reader.readInt(i16, options.endian) },
-                OP.const4u => generic(try reader.readInt(u32, options.endian)),
-                OP.const4s => generic(try reader.readInt(i32, options.endian)),
-                OP.const8u => generic(try reader.readInt(u64, options.endian)),
-                OP.const8s => generic(try reader.readInt(i64, options.endian)),
+                => .{ .branch_offset = try reader.takeInt(i16, options.endian) },
+                OP.const4u => generic(try reader.takeInt(u32, options.endian)),
+                OP.const4s => generic(try reader.takeInt(i32, options.endian)),
+                OP.const8u => generic(try reader.takeInt(u64, options.endian)),
+                OP.const8s => generic(try reader.takeInt(i64, options.endian)),
                 OP.constu,
                 OP.plus_uconst,
                 OP.addrx,
                 OP.constx,
                 OP.convert,
                 OP.reinterpret,
-                => generic(try leb.readUleb128(u64, reader)),
+                => generic(try reader.takeLeb128(u64)),
                 OP.consts,
                 OP.fbreg,
-                => generic(try leb.readIleb128(i64, reader)),
+                => generic(try reader.takeLeb128(i64)),
                 OP.lit0...OP.lit31 => |n| generic(n - OP.lit0),
                 OP.reg0...OP.reg31 => |n| .{ .register = n - OP.reg0 },
                 OP.breg0...OP.breg31 => |n| .{ .base_register = .{
                     .base_register = n - OP.breg0,
-                    .offset = try leb.readIleb128(i64, reader),
+                    .offset = try reader.takeLeb128(i64),
                 } },
-                OP.regx => .{ .register = try leb.readUleb128(u8, reader) },
+                OP.regx => .{ .register = try reader.takeLeb128(u8) },
                 OP.bregx => blk: {
-                    const base_register = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
+                    const base_register = try reader.takeLeb128(u8);
+                    const offset = try reader.takeLeb128(i64);
                     break :blk .{ .base_register = .{
                         .base_register = base_register,
                         .offset = offset,
                     } };
                 },
                 OP.regval_type => blk: {
-                    const register = try leb.readUleb128(u8, reader);
-                    const type_offset = try leb.readUleb128(addr_type, reader);
+                    const register = try reader.takeLeb128(u8);
+                    const type_offset = try reader.takeLeb128(addr_type);
                     break :blk .{ .register_type = .{
                         .register = register,
                         .type_offset = type_offset,
@@ -240,33 +239,27 @@ pub fn StackMachine(comptime options: Options) type {
                 },
                 OP.piece => .{
                     .composite_location = .{
-                        .size = try leb.readUleb128(u8, reader),
+                        .size = try reader.takeLeb128(u8),
                         .offset = 0,
                     },
                 },
                 OP.bit_piece => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    const offset = try leb.readIleb128(i64, reader);
+                    const size = try reader.takeLeb128(u8);
+                    const offset = try reader.takeLeb128(i64);
                     break :blk .{ .composite_location = .{
                         .size = size,
                         .offset = offset,
                     } };
                 },
                 OP.implicit_value, OP.entry_value => blk: {
-                    const size = try leb.readUleb128(u8, reader);
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const block = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
-                    break :blk .{
-                        .block = block,
-                    };
+                    const size = try reader.takeLeb128(u8);
+                    const block = try reader.take(size);
+                    break :blk .{ .block = block };
                 },
                 OP.const_type => blk: {
-                    const type_offset = try leb.readUleb128(addr_type, reader);
-                    const size = try reader.readByte();
-                    if (stream.pos + size > stream.buffer.len) return error.InvalidExpression;
-                    const value_bytes = stream.buffer[stream.pos..][0..size];
-                    stream.pos += size;
+                    const type_offset = try reader.takeLeb128(addr_type);
+                    const size = try reader.takeByte();
+                    const value_bytes = try reader.take(size);
                     break :blk .{ .const_type = .{
                         .type_offset = type_offset,
                         .value_bytes = value_bytes,
@@ -276,8 +269,8 @@ pub fn StackMachine(comptime options: Options) type {
                 OP.xderef_type,
                 => .{
                     .deref_type = .{
-                        .size = try reader.readByte(),
-                        .type_offset = try leb.readUleb128(addr_type, reader),
+                        .size = try reader.takeByte(),
+                        .type_offset = try reader.takeLeb128(addr_type),
                     },
                 },
                 OP.lo_user...OP.hi_user => return error.UnimplementedUserOpcode,
@@ -293,7 +286,7 @@ pub fn StackMachine(comptime options: Options) type {
             initial_value: ?usize,
         ) Error!?Value {
             if (initial_value) |i| try self.stack.append(allocator, .{ .generic = i });
-            var stream = std.io.fixedBufferStream(expression);
+            var stream: std.Io.Reader = .fixed(expression);
             while (try self.step(&stream, allocator, context)) {}
             if (self.stack.items.len == 0) return null;
             return self.stack.items[self.stack.items.len - 1];
@@ -302,14 +295,14 @@ pub fn StackMachine(comptime options: Options) type {
         /// Reads an opcode and its operands from `stream`, then executes it
         pub fn step(
             self: *Self,
-            stream: *std.io.FixedBufferStream([]const u8),
+            stream: *std.Io.Reader,
             allocator: std.mem.Allocator,
             context: Context,
         ) Error!bool {
             if (@sizeOf(usize) != @sizeOf(addr_type) or options.endian != native_endian)
                 @compileError("Execution of non-native address sizes / endianness is not supported");
 
-            const opcode = try stream.reader().readByte();
+            const opcode = try stream.takeByte();
             if (options.call_frame_context and !isOpcodeValidInCFA(opcode)) return error.InvalidCFAOpcode;
             const operand = try readOperand(stream, opcode, context);
             switch (opcode) {
@@ -663,11 +656,11 @@ pub fn StackMachine(comptime options: Options) type {
                     if (condition) {
                         const new_pos = std.math.cast(
                             usize,
-                            try std.math.add(isize, @as(isize, @intCast(stream.pos)), branch_offset),
+                            try std.math.add(isize, @as(isize, @intCast(stream.seek)), branch_offset),
                         ) orelse return error.InvalidExpression;
 
                         if (new_pos < 0 or new_pos > stream.buffer.len) return error.InvalidExpression;
-                        stream.pos = new_pos;
+                        stream.seek = new_pos;
                     }
                 },
                 OP.call2,
@@ -746,7 +739,7 @@ pub fn StackMachine(comptime options: Options) type {
                     if (isOpcodeRegisterLocation(block[0])) {
                         if (context.thread_context == null) return error.IncompleteExpressionContext;
 
-                        var block_stream = std.io.fixedBufferStream(block);
+                        var block_stream: std.Io.Reader = .fixed(block);
                         const register = (try readOperand(&block_stream, block[0], context)).?.register;
                         const value = mem.readInt(usize, (try abi.regBytes(context.thread_context.?, register, context.reg_context))[0..@sizeOf(usize)], native_endian);
                         try self.stack.append(allocator, .{ .generic = value });
@@ -769,7 +762,7 @@ pub fn StackMachine(comptime options: Options) type {
                 },
             }
 
-            return stream.pos < stream.buffer.len;
+            return stream.seek < stream.buffer.len;
         }
     };
 }
@@ -858,7 +851,7 @@ pub fn Builder(comptime options: Options) type {
                     },
                     .signed => {
                         try writer.writeByte(OP.consts);
-                        try leb.writeIleb128(writer, value);
+                        try writer.writeLeb128(value);
                     },
                 },
             }
@@ -892,19 +885,19 @@ pub fn Builder(comptime options: Options) type {
         // 2.5.1.2: Register Values
         pub fn writeFbreg(writer: *Writer, offset: anytype) !void {
             try writer.writeByte(OP.fbreg);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeBreg(writer: *Writer, register: u8, offset: anytype) !void {
             if (register > 31) return error.InvalidRegister;
             try writer.writeByte(OP.breg0 + register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeBregx(writer: *Writer, register: anytype, offset: anytype) !void {
             try writer.writeByte(OP.bregx);
             try writer.writeUleb128(register);
-            try leb.writeIleb128(writer, offset);
+            try writer.writeSleb128(offset);
         }
 
         pub fn writeRegvalType(writer: *Writer, register: anytype, offset: anytype) !void {

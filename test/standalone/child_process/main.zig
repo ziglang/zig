@@ -32,7 +32,8 @@ pub fn main() !void {
 
     const hello_stdout = "hello from stdout";
     var buf: [hello_stdout.len]u8 = undefined;
-    const n = try child.stdout.?.deprecatedReader().readAll(&buf);
+    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    const n = try stdout_reader.interface.readSliceShort(&buf);
     if (!std.mem.eql(u8, buf[0..n], hello_stdout)) {
         testError("child stdout: '{s}'; want '{s}'", .{ buf[0..n], hello_stdout });
     }

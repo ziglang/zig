@@ -336,7 +336,7 @@ fn testCase(case: Case) !void {
     var file_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
     var link_name_buffer: [std.fs.max_path_bytes]u8 = undefined;
 
-    var br: std.io.Reader = .fixed(case.data);
+    var br: std.Io.Reader = .fixed(case.data);
     var it: tar.Iterator = .init(&br, .{
         .file_name_buffer = &file_name_buffer,
         .link_name_buffer = &link_name_buffer,
@@ -387,7 +387,7 @@ fn testLongNameCase(case: Case) !void {
     var min_file_name_buffer: [256]u8 = undefined;
     var min_link_name_buffer: [100]u8 = undefined;
 
-    var br: std.io.Reader = .fixed(case.data);
+    var br: std.Io.Reader = .fixed(case.data);
     var iter: tar.Iterator = .init(&br, .{
         .file_name_buffer = &min_file_name_buffer,
         .link_name_buffer = &min_link_name_buffer,
@@ -407,7 +407,7 @@ test "insufficient buffer in Header name filed" {
     var min_file_name_buffer: [9]u8 = undefined;
     var min_link_name_buffer: [100]u8 = undefined;
 
-    var br: std.io.Reader = .fixed(gnu_case.data);
+    var br: std.Io.Reader = .fixed(gnu_case.data);
     var iter: tar.Iterator = .init(&br, .{
         .file_name_buffer = &min_file_name_buffer,
         .link_name_buffer = &min_link_name_buffer,
@@ -462,7 +462,7 @@ test "should not overwrite existing file" {
     // This ensures that file is not overwritten.
     //
     const data = @embedFile("testdata/overwrite_file.tar");
-    var r: std.io.Reader = .fixed(data);
+    var r: std.Io.Reader = .fixed(data);
 
     // Unpack with strip_components = 1 should fail
     var root = std.testing.tmpDir(.{});
@@ -490,7 +490,7 @@ test "case sensitivity" {
     //     18089/alacritty/Darkermatrix.yml
     //
     const data = @embedFile("testdata/18089.tar");
-    var r: std.io.Reader = .fixed(data);
+    var r: std.Io.Reader = .fixed(data);
 
     var root = std.testing.tmpDir(.{});
     defer root.cleanup();

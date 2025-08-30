@@ -348,7 +348,7 @@ pub fn updateLineNumber(self: *C, pt: Zcu.PerThread, ti_id: InternPool.TrackedIn
     _ = ti_id;
 }
 
-fn abiDefines(w: *std.io.Writer, target: *const std.Target) !void {
+fn abiDefines(w: *std.Io.Writer, target: *const std.Target) !void {
     switch (target.abi) {
         .msvc, .itanium => try w.writeAll("#define ZIG_TARGET_ABI_MSVC\n"),
         else => {},
@@ -400,7 +400,7 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     };
     defer f.deinit(gpa);
 
-    var abi_defines_aw: std.io.Writer.Allocating = .init(gpa);
+    var abi_defines_aw: std.Io.Writer.Allocating = .init(gpa);
     defer abi_defines_aw.deinit();
     abiDefines(&abi_defines_aw.writer, zcu.getTarget()) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
@@ -415,7 +415,7 @@ pub fn flush(self: *C, arena: Allocator, tid: Zcu.PerThread.Id, prog_node: std.P
     const ctypes_index = f.all_buffers.items.len;
     f.all_buffers.items.len += 1;
 
-    var asm_aw: std.io.Writer.Allocating = .init(gpa);
+    var asm_aw: std.Io.Writer.Allocating = .init(gpa);
     defer asm_aw.deinit();
     codegen.genGlobalAsm(zcu, &asm_aw.writer) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,
@@ -582,7 +582,7 @@ fn flushCTypes(
     try global_from_decl_map.ensureTotalCapacity(gpa, decl_ctype_pool.items.len);
     defer global_from_decl_map.clearRetainingCapacity();
 
-    var ctypes_aw: std.io.Writer.Allocating = .fromArrayList(gpa, &f.ctypes);
+    var ctypes_aw: std.Io.Writer.Allocating = .fromArrayList(gpa, &f.ctypes);
     const ctypes_bw = &ctypes_aw.writer;
     defer f.ctypes = ctypes_aw.toArrayList();
 

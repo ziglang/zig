@@ -2017,15 +2017,12 @@ pub const VirtualMachine = struct {
 
         var prev_row: Row = self.current_row;
 
-        var cie_stream = std.io.fixedBufferStream(cie.initial_instructions);
-        var fde_stream = std.io.fixedBufferStream(fde.instructions);
-        var streams = [_]*std.io.FixedBufferStream([]const u8){
-            &cie_stream,
-            &fde_stream,
-        };
+        var cie_stream: std.Io.Reader = .fixed(cie.initial_instructions);
+        var fde_stream: std.Io.Reader = .fixed(fde.instructions);
+        const streams = [_]*std.Io.Reader{ &cie_stream, &fde_stream };
 
         for (&streams, 0..) |stream, i| {
-            while (stream.pos < stream.buffer.len) {
+            while (stream.seek < stream.buffer.len) {
                 const instruction = try std.debug.Dwarf.call_frame.Instruction.read(stream, addr_size_bytes, endian);
                 prev_row = try self.step(allocator, cie, i == 0, instruction);
                 if (pc < fde.pc_begin + self.current_row.offset) return prev_row;

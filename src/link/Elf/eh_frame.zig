@@ -58,7 +58,7 @@ pub const Fde = struct {
         fde: Fde,
         elf_file: *Elf,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const fde = f.fde;
             const elf_file = f.elf_file;
             const base_addr = fde.address(elf_file);
@@ -141,7 +141,7 @@ pub const Cie = struct {
         cie: Cie,
         elf_file: *Elf,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const cie = f.cie;
             const elf_file = f.elf_file;
             const base_addr = cie.address(elf_file);
@@ -167,15 +167,14 @@ pub const Iterator = struct {
     pub fn next(it: *Iterator) !?Record {
         if (it.pos >= it.data.len) return null;
 
-        var stream = std.io.fixedBufferStream(it.data[it.pos..]);
-        const reader = stream.reader();
+        var reader: std.Io.Reader = .fixed(it.data[it.pos..]);
 
-        const size = try reader.readInt(u32, .little);
+        const size = try reader.takeInt(u32, .little);
         if (size == 0) return null;
         if (size == 0xFFFFFFFF) @panic("TODO");
 
-        const id = try reader.readInt(u32, .little);
-        const record = Record{
+        const id = try reader.takeInt(u32, .little);
+        const record: Record = .{
             .tag = if (id == 0) .cie else .fde,
             .offset = it.pos,
             .size = size,

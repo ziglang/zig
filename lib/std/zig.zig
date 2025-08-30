@@ -51,9 +51,9 @@ pub const Color = enum {
     /// Assume stderr is a terminal.
     on,
 
-    pub fn get_tty_conf(color: Color) std.io.tty.Config {
+    pub fn get_tty_conf(color: Color) std.Io.tty.Config {
         return switch (color) {
-            .auto => std.io.tty.detectConfig(std.fs.File.stderr()),
+            .auto => std.Io.tty.detectConfig(std.fs.File.stderr()),
             .on => .escape_codes,
             .off => .no_color,
         };
@@ -322,7 +322,7 @@ pub const BuildId = union(enum) {
         try std.testing.expectError(error.InvalidBuildIdStyle, parse("yaddaxxx"));
     }
 
-    pub fn format(id: BuildId, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(id: BuildId, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         switch (id) {
             .none, .fast, .uuid, .sha1, .md5 => {
                 try writer.writeAll(@tagName(id));

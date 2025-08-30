@@ -609,7 +609,7 @@ pub const ProgramHeaderBufferIterator = struct {
     }
 };
 
-fn takePhdr(reader: *std.io.Reader, elf_header: Header) !?Elf64_Phdr {
+fn takePhdr(reader: *std.Io.Reader, elf_header: Header) !?Elf64_Phdr {
     if (elf_header.is_64) {
         const phdr = try reader.takeStruct(Elf64_Phdr, elf_header.endian);
         return phdr;

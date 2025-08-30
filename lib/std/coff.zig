@@ -1087,14 +1087,11 @@ pub const Coff = struct {
         const pe_pointer_offset = 0x3C;
         const pe_magic = "PE\x00\x00";
 
-        var stream = std.io.fixedBufferStream(data);
-        const reader = stream.reader();
-        try stream.seekTo(pe_pointer_offset);
-        const coff_header_offset = try reader.readInt(u32, .little);
-        try stream.seekTo(coff_header_offset);
-        var buf: [4]u8 = undefined;
-        try reader.readNoEof(&buf);
-        const is_image = mem.eql(u8, pe_magic, &buf);
+        var reader: std.Io.Reader = .fixed(data);
+        reader.seek = pe_pointer_offset;
+        const coff_header_offset = try reader.takeInt(u32, .little);
+        reader.seek = coff_header_offset;
+        const is_image = mem.eql(u8, pe_magic, try reader.takeArray(4));
 
         var coff = @This(){
             .data = data,
@@ -1123,16 +1120,15 @@ pub const Coff = struct {
         if (@intFromEnum(DirectoryEntry.DEBUG) >= data_dirs.len) return null;
 
         const debug_dir = data_dirs[@intFromEnum(DirectoryEntry.DEBUG)];
-        var stream = std.io.fixedBufferStream(self.data);
-        const reader = stream.reader();
+        var reader: std.Io.Reader = .fixed(self.data);
 
         if (self.is_loaded) {
-            try stream.seekTo(debug_dir.virtual_address);
+            reader.seek = debug_dir.virtual_address;
         } else {
             // Find what section the debug_dir is in, in order to convert the RVA to a file offset
             for (self.getSectionHeaders()) |*sect| {
                 if (debug_dir.virtual_address >= sect.virtual_address and debug_dir.virtual_address < sect.virtual_address + sect.virtual_size) {
-                    try stream.seekTo(sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address));
+                    reader.seek = sect.pointer_to_raw_data + (debug_dir.virtual_address - sect.virtual_address);
                     break;
                 }
             } else return error.InvalidDebugDirectory;
@@ -1143,24 +1139,23 @@ pub const Coff = struct {
         const debug_dir_entry_count = debug_dir.size / @sizeOf(DebugDirectoryEntry);
         var i: u32 = 0;
         while (i < debug_dir_entry_count) : (i += 1) {
-            const debug_dir_entry = try reader.readStruct(DebugDirectoryEntry);
+            const debug_dir_entry = try reader.takeStruct(DebugDirectoryEntry, .little);
             if (debug_dir_entry.type == .CODEVIEW) {
                 const dir_offset = if (self.is_loaded) debug_dir_entry.address_of_raw_data else debug_dir_entry.pointer_to_raw_data;
-                try stream.seekTo(dir_offset);
+                reader.seek = dir_offset;
                 break;
             }
         } else return null;
 
-        var cv_signature: [4]u8 = undefined; // CodeView signature
-        try reader.readNoEof(cv_signature[0..]);
+        const code_view_signature = try reader.takeArray(4);
         // 'RSDS' indicates PDB70 format, used by lld.
-        if (!mem.eql(u8, &cv_signature, "RSDS"))
+        if (!mem.eql(u8, code_view_signature, "RSDS"))
             return error.InvalidPEMagic;
-        try reader.readNoEof(self.guid[0..]);
-        self.age = try reader.readInt(u32, .little);
+        try reader.readSliceAll(self.guid[0..]);
+        self.age = try reader.takeInt(u32, .little);
 
         // Finally read the null-terminated string.
-        const start = reader.context.pos;
+        const start = reader.seek;
         const len = std.mem.indexOfScalar(u8, self.data[start..], 0) orelse return null;
         return self.data[start .. start + len];
     }

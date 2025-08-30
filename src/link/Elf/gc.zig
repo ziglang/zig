@@ -169,7 +169,7 @@ const Level = struct {
         self.value += 1;
     }
 
-    pub fn format(self: *const @This(), w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(self: *const @This(), w: *std.Io.Writer) std.Io.Writer.Error!void {
         try w.splatByteAll(' ', self.value);
     }
 };

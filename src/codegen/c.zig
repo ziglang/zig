@@ -4,7 +4,7 @@ const assert = std.debug.assert;
 const mem = std.mem;
 const log = std.log.scoped(.c);
 const Allocator = mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const dev = @import("../dev.zig");
 const link = @import("../link.zig");
@@ -345,15 +345,15 @@ fn isReservedIdent(ident: []const u8) bool {
     } else return reserved_idents.has(ident);
 }
 
-fn formatIdentSolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentSolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, true);
 }
 
-fn formatIdentUnsolo(ident: []const u8, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIdentUnsolo(ident: []const u8, w: *Writer) Writer.Error!void {
     return formatIdentOptions(ident, w, false);
 }
 
-fn formatIdentOptions(ident: []const u8, w: *std.io.Writer, solo: bool) std.io.Writer.Error!void {
+fn formatIdentOptions(ident: []const u8, w: *Writer, solo: bool) Writer.Error!void {
     if (solo and isReservedIdent(ident)) {
         try w.writeAll("zig_e_");
     }
@@ -384,7 +384,7 @@ const CTypePoolStringFormatData = struct {
     ctype_pool: *const CType.Pool,
     solo: bool,
 };
-fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatCTypePoolString(data: CTypePoolStringFormatData, w: *Writer) Writer.Error!void {
     if (data.ctype_pool_string.toSlice(data.ctype_pool)) |slice|
         try formatIdentOptions(slice, w, data.solo)
     else
@@ -711,8 +711,8 @@ pub const Function = struct {
 /// It is not available when generating .h file.
 pub const Object = struct {
     dg: DeclGen,
-    code_header: std.io.Writer.Allocating,
-    code: std.io.Writer.Allocating,
+    code_header: Writer.Allocating,
+    code: Writer.Allocating,
     indent_counter: usize,
 
     const indent_width = 1;
@@ -748,7 +748,7 @@ pub const DeclGen = struct {
     pass: Pass,
     is_naked_fn: bool,
     expected_block: ?u32,
-    fwd_decl: std.io.Writer.Allocating,
+    fwd_decl: Writer.Allocating,
     error_msg: ?*Zcu.ErrorMsg,
     ctype_pool: CType.Pool,
     scratch: std.ArrayListUnmanaged(u32),
@@ -8287,7 +8287,7 @@ const FormatStringContext = struct {
     sentinel: ?u8,
 };
 
-fn formatStringLiteral(data: FormatStringContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatStringLiteral(data: FormatStringContext, w: *Writer) Writer.Error!void {
     var literal: StringLiteral = .init(w, data.str.len + @intFromBool(data.sentinel != null));
     try literal.start();
     for (data.str) |c| try literal.writeChar(c);
@@ -8314,7 +8314,7 @@ const FormatIntLiteralContext = struct {
     base: u8,
     case: std.fmt.Case,
 };
-fn formatIntLiteral(data: FormatIntLiteralContext, w: *std.io.Writer) std.io.Writer.Error!void {
+fn formatIntLiteral(data: FormatIntLiteralContext, w: *Writer) Writer.Error!void {
     const pt = data.dg.pt;
     const zcu = pt.zcu;
     const target = &data.dg.mod.resolved_target.result;

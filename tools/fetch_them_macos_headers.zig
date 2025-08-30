@@ -1,6 +1,5 @@
 const std = @import("std");
 const fs = std.fs;
-const io = std.io;
 const mem = std.mem;
 const process = std.process;
 const assert = std.debug.assert;
@@ -93,7 +92,7 @@ pub fn main() anyerror!void {
 
     var sdk_dir = try std.fs.cwd().openDir(sysroot_path, .{});
     defer sdk_dir.close();
-    const sdk_info = try sdk_dir.readFileAlloc(allocator, "SDKSettings.json", std.math.maxInt(u32));
+    const sdk_info = try sdk_dir.readFileAlloc("SDKSettings.json", allocator, .limited(std.math.maxInt(u32)));
 
     const parsed_json = try std.json.parseFromSlice(struct {
         DefaultProperties: struct { MACOSX_DEPLOYMENT_TARGET: []const u8 },
@@ -198,7 +197,8 @@ fn fetchTarget(
     var dirs = std.StringHashMap(fs.Dir).init(arena);
     try dirs.putNoClobber(".", dest_dir);
 
-    const headers_list_str = try headers_list_file.deprecatedReader().readAllAlloc(arena, std.math.maxInt(usize));
+    var headers_list_file_reader = headers_list_file.reader(&.{});
+    const headers_list_str = try headers_list_file_reader.interface.allocRemaining(arena, .unlimited);
     const prefix = "/usr/include";
 
     var it = mem.splitScalar(u8, headers_list_str, '\n');

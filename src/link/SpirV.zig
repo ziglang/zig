@@ -249,7 +249,7 @@ pub fn flush(
     // We need to export the list of error names somewhere so that we can pretty-print them in the
     // executor. This is not really an important thing though, so we can just dump it in any old
     // nonsemantic instruction. For now, just put it in OpSourceExtension with a special name.
-    var error_info: std.io.Writer.Allocating = .init(linker.module.gpa);
+    var error_info: std.Io.Writer.Allocating = .init(linker.module.gpa);
     defer error_info.deinit();
 
     error_info.writer.writeAll("zig_errors:") catch return error.OutOfMemory;

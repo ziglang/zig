@@ -194,7 +194,7 @@ fn printUsageAndExit(arg0: []const u8) noreturn {
     std.process.exit(1);
 }
 
-fn printUsage(w: *std.io.Writer, arg0: []const u8) std.io.Writer.Error!void {
+fn printUsage(w: *std.Io.Writer, arg0: []const u8) std.Io.Writer.Error!void {
     return w.print(
         \\Usage: {s} /path/git/zig
         \\

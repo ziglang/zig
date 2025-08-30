@@ -204,7 +204,7 @@ pub const ArSymtab = struct {
         ar: ArSymtab,
         elf_file: *Elf,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const ar = f.ar;
             const elf_file = f.elf_file;
             for (ar.symtab.items, 0..) |entry, i| {
@@ -259,7 +259,7 @@ pub const ArStrtab = struct {
         try writer.writeAll(ar.buffer.items);
     }
 
-    pub fn format(ar: ArStrtab, writer: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(ar: ArStrtab, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         try writer.print("{f}", .{std.ascii.hexEscape(ar.buffer.items, .lower)});
     }
 };

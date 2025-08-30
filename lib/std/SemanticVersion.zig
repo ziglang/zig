@@ -150,7 +150,7 @@ fn parseNum(text: []const u8) error{ InvalidVersion, Overflow }!usize {
     };
 }
 
-pub fn format(self: Version, w: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(self: Version, w: *std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("{d}.{d}.{d}", .{ self.major, self.minor, self.patch });
     if (self.pre) |pre| try w.print("-{s}", .{pre});
     if (self.build) |build| try w.print("+{s}", .{build});

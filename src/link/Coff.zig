@@ -3039,7 +3039,7 @@ const ImportTable = struct {
         itab: ImportTable,
         ctx: Context,
 
-        fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+        fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
             const lib_name = f.ctx.coff.temp_strtab.getAssumeExists(f.ctx.name_off);
             const base_vaddr = getBaseAddress(f.ctx);
             try writer.print("IAT({s}.dll) @{x}:", .{ lib_name, base_vaddr });

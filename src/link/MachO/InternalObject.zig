@@ -894,7 +894,7 @@ const macho = std.macho;
 const mem = std.mem;
 const std = @import("std");
 const trace = @import("../../tracy.zig").trace;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Allocator = std.mem.Allocator;
 const Atom = @import("Atom.zig");

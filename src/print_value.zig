@@ -9,6 +9,7 @@ const Sema = @import("Sema.zig");
 const InternPool = @import("InternPool.zig");
 const Allocator = std.mem.Allocator;
 const Target = std.Target;
+const Writer = std.Io.Writer;
 
 const max_aggregate_items = 100;
 const max_string_len = 256;
@@ -20,7 +21,7 @@ pub const FormatContext = struct {
     depth: u8,
 };
 
-pub fn formatSema(ctx: FormatContext, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn formatSema(ctx: FormatContext, writer: *Writer) Writer.Error!void {
     const sema = ctx.opt_sema.?;
     return print(ctx.val, writer, ctx.depth, ctx.pt, sema) catch |err| switch (err) {
         error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
@@ -30,7 +31,7 @@ pub fn formatSema(ctx: FormatContext, writer: *std.io.Writer) std.io.Writer.Erro
     };
 }
 
-pub fn format(ctx: FormatContext, writer: *std.io.Writer) std.io.Writer.Error!void {
+pub fn format(ctx: FormatContext, writer: *Writer) Writer.Error!void {
     std.debug.assert(ctx.opt_sema == null);
     return print(ctx.val, writer, ctx.depth, ctx.pt, null) catch |err| switch (err) {
         error.OutOfMemory => @panic("OOM"), // We're not allowed to return this from a format function
@@ -41,11 +42,11 @@ pub fn format(ctx: FormatContext, writer: *std.io.Writer) std.io.Writer.Error!vo
 
 pub fn print(
     val: Value,
-    writer: *std.io.Writer,
+    writer: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (std.io.Writer.Error || Zcu.CompileError)!void {
+) (Writer.Error || Zcu.CompileError)!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
     switch (ip.indexToKey(val.toIntern())) {
@@ -184,11 +185,11 @@ fn printAggregate(
     val: Value,
     aggregate: InternPool.Key.Aggregate,
     is_ref: bool,
-    writer: *std.io.Writer,
+    writer: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (std.io.Writer.Error || Zcu.CompileError)!void {
+) (Writer.Error || Zcu.CompileError)!void {
     if (level == 0) {
         if (is_ref) try writer.writeByte('&');
         return writer.writeAll(".{ ... }");
@@ -270,11 +271,11 @@ fn printPtr(
     ptr_val: Value,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     want_kind: ?PrintPtrKind,
-    writer: *std.io.Writer,
+    writer: *Writer,
     level: u8,
     pt: Zcu.PerThread,
     opt_sema: ?*Sema,
-) (std.io.Writer.Error || Zcu.CompileError)!void {
+) (Writer.Error || Zcu.CompileError)!void {
     const ptr = switch (pt.zcu.intern_pool.indexToKey(ptr_val.toIntern())) {
         .undef => return writer.writeAll("undefined"),
         .ptr => |ptr| ptr,
@@ -316,7 +317,7 @@ const PrintPtrKind = enum { lvalue, rvalue };
 /// Returns the root derivation, which may be ignored.
 pub fn printPtrDerivation(
     derivation: Value.PointerDeriveStep,
-    writer: *std.io.Writer,
+    writer: *Writer,
     pt: Zcu.PerThread,
     /// Whether to print `derivation` as an lvalue or rvalue. If `null`, the more concise option is chosen.
     /// If this is `.rvalue`, the result may look like `&foo`, so it's not necessarily valid to treat it as

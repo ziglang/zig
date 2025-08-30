@@ -381,7 +381,7 @@ fn transformationsToFixups(
                 }
             }
 
-            var other_source: std.io.Writer.Allocating = .init(gpa);
+            var other_source: std.Io.Writer.Allocating = .init(gpa);
             defer other_source.deinit();
             try other_source.writer.writeAll("struct {\n");
             try other_file_ast.render(gpa, &other_source.writer, inlined_fixups);
@@ -398,10 +398,9 @@ fn transformationsToFixups(
 
 fn parse(gpa: Allocator, file_path: []const u8) !Ast {
     const source_code = std.fs.cwd().readFileAllocOptions(
-        gpa,
         file_path,
-        std.math.maxInt(u32),
-        null,
+        gpa,
+        .limited(std.math.maxInt(u32)),
         .fromByteUnits(1),
         0,
     ) catch |err| {

@@ -2,7 +2,6 @@ const builtin = @import("builtin");
 const std = @import("std.zig");
 const math = std.math;
 const mem = std.mem;
-const io = std.io;
 const posix = std.posix;
 const fs = std.fs;
 const testing = std.testing;
@@ -12,7 +11,8 @@ const windows = std.os.windows;
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
+const tty = std.Io.tty;
 
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
@@ -246,12 +246,12 @@ pub fn getSelfDebugInfo() !*SelfInfo {
 pub fn dumpHex(bytes: []const u8) void {
     const bw = lockStderrWriter(&.{});
     defer unlockStderrWriter();
-    const ttyconf = std.io.tty.detectConfig(.stderr());
+    const ttyconf = tty.detectConfig(.stderr());
     dumpHexFallible(bw, ttyconf, bytes) catch {};
 }
 
 /// Prints a hexadecimal view of the bytes, returning any error that occurs.
-pub fn dumpHexFallible(bw: *Writer, ttyconf: std.io.tty.Config, bytes: []const u8) !void {
+pub fn dumpHexFallible(bw: *Writer, ttyconf: tty.Config, bytes: []const u8) !void {
     var chunks = mem.window(u8, bytes, 16, 16);
     while (chunks.next()) |window| {
         // 1. Print the address.
@@ -302,7 +302,7 @@ pub fn dumpHexFallible(bw: *Writer, ttyconf: std.io.tty.Config, bytes: []const u
 
 test dumpHexFallible {
     const bytes: []const u8 = &.{ 0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x01, 0x12, 0x13 };
-    var aw: std.io.Writer.Allocating = .init(std.testing.allocator);
+    var aw: Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
 
     try dumpHexFallible(&aw.writer, .no_color, bytes);
@@ -342,7 +342,7 @@ pub fn dumpCurrentStackTraceToWriter(start_addr: ?usize, writer: *Writer) !void 
         try writer.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)});
         return;
     };
-    writeCurrentStackTrace(writer, debug_info, io.tty.detectConfig(.stderr()), start_addr) catch |err| {
+    writeCurrentStackTrace(writer, debug_info, tty.detectConfig(.stderr()), start_addr) catch |err| {
         try writer.print("Unable to dump stack trace: {s}\n", .{@errorName(err)});
         return;
     };
@@ -427,7 +427,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        const tty_config = io.tty.detectConfig(.stderr());
+        const tty_config = tty.detectConfig(.stderr());
         if (native_os == .windows) {
             // On x86_64 and aarch64, the stack will be unwound using RtlVirtualUnwind using the context
             // provided by the exception handler. On x86, RtlVirtualUnwind doesn't exist. Instead, a new backtrace
@@ -533,7 +533,7 @@ pub fn dumpStackTrace(stack_trace: std.builtin.StackTrace) void {
             stderr.print("Unable to dump stack trace: Unable to open debug info: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
-        writeStackTrace(stack_trace, stderr, debug_info, io.tty.detectConfig(.stderr())) catch |err| {
+        writeStackTrace(stack_trace, stderr, debug_info, tty.detectConfig(.stderr())) catch |err| {
             stderr.print("Unable to dump stack trace: {s}\n", .{@errorName(err)}) catch return;
             return;
         };
@@ -738,7 +738,7 @@ pub fn writeStackTrace(
     stack_trace: std.builtin.StackTrace,
     writer: *Writer,
     debug_info: *SelfInfo,
-    tty_config: io.tty.Config,
+    tty_config: tty.Config,
 ) !void {
     if (builtin.strip_debug_info) return error.MissingDebugInfo;
     var frame_index: usize = 0;
@@ -959,7 +959,7 @@ pub const StackIterator = struct {
 pub fn writeCurrentStackTrace(
     writer: *Writer,
     debug_info: *SelfInfo,
-    tty_config: io.tty.Config,
+    tty_config: tty.Config,
     start_addr: ?usize,
 ) !void {
     if (native_os == .windows) {
@@ -1047,7 +1047,7 @@ pub noinline fn walkStackWindows(addresses: []usize, existing_context: ?*const w
 pub fn writeStackTraceWindows(
     writer: *Writer,
     debug_info: *SelfInfo,
-    tty_config: io.tty.Config,
+    tty_config: tty.Config,
     context: *const windows.CONTEXT,
     start_addr: ?usize,
 ) !void {
@@ -1065,7 +1065,7 @@ pub fn writeStackTraceWindows(
     }
 }
 
-fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: io.tty.Config) !void {
+fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address);
     return printLineInfo(
         writer,
@@ -1078,14 +1078,14 @@ fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tt
     );
 }
 
-fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: io.tty.Config) void {
+fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: tty.Config) void {
     if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
         printUnwindError(debug_info, writer, unwind_error.address, unwind_error.err, tty_config) catch {};
     }
 }
 
-fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err: UnwindError, tty_config: io.tty.Config) !void {
+fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err: UnwindError, tty_config: tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
     try tty_config.setColor(writer, .dim);
     if (err == error.MissingDebugInfo) {
@@ -1096,7 +1096,7 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err:
     try tty_config.setColor(writer, .reset);
 }
 
-pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: io.tty.Config) !void {
+pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
     const module = debug_info.getModuleForAddress(address) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
         else => return err,
@@ -1125,7 +1125,7 @@ fn printLineInfo(
     address: usize,
     symbol_name: []const u8,
     compile_unit_name: []const u8,
-    tty_config: io.tty.Config,
+    tty_config: tty.Config,
     comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
@@ -1597,10 +1597,10 @@ test "manage resources correctly" {
     // self-hosted debug info is still too buggy
     if (builtin.zig_backend != .stage2_llvm) return error.SkipZigTest;
 
-    var discarding: std.io.Writer.Discarding = .init(&.{});
+    var discarding: Writer.Discarding = .init(&.{});
     var di = try SelfInfo.open(testing.allocator);
     defer di.deinit();
-    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), io.tty.detectConfig(.stderr()));
+    try printSourceAtAddress(&di, &discarding.writer, showMyTrace(), tty.detectConfig(.stderr()));
 }
 
 noinline fn showMyTrace() usize {
@@ -1666,7 +1666,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn dump(t: @This()) void {
             if (!enabled) return;
 
-            const tty_config = io.tty.detectConfig(.stderr());
+            const tty_config = tty.detectConfig(.stderr());
             const stderr = lockStderrWriter(&.{});
             defer unlockStderrWriter();
             const end = @min(t.index, size);

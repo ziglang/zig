@@ -698,7 +698,7 @@ fn encodeInst(emit: *Emit, lowered_inst: Instruction, reloc_info: []const RelocI
     const gpa = comp.gpa;
     const start_offset: u32 = @intCast(emit.code.items.len);
     {
-        var aw: std.io.Writer.Allocating = .fromArrayList(gpa, emit.code);
+        var aw: std.Io.Writer.Allocating = .fromArrayList(gpa, emit.code);
         defer emit.code.* = aw.toArrayList();
         lowered_inst.encode(&aw.writer, .{}) catch |err| switch (err) {
             error.WriteFailed => return error.OutOfMemory,

@@ -3,7 +3,6 @@
 const builtin = @import("builtin");
 
 const std = @import("std.zig");
-const io = std.io;
 const math = std.math;
 const assert = std.debug.assert;
 const mem = std.mem;
@@ -12,7 +11,7 @@ const lossyCast = math.lossyCast;
 const expectFmt = std.testing.expectFmt;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 pub const float = @import("fmt/float.zig");
 

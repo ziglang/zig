@@ -448,7 +448,7 @@ const Format = struct {
     self: *LinkerDefined,
     elf_file: *Elf,
 
-    fn symtab(ctx: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn symtab(ctx: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const self = ctx.self;
         const elf_file = ctx.elf_file;
         try writer.writeAll("  globals\n");

@@ -286,7 +286,7 @@ pub const HashHelper = struct {
 
 pub fn binToHex(bin_digest: BinDigest) HexDigest {
     var out_digest: HexDigest = undefined;
-    var w: std.io.Writer = .fixed(&out_digest);
+    var w: std.Io.Writer = .fixed(&out_digest);
     w.printHex(&bin_digest, .lower) catch unreachable;
     return out_digest;
 }
@@ -664,7 +664,7 @@ pub const Manifest = struct {
         const input_file_count = self.files.entries.len;
         var tiny_buffer: [1]u8 = undefined; // allows allocRemaining to detect limit exceeded
         var manifest_reader = self.manifest_file.?.reader(&tiny_buffer); // Reads positionally from zero.
-        const limit: std.io.Limit = .limited(manifest_file_size_max);
+        const limit: std.Io.Limit = .limited(manifest_file_size_max);
         const file_contents = manifest_reader.interface.allocRemaining(gpa, limit) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             error.StreamTooLong => return error.OutOfMemory,
@@ -1056,7 +1056,7 @@ pub const Manifest = struct {
 
     fn addDepFileMaybePost(self: *Manifest, dir: fs.Dir, dep_file_basename: []const u8) !void {
         const gpa = self.cache.gpa;
-        const dep_file_contents = try dir.readFileAlloc(gpa, dep_file_basename, manifest_file_size_max);
+        const dep_file_contents = try dir.readFileAlloc(dep_file_basename, gpa, .limited(manifest_file_size_max));
         defer gpa.free(dep_file_contents);
 
         var error_buf: std.ArrayListUnmanaged(u8) = .empty;

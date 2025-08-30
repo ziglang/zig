@@ -11,7 +11,7 @@ const std = @import("std");
 const ErrorBundle = @This();
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 string_bytes: []const u8,
 /// The first thing in this array is an `ErrorMessageList`.
@@ -156,7 +156,7 @@ pub fn nullTerminatedString(eb: ErrorBundle, index: String) [:0]const u8 {
 }
 
 pub const RenderOptions = struct {
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
     include_reference_trace: bool = true,
     include_source_line: bool = true,
     include_log_text: bool = true,
@@ -190,14 +190,14 @@ fn renderErrorMessageToWriter(
     err_msg_index: MessageIndex,
     w: *Writer,
     kind: []const u8,
-    color: std.io.tty.Color,
+    color: std.Io.tty.Color,
     indent: usize,
 ) (Writer.Error || std.posix.UnexpectedError)!void {
     const ttyconf = options.ttyconf;
     const err_msg = eb.getErrorMessage(err_msg_index);
     if (err_msg.src_loc != .none) {
         const src = eb.extraData(SourceLocation, @intFromEnum(err_msg.src_loc));
-        var prefix: std.io.Writer.Discarding = .init(&.{});
+        var prefix: Writer.Discarding = .init(&.{});
         try w.splatByteAll(' ', indent);
         prefix.count += indent;
         try ttyconf.setColor(w, .bold);
@@ -794,9 +794,9 @@ pub const Wip = struct {
         };
         defer bundle.deinit(std.testing.allocator);
 
-        const ttyconf: std.io.tty.Config = .no_color;
+        const ttyconf: std.Io.tty.Config = .no_color;
 
-        var bundle_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var bundle_buf: Writer.Allocating = .init(std.testing.allocator);
         const bundle_bw = &bundle_buf.interface;
         defer bundle_buf.deinit();
         try bundle.renderToWriter(.{ .ttyconf = ttyconf }, bundle_bw);
@@ -812,7 +812,7 @@ pub const Wip = struct {
         };
         defer copy.deinit(std.testing.allocator);
 
-        var copy_buf: std.io.Writer.Allocating = .init(std.testing.allocator);
+        var copy_buf: Writer.Allocating = .init(std.testing.allocator);
         const copy_bw = &copy_buf.interface;
         defer copy_buf.deinit();
         try copy.renderToWriter(.{ .ttyconf = ttyconf }, copy_bw);

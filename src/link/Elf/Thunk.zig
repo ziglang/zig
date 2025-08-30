@@ -76,7 +76,7 @@ const Format = struct {
     thunk: Thunk,
     elf_file: *Elf,
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const thunk = f.thunk;
         const elf_file = f.elf_file;
         try writer.print("@{x} : size({x})\n", .{ thunk.value, thunk.size(elf_file) });

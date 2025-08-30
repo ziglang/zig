@@ -1,6 +1,5 @@
 const std = @import("std.zig");
 const builtin = @import("builtin");
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const debug = std.debug;
@@ -1830,7 +1829,8 @@ pub fn runAllowFail(
     try Step.handleVerbose2(b, null, child.env_map, argv);
     try child.spawn();
 
-    const stdout = child.stdout.?.deprecatedReader().readAllAlloc(b.allocator, max_output_size) catch {
+    var stdout_reader = child.stdout.?.readerStreaming(&.{});
+    const stdout = stdout_reader.interface.allocRemaining(b.allocator, .limited(max_output_size)) catch {
         return error.ReadFailure;
     };
     errdefer b.allocator.free(stdout);
@@ -2540,7 +2540,7 @@ fn dumpBadDirnameHelp(
 
     try w.print(msg, args);
 
-    const tty_config = std.io.tty.detectConfig(.stderr());
+    const tty_config = std.Io.tty.detectConfig(.stderr());
 
     if (fail_step) |s| {
         tty_config.setColor(w, .red) catch {};
@@ -2566,8 +2566,8 @@ fn dumpBadDirnameHelp(
 /// In this function the stderr mutex has already been locked.
 pub fn dumpBadGetPathHelp(
     s: *Step,
-    w: *std.io.Writer,
-    tty_config: std.io.tty.Config,
+    w: *std.Io.Writer,
+    tty_config: std.Io.tty.Config,
     src_builder: *Build,
     asking_step: ?*Step,
 ) anyerror!void {

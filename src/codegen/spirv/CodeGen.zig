@@ -1211,7 +1211,7 @@ fn constantNavRef(cg: *CodeGen, ty: Type, nav_index: InternPool.Nav.Index) !Id {
 // Turn a Zig type's name into a cache reference.
 fn resolveTypeName(cg: *CodeGen, ty: Type) ![]const u8 {
     const gpa = cg.module.gpa;
-    var aw: std.io.Writer.Allocating = .init(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
     defer aw.deinit();
     ty.print(&aw.writer, cg.pt) catch |err| switch (err) {
         error.WriteFailed => return error.OutOfMemory,

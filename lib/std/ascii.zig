@@ -444,7 +444,7 @@ pub const HexEscape = struct {
     pub const upper_charset = "0123456789ABCDEF";
     pub const lower_charset = "0123456789abcdef";
 
-    pub fn format(se: HexEscape, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(se: HexEscape, w: *std.Io.Writer) std.Io.Writer.Error!void {
         const charset = se.charset;
 
         var buf: [4]u8 = undefined;

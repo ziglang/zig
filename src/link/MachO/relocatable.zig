@@ -780,7 +780,7 @@ const macho = std.macho;
 const math = std.math;
 const mem = std.mem;
 const state_log = std.log.scoped(.link_state);
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Archive = @import("Archive.zig");
 const Atom = @import("Atom.zig");

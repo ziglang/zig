@@ -3,7 +3,7 @@ thread_pool: *std.Thread.Pool,
 graph: *const Build.Graph,
 all_steps: []const *Build.Step,
 listen_address: std.net.Address,
-ttyconf: std.io.tty.Config,
+ttyconf: std.Io.tty.Config,
 root_prog_node: std.Progress.Node,
 watch: bool,
 
@@ -53,7 +53,7 @@ pub const Options = struct {
     thread_pool: *std.Thread.Pool,
     graph: *const std.Build.Graph,
     all_steps: []const *Build.Step,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
     root_prog_node: std.Progress.Node,
     watch: bool,
     listen_address: std.net.Address,
@@ -446,7 +446,7 @@ pub fn serveFile(
     // The desired API is actually sendfile, which will require enhancing http.Server.
     // We load the file with every request so that the user can make changes to the file
     // and refresh the HTML page without restarting this server.
-    const file_contents = path.root_dir.handle.readFileAlloc(gpa, path.sub_path, 10 * 1024 * 1024) catch |err| {
+    const file_contents = path.root_dir.handle.readFileAlloc(path.sub_path, gpa, .limited(10 * 1024 * 1024)) catch |err| {
         log.err("failed to read '{f}': {s}", .{ path, @errorName(err) });
         return error.AlreadyReported;
     };
@@ -557,7 +557,7 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
     child.stderr_behavior = .Pipe;
     try child.spawn();
 
-    var poller = std.io.poll(gpa, enum { stdout, stderr }, .{
+    var poller = std.Io.poll(gpa, enum { stdout, stderr }, .{
         .stdout = child.stdout.?,
         .stderr = child.stderr.?,
     });

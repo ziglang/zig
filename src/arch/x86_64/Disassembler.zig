@@ -287,13 +287,12 @@ const Prefixes = struct {
 
 fn parsePrefixes(dis: *Disassembler) !Prefixes {
     const rex_prefix_mask: u4 = 0b0100;
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
+    var reader: std.Io.Reader = .fixed(dis.code[dis.pos..]);
 
     var res: Prefixes = .{};
 
     while (true) {
-        const next_byte = try reader.readByte();
+        const next_byte = try reader.takeByte();
         dis.pos += 1;
 
         switch (next_byte) {
@@ -341,12 +340,11 @@ fn parseEncoding(dis: *Disassembler, prefixes: Prefixes) !?Encoding {
     const o_mask: u8 = 0b1111_1000;
 
     var opcode: [3]u8 = .{ 0, 0, 0 };
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
+    var reader: std.Io.Reader = .fixed(dis.code[dis.pos..]);
 
     comptime var opc_count = 0;
     inline while (opc_count < 3) : (opc_count += 1) {
-        const byte = try reader.readByte();
+        const byte = try reader.takeByte();
         opcode[opc_count] = byte;
         dis.pos += 1;
 
@@ -410,11 +408,11 @@ fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
 }
 
 fn parseOffset(dis: *Disassembler) !u64 {
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
-    const offset = try reader.readInt(u64, .little);
-    dis.pos += 8;
-    return offset;
+    var reader: std.Io.Reader = .fixed(dis.code);
+    reader.seek = dis.pos;
+    defer dis.pos = reader.seek;
+
+    return reader.takeInt(u64, .little);
 }
 
 const ModRm = packed struct {

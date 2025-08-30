@@ -417,7 +417,7 @@ pub const Index = u32;
 const assert = std.debug.assert;
 const macho = std.macho;
 const std = @import("std");
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Atom = @import("Atom.zig");
 const File = @import("file.zig").File;

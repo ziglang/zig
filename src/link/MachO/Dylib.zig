@@ -914,7 +914,7 @@ const math = std.math;
 const mem = std.mem;
 const Allocator = mem.Allocator;
 const Path = std.Build.Cache.Path;
-const Writer = std.io.Writer;
+const Writer = std.Io.Writer;
 
 const Dylib = @This();
 const File = @import("file.zig").File;

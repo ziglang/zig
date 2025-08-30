@@ -170,7 +170,7 @@ const Format = struct {
     atom_list: AtomList,
     elf_file: *Elf,
 
-    fn default(f: Format, writer: *std.io.Writer) std.io.Writer.Error!void {
+    fn default(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const list = f.atom_list;
         try writer.print("list : @{x} : shdr({d}) : align({x}) : size({x})", .{
             list.address(f.elf_file),

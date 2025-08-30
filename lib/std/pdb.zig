@@ -8,7 +8,6 @@
 //! documentation and/or contributors.
 
 const std = @import("std.zig");
-const io = std.io;
 const math = std.math;
 const mem = std.mem;
 const coff = std.coff;

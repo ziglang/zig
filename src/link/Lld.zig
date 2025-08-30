@@ -1650,7 +1650,8 @@ fn spawnLld(
         child.stderr_behavior = .Pipe;
 
         child.spawn() catch |err| break :term err;
-        stderr = try child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+        var stderr_reader = child.stderr.?.readerStreaming(&.{});
+        stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
         break :term child.wait();
     }) catch |first_err| term: {
         const err = switch (first_err) {
@@ -1699,7 +1700,8 @@ fn spawnLld(
                     rsp_child.stderr_behavior = .Pipe;
 
                     rsp_child.spawn() catch |err| break :err err;
-                    stderr = try rsp_child.stderr.?.deprecatedReader().readAllAlloc(comp.gpa, std.math.maxInt(usize));
+                    var stderr_reader = rsp_child.stderr.?.readerStreaming(&.{});
+                    stderr = try stderr_reader.interface.allocRemaining(comp.gpa, .unlimited);
                     break :term rsp_child.wait() catch |err| break :err err;
                 }
             },

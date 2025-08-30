@@ -1,6 +1,5 @@
 const std = @import("std");
 const mem = std.mem;
-const io = std.io;
 const LibCInstallation = std.zig.LibCInstallation;
 
 const usage_libc =

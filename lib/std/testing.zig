@@ -358,7 +358,7 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.detectConfig()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     const diff_index: usize = diff_index: {
@@ -381,7 +381,7 @@ fn failEqualSlices(
     expected: []const T,
     actual: []const T,
     diff_index: usize,
-    w: *std.io.Writer,
+    w: *std.Io.Writer,
 ) !void {
     try w.print("slices differ. first difference occurs at index {d} (0x{X})\n", .{ diff_index, diff_index });
 
@@ -401,7 +401,7 @@ fn failEqualSlices(
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.io.tty.detectConfig(.stderr());
+    const ttyconf = std.Io.tty.detectConfig(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
@@ -467,11 +467,11 @@ fn SliceDiffer(comptime T: type) type {
         start_index: usize,
         expected: []const T,
         actual: []const T,
-        ttyconf: std.io.tty.Config,
+        ttyconf: std.Io.tty.Config,
 
         const Self = @This();
 
-        pub fn write(self: Self, writer: *std.io.Writer) !void {
+        pub fn write(self: Self, writer: *std.Io.Writer) !void {
             for (self.expected, 0..) |value, i| {
                 const full_index = self.start_index + i;
                 const diff = if (i < self.actual.len) !std.meta.eql(self.actual[i], value) else true;
@@ -490,9 +490,9 @@ fn SliceDiffer(comptime T: type) type {
 const BytesDiffer = struct {
     expected: []const u8,
     actual: []const u8,
-    ttyconf: std.io.tty.Config,
+    ttyconf: std.Io.tty.Config,
 
-    pub fn write(self: BytesDiffer, writer: *std.io.Writer) !void {
+    pub fn write(self: BytesDiffer, writer: *std.Io.Writer) !void {
         var expected_iterator = std.mem.window(u8, self.expected, 16, 16);
         var row: usize = 0;
         while (expected_iterator.next()) |chunk| {
@@ -538,7 +538,7 @@ const BytesDiffer = struct {
         }
     }
 
-    fn writeDiff(self: BytesDiffer, writer: *std.io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
+    fn writeDiff(self: BytesDiffer, writer: *std.Io.Writer, comptime fmt: []const u8, args: anytype, diff: bool) !void {
         if (diff) try self.ttyconf.setColor(writer, .red);
         try writer.print(fmt, args);
         if (diff) try self.ttyconf.setColor(writer, .reset);
