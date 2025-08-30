@@ -1263,10 +1263,9 @@ test "help" {
     // Only verify that we see the important stuff that should definitely be there somewhere,
     // but otherwise allow maintainers to adjust the layout, formatting, notation, etc. without causing friction here.
     try testing.expect(mem.indexOf(u8, aw.written(), "test-prog") != null);
-    try testing.expect(mem.indexOf(u8, aw.written(), "--str string") != null);
+    try testing.expect(mem.indexOf(u8, aw.written(), "--str=string") != null);
     try testing.expect(mem.indexOf(u8, aw.written(), "--int") != null);
-    try testing.expect(mem.indexOf(u8, aw.written(), "--flag") != null);
-    try testing.expect(mem.indexOf(u8, aw.written(), "--no-flag") != null);
+    try testing.expect(mem.indexOf(u8, aw.written(), "--[no-]flag") != null);
     try testing.expect(mem.indexOf(u8, aw.written(), "--help") != null);
 
     aw.clearRetainingCapacity();
