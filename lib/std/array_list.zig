@@ -405,6 +405,7 @@ pub fn AlignedManaged(comptime T: type, comptime alignment: ?mem.Alignment) type
                 return;
             }
 
+            // Protects growing unnecessarily since better_capacity will be larger.
             if (self.capacity >= new_capacity) return;
 
             const better_capacity = Aligned(T, alignment).growCapacity(self.capacity, new_capacity);

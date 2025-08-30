@@ -304,7 +304,7 @@ pub fn build(b: *std.Build) !void {
     if (enable_llvm) {
         const cmake_cfg = if (static_llvm) null else blk: {
             if (findConfigH(b, config_h_path_option)) |config_h_path| {
-                const file_contents = fs.cwd().readFileAlloc(b.allocator, config_h_path, max_config_h_bytes) catch unreachable;
+                const file_contents = fs.cwd().readFileAlloc(config_h_path, b.allocator, .limited(max_config_h_bytes)) catch unreachable;
                 break :blk parseConfigH(b, file_contents);
             } else {
                 std.log.warn("config.h could not be located automatically. Consider providing it explicitly via \"-Dconfig_h\"", .{});

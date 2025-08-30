@@ -2636,7 +2636,7 @@ pub const Allocating = struct {
         assert(a.alignment == alignment); // Required for Allocator correctness.
         const w = &a.writer;
         const result: std.array_list.Aligned(u8, alignment) = .{
-            .items = w.buffer[0..w.end],
+            .items = @alignCast(w.buffer[0..w.end]),
             .capacity = w.buffer.len,
         };
         w.buffer = &.{};
@@ -2645,12 +2645,15 @@ pub const Allocating = struct {
     }
 
     pub fn ensureUnusedCapacity(a: *Allocating, additional_count: usize) Allocator.Error!void {
-        const new_capacity = std.math.add(usize, a.writer.buffer.len, additional_count) catch return error.OutOfMemory;
+        const new_capacity = std.math.add(usize, a.writer.end, additional_count) catch return error.OutOfMemory;
         return ensureTotalCapacity(a, new_capacity);
     }
 
     pub fn ensureTotalCapacity(a: *Allocating, new_capacity: usize) Allocator.Error!void {
-        return ensureTotalCapacityPrecise(a, ArrayList(u8).growCapacity(a.writer.buffer.len, new_capacity));
+        // Protects growing unnecessarily since better_capacity will be larger.
+        if (a.writer.buffer.len >= new_capacity) return;
+        const better_capacity = ArrayList(u8).growCapacity(a.writer.buffer.len, new_capacity);
+        return ensureTotalCapacityPrecise(a, better_capacity);
     }
 
     pub fn ensureTotalCapacityPrecise(a: *Allocating, new_capacity: usize) Allocator.Error!void {

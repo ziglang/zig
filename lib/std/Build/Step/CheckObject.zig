@@ -1703,7 +1703,7 @@ const ElfDumper = struct {
         var reader: std.Io.Reader = .fixed(bytes);
 
         const magic = try reader.takeArray(elf.ARMAG.len);
-        if (!mem.eql(u8, &magic, elf.ARMAG)) {
+        if (!mem.eql(u8, magic, elf.ARMAG)) {
             return error.InvalidArchiveMagicNumber;
         }
 
@@ -2623,10 +2623,10 @@ const WasmDumper = struct {
             return step.fail("invalid wasm opcode '{d}'", .{byte});
         };
         switch (opcode) {
-            .i32_const => try writer.print("i32.const {x}\n", .{try std.leb.readIleb128(i32)}),
-            .i64_const => try writer.print("i64.const {x}\n", .{try std.leb.readIleb128(i64)}),
-            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.readInt(u32, .little)))}),
-            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.readInt(u64, .little)))}),
+            .i32_const => try writer.print("i32.const {x}\n", .{try reader.takeLeb128(i32)}),
+            .i64_const => try writer.print("i64.const {x}\n", .{try reader.takeLeb128(i64)}),
+            .f32_const => try writer.print("f32.const {x}\n", .{@as(f32, @bitCast(try reader.takeInt(u32, .little)))}),
+            .f64_const => try writer.print("f64.const {x}\n", .{@as(f64, @bitCast(try reader.takeInt(u64, .little)))}),
             .global_get => try writer.print("global.get {x}\n", .{try reader.takeLeb128(u32)}),
             else => unreachable,
         }
@@ -2638,7 +2638,7 @@ const WasmDumper = struct {
 
     /// https://webassembly.github.io/spec/core/appendix/custom.html
     fn parseDumpNames(step: *Step, reader: *std.Io.Reader, writer: *std.Io.Writer, data: []const u8) !void {
-        while (reader.context.pos < data.len) {
+        while (reader.seek < data.len) {
             switch (try parseDumpType(step, std.wasm.NameSubsection, reader, writer)) {
                 // The module name subsection ... consists of a single name
                 // that is assigned to the module itself.
@@ -2646,9 +2646,9 @@ const WasmDumper = struct {
                     const size = try reader.takeLeb128(u32);
                     const name_len = try reader.takeLeb128(u32);
                     if (size != name_len + 1) return error.BadSubsectionSize;
-                    if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
-                    try writer.print("name {s}\n", .{data[reader.context.pos..][0..name_len]});
-                    reader.context.pos += name_len;
+                    if (reader.seek + name_len > data.len) return error.UnexpectedEndOfStream;
+                    try writer.print("name {s}\n", .{data[reader.seek..][0..name_len]});
+                    reader.seek += name_len;
                 },
 
                 // The function name subsection ... consists of a name map
@@ -2664,9 +2664,9 @@ const WasmDumper = struct {
                     for (0..entries) |_| {
                         const index = try reader.takeLeb128(u32);
                         const name_len = try reader.takeLeb128(u32);
-                        if (reader.context.pos + name_len > data.len) return error.UnexpectedEndOfStream;
-                        const name = data[reader.context.pos..][0..name_len];
-                        reader.context.pos += name.len;
+                        if (reader.seek + name_len > data.len) return error.UnexpectedEndOfStream;
+                        const name = data[reader.seek..][0..name_len];
+                        reader.seek += name.len;
 
                         try writer.print(
                             \\index {d}
@@ -2694,8 +2694,8 @@ const WasmDumper = struct {
         var current_field: u32 = 0;
         while (current_field < field_count) : (current_field += 1) {
             const field_name_length = try reader.takeLeb128(u32);
-            const field_name = data[reader.context.pos..][0..field_name_length];
-            reader.context.pos += field_name_length;
+            const field_name = data[reader.seek..][0..field_name_length];
+            reader.seek += field_name_length;
 
             const value_count = try reader.takeLeb128(u32);
             try writer.print(
@@ -2706,12 +2706,12 @@ const WasmDumper = struct {
             var current_value: u32 = 0;
             while (current_value < value_count) : (current_value += 1) {
                 const value_length = try reader.takeLeb128(u32);
-                const value = data[reader.context.pos..][0..value_length];
-                reader.context.pos += value_length;
+                const value = data[reader.seek..][0..value_length];
+                reader.seek += value_length;
 
                 const version_length = try reader.takeLeb128(u32);
-                const version = data[reader.context.pos..][0..version_length];
-                reader.context.pos += version_length;
+                const version = data[reader.seek..][0..version_length];
+                reader.seek += version_length;
 
                 try writer.print(
                     \\value_name {s}
@@ -2730,8 +2730,8 @@ const WasmDumper = struct {
         while (index < feature_count) : (index += 1) {
             const prefix_byte = try reader.takeLeb128(u8);
             const name_length = try reader.takeLeb128(u32);
-            const feature_name = data[reader.context.pos..][0..name_length];
-            reader.context.pos += name_length;
+            const feature_name = data[reader.seek..][0..name_length];
+            reader.seek += name_length;
 
             try writer.print("{c} {s}\n", .{ prefix_byte, feature_name });
         }

@@ -1308,13 +1308,7 @@ fn addSourceFromPathExtra(comp: *Compilation, path: []const u8, kind: Source.Kin
         return error.FileNotFound;
     }
 
-    const file = try comp.cwd.openFile(path, .{});
-    defer file.close();
-
-    const contents = file.readToEndAlloc(comp.gpa, std.math.maxInt(u32)) catch |err| switch (err) {
-        error.FileTooBig => return error.StreamTooLong,
-        else => |e| return e,
-    };
+    const contents = try comp.cwd.readFileAlloc(path, comp.gpa, .limited(std.math.maxInt(u32)));
     errdefer comp.gpa.free(contents);
 
     return comp.addSourceFromOwnedBuffer(contents, path, kind);
@@ -1433,19 +1427,7 @@ fn getFileContents(comp: *Compilation, path: []const u8, limit: ?u32) ![]const u
         return error.FileNotFound;
     }
 
-    const file = try comp.cwd.openFile(path, .{});
-    defer file.close();
-
-    var buf = std.array_list.Managed(u8).init(comp.gpa);
-    defer buf.deinit();
-
-    const max = limit orelse std.math.maxInt(u32);
-    file.deprecatedReader().readAllArrayList(&buf, max) catch |e| switch (e) {
-        error.StreamTooLong => if (limit == null) return e,
-        else => return e,
-    };
-
-    return buf.toOwnedSlice();
+    return comp.cwd.readFileAlloc(path, comp.gpa, .limited(limit orelse std.math.maxInt(u32)));
 }
 
 pub fn findEmbed(

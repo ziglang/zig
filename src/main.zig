@@ -5693,7 +5693,8 @@ fn jitCmd(
     try child.spawn();
 
     if (options.capture) |ptr| {
-        ptr.* = try child.stdout.?.readToEndAlloc(arena, std.math.maxInt(u32));
+        var stdout_reader = child.stdout.?.readerStreaming(&.{});
+        ptr.* = try stdout_reader.interface.allocRemaining(arena, .limited(std.math.maxInt(u32)));
     }
 
     const term = try child.wait();
