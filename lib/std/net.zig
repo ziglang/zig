@@ -747,6 +747,9 @@ pub const Ip6Address = extern struct {
                 try w.writeAll(":");
             }
         }
+        if (self.sa.scope_id != 0) {
+            try w.print("%{}", .{self.sa.scope_id});
+        }
         try w.print("]:{}", .{port});
     }
 
