@@ -4067,7 +4067,7 @@ pub fn isNullFromType(ty: Type, zcu: *const Zcu) ?bool {
 }
 
 /// Recursively walks the type and marks for each subtype how many times it has been seen
-fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUnmanaged(Type, u32)) error{OutOfMemory}!void {
+fn collectSubtypes(ty: Type, pt: Zcu.PerThread, visited: *std.AutoArrayHashMapUnmanaged(Type, u16)) error{OutOfMemory}!void {
     const zcu = pt.zcu;
     const ip = &zcu.intern_pool;
 
@@ -4154,9 +4154,17 @@ fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMe
         print(ty, &discarding.writer, pt, null) catch
             unreachable; // we are writing into a discarding writer, it should never fail
 
-        const type_len = discarding.count;
-        const saved_bytes = (type_len * (occ - 1));
-        const should_dedupe = saved_bytes > 8;
+        const type_len: i32 = @intCast(discarding.count);
+
+        const placeholder_len: i32 = 3;
+        const min_saved_bytes: i32 = 8;
+
+        const saved_bytes =
+            (type_len * occ) // we remove the type from the message
+            - type_len // but put it in the note
+            - (placeholder_len * occ); // and insert placeholders
+
+        const should_dedupe = saved_bytes >= min_saved_bytes;
 
         const entry: Comparison.DedupeEntry = if (should_dedupe) b: {
             ctx.placeholder_index += 1;
@@ -4177,7 +4185,7 @@ fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMe
 /// the subtype length and number of occurences. Placeholders are then found by
 /// iterating `type_dedupe_cache` which caches the inline/placeholder decisions.
 pub const Comparison = struct {
-    type_occurrences: std.AutoArrayHashMapUnmanaged(Type, u32),
+    type_occurrences: std.AutoArrayHashMapUnmanaged(Type, u16),
     type_dedupe_cache: std.AutoArrayHashMapUnmanaged(Type, DedupeEntry),
     placeholder_index: u8,
 
