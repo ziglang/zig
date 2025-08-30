@@ -323,6 +323,8 @@ pub const PT_LOPROC = 0x70000000;
 /// End of processor-specific
 pub const PT_HIPROC = 0x7fffffff;
 
+pub const PN_XNUM = 0xffff;
+
 /// Section header table entry unused
 pub const SHT_NULL = 0;
 /// Program data
@@ -385,63 +387,149 @@ pub const SHT_HIUSER = 0xffffffff;
 // Note type for .note.gnu.build_id
 pub const NT_GNU_BUILD_ID = 3;
 
-/// Local symbol
-pub const STB_LOCAL = 0;
-/// Global symbol
-pub const STB_GLOBAL = 1;
-/// Weak symbol
-pub const STB_WEAK = 2;
-/// Number of defined types
-pub const STB_NUM = 3;
-/// Start of OS-specific
-pub const STB_LOOS = 10;
-/// Unique symbol
-pub const STB_GNU_UNIQUE = 10;
-/// End of OS-specific
-pub const STB_HIOS = 12;
-/// Start of processor-specific
-pub const STB_LOPROC = 13;
-/// End of processor-specific
-pub const STB_HIPROC = 15;
+/// Deprecated, use `@intFromEnum(std.elf.STB.LOCAL)`
+pub const STB_LOCAL = @intFromEnum(STB.LOCAL);
+/// Deprecated, use `@intFromEnum(std.elf.STB.GLOBAL)`
+pub const STB_GLOBAL = @intFromEnum(STB.GLOBAL);
+/// Deprecated, use `@intFromEnum(std.elf.STB.WEAK)`
+pub const STB_WEAK = @intFromEnum(STB.WEAK);
+/// Deprecated, use `std.elf.STB.NUM`
+pub const STB_NUM = STB.NUM;
+/// Deprecated, use `@intFromEnum(std.elf.STB.LOOS)`
+pub const STB_LOOS = @intFromEnum(STB.LOOS);
+/// Deprecated, use `@intFromEnum(std.elf.STB.GNU_UNIQUE)`
+pub const STB_GNU_UNIQUE = @intFromEnum(STB.GNU_UNIQUE);
+/// Deprecated, use `@intFromEnum(std.elf.STB.HIOS)`
+pub const STB_HIOS = @intFromEnum(STB.HIOS);
+/// Deprecated, use `@intFromEnum(std.elf.STB.LOPROC)`
+pub const STB_LOPROC = @intFromEnum(STB.LOPROC);
+/// Deprecated, use `@intFromEnum(std.elf.STB.HIPROC)`
+pub const STB_HIPROC = @intFromEnum(STB.HIPROC);
 
-pub const STB_MIPS_SPLIT_COMMON = 13;
+/// Deprecated, use `@intFromEnum(std.elf.STB.MIPS_SPLIT_COMMON)`
+pub const STB_MIPS_SPLIT_COMMON = @intFromEnum(STB.MIBS_SPLIT_COMMON);
 
-/// Symbol type is unspecified
-pub const STT_NOTYPE = 0;
-/// Symbol is a data object
-pub const STT_OBJECT = 1;
-/// Symbol is a code object
-pub const STT_FUNC = 2;
-/// Symbol associated with a section
-pub const STT_SECTION = 3;
-/// Symbol's name is file name
-pub const STT_FILE = 4;
-/// Symbol is a common data object
-pub const STT_COMMON = 5;
-/// Symbol is thread-local data object
-pub const STT_TLS = 6;
-/// Number of defined types
-pub const STT_NUM = 7;
-/// Start of OS-specific
-pub const STT_LOOS = 10;
-/// Symbol is indirect code object
-pub const STT_GNU_IFUNC = 10;
-/// End of OS-specific
-pub const STT_HIOS = 12;
-/// Start of processor-specific
-pub const STT_LOPROC = 13;
-/// End of processor-specific
-pub const STT_HIPROC = 15;
+/// Deprecated, use `@intFromEnum(std.elf.STT.NOTYPE)`
+pub const STT_NOTYPE = @intFromEnum(STT.NOTYPE);
+/// Deprecated, use `@intFromEnum(std.elf.STT.OBJECT)`
+pub const STT_OBJECT = @intFromEnum(STT.OBJECT);
+/// Deprecated, use `@intFromEnum(std.elf.STT.FUNC)`
+pub const STT_FUNC = @intFromEnum(STT.FUNC);
+/// Deprecated, use `@intFromEnum(std.elf.STT.SECTION)`
+pub const STT_SECTION = @intFromEnum(STT.SECTION);
+/// Deprecated, use `@intFromEnum(std.elf.STT.FILE)`
+pub const STT_FILE = @intFromEnum(STT.FILE);
+/// Deprecated, use `@intFromEnum(std.elf.STT.COMMON)`
+pub const STT_COMMON = @intFromEnum(STT.COMMON);
+/// Deprecated, use `@intFromEnum(std.elf.STT.TLS)`
+pub const STT_TLS = @intFromEnum(STT.TLS);
+/// Deprecated, use `std.elf.STT.NUM`
+pub const STT_NUM = STT.NUM;
+/// Deprecated, use `@intFromEnum(std.elf.STT.LOOS)`
+pub const STT_LOOS = @intFromEnum(STT.LOOS);
+/// Deprecated, use `@intFromEnum(std.elf.STT.GNU_IFUNC)`
+pub const STT_GNU_IFUNC = @intFromEnum(STT.GNU_IFUNC);
+/// Deprecated, use `@intFromEnum(std.elf.STT.HIOS)`
+pub const STT_HIOS = @intFromEnum(STT.HIOS);
+/// Deprecated, use `@intFromEnum(std.elf.STT.LOPROC)`
+pub const STT_LOPROC = @intFromEnum(STT.LOPROC);
+/// Deprecated, use `@intFromEnum(std.elf.STT.HIPROC)`
+pub const STT_HIPROC = @intFromEnum(STT.HIPROC);
 
-pub const STT_SPARC_REGISTER = 13;
+/// Deprecated, use `@intFromEnum(std.elf.STT.SPARC_REGISTER)`
+pub const STT_SPARC_REGISTER = @intFromEnum(STT.SPARC_REGISTER);
 
-pub const STT_PARISC_MILLICODE = 13;
+/// Deprecated, use `@intFromEnum(std.elf.STT.PARISC_MILLICODE)`
+pub const STT_PARISC_MILLICODE = @intFromEnum(STT.PARISC_MILLICODE);
 
-pub const STT_HP_OPAQUE = (STT_LOOS + 0x1);
-pub const STT_HP_STUB = (STT_LOOS + 0x2);
+/// Deprecated, use `@intFromEnum(std.elf.STT.HP_OPAQUE)`
+pub const STT_HP_OPAQUE = @intFromEnum(STT.HP_OPAQUE);
+/// Deprecated, use `@intFromEnum(std.elf.STT.HP_STUB)`
+pub const STT_HP_STUB = @intFromEnum(STT.HP_STUB);
 
-pub const STT_ARM_TFUNC = STT_LOPROC;
-pub const STT_ARM_16BIT = STT_HIPROC;
+/// Deprecated, use `@intFromEnum(std.elf.STT.ARM_TFUNC)`
+pub const STT_ARM_TFUNC = @intFromEnum(STT.ARM_TFUNC);
+/// Deprecated, use `@intFromEnum(std.elf.STT.ARM_16BIT)`
+pub const STT_ARM_16BIT = @intFromEnum(STT.ARM_16BIT);
+
+pub const STB = enum(u4) {
+    /// Local symbol
+    LOCAL = 0,
+    /// Global symbol
+    GLOBAL = 1,
+    /// Weak symbol
+    WEAK = 2,
+    _,
+
+    /// Number of defined types
+    pub const NUM = @typeInfo(STB).@"enum".fields.len;
+
+    /// Start of OS-specific
+    pub const LOOS: STB = @enumFromInt(10);
+    /// End of OS-specific
+    pub const HIOS: STB = @enumFromInt(12);
+
+    /// Unique symbol
+    pub const GNU_UNIQUE: STB = @enumFromInt(@intFromEnum(LOOS) + 0);
+
+    /// Start of processor-specific
+    pub const LOPROC: STB = @enumFromInt(13);
+    /// End of processor-specific
+    pub const HIPROC: STB = @enumFromInt(15);
+
+    pub const MIPS_SPLIT_COMMON: STB = @enumFromInt(@intFromEnum(LOPROC) + 0);
+};
+
+pub const STT = enum(u4) {
+    /// Symbol type is unspecified
+    NOTYPE = 0,
+    /// Symbol is a data object
+    OBJECT = 1,
+    /// Symbol is a code object
+    FUNC = 2,
+    /// Symbol associated with a section
+    SECTION = 3,
+    /// Symbol's name is file name
+    FILE = 4,
+    /// Symbol is a common data object
+    COMMON = 5,
+    /// Symbol is thread-local data object
+    TLS = 6,
+    _,
+
+    /// Number of defined types
+    pub const NUM = @typeInfo(STT).@"enum".fields.len;
+
+    /// Start of OS-specific
+    pub const LOOS: STT = @enumFromInt(10);
+    /// End of OS-specific
+    pub const HIOS: STT = @enumFromInt(12);
+
+    /// Symbol is indirect code object
+    pub const GNU_IFUNC: STT = @enumFromInt(@intFromEnum(LOOS) + 0);
+
+    pub const HP_OPAQUE: STT = @enumFromInt(@intFromEnum(LOOS) + 1);
+    pub const HP_STUB: STT = @enumFromInt(@intFromEnum(LOOS) + 2);
+
+    /// Start of processor-specific
+    pub const LOPROC: STT = @enumFromInt(13);
+    /// End of processor-specific
+    pub const HIPROC: STT = @enumFromInt(15);
+
+    pub const SPARC_REGISTER: STT = @enumFromInt(@intFromEnum(LOPROC) + 0);
+
+    pub const PARISC_MILLICODE: STT = @enumFromInt(@intFromEnum(LOPROC) + 0);
+
+    pub const ARM_TFUNC: STT = @enumFromInt(@intFromEnum(LOPROC) + 0);
+    pub const ARM_16BIT: STT = @enumFromInt(@intFromEnum(HIPROC) + 2);
+};
+
+pub const STV = enum(u3) {
+    DEFAULT = 0,
+    INTERNAL = 1,
+    HIDDEN = 2,
+    PROTECTED = 3,
+};
 
 pub const MAGIC = "\x7fELF";
 
@@ -534,15 +622,15 @@ pub const Header = struct {
         const buf = try r.peek(@sizeOf(Elf64_Ehdr));
 
         if (!mem.eql(u8, buf[0..4], MAGIC)) return error.InvalidElfMagic;
-        if (buf[EI_VERSION] != 1) return error.InvalidElfVersion;
+        if (buf[EI.VERSION] != 1) return error.InvalidElfVersion;
 
-        const endian: std.builtin.Endian = switch (buf[EI_DATA]) {
+        const endian: std.builtin.Endian = switch (buf[EI.DATA]) {
             ELFDATA2LSB => .little,
             ELFDATA2MSB => .big,
             else => return error.InvalidElfEndian,
         };
 
-        return switch (buf[EI_CLASS]) {
+        return switch (buf[EI.CLASS]) {
             ELFCLASS32 => .init(try r.takeStruct(Elf32_Ehdr, endian), endian),
             ELFCLASS64 => .init(try r.takeStruct(Elf64_Ehdr, endian), endian),
             else => return error.InvalidElfClass,
@@ -559,8 +647,8 @@ pub const Header = struct {
                 else => @compileError("bad type"),
             },
             .endian = endian,
-            .os_abi = @enumFromInt(hdr.e_ident[EI_OSABI]),
-            .abi_version = hdr.e_ident[EI_ABIVERSION],
+            .os_abi = @enumFromInt(hdr.e_ident[EI.OSABI]),
+            .abi_version = hdr.e_ident[EI.ABIVERSION],
             .type = hdr.e_type,
             .machine = hdr.e_machine,
             .entry = hdr.e_entry,
@@ -683,38 +771,200 @@ fn takeShdr(reader: *std.Io.Reader, elf_header: Header) !?Elf64_Shdr {
     };
 }
 
-pub const ELFCLASSNONE = 0;
-pub const ELFCLASS32 = 1;
-pub const ELFCLASS64 = 2;
-pub const ELFCLASSNUM = 3;
+pub const EI = struct {
+    pub const CLASS = 4;
+    pub const DATA = 5;
+    pub const VERSION = 6;
+    pub const OSABI = 7;
+    pub const ABIVERSION = 8;
+    pub const PAD = 9;
+    pub const NIDENT = 16;
+};
 
-pub const ELFDATANONE = 0;
-pub const ELFDATA2LSB = 1;
-pub const ELFDATA2MSB = 2;
-pub const ELFDATANUM = 3;
-
-pub const EI_CLASS = 4;
-pub const EI_DATA = 5;
-pub const EI_VERSION = 6;
-pub const EI_OSABI = 7;
-pub const EI_ABIVERSION = 8;
-pub const EI_PAD = 9;
-
-pub const EI_NIDENT = 16;
+/// Deprecated, use `std.elf.EI.CLASS`
+pub const EI_CLASS = EI.CLASS;
+/// Deprecated, use `std.elf.EI.DATA`
+pub const EI_DATA = EI.DATA;
+/// Deprecated, use `std.elf.EI.VERSION`
+pub const EI_VERSION = EI.VERSION;
+/// Deprecated, use `std.elf.EI.OSABI`
+pub const EI_OSABI = EI.OSABI;
+/// Deprecated, use `std.elf.EI.ABIVERSION`
+pub const EI_ABIVERSION = EI.ABIVERSION;
+/// Deprecated, use `std.elf.EI.PAD`
+pub const EI_PAD = EI.PAD;
+/// Deprecated, use `std.elf.EI.NIDENT`
+pub const EI_NIDENT = EI.NIDENT;
 
 pub const Half = u16;
 pub const Word = u32;
 pub const Sword = i32;
-pub const Elf32_Xword = u64;
-pub const Elf32_Sxword = i64;
-pub const Elf64_Xword = u64;
+pub const Xword = u64;
+pub const Sxword = i64;
+pub const Section = u16;
+pub const Elf32 = struct {
+    pub const Addr = u32;
+    pub const Off = u32;
+    pub const Ehdr = extern struct {
+        ident: [EI.NIDENT]u8,
+        type: ET,
+        machine: EM,
+        version: Word,
+        entry: Elf32.Addr,
+        phoff: Elf32.Off,
+        shoff: Elf32.Off,
+        flags: Word,
+        ehsize: Half,
+        phentsize: Half,
+        phnum: Half,
+        shentsize: Half,
+        shnum: Half,
+        shstrndx: Half,
+    };
+    pub const Phdr = extern struct {
+        type: Word,
+        offset: Elf32.Off,
+        vaddr: Elf32.Addr,
+        paddr: Elf32.Addr,
+        filesz: Word,
+        memsz: Word,
+        flags: PF,
+        @"align": Word,
+    };
+    pub const Shdr = extern struct {
+        name: Word,
+        type: Word,
+        flags: packed struct { shf: SHF },
+        addr: Elf32.Addr,
+        offset: Elf32.Off,
+        size: Word,
+        link: Word,
+        info: Word,
+        addralign: Word,
+        entsize: Word,
+    };
+    pub const Chdr = extern struct {
+        type: COMPRESS,
+        size: Word,
+        addralign: Word,
+    };
+    pub const Sym = extern struct {
+        name: Word,
+        value: Elf32.Addr,
+        size: Word,
+        info: Info,
+        other: Other,
+        shndx: Section,
+
+        pub const Info = packed struct(u8) {
+            type: STT,
+            bind: STB,
+        };
+
+        pub const Other = packed struct(u8) {
+            visibility: STV,
+            unused: u5 = 0,
+        };
+    };
+    comptime {
+        assert(@sizeOf(Elf32.Ehdr) == 52);
+        assert(@sizeOf(Elf32.Phdr) == 32);
+        assert(@sizeOf(Elf32.Shdr) == 40);
+        assert(@sizeOf(Elf32.Sym) == 16);
+    }
+};
+pub const Elf64 = struct {
+    pub const Addr = u64;
+    pub const Off = u64;
+    pub const Ehdr = extern struct {
+        ident: [EI.NIDENT]u8,
+        type: ET,
+        machine: EM,
+        version: Word,
+        entry: Elf64.Addr,
+        phoff: Elf64.Off,
+        shoff: Elf64.Off,
+        flags: Word,
+        ehsize: Half,
+        phentsize: Half,
+        phnum: Half,
+        shentsize: Half,
+        shnum: Half,
+        shstrndx: Half,
+    };
+    pub const Phdr = extern struct {
+        type: Word,
+        flags: PF,
+        offset: Elf64.Off,
+        vaddr: Elf64.Addr,
+        paddr: Elf64.Addr,
+        filesz: Xword,
+        memsz: Xword,
+        @"align": Xword,
+    };
+    pub const Shdr = extern struct {
+        name: Word,
+        type: Word,
+        flags: packed struct { shf: SHF, unused: Word = 0 },
+        addr: Elf64.Addr,
+        offset: Elf64.Off,
+        size: Xword,
+        link: Word,
+        info: Word,
+        addralign: Xword,
+        entsize: Xword,
+    };
+    pub const Chdr = extern struct {
+        type: COMPRESS,
+        reserved: Word = 0,
+        size: Xword,
+        addralign: Xword,
+    };
+    pub const Sym = extern struct {
+        name: Word,
+        info: Info,
+        other: Other,
+        shndx: Section,
+        value: Elf64.Addr,
+        size: Xword,
+
+        pub const Info = Elf32.Sym.Info;
+        pub const Other = Elf32.Sym.Other;
+    };
+    comptime {
+        assert(@sizeOf(Elf64.Ehdr) == 64);
+        assert(@sizeOf(Elf64.Phdr) == 56);
+        assert(@sizeOf(Elf64.Shdr) == 64);
+        assert(@sizeOf(Elf64.Sym) == 24);
+    }
+};
+pub const ElfN = switch (@sizeOf(usize)) {
+    4 => Elf32,
+    8 => Elf64,
+    else => @compileError("expected pointer size of 32 or 64"),
+};
+
+/// Deprecated, use `std.elf.Xword`
+pub const Elf32_Xword = Xword;
+/// Deprecated, use `std.elf.Sxword`
+pub const Elf32_Sxword = Sxword;
+/// Deprecated, use `std.elf.Xword`
+pub const Elf64_Xword = Xword;
+/// Deprecated, use `std.elf.Sxword`
 pub const Elf64_Sxword = i64;
+/// Deprecated, use `std.elf.Elf32.Addr`
 pub const Elf32_Addr = u32;
+/// Deprecated, use `std.elf.Elf64.Addr`
 pub const Elf64_Addr = u64;
+/// Deprecated, use `std.elf.Elf32.Off`
 pub const Elf32_Off = u32;
+/// Deprecated, use `std.elf.Elf64.Off`
 pub const Elf64_Off = u64;
+/// Deprecated, use `std.elf.Section`
 pub const Elf32_Section = u16;
+/// Deprecated, use `std.elf.Section`
 pub const Elf64_Section = u16;
+/// Deprecated, use `std.elf.Elf32.Ehdr`
 pub const Elf32_Ehdr = extern struct {
     e_ident: [EI_NIDENT]u8,
     e_type: ET,
@@ -731,8 +981,9 @@ pub const Elf32_Ehdr = extern struct {
     e_shnum: Half,
     e_shstrndx: Half,
 };
+/// Deprecated, use `std.elf.Elf64.Ehdr`
 pub const Elf64_Ehdr = extern struct {
-    e_ident: [EI_NIDENT]u8,
+    e_ident: [EI.NIDENT]u8,
     e_type: ET,
     e_machine: EM,
     e_version: Word,
@@ -747,6 +998,7 @@ pub const Elf64_Ehdr = extern struct {
     e_shnum: Half,
     e_shstrndx: Half,
 };
+/// Deprecated, use `std.elf.Elf32.Phdr`
 pub const Elf32_Phdr = extern struct {
     p_type: Word,
     p_offset: Elf32_Off,
@@ -757,6 +1009,7 @@ pub const Elf32_Phdr = extern struct {
     p_flags: Word,
     p_align: Word,
 };
+/// Deprecated, use `std.elf.Elf64.Phdr`
 pub const Elf64_Phdr = extern struct {
     p_type: Word,
     p_flags: Word,
@@ -767,6 +1020,7 @@ pub const Elf64_Phdr = extern struct {
     p_memsz: Elf64_Xword,
     p_align: Elf64_Xword,
 };
+/// Deprecated, use `std.elf.Elf32.Shdr`
 pub const Elf32_Shdr = extern struct {
     sh_name: Word,
     sh_type: Word,
@@ -779,6 +1033,7 @@ pub const Elf32_Shdr = extern struct {
     sh_addralign: Word,
     sh_entsize: Word,
 };
+/// Deprecated, use `std.elf.Elf64.Shdr`
 pub const Elf64_Shdr = extern struct {
     sh_name: Word,
     sh_type: Word,
@@ -791,17 +1046,20 @@ pub const Elf64_Shdr = extern struct {
     sh_addralign: Elf64_Xword,
     sh_entsize: Elf64_Xword,
 };
+/// Deprecated, use `std.elf.Elf32.Chdr`
 pub const Elf32_Chdr = extern struct {
     ch_type: COMPRESS,
     ch_size: Word,
     ch_addralign: Word,
 };
+/// Deprecated, use `std.elf.Elf64.Chdr`
 pub const Elf64_Chdr = extern struct {
     ch_type: COMPRESS,
     ch_reserved: Word = 0,
     ch_size: Elf64_Xword,
     ch_addralign: Elf64_Xword,
 };
+/// Deprecated, use `std.elf.Elf32.Sym`
 pub const Elf32_Sym = extern struct {
     st_name: Word,
     st_value: Elf32_Addr,
@@ -817,6 +1075,7 @@ pub const Elf32_Sym = extern struct {
         return @truncate(self.st_info >> 4);
     }
 };
+/// Deprecated, use `std.elf.Elf64.Sym`
 pub const Elf64_Sym = extern struct {
     st_name: Word,
     st_info: u8,
@@ -1020,27 +1279,18 @@ pub const Elf_MIPS_ABIFlags_v0 = extern struct {
     flags2: Word,
 };
 
-comptime {
-    assert(@sizeOf(Elf32_Ehdr) == 52);
-    assert(@sizeOf(Elf64_Ehdr) == 64);
-
-    assert(@sizeOf(Elf32_Phdr) == 32);
-    assert(@sizeOf(Elf64_Phdr) == 56);
-
-    assert(@sizeOf(Elf32_Shdr) == 40);
-    assert(@sizeOf(Elf64_Shdr) == 64);
-}
-
 pub const Auxv = switch (@sizeOf(usize)) {
     4 => Elf32_auxv_t,
     8 => Elf64_auxv_t,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+/// Deprecated, use `std.elf.ElfN.Ehdr`
 pub const Ehdr = switch (@sizeOf(usize)) {
     4 => Elf32_Ehdr,
     8 => Elf64_Ehdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+/// Deprecated, use `std.elf.ElfN.Phdr`
 pub const Phdr = switch (@sizeOf(usize)) {
     4 => Elf32_Phdr,
     8 => Elf64_Phdr,
@@ -1071,20 +1321,53 @@ pub const Shdr = switch (@sizeOf(usize)) {
     8 => Elf64_Shdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+/// Deprecated, use `std.elf.ElfN.Chdr`
 pub const Chdr = switch (@sizeOf(usize)) {
     4 => Elf32_Chdr,
     8 => Elf64_Chdr,
     else => @compileError("expected pointer size of 32 or 64"),
 };
+/// Deprecated, use `std.elf.ElfN.Sym`
 pub const Sym = switch (@sizeOf(usize)) {
     4 => Elf32_Sym,
     8 => Elf64_Sym,
     else => @compileError("expected pointer size of 32 or 64"),
 };
-pub const Addr = switch (@sizeOf(usize)) {
-    4 => Elf32_Addr,
-    8 => Elf64_Addr,
-    else => @compileError("expected pointer size of 32 or 64"),
+/// Deprecated, use `std.elf.ElfN.Addr`
+pub const Addr = ElfN.Addr;
+
+/// Deprecated, use `@intFromEnum(std.elf.CLASS.NONE)`
+pub const ELFCLASSNONE = @intFromEnum(CLASS.NONE);
+/// Deprecated, use `@intFromEnum(std.elf.CLASS.@"32")`
+pub const ELFCLASS32 = @intFromEnum(CLASS.@"32");
+/// Deprecated, use `@intFromEnum(std.elf.CLASS.@"64")`
+pub const ELFCLASS64 = @intFromEnum(CLASS.@"64");
+/// Deprecated, use `@intFromEnum(std.elf.CLASS.NUM)`
+pub const ELFCLASSNUM = CLASS.NUM;
+pub const CLASS = enum(u8) {
+    NONE = 0,
+    @"32" = 1,
+    @"64" = 2,
+    _,
+
+    pub const NUM = @typeInfo(CLASS).@"enum".fields.len;
+};
+
+/// Deprecated, use `@intFromEnum(std.elf.DATA.NONE)`
+pub const ELFDATANONE = @intFromEnum(DATA.NONE);
+/// Deprecated, use `@intFromEnum(std.elf.DATA.@"2LSB")`
+pub const ELFDATA2LSB = @intFromEnum(DATA.@"2LSB");
+/// Deprecated, use `@intFromEnum(std.elf.DATA.@"2MSB")`
+pub const ELFDATA2MSB = @intFromEnum(DATA.@"2MSB");
+/// Deprecated, use `@intFromEnum(std.elf.DATA.NUM)`
+pub const ELFDATANUM = DATA.NUM;
+pub const DATA = enum(u8) {
+    NONE = 0,
+    @"2LSB" = 1,
+    @"2MSB" = 2,
+    _,
+
+    pub const NUM = @typeInfo(DATA).@"enum".fields.len;
 };
 
 pub const OSABI = enum(u8) {
@@ -1718,6 +2001,108 @@ pub const SHF_MIPS_STRING = 0x80000000;
 /// Make code section unreadable when in execute-only mode
 pub const SHF_ARM_PURECODE = 0x2000000;
 
+pub const SHF = packed struct(Word) {
+    /// Section data should be writable during execution.
+    WRITE: bool = false,
+    /// Section occupies memory during program execution.
+    ALLOC: bool = false,
+    /// Section contains executable machine instructions.
+    EXECINSTR: bool = false,
+    unused3: u1 = 0,
+    /// The data in this section may be merged.
+    MERGE: bool = false,
+    /// The data in this section is null-terminated strings.
+    STRINGS: bool = false,
+    /// A field in this section holds a section header table index.
+    INFO_LINK: bool = false,
+    /// Adds special ordering requirements for link editors.
+    LINK_ORDER: bool = false,
+    /// This section requires special OS-specific processing to avoid incorrect behavior.
+    OS_NONCONFORMING: bool = false,
+    /// This section is a member of a section group.
+    GROUP: bool = false,
+    /// This section holds Thread-Local Storage.
+    TLS: bool = false,
+    /// Identifies a section containing compressed data.
+    COMPRESSED: bool = false,
+    unused12: u8 = 0,
+    OS: packed union {
+        MASK: u8,
+        GNU: packed struct(u8) {
+            unused0: u1 = 0,
+            /// Not to be GCed by the linker
+            RETAIN: bool = false,
+            unused2: u6 = 0,
+        },
+        MIPS: packed struct(u8) {
+            unused0: u4 = 0,
+            /// Section contains text/data which may be replicated in other sections.
+            /// Linker must retain only one copy.
+            NODUPES: bool = false,
+            /// Linker must generate implicit hidden weak names.
+            NAMES: bool = false,
+            /// Section data local to process.
+            LOCAL: bool = false,
+            /// Do not strip this section.
+            NOSTRIP: bool = false,
+        },
+        ARM: packed struct(u8) {
+            unused0: u5 = 0,
+            /// Make code section unreadable when in execute-only mode
+            PURECODE: bool = false,
+            unused6: u2 = 0,
+        },
+    } = .{ .MASK = 0 },
+    PROC: packed union {
+        MASK: u4,
+        XCORE: packed struct(u4) {
+            /// All sections with the "d" flag are grouped together by the linker to form
+            /// the data section and the dp register is set to the start of the section by
+            /// the boot code.
+            DP_SECTION: bool = false,
+            /// All sections with the "c" flag are grouped together by the linker to form
+            /// the constant pool and the cp register is set to the start of the constant
+            /// pool by the boot code.
+            CP_SECTION: bool = false,
+            unused2: u1 = 0,
+            /// This section is excluded from the final executable or shared library.
+            EXCLUDE: bool = false,
+        },
+        X86_64: packed struct(u4) {
+            /// If an object file section does not have this flag set, then it may not hold
+            /// more than 2GB and can be freely referred to in objects using smaller code
+            /// models. Otherwise, only objects using larger code models can refer to them.
+            /// For example, a medium code model object can refer to data in a section that
+            /// sets this flag besides being able to refer to data in a section that does
+            /// not set it; likewise, a small code model object can refer only to code in a
+            /// section that does not set this flag.
+            LARGE: bool = false,
+            unused1: u2 = 0,
+            /// This section is excluded from the final executable or shared library.
+            EXCLUDE: bool = false,
+        },
+        HEX: packed struct(u4) {
+            /// All sections with the GPREL flag are grouped into a global data area
+            /// for faster accesses
+            GPREL: bool = false,
+            unused1: u2 = 0,
+            /// This section is excluded from the final executable or shared library.
+            EXCLUDE: bool = false,
+        },
+        MIPS: packed struct(u4) {
+            /// All sections with the GPREL flag are grouped into a global data area
+            /// for faster accesses
+            GPREL: bool = false,
+            /// This section should be merged.
+            MERGE: bool = false,
+            /// Address size to be inferred from section entry size.
+            ADDR: bool = false,
+            /// Section data is string data by default.
+            STRING: bool = false,
+        },
+    } = .{ .MASK = 0 },
+};
+
 /// Execute
 pub const PF_X = 1;
 
@@ -1732,6 +2117,19 @@ pub const PF_MASKOS = 0x0ff00000;
 
 /// Bits for processor-specific semantics.
 pub const PF_MASKPROC = 0xf0000000;
+
+pub const PF = packed struct(Word) {
+    X: bool = false,
+    W: bool = false,
+    R: bool = false,
+    unused3: u17 = 0,
+    OS: packed union {
+        MASK: u8,
+    } = .{ .MASK = 0 },
+    PROC: packed union {
+        MASK: u4,
+    } = .{ .MASK = 0 },
+};
 
 /// Undefined section
 pub const SHN_UNDEF = 0;
@@ -2301,13 +2699,6 @@ pub const R_PPC64 = enum(u32) {
     REL16_HI = 251,
     REL16_HA = 252,
     _,
-};
-
-pub const STV = enum(u3) {
-    DEFAULT = 0,
-    INTERNAL = 1,
-    HIDDEN = 2,
-    PROTECTED = 3,
 };
 
 pub const ar_hdr = extern struct {

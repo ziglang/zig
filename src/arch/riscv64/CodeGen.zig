@@ -858,9 +858,11 @@ pub fn generateLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+) (CodeGenError || std.Io.Writer.Error)!void {
+    _ = atom_index;
     const comp = bin_file.comp;
     const gpa = comp.gpa;
     const mod = comp.root_mod;
@@ -914,7 +916,7 @@ pub fn generateLazy(
         },
         .bin_file = bin_file,
         .debug_output = debug_output,
-        .code = code,
+        .w = w,
         .prev_di_pc = undefined, // no debug info yet
         .prev_di_line = undefined, // no debug info yet
         .prev_di_column = undefined, // no debug info yet

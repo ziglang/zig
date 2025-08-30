@@ -904,7 +904,6 @@ fn buildOutputType(
     var mingw_unicode_entry_point: bool = false;
     var enable_link_snapshots: bool = false;
     var debug_compiler_runtime_libs = false;
-    var opt_incremental: ?bool = null;
     var install_name: ?[]const u8 = null;
     var hash_style: link.File.Lld.Elf.HashStyle = .both;
     var entitlements: ?[]const u8 = null;
@@ -1374,9 +1373,9 @@ fn buildOutputType(
                         }
                     } else if (mem.eql(u8, arg, "-fincremental")) {
                         dev.check(.incremental);
-                        opt_incremental = true;
+                        create_module.opts.incremental = true;
                     } else if (mem.eql(u8, arg, "-fno-incremental")) {
-                        opt_incremental = false;
+                        create_module.opts.incremental = false;
                     } else if (mem.eql(u8, arg, "--entitlements")) {
                         entitlements = args_iter.nextOrFatal();
                     } else if (mem.eql(u8, arg, "-fcompiler-rt")) {
@@ -1479,6 +1478,10 @@ fn buildOutputType(
                         create_module.opts.use_lld = true;
                     } else if (mem.eql(u8, arg, "-fno-lld")) {
                         create_module.opts.use_lld = false;
+                    } else if (mem.eql(u8, arg, "-fnew-linker")) {
+                        create_module.opts.use_new_linker = true;
+                    } else if (mem.eql(u8, arg, "-fno-new-linker")) {
+                        create_module.opts.use_new_linker = false;
                     } else if (mem.eql(u8, arg, "-fclang")) {
                         create_module.opts.use_clang = true;
                     } else if (mem.eql(u8, arg, "-fno-clang")) {
@@ -3371,7 +3374,7 @@ fn buildOutputType(
         else => false,
     };
 
-    const incremental = opt_incremental orelse false;
+    const incremental = create_module.resolved_options.incremental;
     if (debug_incremental and !incremental) {
         fatal("--debug-incremental requires -fincremental", .{});
     }
@@ -3502,7 +3505,6 @@ fn buildOutputType(
         .subsystem = subsystem,
         .debug_compile_errors = debug_compile_errors,
         .debug_incremental = debug_incremental,
-        .incremental = incremental,
         .enable_link_snapshots = enable_link_snapshots,
         .install_name = install_name,
         .entitlements = entitlements,
@@ -4016,6 +4018,8 @@ fn createModule(
             error.LldUnavailable => fatal("zig was compiled without LLD libraries", .{}),
             error.ClangUnavailable => fatal("zig was compiled without Clang libraries", .{}),
             error.DllExportFnsRequiresWindows => fatal("only Windows OS targets support DLLs", .{}),
+            error.NewLinkerIncompatibleObjectFormat => fatal("using the new linker to link {s} files is unsupported", .{@tagName(target.ofmt)}),
+            error.NewLinkerIncompatibleWithLld => fatal("using the new linker is incompatible with using lld", .{}),
         };
     }
 
