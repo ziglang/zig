@@ -202,6 +202,7 @@ pub fn build(b: *std.Build) !void {
     });
     exe.pie = pie;
     exe.entitlements = entitlements;
+    exe.use_new_linker = b.option(bool, "new-linker", "Use the new linker");
 
     const use_llvm = b.option(bool, "use-llvm", "Use the llvm backend");
     exe.use_llvm = use_llvm;

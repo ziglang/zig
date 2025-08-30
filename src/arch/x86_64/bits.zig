@@ -727,6 +727,14 @@ pub const FrameIndex = enum(u32) {
     pub fn isNamed(fi: FrameIndex) bool {
         return @intFromEnum(fi) < named_count;
     }
+
+    pub fn format(fi: FrameIndex, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        if (fi.isNamed()) {
+            try writer.print("FrameIndex.{t}", .{fi});
+        } else {
+            try writer.print("FrameIndex({d})", .{@intFromEnum(fi)});
+        }
+    }
 };
 
 pub const FrameAddr = struct { index: FrameIndex, off: i32 = 0 };

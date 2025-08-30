@@ -109,9 +109,11 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+) (codegen.CodeGenError || std.Io.Writer.Error)!void {
+    _ = atom_index;
     const zcu = pt.zcu;
     const comp = zcu.comp;
     const gpa = comp.gpa;
@@ -132,7 +134,7 @@ pub fn emit(
         },
         .bin_file = lf,
         .debug_output = debug_output,
-        .code = code,
+        .w = w,
         .prev_di_pc = 0,
         .prev_di_line = func.lbrace_line,
         .prev_di_column = func.lbrace_column,

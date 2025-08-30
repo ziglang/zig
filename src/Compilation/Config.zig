@@ -49,6 +49,8 @@ use_lib_llvm: bool,
 use_lld: bool,
 c_frontend: CFrontend,
 lto: std.zig.LtoMode,
+use_new_linker: bool,
+incremental: bool,
 /// WASI-only. Type of WASI execution model ("command" or "reactor").
 /// Always set to `command` for non-WASI targets.
 wasi_exec_model: std.builtin.WasiExecModel,
@@ -104,6 +106,8 @@ pub const Options = struct {
     use_lld: ?bool = null,
     use_clang: ?bool = null,
     lto: ?std.zig.LtoMode = null,
+    use_new_linker: ?bool = null,
+    incremental: bool = false,
     /// WASI-only. Type of WASI execution model ("command" or "reactor").
     wasi_exec_model: ?std.builtin.WasiExecModel = null,
     import_memory: ?bool = null,
@@ -147,6 +151,8 @@ pub const ResolveError = error{
     LldUnavailable,
     ClangUnavailable,
     DllExportFnsRequiresWindows,
+    NewLinkerIncompatibleWithLld,
+    NewLinkerIncompatibleObjectFormat,
 };
 
 pub fn resolve(options: Options) ResolveError!Config {
@@ -458,6 +464,22 @@ pub fn resolve(options: Options) ResolveError!Config {
         break :b .none;
     };
 
+    const use_new_linker = b: {
+        if (use_lld) {
+            if (options.use_new_linker == true) return error.NewLinkerIncompatibleWithLld;
+            break :b false;
+        }
+
+        if (!target_util.hasNewLinkerSupport(target.ofmt)) {
+            if (options.use_new_linker == true) return error.NewLinkerIncompatibleObjectFormat;
+            break :b false;
+        }
+
+        if (options.use_new_linker) |x| break :b x;
+
+        break :b options.incremental;
+    };
+
     const root_strip = b: {
         if (options.root_strip) |x| break :b x;
         if (root_optimize_mode == .ReleaseSmall) break :b true;
@@ -531,6 +553,8 @@ pub fn resolve(options: Options) ResolveError!Config {
         .root_error_tracing = root_error_tracing,
         .pie = pie,
         .lto = lto,
+        .use_new_linker = use_new_linker,
+        .incremental = options.incremental,
         .import_memory = import_memory,
         .export_memory = export_memory,
         .shared_memory = shared_memory,

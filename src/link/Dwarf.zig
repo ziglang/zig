@@ -2126,19 +2126,22 @@ pub const WipNav = struct {
         const size = if (ty.hasRuntimeBits(wip_nav.pt.zcu)) ty.abiSize(wip_nav.pt.zcu) else 0;
         try diw.writeUleb128(size);
         if (size == 0) return;
-        var bytes = wip_nav.debug_info.toArrayList();
-        defer wip_nav.debug_info = .fromArrayList(wip_nav.dwarf.gpa, &bytes);
-        const old_len = bytes.items.len;
+        const old_end = wip_nav.debug_info.writer.end;
         try codegen.generateSymbol(
             wip_nav.dwarf.bin_file,
             wip_nav.pt,
             src_loc,
             val,
-            &bytes,
+            &wip_nav.debug_info.writer,
             .{ .debug_output = .{ .dwarf = wip_nav } },
         );
-        if (old_len + size != bytes.items.len) {
-            std.debug.print("{f} [{}]: {} != {}\n", .{ ty.fmt(wip_nav.pt), ty.toIntern(), size, bytes.items.len - old_len });
+        if (old_end + size != wip_nav.debug_info.writer.end) {
+            std.debug.print("{f} [{}]: {} != {}\n", .{
+                ty.fmt(wip_nav.pt),
+                ty.toIntern(),
+                size,
+                wip_nav.debug_info.writer.end - old_end,
+            });
             unreachable;
         }
     }
@@ -6429,7 +6432,7 @@ fn sleb128Bytes(value: anytype) u32 {
 /// overrides `-fno-incremental` for testing incremental debug info until `-fincremental` is functional
 const force_incremental = false;
 inline fn incremental(dwarf: Dwarf) bool {
-    return force_incremental or dwarf.bin_file.comp.incremental;
+    return force_incremental or dwarf.bin_file.comp.config.incremental;
 }
 
 const Allocator = std.mem.Allocator;

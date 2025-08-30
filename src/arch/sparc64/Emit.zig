@@ -21,7 +21,7 @@ debug_output: link.File.DebugInfoOutput,
 target: *const std.Target,
 err_msg: ?*ErrorMsg = null,
 src_loc: Zcu.LazySrcLoc,
-code: *std.ArrayListUnmanaged(u8),
+w: *std.Io.Writer,
 
 prev_di_line: u32,
 prev_di_column: u32,
@@ -40,7 +40,7 @@ branch_forward_origins: std.AutoHashMapUnmanaged(Mir.Inst.Index, std.ArrayListUn
 /// instruction
 code_offset_mapping: std.AutoHashMapUnmanaged(Mir.Inst.Index, usize) = .empty,
 
-const InnerError = error{
+const InnerError = std.Io.Writer.Error || error{
     OutOfMemory,
     EmitFail,
 };
@@ -292,7 +292,7 @@ fn mirConditionalBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
         .bpcc => switch (tag) {
             .bpcc => {
                 const branch_predict_int = emit.mir.instructions.items(.data)[inst].branch_predict_int;
-                const offset = @as(i64, @intCast(emit.code_offset_mapping.get(branch_predict_int.inst).?)) - @as(i64, @intCast(emit.code.items.len));
+                const offset = @as(i64, @intCast(emit.code_offset_mapping.get(branch_predict_int.inst).?)) - @as(i64, @intCast(emit.w.end));
                 log.debug("mirConditionalBranch: {} offset={}", .{ inst, offset });
 
                 try emit.writeInstruction(
@@ -310,7 +310,7 @@ fn mirConditionalBranch(emit: *Emit, inst: Mir.Inst.Index) !void {
         .bpr => switch (tag) {
             .bpr => {
                 const branch_predict_reg = emit.mir.instructions.items(.data)[inst].branch_predict_reg;
-                const offset = @as(i64, @intCast(emit.code_offset_mapping.get(branch_predict_reg.inst).?)) - @as(i64, @intCast(emit.code.items.len));
+                const offset = @as(i64, @intCast(emit.code_offset_mapping.get(branch_predict_reg.inst).?)) - @as(i64, @intCast(emit.w.end));
                 log.debug("mirConditionalBranch: {} offset={}", .{ inst, offset });
 
                 try emit.writeInstruction(
@@ -494,13 +494,13 @@ fn branchTarget(emit: *Emit, inst: Mir.Inst.Index) Mir.Inst.Index {
 
 fn dbgAdvancePCAndLine(emit: *Emit, line: u32, column: u32) !void {
     const delta_line = @as(i32, @intCast(line)) - @as(i32, @intCast(emit.prev_di_line));
-    const delta_pc: usize = emit.code.items.len - emit.prev_di_pc;
+    const delta_pc: usize = emit.w.end - emit.prev_di_pc;
     switch (emit.debug_output) {
         .dwarf => |dbg_out| {
             try dbg_out.advancePCAndLine(delta_line, delta_pc);
             emit.prev_di_line = line;
             emit.prev_di_column = column;
-            emit.prev_di_pc = emit.code.items.len;
+            emit.prev_di_pc = emit.w.end;
         },
         else => {},
     }
@@ -675,13 +675,8 @@ fn optimalBranchType(emit: *Emit, tag: Mir.Inst.Tag, offset: i64) !BranchType {
 }
 
 fn writeInstruction(emit: *Emit, instruction: Instruction) !void {
-    const comp = emit.bin_file.comp;
-    const gpa = comp.gpa;
-
     // SPARCv9 instructions are always arranged in BE regardless of the
     // endianness mode the CPU is running in (Section 3.1 of the ISA specification).
     // This is to ease porting in case someone wants to do a LE SPARCv9 backend.
-    const endian: Endian = .big;
-
-    std.mem.writeInt(u32, try emit.code.addManyAsArray(gpa, 4), instruction.toU32(), endian);
+    try emit.w.writeInt(u32, instruction.toU32(), .big);
 }

@@ -1976,7 +1976,8 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
     const zcu = pt.zcu;
@@ -1997,17 +1998,9 @@ pub fn emit(
         .bin_file = lf,
         .pt = pt,
         .pic = mod.pic,
-        .atom_index = sym: {
-            if (lf.cast(.elf)) |ef| break :sym try ef.zigObjectPtr().?.getOrCreateMetadataForNav(zcu, nav);
-            if (lf.cast(.macho)) |mf| break :sym try mf.getZigObject().?.getOrCreateMetadataForNav(mf, nav);
-            if (lf.cast(.coff)) |cf| {
-                const atom = try cf.getOrCreateAtomForNav(nav);
-                break :sym cf.getAtom(atom).getSymbolIndex().?;
-            }
-            unreachable;
-        },
+        .atom_index = atom_index,
         .debug_output = debug_output,
-        .code = code,
+        .w = w,
 
         .prev_di_loc = .{
             .line = func.lbrace_line,
@@ -2037,7 +2030,8 @@ pub fn emitLazy(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     lazy_sym: link.File.LazySymbol,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
 ) codegen.CodeGenError!void {
     const zcu = pt.zcu;
@@ -2055,20 +2049,9 @@ pub fn emitLazy(
         .bin_file = lf,
         .pt = pt,
         .pic = mod.pic,
-        .atom_index = sym: {
-            if (lf.cast(.elf)) |ef| break :sym ef.zigObjectPtr().?.getOrCreateMetadataForLazySymbol(ef, pt, lazy_sym) catch |err|
-                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
-            if (lf.cast(.macho)) |mf| break :sym mf.getZigObject().?.getOrCreateMetadataForLazySymbol(mf, pt, lazy_sym) catch |err|
-                return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
-            if (lf.cast(.coff)) |cf| {
-                const atom = cf.getOrCreateAtomForLazySymbol(pt, lazy_sym) catch |err|
-                    return zcu.codegenFailType(lazy_sym.ty, "{s} creating lazy symbol", .{@errorName(err)});
-                break :sym cf.getAtom(atom).getSymbolIndex().?;
-            }
-            unreachable;
-        },
+        .atom_index = atom_index,
         .debug_output = debug_output,
-        .code = code,
+        .w = w,
 
         .prev_di_loc = undefined,
         .prev_di_pc = undefined,

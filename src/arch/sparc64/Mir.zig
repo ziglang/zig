@@ -380,9 +380,11 @@ pub fn emit(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    code: *std.ArrayListUnmanaged(u8),
+    atom_index: u32,
+    w: *std.Io.Writer,
     debug_output: link.File.DebugInfoOutput,
-) codegen.CodeGenError!void {
+) (codegen.CodeGenError || std.Io.Writer.Error)!void {
+    _ = atom_index;
     const zcu = pt.zcu;
     const func = zcu.funcInfo(func_index);
     const nav = func.owner_nav;
@@ -393,7 +395,7 @@ pub fn emit(
         .debug_output = debug_output,
         .target = &mod.resolved_target.result,
         .src_loc = src_loc,
-        .code = code,
+        .w = w,
         .prev_di_pc = 0,
         .prev_di_line = func.lbrace_line,
         .prev_di_column = func.lbrace_column,

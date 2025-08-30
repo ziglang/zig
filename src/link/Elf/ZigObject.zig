@@ -277,8 +277,8 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
             pt,
             .{ .kind = .code, .ty = .anyerror_type },
             metadata.text_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
+        ) catch |err| switch (err) {
+            error.CodegenFail => return error.LinkFailure,
             else => |e| return e,
         };
         if (metadata.rodata_state != .unused) self.updateLazySymbol(
@@ -286,8 +286,8 @@ pub fn flush(self: *ZigObject, elf_file: *Elf, tid: Zcu.PerThread.Id) !void {
             pt,
             .{ .kind = .const_data, .ty = .anyerror_type },
             metadata.rodata_symbol_index,
-        ) catch |err| return switch (err) {
-            error.CodegenFail => error.LinkFailure,
+        ) catch |err| switch (err) {
+            error.CodegenFail => return error.LinkFailure,
             else => |e| return e,
         };
     }
@@ -1533,22 +1533,26 @@ pub fn updateFunc(
     const sym_index = try self.getOrCreateMetadataForNav(zcu, func.owner_nav);
     self.atom(self.symbol(sym_index).ref.index).?.freeRelocs(self);
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, func.owner_nav, sym_index) else null;
     defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-    try codegen.emitFunction(
+    codegen.emitFunction(
         &elf_file.base,
         pt,
         zcu.navSrcLoc(func.owner_nav),
         func_index,
+        sym_index,
         mir,
-        &code_buffer,
+        &aw.writer,
         if (debug_wip_nav) |*dn| .{ .dwarf = dn } else .none,
-    );
-    const code = code_buffer.items;
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const code = aw.written();
 
     const shndx = try self.getNavShdrIndex(elf_file, zcu, func.owner_nav, sym_index, code);
     log.debug("setting shdr({x},{s}) for {f}", .{
@@ -1663,21 +1667,24 @@ pub fn updateNav(
         const sym_index = try self.getOrCreateMetadataForNav(zcu, nav_index);
         self.symbol(sym_index).atom(elf_file).?.freeRelocs(self);
 
-        var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-        defer code_buffer.deinit(zcu.gpa);
+        var aw: std.Io.Writer.Allocating = .init(zcu.gpa);
+        defer aw.deinit();
 
         var debug_wip_nav = if (self.dwarf) |*dwarf| try dwarf.initWipNav(pt, nav_index, sym_index) else null;
         defer if (debug_wip_nav) |*wip_nav| wip_nav.deinit();
 
-        try codegen.generateSymbol(
+        codegen.generateSymbol(
             &elf_file.base,
             pt,
             zcu.navSrcLoc(nav_index),
             Value.fromInterned(nav_init),
-            &code_buffer,
+            &aw.writer,
             .{ .atom_index = sym_index },
-        );
-        const code = code_buffer.items;
+        ) catch |err| switch (err) {
+            error.WriteFailed => return error.OutOfMemory,
+            else => |e| return e,
+        };
+        const code = aw.written();
 
         const shndx = try self.getNavShdrIndex(elf_file, zcu, nav_index, sym_index, code);
         log.debug("setting shdr({x},{s}) for {f}", .{
@@ -1722,8 +1729,8 @@ fn updateLazySymbol(
     const gpa = zcu.gpa;
 
     var required_alignment: InternPool.Alignment = .none;
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name_str_index = blk: {
         const name = try std.fmt.allocPrint(gpa, "__lazy_{s}_{f}", .{
@@ -1734,18 +1741,20 @@ fn updateLazySymbol(
         break :blk try self.strtab.insert(gpa, name);
     };
 
-    const src = Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse Zcu.LazySrcLoc.unneeded;
-    try codegen.generateLazySymbol(
+    codegen.generateLazySymbol(
         &elf_file.base,
         pt,
-        src,
+        Type.fromInterned(sym.ty).srcLocOrNull(zcu) orelse .unneeded,
         sym,
         &required_alignment,
-        &code_buffer,
+        &aw.writer,
         .none,
         .{ .atom_index = symbol_index },
-    );
-    const code = code_buffer.items;
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const code = aw.written();
 
     const output_section_index = switch (sym.kind) {
         .code => if (self.text_index) |sym_index|
@@ -1807,21 +1816,24 @@ fn lowerConst(
 ) !codegen.SymbolResult {
     const gpa = pt.zcu.gpa;
 
-    var code_buffer: std.ArrayListUnmanaged(u8) = .empty;
-    defer code_buffer.deinit(gpa);
+    var aw: std.Io.Writer.Allocating = .init(gpa);
+    defer aw.deinit();
 
     const name_off = try self.addString(gpa, name);
     const sym_index = try self.newSymbolWithAtom(gpa, name_off);
 
-    try codegen.generateSymbol(
+    codegen.generateSymbol(
         &elf_file.base,
         pt,
         src_loc,
         val,
-        &code_buffer,
+        &aw.writer,
         .{ .atom_index = sym_index },
-    );
-    const code = code_buffer.items;
+    ) catch |err| switch (err) {
+        error.WriteFailed => return error.OutOfMemory,
+        else => |e| return e,
+    };
+    const code = aw.written();
 
     const local_sym = self.symbol(sym_index);
     const local_esym = &self.symtab.items(.elf_sym)[local_sym.esym_index];

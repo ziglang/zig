@@ -192,6 +192,7 @@ want_lto: ?bool = null,
 
 use_llvm: ?bool,
 use_lld: ?bool,
+use_new_linker: ?bool,
 
 /// Corresponds to the `-fallow-so-scripts` / `-fno-allow-so-scripts` CLI
 /// flags, overriding the global user setting provided to the `zig build`
@@ -441,6 +442,7 @@ pub fn create(owner: *std.Build, options: Options) *Compile {
 
         .use_llvm = options.use_llvm,
         .use_lld = options.use_lld,
+        .use_new_linker = null,
 
         .zig_process = null,
     };
@@ -1096,6 +1098,7 @@ fn getZigArgs(compile: *Compile, fuzz: bool) ![][]const u8 {
 
     try addFlag(&zig_args, "llvm", compile.use_llvm);
     try addFlag(&zig_args, "lld", compile.use_lld);
+    try addFlag(&zig_args, "new-linker", compile.use_new_linker);
 
     if (compile.root_module.resolved_target.?.query.ofmt) |ofmt| {
         try zig_args.append(try std.fmt.allocPrint(arena, "-ofmt={s}", .{@tagName(ofmt)}));
