@@ -29051,7 +29051,7 @@ fn coerceExtra(
         var cmp = try Type.Comparison.init(&.{ inst_ty, dest_ty }, pt);
         defer cmp.deinit(sema.gpa);
 
-        const msg = try sema.errMsg(inst_src, "expected type '{f}' but found '{f}'", .{
+        const msg = try sema.errMsg(inst_src, "expected type '{f}', found '{f}'", .{
             cmp.fmtType(dest_ty, sema.pt),
             cmp.fmtType(inst_ty, sema.pt),
         });
