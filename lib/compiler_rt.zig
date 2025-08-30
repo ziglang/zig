@@ -263,6 +263,8 @@ comptime {
         _ = @import("compiler_rt/memcmp.zig");
         _ = @import("compiler_rt/bcmp.zig");
         _ = @import("compiler_rt/ssp.zig");
+
+        _ = @import("compiler_rt/strlen.zig");
     }
 
     // Temporarily used for uefi until https://github.com/ziglang/zig/issues/21630 is addressed.

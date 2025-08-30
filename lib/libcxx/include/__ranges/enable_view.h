@@ -14,7 +14,6 @@
 #include <__concepts/same_as.h>
 #include <__config>
 #include <__type_traits/is_class.h>
-#include <__type_traits/is_convertible.h>
 #include <__type_traits/remove_cv.h>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -34,12 +33,12 @@ template <class _Derived>
 class view_interface;
 
 template <class _Op, class _Yp>
-  requires is_convertible_v<_Op*, view_interface<_Yp>*>
-void __is_derived_from_view_interface(const _Op*, const view_interface<_Yp>*);
+  requires(!same_as<_Op, view_interface<_Yp>>)
+void __is_derived_from_view_interface(view_interface<_Yp>*);
 
 template <class _Tp>
 inline constexpr bool enable_view = derived_from<_Tp, view_base> || requires {
-  ranges::__is_derived_from_view_interface((_Tp*)nullptr, (_Tp*)nullptr);
+  ranges::__is_derived_from_view_interface<remove_cv_t<_Tp>>((remove_cv_t<_Tp>*)nullptr);
 };
 
 } // namespace ranges

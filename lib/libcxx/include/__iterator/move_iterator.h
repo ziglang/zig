@@ -64,7 +64,7 @@ concept __move_iter_comparable = requires {
 #endif // _LIBCPP_STD_VER >= 20
 
 template <class _Iter>
-class _LIBCPP_TEMPLATE_VIS move_iterator
+class move_iterator
 #if _LIBCPP_STD_VER >= 20
     : public __move_iter_category_base<_Iter>
 #endif

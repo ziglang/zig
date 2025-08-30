@@ -25,19 +25,11 @@ inline const bool __is_unbounded_array_v<_Tp[]> = true;
 
 #if _LIBCPP_STD_VER >= 20
 
-template <class>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_unbounded_array : false_type {};
-
-_LIBCPP_DIAGNOSTIC_PUSH
-#  if __has_warning("-Winvalid-specialization")
-_LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-specialization")
-#  endif
 template <class _Tp>
-struct _LIBCPP_TEMPLATE_VIS is_unbounded_array<_Tp[]> : true_type {};
-_LIBCPP_DIAGNOSTIC_POP
+struct _LIBCPP_NO_SPECIALIZATIONS is_unbounded_array : bool_constant<__is_unbounded_array_v<_Tp>> {};
 
 template <class _Tp>
-_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_unbounded_array_v = is_unbounded_array<_Tp>::value;
+_LIBCPP_NO_SPECIALIZATIONS inline constexpr bool is_unbounded_array_v = __is_unbounded_array_v<_Tp>;
 
 #endif
 

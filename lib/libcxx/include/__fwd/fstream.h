@@ -19,13 +19,13 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_filebuf;
+class basic_filebuf;
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_ifstream;
+class basic_ifstream;
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_ofstream;
+class basic_ofstream;
 template <class _CharT, class _Traits = char_traits<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_fstream;
+class basic_fstream;
 
 using filebuf  = basic_filebuf<char>;
 using ifstream = basic_ifstream<char>;

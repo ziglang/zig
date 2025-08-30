@@ -17,7 +17,9 @@
 #include <__fwd/functional.h>
 #include <__iterator/back_insert_iterator.h>
 #include <__iterator/iterator_traits.h>
+#include <__memory/addressof.h>
 #include <__type_traits/decay.h>
+#include <__type_traits/enable_if.h>
 #include <__type_traits/is_pointer.h>
 #include <__type_traits/remove_const.h>
 #include <__type_traits/remove_pointer.h>
@@ -27,7 +29,6 @@
 
 #if _LIBCPP_HAS_LOCALIZATION
 #  include <iomanip> // for quoted
-#  include <locale>
 #endif
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -583,7 +584,7 @@ public:
 
   template <class _ECharT, __enable_if_t<__can_convert_char<_ECharT>::value, int> = 0>
   _LIBCPP_HIDE_FROM_ABI path& operator+=(_ECharT __x) {
-    _PathCVT<_ECharT>::__append_source(__pn_, basic_string_view<_ECharT>(&__x, 1));
+    _PathCVT<_ECharT>::__append_source(__pn_, basic_string_view<_ECharT>(std::addressof(__x), 1));
     return *this;
   }
 

@@ -228,7 +228,7 @@
 ///             dst.byte[i] := a.row[row_index].byte[row_chunk+i]
 /// ENDFOR
 /// \endcode
-#define _tile_movrow(a, b) __builtin_ia32_tilemovrow(a, b)
+#define _tile_movrow(a, b) ((__m512i)__builtin_ia32_tilemovrow(a, b))
 
 /// This is internal intrinsic. C/C++ user should avoid calling it directly.
 

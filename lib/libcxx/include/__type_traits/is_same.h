@@ -19,7 +19,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Tp, class _Up>
-struct _LIBCPP_TEMPLATE_VIS _LIBCPP_NO_SPECIALIZATIONS is_same : _BoolConstant<__is_same(_Tp, _Up)> {};
+struct _LIBCPP_NO_SPECIALIZATIONS is_same : _BoolConstant<__is_same(_Tp, _Up)> {};
 
 #if _LIBCPP_STD_VER >= 17
 template <class _Tp, class _Up>

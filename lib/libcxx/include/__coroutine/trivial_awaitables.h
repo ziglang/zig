@@ -35,6 +35,6 @@ struct suspend_always {
 
 _LIBCPP_END_NAMESPACE_STD
 
-#endif // __LIBCPP_STD_VER >= 20
+#endif // _LIBCPP_STD_VER >= 20
 
 #endif // __LIBCPP___COROUTINE_TRIVIAL_AWAITABLES_H

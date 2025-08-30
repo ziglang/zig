@@ -86,7 +86,7 @@ void __stdinbuf<_CharT>::imbue(const locale& __loc) {
   __encoding_      = __cv_->encoding();
   __always_noconv_ = __cv_->always_noconv();
   if (__encoding_ > __limit)
-    __throw_runtime_error("unsupported locale for standard input");
+    std::__throw_runtime_error("unsupported locale for standard input");
 }
 
 template <class _CharT>

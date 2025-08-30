@@ -29,10 +29,12 @@
 
 #include <__algorithm/for_each.h>
 #include <__algorithm/move.h>
+#include <__bit/bit_cast.h>
 #include <__bit/bit_log2.h>
-#include <__bit/countl.h>
 #include <__config>
+#include <__cstddef/size_t.h>
 #include <__functional/identity.h>
+#include <__iterator/access.h>
 #include <__iterator/distance.h>
 #include <__iterator/iterator_traits.h>
 #include <__iterator/move_iterator.h>
@@ -43,9 +45,12 @@
 #include <__type_traits/enable_if.h>
 #include <__type_traits/invoke.h>
 #include <__type_traits/is_assignable.h>
+#include <__type_traits/is_enum.h>
 #include <__type_traits/is_integral.h>
 #include <__type_traits/is_unsigned.h>
 #include <__type_traits/make_unsigned.h>
+#include <__type_traits/void_t.h>
+#include <__utility/declval.h>
 #include <__utility/forward.h>
 #include <__utility/integer_sequence.h>
 #include <__utility/move.h>
@@ -67,7 +72,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 14
 
 template <class _InputIterator, class _OutputIterator>
-_LIBCPP_HIDE_FROM_ABI pair<_OutputIterator, __iter_value_type<_InputIterator>>
+_LIBCPP_HIDE_FROM_ABI constexpr pair<_OutputIterator, __iter_value_type<_InputIterator>>
 __partial_sum_max(_InputIterator __first, _InputIterator __last, _OutputIterator __result) {
   if (__first == __last)
     return {__result, 0};
@@ -109,7 +114,7 @@ struct __counting_sort_traits {
 };
 
 template <class _Radix, class _Integer>
-_LIBCPP_HIDE_FROM_ABI auto __nth_radix(size_t __radix_number, _Radix __radix, _Integer __n) {
+_LIBCPP_HIDE_FROM_ABI constexpr auto __nth_radix(size_t __radix_number, _Radix __radix, _Integer __n) {
   static_assert(is_unsigned<_Integer>::value);
   using __traits = __counting_sort_traits<_Integer, _Radix>;
 
@@ -117,7 +122,7 @@ _LIBCPP_HIDE_FROM_ABI auto __nth_radix(size_t __radix_number, _Radix __radix, _I
 }
 
 template <class _ForwardIterator, class _Map, class _RandomAccessIterator>
-_LIBCPP_HIDE_FROM_ABI void
+_LIBCPP_HIDE_FROM_ABI constexpr void
 __collect(_ForwardIterator __first, _ForwardIterator __last, _Map __map, _RandomAccessIterator __counters) {
   using __value_type = __iter_value_type<_ForwardIterator>;
   using __traits     = __counting_sort_traits<__value_type, _Map>;
@@ -129,7 +134,7 @@ __collect(_ForwardIterator __first, _ForwardIterator __last, _Map __map, _Random
 }
 
 template <class _ForwardIterator, class _RandomAccessIterator1, class _Map, class _RandomAccessIterator2>
-_LIBCPP_HIDE_FROM_ABI void
+_LIBCPP_HIDE_FROM_ABI constexpr void
 __dispose(_ForwardIterator __first,
           _ForwardIterator __last,
           _RandomAccessIterator1 __result,
@@ -147,7 +152,7 @@ template <class _ForwardIterator,
           class _RandomAccessIterator1,
           class _RandomAccessIterator2,
           size_t... _Radices>
-_LIBCPP_HIDE_FROM_ABI bool __collect_impl(
+_LIBCPP_HIDE_FROM_ABI constexpr bool __collect_impl(
     _ForwardIterator __first,
     _ForwardIterator __last,
     _Map __map,
@@ -177,7 +182,7 @@ _LIBCPP_HIDE_FROM_ABI bool __collect_impl(
 }
 
 template <class _ForwardIterator, class _Map, class _Radix, class _RandomAccessIterator1, class _RandomAccessIterator2>
-_LIBCPP_HIDE_FROM_ABI bool
+_LIBCPP_HIDE_FROM_ABI constexpr bool
 __collect(_ForwardIterator __first,
           _ForwardIterator __last,
           _Map __map,
@@ -191,7 +196,7 @@ __collect(_ForwardIterator __first,
 }
 
 template <class _BidirectionalIterator, class _RandomAccessIterator1, class _Map, class _RandomAccessIterator2>
-_LIBCPP_HIDE_FROM_ABI void __dispose_backward(
+_LIBCPP_HIDE_FROM_ABI constexpr void __dispose_backward(
     _BidirectionalIterator __first,
     _BidirectionalIterator __last,
     _RandomAccessIterator1 __result,
@@ -206,7 +211,7 @@ _LIBCPP_HIDE_FROM_ABI void __dispose_backward(
 }
 
 template <class _ForwardIterator, class _RandomAccessIterator, class _Map>
-_LIBCPP_HIDE_FROM_ABI _RandomAccessIterator
+_LIBCPP_HIDE_FROM_ABI constexpr _RandomAccessIterator
 __counting_sort_impl(_ForwardIterator __first, _ForwardIterator __last, _RandomAccessIterator __result, _Map __map) {
   using __value_type = __iter_value_type<_ForwardIterator>;
   using __traits     = __counting_sort_traits<__value_type, _Map>;
@@ -225,7 +230,7 @@ template <class _RandomAccessIterator1,
           class _Radix,
           enable_if_t< __radix_sort_traits<__iter_value_type<_RandomAccessIterator1>, _Map, _Radix>::__radix_count == 1,
                        int> = 0>
-_LIBCPP_HIDE_FROM_ABI void __radix_sort_impl(
+_LIBCPP_HIDE_FROM_ABI constexpr void __radix_sort_impl(
     _RandomAccessIterator1 __first,
     _RandomAccessIterator1 __last,
     _RandomAccessIterator2 __buffer,
@@ -245,7 +250,7 @@ template <
     class _Radix,
     enable_if_t< __radix_sort_traits<__iter_value_type<_RandomAccessIterator1>, _Map, _Radix>::__radix_count % 2 == 0,
                  int> = 0 >
-_LIBCPP_HIDE_FROM_ABI void __radix_sort_impl(
+_LIBCPP_HIDE_FROM_ABI constexpr void __radix_sort_impl(
     _RandomAccessIterator1 __first,
     _RandomAccessIterator1 __last,
     _RandomAccessIterator2 __buffer_begin,
@@ -297,6 +302,96 @@ _LIBCPP_HIDE_FROM_ABI constexpr auto __shift_to_unsigned(_Ip __n) {
   return static_cast<make_unsigned_t<_Ip> >(__n ^ __min_value);
 }
 
+template <size_t _Size>
+struct __unsigned_integer_of_size;
+
+template <>
+struct __unsigned_integer_of_size<1> {
+  using type _LIBCPP_NODEBUG = uint8_t;
+};
+
+template <>
+struct __unsigned_integer_of_size<2> {
+  using type _LIBCPP_NODEBUG = uint16_t;
+};
+
+template <>
+struct __unsigned_integer_of_size<4> {
+  using type _LIBCPP_NODEBUG = uint32_t;
+};
+
+template <>
+struct __unsigned_integer_of_size<8> {
+  using type _LIBCPP_NODEBUG = uint64_t;
+};
+
+#  if _LIBCPP_HAS_INT128
+template <>
+struct __unsigned_integer_of_size<16> {
+  using type _LIBCPP_NODEBUG = unsigned __int128;
+};
+#  endif
+
+template <size_t _Size>
+using __unsigned_integer_of_size_t _LIBCPP_NODEBUG = typename __unsigned_integer_of_size<_Size>::type;
+
+template <class _Sc>
+using __unsigned_representation_for_t _LIBCPP_NODEBUG = __unsigned_integer_of_size_t<sizeof(_Sc)>;
+
+// The function `__to_ordered_integral` is defined for integers and IEEE 754 floating-point numbers.
+// Returns an integer representation such that for any `x` and `y` such that `x < y`, the expression
+// `__to_ordered_integral(x) < __to_ordered_integral(y)` is true, where `x`, `y` are integers or IEEE 754 floats.
+template <class _Integral, enable_if_t< is_integral<_Integral>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI constexpr auto __to_ordered_integral(_Integral __n) {
+  return __n;
+}
+
+// An overload for IEEE 754 floating-point numbers
+
+// For the floats conforming to IEEE 754 (IEC 559) standard, we know that:
+// 1. The bit representation of positive floats directly reflects their order:
+//    When comparing floats by magnitude, the number with the larger exponent is greater, and if the exponents are
+//    equal, the one with the larger mantissa is greater.
+// 2. The bit representation of negative floats reflects their reverse order (for the same reasons).
+// 3. The most significant bit (sign bit) is zero for positive floats and one for negative floats. Therefore, in the raw
+//    bit representation, any negative number will be greater than any positive number.
+
+// The only exception from this rule is `NaN`, which is unordered by definition.
+
+// Based on the above, to obtain correctly ordered integral representation of floating-point numbers, we need to:
+// 1. Invert the bit representation (including the sign bit) of negative floats to switch from reverse order to direct
+//    order;
+// 2. Invert the sign bit for positive floats.
+
+// Thus, in final integral representation, we have reversed the order for negative floats and made all negative floats
+// smaller than all positive numbers (by inverting the sign bit).
+template <class _Floating, enable_if_t< numeric_limits<_Floating>::is_iec559, int> = 0>
+_LIBCPP_HIDE_FROM_ABI constexpr auto __to_ordered_integral(_Floating __f) {
+  using __integral_type          = __unsigned_representation_for_t<_Floating>;
+  constexpr auto __bit_count     = std::numeric_limits<__integral_type>::digits;
+  constexpr auto __sign_bit_mask = static_cast<__integral_type>(__integral_type{1} << (__bit_count - 1));
+
+  const auto __u = std::__bit_cast<__integral_type>(__f);
+
+  return static_cast<__integral_type>(__u & __sign_bit_mask ? ~__u : __u ^ __sign_bit_mask);
+}
+
+// There may exist user-defined comparison for enum, so we cannot compare enums just like integers.
+template <class _Enum, enable_if_t< is_enum<_Enum>::value, int> = 0>
+_LIBCPP_HIDE_FROM_ABI constexpr auto __to_ordered_integral(_Enum __e) = delete;
+
+// `long double` varies significantly across platforms and compilers, making it practically
+// impossible to determine its actual bit width for conversion to an ordered integer.
+inline _LIBCPP_HIDE_FROM_ABI constexpr auto __to_ordered_integral(long double) = delete;
+
+template <class _Tp, class = void>
+inline const bool __is_ordered_integer_representable_v = false;
+
+template <class _Tp>
+inline const bool
+    __is_ordered_integer_representable_v<_Tp, __void_t<decltype(std::__to_ordered_integral(std::declval<_Tp>()))>> =
+        true;
+
 struct __low_byte_fn {
   template <class _Ip>
   _LIBCPP_HIDE_FROM_ABI constexpr uint8_t operator()(_Ip __integer) const {
@@ -307,18 +402,20 @@ struct __low_byte_fn {
 };
 
 template <class _RandomAccessIterator1, class _RandomAccessIterator2, class _Map, class _Radix>
-_LIBCPP_HIDE_FROM_ABI void
+_LIBCPP_HIDE_FROM_ABI constexpr void
 __radix_sort(_RandomAccessIterator1 __first,
              _RandomAccessIterator1 __last,
              _RandomAccessIterator2 __buffer,
              _Map __map,
              _Radix __radix) {
-  auto __map_to_unsigned = [__map = std::move(__map)](const auto& __x) { return std::__shift_to_unsigned(__map(__x)); };
+  auto __map_to_unsigned = [__map = std::move(__map)](const auto& __x) {
+    return std::__shift_to_unsigned(__map(std::__to_ordered_integral(__x)));
+  };
   std::__radix_sort_impl(__first, __last, __buffer, __map_to_unsigned, __radix);
 }
 
 template <class _RandomAccessIterator1, class _RandomAccessIterator2>
-_LIBCPP_HIDE_FROM_ABI void
+_LIBCPP_HIDE_FROM_ABI constexpr void
 __radix_sort(_RandomAccessIterator1 __first, _RandomAccessIterator1 __last, _RandomAccessIterator2 __buffer) {
   std::__radix_sort(__first, __last, __buffer, __identity{}, __low_byte_fn{});
 }

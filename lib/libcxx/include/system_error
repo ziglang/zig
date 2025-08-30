@@ -168,6 +168,7 @@ template <> struct hash<std::error_condition>;
 #    include <cstdint>
 #    include <cstring>
 #    include <limits>
+#    include <optional>
 #    include <type_traits>
 #  endif
 #endif // __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)

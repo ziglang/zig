@@ -285,6 +285,15 @@ namespace std::ranges {
     requires view<V> && input_range<range_reference_t<V>>
   class join_view;
 
+  // [range.join.with], join with view
+  template<input_range V, forward_range Pattern>
+    requires view<V> && input_range<range_reference_t<V>>
+          && view<Pattern>
+          && concatable<range_reference_t<V>, Pattern>
+  class join_with_view;                                                     // since C++23
+
+  namespace views { inline constexpr unspecified join_with = unspecified; } // since C++23
+
   // [range.lazy.split], lazy split view
   template<class R>
     concept tiny-range = see below;   // exposition only
@@ -381,7 +390,7 @@ namespace std {
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/ranges>
+#  include <__cxx03/__config>
 #else
 #  include <__config>
 
@@ -427,6 +436,7 @@ namespace std {
 #    include <__ranges/as_rvalue_view.h>
 #    include <__ranges/chunk_by_view.h>
 #    include <__ranges/from_range.h>
+#    include <__ranges/join_with_view.h>
 #    include <__ranges/repeat_view.h>
 #    include <__ranges/to.h>
 #    include <__ranges/zip_view.h>

@@ -59,9 +59,9 @@ public:
 
     deque& operator=(const deque& c);
     deque& operator=(deque&& c)
-        noexcept(
-             allocator_type::propagate_on_container_move_assignment::value &&
-             is_nothrow_move_assignable<allocator_type>::value);
+        noexcept((allocator_traits<allocator_type>::propagate_on_container_move_assignment::value &&
+                  is_nothrow_move_assignable<allocator_type>::value) ||
+                 allocator_traits<allocator_type>::is_always_equal::value);
     deque& operator=(initializer_list<value_type> il);
 
     template <class InputIterator>
@@ -230,6 +230,7 @@ template <class T, class Allocator, class Predicate>
 #  include <__type_traits/is_convertible.h>
 #  include <__type_traits/is_nothrow_assignable.h>
 #  include <__type_traits/is_nothrow_constructible.h>
+#  include <__type_traits/is_replaceable.h>
 #  include <__type_traits/is_same.h>
 #  include <__type_traits/is_swappable.h>
 #  include <__type_traits/is_trivially_relocatable.h>
@@ -283,7 +284,7 @@ template <class _ValueType,
               __deque_block_size<_ValueType, _DiffType>::value
 #  endif
           >
-class _LIBCPP_TEMPLATE_VIS __deque_iterator {
+class __deque_iterator {
   typedef _MapPointer __map_iterator;
 
 public:
@@ -444,9 +445,9 @@ private:
         __ptr_(__p) {}
 
   template <class _Tp, class _Ap>
-  friend class _LIBCPP_TEMPLATE_VIS deque;
+  friend class deque;
   template <class _Vp, class _Pp, class _Rp, class _MP, class _Dp, _Dp>
-  friend class _LIBCPP_TEMPLATE_VIS __deque_iterator;
+  friend class __deque_iterator;
 
   template <class>
   friend struct __segmented_iterator_traits;
@@ -486,7 +487,7 @@ const _DiffType __deque_iterator<_ValueType, _Pointer, _Reference, _MapPointer, 
     __deque_block_size<_ValueType, _DiffType>::value;
 
 template <class _Tp, class _Allocator /*= allocator<_Tp>*/>
-class _LIBCPP_TEMPLATE_VIS deque {
+class deque {
 public:
   // types:
 
@@ -530,6 +531,10 @@ public:
       __libcpp_is_trivially_relocatable<__map>::value && __libcpp_is_trivially_relocatable<allocator_type>::value,
       deque,
       void>;
+  using __replaceable _LIBCPP_NODEBUG =
+      __conditional_t<__is_replaceable_v<__map> && __container_allocator_is_replaceable<__alloc_traits>::value,
+                      deque,
+                      void>;
 
   static_assert(is_nothrow_default_constructible<allocator_type>::value ==
                     is_nothrow_default_constructible<__pointer_allocator>::value,
@@ -674,9 +679,10 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI deque(deque&& __c) noexcept(is_nothrow_move_constructible<allocator_type>::value);
   _LIBCPP_HIDE_FROM_ABI deque(deque&& __c, const __type_identity_t<allocator_type>& __a);
-  _LIBCPP_HIDE_FROM_ABI deque&
-  operator=(deque&& __c) noexcept(__alloc_traits::propagate_on_container_move_assignment::value &&
-                                  is_nothrow_move_assignable<allocator_type>::value);
+  _LIBCPP_HIDE_FROM_ABI deque& operator=(deque&& __c) noexcept(
+      (__alloc_traits::propagate_on_container_move_assignment::value &&
+       is_nothrow_move_assignable<allocator_type>::value) ||
+      __alloc_traits::is_always_equal::value);
 
   _LIBCPP_HIDE_FROM_ABI void assign(initializer_list<value_type> __il) { assign(__il.begin(), __il.end()); }
 #  endif // _LIBCPP_CXX03_LANG
@@ -924,7 +930,7 @@ private:
     (void)__end;
     (void)__annotation_type;
     (void)__place;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     // __beg - index of the first item to annotate
     // __end - index behind the last item to annotate (so last item + 1)
     // __annotation_type - __asan_unposion or __asan_poison
@@ -1017,23 +1023,23 @@ private:
       std::__annotate_double_ended_contiguous_container<_Allocator>(
           __mem_beg, __mem_end, __old_beg, __old_end, __new_beg, __new_end);
     }
-#  endif // _LIBCPP_HAS_ASAN
+#  endif // __has_feature(address_sanitizer)
   }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_new(size_type __current_size) const _NOEXCEPT {
     (void)__current_size;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     if (__current_size == 0)
       __annotate_from_to(0, __map_.size() * __block_size, __asan_poison, __asan_back_moved);
     else {
       __annotate_from_to(0, __start_, __asan_poison, __asan_front_moved);
       __annotate_from_to(__start_ + __current_size, __map_.size() * __block_size, __asan_poison, __asan_back_moved);
     }
-#  endif // _LIBCPP_HAS_ASAN
+#  endif // __has_feature(address_sanitizer)
   }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_delete() const _NOEXCEPT {
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     if (empty()) {
       for (size_t __i = 0; __i < __map_.size(); ++__i) {
         __annotate_whole_block(__i, __asan_unposion);
@@ -1042,19 +1048,19 @@ private:
       __annotate_from_to(0, __start_, __asan_unposion, __asan_front_moved);
       __annotate_from_to(__start_ + size(), __map_.size() * __block_size, __asan_unposion, __asan_back_moved);
     }
-#  endif // _LIBCPP_HAS_ASAN
+#  endif // __has_feature(address_sanitizer)
   }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_increase_front(size_type __n) const _NOEXCEPT {
     (void)__n;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     __annotate_from_to(__start_ - __n, __start_, __asan_unposion, __asan_front_moved);
 #  endif
   }
 
   _LIBCPP_HIDE_FROM_ABI void __annotate_increase_back(size_type __n) const _NOEXCEPT {
     (void)__n;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     __annotate_from_to(__start_ + size(), __start_ + size() + __n, __asan_unposion, __asan_back_moved);
 #  endif
   }
@@ -1062,7 +1068,7 @@ private:
   _LIBCPP_HIDE_FROM_ABI void __annotate_shrink_front(size_type __old_size, size_type __old_start) const _NOEXCEPT {
     (void)__old_size;
     (void)__old_start;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     __annotate_from_to(__old_start, __old_start + (__old_size - size()), __asan_poison, __asan_front_moved);
 #  endif
   }
@@ -1070,7 +1076,7 @@ private:
   _LIBCPP_HIDE_FROM_ABI void __annotate_shrink_back(size_type __old_size, size_type __old_start) const _NOEXCEPT {
     (void)__old_size;
     (void)__old_start;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     __annotate_from_to(__old_start + size(), __old_start + __old_size, __asan_poison, __asan_back_moved);
 #  endif
   }
@@ -1083,7 +1089,7 @@ private:
   __annotate_whole_block(size_t __block_index, __asan_annotation_type __annotation_type) const _NOEXCEPT {
     (void)__block_index;
     (void)__annotation_type;
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
     __map_const_iterator __block_it = __map_.begin() + __block_index;
     const void* __block_start       = std::__to_address(*__block_it);
     const void* __block_end         = std::__to_address(*__block_it + __block_size);
@@ -1096,7 +1102,7 @@ private:
     }
 #  endif
   }
-#  if _LIBCPP_HAS_ASAN
+#  if __has_feature(address_sanitizer)
 
 public:
   _LIBCPP_HIDE_FROM_ABI bool __verify_asan_annotations() const _NOEXCEPT {
@@ -1158,7 +1164,7 @@ public:
   }
 
 private:
-#  endif // _LIBCPP_HAS_ASAN
+#  endif // __has_feature(address_sanitizer)
   _LIBCPP_HIDE_FROM_ABI bool __maybe_remove_front_spare(bool __keep_one = true) {
     if (__front_spare_blocks() >= 2 || (!__keep_one && __front_spare_blocks())) {
       __annotate_whole_block(0, __asan_unposion);
@@ -1379,8 +1385,9 @@ inline deque<_Tp, _Allocator>::deque(deque&& __c, const __type_identity_t<alloca
 
 template <class _Tp, class _Allocator>
 inline deque<_Tp, _Allocator>& deque<_Tp, _Allocator>::operator=(deque&& __c) noexcept(
-    __alloc_traits::propagate_on_container_move_assignment::value &&
-    is_nothrow_move_assignable<allocator_type>::value) {
+    (__alloc_traits::propagate_on_container_move_assignment::value &&
+     is_nothrow_move_assignable<allocator_type>::value) ||
+    __alloc_traits::is_always_equal::value) {
   __move_assign(__c, integral_constant<bool, __alloc_traits::propagate_on_container_move_assignment::value>());
   return *this;
 }
@@ -2623,7 +2630,9 @@ struct __container_traits<deque<_Tp, _Allocator> > {
   //  either end, there are no effects. Otherwise, if an exception is thrown by the move constructor of a
   //  non-Cpp17CopyInsertable T, the effects are unspecified.
   static _LIBCPP_CONSTEXPR const bool __emplacement_has_strong_exception_safety_guarantee =
-      _Or<is_nothrow_move_constructible<_Tp>, __is_cpp17_copy_insertable<_Allocator> >::value;
+      is_nothrow_move_constructible<_Tp>::value || __is_cpp17_copy_insertable_v<_Allocator>;
+
+  static _LIBCPP_CONSTEXPR const bool __reservable = false;
 };
 
 _LIBCPP_END_NAMESPACE_STD

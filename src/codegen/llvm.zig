@@ -230,6 +230,7 @@ pub fn targetTriple(allocator: Allocator, target: *const std.Target) ![]const u8
         .visionos => "xros",
         .serenity => "serenity",
         .vulkan => "vulkan",
+        .managarm => "managarm",
 
         .@"3ds",
         .opengl,
@@ -332,16 +333,16 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
         .lanai => "E-m:e-p:32:32-i64:64-a:0:32-n32-S64",
         .aarch64 => if (target.ofmt == .macho)
             if (target.os.tag == .windows)
-                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
             else if (target.abi == .ilp32)
-                "e-m:o-p:32:32-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p:32:32-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
             else
-                "e-m:o-i64:64-i128:128-n32:64-S128-Fn32"
+                "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32"
         else if (target.os.tag == .windows)
-            "e-m:w-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
+            "e-m:w-p270:32:32-p271:32:32-p272:64:64-p:64:64-i32:32-i64:64-i128:128-n32:64-S128-Fn32"
         else
-            "e-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
-        .aarch64_be => "E-m:e-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+            "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+        .aarch64_be => "E-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
         .arm => if (target.ofmt == .macho)
             "e-m:o-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64"
         else
@@ -390,12 +391,12 @@ pub fn dataLayout(target: *const std.Target) []const u8 {
                 "E-m:e-Fi64-i64:64-i128:128-n32:64",
         },
         .powerpc64le => if (target.os.tag == .linux)
-            "e-m:e-Fn32-i64:64-n32:64-S128-v256:256:256-v512:512:512"
+            "e-m:e-Fn32-i64:64-i128:128-n32:64-S128-v256:256:256-v512:512:512"
         else
-            "e-m:e-Fn32-i64:64-n32:64",
-        .nvptx => "e-p:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
-        .nvptx64 => "e-i64:64-i128:128-v16:16-v32:32-n16:32:64",
-        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
+            "e-m:e-Fn32-i64:64-i128:128-n32:64",
+        .nvptx => "e-p:32:32-p6:32:32-p7:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .nvptx64 => "e-p6:32:32-i64:64-i128:128-v16:16-v32:32-n16:32:64",
+        .amdgcn => "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-p7:160:256:256:32-p8:128:128:128:48-p9:192:256:256:32-i64:64-v16:16-v24:32-v32:32-v48:64-v96:128-v192:256-v256:256-v512:512-v1024:1024-v2048:2048-n32:64-S32-A5-G1-ni:7:8:9",
         .riscv32 => if (target.cpu.has(.riscv, .e))
             "e-m:e-p:32:32-i64:64-n32-S32"
         else
@@ -6410,9 +6411,6 @@ pub const FuncGen = struct {
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/lib/MC/WasmObjectWriter.cpp#L560
             // * https://github.com/llvm/llvm-project/blob/56905dab7da50bccfcceaeb496b206ff476127e1/llvm/test/MC/WebAssembly/blockaddress.ll
             if (zcu.comp.getTarget().cpu.arch.isWasm()) break :jmp_table null;
-
-            // Workaround for https://github.com/ziglang/zig/issues/24383:
-            if (self.ng.ownerModule().optimize_mode == .ReleaseSafe) break :jmp_table null;
 
             // On a 64-bit target, 1024 pointers in our jump table is about 8K of pointers. This seems just
             // about acceptable - it won't fill L1d cache on most CPUs.
@@ -12851,8 +12849,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .csky,
         // https://github.com/llvm/llvm-project/issues/97981
-        .hexagon,
-        // https://github.com/llvm/llvm-project/issues/97981
         .powerpc,
         .powerpcle,
         .powerpc64,
@@ -12860,8 +12856,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         // https://github.com/llvm/llvm-project/issues/97981
         .wasm32,
         .wasm64,
-        // https://github.com/llvm/llvm-project/issues/50374
-        .s390x,
         // https://github.com/llvm/llvm-project/issues/97981
         .sparc,
         .sparc64,
@@ -12871,10 +12865,6 @@ fn backendSupportsF16(target: *const std.Target) bool {
         .thumb,
         .thumbeb,
         => target.abi.float() == .soft or target.cpu.has(.arm, .fullfp16),
-        // https://github.com/llvm/llvm-project/issues/129394
-        .aarch64,
-        .aarch64_be,
-        => target.cpu.has(.aarch64, .fp_armv8),
         else => true,
     };
 }
@@ -12889,9 +12879,6 @@ fn backendSupportsF128(target: *const std.Target) bool {
         // Test failures all over the place.
         .mips64,
         .mips64el,
-        // https://github.com/llvm/llvm-project/issues/95471
-        .nvptx,
-        .nvptx64,
         // https://github.com/llvm/llvm-project/issues/41838
         .sparc,
         => false,

@@ -73,15 +73,19 @@ using namespace __tsan;
   invoke_free_hook(ptr);                                     \
   SCOPED_INTERCEPTOR_RAW(free, ptr);                         \
   user_free(thr, pc, ptr)
-#define COMMON_MALLOC_SIZE(ptr) uptr size = user_alloc_usable_size(ptr);
-#define COMMON_MALLOC_FILL_STATS(zone, stats)
-#define COMMON_MALLOC_REPORT_UNKNOWN_REALLOC(ptr, zone_ptr, zone_name) \
-  (void)zone_name; \
-  Report("mz_realloc(%p) -- attempting to realloc unallocated memory.\n", ptr);
-#define COMMON_MALLOC_NAMESPACE __tsan
-#define COMMON_MALLOC_HAS_ZONE_ENUMERATOR 0
-#define COMMON_MALLOC_HAS_EXTRA_INTROSPECTION_INIT 0
+#  define COMMON_MALLOC_FREE_SIZED(ptr, size) COMMON_MALLOC_FREE(ptr)
+#  define COMMON_MALLOC_FREE_ALIGNED_SIZED(ptr, alignment, size) \
+    COMMON_MALLOC_FREE(ptr)
+#  define COMMON_MALLOC_SIZE(ptr) uptr size = user_alloc_usable_size(ptr);
+#  define COMMON_MALLOC_FILL_STATS(zone, stats)
+#  define COMMON_MALLOC_REPORT_UNKNOWN_REALLOC(ptr, zone_ptr, zone_name)    \
+    (void)zone_name;                                                        \
+    Report("mz_realloc(%p) -- attempting to realloc unallocated memory.\n", \
+           ptr);
+#  define COMMON_MALLOC_NAMESPACE __tsan
+#  define COMMON_MALLOC_HAS_ZONE_ENUMERATOR 0
+#  define COMMON_MALLOC_HAS_EXTRA_INTROSPECTION_INIT 0
 
-#include "sanitizer_common/sanitizer_malloc_mac.inc"
+#  include "sanitizer_common/sanitizer_malloc_mac.inc"
 
 #endif

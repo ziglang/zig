@@ -28,7 +28,7 @@ _LIBCPP_PUSH_MACROS
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _Engine, size_t __p, size_t __r>
-class _LIBCPP_TEMPLATE_VIS discard_block_engine {
+class discard_block_engine {
   _Engine __e_;
   int __n_;
 

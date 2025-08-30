@@ -28,7 +28,7 @@
 // _LIBCPP_VERSION represents the version of libc++, which matches the version of LLVM.
 // Given a LLVM release LLVM XX.YY.ZZ (e.g. LLVM 17.0.1 == 17.00.01), _LIBCPP_VERSION is
 // defined to XXYYZZ.
-#  define _LIBCPP_VERSION 200100
+#  define _LIBCPP_VERSION 210100
 
 #  define _LIBCPP_CONCAT_IMPL(_X, _Y) _X##_Y
 #  define _LIBCPP_CONCAT(_X, _Y) _LIBCPP_CONCAT_IMPL(_X, _Y)
@@ -38,11 +38,47 @@
 #    define _LIBCPP_FREESTANDING
 #  endif
 
+// NOLINTNEXTLINE(libcpp-cpp-version-check)
+#  if __cplusplus < 201103L
+#    define _LIBCPP_CXX03_LANG
+#  endif
+
+#  if __has_feature(experimental_library)
+#    ifndef _LIBCPP_ENABLE_EXPERIMENTAL
+#      define _LIBCPP_ENABLE_EXPERIMENTAL
+#    endif
+#  endif
+
+// Incomplete features get their own specific disabling flags. This makes it
+// easier to grep for target specific flags once the feature is complete.
+#  if defined(_LIBCPP_ENABLE_EXPERIMENTAL) || defined(_LIBCPP_BUILDING_LIBRARY)
+#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 1
+#  else
+#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 0
+#  endif
+
+#  define _LIBCPP_HAS_EXPERIMENTAL_PSTL _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#  define _LIBCPP_HAS_EXPERIMENTAL_TZDB _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#  define _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#  define _LIBCPP_HAS_EXPERIMENTAL_HARDENING_OBSERVE_SEMANTIC _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+
 // HARDENING {
 
-// TODO: Remove in LLVM 21. We're making this an error to catch folks who might not have migrated.
-#  ifdef _LIBCPP_ENABLE_ASSERTIONS
-#    error "_LIBCPP_ENABLE_ASSERTIONS has been removed, please use _LIBCPP_HARDENING_MODE instead"
+// TODO(LLVM 23): Remove this. We're making these an error to catch folks who might not have migrated.
+//       Since hardening went through several changes (many of which impacted user-facing macros),
+//       we're keeping these checks around for a bit longer than usual. Failure to properly configure
+//       hardening results in checks being dropped silently, which is a pretty big deal.
+#  if defined(_LIBCPP_ENABLE_ASSERTIONS)
+#    error "_LIBCPP_ENABLE_ASSERTIONS has been removed, please use _LIBCPP_HARDENING_MODE=<mode> instead (see docs)"
+#  endif
+#  if defined(_LIBCPP_ENABLE_HARDENED_MODE)
+#    error "_LIBCPP_ENABLE_HARDENED_MODE has been removed, please use _LIBCPP_HARDENING_MODE=<mode> instead (see docs)"
+#  endif
+#  if defined(_LIBCPP_ENABLE_SAFE_MODE)
+#    error "_LIBCPP_ENABLE_SAFE_MODE has been removed, please use _LIBCPP_HARDENING_MODE=<mode> instead (see docs)"
+#  endif
+#  if defined(_LIBCPP_ENABLE_DEBUG_MODE)
+#    error "_LIBCPP_ENABLE_DEBUG_MODE has been removed, please use _LIBCPP_HARDENING_MODE=<mode> instead (see docs)"
 #  endif
 
 // The library provides the macro `_LIBCPP_HARDENING_MODE` which can be set to one of the following values:
@@ -147,15 +183,52 @@ _LIBCPP_HARDENING_MODE_EXTENSIVE, \
 _LIBCPP_HARDENING_MODE_DEBUG
 #  endif
 
+// Hardening assertion semantics generally mirror the evaluation semantics of C++26 Contracts:
+// - `ignore` evaluates the assertion but doesn't do anything if it fails (note that it differs from the Contracts
+//   `ignore` semantic which wouldn't evaluate the assertion at all);
+// - `observe` logs an error (indicating, if possible, that the error is fatal) and continues execution;
+// - `quick-enforce` terminates the program as fast as possible (via trapping);
+// - `enforce` logs an error and then terminates the program.
+//
+// Notes:
+// - Continuing execution after a hardening check fails results in undefined behavior; the `observe` semantic is meant
+//   to make adopting hardening easier but should not be used outside of this scenario;
+// - C++26 wording for Library Hardening precludes a conforming Hardened implementation from using the Contracts
+//   `ignore` semantic when evaluating hardened preconditions in the Library. Libc++ allows using this semantic for
+//   hardened preconditions, however, be aware that using `ignore` does not produce a conforming "Hardened"
+//   implementation, unlike the other semantics above.
+// clang-format off
+#  define _LIBCPP_ASSERTION_SEMANTIC_IGNORE        (1 << 1)
+#  define _LIBCPP_ASSERTION_SEMANTIC_OBSERVE       (1 << 2)
+#  define _LIBCPP_ASSERTION_SEMANTIC_QUICK_ENFORCE (1 << 3)
+#  define _LIBCPP_ASSERTION_SEMANTIC_ENFORCE       (1 << 4)
+// clang-format on
+
+// Allow users to define an arbitrary assertion semantic; otherwise, use the default mapping from modes to semantics.
+// The default is for production-capable modes to use `quick-enforce` (i.e., trap) and for the `debug` mode to use
+// `enforce` (i.e., log and abort).
+#  ifndef _LIBCPP_ASSERTION_SEMANTIC
+
+#    if _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG
+#      define _LIBCPP_ASSERTION_SEMANTIC _LIBCPP_ASSERTION_SEMANTIC_ENFORCE
+#    else
+#      define _LIBCPP_ASSERTION_SEMANTIC _LIBCPP_ASSERTION_SEMANTIC_QUICK_ENFORCE
+#    endif
+
+#  else
+#    if !_LIBCPP_HAS_EXPERIMENTAL_LIBRARY
+#      error "Assertion semantics are an experimental feature."
+#    endif
+#    if defined(_LIBCPP_CXX03_LANG)
+#      error "Assertion semantics are not available in the C++03 mode."
+#    endif
+
+#  endif // _LIBCPP_ASSERTION_SEMANTIC
+
 // } HARDENING
 
 #  define _LIBCPP_TOSTRING2(x) #x
 #  define _LIBCPP_TOSTRING(x) _LIBCPP_TOSTRING2(x)
-
-// NOLINTNEXTLINE(libcpp-cpp-version-check)
-#  if __cplusplus < 201103L
-#    define _LIBCPP_CXX03_LANG
-#  endif
 
 #  ifndef __has_constexpr_builtin
 #    define __has_constexpr_builtin(x) 0
@@ -189,24 +262,6 @@ _LIBCPP_HARDENING_MODE_DEBUG
 #  if defined(_LIBCPP_ABI_MICROSOFT) && !defined(_LIBCPP_NO_VCRUNTIME)
 #    define _LIBCPP_ABI_VCRUNTIME
 #  endif
-
-#  if __has_feature(experimental_library)
-#    ifndef _LIBCPP_ENABLE_EXPERIMENTAL
-#      define _LIBCPP_ENABLE_EXPERIMENTAL
-#    endif
-#  endif
-
-// Incomplete features get their own specific disabling flags. This makes it
-// easier to grep for target specific flags once the feature is complete.
-#  if defined(_LIBCPP_ENABLE_EXPERIMENTAL) || defined(_LIBCPP_BUILDING_LIBRARY)
-#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 1
-#  else
-#    define _LIBCPP_HAS_EXPERIMENTAL_LIBRARY 0
-#  endif
-
-#  define _LIBCPP_HAS_EXPERIMENTAL_PSTL _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
-#  define _LIBCPP_HAS_EXPERIMENTAL_TZDB _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
-#  define _LIBCPP_HAS_EXPERIMENTAL_SYNCSTREAM _LIBCPP_HAS_EXPERIMENTAL_LIBRARY
 
 #  if defined(__MVS__)
 #    include <features.h> // for __NATIVE_ASCII_F
@@ -319,40 +374,13 @@ typedef __char32_t char32_t;
 
 #  define _LIBCPP_PREFERRED_ALIGNOF(_Tp) __alignof(_Tp)
 
-// Objective-C++ features (opt-in)
-#  if __has_feature(objc_arc)
-#    define _LIBCPP_HAS_OBJC_ARC 1
-#  else
-#    define _LIBCPP_HAS_OBJC_ARC 0
-#  endif
-
-#  if __has_feature(objc_arc_weak)
-#    define _LIBCPP_HAS_OBJC_ARC_WEAK 1
-#  else
-#    define _LIBCPP_HAS_OBJC_ARC_WEAK 0
-#  endif
-
-#  if __has_extension(blocks)
-#    define _LIBCPP_HAS_EXTENSION_BLOCKS 1
-#  else
-#    define _LIBCPP_HAS_EXTENSION_BLOCKS 0
-#  endif
-
-#  if _LIBCPP_HAS_EXTENSION_BLOCKS && defined(__APPLE__)
+#  if __has_extension(blocks) && defined(__APPLE__)
 #    define _LIBCPP_HAS_BLOCKS_RUNTIME 1
 #  else
 #    define _LIBCPP_HAS_BLOCKS_RUNTIME 0
 #  endif
 
-#  if __has_feature(address_sanitizer)
-#    define _LIBCPP_HAS_ASAN 1
-#  else
-#    define _LIBCPP_HAS_ASAN 0
-#  endif
-
 #  define _LIBCPP_ALWAYS_INLINE __attribute__((__always_inline__))
-
-#  define _LIBCPP_DISABLE_EXTENSION_WARNING __extension__
 
 #  if defined(_LIBCPP_OBJECT_FORMAT_COFF)
 
@@ -363,35 +391,30 @@ typedef __char32_t char32_t;
 #    endif
 
 #    if defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS) || (defined(__MINGW32__) && !defined(_LIBCPP_BUILDING_LIBRARY))
-#      define _LIBCPP_DLL_VIS
 #      define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
 #      define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS
 #      define _LIBCPP_OVERRIDABLE_FUNC_VIS
 #      define _LIBCPP_EXPORTED_FROM_ABI
 #    elif defined(_LIBCPP_BUILDING_LIBRARY)
-#      define _LIBCPP_DLL_VIS __declspec(dllexport)
 #      if defined(__MINGW32__)
-#        define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_DLL_VIS
+#        define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __declspec(dllexport)
 #        define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS
 #      else
 #        define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS
-#        define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS _LIBCPP_DLL_VIS
+#        define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS __declspec(dllexport)
 #      endif
-#      define _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_DLL_VIS
+#      define _LIBCPP_OVERRIDABLE_FUNC_VIS __declspec(dllexport)
 #      define _LIBCPP_EXPORTED_FROM_ABI __declspec(dllexport)
 #    else
-#      define _LIBCPP_DLL_VIS __declspec(dllimport)
-#      define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS _LIBCPP_DLL_VIS
+#      define _LIBCPP_EXTERN_TEMPLATE_TYPE_VIS __declspec(dllimport)
 #      define _LIBCPP_CLASS_TEMPLATE_INSTANTIATION_VIS
 #      define _LIBCPP_OVERRIDABLE_FUNC_VIS
 #      define _LIBCPP_EXPORTED_FROM_ABI __declspec(dllimport)
 #    endif
 
 #    define _LIBCPP_HIDDEN
-#    define _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
-#    define _LIBCPP_TEMPLATE_VIS
 #    define _LIBCPP_TEMPLATE_DATA_VIS
-#    define _LIBCPP_TYPE_VISIBILITY_DEFAULT
+#    define _LIBCPP_NAMESPACE_VISIBILITY
 
 #  else
 
@@ -412,24 +435,12 @@ typedef __char32_t char32_t;
 #      define _LIBCPP_OVERRIDABLE_FUNC_VIS _LIBCPP_VISIBILITY("default")
 #    endif
 
-#    if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS)
-// The inline should be removed once PR32114 is resolved
-#      define _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS inline _LIBCPP_HIDDEN
-#    else
-#      define _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
-#    endif
-
-// GCC doesn't support the type_visibility attribute, so we have to keep the visibility attribute on templates
-#    if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS) && !__has_attribute(__type_visibility__)
-#      define _LIBCPP_TEMPLATE_VIS __attribute__((__visibility__("default")))
-#    else
-#      define _LIBCPP_TEMPLATE_VIS
-#    endif
-
 #    if !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS) && __has_attribute(__type_visibility__)
-#      define _LIBCPP_TYPE_VISIBILITY_DEFAULT __attribute__((__type_visibility__("default")))
+#      define _LIBCPP_NAMESPACE_VISIBILITY __attribute__((__type_visibility__("default")))
+#    elif !defined(_LIBCPP_DISABLE_VISIBILITY_ANNOTATIONS)
+#      define _LIBCPP_NAMESPACE_VISIBILITY __attribute__((__visibility__("default")))
 #    else
-#      define _LIBCPP_TYPE_VISIBILITY_DEFAULT
+#      define _LIBCPP_NAMESPACE_VISIBILITY
 #    endif
 
 #  endif // defined(_LIBCPP_OBJECT_FORMAT_COFF)
@@ -549,24 +560,17 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_HIDE_FROM_ABI_AFTER_V1 _LIBCPP_HIDE_FROM_ABI
 #  endif
 
-// TODO: Remove this workaround once we drop support for Clang 16
-#  if __has_warning("-Wc++23-extensions")
-#    define _LIBCPP_CLANG_DIAGNOSTIC_IGNORED_CXX23_EXTENSION _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++23-extensions")
-#  else
-#    define _LIBCPP_CLANG_DIAGNOSTIC_IGNORED_CXX23_EXTENSION _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++2b-extensions")
-#  endif
-
 // Clang modules take a significant compile time hit when pushing and popping diagnostics.
-// Since all the headers are marked as system headers in the modulemap, we can simply disable this
-// pushing and popping when building with clang modules.
-#  if !__has_feature(modules)
+// Since all the headers are marked as system headers unless _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER is defined, we can
+// simply disable this pushing and popping when _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER isn't defined.
+#  ifdef _LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER
 #    define _LIBCPP_PUSH_EXTENSION_DIAGNOSTICS                                                                         \
       _LIBCPP_DIAGNOSTIC_PUSH                                                                                          \
       _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++11-extensions")                                                           \
       _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++14-extensions")                                                           \
       _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++17-extensions")                                                           \
       _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++20-extensions")                                                           \
-      _LIBCPP_CLANG_DIAGNOSTIC_IGNORED_CXX23_EXTENSION                                                                 \
+      _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Wc++23-extensions")                                                           \
       _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wc++14-extensions")                                                             \
       _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wc++17-extensions")                                                             \
       _LIBCPP_GCC_DIAGNOSTIC_IGNORED("-Wc++20-extensions")                                                             \
@@ -577,15 +581,27 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_POP_EXTENSION_DIAGNOSTICS
 #  endif
 
-// Inline namespaces are available in Clang/GCC/MSVC regardless of C++ dialect.
 // clang-format off
-#  define _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_PUSH_EXTENSION_DIAGNOSTICS                                               \
-                                      namespace _LIBCPP_TYPE_VISIBILITY_DEFAULT std {                                  \
-                               inline namespace _LIBCPP_ABI_NAMESPACE {
-#  define _LIBCPP_END_NAMESPACE_STD }} _LIBCPP_POP_EXTENSION_DIAGNOSTICS
 
-#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL namespace std { namespace experimental {
-#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL }}
+// The unversioned namespace is used when we want to be ABI compatible with other standard libraries in some way. There
+// are two main categories where that's the case:
+// - Historically, we have made exception types ABI compatible with libstdc++ to allow throwing them between libstdc++
+//   and libc++. This is not used anymore for new exception types, since there is no use-case for it anymore.
+// - Types and functions which are used by the compiler are in the unversioned namespace, since the compiler has to know
+//   their mangling without the appropriate declaration in some cases.
+// If it's not clear whether using the unversioned namespace is the correct thing to do, it's not. The versioned
+// namespace (_LIBCPP_BEGIN_NAMESPACE_STD) should almost always be used.
+#  define _LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD                                                                      \
+    _LIBCPP_PUSH_EXTENSION_DIAGNOSTICS namespace _LIBCPP_NAMESPACE_VISIBILITY std {
+
+#  define _LIBCPP_END_UNVERSIONED_NAMESPACE_STD } _LIBCPP_POP_EXTENSION_DIAGNOSTICS
+
+#  define _LIBCPP_BEGIN_NAMESPACE_STD _LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD inline namespace _LIBCPP_ABI_NAMESPACE {
+#  define _LIBCPP_END_NAMESPACE_STD } _LIBCPP_END_UNVERSIONED_NAMESPACE_STD
+
+// TODO: This should really be in the versioned namespace
+#define _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL _LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD namespace experimental {
+#define _LIBCPP_END_NAMESPACE_EXPERIMENTAL } _LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
 #define _LIBCPP_BEGIN_NAMESPACE_LFTS _LIBCPP_BEGIN_NAMESPACE_EXPERIMENTAL inline namespace fundamentals_v1 {
 #define _LIBCPP_END_NAMESPACE_LFTS } _LIBCPP_END_NAMESPACE_EXPERIMENTAL
@@ -663,7 +679,10 @@ typedef __char32_t char32_t;
 #    if (defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) &&                                                     \
          __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 101500) ||                                                    \
         (defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) &&                                                    \
-         __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000)
+         __ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__ < 130000) ||                                                   \
+        (defined(__ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__) &&                                                     \
+         __ENVIRONMENT_WATCH_OS_VERSION_MIN_REQUIRED__ < 60000) ||                                                     \
+        (defined(__ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_TV_OS_VERSION_MIN_REQUIRED__ < 130000)
 #      define _LIBCPP_HAS_C11_ALIGNED_ALLOC 0
 #    else
 #      define _LIBCPP_HAS_C11_ALIGNED_ALLOC 1
@@ -673,10 +692,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_HAS_C11_ALIGNED_ALLOC 0
 #  else
 #    define _LIBCPP_HAS_C11_ALIGNED_ALLOC 1
-#  endif
-
-#  if defined(__APPLE__) || defined(__FreeBSD__)
-#    define _LIBCPP_HAS_DEFAULTRUNELOCALE
 #  endif
 
 #  if defined(__APPLE__) || defined(__FreeBSD__)
@@ -741,8 +756,10 @@ typedef __char32_t char32_t;
 
 #  if _LIBCPP_STD_VER >= 26
 #    define _LIBCPP_DEPRECATED_IN_CXX26 _LIBCPP_DEPRECATED
+#    define _LIBCPP_DEPRECATED_IN_CXX26_(m) _LIBCPP_DEPRECATED_(m)
 #  else
 #    define _LIBCPP_DEPRECATED_IN_CXX26
+#    define _LIBCPP_DEPRECATED_IN_CXX26_(m)
 #  endif
 
 #  if _LIBCPP_HAS_CHAR8_T
@@ -937,23 +954,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_NO_THREAD_SAFETY_ANALYSIS
 #  endif
 
-// Work around the attribute handling in clang.  When both __declspec and
-// __attribute__ are present, the processing goes awry preventing the definition
-// of the types. In MinGW mode, __declspec evaluates to __attribute__, and thus
-// combining the two does work.
-#  if defined(_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS) && defined(__clang__) &&                                       \
-      __has_attribute(acquire_capability) && !defined(_MSC_VER)
-#    define _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS 1
-#  else
-#    define _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS 0
-#  endif
-
-#  if _LIBCPP_HAS_THREAD_SAFETY_ANNOTATIONS
-#    define _LIBCPP_THREAD_SAFETY_ANNOTATION(x) __attribute__((x))
-#  else
-#    define _LIBCPP_THREAD_SAFETY_ANNOTATION(x)
-#  endif
-
 #  if _LIBCPP_STD_VER >= 20
 #    define _LIBCPP_CONSTINIT constinit
 #  elif __has_attribute(__require_constant_initialization__)
@@ -1064,9 +1064,8 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_CTAD_SUPPORTED_FOR_TYPE(_ClassName) static_assert(true, "")
 #  endif
 
-// TODO(varconst): currently, there are bugs in Clang's intrinsics when handling Objective-C++ `id`, so don't use
-// compiler intrinsics in the Objective-C++ mode.
-#  ifdef __OBJC__
+// TODO(LLVM 22): Remove the workaround
+#  if defined(__OBJC__) && (!defined(_LIBCPP_CLANG_VER) || _LIBCPP_CLANG_VER < 2001)
 #    define _LIBCPP_WORKAROUND_OBJCXX_COMPILER_INTRINSICS
 #  endif
 
@@ -1119,16 +1118,18 @@ typedef __char32_t char32_t;
 
 // Optional attributes - these are useful for a better QoI, but not required to be available
 
+#  define _LIBCPP_NOALIAS __attribute__((__malloc__))
+#  define _LIBCPP_NODEBUG [[__gnu__::__nodebug__]]
+#  define _LIBCPP_NO_SANITIZE(...) __attribute__((__no_sanitize__(__VA_ARGS__)))
+#  define _LIBCPP_INIT_PRIORITY_MAX __attribute__((__init_priority__(100)))
+#  define _LIBCPP_ATTRIBUTE_FORMAT(archetype, format_string_index, first_format_arg_index)                             \
+    __attribute__((__format__(archetype, format_string_index, first_format_arg_index)))
+#  define _LIBCPP_PACKED __attribute__((__packed__))
+
 #  if __has_attribute(__no_sanitize__) && !defined(_LIBCPP_COMPILER_GCC)
 #    define _LIBCPP_NO_CFI __attribute__((__no_sanitize__("cfi")))
 #  else
 #    define _LIBCPP_NO_CFI
-#  endif
-
-#  if __has_attribute(__malloc__)
-#    define _LIBCPP_NOALIAS __attribute__((__malloc__))
-#  else
-#    define _LIBCPP_NOALIAS
 #  endif
 
 #  if __has_attribute(__using_if_exists__)
@@ -1137,8 +1138,8 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_USING_IF_EXISTS
 #  endif
 
-#  if __has_attribute(__no_destroy__)
-#    define _LIBCPP_NO_DESTROY __attribute__((__no_destroy__))
+#  if __has_cpp_attribute(_Clang::__no_destroy__)
+#    define _LIBCPP_NO_DESTROY [[_Clang::__no_destroy__]]
 #  else
 #    define _LIBCPP_NO_DESTROY
 #  endif
@@ -1147,15 +1148,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_DIAGNOSE_WARNING(...) __attribute__((__diagnose_if__(__VA_ARGS__, "warning")))
 #  else
 #    define _LIBCPP_DIAGNOSE_WARNING(...)
-#  endif
-
-// Use a function like macro to imply that it must be followed by a semicolon
-#  if __has_cpp_attribute(fallthrough)
-#    define _LIBCPP_FALLTHROUGH() [[fallthrough]]
-#  elif __has_attribute(__fallthrough__)
-#    define _LIBCPP_FALLTHROUGH() __attribute__((__fallthrough__))
-#  else
-#    define _LIBCPP_FALLTHROUGH() ((void)0)
 #  endif
 
 #  if __has_cpp_attribute(_Clang::__lifetimebound__)
@@ -1170,8 +1162,6 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_NOESCAPE
 #  endif
 
-#  define _LIBCPP_NODEBUG [[__gnu__::__nodebug__]]
-
 #  if __has_cpp_attribute(_Clang::__no_specializations__)
 #    define _LIBCPP_NO_SPECIALIZATIONS                                                                                 \
       [[_Clang::__no_specializations__("Users are not allowed to specialize this standard library entity")]]
@@ -1179,43 +1169,70 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_NO_SPECIALIZATIONS
 #  endif
 
-#  if __has_attribute(__standalone_debug__)
-#    define _LIBCPP_STANDALONE_DEBUG __attribute__((__standalone_debug__))
+#  if __has_cpp_attribute(_Clang::__standalone_debug__)
+#    define _LIBCPP_STANDALONE_DEBUG [[_Clang::__standalone_debug__]]
 #  else
 #    define _LIBCPP_STANDALONE_DEBUG
 #  endif
 
-#  if __has_attribute(__preferred_name__)
-#    define _LIBCPP_PREFERRED_NAME(x) __attribute__((__preferred_name__(x)))
+#  if __has_cpp_attribute(_Clang::__preferred_name__)
+#    define _LIBCPP_PREFERRED_NAME(x) [[_Clang::__preferred_name__(x)]]
 #  else
 #    define _LIBCPP_PREFERRED_NAME(x)
 #  endif
 
-#  if __has_attribute(__no_sanitize__)
-#    define _LIBCPP_NO_SANITIZE(...) __attribute__((__no_sanitize__(__VA_ARGS__)))
+#  if __has_cpp_attribute(_Clang::__scoped_lockable__)
+#    define _LIBCPP_SCOPED_LOCKABLE [[_Clang::__scoped_lockable__]]
 #  else
-#    define _LIBCPP_NO_SANITIZE(...)
+#    define _LIBCPP_SCOPED_LOCKABLE
 #  endif
 
-#  if __has_attribute(__init_priority__)
-#    define _LIBCPP_INIT_PRIORITY_MAX __attribute__((__init_priority__(100)))
+#  if __has_cpp_attribute(_Clang::__capability__)
+#    define _LIBCPP_CAPABILITY(...) [[_Clang::__capability__(__VA_ARGS__)]]
 #  else
-#    define _LIBCPP_INIT_PRIORITY_MAX
+#    define _LIBCPP_CAPABILITY(...)
 #  endif
 
-#  if __has_attribute(__format__)
-// The attribute uses 1-based indices for ordinary and static member functions.
-// The attribute uses 2-based indices for non-static member functions.
-#    define _LIBCPP_ATTRIBUTE_FORMAT(archetype, format_string_index, first_format_arg_index)                           \
-      __attribute__((__format__(archetype, format_string_index, first_format_arg_index)))
+#  if __has_attribute(__acquire_capability__)
+#    define _LIBCPP_ACQUIRE_CAPABILITY(...) __attribute__((__acquire_capability__(__VA_ARGS__)))
 #  else
-#    define _LIBCPP_ATTRIBUTE_FORMAT(archetype, format_string_index, first_format_arg_index) /* nothing */
+#    define _LIBCPP_ACQUIRE_CAPABILITY(...)
 #  endif
 
-#  if __has_attribute(__packed__)
-#    define _LIBCPP_PACKED __attribute__((__packed__))
+#  if __has_cpp_attribute(_Clang::__try_acquire_capability__)
+#    define _LIBCPP_TRY_ACQUIRE_CAPABILITY(...) [[_Clang::__try_acquire_capability__(__VA_ARGS__)]]
 #  else
-#    define _LIBCPP_PACKED
+#    define _LIBCPP_TRY_ACQUIRE_CAPABILITY(...)
+#  endif
+
+#  if __has_cpp_attribute(_Clang::__acquire_shared_capability__)
+#    define _LIBCPP_ACQUIRE_SHARED_CAPABILITY [[_Clang::__acquire_shared_capability__]]
+#  else
+#    define _LIBCPP_ACQUIRE_SHARED_CAPABILITY
+#  endif
+
+#  if __has_cpp_attribute(_Clang::__try_acquire_shared_capability__)
+#    define _LIBCPP_TRY_ACQUIRE_SHARED_CAPABILITY(...) [[_Clang::__try_acquire_shared_capability__(__VA_ARGS__)]]
+#  else
+#    define _LIBCPP_TRY_ACQUIRE_SHARED_CAPABILITY(...)
+#  endif
+
+#  if __has_cpp_attribute(_Clang::__release_capability__)
+#    define _LIBCPP_RELEASE_CAPABILITY [[_Clang::__release_capability__]]
+#  else
+#    define _LIBCPP_RELEASE_CAPABILITY
+#  endif
+
+#  if __has_cpp_attribute(_Clang::__release_shared_capability__)
+#    define _LIBCPP_RELEASE_SHARED_CAPABILITY [[_Clang::__release_shared_capability__]]
+#  else
+#    define _LIBCPP_RELEASE_SHARED_CAPABILITY
+#  endif
+
+#  if __has_attribute(__requires_capability__)
+#    define _LIBCPP_REQUIRES_CAPABILITY(...) __attribute__((__requires_capability__(__VA_ARGS__)))
+#  else
+#    define _LIBCPP_REQUIRES_CAPABILITY(...)
 #  endif
 
 #  if defined(_LIBCPP_ABI_MICROSOFT) && __has_declspec_attribute(empty_bases)
@@ -1231,6 +1248,13 @@ typedef __char32_t char32_t;
 #    define _LIBCPP_DISABLE_UBSAN_UNSIGNED_INTEGER_CHECK
 #  endif
 
+#  if __has_feature(nullability)
+#    define _LIBCPP_DIAGNOSE_NULLPTR _Nonnull
+#  else
+#    define _LIBCPP_DIAGNOSE_NULLPTR
+#  endif
+
+// TODO(LLVM 22): Remove this macro once LLVM19 support ends. __cpp_explicit_this_parameter has been set in LLVM20.
 // Clang-18 has support for deducing this, but it does not set the FTM.
 #  if defined(__cpp_explicit_this_parameter) || (defined(_LIBCPP_CLANG_VER) && _LIBCPP_CLANG_VER >= 1800)
 #    define _LIBCPP_HAS_EXPLICIT_THIS_PARAMETER 1

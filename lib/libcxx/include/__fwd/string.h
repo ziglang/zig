@@ -20,7 +20,7 @@
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 template <class _CharT>
-struct _LIBCPP_TEMPLATE_VIS char_traits;
+struct char_traits;
 template <>
 struct char_traits<char>;
 
@@ -40,7 +40,7 @@ struct char_traits<wchar_t>;
 #endif
 
 template <class _CharT, class _Traits = char_traits<_CharT>, class _Allocator = allocator<_CharT> >
-class _LIBCPP_TEMPLATE_VIS basic_string;
+class basic_string;
 
 using string = basic_string<char>;
 

@@ -3359,6 +3359,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s32_x2)))
 svint32x2_t svsel_s32_x2(svcount_t, svint32x2_t, svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s64_x2)))
 svint64x2_t svsel_s64_x2(svcount_t, svint64x2_t, svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_mf8_x2)))
+svmfloat8x2_t svsel_mf8_x2(svcount_t, svmfloat8x2_t, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s16_x2)))
 svint16x2_t svsel_s16_x2(svcount_t, svint16x2_t, svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u8_x4)))
@@ -3383,6 +3385,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s32_x4)))
 svint32x4_t svsel_s32_x4(svcount_t, svint32x4_t, svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s64_x4)))
 svint64x4_t svsel_s64_x4(svcount_t, svint64x4_t, svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_mf8_x4)))
+svmfloat8x4_t svsel_mf8_x4(svcount_t, svmfloat8x4_t, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s16_x4)))
 svint16x4_t svsel_s16_x4(svcount_t, svint16x4_t, svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svunpk_s32_s16_x2)))
@@ -3431,6 +3435,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s32_x2)))
 svint32x2_t svuzp_s32_x2(svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s64_x2)))
 svint64x2_t svuzp_s64_x2(svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_mf8_x2)))
+svmfloat8x2_t svuzp_mf8_x2(svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s16_x2)))
 svint16x2_t svuzp_s16_x2(svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_u8_x4)))
@@ -3455,6 +3461,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s32_x4)))
 svint32x4_t svuzp_s32_x4(svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s64_x4)))
 svint64x4_t svuzp_s64_x4(svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_mf8_x4)))
+svmfloat8x4_t svuzp_mf8_x4(svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s16_x4)))
 svint16x4_t svuzp_s16_x4(svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_u8_x2)))
@@ -3479,6 +3487,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s32_x2)))
 svint32x2_t svuzpq_s32_x2(svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s64_x2)))
 svint64x2_t svuzpq_s64_x2(svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_mf8_x2)))
+svmfloat8x2_t svuzpq_mf8_x2(svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s16_x2)))
 svint16x2_t svuzpq_s16_x2(svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_u8_x4)))
@@ -3503,6 +3513,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s32_x4)))
 svint32x4_t svuzpq_s32_x4(svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s64_x4)))
 svint64x4_t svuzpq_s64_x4(svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_mf8_x4)))
+svmfloat8x4_t svuzpq_mf8_x4(svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s16_x4)))
 svint16x4_t svuzpq_s16_x4(svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_u8_x2)))
@@ -3527,6 +3539,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s32_x2)))
 svint32x2_t svzip_s32_x2(svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s64_x2)))
 svint64x2_t svzip_s64_x2(svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_mf8_x2)))
+svmfloat8x2_t svzip_mf8_x2(svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s16_x2)))
 svint16x2_t svzip_s16_x2(svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_u8_x4)))
@@ -3551,6 +3565,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s32_x4)))
 svint32x4_t svzip_s32_x4(svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s64_x4)))
 svint64x4_t svzip_s64_x4(svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_mf8_x4)))
+svmfloat8x4_t svzip_mf8_x4(svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s16_x4)))
 svint16x4_t svzip_s16_x4(svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_u8_x2)))
@@ -3575,6 +3591,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s32_x2)))
 svint32x2_t svzipq_s32_x2(svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s64_x2)))
 svint64x2_t svzipq_s64_x2(svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_mf8_x2)))
+svmfloat8x2_t svzipq_mf8_x2(svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s16_x2)))
 svint16x2_t svzipq_s16_x2(svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_u8_x4)))
@@ -3599,6 +3617,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s32_x4)))
 svint32x4_t svzipq_s32_x4(svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s64_x4)))
 svint64x4_t svzipq_s64_x4(svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_mf8_x4)))
+svmfloat8x4_t svzipq_mf8_x4(svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s16_x4)))
 svint16x4_t svzipq_s16_x4(svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svadd_single_u8_x2)))
@@ -4119,6 +4139,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s32_x2)))
 svint32x2_t svsel(svcount_t, svint32x2_t, svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s64_x2)))
 svint64x2_t svsel(svcount_t, svint64x2_t, svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_mf8_x2)))
+svmfloat8x2_t svsel(svcount_t, svmfloat8x2_t, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s16_x2)))
 svint16x2_t svsel(svcount_t, svint16x2_t, svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u8_x4)))
@@ -4143,6 +4165,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s32_x4)))
 svint32x4_t svsel(svcount_t, svint32x4_t, svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s64_x4)))
 svint64x4_t svsel(svcount_t, svint64x4_t, svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_mf8_x4)))
+svmfloat8x4_t svsel(svcount_t, svmfloat8x4_t, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s16_x4)))
 svint16x4_t svsel(svcount_t, svint16x4_t, svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svunpk_s32_s16_x2)))
@@ -4191,6 +4215,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s32_x2)))
 svint32x2_t svuzp(svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s64_x2)))
 svint64x2_t svuzp(svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_mf8_x2)))
+svmfloat8x2_t svuzp(svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s16_x2)))
 svint16x2_t svuzp(svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_u8_x4)))
@@ -4215,6 +4241,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s32_x4)))
 svint32x4_t svuzp(svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s64_x4)))
 svint64x4_t svuzp(svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_mf8_x4)))
+svmfloat8x4_t svuzp(svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp_s16_x4)))
 svint16x4_t svuzp(svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_u8_x2)))
@@ -4239,6 +4267,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s32_x2)))
 svint32x2_t svuzpq(svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s64_x2)))
 svint64x2_t svuzpq(svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_mf8_x2)))
+svmfloat8x2_t svuzpq(svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s16_x2)))
 svint16x2_t svuzpq(svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_u8_x4)))
@@ -4263,6 +4293,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s32_x4)))
 svint32x4_t svuzpq(svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s64_x4)))
 svint64x4_t svuzpq(svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_mf8_x4)))
+svmfloat8x4_t svuzpq(svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq_s16_x4)))
 svint16x4_t svuzpq(svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_u8_x2)))
@@ -4287,6 +4319,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s32_x2)))
 svint32x2_t svzip(svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s64_x2)))
 svint64x2_t svzip(svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_mf8_x2)))
+svmfloat8x2_t svzip(svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s16_x2)))
 svint16x2_t svzip(svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_u8_x4)))
@@ -4311,6 +4345,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s32_x4)))
 svint32x4_t svzip(svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s64_x4)))
 svint64x4_t svzip(svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_mf8_x4)))
+svmfloat8x4_t svzip(svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip_s16_x4)))
 svint16x4_t svzip(svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_u8_x2)))
@@ -4335,6 +4371,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s32_x2)))
 svint32x2_t svzipq(svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s64_x2)))
 svint64x2_t svzipq(svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_mf8_x2)))
+svmfloat8x2_t svzipq(svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s16_x2)))
 svint16x2_t svzipq(svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_u8_x4)))
@@ -4359,6 +4397,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s32_x4)))
 svint32x4_t svzipq(svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s64_x4)))
 svint64x4_t svzipq(svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_mf8_x4)))
+svmfloat8x4_t svzipq(svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq_s16_x4)))
 svint16x4_t svzipq(svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svamax_f64_x2)))
@@ -4627,12 +4667,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcompact_s32)))
 svint32_t svcompact_s32(svbool_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcompact_s64)))
 svint64_t svcompact_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f64)))
-svfloat64_t svexpa_f64(svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f32)))
-svfloat32_t svexpa_f32(svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f16)))
-svfloat16_t svexpa_f16(svuint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_gather_u32base_index_u32)))
 svuint32_t svld1_gather_u32base_index_u32(svbool_t, svuint32_t, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_gather_u64base_index_u64)))
@@ -4957,6 +4991,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_u64)))
 svuint64_t svldff1_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_u16)))
 svuint16_t svldff1_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_bf16)))
+svbfloat16_t svldff1_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s8)))
 svint8_t svldff1_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_f64)))
@@ -4969,6 +5005,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s32)))
 svint32_t svldff1_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s64)))
 svint64_t svldff1_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_mf8)))
+svmfloat8_t svldff1_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s16)))
 svint16_t svldff1_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_gather_u32base_index_u32)))
@@ -5063,6 +5101,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_u64)))
 svuint64_t svldff1_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_u16)))
 svuint16_t svldff1_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_bf16)))
+svbfloat16_t svldff1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s8)))
 svint8_t svldff1_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_f64)))
@@ -5075,6 +5115,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s32)))
 svint32_t svldff1_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s64)))
 svint64_t svldff1_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_mf8)))
+svmfloat8_t svldff1_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s16)))
 svint16_t svldff1_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1sb_gather_u32base_offset_u32)))
@@ -5413,6 +5455,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_u64)))
 svuint64_t svldnf1_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_u16)))
 svuint16_t svldnf1_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_bf16)))
+svbfloat16_t svldnf1_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s8)))
 svint8_t svldnf1_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_f64)))
@@ -5425,6 +5469,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s32)))
 svint32_t svldnf1_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s64)))
 svint64_t svldnf1_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_mf8)))
+svmfloat8_t svldnf1_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s16)))
 svint16_t svldnf1_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u8)))
@@ -5435,6 +5481,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u64)))
 svuint64_t svldnf1_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u16)))
 svuint16_t svldnf1_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_bf16)))
+svbfloat16_t svldnf1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s8)))
 svint8_t svldnf1_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_f64)))
@@ -5447,6 +5495,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s32)))
 svint32_t svldnf1_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s64)))
 svint64_t svldnf1_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_mf8)))
+svmfloat8_t svldnf1_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s16)))
 svint16_t svldnf1_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1sb_vnum_u32)))
@@ -5885,12 +5935,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcompact_s32)))
 svint32_t svcompact(svbool_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcompact_s64)))
 svint64_t svcompact(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f64)))
-svfloat64_t svexpa(svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f32)))
-svfloat32_t svexpa(svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f16)))
-svfloat16_t svexpa(svuint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_gather_u32base_index_u32)))
 svuint32_t svld1_gather_index_u32(svbool_t, svuint32_t, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_gather_u64base_index_u64)))
@@ -6215,6 +6259,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_u64)))
 svuint64_t svldff1(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_u16)))
 svuint16_t svldff1(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_bf16)))
+svbfloat16_t svldff1(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s8)))
 svint8_t svldff1(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_f64)))
@@ -6227,6 +6273,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s32)))
 svint32_t svldff1(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s64)))
 svint64_t svldff1(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_mf8)))
+svmfloat8_t svldff1(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_s16)))
 svint16_t svldff1(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_gather_u32base_index_u32)))
@@ -6321,6 +6369,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_u64)))
 svuint64_t svldff1_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_u16)))
 svuint16_t svldff1_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_bf16)))
+svbfloat16_t svldff1_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s8)))
 svint8_t svldff1_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_f64)))
@@ -6333,6 +6383,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s32)))
 svint32_t svldff1_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s64)))
 svint64_t svldff1_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_mf8)))
+svmfloat8_t svldff1_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_s16)))
 svint16_t svldff1_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1sb_gather_u32base_offset_u32)))
@@ -6575,6 +6627,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_u64)))
 svuint64_t svldnf1(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_u16)))
 svuint16_t svldnf1(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_bf16)))
+svbfloat16_t svldnf1(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s8)))
 svint8_t svldnf1(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_f64)))
@@ -6587,6 +6641,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s32)))
 svint32_t svldnf1(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s64)))
 svint64_t svldnf1(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_mf8)))
+svmfloat8_t svldnf1(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_s16)))
 svint16_t svldnf1(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u8)))
@@ -6597,6 +6653,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u64)))
 svuint64_t svldnf1_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_u16)))
 svuint16_t svldnf1_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_bf16)))
+svbfloat16_t svldnf1_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s8)))
 svint8_t svldnf1_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_f64)))
@@ -6609,6 +6667,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s32)))
 svint32_t svldnf1_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s64)))
 svint64_t svldnf1_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_mf8)))
+svmfloat8_t svldnf1_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_s16)))
 svint16_t svldnf1_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svprfb_gather_u32base)))
@@ -6893,50 +6953,1834 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtssel_f32)))
 svfloat32_t svtssel(svfloat32_t, svuint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtssel_f16)))
 svfloat16_t svtssel(svfloat16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s8)))
+svint8_t svclamp_s8(svint8_t, svint8_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s32)))
+svint32_t svclamp_s32(svint32_t, svint32_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s64)))
+svint64_t svclamp_s64(svint64_t, svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s16)))
+svint16_t svclamp_s16(svint16_t, svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u8)))
+svuint8_t svclamp_u8(svuint8_t, svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u32)))
+svuint32_t svclamp_u32(svuint32_t, svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u64)))
+svuint64_t svclamp_u64(svuint64_t, svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u16)))
+svuint16_t svclamp_u16(svuint16_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b16)))
+svbool_t svpsel_lane_b16(svbool_t, svbool_t, uint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b32)))
+svbool_t svpsel_lane_b32(svbool_t, svbool_t, uint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b64)))
+svbool_t svpsel_lane_b64(svbool_t, svbool_t, uint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b8)))
+svbool_t svpsel_lane_b8(svbool_t, svbool_t, uint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_m)))
+svuint8_t svrevd_u8_m(svuint8_t, svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_m)))
+svuint32_t svrevd_u32_m(svuint32_t, svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_m)))
+svuint64_t svrevd_u64_m(svuint64_t, svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_m)))
+svuint16_t svrevd_u16_m(svuint16_t, svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_m)))
+svbfloat16_t svrevd_bf16_m(svbfloat16_t, svbool_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_m)))
+svint8_t svrevd_s8_m(svint8_t, svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_m)))
+svfloat64_t svrevd_f64_m(svfloat64_t, svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_m)))
+svfloat32_t svrevd_f32_m(svfloat32_t, svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_m)))
+svfloat16_t svrevd_f16_m(svfloat16_t, svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_m)))
+svint32_t svrevd_s32_m(svint32_t, svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_m)))
+svint64_t svrevd_s64_m(svint64_t, svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_m)))
+svmfloat8_t svrevd_mf8_m(svmfloat8_t, svbool_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_m)))
+svint16_t svrevd_s16_m(svint16_t, svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_x)))
+svuint8_t svrevd_u8_x(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_x)))
+svuint32_t svrevd_u32_x(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_x)))
+svuint64_t svrevd_u64_x(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_x)))
+svuint16_t svrevd_u16_x(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_x)))
+svbfloat16_t svrevd_bf16_x(svbool_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_x)))
+svint8_t svrevd_s8_x(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_x)))
+svfloat64_t svrevd_f64_x(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_x)))
+svfloat32_t svrevd_f32_x(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_x)))
+svfloat16_t svrevd_f16_x(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_x)))
+svint32_t svrevd_s32_x(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_x)))
+svint64_t svrevd_s64_x(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_x)))
+svmfloat8_t svrevd_mf8_x(svbool_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_x)))
+svint16_t svrevd_s16_x(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_z)))
+svuint8_t svrevd_u8_z(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_z)))
+svuint32_t svrevd_u32_z(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_z)))
+svuint64_t svrevd_u64_z(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_z)))
+svuint16_t svrevd_u16_z(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_z)))
+svbfloat16_t svrevd_bf16_z(svbool_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_z)))
+svint8_t svrevd_s8_z(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_z)))
+svfloat64_t svrevd_f64_z(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_z)))
+svfloat32_t svrevd_f32_z(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_z)))
+svfloat16_t svrevd_f16_z(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_z)))
+svint32_t svrevd_s32_z(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_z)))
+svint64_t svrevd_s64_z(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_z)))
+svmfloat8_t svrevd_mf8_z(svbool_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_z)))
+svint16_t svrevd_s16_z(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s8)))
+svint8_t svclamp(svint8_t, svint8_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s32)))
+svint32_t svclamp(svint32_t, svint32_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s64)))
+svint64_t svclamp(svint64_t, svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s16)))
+svint16_t svclamp(svint16_t, svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u8)))
+svuint8_t svclamp(svuint8_t, svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u32)))
+svuint32_t svclamp(svuint32_t, svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u64)))
+svuint64_t svclamp(svuint64_t, svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u16)))
+svuint16_t svclamp(svuint16_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_m)))
+svuint8_t svrevd_m(svuint8_t, svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_m)))
+svuint32_t svrevd_m(svuint32_t, svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_m)))
+svuint64_t svrevd_m(svuint64_t, svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_m)))
+svuint16_t svrevd_m(svuint16_t, svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_m)))
+svbfloat16_t svrevd_m(svbfloat16_t, svbool_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_m)))
+svint8_t svrevd_m(svint8_t, svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_m)))
+svfloat64_t svrevd_m(svfloat64_t, svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_m)))
+svfloat32_t svrevd_m(svfloat32_t, svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_m)))
+svfloat16_t svrevd_m(svfloat16_t, svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_m)))
+svint32_t svrevd_m(svint32_t, svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_m)))
+svint64_t svrevd_m(svint64_t, svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_m)))
+svmfloat8_t svrevd_m(svmfloat8_t, svbool_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_m)))
+svint16_t svrevd_m(svint16_t, svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_x)))
+svuint8_t svrevd_x(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_x)))
+svuint32_t svrevd_x(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_x)))
+svuint64_t svrevd_x(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_x)))
+svuint16_t svrevd_x(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_x)))
+svbfloat16_t svrevd_x(svbool_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_x)))
+svint8_t svrevd_x(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_x)))
+svfloat64_t svrevd_x(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_x)))
+svfloat32_t svrevd_x(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_x)))
+svfloat16_t svrevd_x(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_x)))
+svint32_t svrevd_x(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_x)))
+svint64_t svrevd_x(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_x)))
+svmfloat8_t svrevd_x(svbool_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_x)))
+svint16_t svrevd_x(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_z)))
+svuint8_t svrevd_z(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_z)))
+svuint32_t svrevd_z(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_z)))
+svuint64_t svrevd_z(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_z)))
+svuint16_t svrevd_z(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_z)))
+svbfloat16_t svrevd_z(svbool_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_z)))
+svint8_t svrevd_z(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_z)))
+svfloat64_t svrevd_z(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_z)))
+svfloat32_t svrevd_z(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_z)))
+svfloat16_t svrevd_z(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_z)))
+svint32_t svrevd_z(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_z)))
+svint64_t svrevd_z(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_mf8_z)))
+svmfloat8_t svrevd_z(svbool_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_z)))
+svint16_t svrevd_z(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_f32)))
+svfloat32_t svbfmlslb_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_lane_f32)))
+svfloat32_t svbfmlslb_lane_f32(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_f32)))
+svfloat32_t svbfmlslt_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_lane_f32)))
+svfloat32_t svbfmlslt_lane_f32(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f64)))
+svfloat64_t svclamp_f64(svfloat64_t, svfloat64_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f32)))
+svfloat32_t svclamp_f32(svfloat32_t, svfloat32_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f16)))
+svfloat16_t svclamp_f16(svfloat16_t, svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_b)))
+svboolx2_t svcreate2_b(svbool_t, svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_b)))
+svboolx4_t svcreate4_b(svbool_t, svbool_t, svbool_t, svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_f32_f16)))
+svfloat32_t svdot_f32_f16(svfloat32_t, svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_s32_s16)))
+svint32_t svdot_s32_s16(svint32_t, svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_u32_u16)))
+svuint32_t svdot_u32_u16(svuint32_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_f32_f16)))
+svfloat32_t svdot_lane_f32_f16(svfloat32_t, svfloat16_t, svfloat16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_s32_s16)))
+svint32_t svdot_lane_s32_s16(svint32_t, svint16_t, svint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_u32_u16)))
+svuint32_t svdot_lane_u32_u16(svuint32_t, svuint16_t, svuint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_b)))
+svbool_t svget2_b(svboolx2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_b)))
+svbool_t svget4_b(svboolx4_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_s16_s32_x2)))
+svint16_t svqcvtn_s16_s32_x2(svint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_s32_x2)))
+svuint16_t svqcvtn_u16_s32_x2(svint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_u32_x2)))
+svuint16_t svqcvtn_u16_u32_x2(svuint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_s16_s32_x2)))
+svint16_t svqrshrn_n_s16_s32_x2(svint32x2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_u16_u32_x2)))
+svuint16_t svqrshrn_n_u16_u32_x2(svuint32x2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrun_n_u16_s32_x2)))
+svuint16_t svqrshrun_n_u16_s32_x2(svint32x2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_b)))
+svboolx2_t svset2_b(svboolx2_t, uint64_t, svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_b)))
+svboolx4_t svset4_b(svboolx4_t, uint64_t, svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_b)))
+svboolx2_t svundef2_b();
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_b)))
+svboolx4_t svundef4_b();
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_s64_x2)))
+svboolx2_t svwhilege_b8_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_s64_x2)))
+svboolx2_t svwhilege_b32_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_s64_x2)))
+svboolx2_t svwhilege_b64_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_s64_x2)))
+svboolx2_t svwhilege_b16_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_u64_x2)))
+svboolx2_t svwhilege_b8_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_u64_x2)))
+svboolx2_t svwhilege_b32_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_u64_x2)))
+svboolx2_t svwhilege_b64_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_u64_x2)))
+svboolx2_t svwhilege_b16_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_s64_x2)))
+svboolx2_t svwhilegt_b8_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_s64_x2)))
+svboolx2_t svwhilegt_b32_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_s64_x2)))
+svboolx2_t svwhilegt_b64_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_s64_x2)))
+svboolx2_t svwhilegt_b16_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_u64_x2)))
+svboolx2_t svwhilegt_b8_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_u64_x2)))
+svboolx2_t svwhilegt_b32_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_u64_x2)))
+svboolx2_t svwhilegt_b64_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_u64_x2)))
+svboolx2_t svwhilegt_b16_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_s64_x2)))
+svboolx2_t svwhilele_b8_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_s64_x2)))
+svboolx2_t svwhilele_b32_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_s64_x2)))
+svboolx2_t svwhilele_b64_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_s64_x2)))
+svboolx2_t svwhilele_b16_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_u64_x2)))
+svboolx2_t svwhilele_b8_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_u64_x2)))
+svboolx2_t svwhilele_b32_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_u64_x2)))
+svboolx2_t svwhilele_b64_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_u64_x2)))
+svboolx2_t svwhilele_b16_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_u64_x2)))
+svboolx2_t svwhilelt_b8_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_u64_x2)))
+svboolx2_t svwhilelt_b32_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_u64_x2)))
+svboolx2_t svwhilelt_b64_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_u64_x2)))
+svboolx2_t svwhilelt_b16_u64_x2(uint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_s64_x2)))
+svboolx2_t svwhilelt_b8_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_s64_x2)))
+svboolx2_t svwhilelt_b32_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_s64_x2)))
+svboolx2_t svwhilelt_b64_s64_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_s64_x2)))
+svboolx2_t svwhilelt_b16_s64_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_f32)))
+svfloat32_t svbfmlslb(svfloat32_t, svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_lane_f32)))
+svfloat32_t svbfmlslb_lane(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_f32)))
+svfloat32_t svbfmlslt(svfloat32_t, svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_lane_f32)))
+svfloat32_t svbfmlslt_lane(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f64)))
+svfloat64_t svclamp(svfloat64_t, svfloat64_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f32)))
+svfloat32_t svclamp(svfloat32_t, svfloat32_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f16)))
+svfloat16_t svclamp(svfloat16_t, svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_b)))
+svboolx2_t svcreate2(svbool_t, svbool_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_b)))
+svboolx4_t svcreate4(svbool_t, svbool_t, svbool_t, svbool_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_f32_f16)))
+svfloat32_t svdot(svfloat32_t, svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_s32_s16)))
+svint32_t svdot(svint32_t, svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_u32_u16)))
+svuint32_t svdot(svuint32_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_f32_f16)))
+svfloat32_t svdot_lane(svfloat32_t, svfloat16_t, svfloat16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_s32_s16)))
+svint32_t svdot_lane(svint32_t, svint16_t, svint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_u32_u16)))
+svuint32_t svdot_lane(svuint32_t, svuint16_t, svuint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_b)))
+svbool_t svget2(svboolx2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_b)))
+svbool_t svget4(svboolx4_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_s16_s32_x2)))
+svint16_t svqcvtn_s16(svint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_s32_x2)))
+svuint16_t svqcvtn_u16(svint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_u32_x2)))
+svuint16_t svqcvtn_u16(svuint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_s16_s32_x2)))
+svint16_t svqrshrn_s16(svint32x2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_u16_u32_x2)))
+svuint16_t svqrshrn_u16(svuint32x2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrun_n_u16_s32_x2)))
+svuint16_t svqrshrun_u16(svint32x2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_b)))
+svboolx2_t svset2(svboolx2_t, uint64_t, svbool_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_b)))
+svboolx4_t svset4(svboolx4_t, uint64_t, svbool_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_s64_x2)))
+svboolx2_t svwhilege_b8_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_s64_x2)))
+svboolx2_t svwhilege_b32_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_s64_x2)))
+svboolx2_t svwhilege_b64_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_s64_x2)))
+svboolx2_t svwhilege_b16_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_u64_x2)))
+svboolx2_t svwhilege_b8_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_u64_x2)))
+svboolx2_t svwhilege_b32_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_u64_x2)))
+svboolx2_t svwhilege_b64_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_u64_x2)))
+svboolx2_t svwhilege_b16_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_s64_x2)))
+svboolx2_t svwhilegt_b8_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_s64_x2)))
+svboolx2_t svwhilegt_b32_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_s64_x2)))
+svboolx2_t svwhilegt_b64_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_s64_x2)))
+svboolx2_t svwhilegt_b16_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_u64_x2)))
+svboolx2_t svwhilegt_b8_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_u64_x2)))
+svboolx2_t svwhilegt_b32_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_u64_x2)))
+svboolx2_t svwhilegt_b64_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_u64_x2)))
+svboolx2_t svwhilegt_b16_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_s64_x2)))
+svboolx2_t svwhilele_b8_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_s64_x2)))
+svboolx2_t svwhilele_b32_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_s64_x2)))
+svboolx2_t svwhilele_b64_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_s64_x2)))
+svboolx2_t svwhilele_b16_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_u64_x2)))
+svboolx2_t svwhilele_b8_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_u64_x2)))
+svboolx2_t svwhilele_b32_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_u64_x2)))
+svboolx2_t svwhilele_b64_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_u64_x2)))
+svboolx2_t svwhilele_b16_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_u64_x2)))
+svboolx2_t svwhilelt_b8_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_u64_x2)))
+svboolx2_t svwhilelt_b32_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_u64_x2)))
+svboolx2_t svwhilelt_b64_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_u64_x2)))
+svboolx2_t svwhilelt_b16_x2(uint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_s64_x2)))
+svboolx2_t svwhilelt_b8_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_s64_x2)))
+svboolx2_t svwhilelt_b32_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_s64_x2)))
+svboolx2_t svwhilelt_b64_x2(int64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_s64_x2)))
+svboolx2_t svwhilelt_b16_x2(int64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u8)))
+uint8x16_t svaddqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u32)))
+uint32x4_t svaddqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u64)))
+uint64x2_t svaddqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u16)))
+uint16x8_t svaddqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s8)))
+int8x16_t svaddqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s32)))
+int32x4_t svaddqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s64)))
+int64x2_t svaddqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s16)))
+int16x8_t svaddqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f64)))
+float64x2_t svaddqv_f64(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f32)))
+float32x4_t svaddqv_f32(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f16)))
+float16x8_t svaddqv_f16(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u8)))
+uint8x16_t svandqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u32)))
+uint32x4_t svandqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u64)))
+uint64x2_t svandqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u16)))
+uint16x8_t svandqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s8)))
+int8x16_t svandqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s32)))
+int32x4_t svandqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s64)))
+int64x2_t svandqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s16)))
+int16x8_t svandqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u8)))
+svuint8_t svdup_laneq_u8(svuint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s8)))
+svint8_t svdup_laneq_s8(svint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_mf8)))
+svmfloat8_t svdup_laneq_mf8(svmfloat8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u64)))
+svuint64_t svdup_laneq_u64(svuint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f64)))
+svfloat64_t svdup_laneq_f64(svfloat64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s64)))
+svint64_t svdup_laneq_s64(svint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u16)))
+svuint16_t svdup_laneq_u16(svuint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_bf16)))
+svbfloat16_t svdup_laneq_bf16(svbfloat16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f16)))
+svfloat16_t svdup_laneq_f16(svfloat16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s16)))
+svint16_t svdup_laneq_s16(svint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u32)))
+svuint32_t svdup_laneq_u32(svuint32_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f32)))
+svfloat32_t svdup_laneq_f32(svfloat32_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s32)))
+svint32_t svdup_laneq_s32(svint32_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u8)))
+uint8x16_t sveorqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u32)))
+uint32x4_t sveorqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u64)))
+uint64x2_t sveorqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u16)))
+uint16x8_t sveorqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s8)))
+int8x16_t sveorqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s32)))
+int32x4_t sveorqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s64)))
+int64x2_t sveorqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s16)))
+int16x8_t sveorqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u8)))
+svuint8_t svextq_u8(svuint8_t, svuint8_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u32)))
+svuint32_t svextq_u32(svuint32_t, svuint32_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u64)))
+svuint64_t svextq_u64(svuint64_t, svuint64_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u16)))
+svuint16_t svextq_u16(svuint16_t, svuint16_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_bf16)))
+svbfloat16_t svextq_bf16(svbfloat16_t, svbfloat16_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s8)))
+svint8_t svextq_s8(svint8_t, svint8_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f64)))
+svfloat64_t svextq_f64(svfloat64_t, svfloat64_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f32)))
+svfloat32_t svextq_f32(svfloat32_t, svfloat32_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f16)))
+svfloat16_t svextq_f16(svfloat16_t, svfloat16_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s32)))
+svint32_t svextq_s32(svint32_t, svint32_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s64)))
+svint64_t svextq_s64(svint64_t, svint64_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_mf8)))
+svmfloat8_t svextq_mf8(svmfloat8_t, svmfloat8_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s16)))
+svint16_t svextq_s16(svint16_t, svint16_t, int32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u8)))
+svuint8x2_t svld2q_u8(svbool_t, uint8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u32)))
+svuint32x2_t svld2q_u32(svbool_t, uint32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u64)))
+svuint64x2_t svld2q_u64(svbool_t, uint64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u16)))
+svuint16x2_t svld2q_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_bf16)))
+svbfloat16x2_t svld2q_bf16(svbool_t, bfloat16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s8)))
+svint8x2_t svld2q_s8(svbool_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f64)))
+svfloat64x2_t svld2q_f64(svbool_t, float64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f32)))
+svfloat32x2_t svld2q_f32(svbool_t, float32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f16)))
+svfloat16x2_t svld2q_f16(svbool_t, float16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s32)))
+svint32x2_t svld2q_s32(svbool_t, int32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s64)))
+svint64x2_t svld2q_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_mf8)))
+svmfloat8x2_t svld2q_mf8(svbool_t, mfloat8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s16)))
+svint16x2_t svld2q_s16(svbool_t, int16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u8)))
+svuint8x2_t svld2q_vnum_u8(svbool_t, uint8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u32)))
+svuint32x2_t svld2q_vnum_u32(svbool_t, uint32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u64)))
+svuint64x2_t svld2q_vnum_u64(svbool_t, uint64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u16)))
+svuint16x2_t svld2q_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_bf16)))
+svbfloat16x2_t svld2q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s8)))
+svint8x2_t svld2q_vnum_s8(svbool_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f64)))
+svfloat64x2_t svld2q_vnum_f64(svbool_t, float64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f32)))
+svfloat32x2_t svld2q_vnum_f32(svbool_t, float32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f16)))
+svfloat16x2_t svld2q_vnum_f16(svbool_t, float16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s32)))
+svint32x2_t svld2q_vnum_s32(svbool_t, int32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s64)))
+svint64x2_t svld2q_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_mf8)))
+svmfloat8x2_t svld2q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s16)))
+svint16x2_t svld2q_vnum_s16(svbool_t, int16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u8)))
+svuint8x3_t svld3q_u8(svbool_t, uint8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u32)))
+svuint32x3_t svld3q_u32(svbool_t, uint32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u64)))
+svuint64x3_t svld3q_u64(svbool_t, uint64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u16)))
+svuint16x3_t svld3q_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_bf16)))
+svbfloat16x3_t svld3q_bf16(svbool_t, bfloat16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s8)))
+svint8x3_t svld3q_s8(svbool_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f64)))
+svfloat64x3_t svld3q_f64(svbool_t, float64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f32)))
+svfloat32x3_t svld3q_f32(svbool_t, float32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f16)))
+svfloat16x3_t svld3q_f16(svbool_t, float16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s32)))
+svint32x3_t svld3q_s32(svbool_t, int32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s64)))
+svint64x3_t svld3q_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_mf8)))
+svmfloat8x3_t svld3q_mf8(svbool_t, mfloat8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s16)))
+svint16x3_t svld3q_s16(svbool_t, int16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u8)))
+svuint8x3_t svld3q_vnum_u8(svbool_t, uint8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u32)))
+svuint32x3_t svld3q_vnum_u32(svbool_t, uint32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u64)))
+svuint64x3_t svld3q_vnum_u64(svbool_t, uint64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u16)))
+svuint16x3_t svld3q_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_bf16)))
+svbfloat16x3_t svld3q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s8)))
+svint8x3_t svld3q_vnum_s8(svbool_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f64)))
+svfloat64x3_t svld3q_vnum_f64(svbool_t, float64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f32)))
+svfloat32x3_t svld3q_vnum_f32(svbool_t, float32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f16)))
+svfloat16x3_t svld3q_vnum_f16(svbool_t, float16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s32)))
+svint32x3_t svld3q_vnum_s32(svbool_t, int32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s64)))
+svint64x3_t svld3q_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_mf8)))
+svmfloat8x3_t svld3q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s16)))
+svint16x3_t svld3q_vnum_s16(svbool_t, int16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u8)))
+svuint8x4_t svld4q_u8(svbool_t, uint8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u32)))
+svuint32x4_t svld4q_u32(svbool_t, uint32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u64)))
+svuint64x4_t svld4q_u64(svbool_t, uint64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u16)))
+svuint16x4_t svld4q_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_bf16)))
+svbfloat16x4_t svld4q_bf16(svbool_t, bfloat16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s8)))
+svint8x4_t svld4q_s8(svbool_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f64)))
+svfloat64x4_t svld4q_f64(svbool_t, float64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f32)))
+svfloat32x4_t svld4q_f32(svbool_t, float32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f16)))
+svfloat16x4_t svld4q_f16(svbool_t, float16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s32)))
+svint32x4_t svld4q_s32(svbool_t, int32_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s64)))
+svint64x4_t svld4q_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_mf8)))
+svmfloat8x4_t svld4q_mf8(svbool_t, mfloat8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s16)))
+svint16x4_t svld4q_s16(svbool_t, int16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u8)))
+svuint8x4_t svld4q_vnum_u8(svbool_t, uint8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u32)))
+svuint32x4_t svld4q_vnum_u32(svbool_t, uint32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u64)))
+svuint64x4_t svld4q_vnum_u64(svbool_t, uint64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u16)))
+svuint16x4_t svld4q_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_bf16)))
+svbfloat16x4_t svld4q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s8)))
+svint8x4_t svld4q_vnum_s8(svbool_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f64)))
+svfloat64x4_t svld4q_vnum_f64(svbool_t, float64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f32)))
+svfloat32x4_t svld4q_vnum_f32(svbool_t, float32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f16)))
+svfloat16x4_t svld4q_vnum_f16(svbool_t, float16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s32)))
+svint32x4_t svld4q_vnum_s32(svbool_t, int32_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s64)))
+svint64x4_t svld4q_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_mf8)))
+svmfloat8x4_t svld4q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s16)))
+svint16x4_t svld4q_vnum_s16(svbool_t, int16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f64)))
+float64x2_t svmaxnmqv_f64(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f32)))
+float32x4_t svmaxnmqv_f32(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f16)))
+float16x8_t svmaxnmqv_f16(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f64)))
+float64x2_t svmaxqv_f64(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f32)))
+float32x4_t svmaxqv_f32(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f16)))
+float16x8_t svmaxqv_f16(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s8)))
+int8x16_t svmaxqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s32)))
+int32x4_t svmaxqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s64)))
+int64x2_t svmaxqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s16)))
+int16x8_t svmaxqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u8)))
+uint8x16_t svmaxqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u32)))
+uint32x4_t svmaxqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u64)))
+uint64x2_t svmaxqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u16)))
+uint16x8_t svmaxqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f64)))
+float64x2_t svminnmqv_f64(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f32)))
+float32x4_t svminnmqv_f32(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f16)))
+float16x8_t svminnmqv_f16(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f64)))
+float64x2_t svminqv_f64(svbool_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f32)))
+float32x4_t svminqv_f32(svbool_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f16)))
+float16x8_t svminqv_f16(svbool_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s8)))
+int8x16_t svminqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s32)))
+int32x4_t svminqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s64)))
+int64x2_t svminqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s16)))
+int16x8_t svminqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u8)))
+uint8x16_t svminqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u32)))
+uint32x4_t svminqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u64)))
+uint64x2_t svminqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u16)))
+uint16x8_t svminqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u8)))
+uint8x16_t svorqv_u8(svbool_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u32)))
+uint32x4_t svorqv_u32(svbool_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u64)))
+uint64x2_t svorqv_u64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u16)))
+uint16x8_t svorqv_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s8)))
+int8x16_t svorqv_s8(svbool_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s32)))
+int32x4_t svorqv_s32(svbool_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s64)))
+int64x2_t svorqv_s64(svbool_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s16)))
+int16x8_t svorqv_s16(svbool_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8)))
+svbool_t svpmov_u8(svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8)))
+svbool_t svpmov_s8(svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64)))
+svbool_t svpmov_u64(svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64)))
+svbool_t svpmov_s64(svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16)))
+svbool_t svpmov_u16(svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16)))
+svbool_t svpmov_s16(svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32)))
+svbool_t svpmov_u32(svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32)))
+svbool_t svpmov_s32(svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u8)))
+svbool_t svpmov_lane_u8(svuint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s8)))
+svbool_t svpmov_lane_s8(svint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64)))
+svbool_t svpmov_lane_u64(svuint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64)))
+svbool_t svpmov_lane_s64(svint64_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16)))
+svbool_t svpmov_lane_u16(svuint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16)))
+svbool_t svpmov_lane_s16(svint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32)))
+svbool_t svpmov_lane_u32(svuint32_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32)))
+svbool_t svpmov_lane_s32(svint32_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64_m)))
+svuint64_t svpmov_lane_u64_m(svuint64_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64_m)))
+svint64_t svpmov_lane_s64_m(svint64_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16_m)))
+svuint16_t svpmov_lane_u16_m(svuint16_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16_m)))
+svint16_t svpmov_lane_s16_m(svint16_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32_m)))
+svuint32_t svpmov_lane_u32_m(svuint32_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32_m)))
+svint32_t svpmov_lane_s32_m(svint32_t, svbool_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8_z)))
+svuint8_t svpmov_u8_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8_z)))
+svint8_t svpmov_s8_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64_z)))
+svuint64_t svpmov_u64_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64_z)))
+svint64_t svpmov_s64_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16_z)))
+svuint16_t svpmov_u16_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16_z)))
+svint16_t svpmov_s16_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32_z)))
+svuint32_t svpmov_u32_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32_z)))
+svint32_t svpmov_s32_z(svbool_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u8)))
+void svst2q_u8(svbool_t, uint8_t const *, svuint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u32)))
+void svst2q_u32(svbool_t, uint32_t const *, svuint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u64)))
+void svst2q_u64(svbool_t, uint64_t const *, svuint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u16)))
+void svst2q_u16(svbool_t, uint16_t const *, svuint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_bf16)))
+void svst2q_bf16(svbool_t, bfloat16_t const *, svbfloat16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s8)))
+void svst2q_s8(svbool_t, int8_t const *, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f64)))
+void svst2q_f64(svbool_t, float64_t const *, svfloat64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f32)))
+void svst2q_f32(svbool_t, float32_t const *, svfloat32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f16)))
+void svst2q_f16(svbool_t, float16_t const *, svfloat16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s32)))
+void svst2q_s32(svbool_t, int32_t const *, svint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s64)))
+void svst2q_s64(svbool_t, int64_t const *, svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_mf8)))
+void svst2q_mf8(svbool_t, mfloat8_t const *, svmfloat8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s16)))
+void svst2q_s16(svbool_t, int16_t const *, svint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u8)))
+void svst2q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u32)))
+void svst2q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u64)))
+void svst2q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u16)))
+void svst2q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_bf16)))
+void svst2q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s8)))
+void svst2q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f64)))
+void svst2q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f32)))
+void svst2q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f16)))
+void svst2q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s32)))
+void svst2q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s64)))
+void svst2q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_mf8)))
+void svst2q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t, svmfloat8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s16)))
+void svst2q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u8)))
+void svst3q_u8(svbool_t, uint8_t const *, svuint8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u32)))
+void svst3q_u32(svbool_t, uint32_t const *, svuint32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u64)))
+void svst3q_u64(svbool_t, uint64_t const *, svuint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u16)))
+void svst3q_u16(svbool_t, uint16_t const *, svuint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_bf16)))
+void svst3q_bf16(svbool_t, bfloat16_t const *, svbfloat16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s8)))
+void svst3q_s8(svbool_t, int8_t const *, svint8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f64)))
+void svst3q_f64(svbool_t, float64_t const *, svfloat64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f32)))
+void svst3q_f32(svbool_t, float32_t const *, svfloat32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f16)))
+void svst3q_f16(svbool_t, float16_t const *, svfloat16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s32)))
+void svst3q_s32(svbool_t, int32_t const *, svint32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s64)))
+void svst3q_s64(svbool_t, int64_t const *, svint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_mf8)))
+void svst3q_mf8(svbool_t, mfloat8_t const *, svmfloat8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s16)))
+void svst3q_s16(svbool_t, int16_t const *, svint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u8)))
+void svst3q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u32)))
+void svst3q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u64)))
+void svst3q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u16)))
+void svst3q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_bf16)))
+void svst3q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s8)))
+void svst3q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f64)))
+void svst3q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f32)))
+void svst3q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f16)))
+void svst3q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s32)))
+void svst3q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s64)))
+void svst3q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_mf8)))
+void svst3q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t, svmfloat8x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s16)))
+void svst3q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u8)))
+void svst4q_u8(svbool_t, uint8_t const *, svuint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u32)))
+void svst4q_u32(svbool_t, uint32_t const *, svuint32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u64)))
+void svst4q_u64(svbool_t, uint64_t const *, svuint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u16)))
+void svst4q_u16(svbool_t, uint16_t const *, svuint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_bf16)))
+void svst4q_bf16(svbool_t, bfloat16_t const *, svbfloat16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s8)))
+void svst4q_s8(svbool_t, int8_t const *, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f64)))
+void svst4q_f64(svbool_t, float64_t const *, svfloat64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f32)))
+void svst4q_f32(svbool_t, float32_t const *, svfloat32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f16)))
+void svst4q_f16(svbool_t, float16_t const *, svfloat16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s32)))
+void svst4q_s32(svbool_t, int32_t const *, svint32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s64)))
+void svst4q_s64(svbool_t, int64_t const *, svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_mf8)))
+void svst4q_mf8(svbool_t, mfloat8_t const *, svmfloat8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s16)))
+void svst4q_s16(svbool_t, int16_t const *, svint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u8)))
+void svst4q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u32)))
+void svst4q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u64)))
+void svst4q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u16)))
+void svst4q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_bf16)))
+void svst4q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s8)))
+void svst4q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f64)))
+void svst4q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f32)))
+void svst4q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f16)))
+void svst4q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s32)))
+void svst4q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s64)))
+void svst4q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_mf8)))
+void svst4q_vnum_mf8(svbool_t, mfloat8_t const *, int64_t, svmfloat8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s16)))
+void svst4q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u8)))
+svuint8_t svtblq_u8(svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u32)))
+svuint32_t svtblq_u32(svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u64)))
+svuint64_t svtblq_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u16)))
+svuint16_t svtblq_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_bf16)))
+svbfloat16_t svtblq_bf16(svbfloat16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s8)))
+svint8_t svtblq_s8(svint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f64)))
+svfloat64_t svtblq_f64(svfloat64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f32)))
+svfloat32_t svtblq_f32(svfloat32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f16)))
+svfloat16_t svtblq_f16(svfloat16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s32)))
+svint32_t svtblq_s32(svint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s64)))
+svint64_t svtblq_s64(svint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_mf8)))
+svmfloat8_t svtblq_mf8(svmfloat8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s16)))
+svint16_t svtblq_s16(svint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u8)))
+svuint8_t svtbxq_u8(svuint8_t, svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u32)))
+svuint32_t svtbxq_u32(svuint32_t, svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u64)))
+svuint64_t svtbxq_u64(svuint64_t, svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u16)))
+svuint16_t svtbxq_u16(svuint16_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_bf16)))
+svbfloat16_t svtbxq_bf16(svbfloat16_t, svbfloat16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s8)))
+svint8_t svtbxq_s8(svint8_t, svint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f64)))
+svfloat64_t svtbxq_f64(svfloat64_t, svfloat64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f32)))
+svfloat32_t svtbxq_f32(svfloat32_t, svfloat32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f16)))
+svfloat16_t svtbxq_f16(svfloat16_t, svfloat16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s32)))
+svint32_t svtbxq_s32(svint32_t, svint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s64)))
+svint64_t svtbxq_s64(svint64_t, svint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_mf8)))
+svmfloat8_t svtbxq_mf8(svmfloat8_t, svmfloat8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s16)))
+svint16_t svtbxq_s16(svint16_t, svint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u8)))
+svuint8_t svuzpq1_u8(svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u32)))
+svuint32_t svuzpq1_u32(svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u64)))
+svuint64_t svuzpq1_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u16)))
+svuint16_t svuzpq1_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_bf16)))
+svbfloat16_t svuzpq1_bf16(svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s8)))
+svint8_t svuzpq1_s8(svint8_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f64)))
+svfloat64_t svuzpq1_f64(svfloat64_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f32)))
+svfloat32_t svuzpq1_f32(svfloat32_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f16)))
+svfloat16_t svuzpq1_f16(svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s32)))
+svint32_t svuzpq1_s32(svint32_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s64)))
+svint64_t svuzpq1_s64(svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_mf8)))
+svmfloat8_t svuzpq1_mf8(svmfloat8_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s16)))
+svint16_t svuzpq1_s16(svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u8)))
+svuint8_t svuzpq2_u8(svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u32)))
+svuint32_t svuzpq2_u32(svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u64)))
+svuint64_t svuzpq2_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u16)))
+svuint16_t svuzpq2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_bf16)))
+svbfloat16_t svuzpq2_bf16(svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s8)))
+svint8_t svuzpq2_s8(svint8_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f64)))
+svfloat64_t svuzpq2_f64(svfloat64_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f32)))
+svfloat32_t svuzpq2_f32(svfloat32_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f16)))
+svfloat16_t svuzpq2_f16(svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s32)))
+svint32_t svuzpq2_s32(svint32_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s64)))
+svint64_t svuzpq2_s64(svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_mf8)))
+svmfloat8_t svuzpq2_mf8(svmfloat8_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s16)))
+svint16_t svuzpq2_s16(svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u8)))
+svuint8_t svzipq1_u8(svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u32)))
+svuint32_t svzipq1_u32(svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u64)))
+svuint64_t svzipq1_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u16)))
+svuint16_t svzipq1_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_bf16)))
+svbfloat16_t svzipq1_bf16(svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s8)))
+svint8_t svzipq1_s8(svint8_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f64)))
+svfloat64_t svzipq1_f64(svfloat64_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f32)))
+svfloat32_t svzipq1_f32(svfloat32_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f16)))
+svfloat16_t svzipq1_f16(svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s32)))
+svint32_t svzipq1_s32(svint32_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s64)))
+svint64_t svzipq1_s64(svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_mf8)))
+svmfloat8_t svzipq1_mf8(svmfloat8_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s16)))
+svint16_t svzipq1_s16(svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u8)))
+svuint8_t svzipq2_u8(svuint8_t, svuint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u32)))
+svuint32_t svzipq2_u32(svuint32_t, svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u64)))
+svuint64_t svzipq2_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u16)))
+svuint16_t svzipq2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_bf16)))
+svbfloat16_t svzipq2_bf16(svbfloat16_t, svbfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s8)))
+svint8_t svzipq2_s8(svint8_t, svint8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f64)))
+svfloat64_t svzipq2_f64(svfloat64_t, svfloat64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f32)))
+svfloat32_t svzipq2_f32(svfloat32_t, svfloat32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f16)))
+svfloat16_t svzipq2_f16(svfloat16_t, svfloat16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s32)))
+svint32_t svzipq2_s32(svint32_t, svint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s64)))
+svint64_t svzipq2_s64(svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_mf8)))
+svmfloat8_t svzipq2_mf8(svmfloat8_t, svmfloat8_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s16)))
+svint16_t svzipq2_s16(svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u8)))
+uint8x16_t svaddqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u32)))
+uint32x4_t svaddqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u64)))
+uint64x2_t svaddqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u16)))
+uint16x8_t svaddqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s8)))
+int8x16_t svaddqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s32)))
+int32x4_t svaddqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s64)))
+int64x2_t svaddqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s16)))
+int16x8_t svaddqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f64)))
+float64x2_t svaddqv(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f32)))
+float32x4_t svaddqv(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f16)))
+float16x8_t svaddqv(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u8)))
+uint8x16_t svandqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u32)))
+uint32x4_t svandqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u64)))
+uint64x2_t svandqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u16)))
+uint16x8_t svandqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s8)))
+int8x16_t svandqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s32)))
+int32x4_t svandqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s64)))
+int64x2_t svandqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s16)))
+int16x8_t svandqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u8)))
+svuint8_t svdup_laneq(svuint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s8)))
+svint8_t svdup_laneq(svint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_mf8)))
+svmfloat8_t svdup_laneq(svmfloat8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u64)))
+svuint64_t svdup_laneq(svuint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f64)))
+svfloat64_t svdup_laneq(svfloat64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s64)))
+svint64_t svdup_laneq(svint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u16)))
+svuint16_t svdup_laneq(svuint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_bf16)))
+svbfloat16_t svdup_laneq(svbfloat16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f16)))
+svfloat16_t svdup_laneq(svfloat16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s16)))
+svint16_t svdup_laneq(svint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u32)))
+svuint32_t svdup_laneq(svuint32_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f32)))
+svfloat32_t svdup_laneq(svfloat32_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s32)))
+svint32_t svdup_laneq(svint32_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u8)))
+uint8x16_t sveorqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u32)))
+uint32x4_t sveorqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u64)))
+uint64x2_t sveorqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u16)))
+uint16x8_t sveorqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s8)))
+int8x16_t sveorqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s32)))
+int32x4_t sveorqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s64)))
+int64x2_t sveorqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s16)))
+int16x8_t sveorqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u8)))
+svuint8_t svextq(svuint8_t, svuint8_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u32)))
+svuint32_t svextq(svuint32_t, svuint32_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u64)))
+svuint64_t svextq(svuint64_t, svuint64_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u16)))
+svuint16_t svextq(svuint16_t, svuint16_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_bf16)))
+svbfloat16_t svextq(svbfloat16_t, svbfloat16_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s8)))
+svint8_t svextq(svint8_t, svint8_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f64)))
+svfloat64_t svextq(svfloat64_t, svfloat64_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f32)))
+svfloat32_t svextq(svfloat32_t, svfloat32_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f16)))
+svfloat16_t svextq(svfloat16_t, svfloat16_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s32)))
+svint32_t svextq(svint32_t, svint32_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s64)))
+svint64_t svextq(svint64_t, svint64_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_mf8)))
+svmfloat8_t svextq(svmfloat8_t, svmfloat8_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s16)))
+svint16_t svextq(svint16_t, svint16_t, int32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u8)))
+svuint8x2_t svld2q(svbool_t, uint8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u32)))
+svuint32x2_t svld2q(svbool_t, uint32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u64)))
+svuint64x2_t svld2q(svbool_t, uint64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u16)))
+svuint16x2_t svld2q(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_bf16)))
+svbfloat16x2_t svld2q(svbool_t, bfloat16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s8)))
+svint8x2_t svld2q(svbool_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f64)))
+svfloat64x2_t svld2q(svbool_t, float64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f32)))
+svfloat32x2_t svld2q(svbool_t, float32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f16)))
+svfloat16x2_t svld2q(svbool_t, float16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s32)))
+svint32x2_t svld2q(svbool_t, int32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s64)))
+svint64x2_t svld2q(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_mf8)))
+svmfloat8x2_t svld2q(svbool_t, mfloat8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s16)))
+svint16x2_t svld2q(svbool_t, int16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u8)))
+svuint8x2_t svld2q_vnum(svbool_t, uint8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u32)))
+svuint32x2_t svld2q_vnum(svbool_t, uint32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u64)))
+svuint64x2_t svld2q_vnum(svbool_t, uint64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u16)))
+svuint16x2_t svld2q_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_bf16)))
+svbfloat16x2_t svld2q_vnum(svbool_t, bfloat16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s8)))
+svint8x2_t svld2q_vnum(svbool_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f64)))
+svfloat64x2_t svld2q_vnum(svbool_t, float64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f32)))
+svfloat32x2_t svld2q_vnum(svbool_t, float32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f16)))
+svfloat16x2_t svld2q_vnum(svbool_t, float16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s32)))
+svint32x2_t svld2q_vnum(svbool_t, int32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s64)))
+svint64x2_t svld2q_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_mf8)))
+svmfloat8x2_t svld2q_vnum(svbool_t, mfloat8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s16)))
+svint16x2_t svld2q_vnum(svbool_t, int16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u8)))
+svuint8x3_t svld3q(svbool_t, uint8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u32)))
+svuint32x3_t svld3q(svbool_t, uint32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u64)))
+svuint64x3_t svld3q(svbool_t, uint64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u16)))
+svuint16x3_t svld3q(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_bf16)))
+svbfloat16x3_t svld3q(svbool_t, bfloat16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s8)))
+svint8x3_t svld3q(svbool_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f64)))
+svfloat64x3_t svld3q(svbool_t, float64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f32)))
+svfloat32x3_t svld3q(svbool_t, float32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f16)))
+svfloat16x3_t svld3q(svbool_t, float16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s32)))
+svint32x3_t svld3q(svbool_t, int32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s64)))
+svint64x3_t svld3q(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_mf8)))
+svmfloat8x3_t svld3q(svbool_t, mfloat8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s16)))
+svint16x3_t svld3q(svbool_t, int16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u8)))
+svuint8x3_t svld3q_vnum(svbool_t, uint8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u32)))
+svuint32x3_t svld3q_vnum(svbool_t, uint32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u64)))
+svuint64x3_t svld3q_vnum(svbool_t, uint64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u16)))
+svuint16x3_t svld3q_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_bf16)))
+svbfloat16x3_t svld3q_vnum(svbool_t, bfloat16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s8)))
+svint8x3_t svld3q_vnum(svbool_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f64)))
+svfloat64x3_t svld3q_vnum(svbool_t, float64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f32)))
+svfloat32x3_t svld3q_vnum(svbool_t, float32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f16)))
+svfloat16x3_t svld3q_vnum(svbool_t, float16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s32)))
+svint32x3_t svld3q_vnum(svbool_t, int32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s64)))
+svint64x3_t svld3q_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_mf8)))
+svmfloat8x3_t svld3q_vnum(svbool_t, mfloat8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s16)))
+svint16x3_t svld3q_vnum(svbool_t, int16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u8)))
+svuint8x4_t svld4q(svbool_t, uint8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u32)))
+svuint32x4_t svld4q(svbool_t, uint32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u64)))
+svuint64x4_t svld4q(svbool_t, uint64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u16)))
+svuint16x4_t svld4q(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_bf16)))
+svbfloat16x4_t svld4q(svbool_t, bfloat16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s8)))
+svint8x4_t svld4q(svbool_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f64)))
+svfloat64x4_t svld4q(svbool_t, float64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f32)))
+svfloat32x4_t svld4q(svbool_t, float32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f16)))
+svfloat16x4_t svld4q(svbool_t, float16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s32)))
+svint32x4_t svld4q(svbool_t, int32_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s64)))
+svint64x4_t svld4q(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_mf8)))
+svmfloat8x4_t svld4q(svbool_t, mfloat8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s16)))
+svint16x4_t svld4q(svbool_t, int16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u8)))
+svuint8x4_t svld4q_vnum(svbool_t, uint8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u32)))
+svuint32x4_t svld4q_vnum(svbool_t, uint32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u64)))
+svuint64x4_t svld4q_vnum(svbool_t, uint64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u16)))
+svuint16x4_t svld4q_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_bf16)))
+svbfloat16x4_t svld4q_vnum(svbool_t, bfloat16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s8)))
+svint8x4_t svld4q_vnum(svbool_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f64)))
+svfloat64x4_t svld4q_vnum(svbool_t, float64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f32)))
+svfloat32x4_t svld4q_vnum(svbool_t, float32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f16)))
+svfloat16x4_t svld4q_vnum(svbool_t, float16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s32)))
+svint32x4_t svld4q_vnum(svbool_t, int32_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s64)))
+svint64x4_t svld4q_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_mf8)))
+svmfloat8x4_t svld4q_vnum(svbool_t, mfloat8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s16)))
+svint16x4_t svld4q_vnum(svbool_t, int16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f64)))
+float64x2_t svmaxnmqv(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f32)))
+float32x4_t svmaxnmqv(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f16)))
+float16x8_t svmaxnmqv(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f64)))
+float64x2_t svmaxqv(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f32)))
+float32x4_t svmaxqv(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f16)))
+float16x8_t svmaxqv(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s8)))
+int8x16_t svmaxqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s32)))
+int32x4_t svmaxqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s64)))
+int64x2_t svmaxqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s16)))
+int16x8_t svmaxqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u8)))
+uint8x16_t svmaxqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u32)))
+uint32x4_t svmaxqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u64)))
+uint64x2_t svmaxqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u16)))
+uint16x8_t svmaxqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f64)))
+float64x2_t svminnmqv(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f32)))
+float32x4_t svminnmqv(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f16)))
+float16x8_t svminnmqv(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f64)))
+float64x2_t svminqv(svbool_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f32)))
+float32x4_t svminqv(svbool_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f16)))
+float16x8_t svminqv(svbool_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s8)))
+int8x16_t svminqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s32)))
+int32x4_t svminqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s64)))
+int64x2_t svminqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s16)))
+int16x8_t svminqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u8)))
+uint8x16_t svminqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u32)))
+uint32x4_t svminqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u64)))
+uint64x2_t svminqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u16)))
+uint16x8_t svminqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u8)))
+uint8x16_t svorqv(svbool_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u32)))
+uint32x4_t svorqv(svbool_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u64)))
+uint64x2_t svorqv(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u16)))
+uint16x8_t svorqv(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s8)))
+int8x16_t svorqv(svbool_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s32)))
+int32x4_t svorqv(svbool_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s64)))
+int64x2_t svorqv(svbool_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s16)))
+int16x8_t svorqv(svbool_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8)))
+svbool_t svpmov(svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8)))
+svbool_t svpmov(svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64)))
+svbool_t svpmov(svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64)))
+svbool_t svpmov(svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16)))
+svbool_t svpmov(svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16)))
+svbool_t svpmov(svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32)))
+svbool_t svpmov(svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32)))
+svbool_t svpmov(svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u8)))
+svbool_t svpmov_lane(svuint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s8)))
+svbool_t svpmov_lane(svint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64)))
+svbool_t svpmov_lane(svuint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64)))
+svbool_t svpmov_lane(svint64_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16)))
+svbool_t svpmov_lane(svuint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16)))
+svbool_t svpmov_lane(svint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32)))
+svbool_t svpmov_lane(svuint32_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32)))
+svbool_t svpmov_lane(svint32_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64_m)))
+svuint64_t svpmov_lane_m(svuint64_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64_m)))
+svint64_t svpmov_lane_m(svint64_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16_m)))
+svuint16_t svpmov_lane_m(svuint16_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16_m)))
+svint16_t svpmov_lane_m(svint16_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32_m)))
+svuint32_t svpmov_lane_m(svuint32_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32_m)))
+svint32_t svpmov_lane_m(svint32_t, svbool_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u8)))
+void svst2q(svbool_t, uint8_t const *, svuint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u32)))
+void svst2q(svbool_t, uint32_t const *, svuint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u64)))
+void svst2q(svbool_t, uint64_t const *, svuint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u16)))
+void svst2q(svbool_t, uint16_t const *, svuint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_bf16)))
+void svst2q(svbool_t, bfloat16_t const *, svbfloat16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s8)))
+void svst2q(svbool_t, int8_t const *, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f64)))
+void svst2q(svbool_t, float64_t const *, svfloat64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f32)))
+void svst2q(svbool_t, float32_t const *, svfloat32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f16)))
+void svst2q(svbool_t, float16_t const *, svfloat16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s32)))
+void svst2q(svbool_t, int32_t const *, svint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s64)))
+void svst2q(svbool_t, int64_t const *, svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_mf8)))
+void svst2q(svbool_t, mfloat8_t const *, svmfloat8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s16)))
+void svst2q(svbool_t, int16_t const *, svint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u8)))
+void svst2q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u32)))
+void svst2q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u64)))
+void svst2q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u16)))
+void svst2q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_bf16)))
+void svst2q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s8)))
+void svst2q_vnum(svbool_t, int8_t const *, int64_t, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f64)))
+void svst2q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f32)))
+void svst2q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f16)))
+void svst2q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s32)))
+void svst2q_vnum(svbool_t, int32_t const *, int64_t, svint32x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s64)))
+void svst2q_vnum(svbool_t, int64_t const *, int64_t, svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_mf8)))
+void svst2q_vnum(svbool_t, mfloat8_t const *, int64_t, svmfloat8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s16)))
+void svst2q_vnum(svbool_t, int16_t const *, int64_t, svint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u8)))
+void svst3q(svbool_t, uint8_t const *, svuint8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u32)))
+void svst3q(svbool_t, uint32_t const *, svuint32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u64)))
+void svst3q(svbool_t, uint64_t const *, svuint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u16)))
+void svst3q(svbool_t, uint16_t const *, svuint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_bf16)))
+void svst3q(svbool_t, bfloat16_t const *, svbfloat16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s8)))
+void svst3q(svbool_t, int8_t const *, svint8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f64)))
+void svst3q(svbool_t, float64_t const *, svfloat64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f32)))
+void svst3q(svbool_t, float32_t const *, svfloat32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f16)))
+void svst3q(svbool_t, float16_t const *, svfloat16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s32)))
+void svst3q(svbool_t, int32_t const *, svint32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s64)))
+void svst3q(svbool_t, int64_t const *, svint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_mf8)))
+void svst3q(svbool_t, mfloat8_t const *, svmfloat8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s16)))
+void svst3q(svbool_t, int16_t const *, svint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u8)))
+void svst3q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u32)))
+void svst3q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u64)))
+void svst3q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u16)))
+void svst3q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_bf16)))
+void svst3q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s8)))
+void svst3q_vnum(svbool_t, int8_t const *, int64_t, svint8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f64)))
+void svst3q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f32)))
+void svst3q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f16)))
+void svst3q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s32)))
+void svst3q_vnum(svbool_t, int32_t const *, int64_t, svint32x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s64)))
+void svst3q_vnum(svbool_t, int64_t const *, int64_t, svint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_mf8)))
+void svst3q_vnum(svbool_t, mfloat8_t const *, int64_t, svmfloat8x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s16)))
+void svst3q_vnum(svbool_t, int16_t const *, int64_t, svint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u8)))
+void svst4q(svbool_t, uint8_t const *, svuint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u32)))
+void svst4q(svbool_t, uint32_t const *, svuint32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u64)))
+void svst4q(svbool_t, uint64_t const *, svuint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u16)))
+void svst4q(svbool_t, uint16_t const *, svuint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_bf16)))
+void svst4q(svbool_t, bfloat16_t const *, svbfloat16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s8)))
+void svst4q(svbool_t, int8_t const *, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f64)))
+void svst4q(svbool_t, float64_t const *, svfloat64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f32)))
+void svst4q(svbool_t, float32_t const *, svfloat32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f16)))
+void svst4q(svbool_t, float16_t const *, svfloat16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s32)))
+void svst4q(svbool_t, int32_t const *, svint32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s64)))
+void svst4q(svbool_t, int64_t const *, svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_mf8)))
+void svst4q(svbool_t, mfloat8_t const *, svmfloat8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s16)))
+void svst4q(svbool_t, int16_t const *, svint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u8)))
+void svst4q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u32)))
+void svst4q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u64)))
+void svst4q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u16)))
+void svst4q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_bf16)))
+void svst4q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s8)))
+void svst4q_vnum(svbool_t, int8_t const *, int64_t, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f64)))
+void svst4q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f32)))
+void svst4q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f16)))
+void svst4q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s32)))
+void svst4q_vnum(svbool_t, int32_t const *, int64_t, svint32x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s64)))
+void svst4q_vnum(svbool_t, int64_t const *, int64_t, svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_mf8)))
+void svst4q_vnum(svbool_t, mfloat8_t const *, int64_t, svmfloat8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s16)))
+void svst4q_vnum(svbool_t, int16_t const *, int64_t, svint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u8)))
+svuint8_t svtblq(svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u32)))
+svuint32_t svtblq(svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u64)))
+svuint64_t svtblq(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u16)))
+svuint16_t svtblq(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_bf16)))
+svbfloat16_t svtblq(svbfloat16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s8)))
+svint8_t svtblq(svint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f64)))
+svfloat64_t svtblq(svfloat64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f32)))
+svfloat32_t svtblq(svfloat32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f16)))
+svfloat16_t svtblq(svfloat16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s32)))
+svint32_t svtblq(svint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s64)))
+svint64_t svtblq(svint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_mf8)))
+svmfloat8_t svtblq(svmfloat8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s16)))
+svint16_t svtblq(svint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u8)))
+svuint8_t svtbxq(svuint8_t, svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u32)))
+svuint32_t svtbxq(svuint32_t, svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u64)))
+svuint64_t svtbxq(svuint64_t, svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u16)))
+svuint16_t svtbxq(svuint16_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_bf16)))
+svbfloat16_t svtbxq(svbfloat16_t, svbfloat16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s8)))
+svint8_t svtbxq(svint8_t, svint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f64)))
+svfloat64_t svtbxq(svfloat64_t, svfloat64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f32)))
+svfloat32_t svtbxq(svfloat32_t, svfloat32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f16)))
+svfloat16_t svtbxq(svfloat16_t, svfloat16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s32)))
+svint32_t svtbxq(svint32_t, svint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s64)))
+svint64_t svtbxq(svint64_t, svint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_mf8)))
+svmfloat8_t svtbxq(svmfloat8_t, svmfloat8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s16)))
+svint16_t svtbxq(svint16_t, svint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u8)))
+svuint8_t svuzpq1(svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u32)))
+svuint32_t svuzpq1(svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u64)))
+svuint64_t svuzpq1(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u16)))
+svuint16_t svuzpq1(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_bf16)))
+svbfloat16_t svuzpq1(svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s8)))
+svint8_t svuzpq1(svint8_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f64)))
+svfloat64_t svuzpq1(svfloat64_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f32)))
+svfloat32_t svuzpq1(svfloat32_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f16)))
+svfloat16_t svuzpq1(svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s32)))
+svint32_t svuzpq1(svint32_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s64)))
+svint64_t svuzpq1(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_mf8)))
+svmfloat8_t svuzpq1(svmfloat8_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s16)))
+svint16_t svuzpq1(svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u8)))
+svuint8_t svuzpq2(svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u32)))
+svuint32_t svuzpq2(svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u64)))
+svuint64_t svuzpq2(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u16)))
+svuint16_t svuzpq2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_bf16)))
+svbfloat16_t svuzpq2(svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s8)))
+svint8_t svuzpq2(svint8_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f64)))
+svfloat64_t svuzpq2(svfloat64_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f32)))
+svfloat32_t svuzpq2(svfloat32_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f16)))
+svfloat16_t svuzpq2(svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s32)))
+svint32_t svuzpq2(svint32_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s64)))
+svint64_t svuzpq2(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_mf8)))
+svmfloat8_t svuzpq2(svmfloat8_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s16)))
+svint16_t svuzpq2(svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u8)))
+svuint8_t svzipq1(svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u32)))
+svuint32_t svzipq1(svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u64)))
+svuint64_t svzipq1(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u16)))
+svuint16_t svzipq1(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_bf16)))
+svbfloat16_t svzipq1(svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s8)))
+svint8_t svzipq1(svint8_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f64)))
+svfloat64_t svzipq1(svfloat64_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f32)))
+svfloat32_t svzipq1(svfloat32_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f16)))
+svfloat16_t svzipq1(svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s32)))
+svint32_t svzipq1(svint32_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s64)))
+svint64_t svzipq1(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_mf8)))
+svmfloat8_t svzipq1(svmfloat8_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s16)))
+svint16_t svzipq1(svint16_t, svint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u8)))
+svuint8_t svzipq2(svuint8_t, svuint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u32)))
+svuint32_t svzipq2(svuint32_t, svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u64)))
+svuint64_t svzipq2(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u16)))
+svuint16_t svzipq2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_bf16)))
+svbfloat16_t svzipq2(svbfloat16_t, svbfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s8)))
+svint8_t svzipq2(svint8_t, svint8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f64)))
+svfloat64_t svzipq2(svfloat64_t, svfloat64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f32)))
+svfloat32_t svzipq2(svfloat32_t, svfloat32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f16)))
+svfloat16_t svzipq2(svfloat16_t, svfloat16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s32)))
+svint32_t svzipq2(svint32_t, svint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s64)))
+svint64_t svzipq2(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_mf8)))
+svmfloat8_t svzipq2(svmfloat8_t, svmfloat8_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s16)))
+svint16_t svzipq2(svint16_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmmla_f32)))
 svfloat32_t svbfmmla_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_bf16)))
-svbfloat16_t svldff1_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_bf16)))
-svbfloat16_t svldff1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_bf16)))
-svbfloat16_t svldnf1_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_bf16)))
-svbfloat16_t svldnf1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmmla_f32)))
 svfloat32_t svbfmmla(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_bf16)))
-svbfloat16_t svldff1(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldff1_vnum_bf16)))
-svbfloat16_t svldff1_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_bf16)))
-svbfloat16_t svldnf1(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnf1_vnum_bf16)))
-svbfloat16_t svldnf1_vnum(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_bf16)))
-svbfloat16_t svtrn1q_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_bf16)))
-svbfloat16_t svtrn2q_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_bf16)))
-svbfloat16_t svuzp1q_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_bf16)))
-svbfloat16_t svuzp2q_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_bf16)))
-svbfloat16_t svzip1q_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_bf16)))
-svbfloat16_t svzip2q_bf16(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_bf16)))
-svbfloat16_t svtrn1q(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_bf16)))
-svbfloat16_t svtrn2q(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_bf16)))
-svbfloat16_t svuzp1q(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_bf16)))
-svbfloat16_t svuzp2q(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_bf16)))
-svbfloat16_t svzip1q(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_bf16)))
-svbfloat16_t svzip2q(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfdot_n_f32)))
 svfloat32_t svbfdot_n_f32(svfloat32_t, svbfloat16_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfdot_f32)))
@@ -6955,26 +8799,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlalt_f32)))
 svfloat32_t svbfmlalt_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlalt_lane_f32)))
 svfloat32_t svbfmlalt_lane_f32(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_bf16)))
-bfloat16_t svclasta_n_bf16(svbool_t, bfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_bf16)))
-svbfloat16_t svclasta_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_bf16)))
-bfloat16_t svclastb_n_bf16(svbool_t, bfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_bf16)))
-svbfloat16_t svclastb_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_m)))
-svuint16_t svcnt_bf16_m(svuint16_t, svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_x)))
-svuint16_t svcnt_bf16_x(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_z)))
-svuint16_t svcnt_bf16_z(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_bf16)))
-svbfloat16x2_t svcreate2_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_bf16)))
-svbfloat16x3_t svcreate3_bf16(svbfloat16_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_bf16)))
-svbfloat16x4_t svcreate4_bf16(svbfloat16_t, svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_m)))
 svbfloat16_t svcvt_bf16_f32_m(svbfloat16_t, svbool_t, svfloat32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_x)))
@@ -6983,112 +8807,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_z)))
 svbfloat16_t svcvt_bf16_f32_z(svbool_t, svfloat32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvtnt_bf16_f32_m)))
 svbfloat16_t svcvtnt_bf16_f32_m(svbfloat16_t, svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16)))
-svbfloat16_t svdup_n_bf16(bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_m)))
-svbfloat16_t svdup_n_bf16_m(svbfloat16_t, svbool_t, bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_x)))
-svbfloat16_t svdup_n_bf16_x(svbool_t, bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_z)))
-svbfloat16_t svdup_n_bf16_z(svbool_t, bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_bf16)))
-svbfloat16_t svdup_lane_bf16(svbfloat16_t, uint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_bf16)))
-svbfloat16_t svdupq_n_bf16(bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_bf16)))
-svbfloat16_t svdupq_lane_bf16(svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_bf16)))
-svbfloat16_t svext_bf16(svbfloat16_t, svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_bf16)))
-svbfloat16_t svget2_bf16(svbfloat16x2_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_bf16)))
-svbfloat16_t svget3_bf16(svbfloat16x3_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_bf16)))
-svbfloat16_t svget4_bf16(svbfloat16x4_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_bf16)))
-svbfloat16_t svinsr_n_bf16(svbfloat16_t, bfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_bf16)))
-bfloat16_t svlasta_bf16(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_bf16)))
-bfloat16_t svlastb_bf16(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_bf16)))
-svbfloat16_t svld1_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_bf16)))
-svbfloat16_t svld1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_bf16)))
-svbfloat16_t svld1rq_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_bf16)))
-svbfloat16x2_t svld2_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_bf16)))
-svbfloat16x2_t svld2_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_bf16)))
-svbfloat16x3_t svld3_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_bf16)))
-svbfloat16x3_t svld3_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_bf16)))
-svbfloat16x4_t svld4_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_bf16)))
-svbfloat16x4_t svld4_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_bf16)))
-svbfloat16_t svldnt1_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_bf16)))
-svbfloat16_t svldnt1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_bf16)))
-uint64_t svlen_bf16(svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_bf16)))
-svbfloat16_t svrev_bf16(svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_bf16)))
-svbfloat16_t svsel_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_bf16)))
-svbfloat16x2_t svset2_bf16(svbfloat16x2_t, uint64_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_bf16)))
-svbfloat16x3_t svset3_bf16(svbfloat16x3_t, uint64_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_bf16)))
-svbfloat16x4_t svset4_bf16(svbfloat16x4_t, uint64_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_bf16)))
-svbfloat16_t svsplice_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_bf16)))
-void svst1_bf16(svbool_t, bfloat16_t *, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_bf16)))
-void svst1_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_bf16)))
-void svst2_bf16(svbool_t, bfloat16_t *, svbfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_bf16)))
-void svst2_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_bf16)))
-void svst3_bf16(svbool_t, bfloat16_t *, svbfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_bf16)))
-void svst3_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_bf16)))
-void svst4_bf16(svbool_t, bfloat16_t *, svbfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_bf16)))
-void svst4_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_bf16)))
-void svstnt1_bf16(svbool_t, bfloat16_t *, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_bf16)))
-void svstnt1_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_bf16)))
-svbfloat16_t svtbl_bf16(svbfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_bf16)))
-svbfloat16_t svtrn1_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_bf16)))
-svbfloat16_t svtrn2_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_bf16)))
-svbfloat16x2_t svundef2_bf16(void);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_bf16)))
-svbfloat16x3_t svundef3_bf16(void);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_bf16)))
-svbfloat16x4_t svundef4_bf16(void);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_bf16)))
-svbfloat16_t svundef_bf16(void);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_bf16)))
-svbfloat16_t svuzp1_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_bf16)))
-svbfloat16_t svuzp2_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_bf16)))
-svbfloat16_t svzip1_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_bf16)))
-svbfloat16_t svzip2_bf16(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfdot_n_f32)))
 svfloat32_t svbfdot(svfloat32_t, svbfloat16_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfdot_f32)))
@@ -7107,26 +8825,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlalt_f32)))
 svfloat32_t svbfmlalt(svfloat32_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlalt_lane_f32)))
 svfloat32_t svbfmlalt_lane(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_bf16)))
-bfloat16_t svclasta(svbool_t, bfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_bf16)))
-svbfloat16_t svclasta(svbool_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_bf16)))
-bfloat16_t svclastb(svbool_t, bfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_bf16)))
-svbfloat16_t svclastb(svbool_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_m)))
-svuint16_t svcnt_m(svuint16_t, svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_x)))
-svuint16_t svcnt_x(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_z)))
-svuint16_t svcnt_z(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_bf16)))
-svbfloat16x2_t svcreate2(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_bf16)))
-svbfloat16x3_t svcreate3(svbfloat16_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_bf16)))
-svbfloat16x4_t svcreate4(svbfloat16_t, svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_m)))
 svbfloat16_t svcvt_bf16_m(svbfloat16_t, svbool_t, svfloat32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_x)))
@@ -7135,104 +8833,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_bf16_f32_z)))
 svbfloat16_t svcvt_bf16_z(svbool_t, svfloat32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvtnt_bf16_f32_m)))
 svbfloat16_t svcvtnt_bf16_m(svbfloat16_t, svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16)))
-svbfloat16_t svdup_bf16(bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_m)))
-svbfloat16_t svdup_bf16_m(svbfloat16_t, svbool_t, bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_x)))
-svbfloat16_t svdup_bf16_x(svbool_t, bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_z)))
-svbfloat16_t svdup_bf16_z(svbool_t, bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_bf16)))
-svbfloat16_t svdup_lane(svbfloat16_t, uint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_bf16)))
-svbfloat16_t svdupq_bf16(bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_bf16)))
-svbfloat16_t svdupq_lane(svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_bf16)))
-svbfloat16_t svext(svbfloat16_t, svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_bf16)))
-svbfloat16_t svget2(svbfloat16x2_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_bf16)))
-svbfloat16_t svget3(svbfloat16x3_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_bf16)))
-svbfloat16_t svget4(svbfloat16x4_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_bf16)))
-svbfloat16_t svinsr(svbfloat16_t, bfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_bf16)))
-bfloat16_t svlasta(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_bf16)))
-bfloat16_t svlastb(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_bf16)))
-svbfloat16_t svld1(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_bf16)))
-svbfloat16_t svld1_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_bf16)))
-svbfloat16_t svld1rq(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_bf16)))
-svbfloat16x2_t svld2(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_bf16)))
-svbfloat16x2_t svld2_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_bf16)))
-svbfloat16x3_t svld3(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_bf16)))
-svbfloat16x3_t svld3_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_bf16)))
-svbfloat16x4_t svld4(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_bf16)))
-svbfloat16x4_t svld4_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_bf16)))
-svbfloat16_t svldnt1(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_bf16)))
-svbfloat16_t svldnt1_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_bf16)))
-uint64_t svlen(svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_bf16)))
-svbfloat16_t svrev(svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_bf16)))
-svbfloat16_t svsel(svbool_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_bf16)))
-svbfloat16x2_t svset2(svbfloat16x2_t, uint64_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_bf16)))
-svbfloat16x3_t svset3(svbfloat16x3_t, uint64_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_bf16)))
-svbfloat16x4_t svset4(svbfloat16x4_t, uint64_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_bf16)))
-svbfloat16_t svsplice(svbool_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_bf16)))
-void svst1(svbool_t, bfloat16_t *, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_bf16)))
-void svst1_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_bf16)))
-void svst2(svbool_t, bfloat16_t *, svbfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_bf16)))
-void svst2_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_bf16)))
-void svst3(svbool_t, bfloat16_t *, svbfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_bf16)))
-void svst3_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_bf16)))
-void svst4(svbool_t, bfloat16_t *, svbfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_bf16)))
-void svst4_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_bf16)))
-void svstnt1(svbool_t, bfloat16_t *, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_bf16)))
-void svstnt1_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_bf16)))
-svbfloat16_t svtbl(svbfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_bf16)))
-svbfloat16_t svtrn1(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_bf16)))
-svbfloat16_t svtrn2(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_bf16)))
-svbfloat16_t svuzp1(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_bf16)))
-svbfloat16_t svuzp2(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_bf16)))
-svbfloat16_t svzip1(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_bf16)))
-svbfloat16_t svzip2(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_f32)))
 svfloat32_t svmmla_f32(svfloat32_t, svfloat32_t, svfloat32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_f32)))
@@ -7245,6 +8845,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_u64)))
 svuint64_t svld1ro_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_u16)))
 svuint16_t svld1ro_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_bf16)))
+svbfloat16_t svld1ro_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s8)))
 svint8_t svld1ro_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_f64)))
@@ -7257,6 +8859,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s32)))
 svint32_t svld1ro_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s64)))
 svint64_t svld1ro_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_mf8)))
+svmfloat8_t svld1ro_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s16)))
 svint16_t svld1ro_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_f64)))
@@ -7269,6 +8873,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_u64)))
 svuint64_t svtrn1q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_u16)))
 svuint16_t svtrn1q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_bf16)))
+svbfloat16_t svtrn1q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_s8)))
 svint8_t svtrn1q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_f64)))
@@ -7291,6 +8897,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_u64)))
 svuint64_t svtrn2q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_u16)))
 svuint16_t svtrn2q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_bf16)))
+svbfloat16_t svtrn2q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_s8)))
 svint8_t svtrn2q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_f64)))
@@ -7313,6 +8921,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_u64)))
 svuint64_t svuzp1q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_u16)))
 svuint16_t svuzp1q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_bf16)))
+svbfloat16_t svuzp1q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_s8)))
 svint8_t svuzp1q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_f64)))
@@ -7335,6 +8945,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_u64)))
 svuint64_t svuzp2q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_u16)))
 svuint16_t svuzp2q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_bf16)))
+svbfloat16_t svuzp2q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_s8)))
 svint8_t svuzp2q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_f64)))
@@ -7357,6 +8969,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_u64)))
 svuint64_t svzip1q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_u16)))
 svuint16_t svzip1q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_bf16)))
+svbfloat16_t svzip1q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_s8)))
 svint8_t svzip1q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_f64)))
@@ -7379,6 +8993,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_u64)))
 svuint64_t svzip2q_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_u16)))
 svuint16_t svzip2q_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_bf16)))
+svbfloat16_t svzip2q_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_s8)))
 svint8_t svzip2q_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_f64)))
@@ -7401,6 +9017,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_u64)))
 svuint64_t svld1ro(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_u16)))
 svuint16_t svld1ro(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_bf16)))
+svbfloat16_t svld1ro(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s8)))
 svint8_t svld1ro(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_f64)))
@@ -7413,6 +9031,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s32)))
 svint32_t svld1ro(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s64)))
 svint64_t svld1ro(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_mf8)))
+svmfloat8_t svld1ro(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_s16)))
 svint16_t svld1ro(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_f64)))
@@ -7425,6 +9045,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_u64)))
 svuint64_t svtrn1q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_u16)))
 svuint16_t svtrn1q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_bf16)))
+svbfloat16_t svtrn1q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_s8)))
 svint8_t svtrn1q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1q_f64)))
@@ -7447,6 +9069,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_u64)))
 svuint64_t svtrn2q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_u16)))
 svuint16_t svtrn2q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_bf16)))
+svbfloat16_t svtrn2q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_s8)))
 svint8_t svtrn2q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2q_f64)))
@@ -7469,6 +9093,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_u64)))
 svuint64_t svuzp1q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_u16)))
 svuint16_t svuzp1q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_bf16)))
+svbfloat16_t svuzp1q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_s8)))
 svint8_t svuzp1q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1q_f64)))
@@ -7491,6 +9117,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_u64)))
 svuint64_t svuzp2q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_u16)))
 svuint16_t svuzp2q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_bf16)))
+svbfloat16_t svuzp2q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_s8)))
 svint8_t svuzp2q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2q_f64)))
@@ -7513,6 +9141,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_u64)))
 svuint64_t svzip1q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_u16)))
 svuint16_t svzip1q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_bf16)))
+svbfloat16_t svzip1q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_s8)))
 svint8_t svzip1q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1q_f64)))
@@ -7535,6 +9165,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_u64)))
 svuint64_t svzip2q(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_u16)))
 svuint16_t svzip2q(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_bf16)))
+svbfloat16_t svzip2q(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_s8)))
 svint8_t svzip2q(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_f64)))
@@ -7549,10 +9181,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_s64)))
 svint64_t svzip2q(svint64_t, svint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2q_s16)))
 svint16_t svzip2q(svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_bf16)))
-svbfloat16_t svld1ro_bf16(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1ro_bf16)))
-svbfloat16_t svld1ro(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_s32)))
 svint32_t svmmla_s32(svint32_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmmla_u32)))
@@ -7589,6 +9217,14 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svusdot_s32)))
 svint32_t svusdot(svint32_t, svuint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svusdot_lane_s32)))
 svint32_t svusdot_lane(svint32_t, svuint8_t, svint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_u64)))
+svuint64_t svrax1_u64(svuint64_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_s64)))
+svint64_t svrax1_s64(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_u64)))
+svuint64_t svrax1(svuint64_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_s64)))
+svint64_t svrax1(svint64_t, svint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svhistcnt_u32_z)))
 svuint32_t svhistcnt_u32_z(svbool_t, svuint32_t, svuint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svhistcnt_u64_z)))
@@ -8509,22 +10145,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1w_scatter_u6
 void svstnt1w_scatter_offset(svbool_t, int32_t *, svuint64_t, svint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1w_scatter_u64offset_u64)))
 void svstnt1w_scatter_offset(svbool_t, uint32_t *, svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_bf16)))
-svbfloat16_t svtbl2_bf16(svbfloat16x2_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_bf16)))
-svbfloat16_t svtbx_bf16(svbfloat16_t, svbfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_bf16)))
-svbool_t svwhilerw_bf16(bfloat16_t const *, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_bf16)))
-svbool_t svwhilewr_bf16(bfloat16_t const *, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_bf16)))
-svbfloat16_t svtbl2(svbfloat16x2_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_bf16)))
-svbfloat16_t svtbx(svbfloat16_t, svbfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_bf16)))
-svbool_t svwhilerw(bfloat16_t const *, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_bf16)))
-svbool_t svwhilewr(bfloat16_t const *, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svamax_n_f64_m)))
 svfloat64_t svamax_n_f64_m(svbool_t, svfloat64_t, float64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svamax_n_f32_m)))
@@ -8813,24 +10433,14 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvtnb_mf8_f32_x2_
 svmfloat8_t svcvtnb_mf8_fpm(svfloat32x2_t, fpm_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvtnt_mf8_f32_x2_fpm)))
 svmfloat8_t svcvtnt_mf8_fpm(svmfloat8_t, svfloat32x2_t, fpm_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_bf16)))
-svbfloat16_t svluti2_lane_bf16(svbfloat16_t, svuint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16)))
-svbfloat16_t svluti4_lane_bf16(svbfloat16_t, svuint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16_x2)))
-svbfloat16_t svluti4_lane_bf16_x2(svbfloat16x2_t, svuint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_bf16)))
-svbfloat16_t svluti2_lane(svbfloat16_t, svuint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16)))
-svbfloat16_t svluti4_lane(svbfloat16_t, svuint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16_x2)))
-svbfloat16_t svluti4_lane(svbfloat16x2_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_u8)))
 svuint8_t svluti2_lane_u8(svuint8_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_s8)))
 svint8_t svluti2_lane_s8(svint8_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_u16)))
 svuint16_t svluti2_lane_u16(svuint16_t, svuint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_bf16)))
+svbfloat16_t svluti2_lane_bf16(svbfloat16_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_f16)))
 svfloat16_t svluti2_lane_f16(svfloat16_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_s16)))
@@ -8841,12 +10451,16 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s8)))
 svint8_t svluti4_lane_s8(svint8_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_u16)))
 svuint16_t svluti4_lane_u16(svuint16_t, svuint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16)))
+svbfloat16_t svluti4_lane_bf16(svbfloat16_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_f16)))
 svfloat16_t svluti4_lane_f16(svfloat16_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s16)))
 svint16_t svluti4_lane_s16(svint16_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_u16_x2)))
 svuint16_t svluti4_lane_u16_x2(svuint16x2_t, svuint8_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16_x2)))
+svbfloat16_t svluti4_lane_bf16_x2(svbfloat16x2_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_f16_x2)))
 svfloat16_t svluti4_lane_f16_x2(svfloat16x2_t, svuint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s16_x2)))
@@ -8857,6 +10471,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_s8)))
 svint8_t svluti2_lane(svint8_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_u16)))
 svuint16_t svluti2_lane(svuint16_t, svuint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_bf16)))
+svbfloat16_t svluti2_lane(svbfloat16_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_f16)))
 svfloat16_t svluti2_lane(svfloat16_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti2_lane_s16)))
@@ -8867,12 +10483,16 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s8)))
 svint8_t svluti4_lane(svint8_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_u16)))
 svuint16_t svluti4_lane(svuint16_t, svuint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16)))
+svbfloat16_t svluti4_lane(svbfloat16_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_f16)))
 svfloat16_t svluti4_lane(svfloat16_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s16)))
 svint16_t svluti4_lane(svint16_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_u16_x2)))
 svuint16_t svluti4_lane(svuint16x2_t, svuint8_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_bf16_x2)))
+svbfloat16_t svluti4_lane(svbfloat16x2_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_f16_x2)))
 svfloat16_t svluti4_lane(svfloat16x2_t, svuint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svluti4_lane_s16_x2)))
@@ -9237,14 +10857,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbgrp_u64)))
 svuint64_t svbgrp(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbgrp_u16)))
 svuint16_t svbgrp(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_u64)))
-svuint64_t svrax1_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_s64)))
-svint64_t svrax1_s64(svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_u64)))
-svuint64_t svrax1(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrax1_s64)))
-svint64_t svrax1(svint64_t, svint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsm4e_u32)))
 svuint32_t svsm4e_u32(svuint32_t, svuint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsm4ekey_u32)))
@@ -9253,86 +10865,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsm4e_u32)))
 svuint32_t svsm4e(svuint32_t, svuint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsm4ekey_u32)))
 svuint32_t svsm4ekey(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u8)))
-uint8x16_t svaddqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u32)))
-uint32x4_t svaddqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u64)))
-uint64x2_t svaddqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u16)))
-uint16x8_t svaddqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s8)))
-int8x16_t svaddqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s32)))
-int32x4_t svaddqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s64)))
-int64x2_t svaddqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s16)))
-int16x8_t svaddqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f64)))
-float64x2_t svaddqv_f64(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f32)))
-float32x4_t svaddqv_f32(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f16)))
-float16x8_t svaddqv_f16(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u8)))
-uint8x16_t svandqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u32)))
-uint32x4_t svandqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u64)))
-uint64x2_t svandqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u16)))
-uint16x8_t svandqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s8)))
-int8x16_t svandqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s32)))
-int32x4_t svandqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s64)))
-int64x2_t svandqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s16)))
-int16x8_t svandqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u8)))
-uint8x16_t sveorqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u32)))
-uint32x4_t sveorqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u64)))
-uint64x2_t sveorqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u16)))
-uint16x8_t sveorqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s8)))
-int8x16_t sveorqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s32)))
-int32x4_t sveorqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s64)))
-int64x2_t sveorqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s16)))
-int16x8_t sveorqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u8)))
-svuint8_t svextq_u8(svuint8_t, svuint8_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u32)))
-svuint32_t svextq_u32(svuint32_t, svuint32_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u64)))
-svuint64_t svextq_u64(svuint64_t, svuint64_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u16)))
-svuint16_t svextq_u16(svuint16_t, svuint16_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_bf16)))
-svbfloat16_t svextq_bf16(svbfloat16_t, svbfloat16_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s8)))
-svint8_t svextq_s8(svint8_t, svint8_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f64)))
-svfloat64_t svextq_f64(svfloat64_t, svfloat64_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f32)))
-svfloat32_t svextq_f32(svfloat32_t, svfloat32_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f16)))
-svfloat16_t svextq_f16(svfloat16_t, svfloat16_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s32)))
-svint32_t svextq_s32(svint32_t, svint32_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s64)))
-svint64_t svextq_s64(svint64_t, svint64_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_mf8)))
-svmfloat8_t svextq_mf8(svmfloat8_t, svmfloat8_t, int32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s16)))
-svint16_t svextq_s16(svint16_t, svint16_t, int32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_index_u32)))
 svuint32_t svld1q_gather_u64base_index_u32(svbool_t, svuint64_t, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_index_u64)))
@@ -9375,6 +10907,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64bas
 svint32_t svld1q_gather_u64base_offset_s32(svbool_t, svuint64_t, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_s64)))
 svint64_t svld1q_gather_u64base_offset_s64(svbool_t, svuint64_t, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_mf8)))
+svmfloat8_t svld1q_gather_u64base_offset_mf8(svbool_t, svuint64_t, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_s16)))
 svint16_t svld1q_gather_u64base_offset_s16(svbool_t, svuint64_t, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_u8)))
@@ -9399,6 +10933,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64bas
 svint32_t svld1q_gather_u64base_s32(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_s64)))
 svint64_t svld1q_gather_u64base_s64(svbool_t, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_mf8)))
+svmfloat8_t svld1q_gather_u64base_mf8(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_s16)))
 svint16_t svld1q_gather_u64base_s16(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64index_u32)))
@@ -9443,6 +10979,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64off
 svint32_t svld1q_gather_u64offset_s32(svbool_t, int32_t const *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_s64)))
 svint64_t svld1q_gather_u64offset_s64(svbool_t, int64_t const *, svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_mf8)))
+svmfloat8_t svld1q_gather_u64offset_mf8(svbool_t, mfloat8_t const *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_s16)))
 svint16_t svld1q_gather_u64offset_s16(svbool_t, int16_t const *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1udq_u64)))
@@ -9469,282 +11007,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1uwq_vnum_f32)))
 svfloat32_t svld1uwq_vnum_f32(svbool_t, float32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1uwq_vnum_s32)))
 svint32_t svld1uwq_vnum_s32(svbool_t, int32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u8)))
-svuint8x2_t svld2q_u8(svbool_t, uint8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u32)))
-svuint32x2_t svld2q_u32(svbool_t, uint32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u64)))
-svuint64x2_t svld2q_u64(svbool_t, uint64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u16)))
-svuint16x2_t svld2q_u16(svbool_t, uint16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s8)))
-svint8x2_t svld2q_s8(svbool_t, int8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f64)))
-svfloat64x2_t svld2q_f64(svbool_t, float64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f32)))
-svfloat32x2_t svld2q_f32(svbool_t, float32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f16)))
-svfloat16x2_t svld2q_f16(svbool_t, float16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s32)))
-svint32x2_t svld2q_s32(svbool_t, int32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s64)))
-svint64x2_t svld2q_s64(svbool_t, int64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s16)))
-svint16x2_t svld2q_s16(svbool_t, int16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_bf16)))
-svbfloat16x2_t svld2q_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u8)))
-svuint8x2_t svld2q_vnum_u8(svbool_t, uint8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u32)))
-svuint32x2_t svld2q_vnum_u32(svbool_t, uint32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u64)))
-svuint64x2_t svld2q_vnum_u64(svbool_t, uint64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u16)))
-svuint16x2_t svld2q_vnum_u16(svbool_t, uint16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s8)))
-svint8x2_t svld2q_vnum_s8(svbool_t, int8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f64)))
-svfloat64x2_t svld2q_vnum_f64(svbool_t, float64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f32)))
-svfloat32x2_t svld2q_vnum_f32(svbool_t, float32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f16)))
-svfloat16x2_t svld2q_vnum_f16(svbool_t, float16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s32)))
-svint32x2_t svld2q_vnum_s32(svbool_t, int32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s64)))
-svint64x2_t svld2q_vnum_s64(svbool_t, int64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s16)))
-svint16x2_t svld2q_vnum_s16(svbool_t, int16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_bf16)))
-svbfloat16x2_t svld2q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u8)))
-svuint8x3_t svld3q_u8(svbool_t, uint8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u32)))
-svuint32x3_t svld3q_u32(svbool_t, uint32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u64)))
-svuint64x3_t svld3q_u64(svbool_t, uint64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u16)))
-svuint16x3_t svld3q_u16(svbool_t, uint16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s8)))
-svint8x3_t svld3q_s8(svbool_t, int8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f64)))
-svfloat64x3_t svld3q_f64(svbool_t, float64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f32)))
-svfloat32x3_t svld3q_f32(svbool_t, float32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f16)))
-svfloat16x3_t svld3q_f16(svbool_t, float16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s32)))
-svint32x3_t svld3q_s32(svbool_t, int32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s64)))
-svint64x3_t svld3q_s64(svbool_t, int64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s16)))
-svint16x3_t svld3q_s16(svbool_t, int16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_bf16)))
-svbfloat16x3_t svld3q_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u8)))
-svuint8x3_t svld3q_vnum_u8(svbool_t, uint8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u32)))
-svuint32x3_t svld3q_vnum_u32(svbool_t, uint32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u64)))
-svuint64x3_t svld3q_vnum_u64(svbool_t, uint64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u16)))
-svuint16x3_t svld3q_vnum_u16(svbool_t, uint16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s8)))
-svint8x3_t svld3q_vnum_s8(svbool_t, int8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f64)))
-svfloat64x3_t svld3q_vnum_f64(svbool_t, float64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f32)))
-svfloat32x3_t svld3q_vnum_f32(svbool_t, float32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f16)))
-svfloat16x3_t svld3q_vnum_f16(svbool_t, float16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s32)))
-svint32x3_t svld3q_vnum_s32(svbool_t, int32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s64)))
-svint64x3_t svld3q_vnum_s64(svbool_t, int64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s16)))
-svint16x3_t svld3q_vnum_s16(svbool_t, int16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_bf16)))
-svbfloat16x3_t svld3q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u8)))
-svuint8x4_t svld4q_u8(svbool_t, uint8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u32)))
-svuint32x4_t svld4q_u32(svbool_t, uint32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u64)))
-svuint64x4_t svld4q_u64(svbool_t, uint64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u16)))
-svuint16x4_t svld4q_u16(svbool_t, uint16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s8)))
-svint8x4_t svld4q_s8(svbool_t, int8_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f64)))
-svfloat64x4_t svld4q_f64(svbool_t, float64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f32)))
-svfloat32x4_t svld4q_f32(svbool_t, float32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f16)))
-svfloat16x4_t svld4q_f16(svbool_t, float16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s32)))
-svint32x4_t svld4q_s32(svbool_t, int32_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s64)))
-svint64x4_t svld4q_s64(svbool_t, int64_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s16)))
-svint16x4_t svld4q_s16(svbool_t, int16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_bf16)))
-svbfloat16x4_t svld4q_bf16(svbool_t, bfloat16_t const *);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u8)))
-svuint8x4_t svld4q_vnum_u8(svbool_t, uint8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u32)))
-svuint32x4_t svld4q_vnum_u32(svbool_t, uint32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u64)))
-svuint64x4_t svld4q_vnum_u64(svbool_t, uint64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u16)))
-svuint16x4_t svld4q_vnum_u16(svbool_t, uint16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s8)))
-svint8x4_t svld4q_vnum_s8(svbool_t, int8_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f64)))
-svfloat64x4_t svld4q_vnum_f64(svbool_t, float64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f32)))
-svfloat32x4_t svld4q_vnum_f32(svbool_t, float32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f16)))
-svfloat16x4_t svld4q_vnum_f16(svbool_t, float16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s32)))
-svint32x4_t svld4q_vnum_s32(svbool_t, int32_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s64)))
-svint64x4_t svld4q_vnum_s64(svbool_t, int64_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s16)))
-svint16x4_t svld4q_vnum_s16(svbool_t, int16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_bf16)))
-svbfloat16x4_t svld4q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f64)))
-float64x2_t svmaxnmqv_f64(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f32)))
-float32x4_t svmaxnmqv_f32(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f16)))
-float16x8_t svmaxnmqv_f16(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f64)))
-float64x2_t svmaxqv_f64(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f32)))
-float32x4_t svmaxqv_f32(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f16)))
-float16x8_t svmaxqv_f16(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s8)))
-int8x16_t svmaxqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s32)))
-int32x4_t svmaxqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s64)))
-int64x2_t svmaxqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s16)))
-int16x8_t svmaxqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u8)))
-uint8x16_t svmaxqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u32)))
-uint32x4_t svmaxqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u64)))
-uint64x2_t svmaxqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u16)))
-uint16x8_t svmaxqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f64)))
-float64x2_t svminnmqv_f64(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f32)))
-float32x4_t svminnmqv_f32(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f16)))
-float16x8_t svminnmqv_f16(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f64)))
-float64x2_t svminqv_f64(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f32)))
-float32x4_t svminqv_f32(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f16)))
-float16x8_t svminqv_f16(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s8)))
-int8x16_t svminqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s32)))
-int32x4_t svminqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s64)))
-int64x2_t svminqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s16)))
-int16x8_t svminqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u8)))
-uint8x16_t svminqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u32)))
-uint32x4_t svminqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u64)))
-uint64x2_t svminqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u16)))
-uint16x8_t svminqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u8)))
-uint8x16_t svorqv_u8(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u32)))
-uint32x4_t svorqv_u32(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u64)))
-uint64x2_t svorqv_u64(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u16)))
-uint16x8_t svorqv_u16(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s8)))
-int8x16_t svorqv_s8(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s32)))
-int32x4_t svorqv_s32(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s64)))
-int64x2_t svorqv_s64(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s16)))
-int16x8_t svorqv_s16(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8)))
-svbool_t svpmov_u8(svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8)))
-svbool_t svpmov_s8(svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64)))
-svbool_t svpmov_u64(svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64)))
-svbool_t svpmov_s64(svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16)))
-svbool_t svpmov_u16(svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16)))
-svbool_t svpmov_s16(svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32)))
-svbool_t svpmov_u32(svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32)))
-svbool_t svpmov_s32(svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u8)))
-svbool_t svpmov_lane_u8(svuint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s8)))
-svbool_t svpmov_lane_s8(svint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64)))
-svbool_t svpmov_lane_u64(svuint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64)))
-svbool_t svpmov_lane_s64(svint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16)))
-svbool_t svpmov_lane_u16(svuint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16)))
-svbool_t svpmov_lane_s16(svint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32)))
-svbool_t svpmov_lane_u32(svuint32_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32)))
-svbool_t svpmov_lane_s32(svint32_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64_m)))
-svuint64_t svpmov_lane_u64_m(svuint64_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64_m)))
-svint64_t svpmov_lane_s64_m(svint64_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16_m)))
-svuint16_t svpmov_lane_u16_m(svuint16_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16_m)))
-svint16_t svpmov_lane_s16_m(svint16_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32_m)))
-svuint32_t svpmov_lane_u32_m(svuint32_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32_m)))
-svint32_t svpmov_lane_s32_m(svint32_t, svbool_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8_z)))
-svuint8_t svpmov_u8_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8_z)))
-svint8_t svpmov_s8_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64_z)))
-svuint64_t svpmov_u64_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64_z)))
-svint64_t svpmov_s64_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16_z)))
-svuint16_t svpmov_u16_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16_z)))
-svint16_t svpmov_s16_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32_z)))
-svuint32_t svpmov_u32_z(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32_z)))
-svint32_t svpmov_s32_z(svbool_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1dq_u64)))
 void svst1dq_u64(svbool_t, uint64_t *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1dq_f64)))
@@ -9779,6 +11041,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64ba
 void svst1q_scatter_u64base_s32(svbool_t, svuint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_s64)))
 void svst1q_scatter_u64base_s64(svbool_t, svuint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_mf8)))
+void svst1q_scatter_u64base_mf8(svbool_t, svuint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_s16)))
 void svst1q_scatter_u64base_s16(svbool_t, svuint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_index_u32)))
@@ -9823,6 +11087,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64ba
 void svst1q_scatter_u64base_offset_s32(svbool_t, svuint64_t, int64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_s64)))
 void svst1q_scatter_u64base_offset_s64(svbool_t, svuint64_t, int64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_mf8)))
+void svst1q_scatter_u64base_offset_mf8(svbool_t, svuint64_t, int64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_s16)))
 void svst1q_scatter_u64base_offset_s16(svbool_t, svuint64_t, int64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64index_u32)))
@@ -9887,6 +11153,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64of
 void svst1q_scatter_s64offset_s32(svbool_t, int32_t *, svint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_s64)))
 void svst1q_scatter_s64offset_s64(svbool_t, int64_t *, svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_mf8)))
+void svst1q_scatter_s64offset_mf8(svbool_t, mfloat8_t *, svint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_s16)))
 void svst1q_scatter_s64offset_s16(svbool_t, int16_t *, svint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_u8)))
@@ -9911,6 +11179,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64of
 void svst1q_scatter_u64offset_s32(svbool_t, int32_t *, svuint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_s64)))
 void svst1q_scatter_u64offset_s64(svbool_t, int64_t *, svuint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_mf8)))
+void svst1q_scatter_u64offset_mf8(svbool_t, mfloat8_t *, svuint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_s16)))
 void svst1q_scatter_u64offset_s16(svbool_t, int16_t *, svuint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_u32)))
@@ -9925,386 +11195,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_vnum_f32)))
 void svst1wq_vnum_f32(svbool_t, float32_t *, int64_t, svfloat32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_vnum_s32)))
 void svst1wq_vnum_s32(svbool_t, int32_t *, int64_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u8)))
-void svst2q_u8(svbool_t, uint8_t const *, svuint8x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u32)))
-void svst2q_u32(svbool_t, uint32_t const *, svuint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u64)))
-void svst2q_u64(svbool_t, uint64_t const *, svuint64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u16)))
-void svst2q_u16(svbool_t, uint16_t const *, svuint16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s8)))
-void svst2q_s8(svbool_t, int8_t const *, svint8x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f64)))
-void svst2q_f64(svbool_t, float64_t const *, svfloat64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f32)))
-void svst2q_f32(svbool_t, float32_t const *, svfloat32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f16)))
-void svst2q_f16(svbool_t, float16_t const *, svfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s32)))
-void svst2q_s32(svbool_t, int32_t const *, svint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s64)))
-void svst2q_s64(svbool_t, int64_t const *, svint64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s16)))
-void svst2q_s16(svbool_t, int16_t const *, svint16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_bf16)))
-void svst2q_bf16(svbool_t, bfloat16_t const *, svbfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u8)))
-void svst2q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u32)))
-void svst2q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u64)))
-void svst2q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u16)))
-void svst2q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s8)))
-void svst2q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f64)))
-void svst2q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f32)))
-void svst2q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f16)))
-void svst2q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s32)))
-void svst2q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s64)))
-void svst2q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s16)))
-void svst2q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_bf16)))
-void svst2q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u8)))
-void svst3q_u8(svbool_t, uint8_t const *, svuint8x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u32)))
-void svst3q_u32(svbool_t, uint32_t const *, svuint32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u64)))
-void svst3q_u64(svbool_t, uint64_t const *, svuint64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u16)))
-void svst3q_u16(svbool_t, uint16_t const *, svuint16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s8)))
-void svst3q_s8(svbool_t, int8_t const *, svint8x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f64)))
-void svst3q_f64(svbool_t, float64_t const *, svfloat64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f32)))
-void svst3q_f32(svbool_t, float32_t const *, svfloat32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f16)))
-void svst3q_f16(svbool_t, float16_t const *, svfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s32)))
-void svst3q_s32(svbool_t, int32_t const *, svint32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s64)))
-void svst3q_s64(svbool_t, int64_t const *, svint64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s16)))
-void svst3q_s16(svbool_t, int16_t const *, svint16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_bf16)))
-void svst3q_bf16(svbool_t, bfloat16_t const *, svbfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u8)))
-void svst3q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u32)))
-void svst3q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u64)))
-void svst3q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u16)))
-void svst3q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s8)))
-void svst3q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f64)))
-void svst3q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f32)))
-void svst3q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f16)))
-void svst3q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s32)))
-void svst3q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s64)))
-void svst3q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s16)))
-void svst3q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_bf16)))
-void svst3q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x3_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u8)))
-void svst4q_u8(svbool_t, uint8_t const *, svuint8x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u32)))
-void svst4q_u32(svbool_t, uint32_t const *, svuint32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u64)))
-void svst4q_u64(svbool_t, uint64_t const *, svuint64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u16)))
-void svst4q_u16(svbool_t, uint16_t const *, svuint16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s8)))
-void svst4q_s8(svbool_t, int8_t const *, svint8x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f64)))
-void svst4q_f64(svbool_t, float64_t const *, svfloat64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f32)))
-void svst4q_f32(svbool_t, float32_t const *, svfloat32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f16)))
-void svst4q_f16(svbool_t, float16_t const *, svfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s32)))
-void svst4q_s32(svbool_t, int32_t const *, svint32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s64)))
-void svst4q_s64(svbool_t, int64_t const *, svint64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s16)))
-void svst4q_s16(svbool_t, int16_t const *, svint16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_bf16)))
-void svst4q_bf16(svbool_t, bfloat16_t const *, svbfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u8)))
-void svst4q_vnum_u8(svbool_t, uint8_t const *, int64_t, svuint8x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u32)))
-void svst4q_vnum_u32(svbool_t, uint32_t const *, int64_t, svuint32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u64)))
-void svst4q_vnum_u64(svbool_t, uint64_t const *, int64_t, svuint64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u16)))
-void svst4q_vnum_u16(svbool_t, uint16_t const *, int64_t, svuint16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s8)))
-void svst4q_vnum_s8(svbool_t, int8_t const *, int64_t, svint8x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f64)))
-void svst4q_vnum_f64(svbool_t, float64_t const *, int64_t, svfloat64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f32)))
-void svst4q_vnum_f32(svbool_t, float32_t const *, int64_t, svfloat32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f16)))
-void svst4q_vnum_f16(svbool_t, float16_t const *, int64_t, svfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s32)))
-void svst4q_vnum_s32(svbool_t, int32_t const *, int64_t, svint32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s64)))
-void svst4q_vnum_s64(svbool_t, int64_t const *, int64_t, svint64x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s16)))
-void svst4q_vnum_s16(svbool_t, int16_t const *, int64_t, svint16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_bf16)))
-void svst4q_vnum_bf16(svbool_t, bfloat16_t const *, int64_t, svbfloat16x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u8)))
-svuint8_t svtblq_u8(svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u32)))
-svuint32_t svtblq_u32(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u64)))
-svuint64_t svtblq_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u16)))
-svuint16_t svtblq_u16(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_bf16)))
-svbfloat16_t svtblq_bf16(svbfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s8)))
-svint8_t svtblq_s8(svint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f64)))
-svfloat64_t svtblq_f64(svfloat64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f32)))
-svfloat32_t svtblq_f32(svfloat32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f16)))
-svfloat16_t svtblq_f16(svfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s32)))
-svint32_t svtblq_s32(svint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s64)))
-svint64_t svtblq_s64(svint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_mf8)))
-svmfloat8_t svtblq_mf8(svmfloat8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s16)))
-svint16_t svtblq_s16(svint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u8)))
-svuint8_t svtbxq_u8(svuint8_t, svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u32)))
-svuint32_t svtbxq_u32(svuint32_t, svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u64)))
-svuint64_t svtbxq_u64(svuint64_t, svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u16)))
-svuint16_t svtbxq_u16(svuint16_t, svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_bf16)))
-svbfloat16_t svtbxq_bf16(svbfloat16_t, svbfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s8)))
-svint8_t svtbxq_s8(svint8_t, svint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f64)))
-svfloat64_t svtbxq_f64(svfloat64_t, svfloat64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f32)))
-svfloat32_t svtbxq_f32(svfloat32_t, svfloat32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f16)))
-svfloat16_t svtbxq_f16(svfloat16_t, svfloat16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s32)))
-svint32_t svtbxq_s32(svint32_t, svint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s64)))
-svint64_t svtbxq_s64(svint64_t, svint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_mf8)))
-svmfloat8_t svtbxq_mf8(svmfloat8_t, svmfloat8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s16)))
-svint16_t svtbxq_s16(svint16_t, svint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u8)))
-svuint8_t svuzpq1_u8(svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u32)))
-svuint32_t svuzpq1_u32(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u64)))
-svuint64_t svuzpq1_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u16)))
-svuint16_t svuzpq1_u16(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_bf16)))
-svbfloat16_t svuzpq1_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s8)))
-svint8_t svuzpq1_s8(svint8_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f64)))
-svfloat64_t svuzpq1_f64(svfloat64_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f32)))
-svfloat32_t svuzpq1_f32(svfloat32_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f16)))
-svfloat16_t svuzpq1_f16(svfloat16_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s32)))
-svint32_t svuzpq1_s32(svint32_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s64)))
-svint64_t svuzpq1_s64(svint64_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_mf8)))
-svmfloat8_t svuzpq1_mf8(svmfloat8_t, svmfloat8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s16)))
-svint16_t svuzpq1_s16(svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u8)))
-svuint8_t svuzpq2_u8(svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u32)))
-svuint32_t svuzpq2_u32(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u64)))
-svuint64_t svuzpq2_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u16)))
-svuint16_t svuzpq2_u16(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_bf16)))
-svbfloat16_t svuzpq2_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s8)))
-svint8_t svuzpq2_s8(svint8_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f64)))
-svfloat64_t svuzpq2_f64(svfloat64_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f32)))
-svfloat32_t svuzpq2_f32(svfloat32_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f16)))
-svfloat16_t svuzpq2_f16(svfloat16_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s32)))
-svint32_t svuzpq2_s32(svint32_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s64)))
-svint64_t svuzpq2_s64(svint64_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_mf8)))
-svmfloat8_t svuzpq2_mf8(svmfloat8_t, svmfloat8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s16)))
-svint16_t svuzpq2_s16(svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u8)))
-svuint8_t svzipq1_u8(svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u32)))
-svuint32_t svzipq1_u32(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u64)))
-svuint64_t svzipq1_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u16)))
-svuint16_t svzipq1_u16(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_bf16)))
-svbfloat16_t svzipq1_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s8)))
-svint8_t svzipq1_s8(svint8_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f64)))
-svfloat64_t svzipq1_f64(svfloat64_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f32)))
-svfloat32_t svzipq1_f32(svfloat32_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f16)))
-svfloat16_t svzipq1_f16(svfloat16_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s32)))
-svint32_t svzipq1_s32(svint32_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s64)))
-svint64_t svzipq1_s64(svint64_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_mf8)))
-svmfloat8_t svzipq1_mf8(svmfloat8_t, svmfloat8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s16)))
-svint16_t svzipq1_s16(svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u8)))
-svuint8_t svzipq2_u8(svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u32)))
-svuint32_t svzipq2_u32(svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u64)))
-svuint64_t svzipq2_u64(svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u16)))
-svuint16_t svzipq2_u16(svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_bf16)))
-svbfloat16_t svzipq2_bf16(svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s8)))
-svint8_t svzipq2_s8(svint8_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f64)))
-svfloat64_t svzipq2_f64(svfloat64_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f32)))
-svfloat32_t svzipq2_f32(svfloat32_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f16)))
-svfloat16_t svzipq2_f16(svfloat16_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s32)))
-svint32_t svzipq2_s32(svint32_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s64)))
-svint64_t svzipq2_s64(svint64_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_mf8)))
-svmfloat8_t svzipq2_mf8(svmfloat8_t, svmfloat8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s16)))
-svint16_t svzipq2_s16(svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u8)))
-uint8x16_t svaddqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u32)))
-uint32x4_t svaddqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u64)))
-uint64x2_t svaddqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_u16)))
-uint16x8_t svaddqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s8)))
-int8x16_t svaddqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s32)))
-int32x4_t svaddqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s64)))
-int64x2_t svaddqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_s16)))
-int16x8_t svaddqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f64)))
-float64x2_t svaddqv(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f32)))
-float32x4_t svaddqv(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaddqv_f16)))
-float16x8_t svaddqv(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u8)))
-uint8x16_t svandqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u32)))
-uint32x4_t svandqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u64)))
-uint64x2_t svandqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_u16)))
-uint16x8_t svandqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s8)))
-int8x16_t svandqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s32)))
-int32x4_t svandqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s64)))
-int64x2_t svandqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svandqv_s16)))
-int16x8_t svandqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u8)))
-uint8x16_t sveorqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u32)))
-uint32x4_t sveorqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u64)))
-uint64x2_t sveorqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_u16)))
-uint16x8_t sveorqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s8)))
-int8x16_t sveorqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s32)))
-int32x4_t sveorqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s64)))
-int64x2_t sveorqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_sveorqv_s16)))
-int16x8_t sveorqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u8)))
-svuint8_t svextq(svuint8_t, svuint8_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u32)))
-svuint32_t svextq(svuint32_t, svuint32_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u64)))
-svuint64_t svextq(svuint64_t, svuint64_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_u16)))
-svuint16_t svextq(svuint16_t, svuint16_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_bf16)))
-svbfloat16_t svextq(svbfloat16_t, svbfloat16_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s8)))
-svint8_t svextq(svint8_t, svint8_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f64)))
-svfloat64_t svextq(svfloat64_t, svfloat64_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f32)))
-svfloat32_t svextq(svfloat32_t, svfloat32_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_f16)))
-svfloat16_t svextq(svfloat16_t, svfloat16_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s32)))
-svint32_t svextq(svint32_t, svint32_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s64)))
-svint64_t svextq(svint64_t, svint64_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_mf8)))
-svmfloat8_t svextq(svmfloat8_t, svmfloat8_t, int32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svextq_s16)))
-svint16_t svextq(svint16_t, svint16_t, int32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_index_u32)))
 svuint32_t svld1q_gather_index_u32(svbool_t, svuint64_t, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_index_u64)))
@@ -10347,6 +11237,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64ba
 svint32_t svld1q_gather_offset_s32(svbool_t, svuint64_t, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_s64)))
 svint64_t svld1q_gather_offset_s64(svbool_t, svuint64_t, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_mf8)))
+svmfloat8_t svld1q_gather_offset_mf8(svbool_t, svuint64_t, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_offset_s16)))
 svint16_t svld1q_gather_offset_s16(svbool_t, svuint64_t, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_u8)))
@@ -10371,6 +11263,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64ba
 svint32_t svld1q_gather_s32(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_s64)))
 svint64_t svld1q_gather_s64(svbool_t, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_mf8)))
+svmfloat8_t svld1q_gather_mf8(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64base_s16)))
 svint16_t svld1q_gather_s16(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64index_u32)))
@@ -10415,6 +11309,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64of
 svint32_t svld1q_gather_offset(svbool_t, int32_t const *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_s64)))
 svint64_t svld1q_gather_offset(svbool_t, int64_t const *, svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_mf8)))
+svmfloat8_t svld1q_gather_offset(svbool_t, mfloat8_t const *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1q_gather_u64offset_s16)))
 svint16_t svld1q_gather_offset(svbool_t, int16_t const *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1udq_u64)))
@@ -10441,266 +11337,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1uwq_vnum_f32))
 svfloat32_t svld1uwq_vnum(svbool_t, float32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1uwq_vnum_s32)))
 svint32_t svld1uwq_vnum(svbool_t, int32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u8)))
-svuint8x2_t svld2q(svbool_t, uint8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u32)))
-svuint32x2_t svld2q(svbool_t, uint32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u64)))
-svuint64x2_t svld2q(svbool_t, uint64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_u16)))
-svuint16x2_t svld2q(svbool_t, uint16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s8)))
-svint8x2_t svld2q(svbool_t, int8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f64)))
-svfloat64x2_t svld2q(svbool_t, float64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f32)))
-svfloat32x2_t svld2q(svbool_t, float32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_f16)))
-svfloat16x2_t svld2q(svbool_t, float16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s32)))
-svint32x2_t svld2q(svbool_t, int32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s64)))
-svint64x2_t svld2q(svbool_t, int64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_s16)))
-svint16x2_t svld2q(svbool_t, int16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_bf16)))
-svbfloat16x2_t svld2q(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u8)))
-svuint8x2_t svld2q_vnum(svbool_t, uint8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u32)))
-svuint32x2_t svld2q_vnum(svbool_t, uint32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u64)))
-svuint64x2_t svld2q_vnum(svbool_t, uint64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_u16)))
-svuint16x2_t svld2q_vnum(svbool_t, uint16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s8)))
-svint8x2_t svld2q_vnum(svbool_t, int8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f64)))
-svfloat64x2_t svld2q_vnum(svbool_t, float64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f32)))
-svfloat32x2_t svld2q_vnum(svbool_t, float32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_f16)))
-svfloat16x2_t svld2q_vnum(svbool_t, float16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s32)))
-svint32x2_t svld2q_vnum(svbool_t, int32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s64)))
-svint64x2_t svld2q_vnum(svbool_t, int64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_s16)))
-svint16x2_t svld2q_vnum(svbool_t, int16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2q_vnum_bf16)))
-svbfloat16x2_t svld2q_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u8)))
-svuint8x3_t svld3q(svbool_t, uint8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u32)))
-svuint32x3_t svld3q(svbool_t, uint32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u64)))
-svuint64x3_t svld3q(svbool_t, uint64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_u16)))
-svuint16x3_t svld3q(svbool_t, uint16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s8)))
-svint8x3_t svld3q(svbool_t, int8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f64)))
-svfloat64x3_t svld3q(svbool_t, float64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f32)))
-svfloat32x3_t svld3q(svbool_t, float32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_f16)))
-svfloat16x3_t svld3q(svbool_t, float16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s32)))
-svint32x3_t svld3q(svbool_t, int32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s64)))
-svint64x3_t svld3q(svbool_t, int64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_s16)))
-svint16x3_t svld3q(svbool_t, int16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_bf16)))
-svbfloat16x3_t svld3q(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u8)))
-svuint8x3_t svld3q_vnum(svbool_t, uint8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u32)))
-svuint32x3_t svld3q_vnum(svbool_t, uint32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u64)))
-svuint64x3_t svld3q_vnum(svbool_t, uint64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_u16)))
-svuint16x3_t svld3q_vnum(svbool_t, uint16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s8)))
-svint8x3_t svld3q_vnum(svbool_t, int8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f64)))
-svfloat64x3_t svld3q_vnum(svbool_t, float64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f32)))
-svfloat32x3_t svld3q_vnum(svbool_t, float32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_f16)))
-svfloat16x3_t svld3q_vnum(svbool_t, float16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s32)))
-svint32x3_t svld3q_vnum(svbool_t, int32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s64)))
-svint64x3_t svld3q_vnum(svbool_t, int64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_s16)))
-svint16x3_t svld3q_vnum(svbool_t, int16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3q_vnum_bf16)))
-svbfloat16x3_t svld3q_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u8)))
-svuint8x4_t svld4q(svbool_t, uint8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u32)))
-svuint32x4_t svld4q(svbool_t, uint32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u64)))
-svuint64x4_t svld4q(svbool_t, uint64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_u16)))
-svuint16x4_t svld4q(svbool_t, uint16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s8)))
-svint8x4_t svld4q(svbool_t, int8_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f64)))
-svfloat64x4_t svld4q(svbool_t, float64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f32)))
-svfloat32x4_t svld4q(svbool_t, float32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_f16)))
-svfloat16x4_t svld4q(svbool_t, float16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s32)))
-svint32x4_t svld4q(svbool_t, int32_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s64)))
-svint64x4_t svld4q(svbool_t, int64_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_s16)))
-svint16x4_t svld4q(svbool_t, int16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_bf16)))
-svbfloat16x4_t svld4q(svbool_t, bfloat16_t const *);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u8)))
-svuint8x4_t svld4q_vnum(svbool_t, uint8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u32)))
-svuint32x4_t svld4q_vnum(svbool_t, uint32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u64)))
-svuint64x4_t svld4q_vnum(svbool_t, uint64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_u16)))
-svuint16x4_t svld4q_vnum(svbool_t, uint16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s8)))
-svint8x4_t svld4q_vnum(svbool_t, int8_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f64)))
-svfloat64x4_t svld4q_vnum(svbool_t, float64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f32)))
-svfloat32x4_t svld4q_vnum(svbool_t, float32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_f16)))
-svfloat16x4_t svld4q_vnum(svbool_t, float16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s32)))
-svint32x4_t svld4q_vnum(svbool_t, int32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s64)))
-svint64x4_t svld4q_vnum(svbool_t, int64_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_s16)))
-svint16x4_t svld4q_vnum(svbool_t, int16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4q_vnum_bf16)))
-svbfloat16x4_t svld4q_vnum(svbool_t, bfloat16_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f64)))
-float64x2_t svmaxnmqv(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f32)))
-float32x4_t svmaxnmqv(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxnmqv_f16)))
-float16x8_t svmaxnmqv(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f64)))
-float64x2_t svmaxqv(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f32)))
-float32x4_t svmaxqv(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_f16)))
-float16x8_t svmaxqv(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s8)))
-int8x16_t svmaxqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s32)))
-int32x4_t svmaxqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s64)))
-int64x2_t svmaxqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_s16)))
-int16x8_t svmaxqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u8)))
-uint8x16_t svmaxqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u32)))
-uint32x4_t svmaxqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u64)))
-uint64x2_t svmaxqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svmaxqv_u16)))
-uint16x8_t svmaxqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f64)))
-float64x2_t svminnmqv(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f32)))
-float32x4_t svminnmqv(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminnmqv_f16)))
-float16x8_t svminnmqv(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f64)))
-float64x2_t svminqv(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f32)))
-float32x4_t svminqv(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_f16)))
-float16x8_t svminqv(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s8)))
-int8x16_t svminqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s32)))
-int32x4_t svminqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s64)))
-int64x2_t svminqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_s16)))
-int16x8_t svminqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u8)))
-uint8x16_t svminqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u32)))
-uint32x4_t svminqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u64)))
-uint64x2_t svminqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svminqv_u16)))
-uint16x8_t svminqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u8)))
-uint8x16_t svorqv(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u32)))
-uint32x4_t svorqv(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u64)))
-uint64x2_t svorqv(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_u16)))
-uint16x8_t svorqv(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s8)))
-int8x16_t svorqv(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s32)))
-int32x4_t svorqv(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s64)))
-int64x2_t svorqv(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svorqv_s16)))
-int16x8_t svorqv(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u8)))
-svbool_t svpmov(svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s8)))
-svbool_t svpmov(svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u64)))
-svbool_t svpmov(svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s64)))
-svbool_t svpmov(svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u16)))
-svbool_t svpmov(svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s16)))
-svbool_t svpmov(svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_u32)))
-svbool_t svpmov(svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_s32)))
-svbool_t svpmov(svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u8)))
-svbool_t svpmov_lane(svuint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s8)))
-svbool_t svpmov_lane(svint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64)))
-svbool_t svpmov_lane(svuint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64)))
-svbool_t svpmov_lane(svint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16)))
-svbool_t svpmov_lane(svuint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16)))
-svbool_t svpmov_lane(svint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32)))
-svbool_t svpmov_lane(svuint32_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32)))
-svbool_t svpmov_lane(svint32_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u64_m)))
-svuint64_t svpmov_lane_m(svuint64_t, svbool_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s64_m)))
-svint64_t svpmov_lane_m(svint64_t, svbool_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u16_m)))
-svuint16_t svpmov_lane_m(svuint16_t, svbool_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s16_m)))
-svint16_t svpmov_lane_m(svint16_t, svbool_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_u32_m)))
-svuint32_t svpmov_lane_m(svuint32_t, svbool_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpmov_lane_s32_m)))
-svint32_t svpmov_lane_m(svint32_t, svbool_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1dq_u64)))
 void svst1dq(svbool_t, uint64_t *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1dq_f64)))
@@ -10735,6 +11371,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64b
 void svst1q_scatter(svbool_t, svuint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_s64)))
 void svst1q_scatter(svbool_t, svuint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_mf8)))
+void svst1q_scatter(svbool_t, svuint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_s16)))
 void svst1q_scatter(svbool_t, svuint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_index_u32)))
@@ -10779,6 +11417,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64b
 void svst1q_scatter_offset(svbool_t, svuint64_t, int64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_s64)))
 void svst1q_scatter_offset(svbool_t, svuint64_t, int64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_mf8)))
+void svst1q_scatter_offset(svbool_t, svuint64_t, int64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64base_offset_s16)))
 void svst1q_scatter_offset(svbool_t, svuint64_t, int64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64index_u32)))
@@ -10843,6 +11483,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64o
 void svst1q_scatter_offset(svbool_t, int32_t *, svint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_s64)))
 void svst1q_scatter_offset(svbool_t, int64_t *, svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_mf8)))
+void svst1q_scatter_offset(svbool_t, mfloat8_t *, svint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_s64offset_s16)))
 void svst1q_scatter_offset(svbool_t, int16_t *, svint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_u8)))
@@ -10867,6 +11509,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64o
 void svst1q_scatter_offset(svbool_t, int32_t *, svuint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_s64)))
 void svst1q_scatter_offset(svbool_t, int64_t *, svuint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_mf8)))
+void svst1q_scatter_offset(svbool_t, mfloat8_t *, svuint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1q_scatter_u64offset_s16)))
 void svst1q_scatter_offset(svbool_t, int16_t *, svuint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_u32)))
@@ -10881,508 +11525,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_vnum_f32)))
 void svst1wq_vnum(svbool_t, float32_t *, int64_t, svfloat32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1wq_vnum_s32)))
 void svst1wq_vnum(svbool_t, int32_t *, int64_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u8)))
-void svst2q(svbool_t, uint8_t const *, svuint8x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u32)))
-void svst2q(svbool_t, uint32_t const *, svuint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u64)))
-void svst2q(svbool_t, uint64_t const *, svuint64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_u16)))
-void svst2q(svbool_t, uint16_t const *, svuint16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s8)))
-void svst2q(svbool_t, int8_t const *, svint8x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f64)))
-void svst2q(svbool_t, float64_t const *, svfloat64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f32)))
-void svst2q(svbool_t, float32_t const *, svfloat32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_f16)))
-void svst2q(svbool_t, float16_t const *, svfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s32)))
-void svst2q(svbool_t, int32_t const *, svint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s64)))
-void svst2q(svbool_t, int64_t const *, svint64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_s16)))
-void svst2q(svbool_t, int16_t const *, svint16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_bf16)))
-void svst2q(svbool_t, bfloat16_t const *, svbfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u8)))
-void svst2q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u32)))
-void svst2q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u64)))
-void svst2q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_u16)))
-void svst2q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s8)))
-void svst2q_vnum(svbool_t, int8_t const *, int64_t, svint8x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f64)))
-void svst2q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f32)))
-void svst2q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_f16)))
-void svst2q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s32)))
-void svst2q_vnum(svbool_t, int32_t const *, int64_t, svint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s64)))
-void svst2q_vnum(svbool_t, int64_t const *, int64_t, svint64x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_s16)))
-void svst2q_vnum(svbool_t, int16_t const *, int64_t, svint16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2q_vnum_bf16)))
-void svst2q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u8)))
-void svst3q(svbool_t, uint8_t const *, svuint8x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u32)))
-void svst3q(svbool_t, uint32_t const *, svuint32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u64)))
-void svst3q(svbool_t, uint64_t const *, svuint64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_u16)))
-void svst3q(svbool_t, uint16_t const *, svuint16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s8)))
-void svst3q(svbool_t, int8_t const *, svint8x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f64)))
-void svst3q(svbool_t, float64_t const *, svfloat64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f32)))
-void svst3q(svbool_t, float32_t const *, svfloat32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_f16)))
-void svst3q(svbool_t, float16_t const *, svfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s32)))
-void svst3q(svbool_t, int32_t const *, svint32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s64)))
-void svst3q(svbool_t, int64_t const *, svint64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_s16)))
-void svst3q(svbool_t, int16_t const *, svint16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_bf16)))
-void svst3q(svbool_t, bfloat16_t const *, svbfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u8)))
-void svst3q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u32)))
-void svst3q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u64)))
-void svst3q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_u16)))
-void svst3q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s8)))
-void svst3q_vnum(svbool_t, int8_t const *, int64_t, svint8x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f64)))
-void svst3q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f32)))
-void svst3q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_f16)))
-void svst3q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s32)))
-void svst3q_vnum(svbool_t, int32_t const *, int64_t, svint32x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s64)))
-void svst3q_vnum(svbool_t, int64_t const *, int64_t, svint64x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_s16)))
-void svst3q_vnum(svbool_t, int16_t const *, int64_t, svint16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3q_vnum_bf16)))
-void svst3q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x3_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u8)))
-void svst4q(svbool_t, uint8_t const *, svuint8x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u32)))
-void svst4q(svbool_t, uint32_t const *, svuint32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u64)))
-void svst4q(svbool_t, uint64_t const *, svuint64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_u16)))
-void svst4q(svbool_t, uint16_t const *, svuint16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s8)))
-void svst4q(svbool_t, int8_t const *, svint8x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f64)))
-void svst4q(svbool_t, float64_t const *, svfloat64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f32)))
-void svst4q(svbool_t, float32_t const *, svfloat32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_f16)))
-void svst4q(svbool_t, float16_t const *, svfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s32)))
-void svst4q(svbool_t, int32_t const *, svint32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s64)))
-void svst4q(svbool_t, int64_t const *, svint64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_s16)))
-void svst4q(svbool_t, int16_t const *, svint16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_bf16)))
-void svst4q(svbool_t, bfloat16_t const *, svbfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u8)))
-void svst4q_vnum(svbool_t, uint8_t const *, int64_t, svuint8x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u32)))
-void svst4q_vnum(svbool_t, uint32_t const *, int64_t, svuint32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u64)))
-void svst4q_vnum(svbool_t, uint64_t const *, int64_t, svuint64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_u16)))
-void svst4q_vnum(svbool_t, uint16_t const *, int64_t, svuint16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s8)))
-void svst4q_vnum(svbool_t, int8_t const *, int64_t, svint8x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f64)))
-void svst4q_vnum(svbool_t, float64_t const *, int64_t, svfloat64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f32)))
-void svst4q_vnum(svbool_t, float32_t const *, int64_t, svfloat32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_f16)))
-void svst4q_vnum(svbool_t, float16_t const *, int64_t, svfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s32)))
-void svst4q_vnum(svbool_t, int32_t const *, int64_t, svint32x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s64)))
-void svst4q_vnum(svbool_t, int64_t const *, int64_t, svint64x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_s16)))
-void svst4q_vnum(svbool_t, int16_t const *, int64_t, svint16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4q_vnum_bf16)))
-void svst4q_vnum(svbool_t, bfloat16_t const *, int64_t, svbfloat16x4_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u8)))
-svuint8_t svtblq(svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u32)))
-svuint32_t svtblq(svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u64)))
-svuint64_t svtblq(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_u16)))
-svuint16_t svtblq(svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_bf16)))
-svbfloat16_t svtblq(svbfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s8)))
-svint8_t svtblq(svint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f64)))
-svfloat64_t svtblq(svfloat64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f32)))
-svfloat32_t svtblq(svfloat32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_f16)))
-svfloat16_t svtblq(svfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s32)))
-svint32_t svtblq(svint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s64)))
-svint64_t svtblq(svint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_mf8)))
-svmfloat8_t svtblq(svmfloat8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtblq_s16)))
-svint16_t svtblq(svint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u8)))
-svuint8_t svtbxq(svuint8_t, svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u32)))
-svuint32_t svtbxq(svuint32_t, svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u64)))
-svuint64_t svtbxq(svuint64_t, svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_u16)))
-svuint16_t svtbxq(svuint16_t, svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_bf16)))
-svbfloat16_t svtbxq(svbfloat16_t, svbfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s8)))
-svint8_t svtbxq(svint8_t, svint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f64)))
-svfloat64_t svtbxq(svfloat64_t, svfloat64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f32)))
-svfloat32_t svtbxq(svfloat32_t, svfloat32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_f16)))
-svfloat16_t svtbxq(svfloat16_t, svfloat16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s32)))
-svint32_t svtbxq(svint32_t, svint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s64)))
-svint64_t svtbxq(svint64_t, svint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_mf8)))
-svmfloat8_t svtbxq(svmfloat8_t, svmfloat8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbxq_s16)))
-svint16_t svtbxq(svint16_t, svint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u8)))
-svuint8_t svuzpq1(svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u32)))
-svuint32_t svuzpq1(svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u64)))
-svuint64_t svuzpq1(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_u16)))
-svuint16_t svuzpq1(svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_bf16)))
-svbfloat16_t svuzpq1(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s8)))
-svint8_t svuzpq1(svint8_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f64)))
-svfloat64_t svuzpq1(svfloat64_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f32)))
-svfloat32_t svuzpq1(svfloat32_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_f16)))
-svfloat16_t svuzpq1(svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s32)))
-svint32_t svuzpq1(svint32_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s64)))
-svint64_t svuzpq1(svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_mf8)))
-svmfloat8_t svuzpq1(svmfloat8_t, svmfloat8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq1_s16)))
-svint16_t svuzpq1(svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u8)))
-svuint8_t svuzpq2(svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u32)))
-svuint32_t svuzpq2(svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u64)))
-svuint64_t svuzpq2(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_u16)))
-svuint16_t svuzpq2(svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_bf16)))
-svbfloat16_t svuzpq2(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s8)))
-svint8_t svuzpq2(svint8_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f64)))
-svfloat64_t svuzpq2(svfloat64_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f32)))
-svfloat32_t svuzpq2(svfloat32_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_f16)))
-svfloat16_t svuzpq2(svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s32)))
-svint32_t svuzpq2(svint32_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s64)))
-svint64_t svuzpq2(svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_mf8)))
-svmfloat8_t svuzpq2(svmfloat8_t, svmfloat8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzpq2_s16)))
-svint16_t svuzpq2(svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u8)))
-svuint8_t svzipq1(svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u32)))
-svuint32_t svzipq1(svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u64)))
-svuint64_t svzipq1(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_u16)))
-svuint16_t svzipq1(svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_bf16)))
-svbfloat16_t svzipq1(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s8)))
-svint8_t svzipq1(svint8_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f64)))
-svfloat64_t svzipq1(svfloat64_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f32)))
-svfloat32_t svzipq1(svfloat32_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_f16)))
-svfloat16_t svzipq1(svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s32)))
-svint32_t svzipq1(svint32_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s64)))
-svint64_t svzipq1(svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_mf8)))
-svmfloat8_t svzipq1(svmfloat8_t, svmfloat8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq1_s16)))
-svint16_t svzipq1(svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u8)))
-svuint8_t svzipq2(svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u32)))
-svuint32_t svzipq2(svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u64)))
-svuint64_t svzipq2(svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_u16)))
-svuint16_t svzipq2(svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_bf16)))
-svbfloat16_t svzipq2(svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s8)))
-svint8_t svzipq2(svint8_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f64)))
-svfloat64_t svzipq2(svfloat64_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f32)))
-svfloat32_t svzipq2(svfloat32_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_f16)))
-svfloat16_t svzipq2(svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s32)))
-svint32_t svzipq2(svint32_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s64)))
-svint64_t svzipq2(svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_mf8)))
-svmfloat8_t svzipq2(svmfloat8_t, svmfloat8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzipq2_s16)))
-svint16_t svzipq2(svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_bf16)))
-svbfloat16_t svdup_laneq_bf16(svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_bf16)))
-svbfloat16_t svdup_laneq(svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s8)))
-svint8_t svclamp_s8(svint8_t, svint8_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s32)))
-svint32_t svclamp_s32(svint32_t, svint32_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s64)))
-svint64_t svclamp_s64(svint64_t, svint64_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s16)))
-svint16_t svclamp_s16(svint16_t, svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u8)))
-svuint8_t svclamp_u8(svuint8_t, svuint8_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u32)))
-svuint32_t svclamp_u32(svuint32_t, svuint32_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u64)))
-svuint64_t svclamp_u64(svuint64_t, svuint64_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u16)))
-svuint16_t svclamp_u16(svuint16_t, svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b16)))
-svbool_t svpsel_lane_b16(svbool_t, svbool_t, uint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b32)))
-svbool_t svpsel_lane_b32(svbool_t, svbool_t, uint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b64)))
-svbool_t svpsel_lane_b64(svbool_t, svbool_t, uint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svpsel_lane_b8)))
-svbool_t svpsel_lane_b8(svbool_t, svbool_t, uint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_m)))
-svuint8_t svrevd_u8_m(svuint8_t, svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_m)))
-svuint32_t svrevd_u32_m(svuint32_t, svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_m)))
-svuint64_t svrevd_u64_m(svuint64_t, svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_m)))
-svuint16_t svrevd_u16_m(svuint16_t, svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_m)))
-svbfloat16_t svrevd_bf16_m(svbfloat16_t, svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_m)))
-svint8_t svrevd_s8_m(svint8_t, svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_m)))
-svfloat64_t svrevd_f64_m(svfloat64_t, svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_m)))
-svfloat32_t svrevd_f32_m(svfloat32_t, svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_m)))
-svfloat16_t svrevd_f16_m(svfloat16_t, svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_m)))
-svint32_t svrevd_s32_m(svint32_t, svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_m)))
-svint64_t svrevd_s64_m(svint64_t, svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_m)))
-svint16_t svrevd_s16_m(svint16_t, svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_x)))
-svuint8_t svrevd_u8_x(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_x)))
-svuint32_t svrevd_u32_x(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_x)))
-svuint64_t svrevd_u64_x(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_x)))
-svuint16_t svrevd_u16_x(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_x)))
-svbfloat16_t svrevd_bf16_x(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_x)))
-svint8_t svrevd_s8_x(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_x)))
-svfloat64_t svrevd_f64_x(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_x)))
-svfloat32_t svrevd_f32_x(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_x)))
-svfloat16_t svrevd_f16_x(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_x)))
-svint32_t svrevd_s32_x(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_x)))
-svint64_t svrevd_s64_x(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_x)))
-svint16_t svrevd_s16_x(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_z)))
-svuint8_t svrevd_u8_z(svbool_t, svuint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_z)))
-svuint32_t svrevd_u32_z(svbool_t, svuint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_z)))
-svuint64_t svrevd_u64_z(svbool_t, svuint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_z)))
-svuint16_t svrevd_u16_z(svbool_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_z)))
-svbfloat16_t svrevd_bf16_z(svbool_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_z)))
-svint8_t svrevd_s8_z(svbool_t, svint8_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_z)))
-svfloat64_t svrevd_f64_z(svbool_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_z)))
-svfloat32_t svrevd_f32_z(svbool_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_z)))
-svfloat16_t svrevd_f16_z(svbool_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_z)))
-svint32_t svrevd_s32_z(svbool_t, svint32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_z)))
-svint64_t svrevd_s64_z(svbool_t, svint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_z)))
-svint16_t svrevd_s16_z(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s8)))
-svint8_t svclamp(svint8_t, svint8_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s32)))
-svint32_t svclamp(svint32_t, svint32_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s64)))
-svint64_t svclamp(svint64_t, svint64_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_s16)))
-svint16_t svclamp(svint16_t, svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u8)))
-svuint8_t svclamp(svuint8_t, svuint8_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u32)))
-svuint32_t svclamp(svuint32_t, svuint32_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u64)))
-svuint64_t svclamp(svuint64_t, svuint64_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_u16)))
-svuint16_t svclamp(svuint16_t, svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_m)))
-svuint8_t svrevd_m(svuint8_t, svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_m)))
-svuint32_t svrevd_m(svuint32_t, svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_m)))
-svuint64_t svrevd_m(svuint64_t, svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_m)))
-svuint16_t svrevd_m(svuint16_t, svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_m)))
-svbfloat16_t svrevd_m(svbfloat16_t, svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_m)))
-svint8_t svrevd_m(svint8_t, svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_m)))
-svfloat64_t svrevd_m(svfloat64_t, svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_m)))
-svfloat32_t svrevd_m(svfloat32_t, svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_m)))
-svfloat16_t svrevd_m(svfloat16_t, svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_m)))
-svint32_t svrevd_m(svint32_t, svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_m)))
-svint64_t svrevd_m(svint64_t, svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_m)))
-svint16_t svrevd_m(svint16_t, svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_x)))
-svuint8_t svrevd_x(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_x)))
-svuint32_t svrevd_x(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_x)))
-svuint64_t svrevd_x(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_x)))
-svuint16_t svrevd_x(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_x)))
-svbfloat16_t svrevd_x(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_x)))
-svint8_t svrevd_x(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_x)))
-svfloat64_t svrevd_x(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_x)))
-svfloat32_t svrevd_x(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_x)))
-svfloat16_t svrevd_x(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_x)))
-svint32_t svrevd_x(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_x)))
-svint64_t svrevd_x(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_x)))
-svint16_t svrevd_x(svbool_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u8_z)))
-svuint8_t svrevd_z(svbool_t, svuint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u32_z)))
-svuint32_t svrevd_z(svbool_t, svuint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u64_z)))
-svuint64_t svrevd_z(svbool_t, svuint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_u16_z)))
-svuint16_t svrevd_z(svbool_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_bf16_z)))
-svbfloat16_t svrevd_z(svbool_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s8_z)))
-svint8_t svrevd_z(svbool_t, svint8_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f64_z)))
-svfloat64_t svrevd_z(svbool_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f32_z)))
-svfloat32_t svrevd_z(svbool_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_f16_z)))
-svfloat16_t svrevd_z(svbool_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s32_z)))
-svint32_t svrevd_z(svbool_t, svint32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s64_z)))
-svint64_t svrevd_z(svbool_t, svint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrevd_s16_z)))
-svint16_t svrevd_z(svbool_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_f32)))
-svfloat32_t svbfmlslb_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_lane_f32)))
-svfloat32_t svbfmlslb_lane_f32(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_f32)))
-svfloat32_t svbfmlslt_f32(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_lane_f32)))
-svfloat32_t svbfmlslt_lane_f32(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f64)))
-svfloat64_t svclamp_f64(svfloat64_t, svfloat64_t, svfloat64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f32)))
-svfloat32_t svclamp_f32(svfloat32_t, svfloat32_t, svfloat32_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f16)))
-svfloat16_t svclamp_f16(svfloat16_t, svfloat16_t, svfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcntp_c8)))
 uint64_t svcntp_c8(svcount_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcntp_c32)))
@@ -11391,30 +11533,12 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcntp_c64)))
 uint64_t svcntp_c64(svcount_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcntp_c16)))
 uint64_t svcntp_c16(svcount_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_b)))
-svboolx2_t svcreate2_b(svbool_t, svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_b)))
-svboolx4_t svcreate4_b(svbool_t, svbool_t, svbool_t, svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_f32_f16)))
-svfloat32_t svdot_f32_f16(svfloat32_t, svfloat16_t, svfloat16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_s32_s16)))
-svint32_t svdot_s32_s16(svint32_t, svint16_t, svint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_u32_u16)))
-svuint32_t svdot_u32_u16(svuint32_t, svuint16_t, svuint16_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_f32_f16)))
-svfloat32_t svdot_lane_f32_f16(svfloat32_t, svfloat16_t, svfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_s32_s16)))
-svint32_t svdot_lane_s32_s16(svint32_t, svint16_t, svint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_u32_u16)))
-svuint32_t svdot_lane_u32_u16(svuint32_t, svuint16_t, svuint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_b)))
-svbool_t svget2_b(svboolx2_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_b)))
-svbool_t svget4_b(svboolx4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u8_x2)))
 svuint8x2_t svld1_u8_x2(svcount_t, uint8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8_x2)))
 svint8x2_t svld1_s8_x2(svcount_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8_x2)))
+svmfloat8x2_t svld1_mf8_x2(svcount_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64_x2)))
 svuint64x2_t svld1_u64_x2(svcount_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64_x2)))
@@ -11439,6 +11563,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u8_x4)))
 svuint8x4_t svld1_u8_x4(svcount_t, uint8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8_x4)))
 svint8x4_t svld1_s8_x4(svcount_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8_x4)))
+svmfloat8x4_t svld1_mf8_x4(svcount_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64_x4)))
 svuint64x4_t svld1_u64_x4(svcount_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64_x4)))
@@ -11463,6 +11589,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8_x2)))
 svuint8x2_t svld1_vnum_u8_x2(svcount_t, uint8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8_x2)))
 svint8x2_t svld1_vnum_s8_x2(svcount_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8_x2)))
+svmfloat8x2_t svld1_vnum_mf8_x2(svcount_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64_x2)))
 svuint64x2_t svld1_vnum_u64_x2(svcount_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64_x2)))
@@ -11487,6 +11615,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8_x4)))
 svuint8x4_t svld1_vnum_u8_x4(svcount_t, uint8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8_x4)))
 svint8x4_t svld1_vnum_s8_x4(svcount_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8_x4)))
+svmfloat8x4_t svld1_vnum_mf8_x4(svcount_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64_x4)))
 svuint64x4_t svld1_vnum_u64_x4(svcount_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64_x4)))
@@ -11511,6 +11641,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8_x2)))
 svuint8x2_t svldnt1_u8_x2(svcount_t, uint8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8_x2)))
 svint8x2_t svldnt1_s8_x2(svcount_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8_x2)))
+svmfloat8x2_t svldnt1_mf8_x2(svcount_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64_x2)))
 svuint64x2_t svldnt1_u64_x2(svcount_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64_x2)))
@@ -11535,6 +11667,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8_x4)))
 svuint8x4_t svldnt1_u8_x4(svcount_t, uint8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8_x4)))
 svint8x4_t svldnt1_s8_x4(svcount_t, int8_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8_x4)))
+svmfloat8x4_t svldnt1_mf8_x4(svcount_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64_x4)))
 svuint64x4_t svldnt1_u64_x4(svcount_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64_x4)))
@@ -11559,6 +11693,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8_x2))
 svuint8x2_t svldnt1_vnum_u8_x2(svcount_t, uint8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8_x2)))
 svint8x2_t svldnt1_vnum_s8_x2(svcount_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8_x2)))
+svmfloat8x2_t svldnt1_vnum_mf8_x2(svcount_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64_x2)))
 svuint64x2_t svldnt1_vnum_u64_x2(svcount_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64_x2)))
@@ -11583,6 +11719,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8_x4))
 svuint8x4_t svldnt1_vnum_u8_x4(svcount_t, uint8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8_x4)))
 svint8x4_t svldnt1_vnum_s8_x4(svcount_t, int8_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8_x4)))
+svmfloat8x4_t svldnt1_vnum_mf8_x4(svcount_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64_x4)))
 svuint64x4_t svldnt1_vnum_u64_x4(svcount_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64_x4)))
@@ -11637,30 +11775,16 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svptrue_c64)))
 svcount_t svptrue_c64(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svptrue_c16)))
 svcount_t svptrue_c16(void);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_s16_s32_x2)))
-svint16_t svqcvtn_s16_s32_x2(svint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_s32_x2)))
-svuint16_t svqcvtn_u16_s32_x2(svint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_u32_x2)))
-svuint16_t svqcvtn_u16_u32_x2(svuint32x2_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_s16_s32_x2)))
-svint16_t svqrshrn_n_s16_s32_x2(svint32x2_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_u16_u32_x2)))
-svuint16_t svqrshrn_n_u16_u32_x2(svuint32x2_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrun_n_u16_s32_x2)))
-svuint16_t svqrshrun_n_u16_s32_x2(svint32x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svreinterpret_b)))
 svbool_t svreinterpret_b(svcount_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svreinterpret_c)))
 svcount_t svreinterpret_c(svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_b)))
-svboolx2_t svset2_b(svboolx2_t, uint64_t, svbool_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_b)))
-svboolx4_t svset4_b(svboolx4_t, uint64_t, svbool_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u8_x2)))
 void svst1_u8_x2(svcount_t, uint8_t *, svuint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8_x2)))
 void svst1_s8_x2(svcount_t, int8_t *, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8_x2)))
+void svst1_mf8_x2(svcount_t, mfloat8_t *, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64_x2)))
 void svst1_u64_x2(svcount_t, uint64_t *, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64_x2)))
@@ -11685,6 +11809,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u8_x4)))
 void svst1_u8_x4(svcount_t, uint8_t *, svuint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8_x4)))
 void svst1_s8_x4(svcount_t, int8_t *, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8_x4)))
+void svst1_mf8_x4(svcount_t, mfloat8_t *, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64_x4)))
 void svst1_u64_x4(svcount_t, uint64_t *, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64_x4)))
@@ -11709,6 +11835,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8_x2)))
 void svst1_vnum_u8_x2(svcount_t, uint8_t *, int64_t, svuint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8_x2)))
 void svst1_vnum_s8_x2(svcount_t, int8_t *, int64_t, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8_x2)))
+void svst1_vnum_mf8_x2(svcount_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64_x2)))
 void svst1_vnum_u64_x2(svcount_t, uint64_t *, int64_t, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64_x2)))
@@ -11733,6 +11861,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8_x4)))
 void svst1_vnum_u8_x4(svcount_t, uint8_t *, int64_t, svuint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8_x4)))
 void svst1_vnum_s8_x4(svcount_t, int8_t *, int64_t, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8_x4)))
+void svst1_vnum_mf8_x4(svcount_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64_x4)))
 void svst1_vnum_u64_x4(svcount_t, uint64_t *, int64_t, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64_x4)))
@@ -11757,6 +11887,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8_x2)))
 void svstnt1_u8_x2(svcount_t, uint8_t *, svuint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8_x2)))
 void svstnt1_s8_x2(svcount_t, int8_t *, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8_x2)))
+void svstnt1_mf8_x2(svcount_t, mfloat8_t *, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64_x2)))
 void svstnt1_u64_x2(svcount_t, uint64_t *, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64_x2)))
@@ -11781,6 +11913,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8_x4)))
 void svstnt1_u8_x4(svcount_t, uint8_t *, svuint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8_x4)))
 void svstnt1_s8_x4(svcount_t, int8_t *, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8_x4)))
+void svstnt1_mf8_x4(svcount_t, mfloat8_t *, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64_x4)))
 void svstnt1_u64_x4(svcount_t, uint64_t *, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64_x4)))
@@ -11805,6 +11939,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8_x2))
 void svstnt1_vnum_u8_x2(svcount_t, uint8_t *, int64_t, svuint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8_x2)))
 void svstnt1_vnum_s8_x2(svcount_t, int8_t *, int64_t, svint8x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8_x2)))
+void svstnt1_vnum_mf8_x2(svcount_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64_x2)))
 void svstnt1_vnum_u64_x2(svcount_t, uint64_t *, int64_t, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64_x2)))
@@ -11829,6 +11965,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8_x4))
 void svstnt1_vnum_u8_x4(svcount_t, uint8_t *, int64_t, svuint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8_x4)))
 void svstnt1_vnum_s8_x4(svcount_t, int8_t *, int64_t, svint8x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8_x4)))
+void svstnt1_vnum_mf8_x4(svcount_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64_x4)))
 void svstnt1_vnum_u64_x4(svcount_t, uint64_t *, int64_t, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64_x4)))
@@ -11849,10 +11987,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f32_x4)
 void svstnt1_vnum_f32_x4(svcount_t, float32_t *, int64_t, svfloat32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s32_x4)))
 void svstnt1_vnum_s32_x4(svcount_t, int32_t *, int64_t, svint32x4_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_b)))
-svboolx2_t svundef2_b();
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_b)))
-svboolx4_t svundef4_b();
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c8_s64)))
 svcount_t svwhilege_c8_s64(int64_t, int64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c32_s64)))
@@ -11869,22 +12003,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c64_u64)))
 svcount_t svwhilege_c64_u64(uint64_t, uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c16_u64)))
 svcount_t svwhilege_c16_u64(uint64_t, uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_s64_x2)))
-svboolx2_t svwhilege_b8_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_s64_x2)))
-svboolx2_t svwhilege_b32_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_s64_x2)))
-svboolx2_t svwhilege_b64_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_s64_x2)))
-svboolx2_t svwhilege_b16_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_u64_x2)))
-svboolx2_t svwhilege_b8_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_u64_x2)))
-svboolx2_t svwhilege_b32_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_u64_x2)))
-svboolx2_t svwhilege_b64_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_u64_x2)))
-svboolx2_t svwhilege_b16_u64_x2(uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c8_s64)))
 svcount_t svwhilegt_c8_s64(int64_t, int64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c32_s64)))
@@ -11901,22 +12019,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c64_u64)))
 svcount_t svwhilegt_c64_u64(uint64_t, uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c16_u64)))
 svcount_t svwhilegt_c16_u64(uint64_t, uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_s64_x2)))
-svboolx2_t svwhilegt_b8_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_s64_x2)))
-svboolx2_t svwhilegt_b32_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_s64_x2)))
-svboolx2_t svwhilegt_b64_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_s64_x2)))
-svboolx2_t svwhilegt_b16_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_u64_x2)))
-svboolx2_t svwhilegt_b8_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_u64_x2)))
-svboolx2_t svwhilegt_b32_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_u64_x2)))
-svboolx2_t svwhilegt_b64_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_u64_x2)))
-svboolx2_t svwhilegt_b16_u64_x2(uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c8_s64)))
 svcount_t svwhilele_c8_s64(int64_t, int64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c32_s64)))
@@ -11933,22 +12035,6 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c64_u64)))
 svcount_t svwhilele_c64_u64(uint64_t, uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c16_u64)))
 svcount_t svwhilele_c16_u64(uint64_t, uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_s64_x2)))
-svboolx2_t svwhilele_b8_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_s64_x2)))
-svboolx2_t svwhilele_b32_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_s64_x2)))
-svboolx2_t svwhilele_b64_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_s64_x2)))
-svboolx2_t svwhilele_b16_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_u64_x2)))
-svboolx2_t svwhilele_b8_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_u64_x2)))
-svboolx2_t svwhilele_b32_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_u64_x2)))
-svboolx2_t svwhilele_b64_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_u64_x2)))
-svboolx2_t svwhilele_b16_u64_x2(uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c8_u64)))
 svcount_t svwhilelt_c8_u64(uint64_t, uint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c32_u64)))
@@ -11965,60 +12051,12 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c64_s64)))
 svcount_t svwhilelt_c64_s64(int64_t, int64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c16_s64)))
 svcount_t svwhilelt_c16_s64(int64_t, int64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_u64_x2)))
-svboolx2_t svwhilelt_b8_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_u64_x2)))
-svboolx2_t svwhilelt_b32_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_u64_x2)))
-svboolx2_t svwhilelt_b64_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_u64_x2)))
-svboolx2_t svwhilelt_b16_u64_x2(uint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_s64_x2)))
-svboolx2_t svwhilelt_b8_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_s64_x2)))
-svboolx2_t svwhilelt_b32_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_s64_x2)))
-svboolx2_t svwhilelt_b64_s64_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_s64_x2)))
-svboolx2_t svwhilelt_b16_s64_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_f32)))
-svfloat32_t svbfmlslb(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslb_lane_f32)))
-svfloat32_t svbfmlslb_lane(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_f32)))
-svfloat32_t svbfmlslt(svfloat32_t, svbfloat16_t, svbfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svbfmlslt_lane_f32)))
-svfloat32_t svbfmlslt_lane(svfloat32_t, svbfloat16_t, svbfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f64)))
-svfloat64_t svclamp(svfloat64_t, svfloat64_t, svfloat64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f32)))
-svfloat32_t svclamp(svfloat32_t, svfloat32_t, svfloat32_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclamp_f16)))
-svfloat16_t svclamp(svfloat16_t, svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_b)))
-svboolx2_t svcreate2(svbool_t, svbool_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_b)))
-svboolx4_t svcreate4(svbool_t, svbool_t, svbool_t, svbool_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_f32_f16)))
-svfloat32_t svdot(svfloat32_t, svfloat16_t, svfloat16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_s32_s16)))
-svint32_t svdot(svint32_t, svint16_t, svint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_u32_u16)))
-svuint32_t svdot(svuint32_t, svuint16_t, svuint16_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_f32_f16)))
-svfloat32_t svdot_lane(svfloat32_t, svfloat16_t, svfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_s32_s16)))
-svint32_t svdot_lane(svint32_t, svint16_t, svint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdot_lane_u32_u16)))
-svuint32_t svdot_lane(svuint32_t, svuint16_t, svuint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_b)))
-svbool_t svget2(svboolx2_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_b)))
-svbool_t svget4(svboolx4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u8_x2)))
 svuint8x2_t svld1_x2(svcount_t, uint8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8_x2)))
 svint8x2_t svld1_x2(svcount_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8_x2)))
+svmfloat8x2_t svld1_x2(svcount_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64_x2)))
 svuint64x2_t svld1_x2(svcount_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64_x2)))
@@ -12043,6 +12081,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u8_x4)))
 svuint8x4_t svld1_x4(svcount_t, uint8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8_x4)))
 svint8x4_t svld1_x4(svcount_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8_x4)))
+svmfloat8x4_t svld1_x4(svcount_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64_x4)))
 svuint64x4_t svld1_x4(svcount_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64_x4)))
@@ -12067,6 +12107,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8_x2)))
 svuint8x2_t svld1_vnum_x2(svcount_t, uint8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8_x2)))
 svint8x2_t svld1_vnum_x2(svcount_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8_x2)))
+svmfloat8x2_t svld1_vnum_x2(svcount_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64_x2)))
 svuint64x2_t svld1_vnum_x2(svcount_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64_x2)))
@@ -12091,6 +12133,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8_x4)))
 svuint8x4_t svld1_vnum_x4(svcount_t, uint8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8_x4)))
 svint8x4_t svld1_vnum_x4(svcount_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8_x4)))
+svmfloat8x4_t svld1_vnum_x4(svcount_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64_x4)))
 svuint64x4_t svld1_vnum_x4(svcount_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64_x4)))
@@ -12115,6 +12159,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8_x2)))
 svuint8x2_t svldnt1_x2(svcount_t, uint8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8_x2)))
 svint8x2_t svldnt1_x2(svcount_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8_x2)))
+svmfloat8x2_t svldnt1_x2(svcount_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64_x2)))
 svuint64x2_t svldnt1_x2(svcount_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64_x2)))
@@ -12139,6 +12185,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8_x4)))
 svuint8x4_t svldnt1_x4(svcount_t, uint8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8_x4)))
 svint8x4_t svldnt1_x4(svcount_t, int8_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8_x4)))
+svmfloat8x4_t svldnt1_x4(svcount_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64_x4)))
 svuint64x4_t svldnt1_x4(svcount_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64_x4)))
@@ -12163,6 +12211,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8_x2)
 svuint8x2_t svldnt1_vnum_x2(svcount_t, uint8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8_x2)))
 svint8x2_t svldnt1_vnum_x2(svcount_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8_x2)))
+svmfloat8x2_t svldnt1_vnum_x2(svcount_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64_x2)))
 svuint64x2_t svldnt1_vnum_x2(svcount_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64_x2)))
@@ -12187,6 +12237,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8_x4)
 svuint8x4_t svldnt1_vnum_x4(svcount_t, uint8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8_x4)))
 svint8x4_t svldnt1_vnum_x4(svcount_t, int8_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8_x4)))
+svmfloat8x4_t svldnt1_vnum_x4(svcount_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64_x4)))
 svuint64x4_t svldnt1_vnum_x4(svcount_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64_x4)))
@@ -12207,30 +12259,16 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f32_x4
 svfloat32x4_t svldnt1_vnum_x4(svcount_t, float32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s32_x4)))
 svint32x4_t svldnt1_vnum_x4(svcount_t, int32_t const *, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_s16_s32_x2)))
-svint16_t svqcvtn_s16(svint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_s32_x2)))
-svuint16_t svqcvtn_u16(svint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqcvtn_u16_u32_x2)))
-svuint16_t svqcvtn_u16(svuint32x2_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_s16_s32_x2)))
-svint16_t svqrshrn_s16(svint32x2_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrn_n_u16_u32_x2)))
-svuint16_t svqrshrn_u16(svuint32x2_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svqrshrun_n_u16_s32_x2)))
-svuint16_t svqrshrun_u16(svint32x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svreinterpret_b)))
 svbool_t svreinterpret(svcount_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svreinterpret_c)))
 svcount_t svreinterpret(svbool_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_b)))
-svboolx2_t svset2(svboolx2_t, uint64_t, svbool_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_b)))
-svboolx4_t svset4(svboolx4_t, uint64_t, svbool_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u8_x2)))
 void svst1(svcount_t, uint8_t *, svuint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8_x2)))
 void svst1(svcount_t, int8_t *, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8_x2)))
+void svst1(svcount_t, mfloat8_t *, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64_x2)))
 void svst1(svcount_t, uint64_t *, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64_x2)))
@@ -12255,6 +12293,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u8_x4)))
 void svst1(svcount_t, uint8_t *, svuint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8_x4)))
 void svst1(svcount_t, int8_t *, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8_x4)))
+void svst1(svcount_t, mfloat8_t *, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64_x4)))
 void svst1(svcount_t, uint64_t *, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64_x4)))
@@ -12279,6 +12319,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8_x2)))
 void svst1_vnum(svcount_t, uint8_t *, int64_t, svuint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8_x2)))
 void svst1_vnum(svcount_t, int8_t *, int64_t, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8_x2)))
+void svst1_vnum(svcount_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64_x2)))
 void svst1_vnum(svcount_t, uint64_t *, int64_t, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64_x2)))
@@ -12303,6 +12345,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8_x4)))
 void svst1_vnum(svcount_t, uint8_t *, int64_t, svuint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8_x4)))
 void svst1_vnum(svcount_t, int8_t *, int64_t, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8_x4)))
+void svst1_vnum(svcount_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64_x4)))
 void svst1_vnum(svcount_t, uint64_t *, int64_t, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64_x4)))
@@ -12327,6 +12371,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8_x2)))
 void svstnt1(svcount_t, uint8_t *, svuint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8_x2)))
 void svstnt1(svcount_t, int8_t *, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8_x2)))
+void svstnt1(svcount_t, mfloat8_t *, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64_x2)))
 void svstnt1(svcount_t, uint64_t *, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64_x2)))
@@ -12351,6 +12397,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8_x4)))
 void svstnt1(svcount_t, uint8_t *, svuint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8_x4)))
 void svstnt1(svcount_t, int8_t *, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8_x4)))
+void svstnt1(svcount_t, mfloat8_t *, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64_x4)))
 void svstnt1(svcount_t, uint64_t *, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64_x4)))
@@ -12375,6 +12423,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8_x2)
 void svstnt1_vnum(svcount_t, uint8_t *, int64_t, svuint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8_x2)))
 void svstnt1_vnum(svcount_t, int8_t *, int64_t, svint8x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8_x2)))
+void svstnt1_vnum(svcount_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64_x2)))
 void svstnt1_vnum(svcount_t, uint64_t *, int64_t, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64_x2)))
@@ -12399,6 +12449,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8_x4)
 void svstnt1_vnum(svcount_t, uint8_t *, int64_t, svuint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8_x4)))
 void svstnt1_vnum(svcount_t, int8_t *, int64_t, svint8x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8_x4)))
+void svstnt1_vnum(svcount_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64_x4)))
 void svstnt1_vnum(svcount_t, uint64_t *, int64_t, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64_x4)))
@@ -12435,22 +12487,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c64_u64))
 svcount_t svwhilege_c64(uint64_t, uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_c16_u64)))
 svcount_t svwhilege_c16(uint64_t, uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_s64_x2)))
-svboolx2_t svwhilege_b8_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_s64_x2)))
-svboolx2_t svwhilege_b32_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_s64_x2)))
-svboolx2_t svwhilege_b64_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_s64_x2)))
-svboolx2_t svwhilege_b16_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b8_u64_x2)))
-svboolx2_t svwhilege_b8_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b32_u64_x2)))
-svboolx2_t svwhilege_b32_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b64_u64_x2)))
-svboolx2_t svwhilege_b64_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilege_b16_u64_x2)))
-svboolx2_t svwhilege_b16_x2(uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c8_s64)))
 svcount_t svwhilegt_c8(int64_t, int64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c32_s64)))
@@ -12467,22 +12503,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c64_u64))
 svcount_t svwhilegt_c64(uint64_t, uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_c16_u64)))
 svcount_t svwhilegt_c16(uint64_t, uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_s64_x2)))
-svboolx2_t svwhilegt_b8_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_s64_x2)))
-svboolx2_t svwhilegt_b32_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_s64_x2)))
-svboolx2_t svwhilegt_b64_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_s64_x2)))
-svboolx2_t svwhilegt_b16_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b8_u64_x2)))
-svboolx2_t svwhilegt_b8_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b32_u64_x2)))
-svboolx2_t svwhilegt_b32_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b64_u64_x2)))
-svboolx2_t svwhilegt_b64_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilegt_b16_u64_x2)))
-svboolx2_t svwhilegt_b16_x2(uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c8_s64)))
 svcount_t svwhilele_c8(int64_t, int64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c32_s64)))
@@ -12499,22 +12519,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c64_u64))
 svcount_t svwhilele_c64(uint64_t, uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_c16_u64)))
 svcount_t svwhilele_c16(uint64_t, uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_s64_x2)))
-svboolx2_t svwhilele_b8_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_s64_x2)))
-svboolx2_t svwhilele_b32_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_s64_x2)))
-svboolx2_t svwhilele_b64_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_s64_x2)))
-svboolx2_t svwhilele_b16_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b8_u64_x2)))
-svboolx2_t svwhilele_b8_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b32_u64_x2)))
-svboolx2_t svwhilele_b32_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b64_u64_x2)))
-svboolx2_t svwhilele_b64_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilele_b16_u64_x2)))
-svboolx2_t svwhilele_b16_x2(uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c8_u64)))
 svcount_t svwhilelt_c8(uint64_t, uint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c32_u64)))
@@ -12531,70 +12535,6 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c64_s64))
 svcount_t svwhilelt_c64(int64_t, int64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_c16_s64)))
 svcount_t svwhilelt_c16(int64_t, int64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_u64_x2)))
-svboolx2_t svwhilelt_b8_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_u64_x2)))
-svboolx2_t svwhilelt_b32_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_u64_x2)))
-svboolx2_t svwhilelt_b64_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_u64_x2)))
-svboolx2_t svwhilelt_b16_x2(uint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b8_s64_x2)))
-svboolx2_t svwhilelt_b8_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b32_s64_x2)))
-svboolx2_t svwhilelt_b32_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b64_s64_x2)))
-svboolx2_t svwhilelt_b64_x2(int64_t, int64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilelt_b16_s64_x2)))
-svboolx2_t svwhilelt_b16_x2(int64_t, int64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u8)))
-svuint8_t svdup_laneq_u8(svuint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s8)))
-svint8_t svdup_laneq_s8(svint8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_mf8)))
-svmfloat8_t svdup_laneq_mf8(svmfloat8_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u64)))
-svuint64_t svdup_laneq_u64(svuint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f64)))
-svfloat64_t svdup_laneq_f64(svfloat64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s64)))
-svint64_t svdup_laneq_s64(svint64_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u16)))
-svuint16_t svdup_laneq_u16(svuint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f16)))
-svfloat16_t svdup_laneq_f16(svfloat16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s16)))
-svint16_t svdup_laneq_s16(svint16_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u32)))
-svuint32_t svdup_laneq_u32(svuint32_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f32)))
-svfloat32_t svdup_laneq_f32(svfloat32_t, uint64_t);
-__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s32)))
-svint32_t svdup_laneq_s32(svint32_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u8)))
-svuint8_t svdup_laneq(svuint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s8)))
-svint8_t svdup_laneq(svint8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_mf8)))
-svmfloat8_t svdup_laneq(svmfloat8_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u64)))
-svuint64_t svdup_laneq(svuint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f64)))
-svfloat64_t svdup_laneq(svfloat64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s64)))
-svint64_t svdup_laneq(svint64_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u16)))
-svuint16_t svdup_laneq(svuint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f16)))
-svfloat16_t svdup_laneq(svfloat16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s16)))
-svint16_t svdup_laneq(svint16_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_u32)))
-svuint32_t svdup_laneq(svuint32_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_f32)))
-svfloat32_t svdup_laneq(svfloat32_t, uint64_t);
-__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_laneq_s32)))
-svint32_t svdup_laneq(svint32_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaba_n_s8)))
 svint8_t svaba_n_s8(svint8_t, svint8_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svaba_n_s32)))
@@ -15641,6 +15581,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_u64)))
 svuint64_t svtbl2_u64(svuint64x2_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_u16)))
 svuint16_t svtbl2_u16(svuint16x2_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_bf16)))
+svbfloat16_t svtbl2_bf16(svbfloat16x2_t, svuint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_s8)))
 svint8_t svtbl2_s8(svint8x2_t, svuint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_f64)))
@@ -15663,6 +15605,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_u64)))
 svuint64_t svtbx_u64(svuint64_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_u16)))
 svuint16_t svtbx_u16(svuint16_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_bf16)))
+svbfloat16_t svtbx_bf16(svbfloat16_t, svbfloat16_t, svuint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_s8)))
 svint8_t svtbx_s8(svint8_t, svint8_t, svuint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_f64)))
@@ -15801,6 +15745,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_s64)))
 svbool_t svwhilerw_s64(int64_t const *, int64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_u16)))
 svbool_t svwhilerw_u16(uint16_t const *, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_bf16)))
+svbool_t svwhilerw_bf16(bfloat16_t const *, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_f16)))
 svbool_t svwhilerw_f16(float16_t const *, float16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_s16)))
@@ -15823,6 +15769,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_s64)))
 svbool_t svwhilewr_s64(int64_t const *, int64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_u16)))
 svbool_t svwhilewr_u16(uint16_t const *, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_bf16)))
+svbool_t svwhilewr_bf16(bfloat16_t const *, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_f16)))
 svbool_t svwhilewr_f16(float16_t const *, float16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_s16)))
@@ -18895,6 +18843,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_u64)))
 svuint64_t svtbl2(svuint64x2_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_u16)))
 svuint16_t svtbl2(svuint16x2_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_bf16)))
+svbfloat16_t svtbl2(svbfloat16x2_t, svuint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_s8)))
 svint8_t svtbl2(svint8x2_t, svuint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl2_f64)))
@@ -18917,6 +18867,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_u64)))
 svuint64_t svtbx(svuint64_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_u16)))
 svuint16_t svtbx(svuint16_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_bf16)))
+svbfloat16_t svtbx(svbfloat16_t, svbfloat16_t, svuint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_s8)))
 svint8_t svtbx(svint8_t, svint8_t, svuint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbx_f64)))
@@ -19055,6 +19007,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_s64)))
 svbool_t svwhilerw(int64_t const *, int64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_u16)))
 svbool_t svwhilerw(uint16_t const *, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_bf16)))
+svbool_t svwhilerw(bfloat16_t const *, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_f16)))
 svbool_t svwhilerw(float16_t const *, float16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilerw_s16)))
@@ -19077,6 +19031,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_s64)))
 svbool_t svwhilewr(int64_t const *, int64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_u16)))
 svbool_t svwhilewr(uint16_t const *, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_bf16)))
+svbool_t svwhilewr(bfloat16_t const *, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_f16)))
 svbool_t svwhilewr(float16_t const *, float16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svwhilewr_s16)))
@@ -19839,6 +19795,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_u64)))
 uint64_t svclasta_n_u64(svbool_t, uint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_u16)))
 uint16_t svclasta_n_u16(svbool_t, uint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_bf16)))
+bfloat16_t svclasta_n_bf16(svbool_t, bfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_s8)))
 int8_t svclasta_n_s8(svbool_t, int8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_f64)))
@@ -19861,6 +19819,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_u64)))
 svuint64_t svclasta_u64(svbool_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_u16)))
 svuint16_t svclasta_u16(svbool_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_bf16)))
+svbfloat16_t svclasta_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_s8)))
 svint8_t svclasta_s8(svbool_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_f64)))
@@ -19883,6 +19843,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_u64)))
 uint64_t svclastb_n_u64(svbool_t, uint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_u16)))
 uint16_t svclastb_n_u16(svbool_t, uint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_bf16)))
+bfloat16_t svclastb_n_bf16(svbool_t, bfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_s8)))
 int8_t svclastb_n_s8(svbool_t, int8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_f64)))
@@ -19905,6 +19867,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_u64)))
 svuint64_t svclastb_u64(svbool_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_u16)))
 svuint16_t svclastb_u16(svbool_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_bf16)))
+svbfloat16_t svclastb_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_s8)))
 svint8_t svclastb_s8(svbool_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_f64)))
@@ -20465,6 +20429,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_m)))
 svuint64_t svcnt_u64_m(svuint64_t, svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_m)))
 svuint16_t svcnt_u16_m(svuint16_t, svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_m)))
+svuint16_t svcnt_bf16_m(svuint16_t, svbool_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_m)))
 svuint8_t svcnt_s8_m(svuint8_t, svbool_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_m)))
@@ -20487,6 +20453,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_x)))
 svuint64_t svcnt_u64_x(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_x)))
 svuint16_t svcnt_u16_x(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_x)))
+svuint16_t svcnt_bf16_x(svbool_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_x)))
 svuint8_t svcnt_s8_x(svbool_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_x)))
@@ -20509,6 +20477,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_z)))
 svuint64_t svcnt_u64_z(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_z)))
 svuint16_t svcnt_u16_z(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_z)))
+svuint16_t svcnt_bf16_z(svbool_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_z)))
 svuint8_t svcnt_s8_z(svbool_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_z)))
@@ -20555,6 +20525,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_u64)))
 svuint64x2_t svcreate2_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_u16)))
 svuint16x2_t svcreate2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_bf16)))
+svbfloat16x2_t svcreate2_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s8)))
 svint8x2_t svcreate2_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_f64)))
@@ -20567,6 +20539,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s32)))
 svint32x2_t svcreate2_s32(svint32_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s64)))
 svint64x2_t svcreate2_s64(svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_mf8)))
+svmfloat8x2_t svcreate2_mf8(svmfloat8_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s16)))
 svint16x2_t svcreate2_s16(svint16_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u8)))
@@ -20577,6 +20551,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u64)))
 svuint64x3_t svcreate3_u64(svuint64_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u16)))
 svuint16x3_t svcreate3_u16(svuint16_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_bf16)))
+svbfloat16x3_t svcreate3_bf16(svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s8)))
 svint8x3_t svcreate3_s8(svint8_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_f64)))
@@ -20589,6 +20565,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s32)))
 svint32x3_t svcreate3_s32(svint32_t, svint32_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s64)))
 svint64x3_t svcreate3_s64(svint64_t, svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_mf8)))
+svmfloat8x3_t svcreate3_mf8(svmfloat8_t, svmfloat8_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s16)))
 svint16x3_t svcreate3_s16(svint16_t, svint16_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u8)))
@@ -20599,6 +20577,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u64)))
 svuint64x4_t svcreate4_u64(svuint64_t, svuint64_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u16)))
 svuint16x4_t svcreate4_u16(svuint16_t, svuint16_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_bf16)))
+svbfloat16x4_t svcreate4_bf16(svbfloat16_t, svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s8)))
 svint8x4_t svcreate4_s8(svint8_t, svint8_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_f64)))
@@ -20611,6 +20591,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s32)))
 svint32x4_t svcreate4_s32(svint32_t, svint32_t, svint32_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s64)))
 svint64x4_t svcreate4_s64(svint64_t, svint64_t, svint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_mf8)))
+svmfloat8x4_t svcreate4_mf8(svmfloat8_t, svmfloat8_t, svmfloat8_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s16)))
 svint16x4_t svcreate4_s16(svint16_t, svint16_t, svint16_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_f16_f32_m)))
@@ -21017,6 +20999,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64)))
 svuint64_t svdup_n_u64(uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16)))
 svuint16_t svdup_n_u16(uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16)))
+svbfloat16_t svdup_n_bf16(bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8)))
 svint8_t svdup_n_s8(int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64)))
@@ -21039,6 +21023,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_m)))
 svuint64_t svdup_n_u64_m(svuint64_t, svbool_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_m)))
 svuint16_t svdup_n_u16_m(svuint16_t, svbool_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_m)))
+svbfloat16_t svdup_n_bf16_m(svbfloat16_t, svbool_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_m)))
 svint8_t svdup_n_s8_m(svint8_t, svbool_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_m)))
@@ -21069,6 +21055,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_x)))
 svuint64_t svdup_n_u64_x(svbool_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_x)))
 svuint16_t svdup_n_u16_x(svbool_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_x)))
+svbfloat16_t svdup_n_bf16_x(svbool_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_x)))
 svint8_t svdup_n_s8_x(svbool_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_x)))
@@ -21091,6 +21079,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_z)))
 svuint64_t svdup_n_u64_z(svbool_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_z)))
 svuint16_t svdup_n_u16_z(svbool_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_z)))
+svbfloat16_t svdup_n_bf16_z(svbool_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_z)))
 svint8_t svdup_n_s8_z(svbool_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_z)))
@@ -21113,6 +21103,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_u64)))
 svuint64_t svdup_lane_u64(svuint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_u16)))
 svuint16_t svdup_lane_u16(svuint16_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_bf16)))
+svbfloat16_t svdup_lane_bf16(svbfloat16_t, uint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_s8)))
 svint8_t svdup_lane_s8(svint8_t, uint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_f64)))
@@ -21133,6 +21125,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_s8)))
 svint8_t svdupq_n_s8(int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_u16)))
 svuint16_t svdupq_n_u16(uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_bf16)))
+svbfloat16_t svdupq_n_bf16(bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_f16)))
 svfloat16_t svdupq_n_f16(float16_t, float16_t, float16_t, float16_t, float16_t, float16_t, float16_t, float16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_s16)))
@@ -21165,6 +21159,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_u64)))
 svuint64_t svdupq_lane_u64(svuint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_u16)))
 svuint16_t svdupq_lane_u16(svuint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_bf16)))
+svbfloat16_t svdupq_lane_bf16(svbfloat16_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_s8)))
 svint8_t svdupq_lane_s8(svint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_f64)))
@@ -21301,6 +21297,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_u64)))
 svuint64_t svext_u64(svuint64_t, svuint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_u16)))
 svuint16_t svext_u16(svuint16_t, svuint16_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_bf16)))
+svbfloat16_t svext_bf16(svbfloat16_t, svbfloat16_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_s8)))
 svint8_t svext_s8(svint8_t, svint8_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_f64)))
@@ -21395,6 +21393,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_u64)))
 svuint64_t svget2_u64(svuint64x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_u16)))
 svuint16_t svget2_u16(svuint16x2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_bf16)))
+svbfloat16_t svget2_bf16(svbfloat16x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s8)))
 svint8_t svget2_s8(svint8x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_f64)))
@@ -21407,6 +21407,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s32)))
 svint32_t svget2_s32(svint32x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s64)))
 svint64_t svget2_s64(svint64x2_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_mf8)))
+svmfloat8_t svget2_mf8(svmfloat8x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s16)))
 svint16_t svget2_s16(svint16x2_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u8)))
@@ -21417,6 +21419,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u64)))
 svuint64_t svget3_u64(svuint64x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u16)))
 svuint16_t svget3_u16(svuint16x3_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_bf16)))
+svbfloat16_t svget3_bf16(svbfloat16x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s8)))
 svint8_t svget3_s8(svint8x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_f64)))
@@ -21429,6 +21433,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s32)))
 svint32_t svget3_s32(svint32x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s64)))
 svint64_t svget3_s64(svint64x3_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_mf8)))
+svmfloat8_t svget3_mf8(svmfloat8x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s16)))
 svint16_t svget3_s16(svint16x3_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u8)))
@@ -21439,6 +21445,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u64)))
 svuint64_t svget4_u64(svuint64x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u16)))
 svuint16_t svget4_u16(svuint16x4_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_bf16)))
+svbfloat16_t svget4_bf16(svbfloat16x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s8)))
 svint8_t svget4_s8(svint8x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_f64)))
@@ -21451,6 +21459,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s32)))
 svint32_t svget4_s32(svint32x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s64)))
 svint64_t svget4_s64(svint64x4_t, uint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_mf8)))
+svmfloat8_t svget4_mf8(svmfloat8x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s16)))
 svint16_t svget4_s16(svint16x4_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svindex_u8)))
@@ -21477,6 +21487,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_u64)))
 svuint64_t svinsr_n_u64(svuint64_t, uint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_u16)))
 svuint16_t svinsr_n_u16(svuint16_t, uint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_bf16)))
+svbfloat16_t svinsr_n_bf16(svbfloat16_t, bfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_s8)))
 svint8_t svinsr_n_s8(svint8_t, int8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_f64)))
@@ -21499,6 +21511,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_u64)))
 uint64_t svlasta_u64(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_u16)))
 uint16_t svlasta_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_bf16)))
+bfloat16_t svlasta_bf16(svbool_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_s8)))
 int8_t svlasta_s8(svbool_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_f64)))
@@ -21521,6 +21535,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_u64)))
 uint64_t svlastb_u64(svbool_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_u16)))
 uint16_t svlastb_u16(svbool_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_bf16)))
+bfloat16_t svlastb_bf16(svbool_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_s8)))
 int8_t svlastb_s8(svbool_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_f64)))
@@ -21543,6 +21559,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64)))
 svuint64_t svld1_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u16)))
 svuint16_t svld1_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_bf16)))
+svbfloat16_t svld1_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8)))
 svint8_t svld1_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64)))
@@ -21555,6 +21573,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s32)))
 svint32_t svld1_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s64)))
 svint64_t svld1_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8)))
+svmfloat8_t svld1_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s16)))
 svint16_t svld1_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8)))
@@ -21565,6 +21585,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64)))
 svuint64_t svld1_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u16)))
 svuint16_t svld1_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_bf16)))
+svbfloat16_t svld1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8)))
 svint8_t svld1_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64)))
@@ -21577,6 +21599,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s32)))
 svint32_t svld1_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s64)))
 svint64_t svld1_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8)))
+svmfloat8_t svld1_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s16)))
 svint16_t svld1_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u8)))
@@ -21587,6 +21611,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u64)))
 svuint64_t svld1rq_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u16)))
 svuint16_t svld1rq_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_bf16)))
+svbfloat16_t svld1rq_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s8)))
 svint8_t svld1rq_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_f64)))
@@ -21599,6 +21625,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s32)))
 svint32_t svld1rq_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s64)))
 svint64_t svld1rq_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_mf8)))
+svmfloat8_t svld1rq_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s16)))
 svint16_t svld1rq_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1sb_vnum_u32)))
@@ -21705,6 +21733,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_u64)))
 svuint64x2_t svld2_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_u16)))
 svuint16x2_t svld2_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_bf16)))
+svbfloat16x2_t svld2_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s8)))
 svint8x2_t svld2_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_f64)))
@@ -21717,6 +21747,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s32)))
 svint32x2_t svld2_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s64)))
 svint64x2_t svld2_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_mf8)))
+svmfloat8x2_t svld2_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s16)))
 svint16x2_t svld2_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u8)))
@@ -21727,6 +21759,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u64)))
 svuint64x2_t svld2_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u16)))
 svuint16x2_t svld2_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_bf16)))
+svbfloat16x2_t svld2_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s8)))
 svint8x2_t svld2_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_f64)))
@@ -21739,6 +21773,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s32)))
 svint32x2_t svld2_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s64)))
 svint64x2_t svld2_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_mf8)))
+svmfloat8x2_t svld2_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s16)))
 svint16x2_t svld2_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u8)))
@@ -21749,6 +21785,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u64)))
 svuint64x3_t svld3_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u16)))
 svuint16x3_t svld3_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_bf16)))
+svbfloat16x3_t svld3_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s8)))
 svint8x3_t svld3_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_f64)))
@@ -21761,6 +21799,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s32)))
 svint32x3_t svld3_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s64)))
 svint64x3_t svld3_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_mf8)))
+svmfloat8x3_t svld3_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s16)))
 svint16x3_t svld3_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u8)))
@@ -21771,6 +21811,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u64)))
 svuint64x3_t svld3_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u16)))
 svuint16x3_t svld3_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_bf16)))
+svbfloat16x3_t svld3_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s8)))
 svint8x3_t svld3_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_f64)))
@@ -21783,6 +21825,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s32)))
 svint32x3_t svld3_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s64)))
 svint64x3_t svld3_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_mf8)))
+svmfloat8x3_t svld3_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s16)))
 svint16x3_t svld3_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u8)))
@@ -21793,6 +21837,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u64)))
 svuint64x4_t svld4_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u16)))
 svuint16x4_t svld4_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_bf16)))
+svbfloat16x4_t svld4_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s8)))
 svint8x4_t svld4_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_f64)))
@@ -21805,6 +21851,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s32)))
 svint32x4_t svld4_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s64)))
 svint64x4_t svld4_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_mf8)))
+svmfloat8x4_t svld4_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s16)))
 svint16x4_t svld4_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u8)))
@@ -21815,6 +21863,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u64)))
 svuint64x4_t svld4_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u16)))
 svuint16x4_t svld4_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_bf16)))
+svbfloat16x4_t svld4_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s8)))
 svint8x4_t svld4_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_f64)))
@@ -21827,6 +21877,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s32)))
 svint32x4_t svld4_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s64)))
 svint64x4_t svld4_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_mf8)))
+svmfloat8x4_t svld4_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s16)))
 svint16x4_t svld4_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8)))
@@ -21837,6 +21889,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64)))
 svuint64_t svldnt1_u64(svbool_t, uint64_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u16)))
 svuint16_t svldnt1_u16(svbool_t, uint16_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_bf16)))
+svbfloat16_t svldnt1_bf16(svbool_t, bfloat16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8)))
 svint8_t svldnt1_s8(svbool_t, int8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64)))
@@ -21849,6 +21903,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s32)))
 svint32_t svldnt1_s32(svbool_t, int32_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s64)))
 svint64_t svldnt1_s64(svbool_t, int64_t const *);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8)))
+svmfloat8_t svldnt1_mf8(svbool_t, mfloat8_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s16)))
 svint16_t svldnt1_s16(svbool_t, int16_t const *);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8)))
@@ -21859,6 +21915,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64)))
 svuint64_t svldnt1_vnum_u64(svbool_t, uint64_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u16)))
 svuint16_t svldnt1_vnum_u16(svbool_t, uint16_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_bf16)))
+svbfloat16_t svldnt1_vnum_bf16(svbool_t, bfloat16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8)))
 svint8_t svldnt1_vnum_s8(svbool_t, int8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64)))
@@ -21871,6 +21929,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s32)))
 svint32_t svldnt1_vnum_s32(svbool_t, int32_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s64)))
 svint64_t svldnt1_vnum_s64(svbool_t, int64_t const *, int64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8)))
+svmfloat8_t svldnt1_vnum_mf8(svbool_t, mfloat8_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s16)))
 svint16_t svldnt1_vnum_s16(svbool_t, int16_t const *, int64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u8)))
@@ -21881,6 +21941,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u64)))
 uint64_t svlen_u64(svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u16)))
 uint64_t svlen_u16(svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_bf16)))
+uint64_t svlen_bf16(svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_s8)))
 uint64_t svlen_s8(svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_f64)))
@@ -24171,6 +24233,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_u64)))
 svuint64_t svrev_u64(svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_u16)))
 svuint16_t svrev_u16(svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_bf16)))
+svbfloat16_t svrev_bf16(svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_s8)))
 svint8_t svrev_s8(svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_f64)))
@@ -24449,6 +24513,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u64)))
 svuint64_t svsel_u64(svbool_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u16)))
 svuint16_t svsel_u16(svbool_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_bf16)))
+svbfloat16_t svsel_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s8)))
 svint8_t svsel_s8(svbool_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_f64)))
@@ -24471,6 +24537,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_u64)))
 svuint64x2_t svset2_u64(svuint64x2_t, uint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_u16)))
 svuint16x2_t svset2_u16(svuint16x2_t, uint64_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_bf16)))
+svbfloat16x2_t svset2_bf16(svbfloat16x2_t, uint64_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s8)))
 svint8x2_t svset2_s8(svint8x2_t, uint64_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_f64)))
@@ -24483,6 +24551,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s32)))
 svint32x2_t svset2_s32(svint32x2_t, uint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s64)))
 svint64x2_t svset2_s64(svint64x2_t, uint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_mf8)))
+svmfloat8x2_t svset2_mf8(svmfloat8x2_t, uint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s16)))
 svint16x2_t svset2_s16(svint16x2_t, uint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u8)))
@@ -24493,6 +24563,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u64)))
 svuint64x3_t svset3_u64(svuint64x3_t, uint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u16)))
 svuint16x3_t svset3_u16(svuint16x3_t, uint64_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_bf16)))
+svbfloat16x3_t svset3_bf16(svbfloat16x3_t, uint64_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s8)))
 svint8x3_t svset3_s8(svint8x3_t, uint64_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_f64)))
@@ -24505,6 +24577,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s32)))
 svint32x3_t svset3_s32(svint32x3_t, uint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s64)))
 svint64x3_t svset3_s64(svint64x3_t, uint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_mf8)))
+svmfloat8x3_t svset3_mf8(svmfloat8x3_t, uint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s16)))
 svint16x3_t svset3_s16(svint16x3_t, uint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u8)))
@@ -24515,6 +24589,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u64)))
 svuint64x4_t svset4_u64(svuint64x4_t, uint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u16)))
 svuint16x4_t svset4_u16(svuint16x4_t, uint64_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_bf16)))
+svbfloat16x4_t svset4_bf16(svbfloat16x4_t, uint64_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s8)))
 svint8x4_t svset4_s8(svint8x4_t, uint64_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_f64)))
@@ -24527,6 +24603,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s32)))
 svint32x4_t svset4_s32(svint32x4_t, uint64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s64)))
 svint64x4_t svset4_s64(svint64x4_t, uint64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_mf8)))
+svmfloat8x4_t svset4_mf8(svmfloat8x4_t, uint64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s16)))
 svint16x4_t svset4_s16(svint16x4_t, uint64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u8)))
@@ -24537,6 +24615,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u64)))
 svuint64_t svsplice_u64(svbool_t, svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u16)))
 svuint16_t svsplice_u16(svbool_t, svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_bf16)))
+svbfloat16_t svsplice_bf16(svbool_t, svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_s8)))
 svint8_t svsplice_s8(svbool_t, svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_f64)))
@@ -24577,6 +24657,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64)))
 void svst1_u64(svbool_t, uint64_t *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u16)))
 void svst1_u16(svbool_t, uint16_t *, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_bf16)))
+void svst1_bf16(svbool_t, bfloat16_t *, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8)))
 void svst1_s8(svbool_t, int8_t *, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64)))
@@ -24589,6 +24671,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s32)))
 void svst1_s32(svbool_t, int32_t *, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s64)))
 void svst1_s64(svbool_t, int64_t *, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8)))
+void svst1_mf8(svbool_t, mfloat8_t *, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s16)))
 void svst1_s16(svbool_t, int16_t *, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8)))
@@ -24599,6 +24683,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64)))
 void svst1_vnum_u64(svbool_t, uint64_t *, int64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u16)))
 void svst1_vnum_u16(svbool_t, uint16_t *, int64_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_bf16)))
+void svst1_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8)))
 void svst1_vnum_s8(svbool_t, int8_t *, int64_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64)))
@@ -24611,6 +24697,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s32)))
 void svst1_vnum_s32(svbool_t, int32_t *, int64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s64)))
 void svst1_vnum_s64(svbool_t, int64_t *, int64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8)))
+void svst1_vnum_mf8(svbool_t, mfloat8_t *, int64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s16)))
 void svst1_vnum_s16(svbool_t, int16_t *, int64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1b_s32)))
@@ -24669,6 +24757,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_u64)))
 void svst2_u64(svbool_t, uint64_t *, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_u16)))
 void svst2_u16(svbool_t, uint16_t *, svuint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_bf16)))
+void svst2_bf16(svbool_t, bfloat16_t *, svbfloat16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s8)))
 void svst2_s8(svbool_t, int8_t *, svint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_f64)))
@@ -24681,6 +24771,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s32)))
 void svst2_s32(svbool_t, int32_t *, svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s64)))
 void svst2_s64(svbool_t, int64_t *, svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_mf8)))
+void svst2_mf8(svbool_t, mfloat8_t *, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s16)))
 void svst2_s16(svbool_t, int16_t *, svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u8)))
@@ -24691,6 +24783,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u64)))
 void svst2_vnum_u64(svbool_t, uint64_t *, int64_t, svuint64x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u16)))
 void svst2_vnum_u16(svbool_t, uint16_t *, int64_t, svuint16x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_bf16)))
+void svst2_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s8)))
 void svst2_vnum_s8(svbool_t, int8_t *, int64_t, svint8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_f64)))
@@ -24703,6 +24797,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s32)))
 void svst2_vnum_s32(svbool_t, int32_t *, int64_t, svint32x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s64)))
 void svst2_vnum_s64(svbool_t, int64_t *, int64_t, svint64x2_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_mf8)))
+void svst2_vnum_mf8(svbool_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s16)))
 void svst2_vnum_s16(svbool_t, int16_t *, int64_t, svint16x2_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u8)))
@@ -24713,6 +24809,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u64)))
 void svst3_u64(svbool_t, uint64_t *, svuint64x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u16)))
 void svst3_u16(svbool_t, uint16_t *, svuint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_bf16)))
+void svst3_bf16(svbool_t, bfloat16_t *, svbfloat16x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s8)))
 void svst3_s8(svbool_t, int8_t *, svint8x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_f64)))
@@ -24725,6 +24823,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s32)))
 void svst3_s32(svbool_t, int32_t *, svint32x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s64)))
 void svst3_s64(svbool_t, int64_t *, svint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_mf8)))
+void svst3_mf8(svbool_t, mfloat8_t *, svmfloat8x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s16)))
 void svst3_s16(svbool_t, int16_t *, svint16x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u8)))
@@ -24735,6 +24835,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u64)))
 void svst3_vnum_u64(svbool_t, uint64_t *, int64_t, svuint64x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u16)))
 void svst3_vnum_u16(svbool_t, uint16_t *, int64_t, svuint16x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_bf16)))
+void svst3_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s8)))
 void svst3_vnum_s8(svbool_t, int8_t *, int64_t, svint8x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_f64)))
@@ -24747,6 +24849,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s32)))
 void svst3_vnum_s32(svbool_t, int32_t *, int64_t, svint32x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s64)))
 void svst3_vnum_s64(svbool_t, int64_t *, int64_t, svint64x3_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_mf8)))
+void svst3_vnum_mf8(svbool_t, mfloat8_t *, int64_t, svmfloat8x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s16)))
 void svst3_vnum_s16(svbool_t, int16_t *, int64_t, svint16x3_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u8)))
@@ -24757,6 +24861,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u64)))
 void svst4_u64(svbool_t, uint64_t *, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u16)))
 void svst4_u16(svbool_t, uint16_t *, svuint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_bf16)))
+void svst4_bf16(svbool_t, bfloat16_t *, svbfloat16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s8)))
 void svst4_s8(svbool_t, int8_t *, svint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_f64)))
@@ -24769,6 +24875,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s32)))
 void svst4_s32(svbool_t, int32_t *, svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s64)))
 void svst4_s64(svbool_t, int64_t *, svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_mf8)))
+void svst4_mf8(svbool_t, mfloat8_t *, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s16)))
 void svst4_s16(svbool_t, int16_t *, svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u8)))
@@ -24779,6 +24887,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u64)))
 void svst4_vnum_u64(svbool_t, uint64_t *, int64_t, svuint64x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u16)))
 void svst4_vnum_u16(svbool_t, uint16_t *, int64_t, svuint16x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_bf16)))
+void svst4_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s8)))
 void svst4_vnum_s8(svbool_t, int8_t *, int64_t, svint8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_f64)))
@@ -24791,6 +24901,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s32)))
 void svst4_vnum_s32(svbool_t, int32_t *, int64_t, svint32x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s64)))
 void svst4_vnum_s64(svbool_t, int64_t *, int64_t, svint64x4_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_mf8)))
+void svst4_vnum_mf8(svbool_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s16)))
 void svst4_vnum_s16(svbool_t, int16_t *, int64_t, svint16x4_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8)))
@@ -24801,6 +24913,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64)))
 void svstnt1_u64(svbool_t, uint64_t *, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u16)))
 void svstnt1_u16(svbool_t, uint16_t *, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_bf16)))
+void svstnt1_bf16(svbool_t, bfloat16_t *, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8)))
 void svstnt1_s8(svbool_t, int8_t *, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64)))
@@ -24813,6 +24927,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s32)))
 void svstnt1_s32(svbool_t, int32_t *, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s64)))
 void svstnt1_s64(svbool_t, int64_t *, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8)))
+void svstnt1_mf8(svbool_t, mfloat8_t *, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s16)))
 void svstnt1_s16(svbool_t, int16_t *, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8)))
@@ -24823,6 +24939,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64)))
 void svstnt1_vnum_u64(svbool_t, uint64_t *, int64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u16)))
 void svstnt1_vnum_u16(svbool_t, uint16_t *, int64_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_bf16)))
+void svstnt1_vnum_bf16(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8)))
 void svstnt1_vnum_s8(svbool_t, int8_t *, int64_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64)))
@@ -24835,6 +24953,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s32)))
 void svstnt1_vnum_s32(svbool_t, int32_t *, int64_t, svint32_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s64)))
 void svstnt1_vnum_s64(svbool_t, int64_t *, int64_t, svint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8)))
+void svstnt1_vnum_mf8(svbool_t, mfloat8_t *, int64_t, svmfloat8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s16)))
 void svstnt1_vnum_s16(svbool_t, int16_t *, int64_t, svint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsub_n_f64_m)))
@@ -25109,6 +25229,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_u64)))
 svuint64_t svtbl_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_u16)))
 svuint16_t svtbl_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_bf16)))
+svbfloat16_t svtbl_bf16(svbfloat16_t, svuint16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_s8)))
 svint8_t svtbl_s8(svint8_t, svuint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_f64)))
@@ -25131,6 +25253,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_u64)))
 svuint64_t svtrn1_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_u16)))
 svuint16_t svtrn1_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_bf16)))
+svbfloat16_t svtrn1_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_s8)))
 svint8_t svtrn1_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_f64)))
@@ -25161,6 +25285,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_u64)))
 svuint64_t svtrn2_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_u16)))
 svuint16_t svtrn2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_bf16)))
+svbfloat16_t svtrn2_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_s8)))
 svint8_t svtrn2_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_f64)))
@@ -25191,6 +25317,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_u64)))
 svuint64x2_t svundef2_u64(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_u16)))
 svuint16x2_t svundef2_u16(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_bf16)))
+svbfloat16x2_t svundef2_bf16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_s8)))
 svint8x2_t svundef2_s8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_f64)))
@@ -25203,6 +25331,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_s32)))
 svint32x2_t svundef2_s32(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_s64)))
 svint64x2_t svundef2_s64(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_mf8)))
+svmfloat8x2_t svundef2_mf8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef2_s16)))
 svint16x2_t svundef2_s16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_u8)))
@@ -25213,6 +25343,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_u64)))
 svuint64x3_t svundef3_u64(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_u16)))
 svuint16x3_t svundef3_u16(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_bf16)))
+svbfloat16x3_t svundef3_bf16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_s8)))
 svint8x3_t svundef3_s8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_f64)))
@@ -25225,6 +25357,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_s32)))
 svint32x3_t svundef3_s32(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_s64)))
 svint64x3_t svundef3_s64(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_mf8)))
+svmfloat8x3_t svundef3_mf8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef3_s16)))
 svint16x3_t svundef3_s16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_u8)))
@@ -25235,6 +25369,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_u64)))
 svuint64x4_t svundef4_u64(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_u16)))
 svuint16x4_t svundef4_u16(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_bf16)))
+svbfloat16x4_t svundef4_bf16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_s8)))
 svint8x4_t svundef4_s8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_f64)))
@@ -25247,6 +25383,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_s32)))
 svint32x4_t svundef4_s32(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_s64)))
 svint64x4_t svundef4_s64(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_mf8)))
+svmfloat8x4_t svundef4_mf8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef4_s16)))
 svint16x4_t svundef4_s16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_u8)))
@@ -25257,6 +25395,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_u64)))
 svuint64_t svundef_u64(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_u16)))
 svuint16_t svundef_u16(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_bf16)))
+svbfloat16_t svundef_bf16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_s8)))
 svint8_t svundef_s8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_f64)))
@@ -25269,6 +25409,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_s32)))
 svint32_t svundef_s32(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_s64)))
 svint64_t svundef_s64(void);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_mf8)))
+svmfloat8_t svundef_mf8(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svundef_s16)))
 svint16_t svundef_s16(void);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svunpkhi_b)))
@@ -25307,6 +25449,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_u64)))
 svuint64_t svuzp1_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_u16)))
 svuint16_t svuzp1_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_bf16)))
+svbfloat16_t svuzp1_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_s8)))
 svint8_t svuzp1_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_f64)))
@@ -25337,6 +25481,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_u64)))
 svuint64_t svuzp2_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_u16)))
 svuint16_t svuzp2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_bf16)))
+svbfloat16_t svuzp2_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_s8)))
 svint8_t svuzp2_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_f64)))
@@ -25431,6 +25577,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_u64)))
 svuint64_t svzip1_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_u16)))
 svuint16_t svzip1_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_bf16)))
+svbfloat16_t svzip1_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_s8)))
 svint8_t svzip1_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_f64)))
@@ -25461,6 +25609,8 @@ __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_u64)))
 svuint64_t svzip2_u64(svuint64_t, svuint64_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_u16)))
 svuint16_t svzip2_u16(svuint16_t, svuint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_bf16)))
+svbfloat16_t svzip2_bf16(svbfloat16_t, svbfloat16_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_s8)))
 svint8_t svzip2_s8(svint8_t, svint8_t);
 __ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_f64)))
@@ -26219,6 +26369,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_u64)))
 uint64_t svclasta(svbool_t, uint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_u16)))
 uint16_t svclasta(svbool_t, uint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_bf16)))
+bfloat16_t svclasta(svbool_t, bfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_s8)))
 int8_t svclasta(svbool_t, int8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_n_f64)))
@@ -26241,6 +26393,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_u64)))
 svuint64_t svclasta(svbool_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_u16)))
 svuint16_t svclasta(svbool_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_bf16)))
+svbfloat16_t svclasta(svbool_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_s8)))
 svint8_t svclasta(svbool_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclasta_f64)))
@@ -26263,6 +26417,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_u64)))
 uint64_t svclastb(svbool_t, uint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_u16)))
 uint16_t svclastb(svbool_t, uint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_bf16)))
+bfloat16_t svclastb(svbool_t, bfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_s8)))
 int8_t svclastb(svbool_t, int8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_n_f64)))
@@ -26285,6 +26441,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_u64)))
 svuint64_t svclastb(svbool_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_u16)))
 svuint16_t svclastb(svbool_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_bf16)))
+svbfloat16_t svclastb(svbool_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_s8)))
 svint8_t svclastb(svbool_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svclastb_f64)))
@@ -26845,6 +27003,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_m)))
 svuint64_t svcnt_m(svuint64_t, svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_m)))
 svuint16_t svcnt_m(svuint16_t, svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_m)))
+svuint16_t svcnt_m(svuint16_t, svbool_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_m)))
 svuint8_t svcnt_m(svuint8_t, svbool_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_m)))
@@ -26867,6 +27027,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_x)))
 svuint64_t svcnt_x(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_x)))
 svuint16_t svcnt_x(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_x)))
+svuint16_t svcnt_x(svbool_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_x)))
 svuint8_t svcnt_x(svbool_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_x)))
@@ -26889,6 +27051,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u64_z)))
 svuint64_t svcnt_z(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_u16_z)))
 svuint16_t svcnt_z(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_bf16_z)))
+svuint16_t svcnt_z(svbool_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_s8_z)))
 svuint8_t svcnt_z(svbool_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcnt_f64_z)))
@@ -26911,6 +27075,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_u64)))
 svuint64x2_t svcreate2(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_u16)))
 svuint16x2_t svcreate2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_bf16)))
+svbfloat16x2_t svcreate2(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s8)))
 svint8x2_t svcreate2(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_f64)))
@@ -26923,6 +27089,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s32)))
 svint32x2_t svcreate2(svint32_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s64)))
 svint64x2_t svcreate2(svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_mf8)))
+svmfloat8x2_t svcreate2(svmfloat8_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate2_s16)))
 svint16x2_t svcreate2(svint16_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u8)))
@@ -26933,6 +27101,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u64)))
 svuint64x3_t svcreate3(svuint64_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_u16)))
 svuint16x3_t svcreate3(svuint16_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_bf16)))
+svbfloat16x3_t svcreate3(svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s8)))
 svint8x3_t svcreate3(svint8_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_f64)))
@@ -26945,6 +27115,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s32)))
 svint32x3_t svcreate3(svint32_t, svint32_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s64)))
 svint64x3_t svcreate3(svint64_t, svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_mf8)))
+svmfloat8x3_t svcreate3(svmfloat8_t, svmfloat8_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate3_s16)))
 svint16x3_t svcreate3(svint16_t, svint16_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u8)))
@@ -26955,6 +27127,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u64)))
 svuint64x4_t svcreate4(svuint64_t, svuint64_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_u16)))
 svuint16x4_t svcreate4(svuint16_t, svuint16_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_bf16)))
+svbfloat16x4_t svcreate4(svbfloat16_t, svbfloat16_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s8)))
 svint8x4_t svcreate4(svint8_t, svint8_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_f64)))
@@ -26967,6 +27141,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s32)))
 svint32x4_t svcreate4(svint32_t, svint32_t, svint32_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s64)))
 svint64x4_t svcreate4(svint64_t, svint64_t, svint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_mf8)))
+svmfloat8x4_t svcreate4(svmfloat8_t, svmfloat8_t, svmfloat8_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcreate4_s16)))
 svint16x4_t svcreate4(svint16_t, svint16_t, svint16_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svcvt_f16_f32_m)))
@@ -27373,6 +27549,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64)))
 svuint64_t svdup_u64(uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16)))
 svuint16_t svdup_u16(uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16)))
+svbfloat16_t svdup_bf16(bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8)))
 svint8_t svdup_s8(int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64)))
@@ -27395,6 +27573,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_m)))
 svuint64_t svdup_u64_m(svuint64_t, svbool_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_m)))
 svuint16_t svdup_u16_m(svuint16_t, svbool_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_m)))
+svbfloat16_t svdup_bf16_m(svbfloat16_t, svbool_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_m)))
 svint8_t svdup_s8_m(svint8_t, svbool_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_m)))
@@ -27425,6 +27605,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_x)))
 svuint64_t svdup_u64_x(svbool_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_x)))
 svuint16_t svdup_u16_x(svbool_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_x)))
+svbfloat16_t svdup_bf16_x(svbool_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_x)))
 svint8_t svdup_s8_x(svbool_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_x)))
@@ -27447,6 +27629,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u64_z)))
 svuint64_t svdup_u64_z(svbool_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_u16_z)))
 svuint16_t svdup_u16_z(svbool_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_bf16_z)))
+svbfloat16_t svdup_bf16_z(svbool_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_s8_z)))
 svint8_t svdup_s8_z(svbool_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_n_f64_z)))
@@ -27469,6 +27653,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_u64)))
 svuint64_t svdup_lane(svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_u16)))
 svuint16_t svdup_lane(svuint16_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_bf16)))
+svbfloat16_t svdup_lane(svbfloat16_t, uint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_s8)))
 svint8_t svdup_lane(svint8_t, uint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdup_lane_f64)))
@@ -27489,6 +27675,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_s8)))
 svint8_t svdupq_s8(int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_u16)))
 svuint16_t svdupq_u16(uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_bf16)))
+svbfloat16_t svdupq_bf16(bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_f16)))
 svfloat16_t svdupq_f16(float16_t, float16_t, float16_t, float16_t, float16_t, float16_t, float16_t, float16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_n_s16)))
@@ -27521,6 +27709,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_u64)))
 svuint64_t svdupq_lane(svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_u16)))
 svuint16_t svdupq_lane(svuint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_bf16)))
+svbfloat16_t svdupq_lane(svbfloat16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_s8)))
 svint8_t svdupq_lane(svint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svdupq_lane_f64)))
@@ -27657,6 +27847,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_u64)))
 svuint64_t svext(svuint64_t, svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_u16)))
 svuint16_t svext(svuint16_t, svuint16_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_bf16)))
+svbfloat16_t svext(svbfloat16_t, svbfloat16_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_s8)))
 svint8_t svext(svint8_t, svint8_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svext_f64)))
@@ -27751,6 +27943,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_u64)))
 svuint64_t svget2(svuint64x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_u16)))
 svuint16_t svget2(svuint16x2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_bf16)))
+svbfloat16_t svget2(svbfloat16x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s8)))
 svint8_t svget2(svint8x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_f64)))
@@ -27763,6 +27957,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s32)))
 svint32_t svget2(svint32x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s64)))
 svint64_t svget2(svint64x2_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_mf8)))
+svmfloat8_t svget2(svmfloat8x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget2_s16)))
 svint16_t svget2(svint16x2_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u8)))
@@ -27773,6 +27969,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u64)))
 svuint64_t svget3(svuint64x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_u16)))
 svuint16_t svget3(svuint16x3_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_bf16)))
+svbfloat16_t svget3(svbfloat16x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s8)))
 svint8_t svget3(svint8x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_f64)))
@@ -27785,6 +27983,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s32)))
 svint32_t svget3(svint32x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s64)))
 svint64_t svget3(svint64x3_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_mf8)))
+svmfloat8_t svget3(svmfloat8x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget3_s16)))
 svint16_t svget3(svint16x3_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u8)))
@@ -27795,6 +27995,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u64)))
 svuint64_t svget4(svuint64x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_u16)))
 svuint16_t svget4(svuint16x4_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_bf16)))
+svbfloat16_t svget4(svbfloat16x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s8)))
 svint8_t svget4(svint8x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_f64)))
@@ -27807,6 +28009,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s32)))
 svint32_t svget4(svint32x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s64)))
 svint64_t svget4(svint64x4_t, uint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_mf8)))
+svmfloat8_t svget4(svmfloat8x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svget4_s16)))
 svint16_t svget4(svint16x4_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_u8)))
@@ -27817,6 +28021,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_u64)))
 svuint64_t svinsr(svuint64_t, uint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_u16)))
 svuint16_t svinsr(svuint16_t, uint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_bf16)))
+svbfloat16_t svinsr(svbfloat16_t, bfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_s8)))
 svint8_t svinsr(svint8_t, int8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svinsr_n_f64)))
@@ -27839,6 +28045,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_u64)))
 uint64_t svlasta(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_u16)))
 uint16_t svlasta(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_bf16)))
+bfloat16_t svlasta(svbool_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_s8)))
 int8_t svlasta(svbool_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlasta_f64)))
@@ -27861,6 +28069,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_u64)))
 uint64_t svlastb(svbool_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_u16)))
 uint16_t svlastb(svbool_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_bf16)))
+bfloat16_t svlastb(svbool_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_s8)))
 int8_t svlastb(svbool_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlastb_f64)))
@@ -27883,6 +28093,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u64)))
 svuint64_t svld1(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_u16)))
 svuint16_t svld1(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_bf16)))
+svbfloat16_t svld1(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s8)))
 svint8_t svld1(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_f64)))
@@ -27895,6 +28107,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s32)))
 svint32_t svld1(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s64)))
 svint64_t svld1(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_mf8)))
+svmfloat8_t svld1(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_s16)))
 svint16_t svld1(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u8)))
@@ -27905,6 +28119,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u64)))
 svuint64_t svld1_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_u16)))
 svuint16_t svld1_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_bf16)))
+svbfloat16_t svld1_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s8)))
 svint8_t svld1_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_f64)))
@@ -27917,6 +28133,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s32)))
 svint32_t svld1_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s64)))
 svint64_t svld1_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_mf8)))
+svmfloat8_t svld1_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1_vnum_s16)))
 svint16_t svld1_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u8)))
@@ -27927,6 +28145,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u64)))
 svuint64_t svld1rq(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_u16)))
 svuint16_t svld1rq(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_bf16)))
+svbfloat16_t svld1rq(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s8)))
 svint8_t svld1rq(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_f64)))
@@ -27939,6 +28159,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s32)))
 svint32_t svld1rq(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s64)))
 svint64_t svld1rq(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_mf8)))
+svmfloat8_t svld1rq(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld1rq_s16)))
 svint16_t svld1rq(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_u8)))
@@ -27949,6 +28171,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_u64)))
 svuint64x2_t svld2(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_u16)))
 svuint16x2_t svld2(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_bf16)))
+svbfloat16x2_t svld2(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s8)))
 svint8x2_t svld2(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_f64)))
@@ -27961,6 +28185,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s32)))
 svint32x2_t svld2(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s64)))
 svint64x2_t svld2(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_mf8)))
+svmfloat8x2_t svld2(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_s16)))
 svint16x2_t svld2(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u8)))
@@ -27971,6 +28197,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u64)))
 svuint64x2_t svld2_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_u16)))
 svuint16x2_t svld2_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_bf16)))
+svbfloat16x2_t svld2_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s8)))
 svint8x2_t svld2_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_f64)))
@@ -27983,6 +28211,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s32)))
 svint32x2_t svld2_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s64)))
 svint64x2_t svld2_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_mf8)))
+svmfloat8x2_t svld2_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld2_vnum_s16)))
 svint16x2_t svld2_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u8)))
@@ -27993,6 +28223,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u64)))
 svuint64x3_t svld3(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_u16)))
 svuint16x3_t svld3(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_bf16)))
+svbfloat16x3_t svld3(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s8)))
 svint8x3_t svld3(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_f64)))
@@ -28005,6 +28237,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s32)))
 svint32x3_t svld3(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s64)))
 svint64x3_t svld3(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_mf8)))
+svmfloat8x3_t svld3(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_s16)))
 svint16x3_t svld3(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u8)))
@@ -28015,6 +28249,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u64)))
 svuint64x3_t svld3_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_u16)))
 svuint16x3_t svld3_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_bf16)))
+svbfloat16x3_t svld3_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s8)))
 svint8x3_t svld3_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_f64)))
@@ -28027,6 +28263,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s32)))
 svint32x3_t svld3_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s64)))
 svint64x3_t svld3_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_mf8)))
+svmfloat8x3_t svld3_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld3_vnum_s16)))
 svint16x3_t svld3_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u8)))
@@ -28037,6 +28275,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u64)))
 svuint64x4_t svld4(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_u16)))
 svuint16x4_t svld4(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_bf16)))
+svbfloat16x4_t svld4(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s8)))
 svint8x4_t svld4(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_f64)))
@@ -28049,6 +28289,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s32)))
 svint32x4_t svld4(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s64)))
 svint64x4_t svld4(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_mf8)))
+svmfloat8x4_t svld4(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_s16)))
 svint16x4_t svld4(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u8)))
@@ -28059,6 +28301,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u64)))
 svuint64x4_t svld4_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_u16)))
 svuint16x4_t svld4_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_bf16)))
+svbfloat16x4_t svld4_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s8)))
 svint8x4_t svld4_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_f64)))
@@ -28071,6 +28315,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s32)))
 svint32x4_t svld4_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s64)))
 svint64x4_t svld4_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_mf8)))
+svmfloat8x4_t svld4_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svld4_vnum_s16)))
 svint16x4_t svld4_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u8)))
@@ -28081,6 +28327,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u64)))
 svuint64_t svldnt1(svbool_t, uint64_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_u16)))
 svuint16_t svldnt1(svbool_t, uint16_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_bf16)))
+svbfloat16_t svldnt1(svbool_t, bfloat16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s8)))
 svint8_t svldnt1(svbool_t, int8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_f64)))
@@ -28093,6 +28341,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s32)))
 svint32_t svldnt1(svbool_t, int32_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s64)))
 svint64_t svldnt1(svbool_t, int64_t const *);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_mf8)))
+svmfloat8_t svldnt1(svbool_t, mfloat8_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_s16)))
 svint16_t svldnt1(svbool_t, int16_t const *);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u8)))
@@ -28103,6 +28353,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u64)))
 svuint64_t svldnt1_vnum(svbool_t, uint64_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_u16)))
 svuint16_t svldnt1_vnum(svbool_t, uint16_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_bf16)))
+svbfloat16_t svldnt1_vnum(svbool_t, bfloat16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s8)))
 svint8_t svldnt1_vnum(svbool_t, int8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_f64)))
@@ -28115,6 +28367,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s32)))
 svint32_t svldnt1_vnum(svbool_t, int32_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s64)))
 svint64_t svldnt1_vnum(svbool_t, int64_t const *, int64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_mf8)))
+svmfloat8_t svldnt1_vnum(svbool_t, mfloat8_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svldnt1_vnum_s16)))
 svint16_t svldnt1_vnum(svbool_t, int16_t const *, int64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u8)))
@@ -28125,6 +28379,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u64)))
 uint64_t svlen(svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_u16)))
 uint64_t svlen(svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_bf16)))
+uint64_t svlen(svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_s8)))
 uint64_t svlen(svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svlen_f64)))
@@ -30369,6 +30625,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_u64)))
 svuint64_t svrev(svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_u16)))
 svuint16_t svrev(svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_bf16)))
+svbfloat16_t svrev(svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_s8)))
 svint8_t svrev(svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svrev_f64)))
@@ -30639,6 +30897,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u64)))
 svuint64_t svsel(svbool_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_u16)))
 svuint16_t svsel(svbool_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_bf16)))
+svbfloat16_t svsel(svbool_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_s8)))
 svint8_t svsel(svbool_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsel_f64)))
@@ -30661,6 +30921,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_u64)))
 svuint64x2_t svset2(svuint64x2_t, uint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_u16)))
 svuint16x2_t svset2(svuint16x2_t, uint64_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_bf16)))
+svbfloat16x2_t svset2(svbfloat16x2_t, uint64_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s8)))
 svint8x2_t svset2(svint8x2_t, uint64_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_f64)))
@@ -30673,6 +30935,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s32)))
 svint32x2_t svset2(svint32x2_t, uint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s64)))
 svint64x2_t svset2(svint64x2_t, uint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_mf8)))
+svmfloat8x2_t svset2(svmfloat8x2_t, uint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset2_s16)))
 svint16x2_t svset2(svint16x2_t, uint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u8)))
@@ -30683,6 +30947,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u64)))
 svuint64x3_t svset3(svuint64x3_t, uint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_u16)))
 svuint16x3_t svset3(svuint16x3_t, uint64_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_bf16)))
+svbfloat16x3_t svset3(svbfloat16x3_t, uint64_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s8)))
 svint8x3_t svset3(svint8x3_t, uint64_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_f64)))
@@ -30695,6 +30961,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s32)))
 svint32x3_t svset3(svint32x3_t, uint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s64)))
 svint64x3_t svset3(svint64x3_t, uint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_mf8)))
+svmfloat8x3_t svset3(svmfloat8x3_t, uint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset3_s16)))
 svint16x3_t svset3(svint16x3_t, uint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u8)))
@@ -30705,6 +30973,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u64)))
 svuint64x4_t svset4(svuint64x4_t, uint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_u16)))
 svuint16x4_t svset4(svuint16x4_t, uint64_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_bf16)))
+svbfloat16x4_t svset4(svbfloat16x4_t, uint64_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s8)))
 svint8x4_t svset4(svint8x4_t, uint64_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_f64)))
@@ -30717,6 +30987,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s32)))
 svint32x4_t svset4(svint32x4_t, uint64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s64)))
 svint64x4_t svset4(svint64x4_t, uint64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_mf8)))
+svmfloat8x4_t svset4(svmfloat8x4_t, uint64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svset4_s16)))
 svint16x4_t svset4(svint16x4_t, uint64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u8)))
@@ -30727,6 +30999,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u64)))
 svuint64_t svsplice(svbool_t, svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_u16)))
 svuint16_t svsplice(svbool_t, svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_bf16)))
+svbfloat16_t svsplice(svbool_t, svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_s8)))
 svint8_t svsplice(svbool_t, svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsplice_f64)))
@@ -30767,6 +31041,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u64)))
 void svst1(svbool_t, uint64_t *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_u16)))
 void svst1(svbool_t, uint16_t *, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_bf16)))
+void svst1(svbool_t, bfloat16_t *, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s8)))
 void svst1(svbool_t, int8_t *, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_f64)))
@@ -30779,6 +31055,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s32)))
 void svst1(svbool_t, int32_t *, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s64)))
 void svst1(svbool_t, int64_t *, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_mf8)))
+void svst1(svbool_t, mfloat8_t *, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_s16)))
 void svst1(svbool_t, int16_t *, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u8)))
@@ -30789,6 +31067,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u64)))
 void svst1_vnum(svbool_t, uint64_t *, int64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_u16)))
 void svst1_vnum(svbool_t, uint16_t *, int64_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_bf16)))
+void svst1_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s8)))
 void svst1_vnum(svbool_t, int8_t *, int64_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_f64)))
@@ -30801,6 +31081,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s32)))
 void svst1_vnum(svbool_t, int32_t *, int64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s64)))
 void svst1_vnum(svbool_t, int64_t *, int64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_mf8)))
+void svst1_vnum(svbool_t, mfloat8_t *, int64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1_vnum_s16)))
 void svst1_vnum(svbool_t, int16_t *, int64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst1b_s32)))
@@ -30859,6 +31141,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_u64)))
 void svst2(svbool_t, uint64_t *, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_u16)))
 void svst2(svbool_t, uint16_t *, svuint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_bf16)))
+void svst2(svbool_t, bfloat16_t *, svbfloat16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s8)))
 void svst2(svbool_t, int8_t *, svint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_f64)))
@@ -30871,6 +31155,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s32)))
 void svst2(svbool_t, int32_t *, svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s64)))
 void svst2(svbool_t, int64_t *, svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_mf8)))
+void svst2(svbool_t, mfloat8_t *, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_s16)))
 void svst2(svbool_t, int16_t *, svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u8)))
@@ -30881,6 +31167,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u64)))
 void svst2_vnum(svbool_t, uint64_t *, int64_t, svuint64x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_u16)))
 void svst2_vnum(svbool_t, uint16_t *, int64_t, svuint16x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_bf16)))
+void svst2_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s8)))
 void svst2_vnum(svbool_t, int8_t *, int64_t, svint8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_f64)))
@@ -30893,6 +31181,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s32)))
 void svst2_vnum(svbool_t, int32_t *, int64_t, svint32x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s64)))
 void svst2_vnum(svbool_t, int64_t *, int64_t, svint64x2_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_mf8)))
+void svst2_vnum(svbool_t, mfloat8_t *, int64_t, svmfloat8x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst2_vnum_s16)))
 void svst2_vnum(svbool_t, int16_t *, int64_t, svint16x2_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u8)))
@@ -30903,6 +31193,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u64)))
 void svst3(svbool_t, uint64_t *, svuint64x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_u16)))
 void svst3(svbool_t, uint16_t *, svuint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_bf16)))
+void svst3(svbool_t, bfloat16_t *, svbfloat16x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s8)))
 void svst3(svbool_t, int8_t *, svint8x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_f64)))
@@ -30915,6 +31207,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s32)))
 void svst3(svbool_t, int32_t *, svint32x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s64)))
 void svst3(svbool_t, int64_t *, svint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_mf8)))
+void svst3(svbool_t, mfloat8_t *, svmfloat8x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_s16)))
 void svst3(svbool_t, int16_t *, svint16x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u8)))
@@ -30925,6 +31219,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u64)))
 void svst3_vnum(svbool_t, uint64_t *, int64_t, svuint64x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_u16)))
 void svst3_vnum(svbool_t, uint16_t *, int64_t, svuint16x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_bf16)))
+void svst3_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s8)))
 void svst3_vnum(svbool_t, int8_t *, int64_t, svint8x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_f64)))
@@ -30937,6 +31233,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s32)))
 void svst3_vnum(svbool_t, int32_t *, int64_t, svint32x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s64)))
 void svst3_vnum(svbool_t, int64_t *, int64_t, svint64x3_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_mf8)))
+void svst3_vnum(svbool_t, mfloat8_t *, int64_t, svmfloat8x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst3_vnum_s16)))
 void svst3_vnum(svbool_t, int16_t *, int64_t, svint16x3_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u8)))
@@ -30947,6 +31245,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u64)))
 void svst4(svbool_t, uint64_t *, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_u16)))
 void svst4(svbool_t, uint16_t *, svuint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_bf16)))
+void svst4(svbool_t, bfloat16_t *, svbfloat16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s8)))
 void svst4(svbool_t, int8_t *, svint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_f64)))
@@ -30959,6 +31259,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s32)))
 void svst4(svbool_t, int32_t *, svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s64)))
 void svst4(svbool_t, int64_t *, svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_mf8)))
+void svst4(svbool_t, mfloat8_t *, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_s16)))
 void svst4(svbool_t, int16_t *, svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u8)))
@@ -30969,6 +31271,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u64)))
 void svst4_vnum(svbool_t, uint64_t *, int64_t, svuint64x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_u16)))
 void svst4_vnum(svbool_t, uint16_t *, int64_t, svuint16x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_bf16)))
+void svst4_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s8)))
 void svst4_vnum(svbool_t, int8_t *, int64_t, svint8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_f64)))
@@ -30981,6 +31285,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s32)))
 void svst4_vnum(svbool_t, int32_t *, int64_t, svint32x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s64)))
 void svst4_vnum(svbool_t, int64_t *, int64_t, svint64x4_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_mf8)))
+void svst4_vnum(svbool_t, mfloat8_t *, int64_t, svmfloat8x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svst4_vnum_s16)))
 void svst4_vnum(svbool_t, int16_t *, int64_t, svint16x4_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u8)))
@@ -30991,6 +31297,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u64)))
 void svstnt1(svbool_t, uint64_t *, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_u16)))
 void svstnt1(svbool_t, uint16_t *, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_bf16)))
+void svstnt1(svbool_t, bfloat16_t *, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s8)))
 void svstnt1(svbool_t, int8_t *, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_f64)))
@@ -31003,6 +31311,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s32)))
 void svstnt1(svbool_t, int32_t *, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s64)))
 void svstnt1(svbool_t, int64_t *, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_mf8)))
+void svstnt1(svbool_t, mfloat8_t *, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_s16)))
 void svstnt1(svbool_t, int16_t *, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u8)))
@@ -31013,6 +31323,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u64)))
 void svstnt1_vnum(svbool_t, uint64_t *, int64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_u16)))
 void svstnt1_vnum(svbool_t, uint16_t *, int64_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_bf16)))
+void svstnt1_vnum(svbool_t, bfloat16_t *, int64_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s8)))
 void svstnt1_vnum(svbool_t, int8_t *, int64_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_f64)))
@@ -31025,6 +31337,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s32)))
 void svstnt1_vnum(svbool_t, int32_t *, int64_t, svint32_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s64)))
 void svstnt1_vnum(svbool_t, int64_t *, int64_t, svint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_mf8)))
+void svstnt1_vnum(svbool_t, mfloat8_t *, int64_t, svmfloat8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svstnt1_vnum_s16)))
 void svstnt1_vnum(svbool_t, int16_t *, int64_t, svint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svsub_n_f64_m)))
@@ -31299,6 +31613,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_u64)))
 svuint64_t svtbl(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_u16)))
 svuint16_t svtbl(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_bf16)))
+svbfloat16_t svtbl(svbfloat16_t, svuint16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_s8)))
 svint8_t svtbl(svint8_t, svuint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtbl_f64)))
@@ -31321,6 +31637,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_u64)))
 svuint64_t svtrn1(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_u16)))
 svuint16_t svtrn1(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_bf16)))
+svbfloat16_t svtrn1(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_s8)))
 svint8_t svtrn1(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn1_f64)))
@@ -31343,6 +31661,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_u64)))
 svuint64_t svtrn2(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_u16)))
 svuint16_t svtrn2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_bf16)))
+svbfloat16_t svtrn2(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_s8)))
 svint8_t svtrn2(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svtrn2_f64)))
@@ -31393,6 +31713,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_u64)))
 svuint64_t svuzp1(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_u16)))
 svuint16_t svuzp1(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_bf16)))
+svbfloat16_t svuzp1(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_s8)))
 svint8_t svuzp1(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp1_f64)))
@@ -31415,6 +31737,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_u64)))
 svuint64_t svuzp2(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_u16)))
 svuint16_t svuzp2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_bf16)))
+svbfloat16_t svuzp2(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_s8)))
 svint8_t svuzp2(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svuzp2_f64)))
@@ -31501,6 +31825,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_u64)))
 svuint64_t svzip1(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_u16)))
 svuint16_t svzip1(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_bf16)))
+svbfloat16_t svzip1(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_s8)))
 svint8_t svzip1(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip1_f64)))
@@ -31523,6 +31849,8 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_u64)))
 svuint64_t svzip2(svuint64_t, svuint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_u16)))
 svuint16_t svzip2(svuint16_t, svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_bf16)))
+svbfloat16_t svzip2(svbfloat16_t, svbfloat16_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_s8)))
 svint8_t svzip2(svint8_t, svint8_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_f64)))
@@ -31537,6 +31865,18 @@ __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_s64)))
 svint64_t svzip2(svint64_t, svint64_t);
 __aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svzip2_s16)))
 svint16_t svzip2(svint16_t, svint16_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f64)))
+svfloat64_t svexpa_f64(svuint64_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f32)))
+svfloat32_t svexpa_f32(svuint32_t);
+__ai __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f16)))
+svfloat16_t svexpa_f16(svuint16_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f64)))
+svfloat64_t svexpa(svuint64_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f32)))
+svfloat32_t svexpa(svuint32_t);
+__aio __attribute__((__clang_arm_builtin_alias(__builtin_sve_svexpa_f16)))
+svfloat16_t svexpa(svuint16_t);
 #define svcvtnt_bf16_x      svcvtnt_bf16_m
 #define svcvtnt_bf16_f32_x  svcvtnt_bf16_f32_m
 #define svcvtnt_f16_x      svcvtnt_f16_m

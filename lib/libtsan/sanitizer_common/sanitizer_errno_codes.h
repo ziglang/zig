@@ -21,12 +21,21 @@
 
 namespace __sanitizer {
 
-#define errno_ENOMEM 12
-#define errno_EBUSY 16
-#define errno_EINVAL 22
-#define errno_ERANGE 34
-#define errno_ENAMETOOLONG 36
-#define errno_ENOSYS 38
+#ifdef __HAIKU__
+#  define errno_ENOMEM (0x80000000)
+#  define errno_EBUSY (0x80000000 + 14)
+#  define errno_EINVAL (0x80000000 + 5)
+#  define errno_ERANGE (0x80007000 + 17)
+#  define errno_ENAMETOOLONG (0x80000000 + 0x6004)
+#  define errno_ENOSYS (0x80007009)
+#else
+#  define errno_ENOMEM 12
+#  define errno_EBUSY 16
+#  define errno_EINVAL 22
+#  define errno_ERANGE 34
+#  define errno_ENAMETOOLONG 36
+#  define errno_ENOSYS 38
+#endif
 
 // Those might not present or their value differ on different platforms.
 extern const int errno_EOWNERDEAD;

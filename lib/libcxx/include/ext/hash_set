@@ -219,7 +219,7 @@ template <class _Value,
           class _Hash  = hash<_Value>,
           class _Pred  = std::equal_to<_Value>,
           class _Alloc = std::allocator<_Value> >
-class _LIBCPP_TEMPLATE_VIS hash_set {
+class hash_set {
 public:
   // types
   typedef _Value key_type;
@@ -279,7 +279,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI const_iterator end() const { return __table_.end(); }
 
   _LIBCPP_HIDE_FROM_ABI std::pair<iterator, bool> insert(const value_type& __x) {
-    return __table_.__insert_unique(__x);
+    return __table_.__emplace_unique(__x);
   }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator, const value_type& __x) { return insert(__x).first; }
   template <class _InputIterator>
@@ -365,7 +365,7 @@ template <class _Value, class _Hash, class _Pred, class _Alloc>
 template <class _InputIterator>
 inline void hash_set<_Value, _Hash, _Pred, _Alloc>::insert(_InputIterator __first, _InputIterator __last) {
   for (; __first != __last; ++__first)
-    __table_.__insert_unique(*__first);
+    __table_.__emplace_unique(*__first);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>
@@ -398,7 +398,7 @@ template <class _Value,
           class _Hash  = hash<_Value>,
           class _Pred  = std::equal_to<_Value>,
           class _Alloc = std::allocator<_Value> >
-class _LIBCPP_TEMPLATE_VIS hash_multiset {
+class hash_multiset {
 public:
   // types
   typedef _Value key_type;
@@ -458,7 +458,7 @@ public:
   _LIBCPP_HIDE_FROM_ABI const_iterator begin() const { return __table_.begin(); }
   _LIBCPP_HIDE_FROM_ABI const_iterator end() const { return __table_.end(); }
 
-  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __x) { return __table_.__insert_multi(__x); }
+  _LIBCPP_HIDE_FROM_ABI iterator insert(const value_type& __x) { return __table_.__emplace_multi(__x); }
   _LIBCPP_HIDE_FROM_ABI iterator insert(const_iterator, const value_type& __x) { return insert(__x); }
   template <class _InputIterator>
   _LIBCPP_HIDE_FROM_ABI void insert(_InputIterator __first, _InputIterator __last);
@@ -543,7 +543,7 @@ template <class _Value, class _Hash, class _Pred, class _Alloc>
 template <class _InputIterator>
 inline void hash_multiset<_Value, _Hash, _Pred, _Alloc>::insert(_InputIterator __first, _InputIterator __last) {
   for (; __first != __last; ++__first)
-    __table_.__insert_multi(*__first);
+    __table_.__emplace_multi(*__first);
 }
 
 template <class _Value, class _Hash, class _Pred, class _Alloc>

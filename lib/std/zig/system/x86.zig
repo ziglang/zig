@@ -558,7 +558,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             setFeature(cpu, .avxvnniint16, bit(leaf.edx, 10) and has_avx_save);
             setFeature(cpu, .prefetchi, bit(leaf.edx, 14));
             setFeature(cpu, .usermsr, bit(leaf.edx, 15));
-            setFeature(cpu, .avx10_1_256, bit(leaf.edx, 19));
             // APX
             setFeature(cpu, .egpr, bit(leaf.edx, 21));
             setFeature(cpu, .push2pop2, bit(leaf.edx, 21));
@@ -585,7 +584,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
                 .avxvnniint16,
                 .prefetchi,
                 .usermsr,
-                .avx10_1_256,
                 .egpr,
                 .push2pop2,
                 .ppx,
@@ -668,7 +666,6 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
             .avxvnniint16,
             .prefetchi,
             .usermsr,
-            .avx10_1_256,
             .egpr,
             .push2pop2,
             .ppx,
@@ -724,10 +721,10 @@ fn detectNativeFeatures(cpu: *Target.Cpu, os_tag: Target.Os.Tag) void {
     if (max_level >= 0x24) {
         leaf = cpuid(0x24, 0);
 
-        setFeature(cpu, .avx10_1_512, bit(leaf.ebx, 18));
+        setFeature(cpu, .avx10_1, bit(leaf.ebx, 18));
     } else {
         for ([_]Target.x86.Feature{
-            .avx10_1_512,
+            .avx10_1,
         }) |feat| {
             setFeature(cpu, feat, false);
         }

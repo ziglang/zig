@@ -403,6 +403,7 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_flag_parser.cpp",
     "sanitizer_flags.cpp",
     "sanitizer_fuchsia.cpp",
+    "sanitizer_haiku.cpp",
     "sanitizer_libc.cpp",
     "sanitizer_libignore.cpp",
     "sanitizer_linux.cpp",
@@ -420,6 +421,7 @@ const sanitizer_common_sources = [_][]const u8{
     "sanitizer_procmaps_bsd.cpp",
     "sanitizer_procmaps_common.cpp",
     "sanitizer_procmaps_fuchsia.cpp",
+    "sanitizer_procmaps_haiku.cpp",
     "sanitizer_procmaps_linux.cpp",
     "sanitizer_procmaps_mac.cpp",
     "sanitizer_procmaps_solaris.cpp",
@@ -478,6 +480,7 @@ const sanitizer_symbolizer_sources = [_][]const u8{
 };
 
 const interception_sources = [_][]const u8{
+    "interception_aix.cpp",
     "interception_linux.cpp",
     "interception_mac.cpp",
     "interception_win.cpp",

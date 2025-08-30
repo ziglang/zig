@@ -67,6 +67,10 @@ static const char *maybe_parse_length_modifier(const char *p, char ll[2]) {
 
 // Returns true if the character is an integer conversion specifier.
 static bool format_is_integer_conv(char c) {
+#if SANITIZER_GLIBC
+  if (char_is_one_of(c, "bB"))
+    return true;
+#endif
   return char_is_one_of(c, "diouxXn");
 }
 

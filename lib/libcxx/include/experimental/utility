@@ -42,7 +42,7 @@ inline namespace fundamentals_v1 {
 
 _LIBCPP_BEGIN_NAMESPACE_LFTS
 
-struct _LIBCPP_TEMPLATE_VIS erased_type {};
+struct erased_type {};
 
 _LIBCPP_END_NAMESPACE_LFTS
 

@@ -18,8 +18,8 @@
 #  include <__ostream/basic_ostream.h>
 #  include <format>
 #  include <ios>
-#  include <locale>
 #  include <print>
+#  include <streambuf>
 
 #  if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #    pragma GCC system_header
@@ -49,21 +49,11 @@ __vprint_nonunicode(ostream& __os, string_view __fmt, format_args __args, bool _
     if (__write_nl)
       __o += '\n';
 
-    const char* __str = __o.data();
-    size_t __len      = __o.size();
-
 #    if _LIBCPP_HAS_EXCEPTIONS
     try {
 #    endif // _LIBCPP_HAS_EXCEPTIONS
-      typedef ostreambuf_iterator<char> _Ip;
-      if (std::__pad_and_output(
-              _Ip(__os),
-              __str,
-              (__os.flags() & ios_base::adjustfield) == ios_base::left ? __str + __len : __str,
-              __str + __len,
-              __os,
-              __os.fill())
-              .failed())
+      if (auto __rdbuf = __os.rdbuf();
+          !__rdbuf || __rdbuf->sputn(__o.data(), __o.size()) != static_cast<streamsize>(__o.size()))
         __os.setstate(ios_base::badbit | ios_base::failbit);
 
 #    if _LIBCPP_HAS_EXCEPTIONS

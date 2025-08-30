@@ -253,6 +253,12 @@
 #define zig_align_fn zig_align_fn_unavailable
 #endif
 
+#if zig_has_attribute(nonstring)
+#define zig_nonstring __attribute__((nonstring))
+#else
+#define zig_nonstring
+#endif
+
 #if zig_has_attribute(packed) || defined(zig_tinyc)
 #define zig_packed(definition) __attribute__((packed)) definition
 #elif defined(zig_msvc)

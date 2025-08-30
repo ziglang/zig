@@ -11,8 +11,8 @@
 
 #include <__assert>
 #include <__bit/countl.h>
-#include <__concepts/arithmetic.h>
 #include <__config>
+#include <__type_traits/integer_traits.h>
 #include <limits>
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
@@ -41,7 +41,7 @@ template <class _Tp>
 
 #  if _LIBCPP_STD_VER >= 20
 
-template <__libcpp_unsigned_integer _Tp>
+template <__unsigned_integer _Tp>
 [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr _Tp bit_ceil(_Tp __t) noexcept {
   return std::__bit_ceil(__t);
 }

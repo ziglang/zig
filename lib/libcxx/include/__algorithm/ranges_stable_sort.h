@@ -41,7 +41,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 namespace ranges {
 struct __stable_sort {
   template <class _Iter, class _Sent, class _Comp, class _Proj>
-  _LIBCPP_HIDE_FROM_ABI static _Iter __stable_sort_fn_impl(_Iter __first, _Sent __last, _Comp& __comp, _Proj& __proj) {
+  _LIBCPP_HIDE_FROM_ABI static _LIBCPP_CONSTEXPR_SINCE_CXX26 _Iter
+  __stable_sort_fn_impl(_Iter __first, _Sent __last, _Comp& __comp, _Proj& __proj) {
     auto __last_iter = ranges::next(__first, __last);
 
     auto&& __projected_comp = std::__make_projected(__comp, __proj);
@@ -52,13 +53,14 @@ struct __stable_sort {
 
   template <random_access_iterator _Iter, sentinel_for<_Iter> _Sent, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<_Iter, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI _Iter operator()(_Iter __first, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 _Iter
+  operator()(_Iter __first, _Sent __last, _Comp __comp = {}, _Proj __proj = {}) const {
     return __stable_sort_fn_impl(std::move(__first), std::move(__last), __comp, __proj);
   }
 
   template <random_access_range _Range, class _Comp = ranges::less, class _Proj = identity>
     requires sortable<iterator_t<_Range>, _Comp, _Proj>
-  _LIBCPP_HIDE_FROM_ABI borrowed_iterator_t<_Range>
+  _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 borrowed_iterator_t<_Range>
   operator()(_Range&& __r, _Comp __comp = {}, _Proj __proj = {}) const {
     return __stable_sort_fn_impl(ranges::begin(__r), ranges::end(__r), __comp, __proj);
   }

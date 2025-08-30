@@ -399,6 +399,7 @@ const targets = [_]ArchTarget{
             .name = "AMDGPU",
             .td_name = "AMDGPU",
         },
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "DumpCode",
@@ -1228,6 +1229,27 @@ const targets = [_]ArchTarget{
                 .llvm_name = "64bit-mode",
                 .omit = true,
             },
+            // Remove these when LLVM removes AVX10.N-256 support.
+            .{
+                .llvm_name = "avx10.1-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.2-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.1-512",
+                .zig_name = "avx10_1",
+            },
+            .{
+                .llvm_name = "avx10.2-512",
+                .zig_name = "avx10_2",
+            },
+            .{
+                .llvm_name = "avx512f",
+                .extra_deps = &.{"evex512"},
+            },
             .{
                 .llvm_name = "alderlake",
                 .extra_deps = &.{ "smap", "smep" },
@@ -1921,7 +1943,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {f},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtIdPU(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }

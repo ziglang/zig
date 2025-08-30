@@ -145,7 +145,7 @@ template<class R>
 */
 
 #if __cplusplus < 201103L && defined(_LIBCPP_USE_FROZEN_CXX03_HEADERS)
-#  include <__cxx03/span>
+#  include <__cxx03/__config>
 #else
 #  include <__assert>
 #  include <__concepts/convertible_to.h>
@@ -229,7 +229,7 @@ template <class _Sentinel, class _It>
 concept __span_compatible_sentinel_for = sized_sentinel_for<_Sentinel, _It> && !is_convertible_v<_Sentinel, size_t>;
 
 template <typename _Tp, size_t _Extent>
-class _LIBCPP_TEMPLATE_VIS span {
+class span {
 public:
   //  constants and types
   using element_type    = _Tp;
@@ -412,7 +412,7 @@ private:
 };
 
 template <typename _Tp>
-class _LIBCPP_TEMPLATE_VIS span<_Tp, dynamic_extent> {
+class span<_Tp, dynamic_extent> {
 public:
   //  constants and types
   using element_type    = _Tp;

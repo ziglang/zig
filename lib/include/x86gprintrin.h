@@ -10,33 +10,19 @@
 #ifndef __X86GPRINTRIN_H
 #define __X86GPRINTRIN_H
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__HRESET__)
 #include <hresetintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__UINTR__)
 #include <uintrintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__USERMSR__)
 #include <usermsrintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__CRC32__)
 #include <crc32intrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__PRFCHI__)
 #include <prfchiintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__RAOINT__)
 #include <raointintrin.h>
-#endif
 
-#if !defined(__SCE__) || __has_feature(modules) || defined(__CMPCCXADD__)
 #include <cmpccxaddintrin.h>
-#endif
 
 #if defined(__i386__)
 #define __SAVE_GPRBX "mov {%%ebx, %%eax |eax, ebx};"

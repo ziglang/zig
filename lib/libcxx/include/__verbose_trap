@@ -1,0 +1,36 @@
+// -*- C++ -*-
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
+#ifndef _LIBCPP___VERBOSE_TRAP
+#define _LIBCPP___VERBOSE_TRAP
+
+#include <__config>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#  pragma GCC system_header
+#endif
+
+_LIBCPP_BEGIN_NAMESPACE_STD
+
+#if __has_builtin(__builtin_verbose_trap)
+// AppleClang shipped a slightly different version of __builtin_verbose_trap from the upstream
+// version before upstream Clang actually got the builtin.
+// TODO: Remove once AppleClang supports the two-arguments version of the builtin.
+#  if defined(_LIBCPP_APPLE_CLANG_VER) && _LIBCPP_APPLE_CLANG_VER < 1700
+#    define _LIBCPP_VERBOSE_TRAP(message) __builtin_verbose_trap(message)
+#  else
+#    define _LIBCPP_VERBOSE_TRAP(message) __builtin_verbose_trap("libc++", message)
+#  endif
+#else
+#  define _LIBCPP_VERBOSE_TRAP(message) ((void)message, __builtin_trap())
+#endif
+
+_LIBCPP_END_NAMESPACE_STD
+
+#endif // _LIBCPP___VERBOSE_TRAP

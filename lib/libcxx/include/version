@@ -16,6 +16,7 @@
 Macro name                                              Value   Headers
 __cpp_lib_adaptor_iterator_pair_constructor             202106L <queue> <stack>
 __cpp_lib_addressof_constexpr                           201603L <memory>
+__cpp_lib_aligned_accessor                              202411L <mdspan>
 __cpp_lib_allocate_at_least                             202302L <memory>
 __cpp_lib_allocator_traits_is_always_equal              201411L <deque> <forward_list> <list>
                                                                 <map> <memory> <scoped_allocator>
@@ -58,28 +59,34 @@ __cpp_lib_char8_t                                       201907L <atomic> <filesy
 __cpp_lib_chrono                                        201611L <chrono>
 __cpp_lib_chrono_udls                                   201304L <chrono>
 __cpp_lib_clamp                                         201603L <algorithm>
+__cpp_lib_common_reference                              202302L <type_traits>
+__cpp_lib_common_reference_wrapper                      202302L <functional>
 __cpp_lib_complex_udls                                  201309L <complex>
 __cpp_lib_concepts                                      202002L <concepts>
-__cpp_lib_constexpr_algorithms                          201806L <algorithm> <utility>
+__cpp_lib_constexpr_algorithms                          202306L <algorithm> <utility>
+                                                        201806L // C++20
 __cpp_lib_constexpr_bitset                              202207L <bitset>
 __cpp_lib_constexpr_charconv                            202207L <charconv>
 __cpp_lib_constexpr_cmath                               202202L <cmath> <cstdlib>
 __cpp_lib_constexpr_complex                             201711L <complex>
 __cpp_lib_constexpr_dynamic_alloc                       201907L <memory>
+__cpp_lib_constexpr_forward_list                        202502L <forward_list>
 __cpp_lib_constexpr_functional                          201907L <functional>
 __cpp_lib_constexpr_iterator                            201811L <iterator>
+__cpp_lib_constexpr_list                                202502L <list>
 __cpp_lib_constexpr_memory                              202202L <memory>
                                                         201811L // C++20
 __cpp_lib_constexpr_new                                 202406L <new>
 __cpp_lib_constexpr_numeric                             201911L <numeric>
+__cpp_lib_constexpr_queue                               202502L <queue>
 __cpp_lib_constexpr_string                              201907L <string>
 __cpp_lib_constexpr_string_view                         201811L <string_view>
 __cpp_lib_constexpr_tuple                               201811L <tuple>
 __cpp_lib_constexpr_typeinfo                            202106L <typeinfo>
 __cpp_lib_constexpr_utility                             201811L <utility>
 __cpp_lib_constexpr_vector                              201907L <vector>
-__cpp_lib_constrained_equality                          202403L <optional> <tuple> <utility>
-                                                                <variant>
+__cpp_lib_constrained_equality                          202411L <expected> <optional> <tuple>
+                                                                <utility> <variant>
 __cpp_lib_containers_ranges                             202202L <deque> <forward_list> <list>
                                                                 <map> <queue> <set>
                                                                 <stack> <string> <unordered_map>
@@ -147,6 +154,7 @@ __cpp_lib_is_nothrow_convertible                        201806L <type_traits>
 __cpp_lib_is_null_pointer                               201309L <type_traits>
 __cpp_lib_is_pointer_interconvertible                   201907L <type_traits>
 __cpp_lib_is_scoped_enum                                202011L <type_traits>
+__cpp_lib_is_sufficiently_aligned                       202411L <memory>
 __cpp_lib_is_swappable                                  201603L <type_traits>
 __cpp_lib_is_virtual_base_of                            202406L <type_traits>
 __cpp_lib_is_within_lifetime                            202306L <type_traits>
@@ -396,6 +404,8 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # if _LIBCPP_HAS_CHAR8_T
 #   define __cpp_lib_char8_t                            201907L
 # endif
+# define __cpp_lib_common_reference                     202302L
+# define __cpp_lib_common_reference_wrapper             202302L
 # define __cpp_lib_concepts                             202002L
 # define __cpp_lib_constexpr_algorithms                 201806L
 # define __cpp_lib_constexpr_complex                    201711L
@@ -485,7 +495,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_containers_ranges                    202202L
 # define __cpp_lib_expected                             202211L
 # define __cpp_lib_flat_map                             202207L
-// # define __cpp_lib_flat_set                             202207L
+# define __cpp_lib_flat_set                             202207L
 # define __cpp_lib_format_ranges                        202207L
 // # define __cpp_lib_formatters                           202302L
 # define __cpp_lib_forward_like                         202207L
@@ -512,8 +522,8 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_ranges_chunk_by                      202202L
 # define __cpp_lib_ranges_contains                      202207L
 # define __cpp_lib_ranges_find_last                     202207L
-// # define __cpp_lib_ranges_iota                          202202L
-// # define __cpp_lib_ranges_join_with                     202202L
+# define __cpp_lib_ranges_iota                          202202L
+# define __cpp_lib_ranges_join_with                     202202L
 # define __cpp_lib_ranges_repeat                        202207L
 // # define __cpp_lib_ranges_slide                         202202L
 # define __cpp_lib_ranges_starts_ends_with              202106L
@@ -531,15 +541,21 @@ __cpp_lib_void_t                                        201411L <type_traits>
 #endif
 
 #if _LIBCPP_STD_VER >= 26
+# define __cpp_lib_aligned_accessor                     202411L
 // # define __cpp_lib_associative_heterogeneous_insertion  202306L
 // # define __cpp_lib_atomic_min_max                       202403L
 # undef  __cpp_lib_bind_front
 # define __cpp_lib_bind_front                           202306L
 # define __cpp_lib_bitset                               202306L
+# undef  __cpp_lib_constexpr_algorithms
+# define __cpp_lib_constexpr_algorithms                 202306L
+# define __cpp_lib_constexpr_forward_list               202502L
+# define __cpp_lib_constexpr_list                       202502L
 # if !defined(_LIBCPP_ABI_VCRUNTIME)
 #   define __cpp_lib_constexpr_new                      202406L
 # endif
-// # define __cpp_lib_constrained_equality                 202403L
+# define __cpp_lib_constexpr_queue                      202502L
+// # define __cpp_lib_constrained_equality                 202411L
 // # define __cpp_lib_copyable_function                    202306L
 // # define __cpp_lib_debugging                            202311L
 // # define __cpp_lib_default_template_type_for_algorithm_values 202403L
@@ -559,6 +575,7 @@ __cpp_lib_void_t                                        201411L <type_traits>
 // # define __cpp_lib_generate_random                      202403L
 // # define __cpp_lib_hazard_pointer                       202306L
 // # define __cpp_lib_inplace_vector                       202406L
+# define __cpp_lib_is_sufficiently_aligned              202411L
 # if __has_builtin(__builtin_is_virtual_base_of)
 #   define __cpp_lib_is_virtual_base_of                 202406L
 # endif

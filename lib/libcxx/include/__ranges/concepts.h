@@ -10,7 +10,9 @@
 #ifndef _LIBCPP___RANGES_CONCEPTS_H
 #define _LIBCPP___RANGES_CONCEPTS_H
 
+#include <__concepts/common_reference_with.h>
 #include <__concepts/constructible.h>
+#include <__concepts/convertible_to.h>
 #include <__concepts/movable.h>
 #include <__concepts/same_as.h>
 #include <__config>
@@ -25,6 +27,8 @@
 #include <__ranges/enable_view.h>
 #include <__ranges/size.h>
 #include <__type_traits/add_pointer.h>
+#include <__type_traits/common_reference.h>
+#include <__type_traits/common_type.h>
 #include <__type_traits/is_reference.h>
 #include <__type_traits/remove_cvref.h>
 #include <__type_traits/remove_reference.h>
@@ -132,6 +136,42 @@ concept viewable_range =
      (!view<remove_cvref_t<_Tp>> &&
       (is_lvalue_reference_v<_Tp> ||
        (movable<remove_reference_t<_Tp>> && !__is_std_initializer_list<remove_cvref_t<_Tp>>))));
+
+#  if _LIBCPP_STD_VER >= 23
+
+template <class... _Rs>
+using __concat_reference_t _LIBCPP_NODEBUG = common_reference_t<range_reference_t<_Rs>...>;
+
+template <class... _Rs>
+using __concat_value_t _LIBCPP_NODEBUG = common_type_t<range_value_t<_Rs>...>;
+
+template <class... _Rs>
+using __concat_rvalue_reference_t _LIBCPP_NODEBUG = common_reference_t<range_rvalue_reference_t<_Rs>...>;
+
+template <class _Ref, class _RRef, class _It>
+concept __concat_indirectly_readable_impl = requires(const _It __it) {
+  { *__it } -> convertible_to<_Ref>;
+  { ranges::iter_move(__it) } -> convertible_to<_RRef>;
+};
+
+template <class... _Rs>
+concept __concat_indirectly_readable =
+    common_reference_with<__concat_reference_t<_Rs...>&&, __concat_value_t<_Rs...>&> &&
+    common_reference_with<__concat_reference_t<_Rs...>&&, __concat_rvalue_reference_t<_Rs...>&&> &&
+    common_reference_with<__concat_rvalue_reference_t<_Rs...>&&, const __concat_value_t<_Rs...>&> &&
+    (__concat_indirectly_readable_impl<__concat_reference_t<_Rs...>,
+                                       __concat_rvalue_reference_t<_Rs...>,
+                                       iterator_t<_Rs>> &&
+     ...);
+
+template <class... _Rs>
+concept __concatable = requires {
+  typename __concat_reference_t<_Rs...>;
+  typename __concat_value_t<_Rs...>;
+  typename __concat_rvalue_reference_t<_Rs...>;
+} && __concat_indirectly_readable<_Rs...>;
+
+#  endif // _LIBCPP_STD_VER >= 23
 
 } // namespace ranges
 

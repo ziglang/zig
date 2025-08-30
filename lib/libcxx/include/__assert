@@ -20,8 +20,8 @@
 #define _LIBCPP_ASSERT(expression, message)                                                                            \
   (__builtin_expect(static_cast<bool>(expression), 1)                                                                  \
        ? (void)0                                                                                                       \
-       : _LIBCPP_ASSERTION_HANDLER(__FILE__ ":" _LIBCPP_TOSTRING(__LINE__) ": assertion " _LIBCPP_TOSTRING(            \
-             expression) " failed: " message "\n"))
+       : _LIBCPP_ASSERTION_HANDLER(__FILE__ ":" _LIBCPP_TOSTRING(                                                      \
+             __LINE__) ": libc++ Hardening assertion " _LIBCPP_TOSTRING(expression) " failed: " message "\n"))
 
 // WARNING: __builtin_assume can currently inhibit optimizations. Only add assumptions with a clear
 // optimization intent. See https://discourse.llvm.org/t/llvm-assume-blocks-optimization/71609 for a

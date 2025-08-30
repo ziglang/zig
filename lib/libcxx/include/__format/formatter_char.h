@@ -31,7 +31,7 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 #if _LIBCPP_STD_VER >= 20
 
 template <__fmt_char_type _CharT>
-struct _LIBCPP_TEMPLATE_VIS __formatter_char {
+struct __formatter_char {
 public:
   template <class _ParseContext>
   _LIBCPP_HIDE_FROM_ABI constexpr typename _ParseContext::iterator parse(_ParseContext& __ctx) {
@@ -75,14 +75,14 @@ public:
 };
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS formatter<char, char> : public __formatter_char<char> {};
+struct formatter<char, char> : public __formatter_char<char> {};
 
 #  if _LIBCPP_HAS_WIDE_CHARACTERS
 template <>
-struct _LIBCPP_TEMPLATE_VIS formatter<char, wchar_t> : public __formatter_char<wchar_t> {};
+struct formatter<char, wchar_t> : public __formatter_char<wchar_t> {};
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS formatter<wchar_t, wchar_t> : public __formatter_char<wchar_t> {};
+struct formatter<wchar_t, wchar_t> : public __formatter_char<wchar_t> {};
 #  endif // _LIBCPP_HAS_WIDE_CHARACTERS
 
 #  if _LIBCPP_STD_VER >= 23
