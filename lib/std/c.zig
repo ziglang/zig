@@ -5704,6 +5704,7 @@ pub const MSG = switch (native_os) {
         pub const WAITFORONE = 0x2000;
         pub const NOTIFICATION = 0x4000;
     },
+    // https://github.com/openbsd/src/blob/42a7be81bef70c04732f45ec573622effe56b563/sys/sys/socket.h#L506
     .openbsd => struct {
         pub const OOB = 0x1;
         pub const PEEK = 0x2;
@@ -5718,6 +5719,7 @@ pub const MSG = switch (native_os) {
         pub const NOSIGNAL = 0x400;
         pub const CMSG_CLOEXEC = 0x800;
         pub const WAITFORONE = 0x1000;
+        pub const CMSG_CLOFORK = 0x2000;
     },
     else => void,
 };
