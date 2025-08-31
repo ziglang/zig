@@ -1532,3 +1532,43 @@ test "custom help" {
     try testing.expectError(error.Help, parseSlice(Args, allocator, &[_][]const u8{"--help"}, options));
     try testing.expectEqualStrings(Args.help, aw.written());
 }
+
+test "description" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var aw: Writer.Allocating = .init(allocator);
+    const options = Options{ .prog = "unused-prog", .writer = &aw.writer };
+
+    const Args = struct {
+        pub const description =
+            \\This is a description
+        ;
+    };
+    try testing.expectError(error.Help, parseSlice(Args, allocator, &[_][]const u8{"--help"}, options));
+    try testing.expect(mem.indexOf(u8, aw.written(), Args.description) != null);
+}
+
+test "field help" {
+    var arena: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var aw: Writer.Allocating = .init(allocator);
+    const options = Options{ .prog = "unused-prog", .writer = &aw.writer };
+
+    const Args = struct {
+        named: struct {
+            output: []const u8,
+            pub const output_help = "help for output";
+        },
+        positional: struct {
+            args: []const []const u8 = &.{},
+            pub const args_help = "help for args";
+        },
+    };
+    try testing.expectError(error.Help, parseSlice(Args, allocator, &[_][]const u8{"--help"}, options));
+    try testing.expect(mem.indexOf(u8, aw.written(), @FieldType(Args, "named").output_help) != null);
+    try testing.expect(mem.indexOf(u8, aw.written(), @FieldType(Args, "positional").args_help) != null);
+}
