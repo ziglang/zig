@@ -43,10 +43,16 @@ struct ZigClangQualType {
     void *ptr;
 };
 
-struct ZigClangAPValueLValueBase {
-    void *Ptr;
-    unsigned CallIndex;
-    unsigned Version;
+struct alignas(uint64_t) ZigClangAPValueLValueBase {
+    void* Ptr;
+    union {
+        struct {
+            unsigned CallIndex;
+            unsigned Version;
+        } Local;
+        void* TypeInfoType;
+        void* DynamicAllocType;
+    };
 };
 
 enum ZigClangAPValueKind {

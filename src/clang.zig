@@ -37,9 +37,15 @@ pub const QualType = extern struct {
 };
 
 pub const APValueLValueBase = extern struct {
-    Ptr: ?*anyopaque,
-    CallIndex: c_uint,
-    Version: c_uint,
+    Ptr: ?*anyopaque align(@alignOf(u64)),
+    State: extern union {
+        Local: extern struct {
+            CallIndex: c_uint,
+            Version: c_uint,
+        },
+        TypeInfoType: ?*anyopaque,
+        DynamicAllocType: ?*anyopaque,
+    },
 
     pub const dyn_cast_Expr = ZigClangAPValueLValueBase_dyn_cast_Expr;
     extern fn ZigClangAPValueLValueBase_dyn_cast_Expr(APValueLValueBase) ?*const Expr;
