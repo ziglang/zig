@@ -2,8 +2,6 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const Cache = std.Build.Cache;
 
-const usage = "usage: incr-check <zig binary path> <input file> [--zig-lib-dir lib] [--debug-zcu] [--debug-dwarf] [--debug-link] [--preserve-tmp] [--zig-cc-binary /path/to/zig]";
-
 pub fn main() !void {
     const fatal = std.process.fatal;
 
@@ -11,46 +9,29 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    var opt_zig_exe: ?[]const u8 = null;
-    var opt_input_file_name: ?[]const u8 = null;
-    var opt_lib_dir: ?[]const u8 = null;
-    var opt_cc_zig: ?[]const u8 = null;
-    var debug_zcu = false;
-    var debug_dwarf = false;
-    var debug_link = false;
-    var preserve_tmp = false;
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            @"zig-binary-path": []const u8,
+            @"input-file": []const u8,
+        },
+        named: struct {
+            @"zig-lib-dir": []const u8 = "",
+            @"debug-zcu": bool = false,
+            @"debug-dwarf": bool = false,
+            @"debug-link": bool = false,
+            preserve_tmp: bool = false,
+            @"zig-cc-binary": []const u8 = "",
+        },
+    }, arena, .{});
 
-    var arg_it = try std.process.argsWithAllocator(arena);
-    _ = arg_it.skip();
-    while (arg_it.next()) |arg| {
-        if (arg.len > 0 and arg[0] == '-') {
-            if (std.mem.eql(u8, arg, "--zig-lib-dir")) {
-                opt_lib_dir = arg_it.next() orelse fatal("expected arg after '--zig-lib-dir'\n{s}", .{usage});
-            } else if (std.mem.eql(u8, arg, "--debug-zcu")) {
-                debug_zcu = true;
-            } else if (std.mem.eql(u8, arg, "--debug-dwarf")) {
-                debug_dwarf = true;
-            } else if (std.mem.eql(u8, arg, "--debug-link")) {
-                debug_link = true;
-            } else if (std.mem.eql(u8, arg, "--preserve-tmp")) {
-                preserve_tmp = true;
-            } else if (std.mem.eql(u8, arg, "--zig-cc-binary")) {
-                opt_cc_zig = arg_it.next() orelse fatal("expect arg after '--zig-cc-binary'\n{s}", .{usage});
-            } else {
-                fatal("unknown option '{s}'\n{s}", .{ arg, usage });
-            }
-            continue;
-        }
-        if (opt_zig_exe == null) {
-            opt_zig_exe = arg;
-        } else if (opt_input_file_name == null) {
-            opt_input_file_name = arg;
-        } else {
-            fatal("unknown argument '{s}'\n{s}", .{ arg, usage });
-        }
-    }
-    const zig_exe = opt_zig_exe orelse fatal("missing path to zig\n{s}", .{usage});
-    const input_file_name = opt_input_file_name orelse fatal("missing input file\n{s}", .{usage});
+    const opt_lib_dir: ?[]const u8 = if (args.named.@"zig-lib-dir".len > 0) args.named.@"zig-lib-dir" else null;
+    const opt_cc_zig: ?[]const u8 = if (args.named.@"zig-cc-binary".len > 0) args.named.@"zig-cc-binary" else null;
+    const debug_zcu = args.named.@"debug-zcu";
+    const debug_dwarf = args.named.@"debug-dwarf";
+    const debug_link = args.named.@"debug-link";
+    const preserve_tmp = args.named.preserve_tmp;
+    const zig_exe = args.positional.@"zig-binary-path";
+    const input_file_name = args.positional.@"input-file";
 
     const input_file_bytes = try std.fs.cwd().readFileAlloc(input_file_name, arena, .limited(std.math.maxInt(u32)));
     const case = try Case.parse(arena, input_file_bytes);

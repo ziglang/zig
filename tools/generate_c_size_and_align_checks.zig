@@ -25,21 +25,22 @@ fn cName(ty: std.Target.CType) []const u8 {
     };
 }
 
-var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
-
 pub fn main() !void {
-    const gpa = general_purpose_allocator.allocator();
+    var general_purpose_allocator: std.heap.GeneralPurposeAllocator(.{}) = .init;
     defer std.debug.assert(general_purpose_allocator.deinit() == .ok);
+    const gpa = general_purpose_allocator.allocator();
 
-    const args = try std.process.argsAlloc(gpa);
-    defer std.process.argsFree(gpa, args);
+    var arena_instance = std.heap.ArenaAllocator.init(gpa);
+    defer arena_instance.deinit();
+    const arena = arena_instance.allocator();
 
-    if (args.len != 2) {
-        std.debug.print("Usage: {s} [target_triple]\n", .{args[0]});
-        std.process.exit(1);
-    }
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            target_triple: [:0]const u8,
+        },
+    }, arena, .{});
 
-    const query = try std.Target.Query.parse(.{ .arch_os_abi = args[1] });
+    const query = try std.Target.Query.parse(.{ .arch_os_abi = args.positional.target_triple });
     const target = try std.zig.system.resolveTargetQuery(query);
 
     var buffer: [2000]u8 = undefined;

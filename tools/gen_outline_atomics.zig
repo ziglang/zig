@@ -15,7 +15,7 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    //const args = try std.process.argsAlloc(arena);
+    _ = try std.cli.parse(struct {}, arena, .{});
 
     var stdout_buffer: [2000]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);

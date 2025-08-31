@@ -1567,38 +1567,23 @@ pub fn main() anyerror!void {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    var args = try std.process.argsWithAllocator(arena);
-    const args0 = args.next().?;
-
-    const llvm_tblgen_exe = args.next() orelse
-        usageAndExit(args0, 1);
-
-    if (std.mem.eql(u8, llvm_tblgen_exe, "--help")) {
-        usageAndExit(args0, 0);
-    }
-    if (std.mem.startsWith(u8, llvm_tblgen_exe, "-")) {
-        usageAndExit(args0, 1);
-    }
-
-    const llvm_src_root = args.next() orelse
-        usageAndExit(args0, 1);
-
-    if (std.mem.startsWith(u8, llvm_src_root, "-")) {
-        usageAndExit(args0, 1);
-    }
-
-    const zig_src_root = args.next() orelse
-        usageAndExit(args0, 1);
-
-    if (std.mem.startsWith(u8, zig_src_root, "-")) {
-        usageAndExit(args0, 1);
-    }
-
-    var filter: ?[]const u8 = null;
-    if (args.next()) |arg| filter = arg;
-
-    // there shouldn't be any more argument after the optional filter
-    if (args.skip()) usageAndExit(args0, 1);
+    const args = try std.cli.parse(struct {
+        pub const description =
+            \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
+            \\
+            \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
+        ;
+        positional: struct {
+            @"/path/to/llvm-tblgen": [:0]const u8,
+            @"/path/git/llvm-project": [:0]const u8,
+            @"/path/git/zig": [:0]const u8,
+            zig_name_filter: []const u8 = "",
+        },
+    }, arena, .{});
+    const llvm_tblgen_exe = args.positional.@"/path/to/llvm-tblgen";
+    const llvm_src_root = args.positional.@"/path/git/llvm-project";
+    const zig_src_root = args.positional.@"/path/git/zig";
+    const filter: ?[]const u8 = if (args.positional.zig_name_filter.len > 0) args.positional.zig_name_filter else null;
 
     var zig_src_dir = try fs.cwd().openDir(zig_src_root, .{});
     defer zig_src_dir.close();
@@ -2102,19 +2087,6 @@ fn processOneTarget(job: Job) void {
     try w.flush();
 
     render_progress.end();
-}
-
-fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.debug.lockStderrWriter(&.{});
-    stderr.print(
-        \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
-        \\
-        \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .
-        \\
-        \\On a less beefy system, or when debugging, compile with -fsingle-threaded.
-        \\
-    , .{arg0}) catch std.process.exit(1);
-    std.process.exit(code);
 }
 
 fn featureLessThan(_: void, a: Feature, b: Feature) bool {

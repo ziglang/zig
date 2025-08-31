@@ -119,52 +119,24 @@ const HashToContents = std.StringHashMap(Contents);
 const TargetToHash = std.StringArrayHashMap([]const u8);
 const PathTable = std.StringHashMap(*TargetToHash);
 
-const LibCVendor = enum {
-    musl,
-    glibc,
-    freebsd,
-    netbsd,
-};
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const allocator = arena.allocator();
-    const args = try std.process.argsAlloc(allocator);
-    var search_paths = std.array_list.Managed([]const u8).init(allocator);
-    var opt_out_dir: ?[]const u8 = null;
-    var opt_abi: ?[]const u8 = null;
 
-    var arg_i: usize = 1;
-    while (arg_i < args.len) : (arg_i += 1) {
-        if (std.mem.eql(u8, args[arg_i], "--help"))
-            usageAndExit(args[0]);
-        if (arg_i + 1 >= args.len) {
-            std.debug.print("expected argument after '{s}'\n", .{args[arg_i]});
-            usageAndExit(args[0]);
-        }
+    const args = try std.cli.parse(struct {
+        named: struct {
+            @"search-path": []const []const u8 = &.{},
+            out: []const u8,
+            abi: enum { musl, glibc, freebsd, netbsd },
 
-        if (std.mem.eql(u8, args[arg_i], "--search-path")) {
-            try search_paths.append(args[arg_i + 1]);
-        } else if (std.mem.eql(u8, args[arg_i], "--out")) {
-            assert(opt_out_dir == null);
-            opt_out_dir = args[arg_i + 1];
-        } else if (std.mem.eql(u8, args[arg_i], "--abi")) {
-            assert(opt_abi == null);
-            opt_abi = args[arg_i + 1];
-        } else {
-            std.debug.print("unrecognized argument: {s}\n", .{args[arg_i]});
-            usageAndExit(args[0]);
-        }
-
-        arg_i += 1;
-    }
-
-    const out_dir = opt_out_dir orelse usageAndExit(args[0]);
-    const abi_name = opt_abi orelse usageAndExit(args[0]);
-    const vendor = std.meta.stringToEnum(LibCVendor, abi_name) orelse {
-        std.debug.print("unrecognized C ABI: {s}\n", .{abi_name});
-        usageAndExit(args[0]);
-    };
+            pub const @"search-path_help" = "subdirectories of search paths look like, e.g. x86_64-linux-gnu";
+            pub const out_help = "a dir that will be created, and populated with the results";
+        },
+    }, allocator, .{});
+    const search_paths = args.named.@"search-path";
+    const out_dir = args.named.out;
+    const vendor = args.named.abi;
+    const abi_name = @tagName(vendor);
 
     const generic_name = try std.fmt.allocPrint(allocator, "generic-{s}", .{abi_name});
     const libc_targets = switch (vendor) {
@@ -225,7 +197,7 @@ pub fn main() !void {
             @tagName(libc_target.abi),
         });
 
-        search: for (search_paths.items) |search_path| {
+        search: for (search_paths) |search_path| {
             const sub_path = switch (vendor) {
                 .glibc,
                 .freebsd,
@@ -361,13 +333,4 @@ pub fn main() !void {
             try std.fs.cwd().writeFile(.{ .sub_path = full_path, .data = contents.bytes });
         }
     }
-}
-
-fn usageAndExit(arg0: []const u8) noreturn {
-    std.debug.print("Usage: {s} [--search-path <dir>] --out <dir> --abi <name>\n", .{arg0});
-    std.debug.print("--search-path can be used any number of times.\n", .{});
-    std.debug.print("    subdirectories of search paths look like, e.g. x86_64-linux-gnu\n", .{});
-    std.debug.print("--out is a dir that will be created, and populated with the results\n", .{});
-    std.debug.print("--abi is either glibc, musl, freebsd, or netbsd\n", .{});
-    std.process.exit(1);
 }

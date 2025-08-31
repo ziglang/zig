@@ -1,10 +1,14 @@
-// zig run this file inside the test_parsing/ directory of this repo: https://github.com/nst/JSONTestSuite
+const Args = struct {
+    pub const description = "zig run this file inside the test_parsing/ directory of this repo: https://github.com/nst/JSONTestSuite";
+};
 
 const std = @import("std");
 
 pub fn main() !void {
     var gpa: std.heap.GeneralPurposeAllocator(.{}) = .init;
     var allocator = gpa.allocator();
+
+    _ = try std.cli.parse(Args, allocator, .{});
 
     var stdout_buffer: [2000]u8 = undefined;
     var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);

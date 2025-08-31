@@ -16,9 +16,14 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const freebsd_src_path = args[1];
-    const zig_src_path = args[2];
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            freebsd_src_path: [:0]const u8,
+            zig_src_path: [:0]const u8,
+        },
+    }, arena, .{});
+    const freebsd_src_path = args.positional.freebsd_src_path;
+    const zig_src_path = args.positional.zig_src_path;
 
     const dest_dir_path = try std.fmt.allocPrint(arena, "{s}/lib/libc/freebsd", .{zig_src_path});
 

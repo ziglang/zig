@@ -13,9 +13,14 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const input_file = args[1];
-    const output_file = args[2];
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            input_file: [:0]const u8,
+            output_file: [:0]const u8,
+        },
+    }, arena, .{});
+    const input_file = args.positional.input_file;
+    const output_file = args.positional.output_file;
 
     var in_file = try fs.cwd().openFile(input_file, .{ .mode = .read_only });
     defer in_file.close();

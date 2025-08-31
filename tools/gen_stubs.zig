@@ -284,8 +284,12 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const build_all_path = args[1];
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            build_all_path: [:0]const u8,
+        },
+    }, arena, .{});
+    const build_all_path = args.positional.build_all_path;
 
     var build_all_dir = try std.fs.cwd().openDir(build_all_path, .{});
 

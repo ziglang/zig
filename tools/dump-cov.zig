@@ -16,9 +16,15 @@ pub fn main() !void {
     defer arena_instance.deinit();
     const arena = arena_instance.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    const exe_file_name = args[1];
-    const cov_file_name = args[2];
+    const args = try std.cli.parse(struct {
+        named: struct {},
+        positional: struct {
+            exe_file: [:0]const u8,
+            cov_file: [:0]const u8,
+        },
+    }, arena, .{});
+    const exe_file_name = args.positional.exe_file;
+    const cov_file_name = args.positional.cov_file;
 
     const exe_path: Path = .{
         .root_dir = std.Build.Cache.Directory.cwd(),

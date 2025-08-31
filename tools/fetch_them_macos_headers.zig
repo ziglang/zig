@@ -55,36 +55,24 @@ const Target = struct {
 
 const headers_source_prefix: []const u8 = "headers";
 
-const usage =
-    \\fetch_them_macos_headers [options] [cc args]
-    \\
-    \\Options:
-    \\  --sysroot     Path to macOS SDK
-    \\
-    \\General Options:
-    \\-h, --help                    Print this help and exit
-;
+const Args = struct {
+    named: struct {
+        sysroot: []const u8 = "",
+        pub const sysroot_help = "Path to macOS SDK";
+    },
+    positional: struct {
+        cc_args: []const [:0]const u8 = &.{},
+    },
+};
 
 pub fn main() anyerror!void {
     var arena = std.heap.ArenaAllocator.init(gpa);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
+    const args = try std.cli.parse(Args, allocator, .{});
 
-    var argv = std.array_list.Managed([]const u8).init(allocator);
-    var sysroot: ?[]const u8 = null;
-
-    var args_iter = ArgsIterator{ .args = args[1..] };
-    while (args_iter.next()) |arg| {
-        if (mem.eql(u8, arg, "--help") or mem.eql(u8, arg, "-h")) {
-            return info(usage, .{});
-        } else if (mem.eql(u8, arg, "--sysroot")) {
-            sysroot = args_iter.nextOrFatal();
-        } else try argv.append(arg);
-    }
-
-    const sysroot_path = sysroot orelse blk: {
+    const sysroot_path = if (args.named.sysroot.len > 0) args.named.sysroot else blk: {
         const target = try std.zig.system.resolveTargetQuery(.{});
         break :blk std.zig.system.darwin.getSdk(allocator, &target) orelse
             fatal("no SDK found; you can provide one explicitly with '--sysroot' flag", .{});
@@ -121,13 +109,13 @@ pub fn main() anyerror!void {
             .arch = arch,
             .os_ver = os_ver,
         };
-        try fetchTarget(allocator, argv.items, sysroot_path, target, version, tmp);
+        try fetchTarget(allocator, args.positional.cc_args, sysroot_path, target, version, tmp);
     }
 }
 
 fn fetchTarget(
     arena: Allocator,
-    args: []const []const u8,
+    cc_args: []const []const u8,
     sysroot: []const u8,
     target: Target,
     ver: Version,
@@ -165,7 +153,7 @@ fn fetchTarget(
         "-MF",
         headers_list_path,
     });
-    try cc_argv.appendSlice(args);
+    try cc_argv.appendSlice(cc_args);
 
     const res = try std.process.Child.run(.{
         .allocator = arena,
@@ -228,24 +216,6 @@ fn fetchTarget(
         entry.value_ptr.close();
     }
 }
-
-const ArgsIterator = struct {
-    args: []const []const u8,
-    i: usize = 0,
-
-    fn next(it: *@This()) ?[]const u8 {
-        if (it.i >= it.args.len) {
-            return null;
-        }
-        defer it.i += 1;
-        return it.args[it.i];
-    }
-
-    fn nextOrFatal(it: *@This()) []const u8 {
-        const arg = it.next() orelse fatal("expected parameter after '{s}'", .{it.args[it.i - 1]});
-        return arg;
-    }
-};
 
 const Version = struct {
     major: u16,

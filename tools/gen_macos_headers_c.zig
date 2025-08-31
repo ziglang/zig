@@ -8,32 +8,18 @@ const Allocator = std.mem.Allocator;
 var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = general_purpose_allocator.allocator();
 
-const usage =
-    \\gen_macos_headers_c [dir]
-    \\
-    \\General Options:
-    \\-h, --help                    Print this help and exit
-;
-
 pub fn main() anyerror!void {
     var arena_allocator = std.heap.ArenaAllocator.init(gpa);
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const args = try std.process.argsAlloc(arena);
-    if (args.len == 1) fatal("no command or option specified", .{});
+    const args = try std.cli.parse(struct {
+        positional: struct {
+            dir: []const u8,
+        },
+    }, arena, .{});
 
-    var positionals = std.array_list.Managed([]const u8).init(arena);
-
-    for (args[1..]) |arg| {
-        if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) {
-            return info(usage, .{});
-        } else try positionals.append(arg);
-    }
-
-    if (positionals.items.len != 1) fatal("expected one positional argument: [dir]", .{});
-
-    var dir = try std.fs.cwd().openDir(positionals.items[0], .{ .no_follow = true });
+    var dir = try std.fs.cwd().openDir(args.positional.dir, .{ .no_follow = true });
     defer dir.close();
     var paths = std.array_list.Managed([]const u8).init(arena);
     try findHeaders(arena, dir, "", &paths);
