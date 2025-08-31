@@ -1375,7 +1375,7 @@ pub const basic_authorization = struct {
         var buf: [max_user_len + 1 + max_password_len]u8 = undefined;
         var w: Writer = .fixed(&buf);
         const user: Uri.Component = uri.user orelse .empty;
-        const password: Uri.Component = uri.user orelse .empty;
+        const password: Uri.Component = uri.password orelse .empty;
         user.formatUser(&w) catch unreachable;
         w.writeByte(':') catch unreachable;
         password.formatPassword(&w) catch unreachable;
