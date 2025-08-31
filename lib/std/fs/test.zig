@@ -2140,7 +2140,7 @@ test "seek keeping partial buffer" {
     try testing.expectEqualStrings("6789", &buf);
 }
 
-test "seekBy" {
+test "seekBy streaming" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
@@ -2154,6 +2154,26 @@ test "seekBy" {
     const n = try reader.interface.readSliceShort(&buffer);
     try testing.expectEqual(15, n);
     try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
+}
+
+test "seekBy positional" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var read_buf: [32]u8 = undefined;
+    var reader = f.reader(&read_buf);
+    var buffer: [20]u8 = undefined;
+    const n1 = try reader.interface.readSliceShort(buffer[0..2]);
+    try testing.expectEqual(2, n1);
+    try testing.expectEqualStrings("le", buffer[0..2]);
+    try reader.seekBy(2);
+
+    const n2 = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(13, n2);
+    try testing.expectEqualStrings("s test seekBy", buffer[0..13]);
 }
 
 test "seekTo flushes buffered data" {
