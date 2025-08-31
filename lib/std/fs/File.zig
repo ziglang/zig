@@ -1189,7 +1189,7 @@ pub const Reader = struct {
     pub fn seekBy(r: *Reader, offset: i64) Reader.SeekError!void {
         switch (r.mode) {
             .positional, .positional_reading => {
-                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.pos)) + offset));
+                setPosAdjustingBuffer(r, @intCast(@as(i64, @intCast(r.logicalPos())) + offset));
             },
             .streaming, .streaming_reading => {
                 if (posix.SEEK == void) {
