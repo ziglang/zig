@@ -2140,20 +2140,58 @@ test "seek keeping partial buffer" {
     try testing.expectEqualStrings("6789", &buf);
 }
 
-test "seekBy streaming" {
+test "seekBy streaming edge case" {
     var tmp_dir = testing.tmpDir(.{});
     defer tmp_dir.cleanup();
 
     try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
     const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
     defer f.close();
-    var reader = f.readerStreaming(&.{});
-    try reader.seekBy(2);
-
+    var read_buf: [10]u8 = undefined;
+    var reader = f.readerStreaming(&read_buf);
     var buffer: [20]u8 = undefined;
-    const n = try reader.interface.readSliceShort(&buffer);
-    try testing.expectEqual(15, n);
-    try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
+    const n1 = try reader.interface.readSliceShort(buffer[0..2]);
+    try testing.expectEqual(2, n1);
+    try testing.expectEqualStrings("le", buffer[0..2]);
+    // edge case seek: exactly up to buffer size
+    try reader.seekBy(10);
+    try testing.expectEqual(0, reader.interface.seek);
+    try testing.expectEqual(0, reader.interface.end);
+
+    const n2 = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(5, n2);
+    try testing.expectEqualStrings("eekBy", buffer[0..5]);
+}
+
+test "seekBy streaming basic" {
+    var tmp_dir = testing.tmpDir(.{});
+    defer tmp_dir.cleanup();
+
+    try tmp_dir.dir.writeFile(.{ .sub_path = "blah.txt", .data = "let's test seekBy" });
+    const f = try tmp_dir.dir.openFile("blah.txt", .{ .mode = .read_only });
+    defer f.close();
+    var read_buf: [10]u8 = undefined;
+    var reader = f.readerStreaming(&read_buf);
+    var buffer: [20]u8 = undefined;
+    const n1 = try reader.interface.readSliceShort(buffer[0..2]);
+    try testing.expectEqual(2, n1);
+    try testing.expectEqualStrings("le", buffer[0..2]);
+    // seek within bufferedLen
+    const pos_within = reader.pos;
+    try reader.seekBy(2);
+    if (builtin.target.os.tag != .wasi) {
+        try testing.expectEqual(pos_within, reader.pos);
+    }
+    try reader.interface.readSliceAll(buffer[0..2]);
+    try testing.expectEqualStrings("s ", buffer[0..2]);
+    // seek past bufferedLen: causing discard
+    const pos_past = reader.pos;
+    try reader.seekBy(10);
+    try testing.expect(pos_past != reader.pos);
+
+    const n2 = try reader.interface.readSliceShort(&buffer);
+    try testing.expectEqual(1, n2);
+    try testing.expectEqualStrings("y", buffer[0..1]);
 }
 
 test "seekBy positional" {
