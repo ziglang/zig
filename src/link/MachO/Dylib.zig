@@ -667,7 +667,7 @@ pub fn setSymbolExtra(self: *Dylib, index: u32, extra: Symbol.Extra) void {
     }
 }
 
-pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Dylib, macho_file: *MachO) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .dylib = self,
         .macho_file = macho_file,

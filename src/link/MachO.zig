@@ -3906,7 +3906,7 @@ pub fn ptraceDetach(self: *MachO, pid: std.posix.pid_t) !void {
     self.hot_state.mach_task = null;
 }
 
-pub fn dumpState(self: *MachO) std.fmt.Formatter(*MachO, fmtDumpState) {
+pub fn dumpState(self: *MachO) std.fmt.Alt(*MachO, fmtDumpState) {
     return .{ .data = self };
 }
 
@@ -3964,7 +3964,7 @@ fn fmtDumpState(self: *MachO, w: *Writer) Writer.Error!void {
     try w.print("segments\n{f}\n", .{self.fmtSegments()});
 }
 
-fn fmtSections(self: *MachO) std.fmt.Formatter(*MachO, formatSections) {
+fn fmtSections(self: *MachO) std.fmt.Alt(*MachO, formatSections) {
     return .{ .data = self };
 }
 
@@ -3981,7 +3981,7 @@ fn formatSections(self: *MachO, w: *Writer) Writer.Error!void {
     }
 }
 
-fn fmtSegments(self: *MachO) std.fmt.Formatter(*MachO, formatSegments) {
+fn fmtSegments(self: *MachO) std.fmt.Alt(*MachO, formatSegments) {
     return .{ .data = self };
 }
 
@@ -3994,7 +3994,7 @@ fn formatSegments(self: *MachO, w: *Writer) Writer.Error!void {
     }
 }
 
-pub fn fmtSectType(tt: u8) std.fmt.Formatter(u8, formatSectType) {
+pub fn fmtSectType(tt: u8) std.fmt.Alt(u8, formatSectType) {
     return .{ .data = tt };
 }
 
@@ -4257,7 +4257,7 @@ pub const Platform = struct {
         return false;
     }
 
-    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(Format, Format.target) {
+    pub fn fmtTarget(plat: Platform, cpu_arch: std.Target.Cpu.Arch) std.fmt.Alt(Format, Format.target) {
         return .{ .data = .{ .platform = plat, .cpu_arch = cpu_arch } };
     }
 

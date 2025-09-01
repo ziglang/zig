@@ -63,7 +63,7 @@ pub fn writeSymtab(thunk: Thunk, macho_file: *MachO, ctx: anytype) void {
     }
 }
 
-pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(thunk: Thunk, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .macho_file = macho_file,

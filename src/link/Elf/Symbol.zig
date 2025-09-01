@@ -368,14 +368,14 @@ const Format = struct {
     }
 };
 
-pub fn fmtName(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(Format, Format.name) {
+pub fn fmtName(symbol: Symbol, elf_file: *Elf) std.fmt.Alt(Format, Format.name) {
     return .{ .data = .{
         .symbol = symbol,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmt(symbol: Symbol, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(symbol: Symbol, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{
         .symbol = symbol,
         .elf_file = elf_file,

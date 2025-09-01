@@ -2578,42 +2578,42 @@ const Format = struct {
     }
 };
 
-pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *Object, macho_file: *MachO) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.cies) {
+pub fn fmtCies(self: *Object, macho_file: *MachO) std.fmt.Alt(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.fdes) {
+pub fn fmtFdes(self: *Object, macho_file: *MachO) std.fmt.Alt(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.unwindRecords) {
+pub fn fmtUnwindRecords(self: *Object, macho_file: *MachO) std.fmt.Alt(Format, Format.unwindRecords) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Object, macho_file: *MachO) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .macho_file = macho_file,
     } };
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
     return .{ .data = self };
 }
 
@@ -2694,7 +2694,7 @@ const StabFile = struct {
             }
         };
 
-        pub fn fmt(stab: Stab, object: Object) std.fmt.Formatter(Stab.Format, Stab.Format.default) {
+        pub fn fmt(stab: Stab, object: Object) std.fmt.Alt(Stab.Format, Stab.Format.default) {
             return .{ .data = .{ .stab = stab, .object = object } };
         }
     };

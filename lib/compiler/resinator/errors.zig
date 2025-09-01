@@ -433,7 +433,7 @@ pub const ErrorDetails = struct {
         code_page: SupportedCodePage,
     };
 
-    fn fmtToken(self: ErrorDetails, source: []const u8) std.fmt.Formatter(TokenFormatContext, formatToken) {
+    fn fmtToken(self: ErrorDetails, source: []const u8) std.fmt.Alt(TokenFormatContext, formatToken) {
         return .{ .data = .{
             .token = self.token,
             .code_page = self.code_page,

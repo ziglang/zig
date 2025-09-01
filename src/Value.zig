@@ -27,11 +27,11 @@ pub fn dump(start_val: Value, w: std.Io.Writer) std.Io.Writer.Error!void {
     try w.print("(interned: {})", .{start_val.toIntern()});
 }
 
-pub fn fmtDebug(val: Value) std.fmt.Formatter(Value, dump) {
+pub fn fmtDebug(val: Value) std.fmt.Alt(Value, dump) {
     return .{ .data = val };
 }
 
-pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.FormatContext, print_value.format) {
+pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Alt(print_value.FormatContext, print_value.format) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -40,7 +40,7 @@ pub fn fmtValue(val: Value, pt: Zcu.PerThread) std.fmt.Formatter(print_value.For
     } };
 }
 
-pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
+pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = .{
         .val = val,
         .pt = pt,
@@ -49,7 +49,7 @@ pub fn fmtValueSema(val: Value, pt: Zcu.PerThread, sema: *Sema) std.fmt.Formatte
     } };
 }
 
-pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Formatter(print_value.FormatContext, print_value.formatSema) {
+pub fn fmtValueSemaFull(ctx: print_value.FormatContext) std.fmt.Alt(print_value.FormatContext, print_value.formatSema) {
     return .{ .data = ctx };
 }
 

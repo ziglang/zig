@@ -65,7 +65,7 @@ fn trampolineSize(cpu_arch: std.Target.Cpu.Arch) usize {
     };
 }
 
-pub fn fmt(thunk: Thunk, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(thunk: Thunk, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{
         .thunk = thunk,
         .elf_file = elf_file,

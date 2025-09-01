@@ -1697,7 +1697,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
         pub fn format(
             t: @This(),
             comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
+            options: std.fmt.Options,
             writer: *Writer,
         ) !void {
             if (fmt.len != 0) std.fmt.invalidFmtError(fmt, t);

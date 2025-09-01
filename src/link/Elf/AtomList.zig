@@ -187,7 +187,7 @@ const Format = struct {
     }
 };
 
-pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+pub fn fmt(atom_list: AtomList, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
     return .{ .data = .{ .atom_list = atom_list, .elf_file = elf_file } };
 }
 

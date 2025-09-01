@@ -470,7 +470,7 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                 }
             }.f;
             printRt(m, prop.msg, .{"{f}"}, .{
-                std.fmt.Formatter([]const u8, f){ .data = msg.extra.normalized },
+                std.fmt.Alt([]const u8, f){ .data = msg.extra.normalized },
             });
         },
         .none, .offset => m.write(prop.msg),

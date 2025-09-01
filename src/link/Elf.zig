@@ -3862,7 +3862,7 @@ const FormatShdr = struct {
     shdr: elf.Elf64_Shdr,
 };
 
-fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Formatter(FormatShdr, formatShdr) {
+fn fmtShdr(self: *Elf, shdr: elf.Elf64_Shdr) std.fmt.Alt(FormatShdr, formatShdr) {
     return .{ .data = .{
         .shdr = shdr,
         .elf_file = self,
@@ -3879,7 +3879,7 @@ fn formatShdr(ctx: FormatShdr, writer: *std.Io.Writer) std.Io.Writer.Error!void 
     });
 }
 
-pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Formatter(u64, formatShdrFlags) {
+pub fn fmtShdrFlags(sh_flags: u64) std.fmt.Alt(u64, formatShdrFlags) {
     return .{ .data = sh_flags };
 }
 
@@ -3933,7 +3933,7 @@ const FormatPhdr = struct {
     phdr: elf.Elf64_Phdr,
 };
 
-fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Formatter(FormatPhdr, formatPhdr) {
+fn fmtPhdr(self: *Elf, phdr: elf.Elf64_Phdr) std.fmt.Alt(FormatPhdr, formatPhdr) {
     return .{ .data = .{
         .phdr = phdr,
         .elf_file = self,
@@ -3967,7 +3967,7 @@ fn formatPhdr(ctx: FormatPhdr, writer: *std.Io.Writer) std.Io.Writer.Error!void 
     });
 }
 
-pub fn dumpState(self: *Elf) std.fmt.Formatter(*Elf, fmtDumpState) {
+pub fn dumpState(self: *Elf) std.fmt.Alt(*Elf, fmtDumpState) {
     return .{ .data = self };
 }
 

@@ -989,7 +989,7 @@ pub const Pool = struct {
             else
                 try writer.print("f{d}", .{@intFromEnum(data.string.index)});
         }
-        pub fn fmt(str: String, pool: *const Pool) std.fmt.Formatter(FormatData, format) {
+        pub fn fmt(str: String, pool: *const Pool) std.fmt.Alt(FormatData, format) {
             return .{ .data = .{ .string = str, .pool = pool } };
         }
 

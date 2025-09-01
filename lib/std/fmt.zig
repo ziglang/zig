@@ -28,9 +28,6 @@ pub const Case = enum { lower, upper };
 const default_alignment = .right;
 const default_fill_char = ' ';
 
-/// Deprecated in favor of `Options`.
-pub const FormatOptions = Options;
-
 pub const Options = struct {
     precision: ?usize = null,
     width: ?usize = null,
@@ -76,14 +73,6 @@ pub const Number = struct {
         }
     };
 };
-
-/// Deprecated in favor of `Writer.print`.
-pub fn format(writer: anytype, comptime fmt: []const u8, args: anytype) !void {
-    var adapter = writer.adaptToNewApi(&.{});
-    return adapter.new_interface.print(fmt, args) catch |err| switch (err) {
-        error.WriteFailed => return adapter.err.?,
-    };
-}
 
 pub const Placeholder = struct {
     specifier_arg: []const u8,
@@ -274,9 +263,6 @@ pub fn digits2(value: u8) [2]u8 {
     }
 }
 
-/// Deprecated in favor of `Alt`.
-pub const Formatter = Alt;
-
 /// Creates a type suitable for instantiating and passing to a "{f}" placeholder.
 pub fn Alt(
     comptime Data: type,
@@ -294,7 +280,7 @@ pub fn Alt(
 pub fn alt(
     context: anytype,
     comptime func_name: @TypeOf(.enum_literal),
-) Formatter(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
+) Alt(@TypeOf(context), @field(@TypeOf(context), @tagName(func_name))) {
     return .{ .data = context };
 }
 
@@ -607,7 +593,7 @@ pub const BufPrintError = error{
     NoSpaceLeft,
 };
 
-/// Print a Formatter string into `buf`. Returns a slice of the bytes printed.
+/// Print a format string into `buf`. Returns a slice of the bytes printed.
 pub fn bufPrint(buf: []u8, comptime fmt: []const u8, args: anytype) BufPrintError![]u8 {
     var w: Writer = .fixed(buf);
     w.print(fmt, args) catch |err| switch (err) {

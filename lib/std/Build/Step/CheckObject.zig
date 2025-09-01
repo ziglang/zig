@@ -595,7 +595,7 @@ fn make(step: *Step, make_options: Step.MakeOptions) !void {
         // we either format message string with escaped codes, or not to aid debugging
         // the failed test.
         const fmtMessageString = struct {
-            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Formatter(Ctx, formatMessageString) {
+            fn fmtMessageString(kind: Check.Kind, msg: []const u8) std.fmt.Alt(Ctx, formatMessageString) {
                 return .{ .data = .{
                     .kind = kind,
                     .msg = msg,
@@ -2281,7 +2281,7 @@ const ElfDumper = struct {
         return mem.sliceTo(@as([*:0]const u8, @ptrCast(strtab.ptr + off)), 0);
     }
 
-    fn fmtShType(sh_type: u32) std.fmt.Formatter(u32, formatShType) {
+    fn fmtShType(sh_type: u32) std.fmt.Alt(u32, formatShType) {
         return .{ .data = sh_type };
     }
 
@@ -2321,7 +2321,7 @@ const ElfDumper = struct {
         try writer.writeAll(name);
     }
 
-    fn fmtPhType(ph_type: u32) std.fmt.Formatter(u32, formatPhType) {
+    fn fmtPhType(ph_type: u32) std.fmt.Alt(u32, formatPhType) {
         return .{ .data = ph_type };
     }
 

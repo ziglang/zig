@@ -1680,7 +1680,7 @@ pub fn asFile(self: *ZigObject) File {
     return .{ .zig_object = self };
 }
 
-pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *ZigObject, macho_file: *MachO) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,
@@ -1717,7 +1717,7 @@ const Format = struct {
     }
 };
 
-pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *ZigObject, macho_file: *MachO) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .self = self,
         .macho_file = macho_file,

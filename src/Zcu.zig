@@ -4306,10 +4306,10 @@ pub fn navFileScope(zcu: *Zcu, nav: InternPool.Nav.Index) *File {
     return zcu.fileByIndex(zcu.navFileScopeIndex(nav));
 }
 
-pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Formatter(FormatAnalUnit, formatAnalUnit) {
+pub fn fmtAnalUnit(zcu: *Zcu, unit: AnalUnit) std.fmt.Alt(FormatAnalUnit, formatAnalUnit) {
     return .{ .data = .{ .unit = unit, .zcu = zcu } };
 }
-pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Formatter(FormatDependee, formatDependee) {
+pub fn fmtDependee(zcu: *Zcu, d: InternPool.Dependee) std.fmt.Alt(FormatDependee, formatDependee) {
     return .{ .data = .{ .dependee = d, .zcu = zcu } };
 }
 

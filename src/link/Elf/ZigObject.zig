@@ -2225,14 +2225,14 @@ const Format = struct {
     }
 };
 
-pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *ZigObject, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *ZigObject, elf_file: *Elf) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,

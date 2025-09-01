@@ -622,7 +622,7 @@ pub const GotSection = struct {
         }
     };
 
-    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(got: GotSection, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{ .got = got, .elf_file = elf_file } };
     }
 };
@@ -758,7 +758,7 @@ pub const PltSection = struct {
         }
     };
 
-    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(plt: PltSection, elf_file: *Elf) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{ .plt = plt, .elf_file = elf_file } };
     }
 

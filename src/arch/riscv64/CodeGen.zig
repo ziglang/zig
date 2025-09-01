@@ -972,7 +972,7 @@ fn formatWipMir(data: FormatWipMirData, writer: *std.Io.Writer) std.Io.Writer.Er
         first = false;
     }
 }
-fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Formatter(FormatWipMirData, formatWipMir) {
+fn fmtWipMir(func: *Func, inst: Mir.Inst.Index) std.fmt.Alt(FormatWipMirData, formatWipMir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
@@ -983,7 +983,7 @@ const FormatNavData = struct {
 fn formatNav(data: FormatNavData, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     try writer.print("{f}", .{data.ip.getNav(data.nav_index).fqn.fmt(data.ip)});
 }
-fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Formatter(FormatNavData, formatNav) {
+fn fmtNav(nav_index: InternPool.Nav.Index, ip: *const InternPool) std.fmt.Alt(FormatNavData, formatNav) {
     return .{ .data = .{
         .ip = ip,
         .nav_index = nav_index,
@@ -1001,7 +1001,7 @@ fn formatAir(data: FormatAirData, writer: *std.Io.Writer) std.Io.Writer.Error!vo
     _ = writer;
     @panic("unimplemented");
 }
-fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Formatter(FormatAirData, formatAir) {
+fn fmtAir(func: *Func, inst: Air.Inst.Index) std.fmt.Alt(FormatAirData, formatAir) {
     return .{ .data = .{ .func = func, .inst = inst } };
 }
 
@@ -1012,7 +1012,7 @@ fn formatTracking(data: FormatTrackingData, writer: *std.Io.Writer) std.Io.Write
     var it = data.func.inst_tracking.iterator();
     while (it.next()) |entry| try writer.print("\n%{d} = {f}", .{ entry.key_ptr.*, entry.value_ptr.* });
 }
-fn fmtTracking(func: *Func) std.fmt.Formatter(FormatTrackingData, formatTracking) {
+fn fmtTracking(func: *Func) std.fmt.Alt(FormatTrackingData, formatTracking) {
     return .{ .data = .{ .func = func } };
 }
 

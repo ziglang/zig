@@ -465,7 +465,7 @@ pub const NameOrOrdinal = union(enum) {
         }
     }
 
-    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Formatter(NameOrOrdinal, formatResourceType) {
+    pub fn fmtResourceType(type_value: NameOrOrdinal) std.fmt.Alt(NameOrOrdinal, formatResourceType) {
         return .{ .data = type_value };
     }
 };

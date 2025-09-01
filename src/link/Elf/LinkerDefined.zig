@@ -437,7 +437,7 @@ pub fn setSymbolExtra(self: *LinkerDefined, index: u32, extra: Symbol.Extra) voi
     }
 }
 
-pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *LinkerDefined, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .self = self,
         .elf_file = elf_file,

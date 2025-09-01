@@ -146,7 +146,7 @@ pub fn joinZ(allocator: Allocator, paths: []const []const u8) ![:0]u8 {
     return out[0 .. out.len - 1 :0];
 }
 
-pub fn fmtJoin(paths: []const []const u8) std.fmt.Formatter([]const []const u8, formatJoin) {
+pub fn fmtJoin(paths: []const []const u8) std.fmt.Alt([]const []const u8, formatJoin) {
     return .{ .data = paths };
 }
 

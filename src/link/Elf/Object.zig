@@ -1431,7 +1431,7 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.symtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
@@ -1504,35 +1504,35 @@ const Format = struct {
     }
 };
 
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.atoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.cies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.fdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(Format, Format.groups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-pub fn fmtPath(self: Object) std.fmt.Formatter(Object, formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
     return .{ .data = self };
 }
 

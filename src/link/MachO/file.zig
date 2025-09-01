@@ -10,7 +10,7 @@ pub const File = union(enum) {
         };
     }
 
-    pub fn fmtPath(file: File) std.fmt.Formatter(File, formatPath) {
+    pub fn fmtPath(file: File) std.fmt.Alt(File, formatPath) {
         return .{ .data = file };
     }
 

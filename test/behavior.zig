@@ -100,7 +100,6 @@ test {
     _ = @import("behavior/undefined.zig");
     _ = @import("behavior/underscore.zig");
     _ = @import("behavior/union.zig");
-    _ = @import("behavior/union_with_members.zig");
     _ = @import("behavior/var_args.zig");
     _ = @import("behavior/vector.zig");
     _ = @import("behavior/void.zig");

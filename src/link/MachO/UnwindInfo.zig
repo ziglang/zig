@@ -509,7 +509,7 @@ pub const Record = struct {
         return lsda.getAddress(macho_file) + rec.lsda_offset;
     }
 
-    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Formatter(Format, Format.default) {
+    pub fn fmt(rec: Record, macho_file: *MachO) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .rec = rec,
             .macho_file = macho_file,
@@ -603,7 +603,7 @@ const Page = struct {
         }
     };
 
-    fn fmt(page: Page, info: UnwindInfo) std.fmt.Formatter(Format, Format.default) {
+    fn fmt(page: Page, info: UnwindInfo) std.fmt.Alt(Format, Format.default) {
         return .{ .data = .{
             .page = page,
             .info = info,

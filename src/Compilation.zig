@@ -6465,7 +6465,7 @@ fn updateWin32Resource(comp: *Compilation, win32_resource: *Win32Resource, win32
                     };
                 }
 
-                pub fn fmtRcEscape(bytes: []const u8) std.fmt.Formatter([]const u8, formatRcEscape) {
+                pub fn fmtRcEscape(bytes: []const u8) std.fmt.Alt([]const u8, formatRcEscape) {
                     return .{ .data = bytes };
                 }
             }.fmtRcEscape;

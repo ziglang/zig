@@ -127,7 +127,7 @@ pub fn format(ty: Type, writer: *std.Io.Writer) !void {
     @compileError("do not format types directly; use either ty.fmtDebug() or ty.fmt()");
 }
 
-pub const Formatter = std.fmt.Formatter(Format, Format.default);
+pub const Formatter = std.fmt.Alt(Format, Format.default);
 
 pub fn fmt(ty: Type, pt: Zcu.PerThread) Formatter {
     return .{ .data = .{
@@ -145,7 +145,7 @@ const Format = struct {
     }
 };
 
-pub fn fmtDebug(ty: Type) std.fmt.Formatter(Type, dump) {
+pub fn fmtDebug(ty: Type) std.fmt.Alt(Type, dump) {
     return .{ .data = ty };
 }
 

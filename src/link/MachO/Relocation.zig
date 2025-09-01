@@ -70,7 +70,7 @@ pub fn lessThan(ctx: void, lhs: Relocation, rhs: Relocation) bool {
     return lhs.offset < rhs.offset;
 }
 
-pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Formatter(Format, Format.pretty) {
+pub fn fmtPretty(rel: Relocation, cpu_arch: std.Target.Cpu.Arch) std.fmt.Alt(Format, Format.pretty) {
     return .{ .data = .{ .relocation = rel, .arch = cpu_arch } };
 }
 

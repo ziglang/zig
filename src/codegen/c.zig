@@ -371,11 +371,11 @@ fn formatIdentOptions(ident: []const u8, w: *Writer, solo: bool) Writer.Error!vo
     }
 }
 
-pub fn fmtIdentSolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentSolo) {
+pub fn fmtIdentSolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentSolo) {
     return .{ .data = ident };
 }
 
-pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Formatter([]const u8, formatIdentUnsolo) {
+pub fn fmtIdentUnsolo(ident: []const u8) std.fmt.Alt([]const u8, formatIdentUnsolo) {
     return .{ .data = ident };
 }
 
@@ -394,7 +394,7 @@ pub fn fmtCTypePoolString(
     ctype_pool_string: CType.Pool.String,
     ctype_pool: *const CType.Pool,
     solo: bool,
-) std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString) {
+) std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString) {
     return .{ .data = .{
         .ctype_pool_string = ctype_pool_string,
         .ctype_pool = ctype_pool,
@@ -610,11 +610,11 @@ pub const Function = struct {
         return f.object.dg.renderIntCast(w, dest_ty, .{ .c_value = .{ .f = f, .value = src, .v = v } }, src_ty, location);
     }
 
-    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralDec(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralDec(val, .Other);
     }
 
-    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    fn fmtIntLiteralHex(f: *Function, val: Value) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return f.object.dg.fmtIntLiteralHex(val, .Other);
     }
 
@@ -1919,7 +1919,7 @@ pub const DeclGen = struct {
         kind: CType.Kind,
         name: union(enum) {
             nav: InternPool.Nav.Index,
-            fmt_ctype_pool_string: std.fmt.Formatter(CTypePoolStringFormatData, formatCTypePoolString),
+            fmt_ctype_pool_string: std.fmt.Alt(CTypePoolStringFormatData, formatCTypePoolString),
             @"export": struct {
                 main_name: InternPool.NullTerminatedString,
                 extern_name: InternPool.NullTerminatedString,
@@ -2439,7 +2439,7 @@ pub const DeclGen = struct {
         loc: ValueRenderLocation,
         base: u8,
         case: std.fmt.Case,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         const zcu = dg.pt.zcu;
         const kind = loc.toCTypeKind();
         const ty = val.typeOf(zcu);
@@ -2461,7 +2461,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 10, .lower);
     }
 
@@ -2469,7 +2469,7 @@ pub const DeclGen = struct {
         dg: *DeclGen,
         val: Value,
         loc: ValueRenderLocation,
-    ) !std.fmt.Formatter(FormatIntLiteralContext, formatIntLiteral) {
+    ) !std.fmt.Alt(FormatIntLiteralContext, formatIntLiteral) {
         return fmtIntLiteral(dg, val, loc, 16, .lower);
     }
 };
@@ -8295,7 +8295,7 @@ fn formatStringLiteral(data: FormatStringContext, w: *Writer) Writer.Error!void 
     try literal.end();
 }
 
-fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Formatter(FormatStringContext, formatStringLiteral) {
+fn fmtStringLiteral(str: []const u8, sentinel: ?u8) std.fmt.Alt(FormatStringContext, formatStringLiteral) {
     return .{ .data = .{ .str = str, .sentinel = sentinel } };
 }
 

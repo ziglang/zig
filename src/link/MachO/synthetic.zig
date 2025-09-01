@@ -55,7 +55,7 @@ pub const GotSection = struct {
         }
     };
 
-    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+    pub fn fmt(got: GotSection, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
         return .{ .data = .{ .got = got, .macho_file = macho_file } };
     }
 };
@@ -120,7 +120,7 @@ pub const StubsSection = struct {
         }
     }
 
-    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+    pub fn fmt(stubs: StubsSection, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
         return .{ .data = .{ .stubs = stubs, .macho_file = macho_file } };
     }
 
@@ -337,7 +337,7 @@ pub const TlvPtrSection = struct {
         }
     }
 
-    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+    pub fn fmt(tlv: TlvPtrSection, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
         return .{ .data = .{ .tlv = tlv, .macho_file = macho_file } };
     }
 
@@ -452,7 +452,7 @@ pub const ObjcStubsSection = struct {
         }
     }
 
-    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Formatter(Format, Format.print) {
+    pub fn fmt(objc: ObjcStubsSection, macho_file: *MachO) std.fmt.Alt(Format, Format.print) {
         return .{ .data = .{ .objc = objc, .macho_file = macho_file } };
     }
 
