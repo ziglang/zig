@@ -1154,6 +1154,7 @@ pub const Reader = struct {
         };
     }
 
+    /// If `error.EndOfStream` has been hit, this cannot fail.
     pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
@@ -1440,7 +1441,7 @@ pub const Reader = struct {
         }
     }
 
-    pub fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
@@ -1467,7 +1468,7 @@ pub const Reader = struct {
         return n;
     }
 
-    pub fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.read(dest) catch |err| {
             r.err = err;
             return error.ReadFailed;
@@ -1478,14 +1479,6 @@ pub const Reader = struct {
         }
         r.pos += n;
         return n;
-    }
-
-    pub fn read(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
-        switch (r.mode) {
-            .positional, .positional_reading => return readPositional(r, dest),
-            .streaming, .streaming_reading => return readStreaming(r, dest),
-            .failure => return error.ReadFailed,
-        }
     }
 
     pub fn atEnd(r: *Reader) bool {
