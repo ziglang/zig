@@ -196,7 +196,7 @@ pub fn initInner(
     output: *Writer,
     options: Options,
     random_buffer: [176]u8,
-    now_sec: i64
+    now_sec: i64,
 ) InitError!Client {
     assert(input.buffer.len >= min_buffer_len);
     assert(output.buffer.len >= min_buffer_len);
