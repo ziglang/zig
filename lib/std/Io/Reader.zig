@@ -154,7 +154,7 @@ pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
 pub fn fixed(buffer: []const u8) Reader {
     // This cast is safe because all potential writes to it will instead
     // return `error.EndOfStream`.
-    var longer_buffer:[]u8 = @constCast(buffer);
+    var longer_buffer: []u8 = @constCast(buffer);
     // `takeDelimiterExclusive()` needs `.buffer.len` to be greater
     // than `.end` to treat end of stream as the delimiter.
     // Lie about the length of the buffer. This is safe because
