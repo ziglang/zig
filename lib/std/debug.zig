@@ -153,6 +153,7 @@ pub const SourceLocation = struct {
 };
 
 pub const Symbol = struct {
+    // MLUGG TODO: remove the defaults and audit everywhere. also grep for '???' across std
     name: []const u8 = "???",
     compile_unit_name: []const u8 = "???",
     source_location: ?SourceLocation = null,
@@ -232,15 +233,14 @@ pub fn print(comptime fmt: []const u8, args: anytype) void {
 }
 
 /// TODO multithreaded awareness
-var self_debug_info: ?SelfInfo = null;
-
-pub fn getSelfDebugInfo() !*SelfInfo {
-    if (self_debug_info) |*info| {
-        return info;
-    } else {
-        self_debug_info = try SelfInfo.open(getDebugInfoAllocator());
-        return &self_debug_info.?;
-    }
+/// Marked `inline` to propagate a comptime-known error to callers.
+pub inline fn getSelfDebugInfo() !*SelfInfo {
+    if (builtin.strip_debug_info) return error.MissingDebugInfo;
+    if (!SelfInfo.target_supported) return error.UnsupportedOperatingSystem;
+    const S = struct {
+        var self_info: SelfInfo = .init;
+    };
+    return &S.self_info;
 }
 
 /// Tries to print a hexadecimal view of the bytes, unbuffered, and ignores any error returned.
@@ -446,10 +446,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
         defer it.deinit();
 
         // DWARF unwinding on aarch64-macos is not complete so we need to get pc address from mcontext
-        const pc_addr = if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            context.mcontext.ss.pc
-        else
-            it.unwind_state.?.dwarf_context.pc;
+        const pc_addr = it.unwind_state.?.dwarf_context.pc;
         printSourceAtAddress(debug_info, stderr, pc_addr, tty_config) catch return;
 
         while (it.next()) |return_address| {
@@ -460,7 +457,7 @@ pub fn dumpStackTraceFromBase(context: *ThreadContext, stderr: *Writer) void {
             // an overflow. We do not need to signal `StackIterator` as it will correctly detect this
             // condition on the subsequent iteration and return `null` thus terminating the loop.
             // same behaviour for x86-windows-msvc
-            const address = if (return_address == 0) return_address else return_address - 1;
+            const address = return_address -| 1;
             printSourceAtAddress(debug_info, stderr, address, tty_config) catch return;
         } else printLastUnwindError(&it, debug_info, stderr, tty_config);
     }
@@ -758,7 +755,7 @@ pub fn writeStackTrace(
         frame_index = (frame_index + 1) % stack_trace.instruction_addresses.len;
     }) {
         const return_address = stack_trace.instruction_addresses[frame_index];
-        try printSourceAtAddress(debug_info, writer, return_address - 1, tty_config);
+        try printSourceAtAddress(debug_info, writer, return_address -| 1, tty_config);
     }
 
     if (stack_trace.index > stack_trace.instruction_addresses.len) {
@@ -808,16 +805,11 @@ pub const StackIterator = struct {
     }
 
     pub fn initWithContext(first_address: ?usize, debug_info: *SelfInfo, context: *posix.ucontext_t, fp: usize) !StackIterator {
-        // The implementation of DWARF unwinding on aarch64-macos is not complete. However, Apple mandates that
-        // the frame pointer register is always used, so on this platform we can safely use the FP-based unwinder.
-        if (builtin.target.os.tag.isDarwin() and native_arch == .aarch64)
-            return init(first_address, @truncate(context.mcontext.ss.fp));
-
         if (SelfInfo.supports_unwinding) {
             var iterator = init(first_address, fp);
             iterator.unwind_state = .{
                 .debug_info = debug_info,
-                .dwarf_context = try SelfInfo.UnwindContext.init(debug_info.allocator, context),
+                .dwarf_context = try SelfInfo.UnwindContext.init(getDebugInfoAllocator(), context),
             };
             return iterator;
         }
@@ -890,7 +882,7 @@ pub const StackIterator = struct {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
                     defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (unwind_state.debug_info.unwindFrame(&unwind_state.dwarf_context)) |return_address| {
+                    if (unwind_state.debug_info.unwindFrame(getDebugInfoAllocator(), &unwind_state.dwarf_context)) |return_address| {
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;
@@ -1039,19 +1031,6 @@ pub fn writeStackTraceWindows(
     }
 }
 
-fn printUnknownSource(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
-    const module_name = debug_info.getModuleNameForAddress(address);
-    return printLineInfo(
-        writer,
-        null,
-        address,
-        "???",
-        module_name orelse "???",
-        tty_config,
-        printLineFromFileAnyOs,
-    );
-}
-
 fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writer, tty_config: tty.Config) void {
     if (!have_ucontext) return;
     if (it.getLastError()) |unwind_error| {
@@ -1059,32 +1038,48 @@ fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writ
     }
 }
 
-fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, err: UnwindError, tty_config: tty.Config) !void {
-    const module_name = debug_info.getModuleNameForAddress(address) orelse "???";
+fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwind_err: UnwindError, tty_config: tty.Config) !void {
+    const module_name = debug_info.getModuleNameForAddress(getDebugInfoAllocator(), address) catch |err| switch (err) {
+        error.Unexpected, error.OutOfMemory => |e| return e,
+        error.MissingDebugInfo => "???",
+    };
     try tty_config.setColor(writer, .dim);
-    if (err == error.MissingDebugInfo) {
+    if (unwind_err == error.MissingDebugInfo) {
         try writer.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
     } else {
-        try writer.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, err });
+        try writer.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, unwind_err });
     }
     try tty_config.setColor(writer, .reset);
 }
 
 pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
-    const symbol_info = debug_info.getSymbolAtAddress(address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return printUnknownSource(debug_info, writer, address, tty_config),
-        else => return err,
+    const gpa = getDebugInfoAllocator();
+    if (debug_info.getSymbolAtAddress(gpa, address)) |symbol_info| {
+        defer if (symbol_info.source_location) |sl| gpa.free(sl.file_name);
+        return printLineInfo(
+            writer,
+            symbol_info.source_location,
+            address,
+            symbol_info.name,
+            symbol_info.compile_unit_name,
+            tty_config,
+        );
+    } else |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => {},
+        else => |e| return e,
+    }
+    // Unknown source location, but perhaps we can at least get a module name
+    const compile_unit_name = debug_info.getModuleNameForAddress(getDebugInfoAllocator(), address) catch |err| switch (err) {
+        error.MissingDebugInfo => "???",
+        error.Unexpected, error.OutOfMemory => |e| return e,
     };
-    defer if (symbol_info.source_location) |sl| debug_info.allocator.free(sl.file_name);
-
     return printLineInfo(
         writer,
-        symbol_info.source_location,
+        null,
         address,
-        symbol_info.name,
-        symbol_info.compile_unit_name,
+        "???",
+        compile_unit_name,
         tty_config,
-        printLineFromFileAnyOs,
     );
 }
 
@@ -1095,7 +1090,6 @@ fn printLineInfo(
     symbol_name: []const u8,
     compile_unit_name: []const u8,
     tty_config: tty.Config,
-    comptime printLineFromFile: anytype,
 ) !void {
     nosuspend {
         try tty_config.setColor(writer, .bold);
@@ -1136,7 +1130,7 @@ fn printLineInfo(
     }
 }
 
-fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !void {
+fn printLineFromFile(writer: *Writer, source_location: SourceLocation) !void {
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(source_location.file_name, .{});
@@ -1190,7 +1184,7 @@ fn printLineFromFileAnyOs(writer: *Writer, source_location: SourceLocation) !voi
     }
 }
 
-test printLineFromFileAnyOs {
+test printLineFromFile {
     var aw: Writer.Allocating = .init(std.testing.allocator);
     defer aw.deinit();
     const output_stream = &aw.writer;
@@ -1212,9 +1206,9 @@ test printLineFromFileAnyOs {
         defer allocator.free(path);
         try test_dir.dir.writeFile(.{ .sub_path = "one_line.zig", .data = "no new lines in this file, but one is printed anyway" });
 
-        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+        try expectError(error.EndOfFile, printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("no new lines in this file, but one is printed anyway\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1230,11 +1224,11 @@ test printLineFromFileAnyOs {
             ,
         });
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings("1\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 3, .column = 0 });
         try expectEqualStrings("3\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1253,7 +1247,7 @@ test printLineFromFileAnyOs {
         try writer.splatByteAll('a', overlap);
         try writer.flush();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
         try expectEqualStrings(("a" ** overlap) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1267,7 +1261,7 @@ test printLineFromFileAnyOs {
         const writer = &file_writer.interface;
         try writer.splatByteAll('a', std.heap.page_size_max);
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** std.heap.page_size_max) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1281,19 +1275,19 @@ test printLineFromFileAnyOs {
         const writer = &file_writer.interface;
         try writer.splatByteAll('a', 3 * std.heap.page_size_max);
 
-        try expectError(error.EndOfFile, printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
+        try expectError(error.EndOfFile, printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 }));
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "\n", aw.written());
         aw.clearRetainingCapacity();
 
         try writer.writeAll("a\na");
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 1, .column = 0 });
         try expectEqualStrings(("a" ** (3 * std.heap.page_size_max)) ++ "a\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = 2, .column = 0 });
         try expectEqualStrings("a\n", aw.written());
         aw.clearRetainingCapacity();
     }
@@ -1309,26 +1303,23 @@ test printLineFromFileAnyOs {
         try writer.splatByteAll('\n', real_file_start);
         try writer.writeAll("abc\ndef");
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = real_file_start + 1, .column = 0 });
         try expectEqualStrings("abc\n", aw.written());
         aw.clearRetainingCapacity();
 
-        try printLineFromFileAnyOs(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
+        try printLineFromFile(output_stream, .{ .file_name = path, .line = real_file_start + 2, .column = 0 });
         try expectEqualStrings("def\n", aw.written());
         aw.clearRetainingCapacity();
     }
 }
 
 /// TODO multithreaded awareness
-var debug_info_allocator: ?mem.Allocator = null;
-var debug_info_arena_allocator: std.heap.ArenaAllocator = undefined;
+var debug_info_arena: ?std.heap.ArenaAllocator = null;
 fn getDebugInfoAllocator() mem.Allocator {
-    if (debug_info_allocator) |a| return a;
-
-    debug_info_arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    const allocator = debug_info_arena_allocator.allocator();
-    debug_info_allocator = allocator;
-    return allocator;
+    if (debug_info_arena == null) {
+        debug_info_arena = .init(std.heap.page_allocator);
+    }
+    return debug_info_arena.?.allocator();
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.

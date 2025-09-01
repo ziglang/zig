@@ -455,72 +455,23 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.array_list.Managed(elf.El
 }
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
-    const comp = elf_file.base.comp;
-    const gpa = comp.gpa;
-
     try writer.writeByte(1); // version
-    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4);
-    try writer.writeByte(DW_EH_PE.udata4);
-    try writer.writeByte(DW_EH_PE.datarel | DW_EH_PE.sdata4);
+    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4); // eh_frame_ptr_enc
+    // Building the lookup table would be expensive work on every `flush` -- omit it.
+    try writer.writeByte(DW_EH_PE.omit); // fde_count_enc
+    try writer.writeByte(DW_EH_PE.omit); // table_enc
 
     const shdrs = elf_file.sections.items(.shdr);
     const eh_frame_shdr = shdrs[elf_file.section_indexes.eh_frame.?];
     const eh_frame_hdr_shdr = shdrs[elf_file.section_indexes.eh_frame_hdr.?];
-    const num_fdes = @as(u32, @intCast(@divExact(eh_frame_hdr_shdr.sh_size - eh_frame_hdr_header_size, 8)));
-    const existing_size = existing_size: {
-        const zo = elf_file.zigObjectPtr() orelse break :existing_size 0;
-        const sym = zo.symbol(zo.eh_frame_index orelse break :existing_size 0);
-        break :existing_size sym.atom(elf_file).?.size;
-    };
     try writer.writeInt(
         u32,
         @as(u32, @bitCast(@as(
             i32,
-            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr + existing_size)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
+            @truncate(@as(i64, @intCast(eh_frame_shdr.sh_addr)) - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr)) - 4),
         ))),
         .little,
     );
-    try writer.writeInt(u32, num_fdes, .little);
-
-    const Entry = extern struct {
-        init_addr: u32,
-        fde_addr: u32,
-
-        pub fn lessThan(ctx: void, lhs: @This(), rhs: @This()) bool {
-            _ = ctx;
-            return lhs.init_addr < rhs.init_addr;
-        }
-    };
-
-    var entries = std.array_list.Managed(Entry).init(gpa);
-    defer entries.deinit();
-    try entries.ensureTotalCapacityPrecise(num_fdes);
-
-    for (elf_file.objects.items) |index| {
-        const object = elf_file.file(index).?.object;
-        for (object.fdes.items) |fde| {
-            if (!fde.alive) continue;
-
-            const relocs = fde.relocs(object);
-            assert(relocs.len > 0); // Should this be an error? Things are completely broken anyhow if this trips...
-            const rel = relocs[0];
-            const ref = object.resolveSymbol(rel.r_sym(), elf_file);
-            const sym = elf_file.symbol(ref).?;
-            const P = @as(i64, @intCast(fde.address(elf_file)));
-            const S = @as(i64, @intCast(sym.address(.{}, elf_file)));
-            const A = rel.r_addend;
-            entries.appendAssumeCapacity(.{
-                .init_addr = @bitCast(@as(i32, @truncate(S + A - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr))))),
-                .fde_addr = @as(
-                    u32,
-                    @bitCast(@as(i32, @truncate(P - @as(i64, @intCast(eh_frame_hdr_shdr.sh_addr))))),
-                ),
-            });
-        }
-    }
-
-    std.mem.sort(Entry, entries.items, {}, Entry.lessThan);
-    try writer.writeSliceEndian(Entry, entries.items, .little);
 }
 
 const eh_frame_hdr_header_size: usize = 12;

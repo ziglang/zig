@@ -1,12 +1,5 @@
-const builtin = @import("builtin");
 const std = @import("../../std.zig");
-const mem = std.mem;
-const debug = std.debug;
-const leb = std.leb;
-const DW = std.dwarf;
-const abi = std.debug.Dwarf.abi;
-const assert = std.debug.assert;
-const native_endian = builtin.cpu.arch.endian();
+const Reader = std.Io.Reader;
 
 /// TODO merge with std.dwarf.CFA
 const Opcode = enum(u8) {
@@ -51,9 +44,13 @@ const Opcode = enum(u8) {
     pub const hi_user = 0x3f;
 };
 
-fn readBlock(reader: *std.Io.Reader) ![]const u8 {
+/// The returned slice points into `reader.buffer`.
+fn readBlock(reader: *Reader) ![]const u8 {
     const block_len = try reader.takeLeb128(usize);
-    return reader.take(block_len);
+    return reader.take(block_len) catch |err| switch (err) {
+        error.EndOfStream => return error.InvalidOperand,
+        error.ReadFailed => |e| return e,
+    };
 }
 
 pub const Instruction = union(Opcode) {
@@ -140,8 +137,9 @@ pub const Instruction = union(Opcode) {
         block: []const u8,
     },
 
+    /// `reader` must be a `Reader.fixed` so that regions of its buffer are never invalidated.
     pub fn read(
-        reader: *std.Io.Reader,
+        reader: *Reader,
         addr_size_bytes: u8,
         endian: std.builtin.Endian,
     ) !Instruction {
@@ -173,16 +171,14 @@ pub const Instruction = union(Opcode) {
                     .restore,
                     => unreachable,
                     .nop => .{ .nop = {} },
-                    .set_loc => .{
-                        .set_loc = .{
-                            .address = switch (addr_size_bytes) {
-                                2 => try reader.takeInt(u16, endian),
-                                4 => try reader.takeInt(u32, endian),
-                                8 => try reader.takeInt(u64, endian),
-                                else => return error.InvalidAddrSize,
-                            },
+                    .set_loc => .{ .set_loc = .{
+                        .address = switch (addr_size_bytes) {
+                            2 => try reader.takeInt(u16, endian),
+                            4 => try reader.takeInt(u32, endian),
+                            8 => try reader.takeInt(u64, endian),
+                            else => return error.UnsupportedAddrSize,
                         },
-                    },
+                    } },
                     .advance_loc1 => .{
                         .advance_loc1 = .{ .delta = try reader.takeByte() },
                     },
