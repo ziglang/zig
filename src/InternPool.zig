@@ -117,6 +117,13 @@ pub const empty: InternPool = .{
     .free_dep_entries = .empty,
 };
 
+pub const RestrictedSetIndex = enum(u32) {
+    /// placeholder while I slowly work my way towards a more complete implementation
+    some = 0,
+    none = std.math.maxInt(u32),
+    _,
+};
+
 /// A `TrackedInst.Index` provides a single, unchanging reference to a ZIR instruction across a whole
 /// compilation. From this index, you can acquire a `TrackedInst`, which containss a reference to both
 /// the file which the instruction lives in, and the instruction index itself, which is updated on
@@ -2079,6 +2086,7 @@ pub const Key = union(enum) {
         sentinel: Index = .none,
         flags: Flags = .{},
         packed_offset: PackedOffset = .{ .bit_offset = 0, .host_size = 0 },
+        restricted_set: RestrictedSetIndex = .none,
 
         pub const VectorIndex = enum(u16) {
             none = std.math.maxInt(u16),
@@ -5389,6 +5397,9 @@ pub const Tag = enum(u8) {
     type_vector,
     /// A fully explicitly specified pointer type.
     type_pointer,
+    /// A pointer type created by using the `@Restrict` builtin.
+    /// data is `Index` of underlying, non-restrict pointer type.
+    type_pointer_restricted,
     /// A slice type.
     /// data is Index of underlying pointer type.
     type_slice,
@@ -5666,6 +5677,7 @@ pub const Tag = enum(u8) {
         .type_array_small = .{ .summary = .@"[{.payload.len%value}]{.payload.child%summary}", .payload = Vector },
         .type_vector = .{ .summary = .@"@Vector({.payload.len%value}, {.payload.child%summary})", .payload = Vector },
         .type_pointer = .{ .summary = .@"*... {.payload.child%summary}", .payload = TypePointer },
+        .type_pointer_restricted = .{ .summary = .@"@Restrict(*... {.payload.child%summary})", .data = Index },
         .type_slice = .{ .summary = .@"[]... {.data.unwrapped.payload.child%summary}", .data = Index },
         .type_optional = .{ .summary = .@"?{.data%summary}", .data = Index },
         .type_anyframe = .{ .summary = .@"anyframe->{.data%summary}", .data = Index },
@@ -6969,6 +6981,16 @@ pub fn indexToKey(ip: *const InternPool, index: Index) Key {
         },
 
         .type_pointer => .{ .ptr_type = extraData(unwrapped_index.getExtra(ip), Tag.TypePointer, data) },
+
+        .type_pointer_restricted => {
+            const child_ptr_index: Index = @enumFromInt(data);
+            const child_ptr_unwrapped = child_ptr_index.unwrap(ip);
+            const child_ptr_item = child_ptr_unwrapped.getItem(ip);
+            assert(child_ptr_item.tag == .type_pointer);
+            var ptr_info = extraData(child_ptr_unwrapped.getExtra(ip), Tag.TypePointer, child_ptr_item.data);
+            ptr_info.restricted_set = .some;
+            return .{ .ptr_type = ptr_info };
+        },
 
         .type_slice => {
             const many_ptr_index: Index = @enumFromInt(data);
@@ -10388,6 +10410,7 @@ fn addExtraAssumeCapacity(extra: Local.Extra.Mutable, item: anytype) u32 {
             TrackedInst.Index,
             TrackedInst.Index.Optional,
             ComptimeAllocIndex,
+            RestrictedSetIndex,
             => @intFromEnum(@field(item, field.name)),
 
             u32,
@@ -10451,6 +10474,7 @@ fn extraDataTrail(extra: Local.Extra, comptime T: type, index: u32) struct { dat
             TrackedInst.Index,
             TrackedInst.Index.Optional,
             ComptimeAllocIndex,
+            RestrictedSetIndex,
             => @enumFromInt(extra_item),
 
             u32,
@@ -11092,6 +11116,7 @@ fn dumpStatsFallible(ip: *const InternPool, arena: Allocator) anyerror!void {
                 .type_array_big => @sizeOf(Array),
                 .type_vector => @sizeOf(Vector),
                 .type_pointer => @sizeOf(Tag.TypePointer),
+                .type_pointer_restricted => 0,
                 .type_slice => 0,
                 .type_optional => 0,
                 .type_anyframe => 0,
@@ -11319,6 +11344,7 @@ fn dumpAllFallible(ip: *const InternPool) anyerror!void {
                 .type_array_big,
                 .type_vector,
                 .type_pointer,
+                .type_pointer_restricted,
                 .type_optional,
                 .type_anyframe,
                 .type_error_union,
@@ -11902,6 +11928,19 @@ pub fn getOrPutTrailingString(
     return value;
 }
 
+pub fn restrictedFunctionPointerType(
+    ip: *InternPool,
+    gpa: Allocator,
+    tid: Zcu.PerThread.Id,
+    fn_ty: Index,
+) Allocator.Error!Index {
+    _ = ip;
+    _ = gpa;
+    _ = tid;
+    _ = fn_ty;
+    @panic("TODO");
+}
+
 pub fn getString(ip: *InternPool, key: []const u8) OptionalNullTerminatedString {
     const full_hash = Hash.hash(0, key);
     const hash: u32 = @truncate(full_hash >> 32);
@@ -12055,6 +12094,7 @@ pub fn typeOf(ip: *const InternPool, index: Index) Index {
                 .type_array_small,
                 .type_vector,
                 .type_pointer,
+                .type_pointer_restricted,
                 .type_slice,
                 .type_optional,
                 .type_anyframe,
@@ -12411,6 +12451,7 @@ pub fn zigTypeTag(ip: *const InternPool, index: Index) std.builtin.TypeId {
             .type_vector => .vector,
 
             .type_pointer,
+            .type_pointer_restricted,
             .type_slice,
             => .pointer,
 

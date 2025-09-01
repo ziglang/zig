@@ -266,6 +266,7 @@ const Writer = struct {
             .opt_eu_base_ptr_init,
             .restore_err_ret_index_unconditional,
             .restore_err_ret_index_fn_entry,
+            .restrict,
             => try self.writeUnNode(stream, inst),
 
             .ref,

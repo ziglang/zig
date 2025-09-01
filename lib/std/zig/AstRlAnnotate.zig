@@ -923,6 +923,7 @@ fn builtinCall(astrl: *AstRlAnnotate, block: ?*Block, ri: ResultInfo, node: Ast.
         .work_item_id,
         .work_group_size,
         .work_group_id,
+        .Restrict,
         => {
             _ = try astrl.expr(args[0], block, ResultInfo.type_only);
             return false;

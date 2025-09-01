@@ -3420,6 +3420,8 @@ pub fn internUnion(pt: Zcu.PerThread, un: InternPool.Key.Union) Allocator.Error!
 /// this because it requires potentially pushing to the job queue.
 pub fn getCoerced(pt: Zcu.PerThread, val: Value, new_ty: Type) Allocator.Error!Value {
     const ip = &pt.zcu.intern_pool;
+    // TODO: avoid indexToKey
+    // TODO: check if dest is restricted function pointer type
     switch (ip.indexToKey(val.toIntern())) {
         .@"extern" => |e| {
             const coerced = try pt.getExtern(.{
@@ -3542,6 +3544,10 @@ pub fn adjustPtrTypeChild(pt: Zcu.PerThread, ptr_ty: Type, new_child: Type) Allo
 
 pub fn funcType(pt: Zcu.PerThread, key: InternPool.GetFuncTypeKey) Allocator.Error!Type {
     return Type.fromInterned(try pt.zcu.intern_pool.getFuncType(pt.zcu.gpa, pt.tid, key));
+}
+
+pub fn restrictedFunctionPointerType(pt: Zcu.PerThread, fn_ty: Type) Allocator.Error!Type {
+    return .fromInterned(try pt.zcu.intern_pool.restrictedFunctionPointerType(pt.zcu.gpa, pt.tid, fn_ty.toIntern()));
 }
 
 /// Use this for `anyframe->T` only.

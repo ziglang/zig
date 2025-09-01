@@ -90,6 +90,7 @@ pub const Tag = enum {
     size_of,
     splat,
     reduce,
+    Restrict,
     src,
     sqrt,
     sin,
@@ -793,6 +794,13 @@ pub const list = list: {
             .{
                 .tag = .reduce,
                 .param_count = 2,
+            },
+        },
+        .{
+            "@Restrict",
+            .{
+                .tag = .Restrict,
+                .param_count = 1,
             },
         },
         .{

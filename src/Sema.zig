@@ -1305,6 +1305,7 @@ fn analyzeBodyInner(
             .validate_array_init_ref_ty   => try sema.zirValidateArrayInitRefTy(block, inst),
             .opt_eu_base_ptr_init         => try sema.zirOptEuBasePtrInit(block, inst),
             .coerce_ptr_elem_ty           => try sema.zirCoercePtrElemTy(block, inst),
+            .restrict                     => try sema.zirRestrict(block, inst),
 
             .clz       => try sema.zirBitCount(block, inst, .clz,      Value.clz),
             .ctz       => try sema.zirBitCount(block, inst, .ctz,      Value.ctz),
@@ -4679,6 +4680,26 @@ fn zirCoercePtrElemTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileE
             return uncoerced_val;
         },
     }
+}
+
+fn zirRestrict(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+
+    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
+    const ty_src = block.builtinCallArgSrc(inst_data.src_node, 0);
+    const ptr_ty = try sema.resolveType(block, ty_src, inst_data.operand);
+
+    try sema.checkPtrOperand(block, ty_src, ptr_ty);
+
+    const ptr_info = ptr_ty.ptrInfo(zcu);
+    const pointee_ty: Type = .fromInterned(ptr_info.child);
+    if (ptr_info.flags.size != .one or pointee_ty.zigTypeTag(zcu) == .@"fn") {
+        return sema.fail(block, ty_src, "expected function pointer type; found {f}", .{ptr_ty.fmt(pt)});
+    }
+
+    const new_ty = try pt.restrictedFunctionPointerType(pointee_ty);
+    return .fromType(new_ty);
 }
 
 fn zirTryOperandTy(sema: *Sema, block: *Block, inst: Zir.Inst.Index, is_ref: bool) CompileError!Air.Inst.Ref {
@@ -36062,6 +36083,7 @@ pub fn typeHasOnePossibleValue(sema: *Sema, ty: Type) CompileError!?Value {
             .type_int_signed, // i0 handled above
             .type_int_unsigned, // u0 handled above
             .type_pointer,
+            .type_pointer_restricted,
             .type_slice,
             .type_anyframe,
             .type_error_union,

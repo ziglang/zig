@@ -1071,6 +1071,12 @@ pub const Inst = struct {
         /// Uses the `un_node` field.
         restore_err_ret_index_fn_entry,
 
+        /// Creates a new restricted function pointer type based on the
+        /// provided function pointer type.
+        ///
+        /// Uses the `un_node` field.
+        restrict,
+
         /// The ZIR instruction tag is one of the `Extended` ones.
         /// Uses the `extended` union field.
         extended,
@@ -1315,6 +1321,7 @@ pub const Inst = struct {
                 .validate_const,
                 .restore_err_ret_index_unconditional,
                 .restore_err_ret_index_fn_entry,
+                .restrict,
                 => false,
 
                 .@"break",
@@ -1595,6 +1602,7 @@ pub const Inst = struct {
                 .validate_array_init_ref_ty,
                 .array_init_elem_type,
                 .array_init_elem_ptr,
+                .restrict,
                 => false,
 
                 .extended => switch (data.extended.opcode) {
@@ -1711,6 +1719,7 @@ pub const Inst = struct {
                 .merge_error_sets = .pl_node,
                 .mod_rem = .pl_node,
                 .ref = .un_tok,
+                .restrict = .un_node,
                 .ret_node = .un_node,
                 .ret_load = .un_node,
                 .ret_implicit = .un_tok,
@@ -4755,6 +4764,8 @@ fn findTrackableInner(
                 try zir.findTrackableBody(gpa, contents, defers, body);
             }
         },
+        // Restricted function pointer types need tracking, but have no body.
+        .restrict => return contents.other.append(gpa, inst),
     }
 }
 

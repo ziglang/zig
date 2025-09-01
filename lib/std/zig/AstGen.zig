@@ -2876,6 +2876,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .validate_array_init_ref_ty,
             .array_init_elem_type,
             .array_init_elem_ptr,
+            .restrict,
             => break :b false,
 
             .extended => switch (gz.astgen.instructions.items(.data)[@intFromEnum(inst)].extended.opcode) {
@@ -9545,6 +9546,11 @@ fn builtinCall(
                 .lhs = op,
                 .rhs = scalar,
             });
+            return rvalue(gz, ri, result, node);
+        },
+        .Restrict => {
+            const operand = try typeExpr(gz, scope, params[0]);
+            const result = try gz.addUnNode(.restrict, operand, node);
             return rvalue(gz, ri, result, node);
         },
 
