@@ -152,6 +152,14 @@ pub fn limited(r: *Reader, limit: Limit, buffer: []u8) Limited {
 
 /// Constructs a `Reader` such that it will read from `buffer` and then end.
 pub fn fixed(buffer: []const u8) Reader {
+    // This cast is safe because all potential writes to it will instead
+    // return `error.EndOfStream`.
+    var longer_buffer:[]u8 = @constCast(buffer);
+    // `takeDelimiterExclusive()` needs `.buffer.len` to be greater
+    // than `.end` to treat end of stream as the delimiter.
+    // Lie about the length of the buffer. This is safe because
+    // `.end` never increases.
+    longer_buffer.len += 1;
     return .{
         .vtable = &.{
             .stream = endingStream,
@@ -159,9 +167,7 @@ pub fn fixed(buffer: []const u8) Reader {
             .readVec = endingReadVec,
             .rebase = endingRebase,
         },
-        // This cast is safe because all potential writes to it will instead
-        // return `error.EndOfStream`.
-        .buffer = @constCast(buffer),
+        .buffer = longer_buffer,
         .end = buffer.len,
         .seek = 0,
     };
@@ -1422,6 +1428,10 @@ test takeDelimiterExclusive {
     try testing.expectEqualStrings("ab", try r.takeDelimiterExclusive('\n'));
     try testing.expectEqualStrings("c", try r.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
+    var no_delim: Reader = .fixed("abc");
+    try testing.expectEqualStrings("abc", try no_delim.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, no_delim.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, .ending.takeDelimiterExclusive('\n'));
 }
 
 test peekDelimiterExclusive {
