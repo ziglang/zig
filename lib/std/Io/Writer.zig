@@ -935,17 +935,24 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 ///
 /// Asserts nonzero buffer capacity.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
-    // The fallback sendFileReadingAll() path asserts non-zero buffer capacity.
-    // Explicitly assert it here as well to ensure the assert is hit even if
-    // the fallback path is not taken.
+    // The fallback case uses `stream`. For `File.Reader`, this requires a minumum buffer size of
+    // one since it uses `writableSliceGreedy(1)`. Asserting this here ensures that this will be
+    // hit even when the fallback is not needed.
     assert(w.buffer.len > 0);
+
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => break,
             error.Unimplemented => {
                 file_reader.mode = file_reader.mode.toReading();
-                remaining -= try w.sendFileReadingAll(file_reader, .limited(remaining));
+                while (remaining > 0) {
+                    remaining -= file_reader.interface.stream(w, .limited(remaining)) catch |e| switch (e) {
+                        error.EndOfStream => break,
+                        error.ReadFailed => return error.ReadFailed,
+                        error.WriteFailed => return error.WriteFailed,
+                    };
+                }
                 break;
             },
             else => |e| return e,
