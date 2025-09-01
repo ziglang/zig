@@ -83,11 +83,17 @@ pub const AccumBuffer = struct {
             return error.CorruptInput;
         }
 
+        // ensure we have enough capacity for all new bytes.
+        // This prevents the buffer's memory from being reallocated (and freed)
+        // while we are still reading from it.
+        try self.buf.ensureTotalCapacity(allocator, buf_len + len);
+
         var offset = buf_len - dist;
         var i: usize = 0;
         while (i < len) : (i += 1) {
             const x = self.buf.items[offset];
-            try self.buf.append(allocator, x);
+            // Since capacity is guaranteed, it's safe to use appendAssumeCapacity.
+            self.buf.appendAssumeCapacity(x);
             offset += 1;
         }
         self.len += len;
