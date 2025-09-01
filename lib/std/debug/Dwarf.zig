@@ -78,17 +78,6 @@ pub const Section = struct {
         debug_addr,
         debug_names,
     };
-
-    // For sections that are not memory mapped by the loader, this is an offset
-    // from `data.ptr` to where the section would have been mapped. Otherwise,
-    // `data` is directly backed by the section and the offset is zero.
-    pub fn virtualOffset(self: Section, base_address: usize) i64 {
-        return if (self.virtual_address) |va|
-            @as(i64, @intCast(base_address + va)) -
-                @as(i64, @intCast(@intFromPtr(self.data.ptr)))
-        else
-            0;
-    }
 };
 
 pub const Abbrev = struct {
@@ -342,10 +331,6 @@ pub fn section(di: Dwarf, dwarf_section: Section.Id) ?[]const u8 {
     return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.data else null;
 }
 
-pub fn sectionVirtualOffset(di: Dwarf, dwarf_section: Section.Id, base_address: usize) ?i64 {
-    return if (di.sections[@intFromEnum(dwarf_section)]) |s| s.virtualOffset(base_address) else null;
-}
-
 pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     for (di.sections) |opt_section| {
         if (opt_section) |s| if (s.owned) gpa.free(s.data);
@@ -364,8 +349,6 @@ pub fn deinit(di: *Dwarf, gpa: Allocator) void {
     }
     di.compile_unit_list.deinit(gpa);
     di.func_list.deinit(gpa);
-    di.cie_map.deinit(gpa);
-    di.fde_list.deinit(gpa);
     di.ranges.deinit(gpa);
     di.* = undefined;
 }
@@ -983,8 +966,8 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
         },
         0,
     };
-    _ = addr_size;
-    _ = seg_size;
+    if (seg_size != 0) return bad(); // unsupported
+    _ = addr_size; // TODO: ignoring this is incorrect, we should use it to decide address lengths
 
     const prologue_length = try readAddress(&fr, unit_header.format, endian);
     const prog_start_offset = fr.seek + prologue_length;
@@ -1472,33 +1455,15 @@ pub const ElfModule = struct {
     mapped_memory: ?[]align(std.heap.page_size_min) const u8,
     external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
 
-    pub const Lookup = struct {
-        base_address: usize,
-        name: []const u8,
-        build_id: ?[]const u8,
-        gnu_eh_frame: ?[]const u8,
+    pub const init: ElfModule = .{
+        .unwind = .{
+            .debug_frame = null,
+            .eh_frame = null,
+        },
+        .dwarf = .{},
+        .mapped_memory = null,
+        .external_mapped_memory = null,
     };
-
-    pub fn init(lookup: *const Lookup) ElfModule {
-        var em: ElfModule = .{
-            .unwind = .{
-                .sections = @splat(null),
-            },
-            .dwarf = .{},
-            .mapped_memory = null,
-            .external_mapped_memory = null,
-        };
-        if (lookup.gnu_eh_frame) |eh_frame_hdr| {
-            // This is a special case - pointer offsets inside .eh_frame_hdr
-            // are encoded relative to its base address, so we must use the
-            // version that is already memory mapped, and not the one that
-            // will be mapped separately from the ELF file.
-            em.unwind.sections[@intFromEnum(Dwarf.Unwind.Section.Id.eh_frame_hdr)] = .{
-                .data = eh_frame_hdr,
-            };
-        }
-        return em;
-    }
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.dwarf.deinit(allocator);
@@ -1506,10 +1471,11 @@ pub const ElfModule = struct {
         if (self.external_mapped_memory) |m| std.posix.munmap(m);
     }
 
-    pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, endian: Endian, base_address: usize, address: usize) !std.debug.Symbol {
-        // Translate the VA into an address into this object
-        const relocated_address = address - base_address;
-        return self.dwarf.getSymbol(allocator, endian, relocated_address);
+    pub fn getSymbolAtAddress(self: *@This(), allocator: Allocator, endian: Endian, load_offset: usize, address: usize) !std.debug.Symbol {
+        // Translate the runtime address into a virtual address into the module
+        // MLUGG TODO: this clearly tells us that the logic should live near SelfInfo...
+        const vaddr = address - load_offset;
+        return self.dwarf.getSymbol(allocator, endian, vaddr);
     }
 
     pub fn getDwarfUnwindForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf.Unwind {
@@ -1548,7 +1514,7 @@ pub const ElfModule = struct {
         mapped_mem: []align(std.heap.page_size_min) const u8,
         build_id: ?[]const u8,
         expected_crc: ?u32,
-        parent_sections: *Dwarf.SectionArray,
+        parent_sections: ?*Dwarf.SectionArray,
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!void {
@@ -1577,10 +1543,12 @@ pub const ElfModule = struct {
         var sections: Dwarf.SectionArray = @splat(null);
 
         // Combine section list. This takes ownership over any owned sections from the parent scope.
-        for (parent_sections, &sections) |*parent, *section_elem| {
-            if (parent.*) |*p| {
-                section_elem.* = p.*;
-                p.owned = false;
+        if (parent_sections) |ps| {
+            for (ps, &sections) |*parent, *section_elem| {
+                if (parent.*) |*p| {
+                    section_elem.* = p.*;
+                    p.owned = false;
+                }
             }
         }
         errdefer for (sections) |opt_section| if (opt_section) |s| if (s.owned) gpa.free(s.data);
@@ -1647,7 +1615,6 @@ pub const ElfModule = struct {
         // Attempt to load debug info from an external file
         // See: https://sourceware.org/gdb/onlinedocs/gdb/Separate-Debug-Files.html
         if (missing_debug_info) {
-
             // Only allow one level of debug info nesting
             if (parent_mapped_mem) |_| {
                 return error.MissingDebugInfo;
@@ -1775,6 +1742,7 @@ pub const ElfModule = struct {
 
         em.mapped_memory = parent_mapped_mem orelse mapped_mem;
         em.external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null;
+        em.dwarf.sections = sections;
         try em.dwarf.open(gpa, endian);
     }
 
@@ -1844,7 +1812,8 @@ pub fn chopSlice(ptr: []const u8, offset: u64, size: u64) error{Overflow}![]cons
     return ptr[start..end];
 }
 
-pub fn readAddress(r: *Reader, format: std.dwarf.Format, endian: Endian) !u64 {
+fn readAddress(r: *Reader, format: std.dwarf.Format, endian: Endian) !u64 {
+    // MLUGG TODO FIX BEFORE MERGE: this function is slightly bogus. addresses have a byte width which is independent of the `dwarf.Format`!
     return switch (format) {
         .@"32" => try r.takeInt(u32, endian),
         .@"64" => try r.takeInt(u64, endian),
@@ -1852,6 +1821,8 @@ pub fn readAddress(r: *Reader, format: std.dwarf.Format, endian: Endian) !u64 {
 }
 
 fn nativeFormat() std.dwarf.Format {
+    // MLUGG TODO FIX BEFORE MERGE: this is nonsensical. this is neither what `dwarf.Format` is for, nor does it make sense to check the NATIVE FUCKING FORMAT
+    // when parsing ARBITRARY DWARF.
     return switch (@sizeOf(usize)) {
         4 => .@"32",
         8 => .@"64",
