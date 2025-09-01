@@ -168,6 +168,10 @@ pub fn fixed(buffer: []const u8) Reader {
 }
 
 pub fn stream(r: *Reader, w: *Writer, limit: Limit) StreamError!usize {
+    if (limit == .nothing) {
+        @branchHint(.unlikely);
+        return 0;
+    }
     const buffer = limit.slice(r.buffer[r.seek..r.end]);
     if (buffer.len > 0) {
         @branchHint(.likely);
@@ -1327,6 +1331,14 @@ test fixed {
         d = 3,
     }, builtin.cpu.arch.endian())) == .c);
     try testing.expectError(error.EndOfStream, r.takeByte());
+}
+
+test "fixed: when streaming 0 bytes, return 0" {
+    var r: Reader = .fixed("i'm dying");
+    var trash: Writer.Discarding = .init(&.{});
+
+    const n = try r.stream(&trash.writer, .nothing);
+    try testing.expectEqual(n, 0);
 }
 
 test peek {
