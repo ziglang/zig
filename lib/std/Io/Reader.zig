@@ -1431,7 +1431,7 @@ test takeDelimiterExclusive {
     var no_delim: Reader = .fixed("abc");
     try testing.expectEqualStrings("abc", try no_delim.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, no_delim.takeDelimiterExclusive('\n'));
-    try testing.expectError(error.EndOfStream, .ending.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, ending.takeDelimiterExclusive('\n'));
 }
 
 test peekDelimiterExclusive {
