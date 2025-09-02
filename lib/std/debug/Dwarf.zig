@@ -1780,13 +1780,13 @@ pub const ElfModule = struct {
 
 pub fn getSymbol(di: *Dwarf, allocator: Allocator, endian: Endian, address: u64) !std.debug.Symbol {
     const compile_unit = di.findCompileUnit(endian, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return .{},
+        error.MissingDebugInfo, error.InvalidDebugInfo => return .{ .name = null, .compile_unit_name = null, .source_location = null },
         else => return err,
     };
     return .{
-        .name = di.getSymbolName(address) orelse "???",
+        .name = di.getSymbolName(address),
         .compile_unit_name = compile_unit.die.getAttrString(di, endian, std.dwarf.AT.name, di.section(.debug_str), compile_unit) catch |err| switch (err) {
-            error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+            error.MissingDebugInfo, error.InvalidDebugInfo => null,
         },
         .source_location = di.getLineNumberInfo(allocator, endian, compile_unit, address) catch |err| switch (err) {
             error.MissingDebugInfo, error.InvalidDebugInfo => null,
