@@ -1449,6 +1449,7 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
     return str[casted_offset..last :0];
 }
 
+// MLUGG TODO: i am dubious of this whole thing being here atp. look closely and see if it depends on being the self process
 pub const ElfModule = struct {
     unwind: Dwarf.Unwind,
     dwarf: Dwarf,
@@ -1456,10 +1457,7 @@ pub const ElfModule = struct {
     external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
 
     pub const init: ElfModule = .{
-        .unwind = .{
-            .debug_frame = null,
-            .eh_frame = null,
-        },
+        .unwind = .init,
         .dwarf = .{},
         .mapped_memory = null,
         .external_mapped_memory = null,
@@ -1508,6 +1506,8 @@ pub const ElfModule = struct {
     /// If the required sections aren't present but a reference to external debug
     /// info is, then this this function will recurse to attempt to load the debug
     /// sections from an external file.
+    ///
+    /// MLUGG TODO: this should *return* a thing
     pub fn load(
         em: *ElfModule,
         gpa: Allocator,
@@ -1518,6 +1518,8 @@ pub const ElfModule = struct {
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
     ) LoadError!void {
+        assert(em.mapped_memory == null);
+
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
@@ -1709,8 +1711,9 @@ pub const ElfModule = struct {
                         separate_debug_crc,
                         &sections,
                         mapped_mem,
-                    )) |debug_info| {
-                        return debug_info;
+                    )) |v| {
+                        v;
+                        return;
                     } else |_| {}
 
                     // <exe_dir>/.debug/<gnu_debuglink>
