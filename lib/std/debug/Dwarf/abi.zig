@@ -7,7 +7,7 @@ const Arch = std.Target.Cpu.Arch;
 
 /// Tells whether unwinding for this target is supported by the Dwarf standard.
 ///
-/// See also `std.debug.SelfInfo.supportsUnwinding` which tells whether the Zig
+/// See also `std.debug.SelfInfo.supports_unwinding` which tells whether the Zig
 /// standard library has a working implementation of unwinding for this target.
 pub fn supportsUnwinding(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
