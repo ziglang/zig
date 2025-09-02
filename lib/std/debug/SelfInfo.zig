@@ -163,7 +163,6 @@ const Module = switch (native_os) {
             const syms = syms_ptr[0..symtab.nsyms];
             const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
 
-            // MLUGG TODO: does it really make sense to initCapacity here? how many of syms are omitted?
             var symbols: std.ArrayList(MachoSymbol) = try .initCapacity(gpa, syms.len);
             defer symbols.deinit(gpa);
 
@@ -438,7 +437,6 @@ const Module = switch (native_os) {
                 const symtab: []align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab_cmd.symoff..][0..n_sym_bytes]);
 
                 // TODO handle tentative (common) symbols
-                // MLUGG TODO: does initCapacity actually make sense?
                 var addr_table: std.StringArrayHashMapUnmanaged(u64) = .empty;
                 defer addr_table.deinit(gpa);
                 try addr_table.ensureUnusedCapacity(gpa, @intCast(symtab.len));
@@ -516,7 +514,7 @@ const Module = switch (native_os) {
         gnu_eh_frame: ?[]const u8,
         const LookupCache = void;
         const DebugInfo = struct {
-            loaded_elf: ?Dwarf.ElfModule, // MLUGG TODO: bad field name
+            loaded_elf: ?Dwarf.ElfModule,
             unwind: ?Dwarf.Unwind,
             const init: DebugInfo = .{
                 .loaded_elf = null,
