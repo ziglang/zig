@@ -4171,6 +4171,39 @@ pub const msghdr_const = switch (native_os) {
     },
     else => void,
 };
+pub const cmsghdr = switch (native_os) {
+    // https://github.com/emscripten-core/emscripten/blob/96371ed7888fc78c040179f4d4faa82a6a07a116/system/lib/libc/musl/include/sys/socket.h#L44
+    .linux, .emscripten => linux.cmsghdr,
+    // https://github.com/freebsd/freebsd-src/blob/b197d2abcb6895d78bc9df8404e374397aa44748/sys/sys/socket.h#L492
+    .freebsd,
+    // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/107c0518337ba90e7fa49e74845d8d44320c9a6d/sys/sys/socket.h#L452
+    .dragonfly,
+    // https://github.com/NetBSD/src/blob/ba8e1774fd9c0c26ecca461c07bc95d9ebb69579/sys/sys/socket.h#L528
+    .netbsd,
+    // https://github.com/openbsd/src/blob/master/sys/sys/socket.h#L527
+    .openbsd,
+    // https://github.com/kofemann/opensolaris/blob/80192cd83bf665e708269dae856f9145f7190f74/usr/src/uts/common/sys/socket.h#L416
+    .solaris,
+    // https://github.com/illumos/illumos-gate/blob/afdf2e523873cb523df379676067bf9785a0f456/usr/src/uts/common/sys/socket.h#L460
+    .illumos,
+    // https://github.com/SerenityOS/serenity/blob/4ee360a348a5e2490eeaeeabb3eb19e70dd450eb/Kernel/API/POSIX/sys/socket.h#L68
+    .serenity,
+    // https://github.com/haiku/haiku/blob/b54f586058fd6623645512e4631468cede9933b9/headers/posix/sys/socket.h#L132
+    .haiku,
+    // https://github.com/apple/darwin-xnu/blob/2ff845c2e033bd0ff64b5b6aa6063a1f8f65aa32/bsd/sys/socket.h#L1041
+    .macos,
+    .driverkit,
+    .ios,
+    .tvos,
+    .visionos,
+    .watchos,
+    => extern struct {
+        len: socklen_t,
+        level: c_int,
+        type: c_int,
+    },
+    else => void,
+};
 pub const nfds_t = switch (native_os) {
     .linux => linux.nfds_t,
     .emscripten => emscripten.nfds_t,
@@ -11010,7 +11043,6 @@ pub const SCM = solaris.SCM;
 pub const SETCONTEXT = solaris.SETCONTEXT;
 pub const SETUSTACK = solaris.GETUSTACK;
 pub const SFD = solaris.SFD;
-pub const cmsghdr = solaris.cmsghdr;
 pub const ctid_t = solaris.ctid_t;
 pub const file_obj = solaris.file_obj;
 pub const fpregset_t = solaris.fpregset_t;

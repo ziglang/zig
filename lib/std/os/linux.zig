@@ -9709,6 +9709,13 @@ pub const msghdr_const = extern struct {
     flags: u32,
 };
 
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/include/linux/socket.h?id=b320789d6883cc00ac78ce83bccbfe7ed58afcf0#n105
+pub const cmsghdr = extern struct {
+    len: usize,
+    level: i32,
+    type: i32,
+};
+
 /// The syscalls, but with Zig error sets, going through libc if linking libc,
 /// and with some footguns eliminated.
 pub const wrapped = struct {

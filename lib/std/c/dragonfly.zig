@@ -158,12 +158,6 @@ pub const BADSIG = SIG.ERR;
 
 pub const sig_t = *const fn (i32) callconv(.c) void;
 
-pub const cmsghdr = extern struct {
-    len: socklen_t,
-    level: c_int,
-    type: c_int,
-};
-
 pub const cmsgcred = extern struct {
     pid: pid_t,
     uid: uid_t,
