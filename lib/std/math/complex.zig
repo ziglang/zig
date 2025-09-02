@@ -34,9 +34,12 @@ pub fn Complex(comptime T: type) type {
         /// Imaginary part.
         im: T,
 
-        /// Create a new Complex number from the given real and imaginary parts.
+        /// Imarinary unit that satisfies "i^2 = -1".
+        pub const i: Self = .init(0, 1);
+
+        /// Create a new complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
-            return Self{
+            return .{
                 .re = re,
                 .im = im,
             };
@@ -44,7 +47,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the sum of two complex numbers.
         pub fn add(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re + other.re,
                 .im = self.im + other.im,
             };
@@ -52,7 +55,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the subtraction of two complex numbers.
         pub fn sub(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re - other.re,
                 .im = self.im - other.im,
             };
@@ -60,7 +63,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the product of two complex numbers.
         pub fn mul(self: Self, other: Self) Self {
-            return Self{
+            return .{
                 .re = self.re * other.re - self.im * other.im,
                 .im = self.im * other.re + self.re * other.im,
             };
@@ -72,15 +75,15 @@ pub fn Complex(comptime T: type) type {
             const im_num = self.im * other.re - self.re * other.im;
             const den = other.re * other.re + other.im * other.im;
 
-            return Self{
+            return .{
                 .re = re_num / den,
                 .im = im_num / den,
             };
         }
 
-        /// Returns the complex conjugate of a number.
+        /// Returns the complex conjugate of a complex number.
         pub fn conjugate(self: Self) Self {
-            return Self{
+            return .{
                 .re = self.re,
                 .im = -self.im,
             };
@@ -88,15 +91,17 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the negation of a complex number.
         pub fn neg(self: Self) Self {
-            return Self{
+            return .{
                 .re = -self.re,
                 .im = -self.im,
             };
         }
 
-        /// Returns the product of complex number and i=sqrt(-1)
+        /// Returns the product of complex number and imaginary unit.
+        /// You should not manually does ".mul(.i, self)" instead of using this,
+        /// as its requires more operations than this.
         pub fn mulbyi(self: Self) Self {
-            return Self{
+            return .{
                 .re = -self.im,
                 .im = self.re,
             };
@@ -104,10 +109,11 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the reciprocal of a complex number.
         pub fn reciprocal(self: Self) Self {
-            const m = self.re * self.re + self.im * self.im;
-            return Self{
-                .re = self.re / m,
-                .im = -self.im / m,
+            const sm = self.squaredMagnitude();
+
+            return .{
+                .re = self.re / sm,
+                .im = -self.im / sm,
             };
         }
 
@@ -124,33 +130,39 @@ pub fn Complex(comptime T: type) type {
 
 const epsilon = 0.0001;
 
+const TestingComplex = Complex(f32);
+
 test "add" {
-    const a = Complex(f32).init(5, 3);
-    const b = Complex(f32).init(2, 7);
+    const a: TestingComplex = .init(5, 3);
+    const b: TestingComplex = .init(2, 7);
+
     const c = a.add(b);
 
     try testing.expect(c.re == 7 and c.im == 10);
 }
 
 test "sub" {
-    const a = Complex(f32).init(5, 3);
-    const b = Complex(f32).init(2, 7);
+    const a: TestingComplex = .init(5, 3);
+    const b: TestingComplex = .init(2, 7);
+
     const c = a.sub(b);
 
     try testing.expect(c.re == 3 and c.im == -4);
 }
 
 test "mul" {
-    const a = Complex(f32).init(5, 3);
-    const b = Complex(f32).init(2, 7);
+    const a: TestingComplex = .init(5, 3);
+    const b: TestingComplex = .init(2, 7);
+
     const c = a.mul(b);
 
     try testing.expect(c.re == -11 and c.im == 41);
 }
 
 test "div" {
-    const a = Complex(f32).init(5, 3);
-    const b = Complex(f32).init(2, 7);
+    const a: TestingComplex = .init(5, 3);
+    const b: TestingComplex = .init(2, 7);
+
     const c = a.div(b);
 
     try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
@@ -158,46 +170,55 @@ test "div" {
 }
 
 test "conjugate" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.conjugate();
+    const a: TestingComplex = .init(5, 3);
+    const b = a.conjugate();
 
-    try testing.expect(c.re == 5 and c.im == -3);
+    try testing.expect(b.re == 5 and b.im == -3);
 }
 
 test "neg" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.neg();
+    const a: TestingComplex = .init(5, 3);
+    const b = a.neg();
 
-    try testing.expect(c.re == -5 and c.im == -3);
+    try testing.expect(b.re == -5 and b.im == -3);
 }
 
 test "mulbyi" {
-    const a = Complex(f32).init(5, 3);
+    const a: TestingComplex = .init(5, 3);
+    const b = a.mulbyi();
+
+    try testing.expect(b.re == -3 and b.im == 5);
+}
+
+test "multiplication by i yields same result as mulbyi" {
+    const a: TestingComplex = .init(5, 3);
+
+    const b: TestingComplex = .mul(.i, a);
     const c = a.mulbyi();
 
-    try testing.expect(c.re == -3 and c.im == 5);
+    try testing.expect(b.re == c.re and b.im == c.im);
 }
 
 test "reciprocal" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.reciprocal();
+    const a: TestingComplex = .init(5, 3);
+    const b = a.reciprocal();
 
-    try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 5) / 34, epsilon) and
-        math.approxEqAbs(f32, c.im, @as(f32, -3) / 34, epsilon));
+    try testing.expect(math.approxEqAbs(f32, b.re, @as(f32, 5) / 34, epsilon) and
+        math.approxEqAbs(f32, b.im, @as(f32, -3) / 34, epsilon));
 }
 
 test "magnitude" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.magnitude();
+    const a: TestingComplex = .init(5, 3);
+    const b = a.magnitude();
 
-    try testing.expect(math.approxEqAbs(f32, c, 5.83095, epsilon));
+    try testing.expect(math.approxEqAbs(f32, b, 5.83095, epsilon));
 }
 
 test "squaredMagnitude" {
-    const a = Complex(f32).init(5, 3);
-    const c = a.squaredMagnitude();
+    const a: TestingComplex = .init(5, 3);
+    const b = a.squaredMagnitude();
 
-    try testing.expect(math.approxEqAbs(f32, c, math.pow(f32, a.magnitude(), 2), epsilon));
+    try testing.expect(math.approxEqAbs(f32, b, math.pow(f32, a.magnitude(), 2), epsilon));
 }
 
 test {
