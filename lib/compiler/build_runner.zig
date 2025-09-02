@@ -1578,7 +1578,7 @@ const Summary = enum { all, new, failures, none };
 
 fn get_tty_conf(color: Color, stderr: File) tty.Config {
     return switch (color) {
-        .auto => tty.detectConfig(stderr),
+        .auto => .detect(stderr),
         .on => .escape_codes,
         .off => .no_color,
     };
