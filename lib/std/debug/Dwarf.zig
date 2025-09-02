@@ -1,13 +1,12 @@
 //! Implements parsing, decoding, and caching of DWARF information.
 //!
-//! This API does not assume the current executable is itself the thing being
-//! debugged, however, it does assume the debug info has the same CPU
-//! architecture and OS as the current executable. It is planned to remove this
-//! limitation.
+//! This API makes no assumptions about the relationship between the host and
+//! the target being debugged. In other words, any DWARF information can be used
+//! from any host via this API. Note, however, that the limits of 32-bit
+//! addressing can cause very large 64-bit binaries to be impossible to open on
+//! 32-bit hosts.
 //!
 //! For unopinionated types and bits, see `std.dwarf`.
-
-const builtin = @import("builtin");
 
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
@@ -57,9 +56,6 @@ pub const Range = struct {
 
 pub const Section = struct {
     data: []const u8,
-    // Module-relative virtual address.
-    // Only set if the section data was loaded from disk.
-    virtual_address: ?usize = null,
     // If `data` is owned by this Dwarf.
     owned: bool,
 
@@ -120,6 +116,7 @@ pub const Abbrev = struct {
 pub const CompileUnit = struct {
     version: u16,
     format: Format,
+    addr_size_bytes: u8,
     die: Die,
     pc_range: ?PcRange,
 
@@ -170,7 +167,7 @@ pub const CompileUnit = struct {
 
 pub const FormValue = union(enum) {
     addr: u64,
-    addrx: usize,
+    addrx: u64,
     block: []const u8,
     udata: u64,
     data16: *const [16]u8,
@@ -182,7 +179,7 @@ pub const FormValue = union(enum) {
     ref_addr: u64,
     string: [:0]const u8,
     strp: u64,
-    strx: usize,
+    strx: u64,
     line_strp: u64,
     loclistx: u64,
     rnglistx: u64,
@@ -392,12 +389,11 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
             const unit_type = try fr.takeByte();
             if (unit_type != DW.UT.compile) return bad();
             address_size = try fr.takeByte();
-            debug_abbrev_offset = try readAddress(&fr, unit_header.format, endian);
+            debug_abbrev_offset = try readFormatSizedInt(&fr, unit_header.format, endian);
         } else {
-            debug_abbrev_offset = try readAddress(&fr, unit_header.format, endian);
+            debug_abbrev_offset = try readFormatSizedInt(&fr, unit_header.format, endian);
             address_size = try fr.takeByte();
         }
-        if (address_size != @sizeOf(usize)) return bad();
 
         const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
 
@@ -424,6 +420,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
         var compile_unit: CompileUnit = .{
             .version = version,
             .format = unit_header.format,
+            .addr_size_bytes = address_size,
             .die = undefined,
             .pc_range = null,
 
@@ -446,6 +443,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                 abbrev_table,
                 unit_header.format,
                 endian,
+                address_size,
             )) orelse continue;
 
             switch (die_obj.tag_id) {
@@ -480,6 +478,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                                     abbrev_table, // wrong abbrev table for different cu
                                     unit_header.format,
                                     endian,
+                                    address_size,
                                 )) orelse return bad();
                             } else if (this_die_obj.getAttr(AT.specification)) |_| {
                                 const after_die_offset = fr.seek;
@@ -494,6 +493,7 @@ fn scanAllFunctions(di: *Dwarf, allocator: Allocator, endian: Endian) ScanError!
                                     abbrev_table, // wrong abbrev table for different cu
                                     unit_header.format,
                                     endian,
+                                    address_size,
                                 )) orelse return bad();
                             } else {
                                 break :x null;
@@ -584,12 +584,11 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
             const unit_type = try fr.takeByte();
             if (unit_type != UT.compile) return bad();
             address_size = try fr.takeByte();
-            debug_abbrev_offset = try readAddress(&fr, unit_header.format, endian);
+            debug_abbrev_offset = try readFormatSizedInt(&fr, unit_header.format, endian);
         } else {
-            debug_abbrev_offset = try readAddress(&fr, unit_header.format, endian);
+            debug_abbrev_offset = try readFormatSizedInt(&fr, unit_header.format, endian);
             address_size = try fr.takeByte();
         }
-        if (address_size != @sizeOf(usize)) return bad();
 
         const abbrev_table = try di.getAbbrevTable(allocator, debug_abbrev_offset);
 
@@ -605,6 +604,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
             abbrev_table,
             unit_header.format,
             endian,
+            address_size,
         )) orelse return bad();
 
         if (compile_unit_die.tag_id != DW.TAG.compile_unit) return bad();
@@ -614,6 +614,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
         var compile_unit: CompileUnit = .{
             .version = version,
             .format = unit_header.format,
+            .addr_size_bytes = address_size,
             .pc_range = null,
             .die = compile_unit_die,
             .str_offsets_base = if (compile_unit_die.getAttr(AT.str_offsets_base)) |fv| try fv.getUInt(usize) else 0,
@@ -702,15 +703,15 @@ const DebugRangeIterator = struct {
             .rnglistx => |idx| off: {
                 switch (compile_unit.format) {
                     .@"32" => {
-                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 4 * idx));
+                        const offset_loc = compile_unit.rnglists_base + 4 * idx;
                         if (offset_loc + 4 > debug_ranges.len) return bad();
-                        const offset = mem.readInt(u32, debug_ranges[offset_loc..][0..4], endian);
+                        const offset = mem.readInt(u32, debug_ranges[@intCast(offset_loc)..][0..4], endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                     .@"64" => {
-                        const offset_loc = @as(usize, @intCast(compile_unit.rnglists_base + 8 * idx));
+                        const offset_loc = compile_unit.rnglists_base + 8 * idx;
                         if (offset_loc + 8 > debug_ranges.len) return bad();
-                        const offset = mem.readInt(u64, debug_ranges[offset_loc..][0..8], endian);
+                        const offset = mem.readInt(u64, debug_ranges[@intCast(offset_loc)..][0..8], endian);
                         break :off compile_unit.rnglists_base + offset;
                     },
                 }
@@ -743,21 +744,22 @@ const DebugRangeIterator = struct {
     // Returns the next range in the list, or null if the end was reached.
     pub fn next(self: *@This()) !?PcRange {
         const endian = self.endian;
+        const addr_size_bytes = self.compile_unit.addr_size_bytes;
         switch (self.section_type) {
             .debug_rnglists => {
                 const kind = try self.fr.takeByte();
                 switch (kind) {
                     RLE.end_of_list => return null,
                     RLE.base_addressx => {
-                        const index = try self.fr.takeLeb128(usize);
+                        const index = try self.fr.takeLeb128(u64);
                         self.base_address = try self.di.readDebugAddr(endian, self.compile_unit, index);
                         return try self.next();
                     },
                     RLE.startx_endx => {
-                        const start_index = try self.fr.takeLeb128(usize);
+                        const start_index = try self.fr.takeLeb128(u64);
                         const start_addr = try self.di.readDebugAddr(endian, self.compile_unit, start_index);
 
-                        const end_index = try self.fr.takeLeb128(usize);
+                        const end_index = try self.fr.takeLeb128(u64);
                         const end_addr = try self.di.readDebugAddr(endian, self.compile_unit, end_index);
 
                         return .{
@@ -766,10 +768,10 @@ const DebugRangeIterator = struct {
                         };
                     },
                     RLE.startx_length => {
-                        const start_index = try self.fr.takeLeb128(usize);
+                        const start_index = try self.fr.takeLeb128(u64);
                         const start_addr = try self.di.readDebugAddr(endian, self.compile_unit, start_index);
 
-                        const len = try self.fr.takeLeb128(usize);
+                        const len = try self.fr.takeLeb128(u64);
                         const end_addr = start_addr + len;
 
                         return .{
@@ -778,8 +780,8 @@ const DebugRangeIterator = struct {
                         };
                     },
                     RLE.offset_pair => {
-                        const start_addr = try self.fr.takeLeb128(usize);
-                        const end_addr = try self.fr.takeLeb128(usize);
+                        const start_addr = try self.fr.takeLeb128(u64);
+                        const end_addr = try self.fr.takeLeb128(u64);
 
                         // This is the only kind that uses the base address
                         return .{
@@ -788,12 +790,12 @@ const DebugRangeIterator = struct {
                         };
                     },
                     RLE.base_address => {
-                        self.base_address = try self.fr.takeInt(usize, endian);
+                        self.base_address = try readAddress(&self.fr, endian, addr_size_bytes);
                         return try self.next();
                     },
                     RLE.start_end => {
-                        const start_addr = try self.fr.takeInt(usize, endian);
-                        const end_addr = try self.fr.takeInt(usize, endian);
+                        const start_addr = try readAddress(&self.fr, endian, addr_size_bytes);
+                        const end_addr = try readAddress(&self.fr, endian, addr_size_bytes);
 
                         return .{
                             .start = start_addr,
@@ -801,8 +803,8 @@ const DebugRangeIterator = struct {
                         };
                     },
                     RLE.start_length => {
-                        const start_addr = try self.fr.takeInt(usize, endian);
-                        const len = try self.fr.takeLeb128(usize);
+                        const start_addr = try readAddress(&self.fr, endian, addr_size_bytes);
+                        const len = try self.fr.takeLeb128(u64);
                         const end_addr = start_addr + len;
 
                         return .{
@@ -814,12 +816,13 @@ const DebugRangeIterator = struct {
                 }
             },
             .debug_ranges => {
-                const start_addr = try self.fr.takeInt(usize, endian);
-                const end_addr = try self.fr.takeInt(usize, endian);
+                const start_addr = try readAddress(&self.fr, endian, addr_size_bytes);
+                const end_addr = try readAddress(&self.fr, endian, addr_size_bytes);
                 if (start_addr == 0 and end_addr == 0) return null;
 
-                // This entry selects a new value for the base address
-                if (start_addr == maxInt(usize)) {
+                // The entry with start_addr = max_representable_address selects a new value for the base address
+                const max_representable_address = ~@as(u64, 0) >> @intCast(64 - addr_size_bytes);
+                if (start_addr == max_representable_address) {
                     self.base_address = end_addr;
                     return try self.next();
                 }
@@ -921,6 +924,7 @@ fn parseDie(
     abbrev_table: *const Abbrev.Table,
     format: Format,
     endian: Endian,
+    addr_size_bytes: u8,
 ) ScanError!?Die {
     const abbrev_code = try fr.takeLeb128(u64);
     if (abbrev_code == 0) return null;
@@ -929,7 +933,7 @@ fn parseDie(
     const attrs = attrs_buf[0..table_entry.attrs.len];
     for (attrs, table_entry.attrs) |*result_attr, attr| result_attr.* = .{
         .id = attr.id,
-        .value = try parseFormValue(fr, attr.form_id, format, endian, attr.payload),
+        .value = try parseFormValue(fr, attr.form_id, format, endian, addr_size_bytes, attr.payload),
     };
     return .{
         .tag_id = table_entry.tag_id,
@@ -954,20 +958,16 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
     const version = try fr.takeInt(u16, endian);
     if (version < 2) return bad();
 
-    const addr_size: u8, const seg_size: u8 = if (version >= 5) .{
+    const addr_size_bytes: u8, const seg_size: u8 = if (version >= 5) .{
         try fr.takeByte(),
         try fr.takeByte(),
     } else .{
-        switch (unit_header.format) {
-            .@"32" => 4,
-            .@"64" => 8,
-        },
+        compile_unit.addr_size_bytes,
         0,
     };
     if (seg_size != 0) return bad(); // unsupported
-    _ = addr_size; // TODO: ignoring this is incorrect, we should use it to decide address lengths
 
-    const prologue_length = try readAddress(&fr, unit_header.format, endian);
+    const prologue_length = try readFormatSizedInt(&fr, unit_header.format, endian);
     const prog_start_offset = fr.seek + prologue_length;
 
     const minimum_instruction_length = try fr.takeByte();
@@ -1036,7 +1036,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
             for (try directories.addManyAsSlice(gpa, directories_count)) |*e| {
                 e.* = .{ .path = &.{} };
                 for (dir_ent_fmt_buf[0..directory_entry_format_count]) |ent_fmt| {
-                    const form_value = try parseFormValue(&fr, ent_fmt.form_code, unit_header.format, endian, null);
+                    const form_value = try parseFormValue(&fr, ent_fmt.form_code, unit_header.format, endian, addr_size_bytes, null);
                     switch (ent_fmt.content_type_code) {
                         DW.LNCT.path => e.path = try form_value.getString(d.*),
                         DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
@@ -1068,7 +1068,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
         for (try file_entries.addManyAsSlice(gpa, file_names_count)) |*e| {
             e.* = .{ .path = &.{} };
             for (file_ent_fmt_buf[0..file_name_entry_format_count]) |ent_fmt| {
-                const form_value = try parseFormValue(&fr, ent_fmt.form_code, unit_header.format, endian, null);
+                const form_value = try parseFormValue(&fr, ent_fmt.form_code, unit_header.format, endian, addr_size_bytes, null);
                 switch (ent_fmt.content_type_code) {
                     DW.LNCT.path => e.path = try form_value.getString(d.*),
                     DW.LNCT.directory_index => e.dir_index = try form_value.getUInt(u32),
@@ -1117,8 +1117,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
                     prog.reset();
                 },
                 DW.LNE.set_address => {
-                    const addr = try fr.takeInt(usize, endian);
-                    prog.address = addr;
+                    prog.address = try readAddress(&fr, endian, addr_size_bytes);
                 },
                 DW.LNE.define_file => {
                     const path = try fr.takeSentinel(0);
@@ -1150,7 +1149,7 @@ fn runLineNumberProgram(d: *Dwarf, gpa: Allocator, endian: Endian, compile_unit:
                     prog.basic_block = false;
                 },
                 DW.LNS.advance_pc => {
-                    const arg = try fr.takeLeb128(usize);
+                    const arg = try fr.takeLeb128(u64);
                     prog.address += arg * minimum_instruction_length;
                 },
                 DW.LNS.advance_line => {
@@ -1258,13 +1257,13 @@ fn readDebugAddr(di: Dwarf, endian: Endian, compile_unit: *const CompileUnit, in
     const addr_size = debug_addr[compile_unit.addr_base - 2];
     const seg_size = debug_addr[compile_unit.addr_base - 1];
 
-    const byte_offset = @as(usize, @intCast(compile_unit.addr_base + (addr_size + seg_size) * index));
+    const byte_offset = compile_unit.addr_base + (addr_size + seg_size) * index;
     if (byte_offset + addr_size > debug_addr.len) return bad();
     return switch (addr_size) {
-        1 => debug_addr[byte_offset],
-        2 => mem.readInt(u16, debug_addr[byte_offset..][0..2], endian),
-        4 => mem.readInt(u32, debug_addr[byte_offset..][0..4], endian),
-        8 => mem.readInt(u64, debug_addr[byte_offset..][0..8], endian),
+        1 => debug_addr[@intCast(byte_offset)],
+        2 => mem.readInt(u16, debug_addr[@intCast(byte_offset)..][0..2], endian),
+        4 => mem.readInt(u32, debug_addr[@intCast(byte_offset)..][0..4], endian),
+        8 => mem.readInt(u64, debug_addr[@intCast(byte_offset)..][0..8], endian),
         else => bad(),
     };
 }
@@ -1274,17 +1273,18 @@ fn parseFormValue(
     form_id: u64,
     format: Format,
     endian: Endian,
+    addr_size_bytes: u8,
     implicit_const: ?i64,
 ) ScanError!FormValue {
     return switch (form_id) {
         // DWARF5.pdf page 213: the size of this value is encoded in the
         // compilation unit header as address size.
-        FORM.addr => .{ .addr = try readAddress(r, nativeFormat(), endian) },
+        FORM.addr => .{ .addr = try readAddress(r, endian, addr_size_bytes) },
         FORM.addrx1 => .{ .addrx = try r.takeByte() },
         FORM.addrx2 => .{ .addrx = try r.takeInt(u16, endian) },
         FORM.addrx3 => .{ .addrx = try r.takeInt(u24, endian) },
         FORM.addrx4 => .{ .addrx = try r.takeInt(u32, endian) },
-        FORM.addrx => .{ .addrx = try r.takeLeb128(usize) },
+        FORM.addrx => .{ .addrx = try r.takeLeb128(u64) },
 
         FORM.block1 => .{ .block = try r.take(try r.takeByte()) },
         FORM.block2 => .{ .block = try r.take(try r.takeInt(u16, endian)) },
@@ -1301,7 +1301,7 @@ fn parseFormValue(
         FORM.exprloc => .{ .exprloc = try r.take(try r.takeLeb128(usize)) },
         FORM.flag => .{ .flag = (try r.takeByte()) != 0 },
         FORM.flag_present => .{ .flag = true },
-        FORM.sec_offset => .{ .sec_offset = try readAddress(r, format, endian) },
+        FORM.sec_offset => .{ .sec_offset = try readFormatSizedInt(r, format, endian) },
 
         FORM.ref1 => .{ .ref = try r.takeByte() },
         FORM.ref2 => .{ .ref = try r.takeInt(u16, endian) },
@@ -1309,18 +1309,18 @@ fn parseFormValue(
         FORM.ref8 => .{ .ref = try r.takeInt(u64, endian) },
         FORM.ref_udata => .{ .ref = try r.takeLeb128(u64) },
 
-        FORM.ref_addr => .{ .ref_addr = try readAddress(r, format, endian) },
+        FORM.ref_addr => .{ .ref_addr = try readFormatSizedInt(r, format, endian) },
         FORM.ref_sig8 => .{ .ref = try r.takeInt(u64, endian) },
 
         FORM.string => .{ .string = try r.takeSentinel(0) },
-        FORM.strp => .{ .strp = try readAddress(r, format, endian) },
+        FORM.strp => .{ .strp = try readFormatSizedInt(r, format, endian) },
         FORM.strx1 => .{ .strx = try r.takeByte() },
         FORM.strx2 => .{ .strx = try r.takeInt(u16, endian) },
         FORM.strx3 => .{ .strx = try r.takeInt(u24, endian) },
         FORM.strx4 => .{ .strx = try r.takeInt(u32, endian) },
         FORM.strx => .{ .strx = try r.takeLeb128(usize) },
-        FORM.line_strp => .{ .line_strp = try readAddress(r, format, endian) },
-        FORM.indirect => parseFormValue(r, try r.takeLeb128(u64), format, endian, implicit_const),
+        FORM.line_strp => .{ .line_strp = try readFormatSizedInt(r, format, endian) },
+        FORM.indirect => parseFormValue(r, try r.takeLeb128(u64), format, endian, addr_size_bytes, implicit_const),
         FORM.implicit_const => .{ .sdata = implicit_const orelse return bad() },
         FORM.loclistx => .{ .loclistx = try r.takeLeb128(u64) },
         FORM.rnglistx => .{ .rnglistx = try r.takeLeb128(u64) },
@@ -1464,20 +1464,24 @@ pub fn getSymbol(di: *Dwarf, allocator: Allocator, endian: Endian, address: u64)
     };
 }
 
-fn readAddress(r: *Reader, format: std.dwarf.Format, endian: Endian) !u64 {
-    // MLUGG TODO FIX BEFORE MERGE: this function is slightly bogus. addresses have a byte width which is independent of the `dwarf.Format`!
+/// DWARF5 7.4: "In the 32-bit DWARF format, all values that represent lengths of DWARF sections and
+/// offsets relative to the beginning of DWARF sections are represented using four bytes. In the
+/// 64-bit DWARF format, all values that represent lengths of DWARF sections and offsets relative to
+/// the beginning of DWARF sections are represented using eight bytes".
+///
+/// This function is for reading such values.
+fn readFormatSizedInt(r: *Reader, format: std.dwarf.Format, endian: Endian) !u64 {
     return switch (format) {
         .@"32" => try r.takeInt(u32, endian),
         .@"64" => try r.takeInt(u64, endian),
     };
 }
 
-fn nativeFormat() std.dwarf.Format {
-    // MLUGG TODO FIX BEFORE MERGE: this is nonsensical. this is neither what `dwarf.Format` is for, nor does it make sense to check the NATIVE FUCKING FORMAT
-    // when parsing ARBITRARY DWARF.
-    return switch (@sizeOf(usize)) {
-        4 => .@"32",
-        8 => .@"64",
-        else => @compileError("unsupported @sizeOf(usize)"),
+fn readAddress(r: *Reader, endian: Endian, addr_size_bytes: u8) !u64 {
+    return switch (addr_size_bytes) {
+        2 => try r.takeInt(u16, endian),
+        4 => try r.takeInt(u32, endian),
+        8 => try r.takeInt(u64, endian),
+        else => return bad(),
     };
 }
