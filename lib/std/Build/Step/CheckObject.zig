@@ -1097,7 +1097,7 @@ const MachODumper = struct {
 
             for (ctx.symtab.items) |sym| {
                 const sym_name = ctx.getString(sym.n_strx);
-                if (sym.stab()) {
+                if (sym.n_type.bits.is_stab != 0) {
                     const tt = switch (sym.n_type) {
                         macho.N_SO => "SO",
                         macho.N_OSO => "OSO",
@@ -1114,7 +1114,7 @@ const MachODumper = struct {
                         try writer.print(" ({s},{s})", .{ sect.segName(), sect.sectName() });
                     }
                     try writer.print(" {s} (stab) {s}\n", .{ tt, sym_name });
-                } else if (sym.sect()) {
+                } else if (sym.n_type.type == .sect) {
                     const sect = ctx.sections.items[sym.n_sect - 1];
                     try writer.print("{x} ({s},{s})", .{
                         sym.n_value,
@@ -1122,8 +1122,8 @@ const MachODumper = struct {
                         sect.sectName(),
                     });
                     if (sym.n_desc & macho.REFERENCED_DYNAMICALLY != 0) try writer.writeAll(" [referenced dynamically]");
-                    if (sym.weakDef()) try writer.writeAll(" weak");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
+                    if (sym.n_desc.weak_def_or_ref_to_weak) try writer.writeAll(" weak");
+                    if (sym.n_desc.weak_ref) try writer.writeAll(" weakref");
                     if (sym.ext()) {
                         if (sym.pext()) try writer.writeAll(" private");
                         try writer.writeAll(" external");
@@ -1134,7 +1134,7 @@ const MachODumper = struct {
                     try writer.print("  0x{x:0>16} (common) (alignment 2^{d})", .{ sym.n_value, alignment });
                     if (sym.ext()) try writer.writeAll(" external");
                     try writer.print(" {s}\n", .{sym_name});
-                } else if (sym.undf()) {
+                } else if (sym.n_type.type == .undf) {
                     const ordinal = @divFloor(@as(i16, @bitCast(sym.n_desc)), macho.N_SYMBOL_RESOLVER);
                     const import_name = blk: {
                         if (ordinal <= 0) {
@@ -1153,7 +1153,7 @@ const MachODumper = struct {
                         break :blk basename[0..ext];
                     };
                     try writer.writeAll("(undefined)");
-                    if (sym.weakRef()) try writer.writeAll(" weakref");
+                    if (sym.n_desc.weak_ref) try writer.writeAll(" weakref");
                     if (sym.ext()) try writer.writeAll(" external");
                     try writer.print(" {s} (from {s})\n", .{
                         sym_name,
