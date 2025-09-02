@@ -41,8 +41,6 @@ const SortedFdeEntry = struct {
 
 const Section = enum { debug_frame, eh_frame };
 
-// MLUGG TODO deinit?
-
 /// Initialize with unwind information from the contents of a `.debug_frame` or `.eh_frame` section.
 ///
 /// If the `.eh_frame_hdr` section is available, consider instead using `initEhFrameHdr`. This
@@ -75,6 +73,13 @@ pub fn initEhFrameHdr(header: EhFrameHeader, section_vaddr: u64, section_bytes_p
             .vaddr = section_vaddr,
             .table = table,
         } } else null,
+    };
+}
+
+pub fn deinit(unwind: *Unwind, gpa: Allocator) void {
+    if (unwind.lookup) |lookup| switch (lookup) {
+        .eh_frame_hdr => {},
+        .sorted_fdes => |fdes| gpa.free(fdes),
     };
 }
 
@@ -204,8 +209,6 @@ pub const EntryHeader = union(enum) {
     pub fn read(r: *Reader, header_section_offset: u64, section: Section, endian: Endian) !EntryHeader {
         const unit_header = try Dwarf.readUnitHeader(r, endian);
         if (unit_header.unit_length == 0) return .terminator;
-
-        // TODO MLUGG: seriously, just... check the formats of everything in BOTH LSB Core and DWARF. this is a fucking *mess*. maybe add spec references.
 
         // Next is a value which will disambiguate CIEs and FDEs. Annoyingly, LSB Core makes this
         // value always 4-byte, whereas DWARF makes it depend on the `dwarf.Format`.
