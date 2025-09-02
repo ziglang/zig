@@ -92,7 +92,7 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !ElfModule {
     };
     return error.MissingDebugInfo;
 }
-fn loadLocationInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) !void {
+fn loadDwarf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) !void {
     if (module.name.len > 0) {
         di.loaded_elf = Dwarf.ElfModule.load(gpa, .{
             .root_dir = .cwd(),
@@ -116,7 +116,7 @@ fn loadLocationInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) !v
     }
 }
 pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-    if (di.loaded_elf == null) try module.loadLocationInfo(gpa, di);
+    if (di.loaded_elf == null) try module.loadDwarf(gpa, di);
     const vaddr = address - module.load_offset;
     return di.loaded_elf.?.dwarf.getSymbol(gpa, native_endian, vaddr);
 }

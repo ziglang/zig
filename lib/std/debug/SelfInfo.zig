@@ -76,7 +76,7 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     self.modules.deinit(gpa);
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
-comptime {
+test {
     // `std.debug` does not currently utilize `deinit`, as it keeps hold of debug info for the
     // whole lifetime of the program. Let's try to avoid it bitrotting.
     _ = &deinit;
@@ -85,7 +85,7 @@ comptime {
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
-    const gop = try self.modules.getOrPut(gpa, module.load_offset);
+    const gop = try self.modules.getOrPut(gpa, module.key());
     self.modules.lockPointers();
     defer self.modules.unlockPointers();
     if (!gop.found_existing) gop.value_ptr.* = .init;
@@ -128,9 +128,7 @@ const Module = switch (native_os) {
     .macos, .ios, .watchos, .tvos, .visionos => @import("SelfInfo/DarwinModule.zig"),
     .uefi, .windows => @import("SelfInfo/WindowsModule.zig"),
     .wasi, .emscripten => struct {
-        const LookupCache = struct {
-            const init: LookupCache = .{};
-        };
+        const LookupCache = void;
         fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
             _ = cache;
             _ = gpa;

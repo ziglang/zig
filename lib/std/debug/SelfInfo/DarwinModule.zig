@@ -43,7 +43,37 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !DarwinModule
     }
     return error.MissingDebugInfo;
 }
-fn loadLocationInfo(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo) !void {
+fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
+    const header: *std.macho.mach_header = @ptrFromInt(module.text_base);
+
+    var it: macho.LoadCommandIterator = .{
+        .ncmds = header.ncmds,
+        .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+    };
+    const sections = while (it.next()) |load_cmd| {
+        if (load_cmd.cmd() != .SEGMENT_64) continue;
+        const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
+        if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
+        break load_cmd.getSections();
+    } else unreachable;
+
+    var unwind_info: ?[]const u8 = null;
+    var eh_frame: ?[]const u8 = null;
+    for (sections) |sect| {
+        if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
+            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+            unwind_info = sect_ptr[0..@intCast(sect.size)];
+        } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
+            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+            eh_frame = sect_ptr[0..@intCast(sect.size)];
+        }
+    }
+    return .{
+        .unwind_info = unwind_info,
+        .eh_frame = eh_frame,
+    };
+}
+fn loadFullInfo(module: *const DarwinModule, gpa: Allocator) !DebugInfo.Full {
     const mapped_mem = try mapDebugInfoFile(module.name);
     errdefer posix.munmap(mapped_mem);
 
@@ -149,49 +179,19 @@ fn loadLocationInfo(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo)
     // This sort is so that we can binary search later.
     mem.sort(MachoSymbol, symbols_slice, {}, MachoSymbol.addressLessThan);
 
-    di.full = .{
+    return .{
         .mapped_memory = mapped_mem,
         .symbols = symbols_slice,
         .strings = strings,
         .ofiles = .empty,
     };
 }
-fn loadUnwindInfo(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo) !void {
-    _ = gpa;
-
-    const header: *std.macho.mach_header = @ptrFromInt(module.text_base);
-
-    var it: macho.LoadCommandIterator = .{
-        .ncmds = header.ncmds,
-        .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
-    };
-    const sections = while (it.next()) |load_cmd| {
-        if (load_cmd.cmd() != .SEGMENT_64) continue;
-        const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
-        if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
-        break load_cmd.getSections();
-    } else unreachable;
-
-    var unwind_info: ?[]const u8 = null;
-    var eh_frame: ?[]const u8 = null;
-    for (sections) |sect| {
-        if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
-            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
-            unwind_info = sect_ptr[0..@intCast(sect.size)];
-        } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
-            const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
-            eh_frame = sect_ptr[0..@intCast(sect.size)];
-        }
-    }
-    di.unwind = .{
-        .unwind_info = unwind_info,
-        .eh_frame = eh_frame,
-    };
-}
 pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-    if (di.full == null) try module.loadLocationInfo(gpa, di);
+    if (di.full == null) di.full = try module.loadFullInfo(gpa);
+    const full = &di.full.?;
+
     const vaddr = address - module.load_offset;
-    const symbol = MachoSymbol.find(di.full.?.symbols, vaddr) orelse return .{
+    const symbol = MachoSymbol.find(full.symbols, vaddr) orelse return .{
         .name = null,
         .compile_unit_name = null,
         .source_location = null,
@@ -202,8 +202,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
 
     // Take the symbol name from the N_FUN STAB entry, we're going to
     // use it if we fail to find the DWARF infos
-    const stab_symbol = mem.sliceTo(di.full.?.strings[symbol.strx..], 0);
-    const o_file_path = mem.sliceTo(di.full.?.strings[symbol.ofile..], 0);
+    const stab_symbol = mem.sliceTo(full.strings[symbol.strx..], 0);
 
     // If any information is missing, we can at least return this from now on.
     const sym_only_result: std.debug.Symbol = .{
@@ -213,10 +212,11 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     };
 
     const o_file: *DebugInfo.OFile = of: {
-        const gop = try di.full.?.ofiles.getOrPut(gpa, o_file_path);
+        const gop = try full.ofiles.getOrPut(gpa, symbol.ofile);
         if (!gop.found_existing) {
+            const o_file_path = mem.sliceTo(full.strings[symbol.ofile..], 0);
             gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch |err| {
-                defer _ = di.full.?.ofiles.pop().?;
+                defer _ = full.ofiles.pop().?;
                 switch (err) {
                     error.MissingDebugInfo,
                     error.InvalidDebugInfo,
@@ -228,7 +228,11 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
         break :of gop.value_ptr;
     };
 
-    const symbol_ofile_vaddr = o_file.addr_table.get(stab_symbol) orelse return sym_only_result;
+    const symbol_index = o_file.symbols_by_name.getKeyAdapted(
+        @as([]const u8, stab_symbol),
+        @as(DebugInfo.OFile.SymbolAdapter, .{ .strtab = o_file.strtab, .symtab = o_file.symtab }),
+    ) orelse return sym_only_result;
+    const symbol_ofile_vaddr = o_file.symtab[symbol_index].n_value;
 
     const compile_unit = o_file.dwarf.findCompileUnit(native_endian, symbol_ofile_vaddr) catch |err| switch (err) {
         error.MissingDebugInfo, error.InvalidDebugInfo => return sym_only_result,
@@ -257,28 +261,15 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
         },
     };
 }
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-    if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
-    const unwind_info = di.unwind.?.unwind_info orelse return error.MissingUnwindInfo;
-    // MLUGG TODO: inline?
-    return unwindFrameMachO(
-        module.text_base,
-        module.load_offset,
-        context,
-        unwind_info,
-        di.unwind.?.eh_frame,
-    );
-}
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-fn unwindFrameMachO(
-    text_base: usize,
-    load_offset: usize,
-    context: *UnwindContext,
-    unwind_info: []const u8,
-    opt_eh_frame: ?[]const u8,
-) !usize {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+    _ = gpa;
+    if (di.unwind == null) di.unwind = module.loadUnwindInfo();
+    const unwind = &di.unwind.?;
+
+    const unwind_info = unwind.unwind_info orelse return error.MissingUnwindInfo;
     if (unwind_info.len < @sizeOf(macho.unwind_info_section_header)) return error.InvalidUnwindInfo;
     const header: *align(1) const macho.unwind_info_section_header = @ptrCast(unwind_info);
 
@@ -288,7 +279,7 @@ fn unwindFrameMachO(
     if (indices.len == 0) return error.MissingUnwindInfo;
 
     // offset of the PC into the `__TEXT` segment
-    const pc_text_offset = context.pc - text_base;
+    const pc_text_offset = context.pc - module.text_base;
 
     const start_offset: u32, const first_level_offset: u32 = index: {
         var left: usize = 0;
@@ -443,7 +434,7 @@ fn unwindFrameMachO(
                     }
                     // In .STACK_IND, the stack size is inferred from the subq instruction at the beginning of the function.
                     const sub_offset_addr =
-                        text_base +
+                        module.text_base +
                         entry.function_offset +
                         frameless.stack.indirect.sub_offset;
                     // `sub_offset_addr` points to the offset of the literal within the instruction
@@ -502,11 +493,11 @@ fn unwindFrameMachO(
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
+                const eh_frame = unwind.eh_frame orelse return error.MissingEhFrame;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
                 return context.unwindFrameDwarf(
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    load_offset,
+                    module.load_offset,
                     @intCast(encoding.value.x86_64.dwarf),
                 );
             },
@@ -521,11 +512,11 @@ fn unwindFrameMachO(
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
-                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
+                const eh_frame = unwind.eh_frame orelse return error.MissingEhFrame;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
                 return context.unwindFrameDwarf(
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
-                    load_offset,
+                    module.load_offset,
                     @intCast(encoding.value.x86_64.dwarf),
                 );
             },
@@ -580,19 +571,9 @@ fn unwindFrameMachO(
 /// No cache needed, because `_dyld_get_image_header` etc are already fast.
 pub const LookupCache = void;
 pub const DebugInfo = struct {
-    unwind: ?struct {
-        // Backed by the in-memory sections mapped by the loader
-        unwind_info: ?[]const u8,
-        eh_frame: ?[]const u8,
-    },
+    unwind: ?Unwind,
     // MLUGG TODO: awful field name
-    full: ?struct {
-        mapped_memory: []align(std.heap.page_size_min) const u8,
-        symbols: []const MachoSymbol,
-        strings: [:0]const u8,
-        // MLUGG TODO: this could use an adapter to just index straight into `strings`!
-        ofiles: std.StringArrayHashMapUnmanaged(OFile),
-    },
+    full: ?Full,
 
     pub const init: DebugInfo = .{
         .unwind = null,
@@ -603,7 +584,7 @@ pub const DebugInfo = struct {
         if (di.full) |*full| {
             for (full.ofiles.values()) |*ofile| {
                 ofile.dwarf.deinit(gpa);
-                ofile.addr_table.deinit(gpa);
+                ofile.symbols_by_name.deinit(gpa);
             }
             full.ofiles.deinit(gpa);
             gpa.free(full.symbols);
@@ -611,10 +592,42 @@ pub const DebugInfo = struct {
         }
     }
 
+    const Unwind = struct {
+        // Backed by the in-memory sections mapped by the loader
+        unwind_info: ?[]const u8,
+        eh_frame: ?[]const u8,
+    };
+
+    const Full = struct {
+        mapped_memory: []align(std.heap.page_size_min) const u8,
+        symbols: []const MachoSymbol,
+        strings: [:0]const u8,
+        /// Key is index into `strings` of the file path.
+        ofiles: std.AutoArrayHashMapUnmanaged(u32, OFile),
+    };
+
     const OFile = struct {
         dwarf: Dwarf,
-        // MLUGG TODO: this could use an adapter to just index straight into the strtab!
-        addr_table: std.StringArrayHashMapUnmanaged(u64),
+        strtab: [:0]const u8,
+        symtab: []align(1) const macho.nlist_64,
+        /// All named symbols in `symtab`. Stored `u32` key is the index into `symtab`. Accessed
+        /// through `SymbolAdapter`, so that the symbol name is used as the logical key.
+        symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true),
+
+        const SymbolAdapter = struct {
+            strtab: [:0]const u8,
+            symtab: []align(1) const macho.nlist_64,
+            pub fn hash(ctx: SymbolAdapter, sym_name: []const u8) u32 {
+                _ = ctx;
+                return @truncate(std.hash.Wyhash.hash(0, sym_name));
+            }
+            pub fn eql(ctx: SymbolAdapter, a_sym_name: []const u8, b_sym_index: u32, b_index: usize) bool {
+                _ = b_index;
+                const b_sym = ctx.symtab[b_sym_index];
+                const b_sym_name = std.mem.sliceTo(ctx.strtab[b_sym.n_strx..], 0);
+                return mem.eql(u8, a_sym_name, b_sym_name);
+            }
+        };
     };
 
     fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
@@ -645,17 +658,17 @@ pub const DebugInfo = struct {
 
         if (mapped_mem.len < symtab_cmd.stroff + symtab_cmd.strsize) return error.InvalidDebugInfo;
         if (mapped_mem[symtab_cmd.stroff + symtab_cmd.strsize - 1] != 0) return error.InvalidDebugInfo;
-        const strtab = mapped_mem[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1];
+        const strtab = mapped_mem[symtab_cmd.stroff..][0 .. symtab_cmd.strsize - 1 :0];
 
         const n_sym_bytes = symtab_cmd.nsyms * @sizeOf(macho.nlist_64);
         if (mapped_mem.len < symtab_cmd.symoff + n_sym_bytes) return error.InvalidDebugInfo;
         const symtab: []align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab_cmd.symoff..][0..n_sym_bytes]);
 
         // TODO handle tentative (common) symbols
-        var addr_table: std.StringArrayHashMapUnmanaged(u64) = .empty;
-        defer addr_table.deinit(gpa);
-        try addr_table.ensureUnusedCapacity(gpa, @intCast(symtab.len));
-        for (symtab) |sym| {
+        var symbols_by_name: std.ArrayHashMapUnmanaged(u32, void, void, true) = .empty;
+        defer symbols_by_name.deinit(gpa);
+        try symbols_by_name.ensureUnusedCapacity(gpa, @intCast(symtab.len));
+        for (symtab, 0..) |sym, sym_index| {
             if (sym.n_strx == 0) continue;
             switch (sym.n_type.bits.type) {
                 .undf => continue, // includes tentative symbols
@@ -663,9 +676,12 @@ pub const DebugInfo = struct {
                 else => {},
             }
             const sym_name = mem.sliceTo(strtab[sym.n_strx..], 0);
-            const gop = addr_table.getOrPutAssumeCapacity(sym_name);
+            const gop = symbols_by_name.getOrPutAssumeCapacityAdapted(
+                @as([]const u8, sym_name),
+                @as(DebugInfo.OFile.SymbolAdapter, .{ .strtab = strtab, .symtab = symtab }),
+            );
             if (gop.found_existing) return error.InvalidDebugInfo;
-            gop.value_ptr.* = sym.n_value;
+            gop.key_ptr.* = @intCast(sym_index);
         }
 
         var sections: Dwarf.SectionArray = @splat(null);
@@ -697,7 +713,9 @@ pub const DebugInfo = struct {
 
         return .{
             .dwarf = dwarf,
-            .addr_table = addr_table.move(),
+            .strtab = strtab,
+            .symtab = symtab,
+            .symbols_by_name = symbols_by_name.move(),
         };
     }
 };
