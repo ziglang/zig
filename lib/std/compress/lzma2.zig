@@ -79,23 +79,18 @@ pub const AccumBuffer = struct {
         _ = writer;
 
         const buf_len = self.buf.items.len;
-        if (dist > buf_len) {
-            return error.CorruptInput;
-        }
+        if (dist > buf_len) return error.CorruptInput;
 
-        // ensure we have enough capacity for all new bytes.
-        // This prevents the buffer's memory from being reallocated (and freed)
-        // while we are still reading from it.
-        try self.buf.ensureTotalCapacity(allocator, buf_len + len);
+        try self.buf.ensureUnusedCapacity(allocator, len);
+        const buffer = self.buf.allocatedSlice();
+        const src = buffer[buf_len - dist ..][0..len];
+        const dst = buffer[buf_len..][0..len];
 
-        var offset = buf_len - dist;
-        var i: usize = 0;
-        while (i < len) : (i += 1) {
-            const x = self.buf.items[offset];
-            // Since capacity is guaranteed, it's safe to use appendAssumeCapacity.
-            self.buf.appendAssumeCapacity(x);
-            offset += 1;
-        }
+        // This is not a @memmove; it intentionally repeats patterns caused by
+        // iterating one byte at a time.
+        for (dst, src) |*d, s| d.* = s;
+
+        self.buf.items.len = buf_len + len;
         self.len += len;
     }
 
