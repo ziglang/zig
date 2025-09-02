@@ -171,26 +171,29 @@ const Module = switch (native_os) {
             try loadMachODebugInfo(gpa, module, di); // MLUGG TODO inline
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            // MLUGG TODO HACKHACK
-            try loadMachODebugInfo(gpa, module, di);
+            _ = gpa;
+            di.unwind = .{
+                .unwind_info = module.unwind_info,
+                .eh_frame = module.eh_frame,
+            };
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
             const vaddr = address - module.load_offset;
-            const symbol = MachoSymbol.find(di.symbols, vaddr) orelse return .{}; // MLUGG TODO null?
+            const symbol = MachoSymbol.find(di.full.symbols, vaddr) orelse return .{}; // MLUGG TODO null?
 
             // offset of `address` from start of `symbol`
             const address_symbol_offset = vaddr - symbol.addr;
 
             // Take the symbol name from the N_FUN STAB entry, we're going to
             // use it if we fail to find the DWARF infos
-            const stab_symbol = mem.sliceTo(di.strings[symbol.strx..], 0);
-            const o_file_path = mem.sliceTo(di.strings[symbol.ofile..], 0);
+            const stab_symbol = mem.sliceTo(di.full.strings[symbol.strx..], 0);
+            const o_file_path = mem.sliceTo(di.full.strings[symbol.ofile..], 0);
 
             const o_file: *DebugInfo.OFile = of: {
-                const gop = try di.ofiles.getOrPut(gpa, o_file_path);
+                const gop = try di.full.ofiles.getOrPut(gpa, o_file_path);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch |err| {
-                        defer _ = di.ofiles.pop().?;
+                        defer _ = di.full.ofiles.pop().?;
                         switch (err) {
                             error.FileNotFound,
                             error.MissingDebugInfo,
@@ -234,28 +237,33 @@ const Module = switch (native_os) {
         }
         fn unwindFrame(module: *const Module, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
             _ = gpa;
-            const unwind_info = di.unwind_info orelse return error.MissingUnwindInfo;
+            const unwind_info = di.unwind.unwind_info orelse return error.MissingUnwindInfo;
             // MLUGG TODO: inline
             return unwindFrameMachO(
                 module.text_base,
                 module.load_offset,
                 context,
                 unwind_info,
-                di.eh_frame,
+                di.unwind.eh_frame,
             );
         }
         const LookupCache = void;
         const DebugInfo = struct {
-            mapped_memory: []align(std.heap.page_size_min) const u8,
-            symbols: []const MachoSymbol,
-            strings: [:0]const u8,
-            // MLUGG TODO: this could use an adapter to just index straight into `strings`!
-            ofiles: std.StringArrayHashMapUnmanaged(OFile),
+            unwind: struct {
+                unwind_info: ?[]const u8,
+                eh_frame: ?[]const u8,
+            },
+            // MLUGG TODO: awful field name
+            full: struct {
+                mapped_memory: []align(std.heap.page_size_min) const u8,
+                symbols: []const MachoSymbol,
+                strings: [:0]const u8,
+                // MLUGG TODO: this could use an adapter to just index straight into `strings`!
+                ofiles: std.StringArrayHashMapUnmanaged(OFile),
+            },
 
             // Backed by the in-memory sections mapped by the loader
             // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadMachODebugInfo should be the one discovering them!
-            unwind_info: ?[]const u8,
-            eh_frame: ?[]const u8,
 
             // MLUGG TODO HACKHACK: this is awful
             const init: DebugInfo = undefined;
@@ -267,13 +275,13 @@ const Module = switch (native_os) {
             };
 
             fn deinit(di: *DebugInfo, gpa: Allocator) void {
-                for (di.ofiles.values()) |*ofile| {
+                for (di.full.ofiles.values()) |*ofile| {
                     ofile.dwarf.deinit(gpa);
                     ofile.addr_table.deinit(gpa);
                 }
-                di.ofiles.deinit();
-                gpa.free(di.symbols);
-                posix.munmap(di.mapped_memory);
+                di.full.ofiles.deinit();
+                gpa.free(di.full.symbols);
+                posix.munmap(di.full.mapped_memory);
             }
 
             fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
@@ -859,9 +867,7 @@ fn loadMachODebugInfo(gpa: Allocator, module: *const Module, di: *Module.DebugIn
     // This sort is so that we can binary search later.
     mem.sort(MachoSymbol, symbols_slice, {}, MachoSymbol.addressLessThan);
 
-    di.* = .{
-        .unwind_info = module.unwind_info,
-        .eh_frame = module.eh_frame,
+    di.full = .{
         .mapped_memory = mapped_mem,
         .symbols = symbols_slice,
         .strings = strings,
