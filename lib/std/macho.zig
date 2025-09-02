@@ -906,43 +906,6 @@ pub const nlist_64 = extern struct {
     },
     n_value: u64,
 
-    // MLUGG TODO DELETE
-    pub fn stab(sym: nlist_64) bool {
-        return sym.n_type.bits.is_stab != 0;
-    }
-    // MLUGG TODO DELETE
-    pub fn sect(sym: nlist_64) bool {
-        return sym.n_type.type == .sect;
-    }
-    // MLUGG TODO DELETE
-    pub fn undf(sym: nlist_64) bool {
-        return sym.n_type.type == .undf;
-    }
-    // MLUGG TODO DELETE
-    pub fn indr(sym: nlist_64) bool {
-        return sym.n_type.type == .indr;
-    }
-    // MLUGG TODO DELETE
-    pub fn abs(sym: nlist_64) bool {
-        return sym.n_type.type == .abs;
-    }
-    // MLUGG TODO DELETE
-    pub fn weakDef(sym: nlist_64) bool {
-        return sym.n_desc.weak_def_or_ref_to_weak;
-    }
-    // MLUGG TODO DELETE
-    pub fn weakRef(sym: nlist_64) bool {
-        return sym.n_desc.weak_ref;
-    }
-    // MLUGG TODO DELETE
-    pub fn discarded(sym: nlist_64) bool {
-        return sym.n_desc.discarded_or_no_dead_strip;
-    }
-    // MLUGG TODO DELETE
-    pub fn noDeadStrip(sym: nlist_64) bool {
-        return sym.n_desc.discarded_or_no_dead_strip;
-    }
-
     pub fn tentative(sym: nlist_64) bool {
         return sym.n_type.type == .undf and sym.n_value != 0;
     }
