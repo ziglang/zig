@@ -465,7 +465,6 @@ const Module = switch (native_os) {
                     const section_bytes = mapped_mem[sect.offset..][0..sect.size];
                     sections[section_index] = .{
                         .data = section_bytes,
-                        .virtual_address = @intCast(sect.addr),
                         .owned = false,
                     };
                 }
@@ -751,7 +750,6 @@ const Module = switch (native_os) {
                     di.dwarf.?.sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
                         break :blk .{
                             .data = try coff_obj.getSectionDataAlloc(section_header, gpa),
-                            .virtual_address = section_header.virtual_address,
                             .owned = true,
                         };
                     } else null;
