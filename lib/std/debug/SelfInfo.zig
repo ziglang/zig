@@ -26,10 +26,13 @@ const regValueNative = Dwarf.abi.regValueNative;
 
 const SelfInfo = @This();
 
-/// MLUGG TODO: what if this field had a less stupid name...
-address_map: std.AutoHashMapUnmanaged(usize, Module.DebugInfo),
-
-module_cache: if (native_os == .windows) std.ArrayListUnmanaged(windows.MODULEENTRY32) else void,
+modules: std.AutoHashMapUnmanaged(usize, struct {
+    di: Module.DebugInfo,
+    loaded_debug: bool,
+    loaded_unwind: bool,
+    const init: @This() = .{ .di = .init, .loaded_debug = false, .loaded_unwind = false };
+}),
+lookup_cache: Module.LookupCache,
 
 pub const target_supported: bool = switch (native_os) {
     .linux,
@@ -46,19 +49,19 @@ pub const target_supported: bool = switch (native_os) {
 };
 
 pub const init: SelfInfo = .{
-    .address_map = .empty,
-    .module_cache = if (native_os == .windows) .empty,
+    .modules = .empty,
+    .lookup_cache = if (Module.LookupCache != void) .init,
 };
 
 pub fn deinit(self: *SelfInfo) void {
     // MLUGG TODO: that's amusing, this function is straight-up unused. i... wonder if it even should be used anywhere? perhaps not... so perhaps it should not even exist...????
-    var it = self.address_map.iterator();
+    var it = self.modules.iterator();
     while (it.next()) |entry| {
         const mdi = entry.value_ptr.*;
         mdi.deinit(self.allocator);
         self.allocator.destroy(mdi);
     }
-    self.address_map.deinit(self.allocator);
+    self.modules.deinit(self.allocator);
     if (native_os == .windows) {
         for (self.modules.items) |module| {
             self.allocator.free(module.name);
@@ -68,94 +71,26 @@ pub fn deinit(self: *SelfInfo) void {
     }
 }
 
-fn lookupModuleForAddress(self: *SelfInfo, gpa: Allocator, address: usize) !Module {
-    if (builtin.target.os.tag.isDarwin()) {
-        return self.lookupModuleDyld(address);
-    } else if (native_os == .windows) {
-        return self.lookupModuleWin32(gpa, address);
-    } else if (native_os == .haiku) {
-        @panic("TODO implement lookup module for Haiku");
-    } else if (builtin.target.cpu.arch.isWasm()) {
-        @panic("TODO implement lookup module for Wasm");
-    } else {
-        return self.lookupModuleDl(address);
-    }
-}
-
-fn loadModuleDebugInfo(gpa: Allocator, module: *const Module, di: *Module.DebugInfo) !void {
-    // MLUGG TODO: this should totally just go into the `Module` impl or something, right? lol
-    if (builtin.target.os.tag.isDarwin()) {
-        try loadMachODebugInfo(gpa, module, di);
-    } else if (native_os == .windows) {
-        // MLUGG TODO: deal with 'already loaded' properly
-        try readCoffDebugInfo(gpa, module, di);
-    } else if (native_os == .haiku) {
-        unreachable;
-    } else if (builtin.target.cpu.arch.isWasm()) {
-        unreachable;
-    } else {
-        if (di.mapped_memory != null) return; // already loaded
-        const filename: ?[]const u8 = if (module.name.len > 0) module.name else null;
-        const mapped_mem = mapFileOrSelfExe(filename) catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            error.FileTooBig => return error.InvalidDebugInfo,
-            else => |e| return e,
-        };
-        errdefer posix.munmap(mapped_mem);
-        try di.load(gpa, mapped_mem, module.build_id, null, null, null, filename);
-        assert(di.mapped_memory != null);
-    }
-}
-
-fn loadModuleUnwindInfo(gpa: Allocator, module: *const Module, di: *Module.DebugInfo) !void {
-    if (builtin.target.os.tag.isDarwin()) {
-        // MLUGG TODO HACKHACK
-        try loadMachODebugInfo(gpa, module, di);
-    } else if (native_os == .windows) {
-        comptime unreachable; // not supported
-    } else if (native_os == .haiku) {
-        comptime unreachable; // not supported
-    } else if (builtin.target.cpu.arch.isWasm()) {
-        comptime unreachable; // not supported
-    } else {
-        eh_frame: {
-            if (di.unwind.eh_frame != null) break :eh_frame; // already loaded
-            const eh_frame_hdr_bytes = module.gnu_eh_frame orelse break :eh_frame;
-            const eh_frame_hdr: Dwarf.Unwind.EhFrameHeader = try .parse(
-                @intFromPtr(eh_frame_hdr_bytes.ptr) - module.load_offset,
-                eh_frame_hdr_bytes,
-                @sizeOf(usize),
-                native_endian,
-            );
-            const eh_frame_addr = module.load_offset + @as(usize, @intCast(eh_frame_hdr.eh_frame_vaddr));
-            try di.unwind.scanEhFrame(
-                gpa,
-                eh_frame_hdr,
-                @ptrFromInt(eh_frame_addr),
-                null,
-                @sizeOf(usize),
-                native_endian,
-            );
-        }
-    }
-}
-
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usize {
     comptime assert(target_supported);
-    const module = try self.lookupModuleForAddress(gpa, context.pc);
-    const gop = try self.address_map.getOrPut(gpa, module.load_offset);
+    const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc); // MLUGG TODO: don't take gpa
+    const gop = try self.modules.getOrPut(gpa, module.load_offset);
     if (!gop.found_existing) gop.value_ptr.* = .init;
-    try loadModuleUnwindInfo(gpa, &module, gop.value_ptr);
+    if (!gop.value_ptr.loaded_unwind) {
+        try module.loadUnwindInfo(gpa, &gop.value_ptr.di);
+        gop.value_ptr.loaded_unwind = true;
+    }
+    // MLUGG TODO: the stuff below is impl!
     if (native_os.isDarwin()) {
         // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
         // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-        if (gop.value_ptr.unwind_info) |unwind_info| {
+        if (gop.value_ptr.di.unwind_info) |unwind_info| {
             if (unwindFrameMachO(
                 module.text_base,
                 module.load_offset,
                 context,
                 unwind_info,
-                gop.value_ptr.eh_frame,
+                gop.value_ptr.di.eh_frame,
             )) |return_address| {
                 return return_address;
             } else |err| {
@@ -164,7 +99,7 @@ pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !us
         }
         return error.MissingUnwindInfo;
     }
-    if (try gop.value_ptr.getDwarfUnwindForAddress(gpa, context.pc)) |unwind| {
+    if (try gop.value_ptr.di.getDwarfUnwindForAddress(gpa, context.pc)) |unwind| {
         return unwindFrameDwarf(unwind, module.load_offset, context, null);
     }
     return error.MissingDebugInfo;
@@ -172,11 +107,15 @@ pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !us
 
 pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.debug.Symbol {
     comptime assert(target_supported);
-    const module = try self.lookupModuleForAddress(gpa, address);
-    const gop = try self.address_map.getOrPut(gpa, module.key());
+    const module: Module = try .lookup(&self.lookup_cache, gpa, address); // MLUGG TODO: don't take gpa
+    const gop = try self.modules.getOrPut(gpa, module.key());
     if (!gop.found_existing) gop.value_ptr.* = .init;
-    try loadModuleDebugInfo(gpa, &module, gop.value_ptr);
-    return module.getSymbolAtAddress(gpa, gop.value_ptr, address);
+    if (!gop.value_ptr.loaded_debug) {
+        // MLUGG TODO: this overloads the name 'debug info' with including vs excluding unwind info
+        // figure out a better name for one or the other (i think the inner one is maybe 'symbol info' or something idk)
+        try module.loadDebugInfo(gpa, &gop.value_ptr.di);
+    }
+    return module.getSymbolAtAddress(gpa, &gop.value_ptr.di, address);
 }
 
 /// Returns the module name for a given address.
@@ -184,278 +123,12 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.
 /// a path that doesn't rely on any side-effects of a prior successful module lookup.
 pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) error{ Unexpected, OutOfMemory, MissingDebugInfo }![]const u8 {
     comptime assert(target_supported);
-    const module = try self.lookupModuleForAddress(gpa, address);
+    const module: Module = try .lookup(&self.lookup_cache, gpa, address); // MLUGG TODO: don't take gpa
     return module.name;
 }
 
-fn lookupModuleDl(self: *SelfInfo, address: usize) !Module {
-    _ = self; // MLUGG
-    const DlIterContext = struct {
-        /// input
-        address: usize,
-        /// output
-        module: Module,
-
-        fn callback(info: *posix.dl_phdr_info, size: usize, context: *@This()) !void {
-            _ = size;
-            // The base address is too high
-            if (context.address < info.addr)
-                return;
-
-            const phdrs = info.phdr[0..info.phnum];
-            for (phdrs) |*phdr| {
-                if (phdr.p_type != elf.PT_LOAD) continue;
-
-                // Overflowing addition is used to handle the case of VSDOs having a p_vaddr = 0xffffffffff700000
-                const seg_start = info.addr +% phdr.p_vaddr;
-                const seg_end = seg_start + phdr.p_memsz;
-                if (context.address >= seg_start and context.address < seg_end) {
-                    context.module = .{
-                        .load_offset = info.addr,
-                        // Android libc uses NULL instead of "" to mark the main program
-                        .name = mem.sliceTo(info.name, 0) orelse "",
-                        .build_id = null,
-                        .gnu_eh_frame = null,
-                    };
-                    break;
-                }
-            } else return;
-
-            for (info.phdr[0..info.phnum]) |phdr| {
-                switch (phdr.p_type) {
-                    elf.PT_NOTE => {
-                        // Look for .note.gnu.build-id
-                        const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                        var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.p_memsz]);
-                        const name_size = r.takeInt(u32, native_endian) catch continue;
-                        const desc_size = r.takeInt(u32, native_endian) catch continue;
-                        const note_type = r.takeInt(u32, native_endian) catch continue;
-                        const name = r.take(name_size) catch continue;
-                        if (note_type != elf.NT_GNU_BUILD_ID) continue;
-                        if (!mem.eql(u8, name, "GNU\x00")) continue;
-                        const desc = r.take(desc_size) catch continue;
-                        context.module.build_id = desc;
-                    },
-                    elf.PT_GNU_EH_FRAME => {
-                        const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
-                        context.module.gnu_eh_frame = segment_ptr[0..phdr.p_memsz];
-                    },
-                    else => {},
-                }
-            }
-
-            // Stop the iteration
-            return error.Found;
-        }
-    };
-    var ctx: DlIterContext = .{
-        .address = address,
-        .module = undefined,
-    };
-    posix.dl_iterate_phdr(&ctx, error{Found}, DlIterContext.callback) catch |err| switch (err) {
-        error.Found => return ctx.module,
-    };
-    return error.MissingDebugInfo;
-}
-
-fn lookupModuleDyld(self: *SelfInfo, address: usize) !Module {
-    _ = self; // MLUGG
-    const image_count = std.c._dyld_image_count();
-    for (0..image_count) |image_idx| {
-        const header = std.c._dyld_get_image_header(@intCast(image_idx)) orelse continue;
-        const text_base = @intFromPtr(header);
-        if (address < text_base) continue;
-        const load_offset = std.c._dyld_get_image_vmaddr_slide(@intCast(image_idx));
-
-        // Find the __TEXT segment
-        var it: macho.LoadCommandIterator = .{
-            .ncmds = header.ncmds,
-            .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
-        };
-        const text_segment_cmd, const text_sections = while (it.next()) |load_cmd| {
-            if (load_cmd.cmd() != .SEGMENT_64) continue;
-            const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
-            if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
-            break .{ segment_cmd, load_cmd.getSections() };
-        } else continue;
-
-        const seg_start = load_offset + text_segment_cmd.vmaddr;
-        assert(seg_start == text_base);
-        const seg_end = seg_start + text_segment_cmd.vmsize;
-        if (address < seg_start or address >= seg_end) continue;
-
-        // We've found the matching __TEXT segment. This is the image we need, but we must look
-        // for unwind info in it before returning.
-
-        var result: Module = .{
-            .text_base = text_base,
-            .load_offset = load_offset,
-            .name = mem.span(std.c._dyld_get_image_name(@intCast(image_idx))),
-            .unwind_info = null,
-            .eh_frame = null,
-        };
-        for (text_sections) |sect| {
-            if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
-                const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
-                result.unwind_info = sect_ptr[0..@intCast(sect.size)];
-            } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
-                const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
-                result.eh_frame = sect_ptr[0..@intCast(sect.size)];
-            }
-        }
-        return result;
-    }
-    return error.MissingDebugInfo;
-}
-
-fn lookupModuleWin32(self: *SelfInfo, gpa: Allocator, address: usize) !Module {
-    if (self.lookupModuleWin32Cache(address)) |m| return m;
-
-    {
-        // Check a new module hasn't been loaded
-        self.module_cache.clearRetainingCapacity();
-
-        const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
-        if (handle == windows.INVALID_HANDLE_VALUE) {
-            return windows.unexpectedError(windows.GetLastError());
-        }
-        defer windows.CloseHandle(handle);
-
-        var entry: windows.MODULEENTRY32 = undefined;
-        entry.dwSize = @sizeOf(windows.MODULEENTRY32);
-        if (windows.kernel32.Module32First(handle, &entry) != 0) {
-            try self.module_cache.append(gpa, entry);
-            while (windows.kernel32.Module32Next(handle, &entry) != 0) {
-                try self.module_cache.append(gpa, entry);
-            }
-        }
-    }
-
-    if (self.lookupModuleWin32Cache(address)) |m| return m;
-    return error.MissingDebugInfo;
-}
-fn lookupModuleWin32Cache(self: *SelfInfo, address: usize) ?Module {
-    for (self.module_cache.items) |*entry| {
-        const base_address = @intFromPtr(entry.modBaseAddr);
-        if (address >= base_address and address < base_address + entry.modBaseSize) {
-            return .{
-                .base_address = base_address,
-                .size = entry.modBaseSize,
-                .name = std.mem.sliceTo(&entry.szModule, 0),
-                .handle = entry.hModule,
-            };
-        }
-    }
-    return null;
-}
-
-fn readCoffDebugInfo(gpa: Allocator, module: *const Module, di: *Module.DebugInfo) !void {
-    const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
-    const mapped = mapped_ptr[0..module.size];
-    var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
-    // The string table is not mapped into memory by the loader, so if a section name is in the
-    // string table then we have to map the full image file from disk. This can happen when
-    // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
-    if (coff_obj.strtabRequired()) {
-        var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
-        name_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
-        const process_handle = windows.GetCurrentProcess();
-        const len = windows.kernel32.GetModuleFileNameExW(
-            process_handle,
-            module.handle,
-            name_buffer[4..],
-            windows.PATH_MAX_WIDE,
-        );
-        if (len == 0) return error.MissingDebugInfo;
-        const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            else => |e| return e,
-        };
-        errdefer coff_file.close();
-        var section_handle: windows.HANDLE = undefined;
-        const create_section_rc = windows.ntdll.NtCreateSection(
-            &section_handle,
-            windows.STANDARD_RIGHTS_REQUIRED | windows.SECTION_QUERY | windows.SECTION_MAP_READ,
-            null,
-            null,
-            windows.PAGE_READONLY,
-            // The documentation states that if no AllocationAttribute is specified, then SEC_COMMIT is the default.
-            // In practice, this isn't the case and specifying 0 will result in INVALID_PARAMETER_6.
-            windows.SEC_COMMIT,
-            coff_file.handle,
-        );
-        if (create_section_rc != .SUCCESS) return error.MissingDebugInfo;
-        errdefer windows.CloseHandle(section_handle);
-        var coff_len: usize = 0;
-        var section_view_ptr: [*]const u8 = undefined;
-        const map_section_rc = windows.ntdll.NtMapViewOfSection(
-            section_handle,
-            process_handle,
-            @ptrCast(&section_view_ptr),
-            null,
-            0,
-            null,
-            &coff_len,
-            .ViewUnmap,
-            0,
-            windows.PAGE_READONLY,
-        );
-        if (map_section_rc != .SUCCESS) return error.MissingDebugInfo;
-        errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(section_view_ptr)) == .SUCCESS);
-        const section_view = section_view_ptr[0..coff_len];
-        coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
-        di.mapped_file = .{
-            .file = coff_file,
-            .section_handle = section_handle,
-            .section_view = section_view,
-        };
-    }
-    di.coff_image_base = coff_obj.getImageBase();
-
-    if (coff_obj.getSectionByName(".debug_info")) |_| {
-        di.dwarf = .{};
-
-        inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
-            di.dwarf.?.sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
-                break :blk .{
-                    .data = try coff_obj.getSectionDataAlloc(section_header, gpa),
-                    .virtual_address = section_header.virtual_address,
-                    .owned = true,
-                };
-            } else null;
-        }
-
-        try di.dwarf.?.open(gpa, native_endian);
-    }
-
-    if (try coff_obj.getPdbPath()) |raw_path| pdb: {
-        const path = blk: {
-            if (fs.path.isAbsolute(raw_path)) {
-                break :blk raw_path;
-            } else {
-                const self_dir = try fs.selfExeDirPathAlloc(gpa);
-                defer gpa.free(self_dir);
-                break :blk try fs.path.join(gpa, &.{ self_dir, raw_path });
-            }
-        };
-        defer if (path.ptr != raw_path.ptr) gpa.free(path);
-
-        di.pdb = Pdb.init(gpa, path) catch |err| switch (err) {
-            error.FileNotFound, error.IsDir => break :pdb,
-            else => return err,
-        };
-        try di.pdb.?.parseInfoStream();
-        try di.pdb.?.parseDbiStream();
-
-        if (!mem.eql(u8, &coff_obj.guid, &di.pdb.?.guid) or coff_obj.age != di.pdb.?.age)
-            return error.InvalidDebugInfo;
-
-        di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(gpa);
-    }
-}
-
 const Module = switch (native_os) {
-    else => "MLUGG TODO", // Dwarf, // TODO MLUGG: it's this on master but that's definitely broken atm...
+    else => {}, // Dwarf, // TODO MLUGG: it's this on master but that's definitely broken atm...
     .macos, .ios, .watchos, .tvos, .visionos => struct {
         /// The runtime address where __TEXT is loaded.
         text_base: usize,
@@ -465,6 +138,63 @@ const Module = switch (native_os) {
         eh_frame: ?[]const u8,
         fn key(m: *const Module) usize {
             return m.text_base;
+        }
+        fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
+            _ = cache;
+            _ = gpa;
+            const image_count = std.c._dyld_image_count();
+            for (0..image_count) |image_idx| {
+                const header = std.c._dyld_get_image_header(@intCast(image_idx)) orelse continue;
+                const text_base = @intFromPtr(header);
+                if (address < text_base) continue;
+                const load_offset = std.c._dyld_get_image_vmaddr_slide(@intCast(image_idx));
+
+                // Find the __TEXT segment
+                var it: macho.LoadCommandIterator = .{
+                    .ncmds = header.ncmds,
+                    .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+                };
+                const text_segment_cmd, const text_sections = while (it.next()) |load_cmd| {
+                    if (load_cmd.cmd() != .SEGMENT_64) continue;
+                    const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
+                    if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
+                    break .{ segment_cmd, load_cmd.getSections() };
+                } else continue;
+
+                const seg_start = load_offset + text_segment_cmd.vmaddr;
+                assert(seg_start == text_base);
+                const seg_end = seg_start + text_segment_cmd.vmsize;
+                if (address < seg_start or address >= seg_end) continue;
+
+                // We've found the matching __TEXT segment. This is the image we need, but we must look
+                // for unwind info in it before returning.
+
+                var result: Module = .{
+                    .text_base = text_base,
+                    .load_offset = load_offset,
+                    .name = mem.span(std.c._dyld_get_image_name(@intCast(image_idx))),
+                    .unwind_info = null,
+                    .eh_frame = null,
+                };
+                for (text_sections) |sect| {
+                    if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
+                        const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
+                        result.unwind_info = sect_ptr[0..@intCast(sect.size)];
+                    } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
+                        const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
+                        result.eh_frame = sect_ptr[0..@intCast(sect.size)];
+                    }
+                }
+                return result;
+            }
+            return error.MissingDebugInfo;
+        }
+        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            return loadMachODebugInfo(gpa, module, di);
+        }
+        fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            // MLUGG TODO HACKHACK
+            try loadMachODebugInfo(gpa, module, di);
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
             const vaddr = address - module.load_offset;
@@ -524,8 +254,8 @@ const Module = switch (native_os) {
                 },
             };
         }
+        const LookupCache = void;
         const DebugInfo = struct {
-            // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadMachODebugInfo should be the one discovering them!
             mapped_memory: []align(std.heap.page_size_min) const u8,
             symbols: []const MachoSymbol,
             strings: [:0]const u8,
@@ -533,6 +263,7 @@ const Module = switch (native_os) {
             ofiles: std.StringArrayHashMapUnmanaged(OFile),
 
             // Backed by the in-memory sections mapped by the loader
+            // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadMachODebugInfo should be the one discovering them!
             unwind_info: ?[]const u8,
             eh_frame: ?[]const u8,
 
@@ -642,28 +373,137 @@ const Module = switch (native_os) {
         };
     },
     .wasi, .emscripten => struct {
+        const LookupCache = void;
         const DebugInfo = struct {
             const init: DebugInfo = .{};
-            fn getSymbolAtAddress(di: *DebugInfo, gpa: Allocator, base_address: usize, address: usize) !std.debug.Symbol {
-                _ = di;
-                _ = gpa;
-                _ = base_address;
-                _ = address;
-                unreachable;
-            }
         };
+        fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
+            _ = cache;
+            _ = gpa;
+            _ = address;
+            @panic("TODO implement lookup module for Wasm");
+        }
+        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+            _ = module;
+            _ = gpa;
+            _ = di;
+            _ = address;
+            unreachable;
+        }
+        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
+            _ = module;
+            _ = gpa;
+            _ = di;
+            unreachable;
+        }
+        fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
+            _ = module;
+            _ = gpa;
+            _ = di;
+            unreachable;
+        }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
         load_offset: usize,
         name: []const u8,
         build_id: ?[]const u8,
         gnu_eh_frame: ?[]const u8,
+        const LookupCache = void;
+        const DebugInfo = Dwarf.ElfModule;
         fn key(m: Module) usize {
             return m.load_offset; // MLUGG TODO: is this technically valid? idk
         }
-        const DebugInfo = Dwarf.ElfModule;
-        fn getSymbolAtAddress(mod: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-            return di.getSymbolAtAddress(gpa, native_endian, mod.load_offset, address);
+        fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
+            _ = cache;
+            _ = gpa;
+            if (native_os == .haiku) @panic("TODO implement lookup module for Haiku");
+            const DlIterContext = struct {
+                /// input
+                address: usize,
+                /// output
+                module: Module,
+
+                fn callback(info: *posix.dl_phdr_info, size: usize, context: *@This()) !void {
+                    _ = size;
+                    // The base address is too high
+                    if (context.address < info.addr)
+                        return;
+
+                    const phdrs = info.phdr[0..info.phnum];
+                    for (phdrs) |*phdr| {
+                        if (phdr.p_type != elf.PT_LOAD) continue;
+
+                        // Overflowing addition is used to handle the case of VSDOs having a p_vaddr = 0xffffffffff700000
+                        const seg_start = info.addr +% phdr.p_vaddr;
+                        const seg_end = seg_start + phdr.p_memsz;
+                        if (context.address >= seg_start and context.address < seg_end) {
+                            context.module = .{
+                                .load_offset = info.addr,
+                                // Android libc uses NULL instead of "" to mark the main program
+                                .name = mem.sliceTo(info.name, 0) orelse "",
+                                .build_id = null,
+                                .gnu_eh_frame = null,
+                            };
+                            break;
+                        }
+                    } else return;
+
+                    for (info.phdr[0..info.phnum]) |phdr| {
+                        switch (phdr.p_type) {
+                            elf.PT_NOTE => {
+                                // Look for .note.gnu.build-id
+                                const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
+                                var r: std.Io.Reader = .fixed(segment_ptr[0..phdr.p_memsz]);
+                                const name_size = r.takeInt(u32, native_endian) catch continue;
+                                const desc_size = r.takeInt(u32, native_endian) catch continue;
+                                const note_type = r.takeInt(u32, native_endian) catch continue;
+                                const name = r.take(name_size) catch continue;
+                                if (note_type != elf.NT_GNU_BUILD_ID) continue;
+                                if (!mem.eql(u8, name, "GNU\x00")) continue;
+                                const desc = r.take(desc_size) catch continue;
+                                context.module.build_id = desc;
+                            },
+                            elf.PT_GNU_EH_FRAME => {
+                                const segment_ptr: [*]const u8 = @ptrFromInt(info.addr + phdr.p_vaddr);
+                                context.module.gnu_eh_frame = segment_ptr[0..phdr.p_memsz];
+                            },
+                            else => {},
+                        }
+                    }
+
+                    // Stop the iteration
+                    return error.Found;
+                }
+            };
+            var ctx: DlIterContext = .{
+                .address = address,
+                .module = undefined,
+            };
+            posix.dl_iterate_phdr(&ctx, error{Found}, DlIterContext.callback) catch |err| switch (err) {
+                error.Found => return ctx.module,
+            };
+            return error.MissingDebugInfo;
+        }
+        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            const filename: ?[]const u8 = if (module.name.len > 0) module.name else null;
+            const mapped_mem = mapFileOrSelfExe(filename) catch |err| switch (err) {
+                error.FileNotFound => return error.MissingDebugInfo,
+                error.FileTooBig => return error.InvalidDebugInfo,
+                else => |e| return e,
+            };
+            errdefer posix.munmap(mapped_mem);
+            try di.load(gpa, mapped_mem, module.build_id, null, null, null, filename);
+            assert(di.mapped_memory != null);
+        }
+        fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
+            const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
+            const header: Dwarf.Unwind.EhFrameHeader = try .parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian);
+            try di.unwind.loadFromEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+            try di.unwind.prepareLookup(gpa, @sizeOf(usize), native_endian);
+        }
+        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+            return di.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
         }
     },
     .uefi, .windows => struct {
@@ -674,6 +514,152 @@ const Module = switch (native_os) {
         fn key(m: Module) usize {
             return m.base_address;
         }
+        fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
+            if (lookupInCache(cache, address)) |m| return m;
+            {
+                // Check a new module hasn't been loaded
+                cache.modules.clearRetainingCapacity();
+
+                const handle = windows.kernel32.CreateToolhelp32Snapshot(windows.TH32CS_SNAPMODULE | windows.TH32CS_SNAPMODULE32, 0);
+                if (handle == windows.INVALID_HANDLE_VALUE) {
+                    return windows.unexpectedError(windows.GetLastError());
+                }
+                defer windows.CloseHandle(handle);
+
+                var entry: windows.MODULEENTRY32 = undefined;
+                entry.dwSize = @sizeOf(windows.MODULEENTRY32);
+                if (windows.kernel32.Module32First(handle, &entry) != 0) {
+                    try cache.modules.append(gpa, entry);
+                    while (windows.kernel32.Module32Next(handle, &entry) != 0) {
+                        try cache.modules.append(gpa, entry);
+                    }
+                }
+            }
+            if (lookupInCache(cache, address)) |m| return m;
+            return error.MissingDebugInfo;
+        }
+        fn lookupInCache(cache: *const LookupCache, address: usize) ?Module {
+            for (cache.modules.items) |*entry| {
+                const base_address = @intFromPtr(entry.modBaseAddr);
+                if (address >= base_address and address < base_address + entry.modBaseSize) {
+                    return .{
+                        .base_address = base_address,
+                        .size = entry.modBaseSize,
+                        .name = std.mem.sliceTo(&entry.szModule, 0),
+                        .handle = entry.hModule,
+                    };
+                }
+            }
+            return null;
+        }
+        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
+            const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
+            const mapped = mapped_ptr[0..module.size];
+            var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
+            // The string table is not mapped into memory by the loader, so if a section name is in the
+            // string table then we have to map the full image file from disk. This can happen when
+            // a binary is produced with -gdwarf, since the section names are longer than 8 bytes.
+            if (coff_obj.strtabRequired()) {
+                var name_buffer: [windows.PATH_MAX_WIDE + 4:0]u16 = undefined;
+                name_buffer[0..4].* = .{ '\\', '?', '?', '\\' }; // openFileAbsoluteW requires the prefix to be present
+                const process_handle = windows.GetCurrentProcess();
+                const len = windows.kernel32.GetModuleFileNameExW(
+                    process_handle,
+                    module.handle,
+                    name_buffer[4..],
+                    windows.PATH_MAX_WIDE,
+                );
+                if (len == 0) return error.MissingDebugInfo;
+                const coff_file = fs.openFileAbsoluteW(name_buffer[0 .. len + 4 :0], .{}) catch |err| switch (err) {
+                    error.FileNotFound => return error.MissingDebugInfo,
+                    else => |e| return e,
+                };
+                errdefer coff_file.close();
+                var section_handle: windows.HANDLE = undefined;
+                const create_section_rc = windows.ntdll.NtCreateSection(
+                    &section_handle,
+                    windows.STANDARD_RIGHTS_REQUIRED | windows.SECTION_QUERY | windows.SECTION_MAP_READ,
+                    null,
+                    null,
+                    windows.PAGE_READONLY,
+                    // The documentation states that if no AllocationAttribute is specified, then SEC_COMMIT is the default.
+                    // In practice, this isn't the case and specifying 0 will result in INVALID_PARAMETER_6.
+                    windows.SEC_COMMIT,
+                    coff_file.handle,
+                );
+                if (create_section_rc != .SUCCESS) return error.MissingDebugInfo;
+                errdefer windows.CloseHandle(section_handle);
+                var coff_len: usize = 0;
+                var section_view_ptr: [*]const u8 = undefined;
+                const map_section_rc = windows.ntdll.NtMapViewOfSection(
+                    section_handle,
+                    process_handle,
+                    @ptrCast(&section_view_ptr),
+                    null,
+                    0,
+                    null,
+                    &coff_len,
+                    .ViewUnmap,
+                    0,
+                    windows.PAGE_READONLY,
+                );
+                if (map_section_rc != .SUCCESS) return error.MissingDebugInfo;
+                errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(section_view_ptr)) == .SUCCESS);
+                const section_view = section_view_ptr[0..coff_len];
+                coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
+                di.mapped_file = .{
+                    .file = coff_file,
+                    .section_handle = section_handle,
+                    .section_view = section_view,
+                };
+            }
+            di.coff_image_base = coff_obj.getImageBase();
+
+            if (coff_obj.getSectionByName(".debug_info")) |_| {
+                di.dwarf = .{};
+
+                inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |section, i| {
+                    di.dwarf.?.sections[i] = if (coff_obj.getSectionByName("." ++ section.name)) |section_header| blk: {
+                        break :blk .{
+                            .data = try coff_obj.getSectionDataAlloc(section_header, gpa),
+                            .virtual_address = section_header.virtual_address,
+                            .owned = true,
+                        };
+                    } else null;
+                }
+
+                try di.dwarf.?.open(gpa, native_endian);
+            }
+
+            if (try coff_obj.getPdbPath()) |raw_path| pdb: {
+                const path = blk: {
+                    if (fs.path.isAbsolute(raw_path)) {
+                        break :blk raw_path;
+                    } else {
+                        const self_dir = try fs.selfExeDirPathAlloc(gpa);
+                        defer gpa.free(self_dir);
+                        break :blk try fs.path.join(gpa, &.{ self_dir, raw_path });
+                    }
+                };
+                defer if (path.ptr != raw_path.ptr) gpa.free(path);
+
+                di.pdb = Pdb.init(gpa, path) catch |err| switch (err) {
+                    error.FileNotFound, error.IsDir => break :pdb,
+                    else => return err,
+                };
+                try di.pdb.?.parseInfoStream();
+                try di.pdb.?.parseDbiStream();
+
+                if (!mem.eql(u8, &coff_obj.guid, &di.pdb.?.guid) or coff_obj.age != di.pdb.?.age)
+                    return error.InvalidDebugInfo;
+
+                di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(gpa);
+            }
+        }
+        const LookupCache = struct {
+            modules: std.ArrayListUnmanaged(windows.MODULEENTRY32),
+            const init: LookupCache = .{ .modules = .empty };
+        };
         const DebugInfo = struct {
             coff_image_base: u64,
             mapped_file: ?struct {
@@ -747,9 +733,9 @@ const Module = switch (native_os) {
             }
         };
 
-        fn getSymbolAtAddress(mod: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
             // Translate the runtime address into a virtual address into the module
-            const vaddr = address - mod.base_address;
+            const vaddr = address - module.base_address;
 
             if (di.pdb != null) {
                 if (try di.getSymbolFromPdb(vaddr)) |symbol| return symbol;
@@ -1091,12 +1077,12 @@ fn unwindFrameDwarf(
 
     const pc_vaddr = context.pc - load_offset;
 
-    const fde_offset = explicit_fde_offset orelse try unwind.findFdeOffset(
+    const fde_offset = explicit_fde_offset orelse try unwind.lookupPc(
         pc_vaddr,
         @sizeOf(usize),
         native_endian,
     ) orelse return error.MissingDebugInfo;
-    const format, const cie, const fde = try unwind.loadFde(fde_offset, @sizeOf(usize), native_endian);
+    const format, const cie, const fde = try unwind.getFde(fde_offset, @sizeOf(usize), native_endian);
 
     // Check if this FDE *actually* includes the address.
     if (pc_vaddr < fde.pc_begin or pc_vaddr >= fde.pc_begin + fde.pc_range) return error.MissingDebugInfo;
@@ -1294,7 +1280,7 @@ fn unwindFrameMachO(
     load_offset: usize,
     context: *UnwindContext,
     unwind_info: []const u8,
-    eh_frame: ?[]const u8,
+    opt_eh_frame: ?[]const u8,
 ) !usize {
     if (unwind_info.len < @sizeOf(macho.unwind_info_section_header)) return error.InvalidUnwindInfo;
     const header: *align(1) const macho.unwind_info_section_header = @ptrCast(unwind_info);
@@ -1303,20 +1289,6 @@ fn unwindFrameMachO(
     if (unwind_info.len < header.indexSectionOffset + index_byte_count) return error.InvalidUnwindInfo;
     const indices: []align(1) const macho.unwind_info_section_header_index_entry = @ptrCast(unwind_info[header.indexSectionOffset..][0..index_byte_count]);
     if (indices.len == 0) return error.MissingUnwindInfo;
-
-    // MLUGG TODO HACKHACK -- Unwind needs a slight refactor to make this work well
-    const opt_dwarf_unwind: ?Dwarf.Unwind = if (eh_frame) |eh_frame_data| .{
-        .debug_frame = null,
-        .eh_frame = .{
-            .header = .{
-                .vaddr = undefined,
-                .eh_frame_vaddr = @intFromPtr(eh_frame_data.ptr) - load_offset,
-                .search_table = null,
-            },
-            .eh_frame_data = eh_frame_data,
-            .sorted_fdes = null,
-        },
-    } else null;
 
     // offset of the PC into the `__TEXT` segment
     const pc_text_offset = context.pc - text_base;
@@ -1533,8 +1505,11 @@ fn unwindFrameMachO(
                 break :ip new_ip;
             },
             .DWARF => {
-                const dwarf_unwind = &(opt_dwarf_unwind orelse return error.MissingEhFrame);
-                return unwindFrameDwarf(dwarf_unwind, load_offset, context, @intCast(encoding.value.x86_64.dwarf));
+                const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
+                var dwarf_unwind: Dwarf.Unwind = .init;
+                dwarf_unwind.loadFromSection(.eh_frame, eh_frame_vaddr, eh_frame);
+                return unwindFrameDwarf(&dwarf_unwind, load_offset, context, @intCast(encoding.value.x86_64.dwarf));
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
@@ -1547,7 +1522,10 @@ fn unwindFrameMachO(
                 break :ip new_ip;
             },
             .DWARF => {
-                const dwarf_unwind = &(opt_dwarf_unwind orelse return error.MissingEhFrame);
+                const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
+                const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
+                var dwarf_unwind: Dwarf.Unwind = .init;
+                dwarf_unwind.loadFromSection(.eh_frame, eh_frame_vaddr, eh_frame);
                 return unwindFrameDwarf(dwarf_unwind, load_offset, context, @intCast(encoding.value.arm64.dwarf));
             },
             .FRAME => ip: {

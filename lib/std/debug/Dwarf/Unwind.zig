@@ -1,28 +1,35 @@
+//! MLUGG TODO DOCUMENT THIS
+
 pub const VirtualMachine = @import("Unwind/VirtualMachine.zig");
 
-/// The contents of the `.debug_frame` section as specified by DWARF. This might be a more reliable
-/// stack unwind mechanism in some cases, or it may be present when `.eh_frame` is not, but fetching
-/// the data requires loading the binary, so it is not a viable approach for fast stack trace
-/// capturing within a process.
-debug_frame: ?struct {
-    data: []const u8,
-    /// Offsets into `data` of FDEs, sorted by ascending `pc_begin`.
-    sorted_fdes: []SortedFdeEntry,
+frame_section: ?struct {
+    id: Section,
+    /// The virtual address of the start of the section. "Virtual address" refers to the address in
+    /// the binary (e.g. `sh_addr` in an ELF file); the equivalent runtime address may be relocated
+    /// in position-independent binaries.
+    vaddr: u64,
+    /// The full contents of the section. May have imprecise bounds depending on `section`.
+    ///
+    /// For `.debug_frame`, the slice length is exactly equal to the section length. This is needed
+    /// to know the number of CIEs and FDEs.
+    ///
+    /// For `.eh_frame`, the slice length may exceed the section length, i.e. the slice may refer to
+    /// more bytes than are in the second. This restriction exists because `.eh_frame_hdr` only
+    /// includes the address of the loaded `.eh_frame` data, not its length. It is not a problem
+    /// because unlike `.debug_frame`, the end of the CIE/FDE list is signaled through a sentinel
+    /// value. If this slice does have bounds, they will still be checked, preventing crashes when
+    /// reading potentially-invalid `.eh_frame` data from files.
+    bytes: []const u8,
 },
 
-/// Data associated with the `.eh_frame` and `.eh_frame_hdr` sections as defined by LSB Core. The
-/// format of `.eh_frame` is an extension of that of DWARF's `.debug_frame` -- in fact it is almost
-/// identical, though subtly different in a few places.
-eh_frame: ?struct {
-    header: EhFrameHeader,
-    /// Though this is a slice, it may be longer than the `.eh_frame` section. When unwinding
-    /// through the runtime-loaded `.eh_frame_hdr` data, we are not told the size of the `.eh_frame`
-    /// section, so construct a slice referring to all of the rest of memory. The end of the section
-    /// must be detected through `EntryHeader.terminator`.
-    eh_frame_data: []const u8,
-    /// Offsets into `eh_frame_data` of FDEs, sorted by ascending `pc_begin`.
-    /// Populated only if `header` does not already contain a lookup table.
-    sorted_fdes: ?[]SortedFdeEntry,
+lookup: ?union(enum) {
+    eh_frame_hdr: struct {
+        /// Virtual address of the `.eh_frame_hdr` section.
+        vaddr: u64,
+        table: EhFrameHeader.SearchTable,
+    },
+    /// Offsets into `frame_section` of FDEs, sorted by ascending `pc_begin`.
+    sorted_fdes: []SortedFdeEntry,
 },
 
 const SortedFdeEntry = struct {
@@ -34,17 +41,61 @@ const SortedFdeEntry = struct {
 
 const Section = enum { debug_frame, eh_frame };
 
+// MLUGG TODO deinit?
+pub const init: Unwind = .{
+    .frame_section = null,
+    .lookup = null,
+};
+
 /// This represents the decoded .eh_frame_hdr header
 pub const EhFrameHeader = struct {
-    vaddr: u64,
     eh_frame_vaddr: u64,
-    search_table: ?struct {
+    search_table: ?SearchTable,
+
+    pub const SearchTable = struct {
         /// The byte offset of the search table into the `.eh_frame_hdr` section.
         offset: u8,
         encoding: EH.PE,
         fde_count: usize,
         entries: []const u8,
-    },
+
+        /// Returns the vaddr of the FDE for `pc`, or `null` if no matching FDE was found.
+        fn findEntry(
+            table: *const SearchTable,
+            eh_frame_hdr_vaddr: u64,
+            pc: u64,
+            addr_size_bytes: u8,
+            endian: Endian,
+        ) !?u64 {
+            const table_vaddr = eh_frame_hdr_vaddr + table.offset;
+            const entry_size = try EhFrameHeader.entrySize(table.encoding, addr_size_bytes);
+            var left: usize = 0;
+            var len: usize = table.fde_count;
+            while (len > 1) {
+                const mid = left + len / 2;
+                var entry_reader: Reader = .fixed(table.entries[mid * entry_size ..][0..entry_size]);
+                const pc_begin = try readEhPointer(&entry_reader, table.encoding, addr_size_bytes, .{
+                    .pc_rel_base = table_vaddr + left * entry_size,
+                    .data_rel_base = eh_frame_hdr_vaddr,
+                }, endian);
+                if (pc < pc_begin) {
+                    len /= 2;
+                } else {
+                    left = mid;
+                    len -= len / 2;
+                }
+            }
+            if (len == 0) return null;
+            var entry_reader: Reader = .fixed(table.entries[left * entry_size ..][0..entry_size]);
+            // Skip past `pc_begin`; we're now interested in the fde offset
+            _ = try readEhPointerAbs(&entry_reader, table.encoding.type, addr_size_bytes, endian);
+            const fde_ptr = try readEhPointer(&entry_reader, table.encoding, addr_size_bytes, .{
+                .pc_rel_base = table_vaddr + left * entry_size,
+                .data_rel_base = eh_frame_hdr_vaddr,
+            }, endian);
+            return fde_ptr;
+        }
+    };
 
     pub fn entrySize(table_enc: EH.PE, addr_size_bytes: u8) !u8 {
         return switch (table_enc.type) {
@@ -76,64 +127,28 @@ pub const EhFrameHeader = struct {
             .pc_rel_base = eh_frame_hdr_vaddr + r.seek,
         }, endian);
 
-        return .{
-            .vaddr = eh_frame_hdr_vaddr,
-            .eh_frame_vaddr = eh_frame_ptr,
-            .search_table = table: {
-                if (fde_count_enc == EH.PE.omit) break :table null;
-                if (table_enc == EH.PE.omit) break :table null;
-                const fde_count = try readEhPointer(&r, fde_count_enc, addr_size_bytes, .{
-                    .pc_rel_base = eh_frame_hdr_vaddr + r.seek,
-                }, endian);
-                const entry_size = try entrySize(table_enc, addr_size_bytes);
-                const bytes_offset = r.seek;
-                const bytes_len = cast(usize, fde_count * entry_size) orelse return error.EndOfStream;
-                const bytes = try r.take(bytes_len);
-                break :table .{
-                    .encoding = table_enc,
-                    .fde_count = @intCast(fde_count),
-                    .entries = bytes,
-                    .offset = @intCast(bytes_offset),
-                };
-            },
-        };
-    }
-
-    /// Asserts that `eh_frame_hdr.search_table != null`.
-    fn findEntry(
-        eh_frame_hdr: *const EhFrameHeader,
-        pc: u64,
-        addr_size_bytes: u8,
-        endian: Endian,
-    ) !?u64 {
-        const table = &eh_frame_hdr.search_table.?;
-        const table_vaddr = eh_frame_hdr.vaddr + table.offset;
-        const entry_size = try EhFrameHeader.entrySize(table.encoding, addr_size_bytes);
-        var left: usize = 0;
-        var len: usize = table.fde_count;
-        while (len > 1) {
-            const mid = left + len / 2;
-            var entry_reader: Reader = .fixed(table.entries[mid * entry_size ..][0..entry_size]);
-            const pc_begin = try readEhPointer(&entry_reader, table.encoding, addr_size_bytes, .{
-                .pc_rel_base = table_vaddr + left * entry_size,
-                .data_rel_base = eh_frame_hdr.vaddr,
+        const table: ?SearchTable = table: {
+            if (fde_count_enc == EH.PE.omit) break :table null;
+            if (table_enc == EH.PE.omit) break :table null;
+            const fde_count = try readEhPointer(&r, fde_count_enc, addr_size_bytes, .{
+                .pc_rel_base = eh_frame_hdr_vaddr + r.seek,
             }, endian);
-            if (pc < pc_begin) {
-                len /= 2;
-            } else {
-                left = mid;
-                len -= len / 2;
-            }
-        }
-        if (len == 0) return null;
-        var entry_reader: Reader = .fixed(table.entries[left * entry_size ..][0..entry_size]);
-        // Skip past `pc_begin`; we're now interested in the fde offset
-        _ = try readEhPointerAbs(&entry_reader, table.encoding.type, addr_size_bytes, endian);
-        const fde_ptr = try readEhPointer(&entry_reader, table.encoding, addr_size_bytes, .{
-            .pc_rel_base = table_vaddr + left * entry_size,
-            .data_rel_base = eh_frame_hdr.vaddr,
-        }, endian);
-        return std.math.sub(u64, fde_ptr, eh_frame_hdr.eh_frame_vaddr) catch bad(); // offset into .eh_frame
+            const entry_size = try entrySize(table_enc, addr_size_bytes);
+            const bytes_offset = r.seek;
+            const bytes_len = cast(usize, fde_count * entry_size) orelse return error.EndOfStream;
+            const bytes = try r.take(bytes_len);
+            break :table .{
+                .encoding = table_enc,
+                .fde_count = @intCast(fde_count),
+                .entries = bytes,
+                .offset = @intCast(bytes_offset),
+            };
+        };
+
+        return .{
+            .eh_frame_vaddr = eh_frame_ptr,
+            .search_table = table,
+        };
     }
 };
 
@@ -356,133 +371,84 @@ pub const FrameDescriptionEntry = struct {
     }
 };
 
-pub fn scanDebugFrame(
-    unwind: *Unwind,
-    gpa: Allocator,
-    section_vaddr: u64,
-    section_bytes: []const u8,
-    addr_size_bytes: u8,
-    endian: Endian,
-) void {
-    assert(unwind.debug_frame == null);
-
-    var fbr: Reader = .fixed(section_bytes);
-    var fde_list: std.ArrayList(SortedFdeEntry) = .empty;
-    defer fde_list.deinit(gpa);
-    while (fbr.seek < fbr.buffer.len) {
-        const entry_offset = fbr.seek;
-        switch (try EntryHeader.read(&fbr, fbr.seek, .debug_frame, endian)) {
-            // Ignore CIEs; we only need them to parse the FDEs!
-            .cie => |info| {
-                try fbr.discardAll(info.bytes_len);
-                continue;
-            },
-            .fde => |info| {
-                const cie: CommonInformationEntry = cie: {
-                    var cie_reader: Reader = .fixed(section_bytes[info.cie_offset..]);
-                    const cie_info = switch (try EntryHeader.read(&cie_reader, info.cie_offset, .debug_frame, endian)) {
-                        .cie => |cie_info| cie_info,
-                        .fde, .terminator => return bad(), // This is meant to be a CIE
-                    };
-                    break :cie try .parse(try cie_reader.take(cie_info.bytes_len), .debug_frame, addr_size_bytes);
-                };
-                const fde: FrameDescriptionEntry = try .parse(
-                    section_vaddr + fbr.seek,
-                    try fbr.take(info.bytes_len),
-                    cie,
-                    endian,
-                );
-                try fde_list.append(.{
-                    .pc_begin = fde.pc_begin,
-                    .fde_offset = entry_offset, // *not* `fde_offset`, because we need to include the entry header
-                });
-            },
-            .terminator => return bad(), // DWARF `.debug_frame` isn't meant to have terminators
-        }
-    }
-    const fde_slice = try fde_list.toOwnedSlice(gpa);
-    errdefer comptime unreachable;
-    std.mem.sortUnstable(SortedFdeEntry, fde_slice, {}, struct {
-        fn lessThan(ctx: void, a: SortedFdeEntry, b: SortedFdeEntry) bool {
-            ctx;
-            return a.pc_begin < b.pc_begin;
-        }
-    }.lessThan);
-    unwind.debug_frame = .{ .data = section_bytes, .sorted_fdes = fde_slice };
+/// Load unwind information from the contents of an `.eh_frame` or `.debug_frame` section.
+///
+/// If the `.eh_frame_hdr` section is available, consider instead using `loadFromEhFrameHdr`. This
+/// allows the implementation to use a search table embedded in that section if it is available.
+pub fn loadFromSection(unwind: *Unwind, section: Section, section_vaddr: u64, section_bytes: []const u8) void {
+    assert(unwind.frame_section == null);
+    assert(unwind.lookup == null);
+    unwind.frame_section = .{
+        .id = section,
+        .bytes = section_bytes,
+        .vaddr = section_vaddr,
+    };
 }
 
-pub fn scanEhFrame(
+/// Load unwind information from a header loaded from an `.eh_frame_hdr` section, and a pointer to
+/// the contents of the `.eh_frame` section.
+///
+/// This differs from `loadFromSection` because `.eh_frame_hdr` may embed a binary search table, and
+/// if it does, this function will use that for address lookups instead of constructing our own
+/// search table.
+pub fn loadFromEhFrameHdr(
     unwind: *Unwind,
-    gpa: Allocator,
     header: EhFrameHeader,
+    section_vaddr: u64,
     section_bytes_ptr: [*]const u8,
-    /// This is separate from `section_bytes_ptr` because it is unknown when `.eh_frame` is accessed
-    /// through the pointer in the `.eh_frame_hdr` section. If this is non-`null`, we avoid reading
-    /// past this number of bytes, but if `null`, we must assume that the `.eh_frame` data has a
-    /// valid terminator.
-    section_bytes_len: ?usize,
-    addr_size_bytes: u8,
-    endian: Endian,
 ) !void {
-    assert(unwind.eh_frame == null);
-
-    const section_bytes: []const u8 = bytes: {
-        // If the length is unknown, let the slice span from `section_bytes_ptr` to the end of memory.
-        const len = section_bytes_len orelse (std.math.maxInt(usize) - @intFromPtr(section_bytes_ptr));
-        break :bytes section_bytes_ptr[0..len];
+    assert(unwind.frame_section == null);
+    assert(unwind.lookup == null);
+    unwind.frame_section = .{
+        .id = .eh_frame,
+        .bytes = maxSlice(section_bytes_ptr),
+        .vaddr = header.eh_frame_vaddr,
     };
-
-    if (header.search_table != null) {
-        // No need to populate `sorted_fdes`, the header contains a search table.
-        unwind.eh_frame = .{
-            .header = header,
-            .eh_frame_data = section_bytes,
-            .sorted_fdes = null,
-        };
-        return;
+    if (header.search_table) |table| {
+        unwind.lookup = .{ .eh_frame_hdr = .{
+            .vaddr = section_vaddr,
+            .table = table,
+        } };
     }
+}
 
-    // We aren't told the length of this section. Luckily, we don't need it, because there will be
-    // an `EntryHeader.terminator` after the last CIE/FDE. Just make a `Reader` which will give us
-    // alllll of the bytes!
-    var fbr: Reader = .fixed(section_bytes);
+pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endian: Endian) !void {
+    const section = unwind.frame_section.?;
+    if (unwind.lookup != null) return;
 
+    var r: Reader = .fixed(section.bytes);
     var fde_list: std.ArrayList(SortedFdeEntry) = .empty;
     defer fde_list.deinit(gpa);
 
-    while (true) {
-        const entry_offset = fbr.seek;
-        switch (try EntryHeader.read(&fbr, fbr.seek, .eh_frame, endian)) {
-            // Ignore CIEs; we only need them to parse the FDEs!
-            .cie => |info| {
-                try fbr.discardAll(info.bytes_len);
+    const saw_terminator = while (r.seek < r.buffer.len) {
+        const entry_offset = r.seek;
+        switch (try EntryHeader.read(&r, entry_offset, section.id, endian)) {
+            .cie => |cie_info| {
+                // Ignore CIEs for now; we'll parse them when we read a corresponding FDE
+                try r.discardAll(cie_info.bytes_len);
                 continue;
             },
-            .fde => |info| {
-                const cie: CommonInformationEntry = cie: {
-                    var cie_reader: Reader = .fixed(section_bytes[info.cie_offset..]);
-                    const cie_info = switch (try EntryHeader.read(&cie_reader, info.cie_offset, .eh_frame, endian)) {
-                        .cie => |cie_info| cie_info,
-                        .fde, .terminator => return bad(), // This is meant to be a CIE
-                    };
-                    break :cie try .parse(try cie_reader.take(cie_info.bytes_len), .eh_frame, addr_size_bytes);
+            .fde => |fde_info| {
+                var cie_r: Reader = .fixed(section.bytes[fde_info.cie_offset..]);
+                const cie_info = switch (try EntryHeader.read(&cie_r, fde_info.cie_offset, section.id, endian)) {
+                    .cie => |cie_info| cie_info,
+                    .fde, .terminator => return bad(), // this is meant to be a CIE
                 };
-                const fde: FrameDescriptionEntry = try .parse(
-                    header.eh_frame_vaddr + fbr.seek,
-                    try fbr.take(info.bytes_len),
-                    cie,
-                    endian,
-                );
+                const cie: CommonInformationEntry = try .parse(try cie_r.take(cie_info.bytes_len), section.id, addr_size_bytes);
+                const fde: FrameDescriptionEntry = try .parse(section.vaddr + r.seek, try r.take(fde_info.bytes_len), cie, endian);
                 try fde_list.append(gpa, .{
                     .pc_begin = fde.pc_begin,
-                    .fde_offset = entry_offset, // *not* `fde_offset`, because we need to include the entry header
+                    .fde_offset = entry_offset,
                 });
             },
-            // Unlike `.debug_frame`, the `.eh_frame` section does have a terminator CIE -- this is
-            // necessary because `header` doesn't include the length of the `.eh_frame` section
-            .terminator => break,
+            .terminator => break true,
         }
+    } else false;
+    switch (section.id) {
+        .eh_frame => if (!saw_terminator) return bad(), // `.eh_frame` indicates the end of the CIE/FDE list with a sentinel entry
+        .debug_frame => if (saw_terminator) return bad(), // `.debug_frame` uses the section bounds and does not specify a sentinel entry
     }
+
     const fde_slice = try fde_list.toOwnedSlice(gpa);
     errdefer comptime unreachable;
     std.mem.sortUnstable(SortedFdeEntry, fde_slice, {}, struct {
@@ -491,26 +457,29 @@ pub fn scanEhFrame(
             return a.pc_begin < b.pc_begin;
         }
     }.lessThan);
-    unwind.eh_frame = .{
-        .header = header,
-        .eh_frame_data = section_bytes,
-        .sorted_fdes = fde_slice,
-    };
+    unwind.lookup = .{ .sorted_fdes = fde_slice };
 }
 
+/// Given a program counter value, returns the offset of the corresponding FDE, or `null` if no
+/// matching FDE was found. The returned offset can be passed to `getFde` to load the data
+/// associated with the FDE.
+///
+/// Before calling this function, `prepareLookup` must return successfully.
+///
 /// The return value may be a false positive. After loading the FDE with `loadFde`, the caller must
 /// validate that `pc` is indeed in its range -- if it is not, then no FDE matches `pc`.
-pub fn findFdeOffset(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: Endian) !?u64 {
-    // We'll break from this block only if we have a manually-constructed search table.
-    const sorted_fdes: []const SortedFdeEntry = fdes: {
-        if (unwind.debug_frame) |df| break :fdes df.sorted_fdes;
-        if (unwind.eh_frame) |eh_frame| {
-            if (eh_frame.sorted_fdes) |fdes| break :fdes fdes;
-            // Use the search table from the `.eh_frame_hdr` section rather than one of our own
-            return eh_frame.header.findEntry(pc, addr_size_bytes, endian);
-        }
-        // We have no available unwind info
-        return null;
+pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: Endian) !?u64 {
+    const sorted_fdes: []const SortedFdeEntry = switch (unwind.lookup.?) {
+        .eh_frame_hdr => |eh_frame_hdr| {
+            const fde_vaddr = try eh_frame_hdr.table.findEntry(
+                eh_frame_hdr.vaddr,
+                pc,
+                addr_size_bytes,
+                endian,
+            ) orelse return null;
+            return std.math.sub(u64, fde_vaddr, unwind.frame_section.?.vaddr) catch bad(); // convert vaddr to offset
+        },
+        .sorted_fdes => |sorted_fdes| sorted_fdes,
     };
     const first_bad_idx = std.sort.partitionPoint(SortedFdeEntry, sorted_fdes, pc, struct {
         fn canIncludePc(target_pc: u64, entry: SortedFdeEntry) bool {
@@ -523,33 +492,29 @@ pub fn findFdeOffset(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian
     return sorted_fdes[first_bad_idx - 1].fde_offset;
 }
 
-pub fn loadFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
-    const section_bytes: []const u8, const section_vaddr: u64, const section: Section = s: {
-        if (unwind.debug_frame) |df| break :s .{ df.data, if (true) @panic("MLUGG TODO"), .debug_frame };
-        if (unwind.eh_frame) |ef| break :s .{ ef.eh_frame_data, ef.header.eh_frame_vaddr, .eh_frame };
-        unreachable; // how did you get `fde_offset`?!
-    };
+pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
+    const section = unwind.frame_section.?;
 
-    var fde_reader: Reader = .fixed(section_bytes[fde_offset..]);
-    const fde_info = switch (try EntryHeader.read(&fde_reader, fde_offset, section, endian)) {
+    var fde_reader: Reader = .fixed(section.bytes[fde_offset..]);
+    const fde_info = switch (try EntryHeader.read(&fde_reader, fde_offset, section.id, endian)) {
         .fde => |info| info,
         .cie, .terminator => return bad(), // This is meant to be an FDE
     };
 
     const cie_offset = fde_info.cie_offset;
-    var cie_reader: Reader = .fixed(section_bytes[cie_offset..]);
-    const cie_info = switch (try EntryHeader.read(&cie_reader, cie_offset, section, endian)) {
+    var cie_reader: Reader = .fixed(section.bytes[cie_offset..]);
+    const cie_info = switch (try EntryHeader.read(&cie_reader, cie_offset, section.id, endian)) {
         .cie => |info| info,
         .fde, .terminator => return bad(), // This is meant to be a CIE
     };
 
     const cie: CommonInformationEntry = try .parse(
         try cie_reader.take(cie_info.bytes_len),
-        section,
+        section.id,
         addr_size_bytes,
     );
     const fde: FrameDescriptionEntry = try .parse(
-        section_vaddr + fde_offset + fde_reader.seek,
+        section.vaddr + fde_offset + fde_reader.seek,
         try fde_reader.take(fde_info.bytes_len),
         cie,
         endian,
