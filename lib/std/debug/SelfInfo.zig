@@ -456,7 +456,8 @@ const Module = switch (native_os) {
                         if (mem.eql(u8, "__" ++ section.name, sect.sectName())) break i;
                     } else continue;
 
-                    const section_bytes = try Dwarf.chopSlice(mapped_mem, sect.offset, sect.size);
+                    if (mapped_mem.len < sect.offset + sect.size) return error.InvalidDebugInfo;
+                    const section_bytes = mapped_mem[sect.offset..][0..sect.size];
                     sections[section_index] = .{
                         .data = section_bytes,
                         .virtual_address = @intCast(sect.addr),
@@ -508,10 +509,10 @@ const Module = switch (native_os) {
         gnu_eh_frame: ?[]const u8,
         const LookupCache = void;
         const DebugInfo = struct {
-            em: ?Dwarf.ElfModule, // MLUGG TODO: bad field name (and, frankly, type)
+            loaded_elf: ?Dwarf.ElfModule, // MLUGG TODO: bad field name
             unwind: ?Dwarf.Unwind,
             const init: DebugInfo = .{
-                .em = null,
+                .loaded_elf = null,
                 .unwind = null,
             };
         };
@@ -591,7 +592,7 @@ const Module = switch (native_os) {
         }
         fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             if (module.name.len > 0) {
-                di.em = Dwarf.ElfModule.load(gpa, .{
+                di.loaded_elf = Dwarf.ElfModule.load(gpa, .{
                     .root_dir = .cwd(),
                     .sub_path = module.name,
                 }, module.build_id, null, null, null) catch |err| switch (err) {
@@ -602,7 +603,7 @@ const Module = switch (native_os) {
             } else {
                 const path = try std.fs.selfExePathAlloc(gpa);
                 defer gpa.free(path);
-                di.em = Dwarf.ElfModule.load(gpa, .{
+                di.loaded_elf = Dwarf.ElfModule.load(gpa, .{
                     .root_dir = .cwd(),
                     .sub_path = path,
                 }, module.build_id, null, null, null) catch |err| switch (err) {
@@ -613,8 +614,9 @@ const Module = switch (native_os) {
             }
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-            if (di.em == null) try module.loadLocationInfo(gpa, di);
-            return di.em.?.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
+            if (di.loaded_elf == null) try module.loadLocationInfo(gpa, di);
+            const vaddr = address - module.load_offset;
+            return di.loaded_elf.?.dwarf.getSymbol(gpa, native_endian, vaddr);
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
