@@ -155,12 +155,10 @@ pub fn load(
             }
             break :blk .{
                 .data = try decompressed_section.toOwnedSlice(gpa),
-                .virtual_address = shdr.sh_addr,
                 .owned = true,
             };
         } else .{
             .data = section_bytes,
-            .virtual_address = shdr.sh_addr,
             .owned = false,
         };
     }
