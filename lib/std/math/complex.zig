@@ -202,7 +202,7 @@ test "multiplication by i yields same result as mulbyi" {
 test "i^2 equals to -1" {
     const a: TestingComplex = .mul(.i, .i);
 
-    try testing.expect(a.re == 0 and a.im == -1);
+    try testing.expect(a.re == -1 and a.im == 0);
 }
 
 test "reciprocal" {
