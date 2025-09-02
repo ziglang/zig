@@ -70,7 +70,7 @@ pub const Diagnostics = struct {
     }
 
     pub fn renderToStdErrDetectTTY(self: *Diagnostics, cwd: std.fs.Dir, source: []const u8, source_mappings: ?SourceMappings) void {
-        const tty_config = std.Io.tty.detectConfig(std.fs.File.stderr());
+        const tty_config: std.Io.tty.Config = .detect(.stderr());
         return self.renderToStdErr(cwd, source, tty_config, source_mappings);
     }
 

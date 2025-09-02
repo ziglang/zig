@@ -358,7 +358,7 @@ test expectApproxEqRel {
 /// This function is intended to be used only in tests. When the two slices are not
 /// equal, prints diagnostics to stderr to show exactly how they are not equal (with
 /// the differences highlighted in red), then returns a test failure error.
-/// The colorized output is optional and controlled by the return of `std.Io.tty.detectConfig()`.
+/// The colorized output is optional and controlled by the return of `std.Io.tty.Config.detect()`.
 /// If your inputs are UTF-8 encoded strings, consider calling `expectEqualStrings` instead.
 pub fn expectEqualSlices(comptime T: type, expected: []const T, actual: []const T) !void {
     const diff_index: usize = diff_index: {
@@ -401,16 +401,16 @@ fn failEqualSlices(
     const actual_window = actual[window_start..@min(actual.len, window_start + max_window_size)];
     const actual_truncated = window_start + actual_window.len < actual.len;
 
-    const ttyconf = std.Io.tty.detectConfig(.stderr());
+    const tty_config: std.Io.tty.Config = .detect(.stderr());
     var differ = if (T == u8) BytesDiffer{
         .expected = expected_window,
         .actual = actual_window,
-        .ttyconf = ttyconf,
+        .ttyconf = tty_config,
     } else SliceDiffer(T){
         .start_index = window_start,
         .expected = expected_window,
         .actual = actual_window,
-        .ttyconf = ttyconf,
+        .ttyconf = tty_config,
     };
 
     // Print indexes as hex for slices of u8 since it's more likely to be binary data where
