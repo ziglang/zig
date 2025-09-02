@@ -31,12 +31,6 @@ pub const poolid_t = id_t;
 pub const zoneid_t = id_t;
 pub const ctid_t = id_t;
 
-pub const cmsghdr = extern struct {
-    len: socklen_t,
-    level: i32,
-    type: i32,
-};
-
 pub const SCM = struct {
     pub const UCRED = 0x1012;
     pub const RIGHTS = 0x1010;
