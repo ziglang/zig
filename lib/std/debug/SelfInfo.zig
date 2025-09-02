@@ -100,8 +100,6 @@ const Module = switch (native_os) {
         text_base: usize,
         load_offset: usize,
         name: []const u8,
-        unwind_info: ?[]const u8,
-        eh_frame: ?[]const u8,
         fn key(m: *const Module) usize {
             return m.text_base;
         }
@@ -120,11 +118,11 @@ const Module = switch (native_os) {
                     .ncmds = header.ncmds,
                     .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
                 };
-                const text_segment_cmd, const text_sections = while (it.next()) |load_cmd| {
+                const text_segment_cmd = while (it.next()) |load_cmd| {
                     if (load_cmd.cmd() != .SEGMENT_64) continue;
                     const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
                     if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
-                    break .{ segment_cmd, load_cmd.getSections() };
+                    break segment_cmd;
                 } else continue;
 
                 const seg_start = load_offset + text_segment_cmd.vmaddr;
@@ -132,26 +130,12 @@ const Module = switch (native_os) {
                 const seg_end = seg_start + text_segment_cmd.vmsize;
                 if (address < seg_start or address >= seg_end) continue;
 
-                // We've found the matching __TEXT segment. This is the image we need, but we must look
-                // for unwind info in it before returning.
-
-                var result: Module = .{
+                // We've found the matching __TEXT segment. This is the image we need.
+                return .{
                     .text_base = text_base,
                     .load_offset = load_offset,
                     .name = mem.span(std.c._dyld_get_image_name(@intCast(image_idx))),
-                    .unwind_info = null,
-                    .eh_frame = null,
                 };
-                for (text_sections) |sect| {
-                    if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
-                        const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
-                        result.unwind_info = sect_ptr[0..@intCast(sect.size)];
-                    } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
-                        const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(load_offset + sect.addr)));
-                        result.eh_frame = sect_ptr[0..@intCast(sect.size)];
-                    }
-                }
-                return result;
             }
             return error.MissingDebugInfo;
         }
@@ -270,11 +254,35 @@ const Module = switch (native_os) {
             };
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            if (di.unwind != null) return;
             _ = gpa;
+
+            const header: *std.macho.mach_header = @ptrFromInt(module.text_base);
+
+            var it: macho.LoadCommandIterator = .{
+                .ncmds = header.ncmds,
+                .buffer = @as([*]u8, @ptrCast(header))[@sizeOf(macho.mach_header_64)..][0..header.sizeofcmds],
+            };
+            const sections = while (it.next()) |load_cmd| {
+                if (load_cmd.cmd() != .SEGMENT_64) continue;
+                const segment_cmd = load_cmd.cast(macho.segment_command_64).?;
+                if (!mem.eql(u8, segment_cmd.segName(), "__TEXT")) continue;
+                break load_cmd.getSections();
+            } else unreachable;
+
+            var unwind_info: ?[]const u8 = null;
+            var eh_frame: ?[]const u8 = null;
+            for (sections) |sect| {
+                if (mem.eql(u8, sect.sectName(), "__unwind_info")) {
+                    const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+                    unwind_info = sect_ptr[0..@intCast(sect.size)];
+                } else if (mem.eql(u8, sect.sectName(), "__eh_frame")) {
+                    const sect_ptr: [*]u8 = @ptrFromInt(@as(usize, @intCast(module.load_offset + sect.addr)));
+                    eh_frame = sect_ptr[0..@intCast(sect.size)];
+                }
+            }
             di.unwind = .{
-                .unwind_info = module.unwind_info,
-                .eh_frame = module.eh_frame,
+                .unwind_info = unwind_info,
+                .eh_frame = eh_frame,
             };
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
@@ -362,7 +370,6 @@ const Module = switch (native_os) {
         const DebugInfo = struct {
             unwind: ?struct {
                 // Backed by the in-memory sections mapped by the loader
-                // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadLocationInfo should be the one discovering them!
                 unwind_info: ?[]const u8,
                 eh_frame: ?[]const u8,
             },
@@ -517,7 +524,7 @@ const Module = switch (native_os) {
             };
         };
         fn key(m: Module) usize {
-            return m.load_offset; // MLUGG TODO: is this technically valid? idk
+            return m.load_offset;
         }
         fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
             _ = cache;
