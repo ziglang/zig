@@ -73,44 +73,26 @@ pub fn deinit(self: *SelfInfo) void {
 
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usize {
     comptime assert(target_supported);
-    const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc); // MLUGG TODO: don't take gpa
+    const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.load_offset);
     if (!gop.found_existing) gop.value_ptr.* = .init;
     if (!gop.value_ptr.loaded_unwind) {
         try module.loadUnwindInfo(gpa, &gop.value_ptr.di);
         gop.value_ptr.loaded_unwind = true;
     }
-    // MLUGG TODO: the stuff below is impl!
-    if (native_os.isDarwin()) {
-        // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
-        // via DWARF before attempting to use the compact unwind info will produce incorrect results.
-        if (gop.value_ptr.di.unwind_info) |unwind_info| {
-            if (unwindFrameMachO(
-                module.text_base,
-                module.load_offset,
-                context,
-                unwind_info,
-                gop.value_ptr.di.eh_frame,
-            )) |return_address| {
-                return return_address;
-            } else |err| {
-                if (err != error.RequiresDWARFUnwind) return err;
-            }
-        }
-        return error.MissingUnwindInfo;
-    }
-    return unwindFrameDwarf(&gop.value_ptr.di.unwind, module.load_offset, context, null);
+    return module.unwindFrame(gpa, &gop.value_ptr.di, context);
 }
 
 pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.debug.Symbol {
     comptime assert(target_supported);
-    const module: Module = try .lookup(&self.lookup_cache, gpa, address); // MLUGG TODO: don't take gpa
+    const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     const gop = try self.modules.getOrPut(gpa, module.key());
     if (!gop.found_existing) gop.value_ptr.* = .init;
     if (!gop.value_ptr.loaded_debug) {
         // MLUGG TODO: this overloads the name 'debug info' with including vs excluding unwind info
         // figure out a better name for one or the other (i think the inner one is maybe 'symbol info' or something idk)
         try module.loadDebugInfo(gpa, &gop.value_ptr.di);
+        gop.value_ptr.loaded_debug = true;
     }
     return module.getSymbolAtAddress(gpa, &gop.value_ptr.di, address);
 }
@@ -120,7 +102,7 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.
 /// a path that doesn't rely on any side-effects of a prior successful module lookup.
 pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) error{ Unexpected, OutOfMemory, MissingDebugInfo }![]const u8 {
     comptime assert(target_supported);
-    const module: Module = try .lookup(&self.lookup_cache, gpa, address); // MLUGG TODO: don't take gpa
+    const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     return module.name;
 }
 
@@ -250,6 +232,18 @@ const Module = switch (native_os) {
                     else => return err,
                 },
             };
+        }
+        fn unwindFrame(module: *const Module, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+            _ = gpa;
+            const unwind_info = di.unwind_info orelse return error.MissingUnwindInfo;
+            // MLUGG TODO: inline
+            return unwindFrameMachO(
+                module.text_base,
+                module.load_offset,
+                context,
+                unwind_info,
+                di.eh_frame,
+            );
         }
         const LookupCache = void;
         const DebugInfo = struct {
@@ -499,11 +493,15 @@ const Module = switch (native_os) {
             const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
             const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
             const header: Dwarf.Unwind.EhFrameHeader = try .parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian);
-            try di.unwind.loadFromEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+            di.unwind = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
             try di.unwind.prepareLookup(gpa, @sizeOf(usize), native_endian);
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
             return di.em.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
+        }
+        fn unwindFrame(module: *const Module, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+            _ = gpa;
+            return unwindFrameDwarf(&di.unwind, module.load_offset, context, null);
         }
     },
     .uefi, .windows => struct {
@@ -1507,9 +1505,12 @@ fn unwindFrameMachO(
             .DWARF => {
                 const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
-                var dwarf_unwind: Dwarf.Unwind = .init;
-                dwarf_unwind.loadFromSection(.eh_frame, eh_frame_vaddr, eh_frame);
-                return unwindFrameDwarf(&dwarf_unwind, load_offset, context, @intCast(encoding.value.x86_64.dwarf));
+                return unwindFrameDwarf(
+                    &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
+                    load_offset,
+                    context,
+                    @intCast(encoding.value.x86_64.dwarf),
+                );
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
@@ -1524,9 +1525,12 @@ fn unwindFrameMachO(
             .DWARF => {
                 const eh_frame = opt_eh_frame orelse return error.MissingEhFrame;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - load_offset;
-                var dwarf_unwind: Dwarf.Unwind = .init;
-                dwarf_unwind.loadFromSection(.eh_frame, eh_frame_vaddr, eh_frame);
-                return unwindFrameDwarf(dwarf_unwind, load_offset, context, @intCast(encoding.value.arm64.dwarf));
+                return unwindFrameDwarf(
+                    &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
+                    load_offset,
+                    context,
+                    @intCast(encoding.value.x86_64.dwarf),
+                );
             },
             .FRAME => ip: {
                 const frame = encoding.value.arm64.frame;
