@@ -156,11 +156,7 @@ const Module = switch (native_os) {
             return error.MissingDebugInfo;
         }
         fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            const mapped_mem = mapFileOrSelfExe(module.name) catch |err| switch (err) {
-                error.FileNotFound => return error.MissingDebugInfo,
-                error.FileTooBig => return error.InvalidDebugInfo,
-                else => |e| return e,
-            };
+            const mapped_mem = try mapDebugInfoFile(module.name);
             errdefer posix.munmap(mapped_mem);
 
             const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
@@ -311,7 +307,6 @@ const Module = switch (native_os) {
                     gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch |err| {
                         defer _ = di.full.?.ofiles.pop().?;
                         switch (err) {
-                            error.FileNotFound,
                             error.MissingDebugInfo,
                             error.InvalidDebugInfo,
                             => return sym_only_result,
@@ -402,7 +397,7 @@ const Module = switch (native_os) {
             }
 
             fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
-                const mapped_mem = try mapFileOrSelfExe(o_file_path);
+                const mapped_mem = try mapDebugInfoFile(o_file_path);
                 errdefer posix.munmap(mapped_mem);
 
                 if (mapped_mem.len < @sizeOf(macho.mach_header_64)) return error.InvalidDebugInfo;
@@ -595,14 +590,27 @@ const Module = switch (native_os) {
             return error.MissingDebugInfo;
         }
         fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            const filename: ?[]const u8 = if (module.name.len > 0) module.name else null;
-            const mapped_mem = mapFileOrSelfExe(filename) catch |err| switch (err) {
-                error.FileNotFound => return error.MissingDebugInfo,
-                error.FileTooBig => return error.InvalidDebugInfo,
-                else => |e| return e,
-            };
-            errdefer posix.munmap(mapped_mem);
-            di.em = try .load(gpa, mapped_mem, module.build_id, null, null, null, filename);
+            if (module.name.len > 0) {
+                di.em = Dwarf.ElfModule.load(gpa, .{
+                    .root_dir = .cwd(),
+                    .sub_path = module.name,
+                }, module.build_id, null, null, null) catch |err| switch (err) {
+                    error.FileNotFound => return error.MissingDebugInfo,
+                    error.Overflow => return error.InvalidDebugInfo,
+                    else => |e| return e,
+                };
+            } else {
+                const path = try std.fs.selfExePathAlloc(gpa);
+                defer gpa.free(path);
+                di.em = Dwarf.ElfModule.load(gpa, .{
+                    .root_dir = .cwd(),
+                    .sub_path = path,
+                }, module.build_id, null, null, null) catch |err| switch (err) {
+                    error.FileNotFound => return error.MissingDebugInfo,
+                    error.Overflow => return error.InvalidDebugInfo,
+                    else => |e| return e,
+                };
+            }
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
             if (di.em == null) try module.loadLocationInfo(gpa, di);
@@ -1247,14 +1255,18 @@ fn applyOffset(base: usize, offset: i64) !usize {
 }
 
 /// Uses `mmap` to map the file at `opt_path` (or, if `null`, the self executable image) into memory.
-fn mapFileOrSelfExe(opt_path: ?[]const u8) ![]align(std.heap.page_size_min) const u8 {
-    const file = if (opt_path) |path|
-        try fs.cwd().openFile(path, .{})
+fn mapDebugInfoFile(opt_path: ?[]const u8) ![]align(std.heap.page_size_min) const u8 {
+    const open_result = if (opt_path) |path|
+        fs.cwd().openFile(path, .{})
     else
-        try fs.openSelfExe(.{});
+        fs.openSelfExe(.{});
+    const file = open_result catch |err| switch (err) {
+        error.FileNotFound => return error.MissingDebugInfo,
+        else => |e| return e,
+    };
     defer file.close();
 
-    const file_len = math.cast(usize, try file.getEndPos()) orelse return error.FileTooBig;
+    const file_len = math.cast(usize, try file.getEndPos()) orelse return error.InvalidDebugInfo;
 
     return posix.mmap(
         null,

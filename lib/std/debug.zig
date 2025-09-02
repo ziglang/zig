@@ -153,10 +153,9 @@ pub const SourceLocation = struct {
 };
 
 pub const Symbol = struct {
-    // MLUGG TODO: remove the defaults and audit everywhere. also grep for '???' across std
-    name: []const u8 = "???",
-    compile_unit_name: []const u8 = "???",
-    source_location: ?SourceLocation = null,
+    name: ?[]const u8,
+    compile_unit_name: ?[]const u8,
+    source_location: ?SourceLocation,
 };
 
 /// Deprecated because it returns the optimization mode of the standard
@@ -1040,10 +1039,11 @@ fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writ
 
 fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwind_err: UnwindError, tty_config: tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(getDebugInfoAllocator(), address) catch |err| switch (err) {
-        error.Unexpected, error.OutOfMemory => |e| return e,
         error.MissingDebugInfo => "???",
+        error.Unexpected, error.OutOfMemory => |e| return e,
     };
     try tty_config.setColor(writer, .dim);
+    // MLUGG TODO this makes no sense given that MissingUnwindInfo exists?
     if (unwind_err == error.MissingDebugInfo) {
         try writer.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
     } else {
@@ -1054,35 +1054,27 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwi
 
 pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
     const gpa = getDebugInfoAllocator();
-    if (debug_info.getSymbolAtAddress(gpa, address)) |symbol_info| {
-        defer if (symbol_info.source_location) |sl| gpa.free(sl.file_name);
-        return printLineInfo(
-            writer,
-            symbol_info.source_location,
-            address,
-            symbol_info.name,
-            symbol_info.compile_unit_name,
-            tty_config,
-        );
-    } else |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => {},
+    const symbol: Symbol = debug_info.getSymbolAtAddress(gpa, address) catch |err| switch (err) {
+        error.MissingDebugInfo, error.InvalidDebugInfo => .{
+            .name = null,
+            .compile_unit_name = null,
+            .source_location = null,
+        },
         else => |e| return e,
-    }
-    // Unknown source location, but perhaps we can at least get a module name
-    const compile_unit_name = debug_info.getModuleNameForAddress(getDebugInfoAllocator(), address) catch |err| switch (err) {
-        error.MissingDebugInfo => "???",
-        error.Unexpected, error.OutOfMemory => |e| return e,
     };
+    defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
     return printLineInfo(
         writer,
-        null,
+        symbol.source_location,
         address,
-        "???",
-        compile_unit_name,
+        symbol.name orelse "???",
+        symbol.compile_unit_name orelse debug_info.getModuleNameForAddress(gpa, address) catch |err| switch (err) {
+            error.MissingDebugInfo => "???",
+            error.Unexpected, error.OutOfMemory => |e| return e,
+        },
         tty_config,
     );
 }
-
 fn printLineInfo(
     writer: *Writer,
     source_location: ?SourceLocation,
