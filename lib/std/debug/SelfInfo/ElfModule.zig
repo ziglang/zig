@@ -4,9 +4,7 @@ build_id: ?[]const u8,
 gnu_eh_frame: ?[]const u8,
 
 /// No cache needed, because `dl_iterate_phdr` is already fast.
-pub const LookupCache = struct {
-    pub const init: LookupCache = .{};
-};
+pub const LookupCache = void;
 
 pub const DebugInfo = struct {
     loaded_elf: ?Dwarf.ElfModule,
@@ -15,6 +13,9 @@ pub const DebugInfo = struct {
         .loaded_elf = null,
         .unwind = null,
     };
+    pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
+        if (di.loaded_elf) |*loaded_elf| loaded_elf.deinit(gpa);
+    }
 };
 
 pub fn key(m: ElfModule) usize {
