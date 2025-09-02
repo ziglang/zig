@@ -1487,20 +1487,42 @@ pub const ElfModule = struct {
         MemoryMappingNotSupported,
     } || Allocator.Error || std.fs.File.OpenError || OpenError;
 
-    /// Reads debug info from an already mapped ELF file.
+    /// Reads debug info from an ELF file given its path.
     ///
     /// If the required sections aren't present but a reference to external debug
     /// info is, then this this function will recurse to attempt to load the debug
     /// sections from an external file.
     pub fn load(
         gpa: Allocator,
-        mapped_mem: []align(std.heap.page_size_min) const u8,
+        elf_file_path: Path,
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: ?*Dwarf.SectionArray,
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
-        elf_filename: ?[]const u8,
     ) LoadError!ElfModule {
+        const mapped_mem: []align(std.heap.page_size_min) const u8 = mapped: {
+            const elf_file = try elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{});
+            defer elf_file.close();
+
+            const file_len = cast(
+                usize,
+                elf_file.getEndPos() catch return bad(),
+            ) orelse return error.Overflow;
+
+            break :mapped std.posix.mmap(
+                null,
+                file_len,
+                std.posix.PROT.READ,
+                .{ .TYPE = .SHARED },
+                elf_file.handle,
+                0,
+            ) catch |err| switch (err) {
+                error.MappingAlreadyExists => unreachable,
+                else => |e| return e,
+            };
+        };
+        errdefer std.posix.munmap(mapped_mem);
+
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
@@ -1606,39 +1628,36 @@ pub const ElfModule = struct {
             // $XDG_CACHE_HOME/debuginfod_client/<buildid>/debuginfo
             // This only opportunisticly tries to load from the debuginfod cache, but doesn't try to populate it.
             // One can manually run `debuginfod-find debuginfo PATH` to download the symbols
-            if (build_id) |id| blk: {
-                var debuginfod_dir: std.fs.Dir = switch (builtin.os.tag) {
-                    .wasi, .windows => break :blk,
-                    else => dir: {
-                        if (std.posix.getenv("DEBUGINFOD_CACHE_PATH")) |path| {
-                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
+            debuginfod: {
+                const id = build_id orelse break :debuginfod;
+                switch (builtin.os.tag) {
+                    .wasi, .windows => break :debuginfod,
+                    else => {},
+                }
+                const id_dir_path: []u8 = p: {
+                    if (std.posix.getenv("DEBUGINFOD_CACHE_PATH")) |path| {
+                        break :p try std.fmt.allocPrint(gpa, "{s}/{x}", .{ path, id });
+                    }
+                    if (std.posix.getenv("XDG_CACHE_HOME")) |cache_path| {
+                        if (cache_path.len > 0) {
+                            break :p try std.fmt.allocPrint(gpa, "{s}/debuginfod_client/{x}", .{ cache_path, id });
                         }
-                        if (std.posix.getenv("XDG_CACHE_HOME")) |cache_path| {
-                            if (cache_path.len > 0) {
-                                const path = std.fs.path.join(gpa, &[_][]const u8{ cache_path, "debuginfod_client" }) catch break :blk;
-                                defer gpa.free(path);
-                                break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
-                            }
-                        }
-                        if (std.posix.getenv("HOME")) |home_path| {
-                            const path = std.fs.path.join(gpa, &[_][]const u8{ home_path, ".cache", "debuginfod_client" }) catch break :blk;
-                            defer gpa.free(path);
-                            break :dir std.fs.openDirAbsolute(path, .{}) catch break :blk;
-                        }
-                        break :blk;
-                    },
+                    }
+                    if (std.posix.getenv("HOME")) |home_path| {
+                        break :p try std.fmt.allocPrint(gpa, "{s}/.cache/debuginfod_client/{x}", .{ home_path, id });
+                    }
+                    break :debuginfod;
                 };
-                defer debuginfod_dir.close();
+                defer gpa.free(id_dir_path);
+                if (!std.fs.path.isAbsolute(id_dir_path)) break :debuginfod;
 
-                const filename = std.fmt.allocPrint(gpa, "{x}/debuginfo", .{id}) catch break :blk;
-                defer gpa.free(filename);
+                var id_dir = std.fs.openDirAbsolute(id_dir_path, .{}) catch break :debuginfod;
+                defer id_dir.close();
 
-                const path: Path = .{
-                    .root_dir = .{ .path = null, .handle = debuginfod_dir },
-                    .sub_path = filename,
-                };
-
-                return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch break :blk;
+                return load(gpa, .{
+                    .root_dir = .{ .path = id_dir_path, .handle = id_dir },
+                    .sub_path = "debuginfo",
+                }, null, separate_debug_crc, &sections, mapped_mem) catch break :debuginfod;
             }
 
             const global_debug_directories = [_][]const u8{
@@ -1659,33 +1678,37 @@ pub const ElfModule = struct {
 
                 for (global_debug_directories) |global_directory| {
                     const path: Path = .{
-                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .root_dir = .cwd(),
                         .sub_path = try std.fs.path.join(gpa, &.{
                             global_directory, ".build-id", &id_prefix_buf, filename,
                         }),
                     };
                     defer gpa.free(path.sub_path);
 
-                    return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
+                    return load(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
                 }
             }
 
             // use the path from .gnu_debuglink, in the same search order as gdb
-            if (separate_debug_filename) |separate_filename| blk: {
-                if (elf_filename != null and mem.eql(u8, elf_filename.?, separate_filename))
+            separate: {
+                const separate_filename = separate_debug_filename orelse break :separate;
+                if (mem.eql(u8, std.fs.path.basename(elf_file_path.sub_path), separate_filename))
                     return error.MissingDebugInfo;
 
                 exe_dir: {
-                    var exe_dir_buf: [std.fs.max_path_bytes]u8 = undefined;
-                    const exe_dir_path = std.fs.selfExeDirPath(&exe_dir_buf) catch break :exe_dir;
+                    const exe_dir_path = try std.fs.path.resolve(gpa, &.{
+                        elf_file_path.root_dir.path orelse ".",
+                        std.fs.path.dirname(elf_file_path.sub_path) orelse ".",
+                    });
+                    defer gpa.free(exe_dir_path);
                     var exe_dir = std.fs.openDirAbsolute(exe_dir_path, .{}) catch break :exe_dir;
                     defer exe_dir.close();
 
                     // <exe_dir>/<gnu_debuglink>
-                    if (loadPath(
+                    if (load(
                         gpa,
                         .{
-                            .root_dir = .{ .path = null, .handle = exe_dir },
+                            .root_dir = .{ .path = exe_dir_path, .handle = exe_dir },
                             .sub_path = separate_filename,
                         },
                         null,
@@ -1698,27 +1721,27 @@ pub const ElfModule = struct {
 
                     // <exe_dir>/.debug/<gnu_debuglink>
                     const path: Path = .{
-                        .root_dir = .{ .path = null, .handle = exe_dir },
+                        .root_dir = .{ .path = exe_dir_path, .handle = exe_dir },
                         .sub_path = try std.fs.path.join(gpa, &.{ ".debug", separate_filename }),
                     };
                     defer gpa.free(path.sub_path);
 
-                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
+                    if (load(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
                         return em;
                     } else |_| {}
                 }
 
                 var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
-                const cwd_path = std.posix.realpath(".", &cwd_buf) catch break :blk;
+                const cwd_path = std.posix.realpath(".", &cwd_buf) catch break :separate;
 
                 // <global debug directory>/<absolute folder of current binary>/<gnu_debuglink>
                 for (global_debug_directories) |global_directory| {
                     const path: Path = .{
-                        .root_dir = std.Build.Cache.Directory.cwd(),
+                        .root_dir = .cwd(),
                         .sub_path = try std.fs.path.join(gpa, &.{ global_directory, cwd_path, separate_filename }),
                     };
                     defer gpa.free(path.sub_path);
-                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
+                    if (load(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
                         return em;
                     } else |_| {}
                 }
@@ -1734,47 +1757,6 @@ pub const ElfModule = struct {
             .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
             .dwarf = dwarf,
         };
-    }
-
-    pub fn loadPath(
-        gpa: Allocator,
-        elf_file_path: Path,
-        build_id: ?[]const u8,
-        expected_crc: ?u32,
-        parent_sections: *Dwarf.SectionArray,
-        parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
-    ) LoadError!ElfModule {
-        const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
-            error.FileNotFound => return missing(),
-            else => return err,
-        };
-        defer elf_file.close();
-
-        const end_pos = elf_file.getEndPos() catch return bad();
-        const file_len = cast(usize, end_pos) orelse return error.Overflow;
-
-        const mapped_mem = std.posix.mmap(
-            null,
-            file_len,
-            std.posix.PROT.READ,
-            .{ .TYPE = .SHARED },
-            elf_file.handle,
-            0,
-        ) catch |err| switch (err) {
-            error.MappingAlreadyExists => unreachable,
-            else => |e| return e,
-        };
-        errdefer std.posix.munmap(mapped_mem);
-
-        return load(
-            gpa,
-            mapped_mem,
-            build_id,
-            expected_crc,
-            parent_sections,
-            parent_mapped_mem,
-            elf_file_path.sub_path,
-        );
     }
 };
 
