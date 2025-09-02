@@ -18,7 +18,7 @@ const regValueNative = Dwarf.abi.regValueNative;
 
 const SelfInfo = @This();
 
-modules: std.AutoHashMapUnmanaged(usize, Module.DebugInfo),
+modules: std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo),
 lookup_cache: Module.LookupCache,
 
 /// Indicates whether the `SelfInfo` implementation has support for this target.
@@ -68,18 +68,18 @@ comptime {
 
 pub const init: SelfInfo = .{
     .modules = .empty,
-    .lookup_cache = .init,
+    .lookup_cache = if (Module.LookupCache != void) .init,
 };
 
-pub fn deinit(self: *SelfInfo) void {
-    // MLUGG TODO: that's amusing, this function is straight-up unused. i... wonder if it even should be used anywhere? perhaps not... so perhaps it should not even exist...????
-    var it = self.modules.iterator();
-    while (it.next()) |entry| {
-        const mdi = entry.value_ptr.*;
-        mdi.deinit(self.allocator);
-        self.allocator.destroy(mdi);
-    }
-    self.modules.deinit(self.allocator);
+pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
+    for (self.modules.values()) |*di| di.deinit(gpa);
+    self.modules.deinit(gpa);
+    if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
+}
+comptime {
+    // `std.debug` does not currently utilize `deinit`, as it keeps hold of debug info for the
+    // whole lifetime of the program. Let's try to avoid it bitrotting.
+    _ = &deinit;
 }
 
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usize {
@@ -110,11 +110,12 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 
 /// This type contains the target-specific implementation. It must expose the following declarations:
 ///
-/// * `LookupCache: type`
-///   * `LookupCache.init: LookupCache`
+/// * `LookupCache: type`, with the following declarations unless `LookupCache == void`:
+///   * `init: LookupCache`
+///   * `deinit: fn (*LookupCache, Allocator) void`
 /// * `lookup: fn (*LookupCache, Allocator, address: usize) !Module`
 /// * `key: fn (*const Module) usize`
-/// * `DebugInfo: type`
+/// * `DebugInfo: type`, with the following declarations:
 ///   * `DebugInfo.init: DebugInfo`
 /// * `getSymbolAtAddress: fn (*const Module, Allocator, *DebugInfo, address: usize) !std.debug.Symbol`
 ///
