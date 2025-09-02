@@ -1451,17 +1451,9 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
 
 // MLUGG TODO: i am dubious of this whole thing being here atp. look closely and see if it depends on being the self process
 pub const ElfModule = struct {
-    unwind: Dwarf.Unwind,
     dwarf: Dwarf,
-    mapped_memory: ?[]align(std.heap.page_size_min) const u8,
+    mapped_memory: []align(std.heap.page_size_min) const u8,
     external_mapped_memory: ?[]align(std.heap.page_size_min) const u8,
-
-    pub const init: ElfModule = .{
-        .unwind = .init,
-        .dwarf = .{},
-        .mapped_memory = null,
-        .external_mapped_memory = null,
-    };
 
     pub fn deinit(self: *@This(), allocator: Allocator) void {
         self.dwarf.deinit(allocator);
@@ -1474,12 +1466,6 @@ pub const ElfModule = struct {
         // MLUGG TODO: this clearly tells us that the logic should live near SelfInfo...
         const vaddr = address - load_offset;
         return self.dwarf.getSymbol(allocator, endian, vaddr);
-    }
-
-    pub fn getDwarfUnwindForAddress(self: *@This(), allocator: Allocator, address: usize) !?*Dwarf.Unwind {
-        _ = allocator;
-        _ = address;
-        return &self.unwind;
     }
 
     pub const LoadError = error{
@@ -1506,10 +1492,7 @@ pub const ElfModule = struct {
     /// If the required sections aren't present but a reference to external debug
     /// info is, then this this function will recurse to attempt to load the debug
     /// sections from an external file.
-    ///
-    /// MLUGG TODO: this should *return* a thing
     pub fn load(
-        em: *ElfModule,
         gpa: Allocator,
         mapped_mem: []align(std.heap.page_size_min) const u8,
         build_id: ?[]const u8,
@@ -1517,9 +1500,7 @@ pub const ElfModule = struct {
         parent_sections: ?*Dwarf.SectionArray,
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
         elf_filename: ?[]const u8,
-    ) LoadError!void {
-        assert(em.mapped_memory == null);
-
+    ) LoadError!ElfModule {
         if (expected_crc) |crc| if (crc != std.hash.crc.Crc32.hash(mapped_mem)) return error.InvalidDebugInfo;
 
         const hdr: *const elf.Ehdr = @ptrCast(&mapped_mem[0]);
@@ -1657,7 +1638,7 @@ pub const ElfModule = struct {
                     .sub_path = filename,
                 };
 
-                return em.loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch break :blk;
+                return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch break :blk;
             }
 
             const global_debug_directories = [_][]const u8{
@@ -1685,7 +1666,7 @@ pub const ElfModule = struct {
                     };
                     defer gpa.free(path.sub_path);
 
-                    return em.loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
+                    return loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem) catch continue;
                 }
             }
 
@@ -1701,7 +1682,7 @@ pub const ElfModule = struct {
                     defer exe_dir.close();
 
                     // <exe_dir>/<gnu_debuglink>
-                    if (em.loadPath(
+                    if (loadPath(
                         gpa,
                         .{
                             .root_dir = .{ .path = null, .handle = exe_dir },
@@ -1711,9 +1692,8 @@ pub const ElfModule = struct {
                         separate_debug_crc,
                         &sections,
                         mapped_mem,
-                    )) |v| {
-                        v;
-                        return;
+                    )) |em| {
+                        return em;
                     } else |_| {}
 
                     // <exe_dir>/.debug/<gnu_debuglink>
@@ -1723,7 +1703,9 @@ pub const ElfModule = struct {
                     };
                     defer gpa.free(path.sub_path);
 
-                    if (em.loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
+                        return em;
+                    } else |_| {}
                 }
 
                 var cwd_buf: [std.fs.max_path_bytes]u8 = undefined;
@@ -1736,28 +1718,32 @@ pub const ElfModule = struct {
                         .sub_path = try std.fs.path.join(gpa, &.{ global_directory, cwd_path, separate_filename }),
                     };
                     defer gpa.free(path.sub_path);
-                    if (em.loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |debug_info| return debug_info else |_| {}
+                    if (loadPath(gpa, path, null, separate_debug_crc, &sections, mapped_mem)) |em| {
+                        return em;
+                    } else |_| {}
                 }
             }
 
             return error.MissingDebugInfo;
         }
 
-        em.mapped_memory = parent_mapped_mem orelse mapped_mem;
-        em.external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null;
-        em.dwarf.sections = sections;
-        try em.dwarf.open(gpa, endian);
+        var dwarf: Dwarf = .{ .sections = sections };
+        try dwarf.open(gpa, endian);
+        return .{
+            .mapped_memory = parent_mapped_mem orelse mapped_mem,
+            .external_mapped_memory = if (parent_mapped_mem != null) mapped_mem else null,
+            .dwarf = dwarf,
+        };
     }
 
     pub fn loadPath(
-        em: *ElfModule,
         gpa: Allocator,
         elf_file_path: Path,
         build_id: ?[]const u8,
         expected_crc: ?u32,
         parent_sections: *Dwarf.SectionArray,
         parent_mapped_mem: ?[]align(std.heap.page_size_min) const u8,
-    ) LoadError!void {
+    ) LoadError!ElfModule {
         const elf_file = elf_file_path.root_dir.handle.openFile(elf_file_path.sub_path, .{}) catch |err| switch (err) {
             error.FileNotFound => return missing(),
             else => return err,
@@ -1780,7 +1766,7 @@ pub const ElfModule = struct {
         };
         errdefer std.posix.munmap(mapped_mem);
 
-        return em.load(
+        return load(
             gpa,
             mapped_mem,
             build_id,
