@@ -99,10 +99,7 @@ pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !us
         }
         return error.MissingUnwindInfo;
     }
-    if (try gop.value_ptr.di.getDwarfUnwindForAddress(gpa, context.pc)) |unwind| {
-        return unwindFrameDwarf(unwind, module.load_offset, context, null);
-    }
-    return error.MissingDebugInfo;
+    return unwindFrameDwarf(&gop.value_ptr.di.unwind, module.load_offset, context, null);
 }
 
 pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.debug.Symbol {
@@ -409,7 +406,11 @@ const Module = switch (native_os) {
         build_id: ?[]const u8,
         gnu_eh_frame: ?[]const u8,
         const LookupCache = void;
-        const DebugInfo = Dwarf.ElfModule;
+        const DebugInfo = struct {
+            const init: DebugInfo = undefined; // MLUGG TODO: this makes me sad
+            em: Dwarf.ElfModule, // MLUGG TODO: bad field name (and, frankly, type)
+            unwind: Dwarf.Unwind,
+        };
         fn key(m: Module) usize {
             return m.load_offset; // MLUGG TODO: is this technically valid? idk
         }
@@ -492,8 +493,7 @@ const Module = switch (native_os) {
                 else => |e| return e,
             };
             errdefer posix.munmap(mapped_mem);
-            try di.load(gpa, mapped_mem, module.build_id, null, null, null, filename);
-            assert(di.mapped_memory != null);
+            di.em = try .load(gpa, mapped_mem, module.build_id, null, null, null, filename);
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
@@ -503,7 +503,7 @@ const Module = switch (native_os) {
             try di.unwind.prepareLookup(gpa, @sizeOf(usize), native_endian);
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-            return di.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
+            return di.em.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
         }
     },
     .uefi, .windows => struct {
