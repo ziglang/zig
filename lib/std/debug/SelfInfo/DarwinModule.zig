@@ -578,9 +578,7 @@ fn unwindFrameMachO(
     return new_ip;
 }
 /// No cache needed, because `_dyld_get_image_header` etc are already fast.
-pub const LookupCache = struct {
-    pub const init: LookupCache = .{};
-};
+pub const LookupCache = void;
 pub const DebugInfo = struct {
     unwind: ?struct {
         // Backed by the in-memory sections mapped by the loader
@@ -601,21 +599,23 @@ pub const DebugInfo = struct {
         .full = null,
     };
 
+    pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
+        if (di.full) |*full| {
+            for (full.ofiles.values()) |*ofile| {
+                ofile.dwarf.deinit(gpa);
+                ofile.addr_table.deinit(gpa);
+            }
+            full.ofiles.deinit(gpa);
+            gpa.free(full.symbols);
+            posix.munmap(full.mapped_memory);
+        }
+    }
+
     const OFile = struct {
         dwarf: Dwarf,
         // MLUGG TODO: this could use an adapter to just index straight into the strtab!
         addr_table: std.StringArrayHashMapUnmanaged(u64),
     };
-
-    fn deinit(di: *DebugInfo, gpa: Allocator) void {
-        for (di.full.ofiles.values()) |*ofile| {
-            ofile.dwarf.deinit(gpa);
-            ofile.addr_table.deinit(gpa);
-        }
-        di.full.ofiles.deinit();
-        gpa.free(di.full.symbols);
-        posix.munmap(di.full.mapped_memory);
-    }
 
     fn loadOFile(gpa: Allocator, o_file_path: []const u8) !OFile {
         const mapped_mem = try mapDebugInfoFile(o_file_path);
