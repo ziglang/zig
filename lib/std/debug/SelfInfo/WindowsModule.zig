@@ -167,6 +167,9 @@ fn loadLocationInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo
 pub const LookupCache = struct {
     modules: std.ArrayListUnmanaged(windows.MODULEENTRY32),
     pub const init: LookupCache = .{ .modules = .empty };
+    pub fn deinit(lc: *LookupCache, gpa: Allocator) void {
+        lc.modules.deinit(gpa);
+    }
 };
 pub const DebugInfo = struct {
     loaded: bool,
@@ -176,12 +179,6 @@ pub const DebugInfo = struct {
         file: fs.File,
         section_handle: windows.HANDLE,
         section_view: []const u8,
-        fn deinit(mapped: @This()) void {
-            const process_handle = windows.GetCurrentProcess();
-            assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(mapped.section_view.ptr)) == .SUCCESS);
-            windows.CloseHandle(mapped.section_handle);
-            mapped.file.close();
-        }
     },
 
     dwarf: ?Dwarf,
@@ -199,11 +196,17 @@ pub const DebugInfo = struct {
         .coff_section_headers = &.{},
     };
 
-    fn deinit(di: *DebugInfo, gpa: Allocator) void {
+    pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
+        if (!di.loaded) return;
         if (di.dwarf) |*dwarf| dwarf.deinit(gpa);
         if (di.pdb) |*pdb| pdb.deinit();
         gpa.free(di.coff_section_headers);
-        if (di.mapped_file) |mapped| mapped.deinit();
+        if (di.mapped_file) |mapped| {
+            const process_handle = windows.GetCurrentProcess();
+            assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(mapped.section_view.ptr)) == .SUCCESS);
+            windows.CloseHandle(mapped.section_handle);
+            mapped.file.close();
+        }
     }
 
     fn getSymbolFromPdb(di: *DebugInfo, relocated_address: usize) !?std.debug.Symbol {
