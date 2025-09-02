@@ -2,7 +2,7 @@
 
 pub const VirtualMachine = @import("Unwind/VirtualMachine.zig");
 
-frame_section: ?struct {
+frame_section: struct {
     id: Section,
     /// The virtual address of the start of the section. "Virtual address" refers to the address in
     /// the binary (e.g. `sh_addr` in an ELF file); the equivalent runtime address may be relocated
@@ -42,10 +42,41 @@ const SortedFdeEntry = struct {
 const Section = enum { debug_frame, eh_frame };
 
 // MLUGG TODO deinit?
-pub const init: Unwind = .{
-    .frame_section = null,
-    .lookup = null,
-};
+
+/// Initialize with unwind information from the contents of a `.debug_frame` or `.eh_frame` section.
+///
+/// If the `.eh_frame_hdr` section is available, consider instead using `initEhFrameHdr`. This
+/// allows the implementation to use a search table embedded in that section if it is available.
+pub fn initSection(section: Section, section_vaddr: u64, section_bytes: []const u8) Unwind {
+    return .{
+        .frame_section = .{
+            .id = section,
+            .bytes = section_bytes,
+            .vaddr = section_vaddr,
+        },
+        .lookup = null,
+    };
+}
+
+/// Initialize with unwind information from a header loaded from an `.eh_frame_hdr` section, and a
+/// pointer to the contents of the `.eh_frame` section.
+///
+/// This differs from `loadFromSection` because `.eh_frame_hdr` may embed a binary search table, and
+/// if it does, this function will use that for address lookups instead of constructing our own
+/// search table.
+pub fn initEhFrameHdr(header: EhFrameHeader, section_vaddr: u64, section_bytes_ptr: [*]const u8) Unwind {
+    return .{
+        .frame_section = .{
+            .id = .eh_frame,
+            .bytes = maxSlice(section_bytes_ptr),
+            .vaddr = header.eh_frame_vaddr,
+        },
+        .lookup = if (header.search_table) |table| .{ .eh_frame_hdr = .{
+            .vaddr = section_vaddr,
+            .table = table,
+        } } else null,
+    };
+}
 
 /// This represents the decoded .eh_frame_hdr header
 pub const EhFrameHeader = struct {
@@ -371,50 +402,10 @@ pub const FrameDescriptionEntry = struct {
     }
 };
 
-/// Load unwind information from the contents of an `.eh_frame` or `.debug_frame` section.
-///
-/// If the `.eh_frame_hdr` section is available, consider instead using `loadFromEhFrameHdr`. This
-/// allows the implementation to use a search table embedded in that section if it is available.
-pub fn loadFromSection(unwind: *Unwind, section: Section, section_vaddr: u64, section_bytes: []const u8) void {
-    assert(unwind.frame_section == null);
-    assert(unwind.lookup == null);
-    unwind.frame_section = .{
-        .id = section,
-        .bytes = section_bytes,
-        .vaddr = section_vaddr,
-    };
-}
-
-/// Load unwind information from a header loaded from an `.eh_frame_hdr` section, and a pointer to
-/// the contents of the `.eh_frame` section.
-///
-/// This differs from `loadFromSection` because `.eh_frame_hdr` may embed a binary search table, and
-/// if it does, this function will use that for address lookups instead of constructing our own
-/// search table.
-pub fn loadFromEhFrameHdr(
-    unwind: *Unwind,
-    header: EhFrameHeader,
-    section_vaddr: u64,
-    section_bytes_ptr: [*]const u8,
-) !void {
-    assert(unwind.frame_section == null);
-    assert(unwind.lookup == null);
-    unwind.frame_section = .{
-        .id = .eh_frame,
-        .bytes = maxSlice(section_bytes_ptr),
-        .vaddr = header.eh_frame_vaddr,
-    };
-    if (header.search_table) |table| {
-        unwind.lookup = .{ .eh_frame_hdr = .{
-            .vaddr = section_vaddr,
-            .table = table,
-        } };
-    }
-}
-
 pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endian: Endian) !void {
-    const section = unwind.frame_section.?;
     if (unwind.lookup != null) return;
+
+    const section = unwind.frame_section;
 
     var r: Reader = .fixed(section.bytes);
     var fde_list: std.ArrayList(SortedFdeEntry) = .empty;
@@ -477,7 +468,7 @@ pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: End
                 addr_size_bytes,
                 endian,
             ) orelse return null;
-            return std.math.sub(u64, fde_vaddr, unwind.frame_section.?.vaddr) catch bad(); // convert vaddr to offset
+            return std.math.sub(u64, fde_vaddr, unwind.frame_section.vaddr) catch bad(); // convert vaddr to offset
         },
         .sorted_fdes => |sorted_fdes| sorted_fdes,
     };
@@ -493,7 +484,7 @@ pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: End
 }
 
 pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
-    const section = unwind.frame_section.?;
+    const section = unwind.frame_section;
 
     var fde_reader: Reader = .fixed(section.bytes[fde_offset..]);
     const fde_info = switch (try EntryHeader.read(&fde_reader, fde_offset, section.id, endian)) {
