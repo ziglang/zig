@@ -1,6 +1,8 @@
 //! Cross-platform abstraction for this binary's own debug information, with a
 //! goal of minimal code bloat and compilation speed penalty.
 
+// MLUGG TODO: audit use of errors in this file. ideally, introduce some concrete error sets
+
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
@@ -26,13 +28,7 @@ const regValueNative = Dwarf.abi.regValueNative;
 
 const SelfInfo = @This();
 
-modules: std.AutoHashMapUnmanaged(usize, struct {
-    di: Module.DebugInfo,
-    // MLUGG TODO: okay actually these should definitely go on the impl so it can share state. e.g. loading unwind info might require lodaing debug info in some cases
-    loaded_locations: bool,
-    loaded_unwind: bool,
-    const init: @This() = .{ .di = .init, .loaded_locations = false, .loaded_unwind = false };
-}),
+modules: std.AutoHashMapUnmanaged(usize, Module.DebugInfo),
 lookup_cache: Module.LookupCache,
 
 pub const target_supported: bool = switch (native_os) {
@@ -77,11 +73,7 @@ pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !us
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.load_offset);
     if (!gop.found_existing) gop.value_ptr.* = .init;
-    if (!gop.value_ptr.loaded_unwind) {
-        try module.loadUnwindInfo(gpa, &gop.value_ptr.di);
-        gop.value_ptr.loaded_unwind = true;
-    }
-    return module.unwindFrame(gpa, &gop.value_ptr.di, context);
+    return module.unwindFrame(gpa, gop.value_ptr, context);
 }
 
 pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.debug.Symbol {
@@ -89,11 +81,7 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     const gop = try self.modules.getOrPut(gpa, module.key());
     if (!gop.found_existing) gop.value_ptr.* = .init;
-    if (!gop.value_ptr.loaded_locations) {
-        try module.loadLocationInfo(gpa, &gop.value_ptr.di);
-        gop.value_ptr.loaded_locations = true;
-    }
-    return module.getSymbolAtAddress(gpa, &gop.value_ptr.di, address);
+    return module.getSymbolAtAddress(gpa, gop.value_ptr, address);
 }
 
 /// Returns the module name for a given address.
@@ -168,9 +156,125 @@ const Module = switch (native_os) {
             return error.MissingDebugInfo;
         }
         fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            try loadMachODebugInfo(gpa, module, di); // MLUGG TODO inline
+            const mapped_mem = mapFileOrSelfExe(module.name) catch |err| switch (err) {
+                error.FileNotFound => return error.MissingDebugInfo,
+                error.FileTooBig => return error.InvalidDebugInfo,
+                else => |e| return e,
+            };
+            errdefer posix.munmap(mapped_mem);
+
+            const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
+            if (hdr.magic != macho.MH_MAGIC_64)
+                return error.InvalidDebugInfo;
+
+            const symtab: macho.symtab_command = symtab: {
+                var it: macho.LoadCommandIterator = .{
+                    .ncmds = hdr.ncmds,
+                    .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
+                };
+                while (it.next()) |cmd| switch (cmd.cmd()) {
+                    .SYMTAB => break :symtab cmd.cast(macho.symtab_command) orelse return error.InvalidDebugInfo,
+                    else => {},
+                };
+                return error.MissingDebugInfo;
+            };
+
+            const syms_ptr: [*]align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab.symoff..]);
+            const syms = syms_ptr[0..symtab.nsyms];
+            const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
+
+            // MLUGG TODO: does it really make sense to initCapacity here? how many of syms are omitted?
+            var symbols: std.ArrayList(MachoSymbol) = try .initCapacity(gpa, syms.len);
+            defer symbols.deinit(gpa);
+
+            var ofile: u32 = undefined;
+            var last_sym: MachoSymbol = undefined;
+            var state: enum {
+                init,
+                oso_open,
+                oso_close,
+                bnsym,
+                fun_strx,
+                fun_size,
+                ensym,
+            } = .init;
+
+            for (syms) |*sym| {
+                if (sym.n_type.bits.is_stab == 0) continue;
+
+                // TODO handle globals N_GSYM, and statics N_STSYM
+                switch (sym.n_type.stab) {
+                    .oso => switch (state) {
+                        .init, .oso_close => {
+                            state = .oso_open;
+                            ofile = sym.n_strx;
+                        },
+                        else => return error.InvalidDebugInfo,
+                    },
+                    .bnsym => switch (state) {
+                        .oso_open, .ensym => {
+                            state = .bnsym;
+                            last_sym = .{
+                                .strx = 0,
+                                .addr = sym.n_value,
+                                .size = 0,
+                                .ofile = ofile,
+                            };
+                        },
+                        else => return error.InvalidDebugInfo,
+                    },
+                    .fun => switch (state) {
+                        .bnsym => {
+                            state = .fun_strx;
+                            last_sym.strx = sym.n_strx;
+                        },
+                        .fun_strx => {
+                            state = .fun_size;
+                            last_sym.size = @intCast(sym.n_value);
+                        },
+                        else => return error.InvalidDebugInfo,
+                    },
+                    .ensym => switch (state) {
+                        .fun_size => {
+                            state = .ensym;
+                            symbols.appendAssumeCapacity(last_sym);
+                        },
+                        else => return error.InvalidDebugInfo,
+                    },
+                    .so => switch (state) {
+                        .init, .oso_close => {},
+                        .oso_open, .ensym => {
+                            state = .oso_close;
+                        },
+                        else => return error.InvalidDebugInfo,
+                    },
+                    else => {},
+                }
+            }
+
+            switch (state) {
+                .init => return error.MissingDebugInfo,
+                .oso_close => {},
+                else => return error.InvalidDebugInfo,
+            }
+
+            const symbols_slice = try symbols.toOwnedSlice(gpa);
+            errdefer gpa.free(symbols_slice);
+
+            // Even though lld emits symbols in ascending order, this debug code
+            // should work for programs linked in any valid way.
+            // This sort is so that we can binary search later.
+            mem.sort(MachoSymbol, symbols_slice, {}, MachoSymbol.addressLessThan);
+
+            di.full = .{
+                .mapped_memory = mapped_mem,
+                .symbols = symbols_slice,
+                .strings = strings,
+                .ofiles = .empty,
+            };
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            if (di.unwind != null) return;
             _ = gpa;
             di.unwind = .{
                 .unwind_info = module.unwind_info,
@@ -178,27 +282,39 @@ const Module = switch (native_os) {
             };
         }
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+            if (di.full == null) try module.loadLocationInfo(gpa, di);
             const vaddr = address - module.load_offset;
-            const symbol = MachoSymbol.find(di.full.symbols, vaddr) orelse return .{}; // MLUGG TODO null?
+            const symbol = MachoSymbol.find(di.full.?.symbols, vaddr) orelse return .{
+                .name = null,
+                .compile_unit_name = null,
+                .source_location = null,
+            };
 
             // offset of `address` from start of `symbol`
             const address_symbol_offset = vaddr - symbol.addr;
 
             // Take the symbol name from the N_FUN STAB entry, we're going to
             // use it if we fail to find the DWARF infos
-            const stab_symbol = mem.sliceTo(di.full.strings[symbol.strx..], 0);
-            const o_file_path = mem.sliceTo(di.full.strings[symbol.ofile..], 0);
+            const stab_symbol = mem.sliceTo(di.full.?.strings[symbol.strx..], 0);
+            const o_file_path = mem.sliceTo(di.full.?.strings[symbol.ofile..], 0);
+
+            // If any information is missing, we can at least return this from now on.
+            const sym_only_result: std.debug.Symbol = .{
+                .name = stab_symbol,
+                .compile_unit_name = null,
+                .source_location = null,
+            };
 
             const o_file: *DebugInfo.OFile = of: {
-                const gop = try di.full.ofiles.getOrPut(gpa, o_file_path);
+                const gop = try di.full.?.ofiles.getOrPut(gpa, o_file_path);
                 if (!gop.found_existing) {
                     gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch |err| {
-                        defer _ = di.full.ofiles.pop().?;
+                        defer _ = di.full.?.ofiles.pop().?;
                         switch (err) {
                             error.FileNotFound,
                             error.MissingDebugInfo,
                             error.InvalidDebugInfo,
-                            => return .{ .name = stab_symbol },
+                            => return sym_only_result,
                             else => |e| return e,
                         }
                     };
@@ -206,10 +322,10 @@ const Module = switch (native_os) {
                 break :of gop.value_ptr;
             };
 
-            const symbol_ofile_vaddr = o_file.addr_table.get(stab_symbol) orelse return .{ .name = stab_symbol };
+            const symbol_ofile_vaddr = o_file.addr_table.get(stab_symbol) orelse return sym_only_result;
 
             const compile_unit = o_file.dwarf.findCompileUnit(native_endian, symbol_ofile_vaddr) catch |err| switch (err) {
-                error.MissingDebugInfo, error.InvalidDebugInfo => return .{ .name = stab_symbol },
+                error.MissingDebugInfo, error.InvalidDebugInfo => return sym_only_result,
                 else => |e| return e,
             };
 
@@ -222,7 +338,7 @@ const Module = switch (native_os) {
                     o_file.dwarf.section(.debug_str),
                     compile_unit,
                 ) catch |err| switch (err) {
-                    error.MissingDebugInfo, error.InvalidDebugInfo => "???",
+                    error.MissingDebugInfo, error.InvalidDebugInfo => null,
                 },
                 .source_location = o_file.dwarf.getLineNumberInfo(
                     gpa,
@@ -236,25 +352,27 @@ const Module = switch (native_os) {
             };
         }
         fn unwindFrame(module: *const Module, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-            _ = gpa;
-            const unwind_info = di.unwind.unwind_info orelse return error.MissingUnwindInfo;
-            // MLUGG TODO: inline
+            if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
+            const unwind_info = di.unwind.?.unwind_info orelse return error.MissingUnwindInfo;
+            // MLUGG TODO: inline?
             return unwindFrameMachO(
                 module.text_base,
                 module.load_offset,
                 context,
                 unwind_info,
-                di.unwind.eh_frame,
+                di.unwind.?.eh_frame,
             );
         }
         const LookupCache = void;
         const DebugInfo = struct {
-            unwind: struct {
+            unwind: ?struct {
+                // Backed by the in-memory sections mapped by the loader
+                // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadLocationInfo should be the one discovering them!
                 unwind_info: ?[]const u8,
                 eh_frame: ?[]const u8,
             },
             // MLUGG TODO: awful field name
-            full: struct {
+            full: ?struct {
                 mapped_memory: []align(std.heap.page_size_min) const u8,
                 symbols: []const MachoSymbol,
                 strings: [:0]const u8,
@@ -262,11 +380,10 @@ const Module = switch (native_os) {
                 ofiles: std.StringArrayHashMapUnmanaged(OFile),
             },
 
-            // Backed by the in-memory sections mapped by the loader
-            // MLUGG TODO: these are duplicated state. i actually reckon they should be removed from Module, and loadMachODebugInfo should be the one discovering them!
-
-            // MLUGG TODO HACKHACK: this is awful
-            const init: DebugInfo = undefined;
+            const init: DebugInfo = .{
+                .unwind = null,
+                .full = null,
+            };
 
             const OFile = struct {
                 dwarf: Dwarf,
@@ -388,18 +505,6 @@ const Module = switch (native_os) {
             _ = address;
             unreachable;
         }
-        fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
-            _ = module;
-            _ = gpa;
-            _ = di;
-            unreachable;
-        }
-        fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
-            _ = module;
-            _ = gpa;
-            _ = di;
-            unreachable;
-        }
     },
     .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => struct {
         load_offset: usize,
@@ -408,9 +513,12 @@ const Module = switch (native_os) {
         gnu_eh_frame: ?[]const u8,
         const LookupCache = void;
         const DebugInfo = struct {
-            const init: DebugInfo = undefined; // MLUGG TODO: this makes me sad
-            em: Dwarf.ElfModule, // MLUGG TODO: bad field name (and, frankly, type)
-            unwind: Dwarf.Unwind,
+            em: ?Dwarf.ElfModule, // MLUGG TODO: bad field name (and, frankly, type)
+            unwind: ?Dwarf.Unwind,
+            const init: DebugInfo = .{
+                .em = null,
+                .unwind = null,
+            };
         };
         fn key(m: Module) usize {
             return m.load_offset; // MLUGG TODO: is this technically valid? idk
@@ -496,19 +604,20 @@ const Module = switch (native_os) {
             errdefer posix.munmap(mapped_mem);
             di.em = try .load(gpa, mapped_mem, module.build_id, null, null, null, filename);
         }
+        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+            if (di.em == null) try module.loadLocationInfo(gpa, di);
+            return di.em.?.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
+        }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
             const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
             const header: Dwarf.Unwind.EhFrameHeader = try .parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian);
             di.unwind = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
-            try di.unwind.prepareLookup(gpa, @sizeOf(usize), native_endian);
-        }
-        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-            return di.em.getSymbolAtAddress(gpa, native_endian, module.load_offset, address);
+            try di.unwind.?.prepareLookup(gpa, @sizeOf(usize), native_endian);
         }
         fn unwindFrame(module: *const Module, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-            _ = gpa;
-            return unwindFrameDwarf(&di.unwind, module.load_offset, context, null);
+            if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
+            return unwindFrameDwarf(&di.unwind.?, module.load_offset, context, null);
         }
     },
     .uefi, .windows => struct {
@@ -660,12 +769,16 @@ const Module = switch (native_os) {
 
                 di.coff_section_headers = try coff_obj.getSectionHeadersAlloc(gpa);
             }
+
+            di.loaded = true;
         }
         const LookupCache = struct {
             modules: std.ArrayListUnmanaged(windows.MODULEENTRY32),
             const init: LookupCache = .{ .modules = .empty };
         };
         const DebugInfo = struct {
+            loaded: bool,
+
             coff_image_base: u64,
             mapped_file: ?struct {
                 file: File,
@@ -686,6 +799,7 @@ const Module = switch (native_os) {
             coff_section_headers: []coff.SectionHeader,
 
             const init: DebugInfo = .{
+                .loaded = false,
                 .coff_image_base = undefined,
                 .mapped_file = null,
                 .dwarf = null,
@@ -717,28 +831,24 @@ const Module = switch (native_os) {
                     return null;
                 };
 
-                const module = (try di.pdb.?.getModule(mod_index)) orelse
-                    return error.InvalidDebugInfo;
-                const obj_basename = fs.path.basename(module.obj_file_name);
-
-                const symbol_name = di.pdb.?.getSymbolName(
-                    module,
-                    relocated_address - coff_section.virtual_address,
-                ) orelse "???";
-                const opt_line_info = try di.pdb.?.getLineNumberInfo(
-                    module,
-                    relocated_address - coff_section.virtual_address,
-                );
+                const module = try di.pdb.?.getModule(mod_index) orelse return error.InvalidDebugInfo;
 
                 return .{
-                    .name = symbol_name,
-                    .compile_unit_name = obj_basename,
-                    .source_location = opt_line_info,
+                    .name = di.pdb.?.getSymbolName(
+                        module,
+                        relocated_address - coff_section.virtual_address,
+                    ),
+                    .compile_unit_name = fs.path.basename(module.obj_file_name),
+                    .source_location = try di.pdb.?.getLineNumberInfo(
+                        module,
+                        relocated_address - coff_section.virtual_address,
+                    ),
                 };
             }
         };
 
         fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+            if (!di.loaded) try module.loadLocationInfo(gpa, di);
             // Translate the runtime address into a virtual address into the module
             const vaddr = address - module.base_address;
 
@@ -755,125 +865,6 @@ const Module = switch (native_os) {
         }
     },
 };
-
-fn loadMachODebugInfo(gpa: Allocator, module: *const Module, di: *Module.DebugInfo) !void {
-    const mapped_mem = mapFileOrSelfExe(module.name) catch |err| switch (err) {
-        error.FileNotFound => return error.MissingDebugInfo,
-        error.FileTooBig => return error.InvalidDebugInfo,
-        else => |e| return e,
-    };
-    errdefer posix.munmap(mapped_mem);
-
-    const hdr: *const macho.mach_header_64 = @ptrCast(@alignCast(mapped_mem.ptr));
-    if (hdr.magic != macho.MH_MAGIC_64)
-        return error.InvalidDebugInfo;
-
-    const symtab: macho.symtab_command = symtab: {
-        var it: macho.LoadCommandIterator = .{
-            .ncmds = hdr.ncmds,
-            .buffer = mapped_mem[@sizeOf(macho.mach_header_64)..][0..hdr.sizeofcmds],
-        };
-        while (it.next()) |cmd| switch (cmd.cmd()) {
-            .SYMTAB => break :symtab cmd.cast(macho.symtab_command) orelse return error.InvalidDebugInfo,
-            else => {},
-        };
-        return error.MissingDebugInfo;
-    };
-
-    const syms_ptr: [*]align(1) const macho.nlist_64 = @ptrCast(mapped_mem[symtab.symoff..]);
-    const syms = syms_ptr[0..symtab.nsyms];
-    const strings = mapped_mem[symtab.stroff..][0 .. symtab.strsize - 1 :0];
-
-    // MLUGG TODO: does it really make sense to initCapacity here? how many of syms are omitted?
-    var symbols: std.ArrayList(MachoSymbol) = try .initCapacity(gpa, syms.len);
-    defer symbols.deinit(gpa);
-
-    var ofile: u32 = undefined;
-    var last_sym: MachoSymbol = undefined;
-    var state: enum {
-        init,
-        oso_open,
-        oso_close,
-        bnsym,
-        fun_strx,
-        fun_size,
-        ensym,
-    } = .init;
-
-    for (syms) |*sym| {
-        if (sym.n_type.bits.is_stab == 0) continue;
-
-        // TODO handle globals N_GSYM, and statics N_STSYM
-        switch (sym.n_type.stab) {
-            .oso => switch (state) {
-                .init, .oso_close => {
-                    state = .oso_open;
-                    ofile = sym.n_strx;
-                },
-                else => return error.InvalidDebugInfo,
-            },
-            .bnsym => switch (state) {
-                .oso_open, .ensym => {
-                    state = .bnsym;
-                    last_sym = .{
-                        .strx = 0,
-                        .addr = sym.n_value,
-                        .size = 0,
-                        .ofile = ofile,
-                    };
-                },
-                else => return error.InvalidDebugInfo,
-            },
-            .fun => switch (state) {
-                .bnsym => {
-                    state = .fun_strx;
-                    last_sym.strx = sym.n_strx;
-                },
-                .fun_strx => {
-                    state = .fun_size;
-                    last_sym.size = @intCast(sym.n_value);
-                },
-                else => return error.InvalidDebugInfo,
-            },
-            .ensym => switch (state) {
-                .fun_size => {
-                    state = .ensym;
-                    symbols.appendAssumeCapacity(last_sym);
-                },
-                else => return error.InvalidDebugInfo,
-            },
-            .so => switch (state) {
-                .init, .oso_close => {},
-                .oso_open, .ensym => {
-                    state = .oso_close;
-                },
-                else => return error.InvalidDebugInfo,
-            },
-            else => {},
-        }
-    }
-
-    switch (state) {
-        .init => return error.MissingDebugInfo,
-        .oso_close => {},
-        else => return error.InvalidDebugInfo,
-    }
-
-    const symbols_slice = try symbols.toOwnedSlice(gpa);
-    errdefer gpa.free(symbols_slice);
-
-    // Even though lld emits symbols in ascending order, this debug code
-    // should work for programs linked in any valid way.
-    // This sort is so that we can binary search later.
-    mem.sort(MachoSymbol, symbols_slice, {}, MachoSymbol.addressLessThan);
-
-    di.full = .{
-        .mapped_memory = mapped_mem,
-        .symbols = symbols_slice,
-        .strings = strings,
-        .ofiles = .empty,
-    };
-}
 
 const MachoSymbol = struct {
     strx: u32,
