@@ -28,9 +28,10 @@ const SelfInfo = @This();
 
 modules: std.AutoHashMapUnmanaged(usize, struct {
     di: Module.DebugInfo,
-    loaded_debug: bool,
+    // MLUGG TODO: okay actually these should definitely go on the impl so it can share state. e.g. loading unwind info might require lodaing debug info in some cases
+    loaded_locations: bool,
     loaded_unwind: bool,
-    const init: @This() = .{ .di = .init, .loaded_debug = false, .loaded_unwind = false };
+    const init: @This() = .{ .di = .init, .loaded_locations = false, .loaded_unwind = false };
 }),
 lookup_cache: Module.LookupCache,
 
@@ -88,11 +89,9 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     const gop = try self.modules.getOrPut(gpa, module.key());
     if (!gop.found_existing) gop.value_ptr.* = .init;
-    if (!gop.value_ptr.loaded_debug) {
-        // MLUGG TODO: this overloads the name 'debug info' with including vs excluding unwind info
-        // figure out a better name for one or the other (i think the inner one is maybe 'symbol info' or something idk)
-        try module.loadDebugInfo(gpa, &gop.value_ptr.di);
-        gop.value_ptr.loaded_debug = true;
+    if (!gop.value_ptr.loaded_locations) {
+        try module.loadLocationInfo(gpa, &gop.value_ptr.di);
+        gop.value_ptr.loaded_locations = true;
     }
     return module.getSymbolAtAddress(gpa, &gop.value_ptr.di, address);
 }
@@ -168,8 +167,8 @@ const Module = switch (native_os) {
             }
             return error.MissingDebugInfo;
         }
-        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
-            return loadMachODebugInfo(gpa, module, di);
+        fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+            try loadMachODebugInfo(gpa, module, di); // MLUGG TODO inline
         }
         fn loadUnwindInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             // MLUGG TODO HACKHACK
@@ -381,7 +380,7 @@ const Module = switch (native_os) {
             _ = address;
             unreachable;
         }
-        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
+        fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
             _ = module;
             _ = gpa;
             _ = di;
@@ -479,7 +478,7 @@ const Module = switch (native_os) {
             };
             return error.MissingDebugInfo;
         }
-        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
+        fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *Module.DebugInfo) !void {
             const filename: ?[]const u8 = if (module.name.len > 0) module.name else null;
             const mapped_mem = mapFileOrSelfExe(filename) catch |err| switch (err) {
                 error.FileNotFound => return error.MissingDebugInfo,
@@ -550,7 +549,7 @@ const Module = switch (native_os) {
             }
             return null;
         }
-        fn loadDebugInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
+        fn loadLocationInfo(module: *const Module, gpa: Allocator, di: *DebugInfo) !void {
             const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
             const mapped = mapped_ptr[0..module.size];
             var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
