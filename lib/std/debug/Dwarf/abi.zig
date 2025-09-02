@@ -347,5 +347,5 @@ pub fn regValueNative(
 ) !*align(1) usize {
     const reg_bytes = try regBytes(thread_context_ptr, reg_number, reg_context);
     if (@sizeOf(usize) != reg_bytes.len) return error.IncompatibleRegisterSize;
-    return mem.bytesAsValue(usize, reg_bytes[0..@sizeOf(usize)]);
+    return @ptrCast(reg_bytes);
 }
