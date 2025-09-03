@@ -1418,7 +1418,7 @@ pub fn compactUnwindToDwarfRegNumber(unwind_reg_number: u3) !u8 {
         4 => 14, // R14
         5 => 15, // R15
         6 => 6, // RBP
-        else => error.InvalidUnwindRegisterNumber,
+        else => error.InvalidRegister,
     };
 }
 

@@ -7,7 +7,9 @@ pub fn key(m: *const DarwinModule) usize {
     return m.text_base;
 }
 
-pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !DarwinModule {
+/// No cache needed, because `_dyld_get_image_header` etc are already fast.
+pub const LookupCache = void;
+pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!DarwinModule {
     _ = cache;
     _ = gpa;
     const image_count = std.c._dyld_image_count();
@@ -186,8 +188,11 @@ fn loadFullInfo(module: *const DarwinModule, gpa: Allocator) !DebugInfo.Full {
         .ofiles = .empty,
     };
 }
-pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-    if (di.full == null) di.full = try module.loadFullInfo(gpa);
+pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
+    if (di.full == null) di.full = module.loadFullInfo(gpa) catch |err| switch (err) {
+        error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory, error.Unexpected => |e| return e,
+        else => return error.ReadFailed,
+    };
     const full = &di.full.?;
 
     const vaddr = address - module.load_offset;
@@ -215,14 +220,9 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
         const gop = try full.ofiles.getOrPut(gpa, symbol.ofile);
         if (!gop.found_existing) {
             const o_file_path = mem.sliceTo(full.strings[symbol.ofile..], 0);
-            gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch |err| {
-                defer _ = full.ofiles.pop().?;
-                switch (err) {
-                    error.MissingDebugInfo,
-                    error.InvalidDebugInfo,
-                    => return sym_only_result,
-                    else => |e| return e,
-                }
+            gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch {
+                _ = full.ofiles.pop().?;
+                return sym_only_result;
             };
         }
         break :of gop.value_ptr;
@@ -234,10 +234,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     ) orelse return sym_only_result;
     const symbol_ofile_vaddr = o_file.symtab[symbol_index].n_value;
 
-    const compile_unit = o_file.dwarf.findCompileUnit(native_endian, symbol_ofile_vaddr) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return sym_only_result,
-        else => |e| return e,
-    };
+    const compile_unit = o_file.dwarf.findCompileUnit(native_endian, symbol_ofile_vaddr) catch return sym_only_result;
 
     return .{
         .name = o_file.dwarf.getSymbolName(symbol_ofile_vaddr) orelse stab_symbol,
@@ -255,28 +252,44 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
             native_endian,
             compile_unit,
             symbol_ofile_vaddr + address_symbol_offset,
-        ) catch |err| switch (err) {
-            error.MissingDebugInfo, error.InvalidDebugInfo => null,
-            else => return err,
-        },
+        ) catch null,
     };
 }
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
+    return unwindFrameInner(module, gpa, di, context) catch |err| switch (err) {
+        error.InvalidDebugInfo,
+        error.MissingDebugInfo,
+        error.UnsupportedDebugInfo,
+        error.ReadFailed,
+        error.OutOfMemory,
+        error.Unexpected,
+        => |e| return e,
+        error.UnimplementedArch,
+        error.UnimplementedOs,
+        error.ThreadContextNotSupported,
+        => return error.UnsupportedDebugInfo,
+        error.InvalidRegister,
+        error.RegisterContextRequired,
+        error.IncompatibleRegisterSize,
+        => return error.InvalidDebugInfo,
+    };
+}
+fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
     _ = gpa;
     if (di.unwind == null) di.unwind = module.loadUnwindInfo();
     const unwind = &di.unwind.?;
 
-    const unwind_info = unwind.unwind_info orelse return error.MissingUnwindInfo;
-    if (unwind_info.len < @sizeOf(macho.unwind_info_section_header)) return error.InvalidUnwindInfo;
+    const unwind_info = unwind.unwind_info orelse return error.MissingDebugInfo;
+    if (unwind_info.len < @sizeOf(macho.unwind_info_section_header)) return error.InvalidDebugInfo;
     const header: *align(1) const macho.unwind_info_section_header = @ptrCast(unwind_info);
 
     const index_byte_count = header.indexCount * @sizeOf(macho.unwind_info_section_header_index_entry);
-    if (unwind_info.len < header.indexSectionOffset + index_byte_count) return error.InvalidUnwindInfo;
+    if (unwind_info.len < header.indexSectionOffset + index_byte_count) return error.InvalidDebugInfo;
     const indices: []align(1) const macho.unwind_info_section_header_index_entry = @ptrCast(unwind_info[header.indexSectionOffset..][0..index_byte_count]);
-    if (indices.len == 0) return error.MissingUnwindInfo;
+    if (indices.len == 0) return error.MissingDebugInfo;
 
     // offset of the PC into the `__TEXT` segment
     const pc_text_offset = context.pc - module.text_base;
@@ -296,15 +309,15 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         break :index .{ indices[left].secondLevelPagesSectionOffset, indices[left].functionOffset };
     };
     // An offset of 0 is a sentinel indicating a range does not have unwind info.
-    if (start_offset == 0) return error.MissingUnwindInfo;
+    if (start_offset == 0) return error.MissingDebugInfo;
 
     const common_encodings_byte_count = header.commonEncodingsArrayCount * @sizeOf(macho.compact_unwind_encoding_t);
-    if (unwind_info.len < header.commonEncodingsArraySectionOffset + common_encodings_byte_count) return error.InvalidUnwindInfo;
+    if (unwind_info.len < header.commonEncodingsArraySectionOffset + common_encodings_byte_count) return error.InvalidDebugInfo;
     const common_encodings: []align(1) const macho.compact_unwind_encoding_t = @ptrCast(
         unwind_info[header.commonEncodingsArraySectionOffset..][0..common_encodings_byte_count],
     );
 
-    if (unwind_info.len < start_offset + @sizeOf(macho.UNWIND_SECOND_LEVEL)) return error.InvalidUnwindInfo;
+    if (unwind_info.len < start_offset + @sizeOf(macho.UNWIND_SECOND_LEVEL)) return error.InvalidDebugInfo;
     const kind: *align(1) const macho.UNWIND_SECOND_LEVEL = @ptrCast(unwind_info[start_offset..]);
 
     const entry: struct {
@@ -312,15 +325,15 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         raw_encoding: u32,
     } = switch (kind.*) {
         .REGULAR => entry: {
-            if (unwind_info.len < start_offset + @sizeOf(macho.unwind_info_regular_second_level_page_header)) return error.InvalidUnwindInfo;
+            if (unwind_info.len < start_offset + @sizeOf(macho.unwind_info_regular_second_level_page_header)) return error.InvalidDebugInfo;
             const page_header: *align(1) const macho.unwind_info_regular_second_level_page_header = @ptrCast(unwind_info[start_offset..]);
 
             const entries_byte_count = page_header.entryCount * @sizeOf(macho.unwind_info_regular_second_level_entry);
-            if (unwind_info.len < start_offset + entries_byte_count) return error.InvalidUnwindInfo;
+            if (unwind_info.len < start_offset + entries_byte_count) return error.InvalidDebugInfo;
             const entries: []align(1) const macho.unwind_info_regular_second_level_entry = @ptrCast(
                 unwind_info[start_offset + page_header.entryPageOffset ..][0..entries_byte_count],
             );
-            if (entries.len == 0) return error.InvalidUnwindInfo;
+            if (entries.len == 0) return error.InvalidDebugInfo;
 
             var left: usize = 0;
             var len: usize = entries.len;
@@ -339,15 +352,15 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
             };
         },
         .COMPRESSED => entry: {
-            if (unwind_info.len < start_offset + @sizeOf(macho.unwind_info_compressed_second_level_page_header)) return error.InvalidUnwindInfo;
+            if (unwind_info.len < start_offset + @sizeOf(macho.unwind_info_compressed_second_level_page_header)) return error.InvalidDebugInfo;
             const page_header: *align(1) const macho.unwind_info_compressed_second_level_page_header = @ptrCast(unwind_info[start_offset..]);
 
             const entries_byte_count = page_header.entryCount * @sizeOf(macho.UnwindInfoCompressedEntry);
-            if (unwind_info.len < start_offset + entries_byte_count) return error.InvalidUnwindInfo;
+            if (unwind_info.len < start_offset + entries_byte_count) return error.InvalidDebugInfo;
             const entries: []align(1) const macho.UnwindInfoCompressedEntry = @ptrCast(
                 unwind_info[start_offset + page_header.entryPageOffset ..][0..entries_byte_count],
             );
-            if (entries.len == 0) return error.InvalidUnwindInfo;
+            if (entries.len == 0) return error.InvalidDebugInfo;
 
             var left: usize = 0;
             var len: usize = entries.len;
@@ -372,26 +385,26 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
 
             const local_index = entry.encodingIndex - common_encodings.len;
             const local_encodings_byte_count = page_header.encodingsCount * @sizeOf(macho.compact_unwind_encoding_t);
-            if (unwind_info.len < start_offset + page_header.encodingsPageOffset + local_encodings_byte_count) return error.InvalidUnwindInfo;
+            if (unwind_info.len < start_offset + page_header.encodingsPageOffset + local_encodings_byte_count) return error.InvalidDebugInfo;
             const local_encodings: []align(1) const macho.compact_unwind_encoding_t = @ptrCast(
                 unwind_info[start_offset + page_header.encodingsPageOffset ..][0..local_encodings_byte_count],
             );
-            if (local_index >= local_encodings.len) return error.InvalidUnwindInfo;
+            if (local_index >= local_encodings.len) return error.InvalidDebugInfo;
             break :entry .{
                 .function_offset = function_offset,
                 .raw_encoding = local_encodings[local_index],
             };
         },
-        else => return error.InvalidUnwindInfo,
+        else => return error.InvalidDebugInfo,
     };
 
-    if (entry.raw_encoding == 0) return error.NoUnwindInfo;
+    if (entry.raw_encoding == 0) return error.MissingDebugInfo;
     const reg_context: Dwarf.abi.RegisterContext = .{ .eh_frame = false, .is_macho = true };
 
     const encoding: macho.CompactUnwindEncoding = @bitCast(entry.raw_encoding);
     const new_ip = switch (builtin.cpu.arch) {
         .x86_64 => switch (encoding.mode.x86_64) {
-            .OLD => return error.UnimplementedUnwindEncoding,
+            .OLD => return error.UnsupportedDebugInfo,
             .RBP_FRAME => ip: {
                 const frame = encoding.value.x86_64.frame;
 
@@ -493,7 +506,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = unwind.eh_frame orelse return error.MissingEhFrame;
+                const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
                 return context.unwindFrameDwarf(
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
@@ -503,7 +516,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
             },
         },
         .aarch64, .aarch64_be => switch (encoding.mode.arm64) {
-            .OLD => return error.UnimplementedUnwindEncoding,
+            .OLD => return error.UnsupportedDebugInfo,
             .FRAMELESS => ip: {
                 const sp = (try regValueNative(context.thread_context, spRegNum(reg_context), reg_context)).*;
                 const new_sp = sp + encoding.value.arm64.frameless.stack_size * 16;
@@ -512,7 +525,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
                 break :ip new_ip;
             },
             .DWARF => {
-                const eh_frame = unwind.eh_frame orelse return error.MissingEhFrame;
+                const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
                 return context.unwindFrameDwarf(
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
@@ -568,8 +581,6 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
     if (context.pc > 0) context.pc -= 1;
     return new_ip;
 }
-/// No cache needed, because `_dyld_get_image_header` etc are already fast.
-pub const LookupCache = void;
 pub const DebugInfo = struct {
     unwind: ?Unwind,
     // MLUGG TODO: awful field name
@@ -785,7 +796,7 @@ const ip_reg_num = Dwarf.abi.ipRegNum(builtin.target.cpu.arch).?;
 fn mapDebugInfoFile(path: []const u8) ![]align(std.heap.page_size_min) const u8 {
     const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
         error.FileNotFound => return error.MissingDebugInfo,
-        else => |e| return e,
+        else => return error.ReadFailed,
     };
     defer file.close();
 
@@ -812,6 +823,7 @@ const mem = std.mem;
 const posix = std.posix;
 const testing = std.testing;
 const UnwindContext = std.debug.SelfInfo.UnwindContext;
+const Error = std.debug.SelfInfo.Error;
 const regBytes = Dwarf.abi.regBytes;
 const regValueNative = Dwarf.abi.regValueNative;
 
