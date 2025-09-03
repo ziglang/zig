@@ -1527,10 +1527,7 @@ pub const Writer = struct {
         Unexpected,
     };
 
-    pub const SeekError = File.SeekError || error{
-        // Seeking had to flush buffered data, which failed.
-        WriteFailed,
-    };
+    pub const SeekError = File.SeekError || std.Io.Writer.Error;
 
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
