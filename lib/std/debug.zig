@@ -766,11 +766,6 @@ pub fn writeStackTrace(
     }
 }
 
-pub const UnwindError = if (have_ucontext)
-    @typeInfo(@typeInfo(@TypeOf(SelfInfo.unwindFrame)).@"fn".return_type.?).error_union.error_set
-else
-    void;
-
 pub const StackIterator = struct {
     // Skip every frame before this address is found.
     first_address: ?usize,
@@ -783,7 +778,7 @@ pub const StackIterator = struct {
     unwind_state: if (have_ucontext) ?struct {
         debug_info: *SelfInfo,
         dwarf_context: SelfInfo.UnwindContext,
-        last_error: ?UnwindError = null,
+        last_error: ?SelfInfo.Error = null,
         failed: bool = false,
     } else void = if (have_ucontext) null else {},
 
@@ -821,7 +816,7 @@ pub const StackIterator = struct {
     }
 
     pub fn getLastError(it: *StackIterator) ?struct {
-        err: UnwindError,
+        err: SelfInfo.Error,
         address: usize,
     } {
         if (!have_ucontext) return null;
@@ -1037,17 +1032,29 @@ fn printLastUnwindError(it: *StackIterator, debug_info: *SelfInfo, writer: *Writ
     }
 }
 
-fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwind_err: UnwindError, tty_config: tty.Config) !void {
+fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwind_err: SelfInfo.Error, tty_config: tty.Config) !void {
     const module_name = debug_info.getModuleNameForAddress(getDebugInfoAllocator(), address) catch |err| switch (err) {
-        error.MissingDebugInfo => "???",
+        error.InvalidDebugInfo, error.MissingDebugInfo, error.UnsupportedDebugInfo, error.ReadFailed => "???",
         error.Unexpected, error.OutOfMemory => |e| return e,
     };
     try tty_config.setColor(writer, .dim);
-    // MLUGG TODO this makes no sense given that MissingUnwindInfo exists?
-    if (unwind_err == error.MissingDebugInfo) {
-        try writer.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
-    } else {
-        try writer.print("Unwind error at address `{s}:0x{x}` ({}), trace may be incomplete\n\n", .{ module_name, address, unwind_err });
+    switch (unwind_err) {
+        error.Unexpected, error.OutOfMemory => |e| return e,
+        error.MissingDebugInfo => {
+            try writer.print("Unwind information for `{s}:0x{x}` was not available, trace may be incomplete\n\n", .{ module_name, address });
+        },
+        error.InvalidDebugInfo,
+        error.UnsupportedDebugInfo,
+        error.ReadFailed,
+        => {
+            const caption: []const u8 = switch (unwind_err) {
+                error.InvalidDebugInfo => "invalid unwind info",
+                error.UnsupportedDebugInfo => "unsupported unwind info",
+                error.ReadFailed => "filesystem error",
+                else => unreachable,
+            };
+            try writer.print("Unwind error at address `{s}:0x{x}` ({s}), trace may be incomplete\n\n", .{ module_name, address, caption });
+        },
     }
     try tty_config.setColor(writer, .reset);
 }
@@ -1055,12 +1062,17 @@ fn printUnwindError(debug_info: *SelfInfo, writer: *Writer, address: usize, unwi
 pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usize, tty_config: tty.Config) !void {
     const gpa = getDebugInfoAllocator();
     const symbol: Symbol = debug_info.getSymbolAtAddress(gpa, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => .{
-            .name = null,
-            .compile_unit_name = null,
-            .source_location = null,
+        error.MissingDebugInfo,
+        error.UnsupportedDebugInfo,
+        error.InvalidDebugInfo,
+        => .{ .name = null, .compile_unit_name = null, .source_location = null },
+        error.ReadFailed => s: {
+            try tty_config.setColor(writer, .dim);
+            try writer.print("Failed to read debug info from filesystem, trace may be incomplete\n\n", .{});
+            try tty_config.setColor(writer, .reset);
+            break :s .{ .name = null, .compile_unit_name = null, .source_location = null };
         },
-        else => |e| return e,
+        error.OutOfMemory, error.Unexpected => |e| return e,
     };
     defer if (symbol.source_location) |sl| gpa.free(sl.file_name);
     return printLineInfo(
@@ -1069,7 +1081,7 @@ pub fn printSourceAtAddress(debug_info: *SelfInfo, writer: *Writer, address: usi
         address,
         symbol.name orelse "???",
         symbol.compile_unit_name orelse debug_info.getModuleNameForAddress(gpa, address) catch |err| switch (err) {
-            error.MissingDebugInfo => "???",
+            error.InvalidDebugInfo, error.MissingDebugInfo, error.UnsupportedDebugInfo, error.ReadFailed => "???",
             error.Unexpected, error.OutOfMemory => |e| return e,
         },
         tty_config,
