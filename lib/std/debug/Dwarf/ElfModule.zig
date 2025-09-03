@@ -3,6 +3,13 @@
 
 dwarf: Dwarf,
 
+/// If we encounter a `.eh_frame` section while loading the ELF module, it is stored here and may be
+/// used with `Dwarf.Unwind` for call stack unwinding.
+eh_frame: ?UnwindSection,
+/// If we encounter a `.debug_frame` section while loading the ELF module, it is stored here and may
+/// be used with `Dwarf.Unwind` for call stack unwinding.
+debug_frame: ?UnwindSection,
+
 /// The memory-mapped ELF file, which is referenced by `dwarf`. This field is here only so that
 /// this memory can be unmapped by `ElfModule.deinit`.
 mapped_file: []align(std.heap.page_size_min) const u8,
@@ -11,10 +18,18 @@ mapped_file: []align(std.heap.page_size_min) const u8,
 /// be unmapped by `ElfModule.deinit`.
 mapped_debug_file: ?[]align(std.heap.page_size_min) const u8,
 
-pub fn deinit(em: *ElfModule, allocator: Allocator) void {
-    em.dwarf.deinit(allocator);
+pub const UnwindSection = struct {
+    vaddr: u64,
+    bytes: []const u8,
+    owned: bool,
+};
+
+pub fn deinit(em: *ElfModule, gpa: Allocator) void {
+    em.dwarf.deinit(gpa);
     std.posix.munmap(em.mapped_file);
     if (em.mapped_debug_file) |m| std.posix.munmap(m);
+    if (em.eh_frame) |s| if (s.owned) gpa.free(s.bytes);
+    if (em.debug_frame) |s| if (s.owned) gpa.free(s.bytes);
 }
 
 pub const LoadError = error{
@@ -98,7 +113,6 @@ pub fn load(
     )[0..hdr.e_shnum];
 
     var sections: Dwarf.SectionArray = @splat(null);
-
     // Combine section list. This takes ownership over any owned sections from the parent scope.
     if (parent_sections) |ps| {
         for (ps, &sections) |*parent, *section_elem| {
@@ -109,6 +123,12 @@ pub fn load(
         }
     }
     errdefer for (sections) |opt_section| if (opt_section) |s| if (s.owned) gpa.free(s.data);
+
+    var eh_frame_section: ?UnwindSection = null;
+    errdefer if (eh_frame_section) |s| if (s.owned) gpa.free(s.bytes);
+
+    var debug_frame_section: ?UnwindSection = null;
+    errdefer if (debug_frame_section) |s| if (s.owned) gpa.free(s.bytes);
 
     var separate_debug_filename: ?[]const u8 = null;
     var separate_debug_crc: ?u32 = null;
@@ -128,17 +148,35 @@ pub fn load(
             continue;
         }
 
-        var section_index: ?usize = null;
-        inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields, 0..) |sect, i| {
-            if (mem.eql(u8, "." ++ sect.name, name)) section_index = i;
+        const section_id: union(enum) {
+            dwarf: Dwarf.Section.Id,
+            eh_frame,
+            debug_frame,
+        } = s: {
+            inline for (@typeInfo(Dwarf.Section.Id).@"enum".fields) |s| {
+                if (mem.eql(u8, "." ++ s.name, name)) {
+                    break :s .{ .dwarf = @enumFromInt(s.value) };
+                }
+            }
+            if (mem.eql(u8, ".eh_frame", name)) break :s .eh_frame;
+            if (mem.eql(u8, ".debug_frame", name)) break :s .debug_frame;
+            continue;
+        };
+
+        switch (section_id) {
+            .dwarf => |i| if (sections[@intFromEnum(i)] != null) continue,
+            .eh_frame => if (eh_frame_section != null) continue,
+            .debug_frame => if (debug_frame_section != null) continue,
         }
-        if (section_index == null) continue;
-        if (sections[section_index.?] != null) continue;
 
         if (mapped_mem.len < shdr.sh_offset + shdr.sh_size) return error.InvalidDebugInfo;
-        const section_bytes = mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
-        sections[section_index.?] = if ((shdr.sh_flags & elf.SHF_COMPRESSED) > 0) blk: {
-            var section_reader: Reader = .fixed(section_bytes);
+        const raw_section_bytes = mapped_mem[@intCast(shdr.sh_offset)..][0..@intCast(shdr.sh_size)];
+
+        const section_bytes: []const u8, const section_owned: bool = section: {
+            if ((shdr.sh_flags & elf.SHF_COMPRESSED) == 0) {
+                break :section .{ raw_section_bytes, false };
+            }
+            var section_reader: Reader = .fixed(raw_section_bytes);
             const chdr = section_reader.takeStruct(elf.Chdr, endian) catch continue;
             if (chdr.ch_type != .ZLIB) continue;
 
@@ -153,14 +191,24 @@ pub fn load(
                 Dwarf.invalidDebugInfoDetected();
                 continue;
             }
-            break :blk .{
-                .data = try decompressed_section.toOwnedSlice(gpa),
-                .owned = true,
-            };
-        } else .{
-            .data = section_bytes,
-            .owned = false,
+            break :section .{ try decompressed_section.toOwnedSlice(gpa), true };
         };
+        switch (section_id) {
+            .dwarf => |id| sections[@intFromEnum(id)] = .{
+                .data = section_bytes,
+                .owned = section_owned,
+            },
+            .eh_frame => eh_frame_section = .{
+                .vaddr = shdr.sh_addr,
+                .bytes = section_bytes,
+                .owned = section_owned,
+            },
+            .debug_frame => debug_frame_section = .{
+                .vaddr = shdr.sh_addr,
+                .bytes = section_bytes,
+                .owned = section_owned,
+            },
+        }
     }
 
     const missing_debug_info =
@@ -305,9 +353,11 @@ pub fn load(
     var dwarf: Dwarf = .{ .sections = sections };
     try dwarf.open(gpa, endian);
     return .{
+        .dwarf = dwarf,
+        .eh_frame = eh_frame_section,
+        .debug_frame = debug_frame_section,
         .mapped_file = parent_mapped_mem orelse mapped_mem,
         .mapped_debug_file = if (parent_mapped_mem != null) mapped_mem else null,
-        .dwarf = dwarf,
     };
 }
 
