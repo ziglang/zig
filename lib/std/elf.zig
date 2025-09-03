@@ -1377,6 +1377,8 @@ pub const EM = enum(u16) {
     TI_C2000 = 141,
     /// Texas Instruments TMS320C55x DSP family
     TI_C5500 = 142,
+    /// Texas Instruments Application Specific RISC Processor, 32bit fetch
+    TI_ARP32 = 143,
     /// Texas Instruments Programmable Realtime Unit
     TI_PRU = 144,
     /// STMicroelectronics 64bit VLIW Data Signal Processor
@@ -1537,6 +1539,18 @@ pub const EM = enum(u16) {
     TACHYUM = 261,
     /// NXP 56800EF Digital Signal Controller (DSC)
     @"56800EF" = 262,
+    /// Solana Bytecode Format
+    SBF = 263,
+    /// AMD/Xilinx AIEngine architecture
+    AIENGINE = 264,
+    /// SiMa MLA
+    SIMA_MLA = 265,
+    /// Cambricon BANG
+    BANG = 266,
+    /// Loongson LoongGPU
+    LOONGGPU = 267,
+    /// Wuxi Institute of Advanced Technology SW64
+    SW64 = 268,
     /// AVR
     AVR_OLD = 0x1057,
     /// MSP430
