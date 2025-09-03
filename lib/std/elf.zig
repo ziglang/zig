@@ -1122,17 +1122,17 @@ pub const OSABI = enum(u8) {
     CLOUDABI = 17,
     /// Stratus Technologies OpenVOS
     OPENVOS = 18,
-    /// NVIDIA CUDA architecture
+    /// NVIDIA CUDA architecture (not gABI assigned)
     CUDA = 51,
-    /// AMD HSA Runtime
+    /// AMD HSA Runtime (not gABI assigned)
     AMDGPU_HSA = 64,
-    /// AMD PAL Runtime
+    /// AMD PAL Runtime (not gABI assigned)
     AMDGPU_PAL = 65,
-    /// AMD Mesa3D Runtime
+    /// AMD Mesa3D Runtime (not gABI assigned)
     AMDGPU_MESA3D = 66,
-    /// ARM
+    /// ARM (not gABI assigned)
     ARM = 97,
-    /// Standalone (embedded) application
+    /// Standalone (embedded) application (not gABI assigned)
     STANDALONE = 255,
 
     _,
