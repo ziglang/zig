@@ -5,7 +5,7 @@ handle: windows.HMODULE,
 pub fn key(m: WindowsModule) usize {
     return m.base_address;
 }
-pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !WindowsModule {
+pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) std.debug.SelfInfo.Error!WindowsModule {
     if (lookupInCache(cache, address)) |m| return m;
     {
         // Check a new module hasn't been loaded
@@ -29,18 +29,23 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !WindowsModul
     if (lookupInCache(cache, address)) |m| return m;
     return error.MissingDebugInfo;
 }
-pub fn getSymbolAtAddress(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-    if (!di.loaded) try module.loadLocationInfo(gpa, di);
+pub fn getSymbolAtAddress(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, address: usize) std.debug.SelfInfo.Error!std.debug.Symbol {
+    if (!di.loaded) module.loadDebugInfo(gpa, di) catch |err| switch (err) {
+        error.OutOfMemory, error.InvalidDebugInfo, error.MissingDebugInfo, error.Unexpected => |e| return e,
+        error.FileNotFound => return error.MissingDebugInfo,
+        error.UnknownPDBVersion => return error.UnsupportedDebugInfo,
+        else => return error.ReadFailed,
+    };
     // Translate the runtime address into a virtual address into the module
     const vaddr = address - module.base_address;
 
     if (di.pdb != null) {
-        if (try di.getSymbolFromPdb(vaddr)) |symbol| return symbol;
+        if (di.getSymbolFromPdb(vaddr) catch return error.InvalidDebugInfo) |symbol| return symbol;
     }
 
     if (di.dwarf) |*dwarf| {
         const dwarf_address = vaddr + di.coff_image_base;
-        return dwarf.getSymbol(gpa, native_endian, dwarf_address);
+        return dwarf.getSymbol(gpa, native_endian, dwarf_address) catch return error.InvalidDebugInfo;
     }
 
     return error.MissingDebugInfo;
@@ -59,7 +64,7 @@ fn lookupInCache(cache: *const LookupCache, address: usize) ?WindowsModule {
     }
     return null;
 }
-fn loadLocationInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !void {
+fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !void {
     const mapped_ptr: [*]const u8 = @ptrFromInt(module.base_address);
     const mapped = mapped_ptr[0..module.size];
     var coff_obj = coff.Coff.init(mapped, true) catch return error.InvalidDebugInfo;
@@ -151,7 +156,7 @@ fn loadLocationInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo
 
         di.pdb = Pdb.init(gpa, path) catch |err| switch (err) {
             error.FileNotFound, error.IsDir => break :pdb,
-            else => return err,
+            else => |e| return e,
         };
         try di.pdb.?.parseInfoStream();
         try di.pdb.?.parseDbiStream();

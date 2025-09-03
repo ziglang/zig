@@ -21,7 +21,7 @@ pub const DebugInfo = struct {
 pub fn key(m: ElfModule) usize {
     return m.load_offset;
 }
-pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !ElfModule {
+pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) Error!ElfModule {
     _ = cache;
     _ = gpa;
     if (builtin.target.os.tag == .haiku) @panic("TODO implement lookup module for Haiku");
@@ -92,42 +92,79 @@ pub fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !ElfModule {
     };
     return error.MissingDebugInfo;
 }
-fn loadDwarf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) !void {
-    if (module.name.len > 0) {
-        di.loaded_elf = Dwarf.ElfModule.load(gpa, .{
+fn loadDwarf(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
+    const load_result = if (module.name.len > 0) res: {
+        break :res Dwarf.ElfModule.load(gpa, .{
             .root_dir = .cwd(),
             .sub_path = module.name,
-        }, module.build_id, null, null, null) catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            error.Overflow => return error.InvalidDebugInfo,
-            else => |e| return e,
+        }, module.build_id, null, null, null);
+    } else res: {
+        const path = std.fs.selfExePathAlloc(gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => return error.ReadFailed,
         };
-    } else {
-        const path = try std.fs.selfExePathAlloc(gpa);
         defer gpa.free(path);
-        di.loaded_elf = Dwarf.ElfModule.load(gpa, .{
+        break :res Dwarf.ElfModule.load(gpa, .{
             .root_dir = .cwd(),
             .sub_path = path,
-        }, module.build_id, null, null, null) catch |err| switch (err) {
-            error.FileNotFound => return error.MissingDebugInfo,
-            error.Overflow => return error.InvalidDebugInfo,
-            else => |e| return e,
-        };
-    }
+        }, module.build_id, null, null, null);
+    };
+    di.loaded_elf = load_result catch |err| switch (err) {
+        error.FileNotFound => return error.MissingDebugInfo,
+
+        error.OutOfMemory,
+        error.InvalidDebugInfo,
+        error.MissingDebugInfo,
+        error.Unexpected,
+        => |e| return e,
+
+        error.InvalidElfEndian,
+        error.InvalidElfMagic,
+        error.InvalidElfVersion,
+        error.InvalidUtf8,
+        error.InvalidWtf8,
+        error.EndOfStream,
+        error.Overflow,
+        error.UnimplementedDwarfForeignEndian, // this should be impossible as we're looking at the debug info for this process
+        => return error.InvalidDebugInfo,
+
+        else => return error.ReadFailed,
+    };
 }
-pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
+pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
     if (di.loaded_elf == null) try module.loadDwarf(gpa, di);
     const vaddr = address - module.load_offset;
-    return di.loaded_elf.?.dwarf.getSymbol(gpa, native_endian, vaddr);
+    return di.loaded_elf.?.dwarf.getSymbol(gpa, native_endian, vaddr) catch |err| switch (err) {
+        error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
+        error.ReadFailed,
+        error.EndOfStream,
+        error.Overflow,
+        error.StreamTooLong,
+        => return error.InvalidDebugInfo,
+    };
 }
-fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) !void {
-    const section_bytes = module.gnu_eh_frame orelse return error.MissingUnwindInfo; // MLUGG TODO: load from file
+fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
+    const section_bytes = module.gnu_eh_frame orelse return error.MissingDebugInfo; // MLUGG TODO: load from file
+
     const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
-    const header: Dwarf.Unwind.EhFrameHeader = try .parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian);
-    di.unwind = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
-    try di.unwind.?.prepareLookup(gpa, @sizeOf(usize), native_endian);
+    const header = Dwarf.Unwind.EhFrameHeader.parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian) catch |err| switch (err) {
+        error.ReadFailed => unreachable, // it's all fixed buffers
+        error.InvalidDebugInfo => |e| return e,
+        error.EndOfStream, error.Overflow => return error.InvalidDebugInfo,
+        error.UnsupportedAddrSize => return error.UnsupportedDebugInfo,
+    };
+
+    var unwind: Dwarf.Unwind = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+    unwind.prepareLookup(gpa, @sizeOf(usize), native_endian) catch |err| switch (err) {
+        error.ReadFailed => unreachable, // it's all fixed buffers
+        error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
+        error.EndOfStream, error.Overflow, error.StreamTooLong => return error.InvalidDebugInfo,
+        error.UnsupportedAddrSize, error.UnsupportedDwarfVersion => return error.UnsupportedDebugInfo,
+    };
+
+    di.unwind = unwind;
 }
-pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
     if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
     return context.unwindFrameDwarf(&di.unwind.?, module.load_offset, null);
 }
@@ -140,6 +177,7 @@ const Dwarf = std.debug.Dwarf;
 const elf = std.elf;
 const mem = std.mem;
 const UnwindContext = std.debug.SelfInfo.UnwindContext;
+const Error = std.debug.SelfInfo.Error;
 
 const builtin = @import("builtin");
 const native_endian = builtin.target.cpu.arch.endian();
