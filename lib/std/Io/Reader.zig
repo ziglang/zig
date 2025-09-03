@@ -832,6 +832,7 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// See also:
 /// * `takeDelimiterInclusive`
 /// * `peekDelimiterExclusive`
+/// * `streamDelimiter`
 pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
     const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
         error.EndOfStream => {
@@ -863,6 +864,7 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// See also:
 /// * `takeDelimiterInclusive`
 /// * `takeDelimiterExclusive`
+/// * `streamDelimiter`
 pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong }!?[]u8 {
     const result = r.takeDelimiterExclusive(delimiter) catch |err| switch (err) {
         error.EndOfStream => return null,
@@ -879,9 +881,7 @@ pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong
 /// case `error.EndOfStream` is returned instead.
 ///
 /// If the delimiter is not found within a number of bytes matching the
-/// capacity of this `Reader`, `error.StreamTooLong` is returned. In
-/// such case, the stream state is unmodified as if this function was never
-/// called.
+/// capacity of this `Reader`, `error.StreamTooLong` is returned.
 ///
 /// Invalidates previously returned values from `peek`.
 ///
@@ -1416,6 +1416,12 @@ test takeDelimiter {
     try testing.expectEqual(null, try r.takeDelimiter('\n'));
 }
 
+// test "takeDelimiter no delimiter" {
+//     var r: Reader = .fixed("abc");
+//     try testing.expectEqualStrings("abc", try r.takeDelimiter('\n') orelse "null");
+//     try testing.expectEqual(null, try r.takeDelimiter('\n'));
+// }
+
 test takeDelimiterInclusive {
     var r: Reader = .fixed("ab\ncd\ne");
     try testing.expectEqualStrings("ab\n", try r.takeDelimiterInclusive('\n'));
@@ -1437,6 +1443,11 @@ test peekDelimiterInclusive {
 
     try testing.expectEqualStrings("c", try r.peek(1));
 }
+
+// test "peekDelimiterInclusive no delimiter" {
+//     var r: Reader = .fixed("abc");
+//     try testing.expectEqual(error.EndOfStream, r.peekDelimiterInclusive('\n'));
+// }
 
 test takeDelimiterExclusive {
     var r: Reader = .fixed("ab\ncd\ne");
@@ -1460,6 +1471,11 @@ test peekDelimiterExclusive {
     try testing.expectError(error.EndOfStream, r.peekDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.peekDelimiterExclusive('\n'));
 }
+
+// test "peekDelimiterExclusive no delimiter" {
+//     var r: Reader = .fixed("abc");
+//     try testing.expectEqualStrings("abc", try r.peekDelimiterExclusive('\n'));
+// }
 
 test streamDelimiter {
     var out_buffer: [10]u8 = undefined;
