@@ -873,7 +873,7 @@ pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong
         },
         else => |e| return e,
     };
-    r.toss(result.len + 1);
+    r.toss(result.len);
     return result[0 .. result.len - 1];
 }
 
@@ -1401,6 +1401,14 @@ test peekSentinel {
     var r: Reader = .fixed("ab\nc");
     try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
     try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
+
+test takeDelimiter {
+    var r: Reader = .fixed("ab\ncd\ne");
+
+    try testing.expectEqualStrings("ab", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqualStrings("cd", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqualStrings("e", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
 }
 
 test takeDelimiterInclusive {
