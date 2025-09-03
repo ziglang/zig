@@ -635,11 +635,11 @@ pub fn dependsOnSystemLibrary(compile: *Compile, name: []const u8) bool {
 
     const target = compile.rootModuleTarget();
 
-    if (std.zig.target.isLibCLibName(target, name)) {
+    if (std.zig.target.isLibCLibName(&target, name)) {
         return is_linking_libc;
     }
 
-    if (std.zig.target.isLibCxxLibName(target, name)) {
+    if (std.zig.target.isLibCxxLibName(&target, name)) {
         return is_linking_libcpp;
     }
 
