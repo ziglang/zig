@@ -2226,7 +2226,7 @@ const ElfDumper = struct {
                     try writer.print(" {s}", .{sym_bind});
                 }
 
-                const sym_vis = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
+                const sym_vis = @as(elf.STV, @enumFromInt(@as(u3, @truncate(sym.st_other))));
                 try writer.print(" {s}", .{@tagName(sym_vis)});
 
                 const sym_name = switch (sym.st_type()) {

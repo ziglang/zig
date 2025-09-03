@@ -2303,7 +2303,7 @@ pub const R_PPC64 = enum(u32) {
     _,
 };
 
-pub const STV = enum(u2) {
+pub const STV = enum(u3) {
     DEFAULT = 0,
     INTERNAL = 1,
     HIDDEN = 2,
