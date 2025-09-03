@@ -26892,7 +26892,7 @@ fn fieldPtr(
                 const ptr_info = object_ty.ptrInfo(zcu);
                 const new_ptr_ty = try pt.ptrTypeSema(.{
                     .child = Type.fromInterned(ptr_info.child).childType(zcu).toIntern(),
-                    .sentinel = if (object_ty.sentinel(zcu)) |s| s.toIntern() else .none,
+                    .sentinel = if (inner_ty.sentinel(zcu)) |s| s.toIntern() else .none,
                     .flags = .{
                         .size = .many,
                         .alignment = ptr_info.flags.alignment,
