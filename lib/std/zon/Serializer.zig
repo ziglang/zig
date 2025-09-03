@@ -235,7 +235,7 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
             var container = try self.beginTuple(
                 .{ .whitespace_style = .{ .fields = vector.len } },
             );
-            for (0..vector.len) |i| {
+            inline for (0..vector.len) |i| {
                 try container.fieldArbitraryDepth(val[i], options);
             }
             try container.end();

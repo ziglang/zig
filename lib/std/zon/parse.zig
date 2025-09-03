@@ -446,7 +446,7 @@ pub fn free(gpa: Allocator, value: anytype) void {
         .optional => if (value) |some| {
             free(gpa, some);
         },
-        .vector => |vector| for (0..vector.len) |i| free(gpa, value[i]),
+        .vector => |vector| inline for (0..vector.len) |i| free(gpa, value[i]),
         .void => {},
         else => comptime unreachable,
     }
@@ -998,11 +998,7 @@ const Parser = struct {
         }
     }
 
-    fn parseVector(
-        self: *@This(),
-        T: type,
-        node: Zoir.Node.Index,
-    ) !T {
+    fn parseVector(self: *@This(), T: type, node: Zoir.Node.Index) !T {
         const vector_info = @typeInfo(T).vector;
 
         const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
@@ -1021,8 +1017,8 @@ const Parser = struct {
             );
         }
 
-        for (0..vector_info.len) |i| {
-            errdefer for (0..i) |j| free(self.gpa, result[j]);
+        inline for (0..vector_info.len) |i| {
+            errdefer inline for (0..i) |j| free(self.gpa, result[j]);
             result[i] = try self.parseExpr(vector_info.child, nodes.at(@intCast(i)));
         }
 
