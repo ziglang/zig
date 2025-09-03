@@ -672,7 +672,7 @@ fn getRandomBytesDevURandom(buf: []u8) !void {
 
     const file: fs.File = .{ .handle = fd };
     var file_reader = file.readerStreaming(&.{});
-    file_reader.readSliceAll(buf) catch return error.Unexpected;
+    file_reader.interface.readSliceAll(buf) catch return error.Unexpected;
 }
 
 /// Causes abnormal process termination.
