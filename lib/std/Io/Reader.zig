@@ -864,17 +864,11 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// * `takeDelimiterInclusive`
 /// * `takeDelimiterExclusive`
 pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong }!?[]u8 {
-    const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
-        error.EndOfStream => {
-            const remaining = r.buffer[r.seek..r.end];
-            if (remaining.len == 0) return null;
-            r.toss(remaining.len);
-            return remaining;
-        },
+    const result = r.takeDelimiterExclusive(delimiter) catch |err| switch (err) {
+        error.EndOfStream => return null,
         else => |e| return e,
     };
-    r.toss(result.len);
-    return result[0 .. result.len - 1];
+    return result;
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
