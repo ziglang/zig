@@ -4356,24 +4356,45 @@ pub const GetSockOptError = error{
 
     /// Insufficient resources are available in the system to complete the call.
     SystemResources,
+
+    NetworkSubsystemFailed,
+    BlockingOperationInProgress,
+    InvalidOption,
+    FileDescriptorNotASocket,
 } || UnexpectedError;
 
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
     var len: socklen_t = @intCast(opt.len);
-    switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
-        .SUCCESS => {
-            std.debug.assert(len == opt.len);
-        },
-        .BADF => unreachable,
-        .NOTSOCK => unreachable,
-        .INVAL => unreachable,
-        .FAULT => unreachable,
-        .NOPROTOOPT => return error.InvalidProtocolOption,
-        .NOMEM => return error.SystemResources,
-        .NOBUFS => return error.SystemResources,
-        .ACCES => return error.AccessDenied,
-        else => |err| return unexpectedErrno(err),
+    if (native_os == .windows) {
+        const rc = windows.ws2_32.getsockopt(fd, level, @intCast(optname), opt.ptr, @ptrCast(&len));
+        if (rc == windows.ws2_32.SOCKET_ERROR) {
+            switch (windows.ws2_32.WSAGetLastError()) {
+                // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-getsockopt
+                .WSANOTINITIALISED => unreachable,
+                .WSAENETDOWN => return error.NetworkSubsystemFailed,
+                .WSAEFAULT => unreachable,
+                .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+                .WSAEINVAL => return error.InvalidOption,
+                .WSAENOPROTOOPT => return error.InvalidProtocolOption,
+                .WSAENOTSOCK => return error.FileDescriptorNotASocket,
+                else => |err| return windows.unexpectedWSAError(err),
+            }
+        }
+    } else {
+        switch (errno(system.getsockopt(fd, level, optname, opt.ptr, &len))) {
+            .SUCCESS => {},
+            .BADF => unreachable,
+            .NOTSOCK => unreachable,
+            .INVAL => unreachable,
+            .FAULT => unreachable,
+            .NOPROTOOPT => return error.InvalidProtocolOption,
+            .NOMEM => return error.SystemResources,
+            .NOBUFS => return error.SystemResources,
+            .ACCES => return error.AccessDenied,
+            else => |err| return unexpectedErrno(err),
+        }
     }
+    assert(len == opt.len);
 }
 
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
@@ -6724,10 +6745,13 @@ pub const SetSockOptError = error{
     /// Setting the socket option requires more elevated permissions.
     PermissionDenied,
 
+    BlockingOperationInProgress,
+    InvalidOption,
+    ConnectionTimedOut,
+    ConnectionResetByPeer,
     OperationNotSupported,
     NetworkSubsystemFailed,
     FileDescriptorNotASocket,
-    SocketNotBound,
     NoDevice,
 } || UnexpectedError;
 
@@ -6737,32 +6761,36 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
+                // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-setsockopt
                 .WSANOTINITIALISED => unreachable,
                 .WSAENETDOWN => return error.NetworkSubsystemFailed,
                 .WSAEFAULT => unreachable,
+                .WSAEINPROGRESS => return error.BlockingOperationInProgress,
+                .WSAEINVAL => return error.InvalidOption,
+                .WSAENETRESET => return error.ConnectionTimedOut,
+                .WSAENOPROTOOPT => return error.InvalidProtocolOption,
+                .WSAENOTCONN => return error.ConnectionResetByPeer,
                 .WSAENOTSOCK => return error.FileDescriptorNotASocket,
-                .WSAEINVAL => return error.SocketNotBound,
                 else => |err| return windows.unexpectedWSAError(err),
             }
         }
         return;
-    } else {
-        switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
-            .SUCCESS => {},
-            .BADF => unreachable, // always a race condition
-            .NOTSOCK => unreachable, // always a race condition
-            .INVAL => unreachable,
-            .FAULT => unreachable,
-            .DOM => return error.TimeoutTooBig,
-            .ISCONN => return error.AlreadyConnected,
-            .NOPROTOOPT => return error.InvalidProtocolOption,
-            .NOMEM => return error.SystemResources,
-            .NOBUFS => return error.SystemResources,
-            .PERM => return error.PermissionDenied,
-            .NODEV => return error.NoDevice,
-            .OPNOTSUPP => return error.OperationNotSupported,
-            else => |err| return unexpectedErrno(err),
-        }
+    }
+    switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
+        .SUCCESS => {},
+        .BADF => unreachable, // always a race condition
+        .NOTSOCK => unreachable, // always a race condition
+        .INVAL => unreachable,
+        .FAULT => unreachable,
+        .DOM => return error.TimeoutTooBig,
+        .ISCONN => return error.AlreadyConnected,
+        .NOPROTOOPT => return error.InvalidProtocolOption,
+        .NOMEM => return error.SystemResources,
+        .NOBUFS => return error.SystemResources,
+        .PERM => return error.PermissionDenied,
+        .NODEV => return error.NoDevice,
+        .OPNOTSUPP => return error.OperationNotSupported,
+        else => |err| return unexpectedErrno(err),
     }
 }
 
