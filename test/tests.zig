@@ -2293,11 +2293,6 @@ pub fn addModuleTests(b: *std.Build, options: ModuleTestOptions) *Step {
         if (options.skip_single_threaded and test_target.single_threaded == true)
             continue;
 
-        // https://github.com/ziglang/zig/issues/24405
-        if (!builtin.cpu.arch.isLoongArch() and target.cpu.arch.isLoongArch() and
-            (mem.eql(u8, options.name, "behavior") or mem.eql(u8, options.name, "std")))
-            continue;
-
         // TODO get compiler-rt tests passing for self-hosted backends.
         if (((target.cpu.arch != .x86_64 and target.cpu.arch != .aarch64) or target.ofmt == .coff) and
             test_target.use_llvm == false and mem.eql(u8, options.name, "compiler-rt"))
