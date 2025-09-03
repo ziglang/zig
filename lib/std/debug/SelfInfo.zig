@@ -1,8 +1,6 @@
 //! Cross-platform abstraction for this binary's own debug information, with a
 //! goal of minimal code bloat and compilation speed penalty.
 
-// MLUGG TODO: audit use of errors in this file. ideally, introduce some concrete error sets
-
 const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 const native_endian = native_arch.endian();
@@ -20,6 +18,19 @@ const SelfInfo = @This();
 
 modules: std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo),
 lookup_cache: Module.LookupCache,
+
+pub const Error = error{
+    /// The required debug info is invalid or corrupted.
+    InvalidDebugInfo,
+    /// The required debug info could not be found.
+    MissingDebugInfo,
+    /// The required debug info was found, and may be valid, but is not supported by this implementation.
+    UnsupportedDebugInfo,
+    /// The required debug info could not be read from disk due to some IO error.
+    ReadFailed,
+    OutOfMemory,
+    Unexpected,
+};
 
 /// Indicates whether the `SelfInfo` implementation has support for this target.
 pub const target_supported: bool = switch (native_os) {
@@ -82,7 +93,7 @@ test {
     _ = &deinit;
 }
 
-pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !usize {
+pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -92,7 +103,7 @@ pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) !us
     return module.unwindFrame(gpa, gop.value_ptr, context);
 }
 
-pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.debug.Symbol {
+pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error!std.debug.Symbol {
     comptime assert(target_supported);
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -102,7 +113,7 @@ pub fn getSymbolAtAddress(self: *SelfInfo, gpa: Allocator, address: usize) !std.
     return module.getSymbolAtAddress(gpa, gop.value_ptr, address);
 }
 
-pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) error{ Unexpected, OutOfMemory, MissingDebugInfo }![]const u8 {
+pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) Error![]const u8 {
     comptime assert(target_supported);
     const module: Module = try .lookup(&self.lookup_cache, gpa, address);
     return module.name;
@@ -271,8 +282,57 @@ pub const UnwindContext = struct {
     /// may require lazily loading the data in those sections.
     ///
     /// `explicit_fde_offset` is for cases where the FDE offset is known, such as when __unwind_info
-    /// defers unwinding to DWARF. This is an offset into the `.eh_frame` section.
     pub fn unwindFrameDwarf(
+        context: *UnwindContext,
+        unwind: *const Dwarf.Unwind,
+        load_offset: usize,
+        explicit_fde_offset: ?usize,
+    ) Error!usize {
+        return unwindFrameDwarfInner(context, unwind, load_offset, explicit_fde_offset) catch |err| switch (err) {
+            error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
+
+            error.UnimplementedArch,
+            error.UnimplementedOs,
+            error.ThreadContextNotSupported,
+            error.UnimplementedRegisterRule,
+            error.UnsupportedAddrSize,
+            error.UnsupportedDwarfVersion,
+            error.UnimplementedUserOpcode,
+            error.UnimplementedExpressionCall,
+            error.UnimplementedOpcode,
+            error.UnimplementedTypedComparison,
+            error.UnimplementedTypeConversion,
+            error.UnknownExpressionOpcode,
+            => return error.UnsupportedDebugInfo,
+
+            error.InvalidRegister,
+            error.RegisterContextRequired,
+            error.ReadFailed,
+            error.EndOfStream,
+            error.IncompatibleRegisterSize,
+            error.Overflow,
+            error.StreamTooLong,
+            error.InvalidOperand,
+            error.InvalidOpcode,
+            error.InvalidOperation,
+            error.InvalidCFARule,
+            error.IncompleteExpressionContext,
+            error.InvalidCFAOpcode,
+            error.InvalidExpression,
+            error.InvalidFrameBase,
+            error.InvalidIntegralTypeSize,
+            error.InvalidSubExpression,
+            error.InvalidTypeLength,
+            error.TruncatedIntegralType,
+            error.DivisionByZero,
+            error.InvalidExpressionValue,
+            error.NoExpressionValue,
+            error.RegisterSizeMismatch,
+            error.InvalidCFA,
+            => return error.InvalidDebugInfo,
+        };
+    }
+    fn unwindFrameDwarfInner(
         context: *UnwindContext,
         unwind: *const Dwarf.Unwind,
         load_offset: usize,
