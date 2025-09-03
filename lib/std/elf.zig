@@ -1165,11 +1165,11 @@ pub const EM = enum(u16) {
     S370 = 9,
     /// MIPS R3000 (and R4000) little-endian, Oct 4 1993 Draft (deprecated)
     MIPS_RS3_LE = 10,
-    /// Old version of Sparc v9, from before the ABI (deprecated)
+    /// Old version of Sparc v9, from before the ABI (not gABI assigned)
     OLD_SPARCV9 = 11,
     /// HPPA
     PARISC = 15,
-    /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
+    /// Fujitsu VPP500 (also old version of PowerPC, which was not gABI assigned)
     VPP500 = 17,
     /// Sun's "v8plus"
     SPARC32PLUS = 18,
@@ -1189,7 +1189,7 @@ pub const EM = enum(u16) {
     FR20 = 37,
     /// TRW RH32
     RH32 = 38,
-    /// Motorola M*Core, aka RCE (also Fujitsu MMA)
+    /// Motorola M*Core, aka RCE (also old Fujitsu MMA, which was not gABI assigned)
     MCORE = 39,
     /// ARM
     ARM = 40,
@@ -1301,7 +1301,7 @@ pub const EM = enum(u16) {
     ARC_COMPACT = 93,
     /// Tensilica Xtensa Architecture
     XTENSA = 94,
-    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number)
+    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number, which was not gABI assigned)
     VIDEOCORE = 95,
     /// Thompson Multimedia General Purpose Processor
     TMM_GPP = 96,
@@ -1309,7 +1309,7 @@ pub const EM = enum(u16) {
     NS32K = 97,
     /// Tenor Network TPC processor
     TPC = 98,
-    /// Trebia SNP 1000 processor (also old value for picoJava; deprecated)
+    /// Trebia SNP 1000 processor (also old value for picoJava, which was not gABI assigned)
     SNP1K = 99,
     /// STMicroelectronics ST200 microcontroller
     ST200 = 100,
@@ -1341,7 +1341,7 @@ pub const EM = enum(u16) {
     ALTERA_NIOS2 = 113,
     /// National Semiconductor CRX
     CRX = 114,
-    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC; deprecated)
+    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC, which was not gABI assigned)
     XGATE = 115,
     /// Infineon C16x/XC16x processor
     C166 = 116,
