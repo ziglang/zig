@@ -233,7 +233,6 @@ pub const Decode = struct {
 
         while (true) {
             if (accum.len >= expected_unpacked_size) break;
-            if (range_decoder.isFinished()) break;
             switch (try ld.process(reader, allocating, accum, &range_decoder, &n_read)) {
                 .more => continue,
                 .finished => break,
