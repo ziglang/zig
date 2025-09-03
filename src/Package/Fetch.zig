@@ -1060,8 +1060,7 @@ fn initResource(f: *Fetch, uri: std.Uri, resource: *Resource, reader_buffer: []u
             };
 
             if (response.head.status != .ok) {
-                // We only need to retry if we run into server-side errors (5xx)
-                if (retries_left > 0 and @intFromEnum(response.head.status) >= 500) {
+                if (retries_left > 0) {
                     std.Thread.sleep(std.time.ns_per_ms * f.retry_delay_ms);
                     retries_left -= 1;
                     continue;
