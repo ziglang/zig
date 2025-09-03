@@ -1477,3 +1477,16 @@ const CommonOpenFlags = packed struct {
         return result;
     }
 };
+
+test "sockopt" {
+    if (native_os == .wasi) return error.SkipZigTest; // Unsupported
+    const sock = try posix.socket(posix.AF.INET, posix.SOCK.STREAM, 0);
+    defer posix.close(sock);
+    // note SO_REUSEADDR integer should be treated as a boolean; various
+    // systems return "true" values other than 1 after setting to 1.
+    const one: i32 = 1;
+    try posix.setsockopt(sock, posix.SOL.SOCKET, posix.SO.REUSEADDR, std.mem.asBytes(&one));
+    var check: i32 = 0;
+    try posix.getsockopt(sock, posix.SOL.SOCKET, posix.SO.REUSEADDR, std.mem.asBytes(&check));
+    try expect(check != 0);
+}
