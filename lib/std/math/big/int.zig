@@ -2033,7 +2033,7 @@ pub const Mutable = struct {
         return formatNumber(self, w, .{});
     }
 
-    pub fn formatNumber(self: Const, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
+    pub fn formatNumber(self: Mutable, w: *std.Io.Writer, n: std.fmt.Number) std.Io.Writer.Error!void {
         return self.toConst().formatNumber(w, n);
     }
 };
