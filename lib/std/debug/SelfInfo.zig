@@ -290,8 +290,10 @@ pub const UnwindContext = struct {
         ) orelse return error.MissingDebugInfo;
         const format, const cie, const fde = try unwind.getFde(fde_offset, @sizeOf(usize), native_endian);
 
-        // Check if this FDE *actually* includes the address.
-        if (pc_vaddr < fde.pc_begin or pc_vaddr >= fde.pc_begin + fde.pc_range) return error.MissingDebugInfo;
+        // Check if the FDE *actually* includes the pc (`lookupPc` can return false positives).
+        if (pc_vaddr < fde.pc_begin or pc_vaddr >= fde.pc_begin + fde.pc_range) {
+            return error.MissingDebugInfo;
+        }
 
         // Do not set `compile_unit` because the spec states that CFIs
         // may not reference other debug sections anyway.
