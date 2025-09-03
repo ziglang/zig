@@ -1,4 +1,24 @@
-//! MLUGG TODO DOCUMENT THIS
+//! Contains state relevant to stack unwinding through the DWARF `.debug_frame` section, or the
+//! `.eh_frame` section which is an extension of the former specified by Linux Standard Base Core.
+//! Like `Dwarf`, no assumptions are made about the host's relationship to the target of the unwind
+//! information -- unwind data for any target can be read by any host.
+//!
+//! `Unwind` specifically deals with loading the data from CIEs and FDEs in the section, and with
+//! performing fast lookups of a program counter's corresponding FDE. The CFI instructions in the
+//! CIEs and FDEs can be interpreted by `VirtualMachine`.
+//!
+//! The typical usage of `Unwind` is as follows:
+//!
+//! * Initialize with `initEhFrameHdr` or `initSection`, depending on the available data
+//! * Call `prepareLookup` to construct a search table if necessary
+//! * Call `lookupPc` to find the section offset of the FDE corresponding to a PC
+//! * Call `getFde` to load the corresponding FDE and CIE
+//! * Check that the PC does indeed fall in that range (`lookupPc` may return a false positive)
+//! * Interpret the embedded CFI instructions using `VirtualMachine`
+//!
+//! In some cases, such as when using the "compact unwind" data in Mach-O binaries, the FDE offsets
+//! may already be known. In that case, no call to `lookupPc` is necessary, which means the call to
+//! `prepareLookup` can also be omitted.
 
 pub const VirtualMachine = @import("Unwind/VirtualMachine.zig");
 
@@ -8,7 +28,8 @@ frame_section: struct {
     /// the binary (e.g. `sh_addr` in an ELF file); the equivalent runtime address may be relocated
     /// in position-independent binaries.
     vaddr: u64,
-    /// The full contents of the section. May have imprecise bounds depending on `section`.
+    /// The full contents of the section. May have imprecise bounds depending on `section`. This
+    /// memory is externally managed.
     ///
     /// For `.debug_frame`, the slice length is exactly equal to the section length. This is needed
     /// to know the number of CIEs and FDEs.
@@ -22,13 +43,18 @@ frame_section: struct {
     bytes: []const u8,
 },
 
+/// A structure allowing fast lookups of the FDE corresponding to a particular PC. We use a binary
+/// search table for the lookup; essentially, a list of all FDEs ordered by PC range. `null` means
+/// the lookup data is not yet populated, so `prepareLookup` must be called before `lookupPc`.
 lookup: ?union(enum) {
+    /// The `.eh_frame_hdr` section contains a pre-computed search table which we can use.
     eh_frame_hdr: struct {
         /// Virtual address of the `.eh_frame_hdr` section.
         vaddr: u64,
         table: EhFrameHeader.SearchTable,
     },
-    /// Offsets into `frame_section` of FDEs, sorted by ascending `pc_begin`.
+    /// There is no pre-computed search table, so we have built one ourselves.
+    /// Allocated into `gpa` and freed by `deinit`.
     sorted_fdes: []SortedFdeEntry,
 },
 
@@ -39,29 +65,13 @@ const SortedFdeEntry = struct {
     fde_offset: u64,
 };
 
-const Section = enum { debug_frame, eh_frame };
-
-/// Initialize with unwind information from the contents of a `.debug_frame` or `.eh_frame` section.
-///
-/// If the `.eh_frame_hdr` section is available, consider instead using `initEhFrameHdr`. This
-/// allows the implementation to use a search table embedded in that section if it is available.
-pub fn initSection(section: Section, section_vaddr: u64, section_bytes: []const u8) Unwind {
-    return .{
-        .frame_section = .{
-            .id = section,
-            .bytes = section_bytes,
-            .vaddr = section_vaddr,
-        },
-        .lookup = null,
-    };
-}
+pub const Section = enum { debug_frame, eh_frame };
 
 /// Initialize with unwind information from a header loaded from an `.eh_frame_hdr` section, and a
 /// pointer to the contents of the `.eh_frame` section.
 ///
-/// This differs from `loadFromSection` because `.eh_frame_hdr` may embed a binary search table, and
-/// if it does, this function will use that for address lookups instead of constructing our own
-/// search table.
+/// `.eh_frame_hdr` may embed a binary search table of FDEs. If it does, we will use that table for
+/// PC lookups rather than spending time constructing our own search table.
 pub fn initEhFrameHdr(header: EhFrameHeader, section_vaddr: u64, section_bytes_ptr: [*]const u8) Unwind {
     return .{
         .frame_section = .{
@@ -76,6 +86,23 @@ pub fn initEhFrameHdr(header: EhFrameHeader, section_vaddr: u64, section_bytes_p
     };
 }
 
+/// Initialize with unwind information from the contents of a `.debug_frame` or `.eh_frame` section.
+///
+/// If the `.eh_frame_hdr` section is available, consider instead using `initEhFrameHdr`, which
+/// allows the implementation to use a search table embedded in that section if it is available.
+pub fn initSection(section: Section, section_vaddr: u64, section_bytes: []const u8) Unwind {
+    return .{
+        .frame_section = .{
+            .id = section,
+            .bytes = section_bytes,
+            .vaddr = section_vaddr,
+        },
+        .lookup = null,
+    };
+}
+
+/// Technically, it is only necessary to call this if `prepareLookup` has previously been called,
+/// since no other function here allocates resources.
 pub fn deinit(unwind: *Unwind, gpa: Allocator) void {
     if (unwind.lookup) |lookup| switch (lookup) {
         .eh_frame_hdr => {},
@@ -83,8 +110,12 @@ pub fn deinit(unwind: *Unwind, gpa: Allocator) void {
     };
 }
 
-/// This represents the decoded .eh_frame_hdr header
+/// Decoded version of the `.eh_frame_hdr` section.
 pub const EhFrameHeader = struct {
+    /// The virtual address (i.e. as given in the binary, before relocations) of the `.eh_frame`
+    /// section. This value is important when using `.eh_frame_hdr` to find debug information for
+    /// the current binary, because it allows locating where the `.eh_frame` section is loaded in
+    /// memory (by adding it to the ELF module's base address).
     eh_frame_vaddr: u64,
     search_table: ?SearchTable,
 
@@ -93,6 +124,8 @@ pub const EhFrameHeader = struct {
         offset: u8,
         encoding: EH.PE,
         fde_count: usize,
+        /// The actual table entries are viewed as a plain byte slice because `encoding` causes the
+        /// size of entries in the table to vary.
         entries: []const u8,
 
         /// Returns the vaddr of the FDE for `pc`, or `null` if no matching FDE was found.
@@ -104,7 +137,7 @@ pub const EhFrameHeader = struct {
             endian: Endian,
         ) !?u64 {
             const table_vaddr = eh_frame_hdr_vaddr + table.offset;
-            const entry_size = try EhFrameHeader.entrySize(table.encoding, addr_size_bytes);
+            const entry_size = try entrySize(table.encoding, addr_size_bytes);
             var left: usize = 0;
             var len: usize = table.fde_count;
             while (len > 1) {
@@ -131,18 +164,18 @@ pub const EhFrameHeader = struct {
             }, endian);
             return fde_ptr;
         }
-    };
 
-    pub fn entrySize(table_enc: EH.PE, addr_size_bytes: u8) !u8 {
-        return switch (table_enc.type) {
-            .absptr => 2 * addr_size_bytes,
-            .udata2, .sdata2 => 4,
-            .udata4, .sdata4 => 8,
-            .udata8, .sdata8 => 16,
-            .uleb128, .sleb128 => return bad(), // this is a binary search table; all entries must be the same size
-            _ => return bad(),
-        };
-    }
+        fn entrySize(table_enc: EH.PE, addr_size_bytes: u8) !u8 {
+            return switch (table_enc.type) {
+                .absptr => 2 * addr_size_bytes,
+                .udata2, .sdata2 => 4,
+                .udata4, .sdata4 => 8,
+                .udata8, .sdata8 => 16,
+                .uleb128, .sleb128 => return bad(), // this is a binary search table; all entries must be the same size
+                _ => return bad(),
+            };
+        }
+    };
 
     pub fn parse(
         eh_frame_hdr_vaddr: u64,
@@ -169,7 +202,7 @@ pub const EhFrameHeader = struct {
             const fde_count = try readEhPointer(&r, fde_count_enc, addr_size_bytes, .{
                 .pc_rel_base = eh_frame_hdr_vaddr + r.seek,
             }, endian);
-            const entry_size = try entrySize(table_enc, addr_size_bytes);
+            const entry_size = try SearchTable.entrySize(table_enc, addr_size_bytes);
             const bytes_offset = r.seek;
             const bytes_len = cast(usize, fde_count * entry_size) orelse return error.EndOfStream;
             const bytes = try r.take(bytes_len);
@@ -188,7 +221,15 @@ pub const EhFrameHeader = struct {
     }
 };
 
-pub const EntryHeader = union(enum) {
+/// The shared header of an FDE/CIE, containing a length in bytes (DWARF's "initial length field")
+/// and a value which differentiates CIEs from FDEs and maps FDEs to their corresponding CIEs. The
+/// `.eh_frame` format also includes a third variation, here called `.terminator`, which acts as a
+/// sentinel for the whole section.
+///
+/// `CommonInformationEntry.parse` and `FrameDescriptionEntry.parse` expect the `EntryHeader` to
+/// have been parsed first: they accept data stored in the `EntryHeader`, and only read the bytes
+/// following this header.
+const EntryHeader = union(enum) {
     cie: struct {
         format: Format,
         /// Remaining bytes in the CIE. These are parseable by `CommonInformationEntry.parse`.
@@ -206,7 +247,7 @@ pub const EntryHeader = union(enum) {
     /// keep track of how many section bytes remain when parsing all entries in `.debug_frame`.
     terminator,
 
-    pub fn read(r: *Reader, header_section_offset: u64, section: Section, endian: Endian) !EntryHeader {
+    fn read(r: *Reader, header_section_offset: u64, section: Section, endian: Endian) !EntryHeader {
         const unit_header = try Dwarf.readUnitHeader(r, endian);
         if (unit_header.unit_length == 0) return .terminator;
 
@@ -284,7 +325,7 @@ pub const CommonInformationEntry = struct {
     ///
     /// `length_offset` specifies the offset of this CIE's length field in the
     /// .eh_frame / .debug_frame section.
-    pub fn parse(
+    fn parse(
         cie_bytes: []const u8,
         section: Section,
         default_addr_size_bytes: u8,
@@ -364,7 +405,7 @@ pub const FrameDescriptionEntry = struct {
 
     /// This function expects to read the FDE starting at the PC Begin field.
     /// The returned struct references memory backed by `fde_bytes`.
-    pub fn parse(
+    fn parse(
         /// The virtual address of the FDE we're parsing, *excluding* its entry header (i.e. the
         /// address is after the header). If `fde_bytes` is backed by the memory of a loaded
         /// module's `.eh_frame` section, this will equal `fde_bytes.ptr`.
@@ -405,6 +446,9 @@ pub const FrameDescriptionEntry = struct {
     }
 };
 
+/// Builds the PC FDE lookup table if it is not already built. It is required to call this function
+/// at least once before calling `lookupPc`. Once this function is called, memory has been allocated
+/// and so `deinit` (matching this `gpa`) is required to free it.
 pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endian: Endian) !void {
     if (unwind.lookup != null) return;
 
@@ -443,22 +487,24 @@ pub fn prepareLookup(unwind: *Unwind, gpa: Allocator, addr_size_bytes: u8, endia
         .debug_frame => if (saw_terminator) return bad(), // `.debug_frame` uses the section bounds and does not specify a sentinel entry
     }
 
-    const fde_slice = try fde_list.toOwnedSlice(gpa);
-    errdefer comptime unreachable;
-    std.mem.sortUnstable(SortedFdeEntry, fde_slice, {}, struct {
+    std.mem.sortUnstable(SortedFdeEntry, fde_list.items, {}, struct {
         fn lessThan(ctx: void, a: SortedFdeEntry, b: SortedFdeEntry) bool {
             ctx;
             return a.pc_begin < b.pc_begin;
         }
     }.lessThan);
-    unwind.lookup = .{ .sorted_fdes = fde_slice };
+
+    // This temporary is necessary to avoid an RLS footgun where `lookup` ends up non-null `undefined` on OOM.
+    const final_fdes = try fde_list.toOwnedSlice(gpa);
+    unwind.lookup = .{ .sorted_fdes = final_fdes };
 }
 
 /// Given a program counter value, returns the offset of the corresponding FDE, or `null` if no
 /// matching FDE was found. The returned offset can be passed to `getFde` to load the data
 /// associated with the FDE.
 ///
-/// Before calling this function, `prepareLookup` must return successfully.
+/// Before calling this function, `prepareLookup` must return successfully at least once, to ensure
+/// that `unwind.lookup` is populated.
 ///
 /// The return value may be a false positive. After loading the FDE with `loadFde`, the caller must
 /// validate that `pc` is indeed in its range -- if it is not, then no FDE matches `pc`.
@@ -486,6 +532,8 @@ pub fn lookupPc(unwind: *const Unwind, pc: u64, addr_size_bytes: u8, endian: End
     return sorted_fdes[first_bad_idx - 1].fde_offset;
 }
 
+/// Get the FDE at a given offset, as well as its associated CIE. This offset typically comes from
+/// `lookupPc`. The CFI instructions within can be evaluated with `VirtualMachine`.
 pub fn getFde(unwind: *const Unwind, fde_offset: u64, addr_size_bytes: u8, endian: Endian) !struct { Format, CommonInformationEntry, FrameDescriptionEntry } {
     const section = unwind.frame_section;
 
