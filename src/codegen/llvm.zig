@@ -4980,8 +4980,8 @@ pub const FuncGen = struct {
                 .breakpoint     => try self.airBreakpoint(inst),
                 .ret_addr       => try self.airRetAddr(inst),
                 .frame_addr     => try self.airFrameAddress(inst),
-                .@"try"         => try self.airTry(body[i..], false),
-                .try_cold       => try self.airTry(body[i..], true),
+                .@"try"         => try self.airTry(inst, false),
+                .try_cold       => try self.airTry(inst, true),
                 .try_ptr        => try self.airTryPtr(inst, false),
                 .try_ptr_cold   => try self.airTryPtr(inst, true),
                 .intcast        => try self.airIntCast(inst, false),
@@ -4989,7 +4989,7 @@ pub const FuncGen = struct {
                 .trunc          => try self.airTrunc(inst),
                 .fptrunc        => try self.airFptrunc(inst),
                 .fpext          => try self.airFpext(inst),
-                .load           => try self.airLoad(body[i..]),
+                .load           => try self.airLoad(inst),
                 .not            => try self.airNot(inst),
                 .store          => try self.airStore(inst, false),
                 .store_safe     => try self.airStore(inst, true),
@@ -5045,7 +5045,7 @@ pub const FuncGen = struct {
                 .atomic_store_seq_cst   => try self.airAtomicStore(inst, .seq_cst),
 
                 .struct_field_ptr => try self.airStructFieldPtr(inst),
-                .struct_field_val => try self.airStructFieldVal(body[i..]),
+                .struct_field_val => try self.airStructFieldVal(inst),
 
                 .struct_field_ptr_index_0 => try self.airStructFieldPtrIndex(inst, 0),
                 .struct_field_ptr_index_1 => try self.airStructFieldPtrIndex(inst, 1),
@@ -5054,18 +5054,18 @@ pub const FuncGen = struct {
 
                 .field_parent_ptr => try self.airFieldParentPtr(inst),
 
-                .array_elem_val     => try self.airArrayElemVal(body[i..]),
-                .slice_elem_val     => try self.airSliceElemVal(body[i..]),
+                .array_elem_val     => try self.airArrayElemVal(inst),
+                .slice_elem_val     => try self.airSliceElemVal(inst),
                 .slice_elem_ptr     => try self.airSliceElemPtr(inst),
-                .ptr_elem_val       => try self.airPtrElemVal(body[i..]),
+                .ptr_elem_val       => try self.airPtrElemVal(inst),
                 .ptr_elem_ptr       => try self.airPtrElemPtr(inst),
 
-                .optional_payload         => try self.airOptionalPayload(body[i..]),
+                .optional_payload         => try self.airOptionalPayload(inst),
                 .optional_payload_ptr     => try self.airOptionalPayloadPtr(inst),
                 .optional_payload_ptr_set => try self.airOptionalPayloadPtrSet(inst),
 
-                .unwrap_errunion_payload     => try self.airErrUnionPayload(body[i..], false),
-                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(body[i..], true),
+                .unwrap_errunion_payload     => try self.airErrUnionPayload(inst, false),
+                .unwrap_errunion_payload_ptr => try self.airErrUnionPayload(inst, true),
                 .unwrap_errunion_err         => try self.airErrUnionErr(inst, false),
                 .unwrap_errunion_err_ptr     => try self.airErrUnionErr(inst, true),
                 .errunion_payload_ptr_set    => try self.airErrUnionPayloadPtrSet(inst),
@@ -6266,19 +6266,14 @@ pub const FuncGen = struct {
         // No need to reset the insert cursor since this instruction is noreturn.
     }
 
-    fn airTry(self: *FuncGen, body_tail: []const Air.Inst.Index, err_cold: bool) !Builder.Value {
-        const pt = self.ng.pt;
-        const zcu = pt.zcu;
-        const inst = body_tail[0];
+    fn airTry(self: *FuncGen, inst: Air.Inst.Index, err_cold: bool) !Builder.Value {
         const pl_op = self.air.instructions.items(.data)[@intFromEnum(inst)].pl_op;
         const err_union = try self.resolveInst(pl_op.operand);
         const extra = self.air.extraData(Air.Try, pl_op.payload);
         const body: []const Air.Inst.Index = @ptrCast(self.air.extra.items[extra.end..][0..extra.data.body_len]);
         const err_union_ty = self.typeOf(pl_op.operand);
-        const payload_ty = self.typeOfIndex(inst);
-        const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
         const is_unused = self.liveness.isUnused(inst);
-        return lowerTry(self, err_union, body, err_union_ty, false, can_elide_load, is_unused, err_cold);
+        return lowerTry(self, err_union, body, err_union_ty, false, false, is_unused, err_cold);
     }
 
     fn airTryPtr(self: *FuncGen, inst: Air.Inst.Index, err_cold: bool) !Builder.Value {
@@ -6824,11 +6819,10 @@ pub const FuncGen = struct {
         return self.wip.gepStruct(slice_llvm_ty, slice_ptr, index, "");
     }
 
-    fn airSliceElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airSliceElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const slice_ty = self.typeOf(bin_op.lhs);
         const slice = try self.resolveInst(bin_op.lhs);
@@ -6838,9 +6832,6 @@ pub const FuncGen = struct {
         const base_ptr = try self.wip.extractValue(slice, &.{0}, "");
         const ptr = try self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, &.{index}, "");
         if (isByRef(elem_ty, zcu)) {
-            if (self.canElideLoad(body_tail))
-                return ptr;
-
             self.maybeMarkAllowZeroAccess(slice_ty.ptrInfo(zcu));
 
             const slice_align = (slice_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
@@ -6867,11 +6858,10 @@ pub const FuncGen = struct {
         return self.wip.gep(.inbounds, llvm_elem_ty, base_ptr, &.{index}, "");
     }
 
-    fn airArrayElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airArrayElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
 
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const array_ty = self.typeOf(bin_op.lhs);
@@ -6884,9 +6874,7 @@ pub const FuncGen = struct {
                 try o.builder.intValue(try o.lowerType(pt, Type.usize), 0), rhs,
             };
             if (isByRef(elem_ty, zcu)) {
-                const elem_ptr =
-                    try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
-                if (canElideLoad(self, body_tail)) return elem_ptr;
+                const elem_ptr = try self.wip.gep(.inbounds, array_llvm_ty, array_llvm_val, &indices, "");
                 const elem_alignment = elem_ty.abiAlignment(zcu).toLlvm();
                 return self.loadByRef(elem_ptr, elem_ty, elem_alignment, .normal);
             } else {
@@ -6900,11 +6888,10 @@ pub const FuncGen = struct {
         return self.wip.extractElement(array_llvm_val, rhs, "");
     }
 
-    fn airPtrElemVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airPtrElemVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const bin_op = self.air.instructions.items(.data)[@intFromEnum(inst)].bin_op;
         const ptr_ty = self.typeOf(bin_op.lhs);
         const elem_ty = ptr_ty.childType(zcu);
@@ -6918,10 +6905,7 @@ pub const FuncGen = struct {
         else
             &.{rhs}, "");
         if (isByRef(elem_ty, zcu)) {
-            if (self.canElideLoad(body_tail)) return ptr;
-
             self.maybeMarkAllowZeroAccess(ptr_ty.ptrInfo(zcu));
-
             const ptr_align = (ptr_ty.ptrAlignment(zcu).min(elem_ty.abiAlignment(zcu))).toLlvm();
             return self.loadByRef(ptr, elem_ty, ptr_align, if (ptr_ty.isVolatilePtr(zcu)) .@"volatile" else .normal);
         }
@@ -6974,11 +6958,10 @@ pub const FuncGen = struct {
         return self.fieldPtr(inst, struct_ptr, struct_ptr_ty, field_index);
     }
 
-    fn airStructFieldVal(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airStructFieldVal(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
         const struct_field = self.air.extraData(Air.StructField, ty_pl.payload).data;
         const struct_ty = self.typeOf(struct_field.struct_operand);
@@ -7052,9 +7035,6 @@ pub const FuncGen = struct {
                     .flags = .{ .alignment = alignment },
                 });
                 if (isByRef(field_ty, zcu)) {
-                    if (canElideLoad(self, body_tail))
-                        return field_ptr;
-
                     assert(alignment != .none);
                     const field_alignment = alignment.toLlvm();
                     return self.loadByRef(field_ptr, field_ty, field_alignment, .normal);
@@ -7070,7 +7050,6 @@ pub const FuncGen = struct {
                     try self.wip.gepStruct(union_llvm_ty, struct_llvm_val, payload_index, "");
                 const payload_alignment = layout.payload_align.toLlvm();
                 if (isByRef(field_ty, zcu)) {
-                    if (canElideLoad(self, body_tail)) return field_ptr;
                     return self.loadByRef(field_ptr, field_ty, payload_alignment, .normal);
                 } else {
                     return self.loadTruncate(.normal, field_ty, field_ptr, payload_alignment);
@@ -7829,11 +7808,10 @@ pub const FuncGen = struct {
         return self.wip.gepStruct(optional_llvm_ty, operand, 0, "");
     }
 
-    fn airOptionalPayload(self: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airOptionalPayload(self: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const optional_ty = self.typeOf(ty_op.operand);
@@ -7846,19 +7824,13 @@ pub const FuncGen = struct {
         }
 
         const opt_llvm_ty = try o.lowerType(pt, optional_ty);
-        const can_elide_load = if (isByRef(payload_ty, zcu)) self.canElideLoad(body_tail) else false;
-        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty, can_elide_load);
+        return self.optPayloadHandle(opt_llvm_ty, operand, optional_ty, false);
     }
 
-    fn airErrUnionPayload(
-        self: *FuncGen,
-        body_tail: []const Air.Inst.Index,
-        operand_is_ptr: bool,
-    ) !Builder.Value {
+    fn airErrUnionPayload(self: *FuncGen, inst: Air.Inst.Index, operand_is_ptr: bool) !Builder.Value {
         const o = self.ng.object;
         const pt = self.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const operand = try self.resolveInst(ty_op.operand);
         const operand_ty = self.typeOf(ty_op.operand);
@@ -7877,7 +7849,6 @@ pub const FuncGen = struct {
             const payload_alignment = payload_ty.abiAlignment(zcu).toLlvm();
             const payload_ptr = try self.wip.gepStruct(err_union_llvm_ty, operand, offset, "");
             if (isByRef(payload_ty, zcu)) {
-                if (self.canElideLoad(body_tail)) return payload_ptr;
                 return self.loadByRef(payload_ptr, payload_ty, payload_alignment, .normal);
             }
             const payload_llvm_ty = err_union_llvm_ty.structFields(&o.builder)[offset];
@@ -9740,45 +9711,14 @@ pub const FuncGen = struct {
         return .none;
     }
 
-    /// As an optimization, we want to avoid unnecessary copies of isByRef=true
-    /// types. Here, we scan forward in the current block, looking to see if
-    /// this load dies before any side effects occur. In such case, we can
-    /// safely return the operand without making a copy.
-    ///
-    /// The first instruction of `body_tail` is the one whose copy we want to elide.
-    fn canElideLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) bool {
-        const zcu = fg.ng.pt.zcu;
-        const ip = &zcu.intern_pool;
-        for (body_tail[1..]) |body_inst| {
-            switch (fg.liveness.categorizeOperand(fg.air, zcu, body_inst, body_tail[0], ip)) {
-                .none => continue,
-                .write, .noret, .complex => return false,
-                .tomb => return true,
-            }
-        }
-        // The only way to get here is to hit the end of a loop instruction
-        // (implicit repeat).
-        return false;
-    }
-
-    fn airLoad(fg: *FuncGen, body_tail: []const Air.Inst.Index) !Builder.Value {
+    fn airLoad(fg: *FuncGen, inst: Air.Inst.Index) !Builder.Value {
         const pt = fg.ng.pt;
         const zcu = pt.zcu;
-        const inst = body_tail[0];
         const ty_op = fg.air.instructions.items(.data)[@intFromEnum(inst)].ty_op;
         const ptr_ty = fg.typeOf(ty_op.operand);
         const ptr_info = ptr_ty.ptrInfo(zcu);
         const ptr = try fg.resolveInst(ty_op.operand);
-
-        elide: {
-            if (ptr_info.flags.alignment != .none) break :elide;
-            if (!isByRef(Type.fromInterned(ptr_info.child), zcu)) break :elide;
-            if (!canElideLoad(fg, body_tail)) break :elide;
-            return ptr;
-        }
-
         fg.maybeMarkAllowZeroAccess(ptr_info);
-
         return fg.load(ptr, ptr_ty);
     }
 
