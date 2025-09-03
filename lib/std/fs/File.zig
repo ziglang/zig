@@ -1572,7 +1572,7 @@ pub const Writer = struct {
             .mode = w.mode,
             .pos = w.pos,
             .interface = Reader.initInterface(w.interface.buffer),
-            .seek_err = w.seek_err,
+            .seek_err = null,
         };
     }
 
