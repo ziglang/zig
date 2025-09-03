@@ -8,10 +8,10 @@ pub const LookupCache = void;
 
 pub const DebugInfo = struct {
     loaded_elf: ?Dwarf.ElfModule,
-    unwind: ?Dwarf.Unwind,
+    unwind: [2]?Dwarf.Unwind,
     pub const init: DebugInfo = .{
         .loaded_elf = null,
-        .unwind = null,
+        .unwind = @splat(null),
     };
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
         if (di.loaded_elf) |*loaded_elf| loaded_elf.deinit(gpa);
@@ -143,30 +143,67 @@ pub fn getSymbolAtAddress(module: *const ElfModule, gpa: Allocator, di: *DebugIn
         => return error.InvalidDebugInfo,
     };
 }
-fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
-    const section_bytes = module.gnu_eh_frame orelse return error.MissingDebugInfo; // MLUGG TODO: load from file
-
-    const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
-    const header = Dwarf.Unwind.EhFrameHeader.parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian) catch |err| switch (err) {
-        error.ReadFailed => unreachable, // it's all fixed buffers
-        error.InvalidDebugInfo => |e| return e,
-        error.EndOfStream, error.Overflow => return error.InvalidDebugInfo,
-        error.UnsupportedAddrSize => return error.UnsupportedDebugInfo,
-    };
-
-    var unwind: Dwarf.Unwind = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+fn prepareUnwindLookup(unwind: *Dwarf.Unwind, gpa: Allocator) Error!void {
     unwind.prepareLookup(gpa, @sizeOf(usize), native_endian) catch |err| switch (err) {
         error.ReadFailed => unreachable, // it's all fixed buffers
         error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory => |e| return e,
         error.EndOfStream, error.Overflow, error.StreamTooLong => return error.InvalidDebugInfo,
         error.UnsupportedAddrSize, error.UnsupportedDwarfVersion => return error.UnsupportedDebugInfo,
     };
-
-    di.unwind = unwind;
+}
+fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Error!void {
+    var buf: [2]Dwarf.Unwind = undefined;
+    const unwinds: []Dwarf.Unwind = if (module.gnu_eh_frame) |section_bytes| unwinds: {
+        const section_vaddr: u64 = @intFromPtr(section_bytes.ptr) - module.load_offset;
+        const header = Dwarf.Unwind.EhFrameHeader.parse(section_vaddr, section_bytes, @sizeOf(usize), native_endian) catch |err| switch (err) {
+            error.ReadFailed => unreachable, // it's all fixed buffers
+            error.InvalidDebugInfo => |e| return e,
+            error.EndOfStream, error.Overflow => return error.InvalidDebugInfo,
+            error.UnsupportedAddrSize => return error.UnsupportedDebugInfo,
+        };
+        buf[0] = .initEhFrameHdr(header, section_vaddr, @ptrFromInt(module.load_offset + header.eh_frame_vaddr));
+        break :unwinds buf[0..1];
+    } else unwinds: {
+        // There is no `.eh_frame_hdr` section. There may still be an `.eh_frame` or `.debug_frame`
+        // section, but we'll have to load the binary to get at it.
+        try module.loadDwarf(gpa, di);
+        const opt_debug_frame = &di.loaded_elf.?.debug_frame;
+        const opt_eh_frame = &di.loaded_elf.?.eh_frame;
+        // If both are present, we can't just pick one -- the info could be split between them.
+        // `.debug_frame` is likely to be the more complete section, so we'll prioritize that one.
+        if (opt_debug_frame.*) |*debug_frame| {
+            buf[0] = .initSection(.debug_frame, debug_frame.vaddr, debug_frame.bytes);
+            if (opt_eh_frame.*) |*eh_frame| {
+                buf[1] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
+                break :unwinds buf[0..2];
+            }
+            break :unwinds buf[0..1];
+        } else if (opt_eh_frame.*) |eh_frame| {
+            buf[0] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
+            break :unwinds buf[0..1];
+        }
+        return error.MissingDebugInfo;
+    };
+    errdefer for (unwinds) |*u| u.deinit(gpa);
+    for (unwinds) |*u| try prepareUnwindLookup(u, gpa);
+    switch (unwinds.len) {
+        0 => unreachable,
+        1 => di.unwind = .{ unwinds[0], null },
+        2 => di.unwind = .{ unwinds[0], unwinds[1] },
+        else => unreachable,
+    }
 }
 pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
-    if (di.unwind == null) try module.loadUnwindInfo(gpa, di);
-    return context.unwindFrameDwarf(&di.unwind.?, module.load_offset, null);
+    if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
+    std.debug.assert(di.unwind[0] != null);
+    for (&di.unwind) |*opt_unwind| {
+        const unwind = &(opt_unwind.* orelse break);
+        return context.unwindFrameDwarf(unwind, module.load_offset, null) catch |err| switch (err) {
+            error.MissingDebugInfo => continue, // try the next one
+            else => |e| return e,
+        };
+    }
+    return error.MissingDebugInfo;
 }
 
 const ElfModule = @This();
