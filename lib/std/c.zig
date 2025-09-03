@@ -2664,13 +2664,60 @@ pub const _CS = switch (native_os) {
         DARWIN_USER_CACHE_DIR = 65538,
     },
 
-    .linux => enum(c_int) {
-        PATH = 1,
-        POSIX_V6_WIDTH_RESTRICTED_ENVS = 2,
-        GNU_LIBC_VERSION = 3,
-        GNU_LIBPTHREAD_VERSION = 4,
-        POSIX_V5_WIDTH_RESTRICTED_ENVS = 5,
-        POSIX_V7_WIDTH_RESTRICTED_ENVS = 6,
+    .linux => if (builtin.abi.isMusl()) enum(c_int) {
+        PATH = 0,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 1,
+        GNU_LIBC_VERSION = 2,
+        GNU_LIBPTHREAD_VERSION = 3,
+        POSIX_V5_WIDTH_RESTRICTED_ENVS = 4,
+        POSIX_V7_WIDTH_RESTRICTED_ENVS = 5,
+
+        POSIX_V6_ILP32_OFF32_CFLAGS = 1116,
+        POSIX_V6_ILP32_OFF32_LDFLAGS = 1117,
+        POSIX_V6_ILP32_OFF32_LIBS = 1118,
+        POSIX_V6_ILP32_OFF32_LINTFLAGS = 1119,
+        POSIX_V6_ILP32_OFFBIG_CFLAGS = 1120,
+        POSIX_V6_ILP32_OFFBIG_LDFLAGS = 1121,
+        POSIX_V6_ILP32_OFFBIG_LIBS = 1122,
+        POSIX_V6_ILP32_OFFBIG_LINTFLAGS = 1123,
+        POSIX_V6_LP64_OFF64_CFLAGS = 1124,
+        POSIX_V6_LP64_OFF64_LDFLAGS = 1125,
+        POSIX_V6_LP64_OFF64_LIBS = 1126,
+        POSIX_V6_LP64_OFF64_LINTFLAGS = 1127,
+        POSIX_V6_LPBIG_OFFBIG_CFLAGS = 1128,
+        POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 1129,
+        POSIX_V6_LPBIG_OFFBIG_LIBS = 1130,
+        POSIX_V6_LPBIG_OFFBIG_LINTFLAGS = 1131,
+
+        POSIX_V7_ILP32_OFF32_CFLAGS = 1132,
+        POSIX_V7_ILP32_OFF32_LDFLAGS = 1133,
+        POSIX_V7_ILP32_OFF32_LIBS = 1134,
+        POSIX_V7_ILP32_OFF32_LINTFLAGS = 1135,
+        POSIX_V7_ILP32_OFFBIG_CFLAGS = 1136,
+        POSIX_V7_ILP32_OFFBIG_LDFLAGS = 1137,
+        POSIX_V7_ILP32_OFFBIG_LIBS = 1138,
+        POSIX_V7_ILP32_OFFBIG_LINTFLAGS = 1139,
+        POSIX_V7_LP64_OFF64_CFLAGS = 1140,
+        POSIX_V7_LP64_OFF64_LDFLAGS = 1141,
+        POSIX_V7_LP64_OFF64_LIBS = 1142,
+        POSIX_V7_LP64_OFF64_LINTFLAGS = 1143,
+        POSIX_V7_LPBIG_OFFBIG_CFLAGS = 1144,
+        POSIX_V7_LPBIG_OFFBIG_LDFLAGS = 1145,
+        POSIX_V7_LPBIG_OFFBIG_LIBS = 1146,
+        POSIX_V7_LPBIG_OFFBIG_LINTFLAGS = 1147,
+
+        V6_ENV = 1148,
+        V7_ENV = 1149,
+
+        POSIX_V7_THREADS_CFLAGS = 1150,
+        POSIX_V7_THREADS_LDFLAGS = 1151,
+    } else enum(c_int) {
+        PATH = 0,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 1,
+        GNU_LIBC_VERSION = 2,
+        GNU_LIBPTHREAD_VERSION = 3,
+        POSIX_V5_WIDTH_RESTRICTED_ENVS = 4,
+        POSIX_V7_WIDTH_RESTRICTED_ENVS = 5,
 
         LFS_CFLAGS = 1000,
         LFS_LDFLAGS = 1001,
@@ -2736,11 +2783,41 @@ pub const _CS = switch (native_os) {
         V7_ENV = 1149,
     },
 
-    .dragonfly, .netbsd, .openbsd => enum(c_int) {
+    .dragonfly => enum(c_int) {
         PATH = 1,
+
+        POSIX_V6_ILP32_OFF32_CFLAGS = 2,
+        POSIX_V6_ILP32_OFF32_LDFLAGS = 3,
+        POSIX_V6_ILP32_OFF32_LIBS = 4,
+        POSIX_V6_ILP32_OFFBIG_CFLAGS = 5,
+        POSIX_V6_ILP32_OFFBIG_LDFLAGS = 6,
+        POSIX_V6_ILP32_OFFBIG_LIBS = 7,
+        POSIX_V6_LP64_OFF64_CFLAGS = 8,
+        POSIX_V6_LP64_OFF64_LDFLAGS = 9,
+        POSIX_V6_LP64_OFF64_LIBS = 10,
+        POSIX_V6_LPBIG_OFFBIG_CFLAGS = 11,
+        POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 12,
+        POSIX_V6_LPBIG_OFFBIG_LIBS = 13,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 14,
+
+        POSIX_V7_ILP32_OFF32_CFLAGS = 15,
+        POSIX_V7_ILP32_OFF32_LDFLAGS = 16,
+        POSIX_V7_ILP32_OFF32_LIBS = 17,
+        POSIX_V7_ILP32_OFFBIG_CFLAGS = 18,
+        POSIX_V7_ILP32_OFFBIG_LDFLAGS = 19,
+        POSIX_V7_ILP32_OFFBIG_LIBS = 20,
+        POSIX_V7_LP64_OFF64_CFLAGS = 21,
+        POSIX_V7_LP64_OFF64_LDFLAGS = 22,
+        POSIX_V7_LP64_OFF64_LIBS = 23,
+        POSIX_V7_LPBIG_OFFBIG_CFLAGS = 24,
+        POSIX_V7_LPBIG_OFFBIG_LDFLAGS = 25,
+        POSIX_V7_LPBIG_OFFBIG_LIBS = 26,
+        POSIX_V7_WIDTH_RESTRICTED_ENVS = 27,
+
+        V6_ENV = 28,
+        V7_ENV = 29,
     },
 
-    // TODO: other platform-specific constants
     .freebsd => enum(c_int) {
         PATH = 1,
 
@@ -2757,6 +2834,46 @@ pub const _CS = switch (native_os) {
         POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 12,
         POSIX_V6_LPBIG_OFFBIG_LIBS = 13,
         POSIX_V6_WIDTH_RESTRICTED_ENVS = 14,
+    },
+
+    .netbsd => enum(c_int) {
+        PATH = 1,
+    },
+
+    .openbsd => enum(c_int) {
+        PATH = 1,
+
+        POSIX_V6_ILP32_OFF32_CFLAGS = 2,
+        POSIX_V6_ILP32_OFF32_LDFLAGS = 3,
+        POSIX_V6_ILP32_OFF32_LIBS = 4,
+        POSIX_V6_ILP32_OFFBIG_CFLAGS = 5,
+        POSIX_V6_ILP32_OFFBIG_LDFLAGS = 6,
+        POSIX_V6_ILP32_OFFBIG_LIBS = 7,
+        POSIX_V6_LP64_OFF64_CFLAGS = 8,
+        POSIX_V6_LP64_OFF64_LDFLAGS = 9,
+        POSIX_V6_LP64_OFF64_LIBS = 10,
+        POSIX_V6_LPBIG_OFFBIG_CFLAGS = 11,
+        POSIX_V6_LPBIG_OFFBIG_LDFLAGS = 12,
+        POSIX_V6_LPBIG_OFFBIG_LIBS = 13,
+        POSIX_V6_WIDTH_RESTRICTED_ENVS = 14,
+        V6_ENV = 15,
+
+        POSIX_V7_ILP32_OFF32_CFLAGS = 16,
+        POSIX_V7_ILP32_OFF32_LDFLAGS = 17,
+        POSIX_V7_ILP32_OFF32_LIBS = 18,
+        POSIX_V7_ILP32_OFFBIG_CFLAGS = 19,
+        POSIX_V7_ILP32_OFFBIG_LDFLAGS = 20,
+        POSIX_V7_ILP32_OFFBIG_LIBS = 21,
+        POSIX_V7_LP64_OFF64_CFLAGS = 22,
+        POSIX_V7_LP64_OFF64_LDFLAGS = 23,
+        POSIX_V7_LP64_OFF64_LIBS = 24,
+        POSIX_V7_LPBIG_OFFBIG_CFLAGS = 25,
+        POSIX_V7_LPBIG_OFFBIG_LDFLAGS = 26,
+        POSIX_V7_LPBIG_OFFBIG_LIBS = 27,
+        POSIX_V7_THREADS_CFLAGS = 28,
+        POSIX_V7_THREADS_LDFLAGS = 29,
+        POSIX_V7_WIDTH_RESTRICTED_ENVS = 30,
+        V7_ENV = 31,
     },
 
     else => void,
@@ -10733,7 +10850,7 @@ pub const sysconf = switch (native_os) {
     else => private.sysconf,
 };
 pub const confstr = switch (native_os) {
-    .dragonfly, .netbsd, .freebsd, .openbsd, .linux, .macos, .ios, .tvos, .watchos, .visionos => private.confstr,
+    .dragonfly, .netbsd, .freebsd, .openbsd, .linux, .macos, .driverkit, .ios, .tvos, .watchos, .visionos => private.confstr,
     else => {},
 };
 
