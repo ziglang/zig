@@ -2728,12 +2728,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_ptr,
             .elem_val,
             .elem_ptr_node,
-            .elem_val_node,
             .elem_val_imm,
             .field_ptr,
-            .field_val,
             .field_ptr_named,
-            .field_val_named,
             .func,
             .func_inferred,
             .func_fancy,
@@ -6157,36 +6154,27 @@ fn fieldAccess(
     ri: ResultInfo,
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
-    switch (ri.rl) {
-        .ref, .ref_coerced_ty => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
-        else => {
-            const access = try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node);
-            return rvalue(gz, ri, access, node);
-        },
-    }
-}
-
-fn addFieldAccess(
-    tag: Zir.Inst.Tag,
-    gz: *GenZir,
-    scope: *Scope,
-    lhs_ri: ResultInfo,
-    node: Ast.Node.Index,
-) InnerError!Zir.Inst.Ref {
     const astgen = gz.astgen;
     const tree = astgen.tree;
 
     const object_node, const field_ident = tree.nodeData(node).node_and_token;
     const str_index = try astgen.identAsString(field_ident);
-    const lhs = try expr(gz, scope, lhs_ri, object_node);
+    const lhs = try expr(gz, scope, .{ .rl = .ref }, object_node);
 
     const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
     try emitDbgStmt(gz, cursor);
 
-    return gz.addPlNode(tag, node, Zir.Inst.Field{
+    const ref = try gz.addPlNode(.field_ptr, node, Zir.Inst.Field{
         .lhs = lhs,
         .field_name_start = str_index,
     });
+    switch (ri.rl) {
+        .ref, .ref_coerced_ty => return ref,
+        else => {
+            const loaded = try gz.addUnNode(.load, ref, node);
+            return rvalue(gz, ri, loaded, node);
+        },
+    }
 }
 
 fn arrayAccess(
@@ -6196,28 +6184,17 @@ fn arrayAccess(
     node: Ast.Node.Index,
 ) InnerError!Zir.Inst.Ref {
     const tree = gz.astgen.tree;
+    const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
+    const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_node);
+    const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
+    const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node);
+    try emitDbgStmt(gz, cursor);
+    const ref = try gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
     switch (ri.rl) {
-        .ref, .ref_coerced_ty => {
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_node);
-
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-
-            const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node);
-            try emitDbgStmt(gz, cursor);
-
-            return gz.addPlNode(.elem_ptr_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs });
-        },
+        .ref, .ref_coerced_ty => return ref,
         else => {
-            const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
-
-            const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
-
-            const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node);
-            try emitDbgStmt(gz, cursor);
-
-            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+            const loaded = try gz.addUnNode(.load, ref, node);
+            return rvalue(gz, ri, loaded, node);
         },
     }
 }
@@ -9286,17 +9263,13 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .field => {
-            if (ri.rl == .ref or ri.rl == .ref_coerced_ty) {
-                return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
-                    .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
-                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
-                });
-            }
-            const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
-                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
+            const ref = try gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
+                .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
                 .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
             });
-            return rvalue(gz, ri, result, node);
+            if (ri.rl == .ref or ri.rl == .ref_coerced_ty) return ref;
+            const loaded = try gz.addUnNode(.load, ref, node);
+            return rvalue(gz, ri, loaded, node);
         },
         .FieldType => {
             const ty_inst = try typeExpr(gz, scope, params[0]);

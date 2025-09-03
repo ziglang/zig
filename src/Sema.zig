@@ -1193,7 +1193,6 @@ fn analyzeBodyInner(
             .elem_ptr                     => try sema.zirElemPtr(block, inst),
             .elem_ptr_node                => try sema.zirElemPtrNode(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
-            .elem_val_node                => try sema.zirElemValNode(block, inst),
             .elem_val_imm                 => try sema.zirElemValImm(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
@@ -1211,8 +1210,6 @@ fn analyzeBodyInner(
             .error_value                  => try sema.zirErrorValue(block, inst),
             .field_ptr                    => try sema.zirFieldPtr(block, inst),
             .field_ptr_named              => try sema.zirFieldPtrNamed(block, inst),
-            .field_val                    => try sema.zirFieldVal(block, inst),
-            .field_val_named              => try sema.zirFieldValNamed(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
             .func_fancy                   => try sema.zirFuncFancy(block, inst),
@@ -9704,26 +9701,6 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     return block.addBitCast(dest_ty, operand);
 }
 
-fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const pt = sema.pt;
-    const zcu = pt.zcu;
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = block.nodeOffset(inst_data.src_node);
-    const field_name_src = block.src(.{ .node_offset_field_name = inst_data.src_node });
-    const extra = sema.code.extraData(Zir.Inst.Field, inst_data.payload_index).data;
-    const field_name = try zcu.intern_pool.getOrPutString(
-        sema.gpa,
-        pt.tid,
-        sema.code.nullTerminatedString(extra.field_name_start),
-        .no_embedded_nulls,
-    );
-    const object = try sema.resolveInst(extra.lhs);
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
-}
-
 fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
@@ -9770,19 +9747,6 @@ fn zirStructInitFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
             return sema.failWithStructInitNotSupported(block, src, struct_ty);
         },
     }
-}
-
-fn zirFieldValNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = block.nodeOffset(inst_data.src_node);
-    const field_name_src = block.builtinCallArgSrc(inst_data.src_node, 1);
-    const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
-    const object = try sema.resolveInst(extra.lhs);
-    const field_name = try sema.resolveConstStringIntern(block, field_name_src, extra.field_name, .{ .simple = .field_name });
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
 }
 
 fn zirFieldPtrNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -10093,20 +10057,6 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     const array = try sema.resolveInst(extra.lhs);
     const elem_index = try sema.resolveInst(extra.rhs);
     return sema.elemVal(block, src, array, elem_index, src, false);
-}
-
-fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
-    const tracy = trace(@src());
-    defer tracy.end();
-
-    const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].pl_node;
-    const src = block.nodeOffset(inst_data.src_node);
-    const elem_index_src = block.src(.{ .node_offset_array_access_index = inst_data.src_node });
-    const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const array = try sema.resolveInst(extra.lhs);
-    const uncoerced_elem_index = try sema.resolveInst(extra.rhs);
-    const elem_index = try sema.coerce(block, .usize, uncoerced_elem_index, elem_index_src);
-    return sema.elemVal(block, src, array, elem_index, elem_index_src, true);
 }
 
 fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13605,7 +13555,6 @@ fn maybeErrorUnwrap(
             .str,
             .as_node,
             .panic,
-            .field_val,
             => {},
             else => return false,
         }
@@ -13624,7 +13573,6 @@ fn maybeErrorUnwrap(
             },
             .str => try sema.zirStr(inst),
             .as_node => try sema.zirAsNode(block, inst),
-            .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
                 try safetyPanicUnwrapError(sema, block, operand_src, operand);
                 return true;

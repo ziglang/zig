@@ -406,7 +406,6 @@ const Writer = struct {
             .memset,
             .memmove,
             .elem_ptr_node,
-            .elem_val_node,
             .elem_ptr,
             .elem_val,
             .array_type,
@@ -450,15 +449,12 @@ const Writer = struct {
 
             .switch_block_err_union => try self.writeSwitchBlockErrUnion(stream, inst),
 
-            .field_val,
             .field_ptr,
             .decl_literal,
             .decl_literal_no_coerce,
             => try self.writePlNodeField(stream, inst),
 
-            .field_ptr_named,
-            .field_val_named,
-            => try self.writePlNodeFieldNamed(stream, inst),
+            .field_ptr_named => try self.writePlNodeFieldNamed(stream, inst),
 
             .as_node, .as_shift_operand => try self.writeAs(stream, inst),
 

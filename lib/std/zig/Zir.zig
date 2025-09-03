@@ -1,6 +1,6 @@
 //! Zig Intermediate Representation.
 //!
-//! Astgen.zig converts AST nodes to these untyped IR instructions. Next,
+//! `std.zig.AstGen` converts AST nodes to these untyped IR instructions. Next,
 //! Sema.zig processes these into AIR.
 //! The minimum amount of information needed to represent a list of ZIR instructions.
 //! Once this structure is completed, it can be used to generate AIR, followed by
@@ -442,8 +442,7 @@ pub const Inst = struct {
         elem_ptr,
         /// Given an array, slice, or pointer, returns the element at the provided index.
         /// Uses the `pl_node` union field. AST node is a[b] syntax. Payload is `Bin`.
-        elem_val_node,
-        /// Same as `elem_val_node` but used only for for loop.
+        /// Used only for for loop.
         /// Uses the `pl_node` union field. AST node is the condition of a for loop.
         /// Payload is `Bin`.
         /// No OOB safety check is emitted.
@@ -472,19 +471,10 @@ pub const Inst = struct {
         /// to the named field. The field name is stored in string_bytes. Used by a.b syntax.
         /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
         field_ptr,
-        /// Given a struct or object that contains virtual fields, returns the named field.
-        /// The field name is stored in string_bytes. Used by a.b syntax.
-        /// This instruction also accepts a pointer.
-        /// Uses `pl_node` field. The AST node is the a.b syntax. Payload is Field.
-        field_val,
         /// Given a pointer to a struct or object that contains virtual fields, returns a pointer
         /// to the named field. The field name is a comptime instruction. Used by @field.
         /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
         field_ptr_named,
-        /// Given a struct or object that contains virtual fields, returns the named field.
-        /// The field name is a comptime instruction. Used by @field.
-        /// Uses `pl_node` field. The AST node is the builtin call. Payload is FieldNamed.
-        field_val_named,
         /// Returns a function type, or a function instance, depending on whether
         /// the body_len is 0. Calling convention is auto.
         /// Uses the `pl_node` union field. `payload_index` points to a `Func`.
@@ -1138,16 +1128,13 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
                 .elem_val_imm,
                 .ensure_result_used,
                 .ensure_result_non_error,
                 .ensure_err_union_payload_void,
                 .@"export",
                 .field_ptr,
-                .field_val,
                 .field_ptr_named,
-                .field_val_named,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1432,12 +1419,9 @@ pub const Inst = struct {
                 .elem_ptr,
                 .elem_val,
                 .elem_ptr_node,
-                .elem_val_node,
                 .elem_val_imm,
                 .field_ptr,
-                .field_val,
                 .field_ptr_named,
-                .field_val_named,
                 .func,
                 .func_inferred,
                 .func_fancy,
@@ -1679,7 +1663,6 @@ pub const Inst = struct {
                 .elem_ptr = .pl_node,
                 .elem_ptr_node = .pl_node,
                 .elem_val = .pl_node,
-                .elem_val_node = .pl_node,
                 .elem_val_imm = .elem_val_imm,
                 .ensure_result_used = .un_node,
                 .ensure_result_non_error = .un_node,
@@ -1688,9 +1671,7 @@ pub const Inst = struct {
                 .error_value = .str_tok,
                 .@"export" = .pl_node,
                 .field_ptr = .pl_node,
-                .field_val = .pl_node,
                 .field_ptr_named = .pl_node,
-                .field_val_named = .pl_node,
                 .func = .pl_node,
                 .func_inferred = .pl_node,
                 .func_fancy = .pl_node,
@@ -4215,7 +4196,6 @@ fn findTrackableInner(
         .div,
         .elem_ptr_node,
         .elem_ptr,
-        .elem_val_node,
         .elem_val,
         .elem_val_imm,
         .ensure_result_used,
@@ -4225,9 +4205,7 @@ fn findTrackableInner(
         .error_value,
         .@"export",
         .field_ptr,
-        .field_val,
         .field_ptr_named,
-        .field_val_named,
         .import,
         .int,
         .int_big,
