@@ -27972,6 +27972,7 @@ fn elemVal(
     }
 }
 
+/// Called when the index or indexable is runtime known.
 fn validateRuntimeElemAccess(
     sema: *Sema,
     block: *Block,
@@ -28234,6 +28235,10 @@ fn elemPtrArray(
     if (!init) {
         try sema.validateRuntimeElemAccess(block, elem_index_src, array_ty.elemType2(zcu), array_ty, array_ptr_src);
         try sema.validateRuntimeValue(block, array_ptr_src, array_ptr);
+    }
+
+    if (offset == null and array_ty.zigTypeTag(zcu) == .vector) {
+        return sema.fail(block, elem_index_src, "vector index not comptime known", .{});
     }
 
     // Runtime check is only needed if unable to comptime check.
@@ -31423,19 +31428,6 @@ fn analyzeLoad(
         if (try sema.pointerDeref(block, src, ptr_val, ptr_ty)) |elem_val| {
             return Air.internedToRef(elem_val.toIntern());
         }
-    }
-
-    if (ptr_ty.ptrInfo(zcu).flags.vector_index == .runtime) {
-        const ptr_inst = ptr.toIndex().?;
-        const air_tags = sema.air_instructions.items(.tag);
-        if (air_tags[@intFromEnum(ptr_inst)] == .ptr_elem_ptr) {
-            const ty_pl = sema.air_instructions.items(.data)[@intFromEnum(ptr_inst)].ty_pl;
-            const bin_op = sema.getTmpAir().extraData(Air.Bin, ty_pl.payload).data;
-            return block.addBinOp(.ptr_elem_val, bin_op.lhs, bin_op.rhs);
-        }
-        return sema.fail(block, ptr_src, "unable to determine vector element index of type '{f}'", .{
-            ptr_ty.fmt(pt),
-        });
     }
 
     return block.addTyOp(.load, elem_ty, ptr);

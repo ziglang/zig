@@ -140,8 +140,7 @@ fn expectVectorsEqual(a: anytype, b: anytype) !void {
     const len_b = @typeInfo(@TypeOf(b)).vector.len;
     try expect(len_a == len_b);
 
-    var i: usize = 0;
-    while (i < len_a) : (i += 1) {
+    inline for (0..len_a) |i| {
         try expect(a[i] == b[i]);
     }
 }

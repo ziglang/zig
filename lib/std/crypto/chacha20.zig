@@ -216,7 +216,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
         }
 
         fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
-            for (0..dm) |d| {
+            inline for (0..dm) |d| {
                 for (0..4) |i| {
                     mem.writeInt(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d], .little);
                     mem.writeInt(u32, out[64 * d + 16 * i + 4 ..][0..4], x[i][1 + 4 * d], .little);

@@ -743,9 +743,8 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
             return true;
         },
         .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!eql(a[i], b[i])) return false;
+            inline for (0..info.len) |i| {
+                if (a[i] != b[i]) return false;
             }
             return true;
         },
