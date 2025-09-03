@@ -48,7 +48,10 @@ const ColumnRange = struct {
 };
 
 columns: std.ArrayList(Column) = .empty,
-stack: std.ArrayList(ColumnRange) = .empty,
+stack: std.ArrayList(struct {
+    cfa: Column,
+    columns: ColumnRange,
+}) = .empty,
 current_row: Row = .{},
 
 /// The result of executing the CIE's initial_instructions
@@ -205,17 +208,21 @@ pub fn step(
             column.rule = .{ .register = i.target_register };
         },
         .remember_state => {
-            try self.stack.append(gpa, self.current_row.columns);
+            try self.stack.append(gpa, .{
+                .cfa = self.current_row.cfa,
+                .columns = self.current_row.columns,
+            });
             self.current_row.copy_on_write = true;
         },
         .restore_state => {
-            const restored_columns = self.stack.pop() orelse return error.InvalidOperation;
+            const restored = self.stack.pop() orelse return error.InvalidOperation;
             self.columns.shrinkRetainingCapacity(self.columns.items.len - self.current_row.columns.len);
-            try self.columns.ensureUnusedCapacity(gpa, restored_columns.len);
+            try self.columns.ensureUnusedCapacity(gpa, restored.columns.len);
 
+            self.current_row.cfa = restored.cfa;
             self.current_row.columns.start = self.columns.items.len;
-            self.current_row.columns.len = restored_columns.len;
-            self.columns.appendSliceAssumeCapacity(self.columns.items[restored_columns.start..][0..restored_columns.len]);
+            self.current_row.columns.len = restored.columns.len;
+            self.columns.appendSliceAssumeCapacity(self.columns.items[restored.columns.start..][0..restored.columns.len]);
         },
         .def_cfa => |i| {
             try self.resolveCopyOnWrite(gpa);
