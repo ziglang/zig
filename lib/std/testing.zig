@@ -135,9 +135,8 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
         .vector => |info| {
-            var i: usize = 0;
-            while (i < info.len) : (i += 1) {
-                if (!std.meta.eql(expected[i], actual[i])) {
+            inline for (0..info.len) |i| {
+                if (expected[i] != actual[i]) {
                     print("index {d} incorrect. expected {any}, found {any}\n", .{
                         i, expected[i], actual[i],
                     });
