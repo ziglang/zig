@@ -10,4 +10,5 @@ const D = 1;
 
 // error
 //
-// :1:5: error: dependency loop detected
+// :2:13: error: enum 'tmp.Foo' has no member named 'B'
+// :1:17: note: enum declared here
