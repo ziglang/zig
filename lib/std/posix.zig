@@ -6772,9 +6772,11 @@ pub const SetSockOptError = error{
 } || UnexpectedError;
 
 /// Set a socket's options.
-pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSockOptError!void {
+pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: ?[]const u8) SetSockOptError!void {
+    const optval: ?[*]const u8 = if (opt) |o| o.ptr else null;
+    const optlen: socklen_t = if (opt) |o| @intCast(o.len) else 0;
     if (native_os == .windows) {
-        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), opt.ptr, @intCast(opt.len));
+        const rc = windows.ws2_32.setsockopt(fd, level, @intCast(optname), @ptrCast(optval), @intCast(optlen));
         if (rc == windows.ws2_32.SOCKET_ERROR) {
             switch (windows.ws2_32.WSAGetLastError()) {
                 // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-setsockopt
@@ -6792,7 +6794,7 @@ pub fn setsockopt(fd: socket_t, level: i32, optname: u32, opt: []const u8) SetSo
         }
         return;
     }
-    switch (errno(system.setsockopt(fd, level, optname, opt.ptr, @intCast(opt.len)))) {
+    switch (errno(system.setsockopt(fd, level, optname, @ptrCast(optval), optlen))) {
         .SUCCESS => {},
         .BADF => unreachable, // always a race condition
         .NOTSOCK => unreachable, // always a race condition
