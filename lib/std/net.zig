@@ -1458,15 +1458,8 @@ test parseHosts {
     try std.testing.expectFmt("127.0.0.2:1234", "{f}", .{addrs.items[0].addr});
 }
 
-pub fn isValidHostName(hostname: []const u8) bool {
-    if (hostname.len >= 254) return false;
-    if (!std.unicode.utf8ValidateSlice(hostname)) return false;
-    for (hostname) |byte| {
-        if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
-            continue;
-        }
-        return false;
-    }
+pub fn isValidHostName(bytes: []const u8) bool {
+    _ = std.Io.net.HostName.init(bytes) catch return false;
     return true;
 }
 
