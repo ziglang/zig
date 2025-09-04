@@ -1505,7 +1505,7 @@ pub const Writer = struct {
     sendfile_err: ?SendfileError = null,
     copy_file_range_err: ?CopyFileRangeError = null,
     fcopyfile_err: ?FcopyfileError = null,
-    seek_err: ?SeekError = null,
+    seek_err: ?Writer.SeekError = null,
     interface: std.Io.Writer,
 
     pub const Mode = Reader.Mode;
@@ -1526,6 +1526,8 @@ pub const Writer = struct {
         OutOfMemory,
         Unexpected,
     };
+
+    pub const SeekError = File.SeekError || std.Io.Writer.Error;
 
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
@@ -1570,7 +1572,7 @@ pub const Writer = struct {
             .mode = w.mode,
             .pos = w.pos,
             .interface = Reader.initInterface(w.interface.buffer),
-            .seek_err = w.seek_err,
+            .seek_err = null,
         };
     }
 
@@ -2000,7 +2002,8 @@ pub const Writer = struct {
         return n;
     }
 
-    pub fn seekTo(w: *Writer, offset: u64) SeekError!void {
+    pub fn seekTo(w: *Writer, offset: u64) Writer.SeekError!void {
+        try w.interface.flush();
         switch (w.mode) {
             .positional, .positional_reading => {
                 w.pos = offset;

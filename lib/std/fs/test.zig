@@ -2155,3 +2155,28 @@ test "seekBy" {
     try testing.expectEqual(15, n);
     try testing.expectEqualStrings("t's test seekBy", buffer[0..15]);
 }
+
+test "seekTo flushes buffered data" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const contents = "data";
+
+    const file = try tmp.dir.createFile("seek.bin", .{ .read = true });
+    defer file.close();
+    {
+        var buf: [16]u8 = undefined;
+        var file_writer = std.fs.File.writer(file, &buf);
+
+        try file_writer.interface.writeAll(contents);
+        try file_writer.seekTo(8);
+        try file_writer.interface.flush();
+    }
+
+    var read_buffer: [16]u8 = undefined;
+    var file_reader: std.fs.File.Reader = .init(file, &read_buffer);
+
+    var buf: [4]u8 = undefined;
+    try file_reader.interface.readSliceAll(&buf);
+    try std.testing.expectEqualStrings(contents, &buf);
+}
