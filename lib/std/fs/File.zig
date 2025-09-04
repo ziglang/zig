@@ -1527,7 +1527,7 @@ pub const Writer = struct {
         Unexpected,
     };
 
-    pub const SeekError = File.SeekError || std.Io.Writer.Error;
+    pub const SeekError = File.SeekError;
 
     /// Number of slices to store on the stack, when trying to send as many byte
     /// vectors through the underlying write calls as possible.
@@ -1572,7 +1572,7 @@ pub const Writer = struct {
             .mode = w.mode,
             .pos = w.pos,
             .interface = Reader.initInterface(w.interface.buffer),
-            .seek_err = null,
+            .seek_err = w.seek_err,
         };
     }
 
@@ -2002,8 +2002,14 @@ pub const Writer = struct {
         return n;
     }
 
-    pub fn seekTo(w: *Writer, offset: u64) Writer.SeekError!void {
+    pub fn seekTo(w: *Writer, offset: u64) (Writer.SeekError || std.Io.Writer.Error)!void {
         try w.interface.flush();
+        try seekToUnbuffered(w, offset);
+    }
+
+    /// Asserts that no data is currently buffered.
+    pub fn seekToUnbuffered(w: *Writer, offset: u64) Writer.SeekError!void {
+        assert(w.interface.buffered().len == 0);
         switch (w.mode) {
             .positional, .positional_reading => {
                 w.pos = offset;
