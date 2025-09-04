@@ -96,6 +96,31 @@ static const char *get_host_triple(void) {
     return global_buffer;
 }
 
+static void append_flags_from_env(
+    const char **argv, int *argc, int max_args,
+    const char *env_var_name, char **storage_ptr
+) {
+    const char *env_val = getenv(env_var_name);
+    if (env_val == NULL || *env_val == '\0') {
+        return;
+    }
+
+    *storage_ptr = malloc(strlen(env_val) + 1);
+    if (*storage_ptr == NULL) panic("malloc failed");
+    strcpy(*storage_ptr, env_val);
+
+    char *token = strtok(*storage_ptr, " \t\n");
+    while (token != NULL) {
+        if (*argc >= max_args - 1) {
+            static char panic_msg[128];
+            sprintf(panic_msg, "too many arguments in %s", env_var_name);
+            panic(panic_msg);
+        }
+        argv[(*argc)++] = token;
+        token = strtok(NULL, " \t\n");
+    }
+}
+
 int main(int argc, char **argv) {
     const char *cc = get_c_compiler();
     const char *host_triple = get_host_triple();
@@ -178,20 +203,43 @@ int main(int argc, char **argv) {
     }
 
     {
-        const char *child_argv[] = {
-            cc, "-o", "zig2", "zig2.c", "compiler_rt.c",
-            "-std=c99", "-O2", "-fno-stack-protector",
-            "-Istage1",
+        const int MAX_ARGS = 128;
+        const char *child_argv[MAX_ARGS];
+        int i = 0;
+
+        char *cflags_copy = NULL;
+        char *ldflags_copy = NULL;
+
+        const char *target_cc_env = getenv("ZIG_HOST_TARGET_CC");
+        const char *final_cc = (target_cc_env != NULL && *target_cc_env != '\0') ? target_cc_env : cc;
+        child_argv[i++] = final_cc;
+
+        append_flags_from_env(child_argv, &i, MAX_ARGS, "ZIG_HOST_TARGET_CFLAGS", &cflags_copy);
+
+        child_argv[i++] = "-o";
+        child_argv[i++] = "zig2";
+        child_argv[i++] = "zig2.c";
+        child_argv[i++] = "compiler_rt.c";
+        child_argv[i++] = "-std=c99";
+        child_argv[i++] = "-O2";
+        child_argv[i++] = "-fno-stack-protector";
+        child_argv[i++] = "-Istage1";
+
 #if defined(__APPLE__)
-            "-Wl,-stack_size,0x10000000",
+        child_argv[i++] = "-Wl,-stack_size,0x10000000";
 #else
-            "-Wl,-z,stack-size=0x10000000",
+        child_argv[i++] = "-Wl,-z,stack-size=0x10000000";
 #endif
 #if defined(__GNUC__)
-            "-pthread",
+        child_argv[i++] = "-pthread";
 #endif
-            NULL,
-        };
+
+        append_flags_from_env(child_argv, &i, MAX_ARGS, "ZIG_HOST_TARGET_LDFLAGS", &ldflags_copy);
+
+        child_argv[i] = NULL;
         print_and_run(child_argv);
+
+        if (cflags_copy != NULL) free(cflags_copy);
+        if (ldflags_copy != NULL) free(ldflags_copy);
     }
 }
