@@ -233,7 +233,7 @@ fn async(
         start(context.ptr, result.ptr);
         return null;
     }
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const cpu_count = pool.cpu_count catch {
         return asyncConcurrent(userdata, result.len, result_alignment, context, context_alignment, start) catch {
             start(context.ptr, result.ptr);
@@ -244,7 +244,7 @@ fn async(
     const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
     const result_offset = result_alignment.forward(context_offset + context.len);
     const n = result_offset + result.len;
-    const closure: *AsyncClosure = @alignCast(@ptrCast(gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch {
+    const closure: *AsyncClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(AsyncClosure), n) catch {
         start(context.ptr, result.ptr);
         return null;
     }));
@@ -309,13 +309,13 @@ fn asyncConcurrent(
 ) error{OutOfMemory}!*Io.AnyFuture {
     if (builtin.single_threaded) unreachable;
 
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const cpu_count = pool.cpu_count catch 1;
     const gpa = pool.allocator;
     const context_offset = context_alignment.forward(@sizeOf(AsyncClosure));
     const result_offset = result_alignment.forward(context_offset + context.len);
     const n = result_offset + result_len;
-    const closure: *AsyncClosure = @alignCast(@ptrCast(try gpa.alignedAlloc(u8, .of(AsyncClosure), n)));
+    const closure: *AsyncClosure = @ptrCast(@alignCast(try gpa.alignedAlloc(u8, .of(AsyncClosure), n)));
 
     closure.* = .{
         .func = start,
@@ -399,11 +399,11 @@ fn asyncDetached(
     start: *const fn (context: *const anyopaque) void,
 ) void {
     if (builtin.single_threaded) return start(context.ptr);
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const cpu_count = pool.cpu_count catch 1;
     const gpa = pool.allocator;
     const n = DetachedClosure.contextEnd(context_alignment, context.len);
-    const closure: *DetachedClosure = @alignCast(@ptrCast(gpa.alignedAlloc(u8, .of(DetachedClosure), n) catch {
+    const closure: *DetachedClosure = @ptrCast(@alignCast(gpa.alignedAlloc(u8, .of(DetachedClosure), n) catch {
         return start(context.ptr);
     }));
     closure.* = .{
@@ -451,7 +451,7 @@ fn await(
     result_alignment: std.mem.Alignment,
 ) void {
     _ = result_alignment;
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
     closure.waitAndFree(pool.allocator, result);
 }
@@ -463,7 +463,7 @@ fn cancel(
     result_alignment: std.mem.Alignment,
 ) void {
     _ = result_alignment;
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const closure: *AsyncClosure = @ptrCast(@alignCast(any_future));
     switch (@atomicRmw(
         std.Thread.Id,
@@ -486,7 +486,7 @@ fn cancel(
 }
 
 fn cancelRequested(userdata: ?*anyopaque) bool {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const closure = current_closure orelse return false;
     return @atomicLoad(std.Thread.Id, &closure.cancel_tid, .acquire) == AsyncClosure.canceling_tid;
@@ -520,7 +520,7 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
 }
 
 fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     comptime assert(@TypeOf(cond.state) == u64);
     const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
     const cond_state = &ints[0];
@@ -567,7 +567,7 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
 }
 
 fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.Wake) void {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     comptime assert(@TypeOf(cond.state) == u64);
     const ints: *[2]std.atomic.Value(u32) = @ptrCast(&cond.state);
@@ -624,7 +624,7 @@ fn createFile(
     sub_path: []const u8,
     flags: Io.File.CreateFlags,
 ) Io.File.OpenError!Io.File {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const fs_dir: std.fs.Dir = .{ .fd = dir.handle };
     const fs_file = try fs_dir.createFile(sub_path, flags);
@@ -637,7 +637,7 @@ fn openFile(
     sub_path: []const u8,
     flags: Io.File.OpenFlags,
 ) Io.File.OpenError!Io.File {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const fs_dir: std.fs.Dir = .{ .fd = dir.handle };
     const fs_file = try fs_dir.openFile(sub_path, flags);
@@ -645,14 +645,14 @@ fn openFile(
 }
 
 fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const fs_file: std.fs.File = .{ .handle = file.handle };
     return fs_file.close();
 }
 
 fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: posix.off_t) Io.File.PReadError!usize {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const fs_file: std.fs.File = .{ .handle = file.handle };
     return switch (offset) {
@@ -662,7 +662,7 @@ fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: posix.off_t
 }
 
 fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const fs_file: std.fs.File = .{ .handle = file.handle };
     return switch (offset) {
@@ -672,14 +672,14 @@ fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posi
 }
 
 fn now(userdata: ?*anyopaque, clockid: posix.clockid_t) Io.ClockGetTimeError!Io.Timestamp {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
     const timespec = try posix.clock_gettime(clockid);
     return @enumFromInt(@as(i128, timespec.sec) * std.time.ns_per_s + timespec.nsec);
 }
 
 fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     const deadline_nanoseconds: i96 = switch (deadline) {
         .duration => |duration| duration.nanoseconds,
         .timestamp => |timestamp| @intFromEnum(timestamp),
@@ -704,7 +704,7 @@ fn sleep(userdata: ?*anyopaque, clockid: posix.clockid_t, deadline: Io.Deadline)
 }
 
 fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
 
     var reset_event: std.Thread.ResetEvent = .{};
@@ -736,7 +736,7 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
 }
 
 fn listen(userdata: ?*anyopaque, address: Io.net.IpAddress, options: Io.net.ListenOptions) Io.net.ListenError!Io.net.Server {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     const nonblock: u32 = if (options.force_nonblocking) posix.SOCK.NONBLOCK else 0;
@@ -776,7 +776,7 @@ fn listen(userdata: ?*anyopaque, address: Io.net.IpAddress, options: Io.net.List
 }
 
 fn accept(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptError!Io.net.Server.Connection {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     var storage: PosixAddress = undefined;
@@ -788,17 +788,20 @@ fn accept(userdata: ?*anyopaque, server: *Io.net.Server) Io.net.Server.AcceptErr
     };
 }
 
-fn netReadPosix(
-    userdata: ?*anyopaque,
-    stream: Io.net.Stream,
-    w: *Io.Writer,
-    limit: Io.Limit,
-) Io.net.Stream.Reader.Error!usize {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+fn netReadPosix(userdata: ?*anyopaque, stream: Io.net.Stream, data: [][]u8) Io.net.Stream.Reader.Error!usize {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
-    const dest = try w.writableVectorPosix(&iovecs_buffer, limit);
+    var i: usize = 0;
+    for (data) |buf| {
+        if (iovecs_buffer.len - i == 0) break;
+        if (buf.len != 0) {
+            iovecs_buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+        }
+    }
+    const dest = iovecs_buffer[0..i];
     assert(dest[0].len > 0);
     const n = try posix.readv(stream.handle, dest);
     if (n == 0) return error.EndOfStream;
@@ -812,7 +815,7 @@ fn netWritePosix(
     data: []const []const u8,
     splat: usize,
 ) Io.net.Stream.Writer.Error!usize {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
 
     var iovecs: [max_iovecs_len]posix.iovec_const = undefined;
@@ -866,7 +869,7 @@ fn addBuf(v: []posix.iovec_const, i: *@FieldType(posix.msghdr_const, "iovlen"), 
 }
 
 fn netClose(userdata: ?*anyopaque, stream: Io.net.Stream) void {
-    const pool: *Pool = @alignCast(@ptrCast(userdata));
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const net_stream: std.net.Stream = .{ .handle = stream.handle };
     return net_stream.close();

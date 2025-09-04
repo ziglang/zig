@@ -660,7 +660,7 @@ pub const VTable = struct {
 
     listen: *const fn (?*anyopaque, address: net.IpAddress, options: net.ListenOptions) net.ListenError!net.Server,
     accept: *const fn (?*anyopaque, server: *net.Server) net.Server.AcceptError!net.Server.Connection,
-    netRead: *const fn (?*anyopaque, src: net.Stream, dest: *Io.Writer, limit: Io.Limit) net.Stream.Reader.Error!usize,
+    netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netClose: *const fn (?*anyopaque, stream: net.Stream) void,
 };
@@ -759,6 +759,11 @@ pub const File = struct {
             index += amt;
         }
         return index;
+    }
+
+    pub fn openAbsolute(io: Io, absolute_path: []const u8, flags: OpenFlags) OpenError {
+        assert(std.fs.path.isAbsolute(absolute_path));
+        return Dir.cwd().openFile(io, absolute_path, flags);
     }
 };
 
@@ -1205,7 +1210,7 @@ pub fn asyncConcurrent(
     const Args = @TypeOf(args);
     const TypeErased = struct {
         fn start(context: *const anyopaque, result: *anyopaque) void {
-            const args_casted: *const Args = @alignCast(@ptrCast(context));
+            const args_casted: *const Args = @ptrCast(@alignCast(context));
             const result_casted: *Result = @ptrCast(@alignCast(result));
             result_casted.* = @call(.auto, function, args_casted.*);
         }
@@ -1234,7 +1239,7 @@ pub fn asyncDetached(io: Io, function: anytype, args: std.meta.ArgsTuple(@TypeOf
     const Args = @TypeOf(args);
     const TypeErased = struct {
         fn start(context: *const anyopaque) void {
-            const args_casted: *const Args = @alignCast(@ptrCast(context));
+            const args_casted: *const Args = @ptrCast(@alignCast(context));
             @call(.auto, function, args_casted.*);
         }
     };
