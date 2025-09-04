@@ -1210,8 +1210,6 @@ test "positional/alignment/width/precision" {
 }
 
 test "vector" {
-    if ((builtin.cpu.arch == .armeb or builtin.cpu.arch == .thumbeb) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/22060
-
     const vbool: @Vector(4, bool) = [_]bool{ true, false, true, false };
     const vi64: @Vector(4, i64) = [_]i64{ -2, -1, 0, 1 };
     const vu64: @Vector(4, u64) = [_]u64{ 1000, 2000, 3000, 4000 };
