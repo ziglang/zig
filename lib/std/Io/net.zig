@@ -2,6 +2,7 @@ const builtin = @import("builtin");
 const native_os = builtin.os.tag;
 const std = @import("../std.zig");
 const Io = std.Io;
+const assert = std.debug.assert;
 
 pub const ListenError = std.net.Address.ListenError || Io.Cancelable;
 
@@ -16,9 +17,232 @@ pub const ListenOptions = struct {
     force_nonblocking: bool = false,
 };
 
+/// An already-validated host name.
+pub const HostName = struct {
+    /// Externally managed memory. Already checked to be within `max_len`.
+    bytes: []const u8,
+
+    pub const max_len = 255;
+
+    pub const InitError = error{
+        NameTooLong,
+        InvalidHostName,
+    };
+
+    pub fn init(bytes: []const u8) InitError!HostName {
+        if (bytes.len > max_len) return error.NameTooLong;
+        if (!std.unicode.utf8ValidateSlice(bytes)) return error.InvalidHostName;
+        for (bytes) |byte| {
+            if (!std.ascii.isAscii(byte) or byte == '.' or byte == '-' or std.ascii.isAlphanumeric(byte)) {
+                continue;
+            }
+            return error.InvalidHostName;
+        }
+        return .{ .bytes = bytes };
+    }
+
+    pub const LookupOptions = struct {
+        port: u16,
+        /// Must have at least length 2.
+        addresses_buffer: []IpAddress,
+        /// If a buffer of at least `max_len` is not provided, `lookup` may
+        /// return successfully with zero-length `LookupResult.canonical_name_len`.
+        ///
+        /// Suggestion: if not interested in canonical name, pass an empty buffer;
+        /// otherwise pass a buffer of size `max_len`.
+        canonical_name_buffer: []u8,
+        /// `null` means either.
+        family: ?IpAddress.Tag = null,
+    };
+
+    pub const LookupError = Io.Cancelable || error{};
+
+    pub const LookupResult = struct {
+        /// How many `LookupOptions.addresses_buffer` elements are populated.
+        addresses_len: usize,
+        /// Length zero means no canonical name returned.
+        canonical_name_len: usize,
+    };
+
+    pub fn lookup(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
+        const name = host_name.bytes;
+        assert(name.len <= max_len);
+        assert(options.addresses_buffer.len >= 2);
+
+        if (native_os == .windows) @compileError("TODO");
+        if (builtin.link_libc) @compileError("TODO");
+        if (native_os == .linux) {
+            if (options.family != .ip6) {
+                if (IpAddress.parseIp4(name, options.port)) |addr| {
+                    options.addresses_buffer[0] = addr;
+                    return .{ .addresses_len = 1, .canonical_name_len = 0 };
+                } else |_| {}
+            }
+            if (options.family != .ip4) {
+                if (IpAddress.parseIp6(name, options.port)) |addr| {
+                    options.addresses_buffer[0] = addr;
+                    return .{ .addresses_len = 1, .canonical_name_len = 0 };
+                } else |_| {}
+            }
+            {
+                const result = try lookupHosts(io, options);
+                if (result.addresses_len > 0) return sortLookupResults(options, result);
+            }
+            {
+                // RFC 6761 Section 6.3.3
+                // Name resolution APIs and libraries SHOULD recognize
+                // localhost names as special and SHOULD always return the IP
+                // loopback address for address queries and negative responses
+                // for all other query types.
+
+                // Check for equal to "localhost(.)" or ends in ".localhost(.)"
+                const localhost = if (name[name.len - 1] == '.') "localhost." else "localhost";
+                if (std.mem.endsWith(u8, name, localhost) and
+                    (name.len == localhost.len or name[name.len - localhost.len] == '.'))
+                {
+                    var i: usize = 0;
+                    if (options.family != .ip6) {
+                        options.addresses_buffer[i] = .{ .ip4 = .localhost(options.port) };
+                        i += 1;
+                    }
+                    if (options.family != .ip4) {
+                        options.addresses_buffer[i] = .{ .ip6 = .localhost(options.port) };
+                        i += 1;
+                    }
+                    const canon_name = "localhost";
+                    options.canonical_name_buffer[0..canon_name.len].* = canon_name.*;
+                    return sortLookupResults(options, .{ .addresses_len = i, .canonical_name_len = canon_name.len });
+                }
+            }
+            {
+                const result = try lookupDns(io, options);
+                if (result.addresses_len > 0) return sortLookupResults(options, result);
+            }
+            return error.UnknownHostName;
+        }
+        @compileError("unimplemented");
+    }
+
+    fn sortLookupResults(options: LookupOptions, result: LookupResult) !LookupResult {
+        _ = options;
+        _ = result;
+        @panic("TODO");
+    }
+
+    fn lookupDns(io: Io, options: LookupOptions) !LookupResult {
+        _ = io;
+        _ = options;
+        @panic("TODO");
+    }
+
+    fn lookupHosts(io: Io, options: LookupOptions) !LookupResult {
+        const file = Io.File.openFileAbsoluteZ(io, "/etc/hosts", .{}) catch |err| switch (err) {
+            error.FileNotFound,
+            error.NotDir,
+            error.AccessDenied,
+            => return,
+            else => |e| return e,
+        };
+        defer file.close();
+
+        var line_buf: [512]u8 = undefined;
+        var file_reader = file.reader(io, &line_buf);
+        return lookupHostsReader(options, &file_reader.interface) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.ReadFailed => return file_reader.err.?,
+        };
+    }
+
+    fn lookupHostsReader(options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
+        var addresses_len: usize = 0;
+        var canonical_name_len: usize = 0;
+        while (true) {
+            const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
+                error.StreamTooLong => {
+                    // Skip lines that are too long.
+                    _ = reader.discardDelimiterInclusive('\n') catch |e| switch (e) {
+                        error.EndOfStream => break,
+                        error.ReadFailed => return error.ReadFailed,
+                    };
+                    continue;
+                },
+                error.ReadFailed => return error.ReadFailed,
+                error.EndOfStream => break,
+            };
+            var split_it = std.mem.splitScalar(u8, line, '#');
+            const no_comment_line = split_it.first();
+
+            var line_it = std.mem.tokenizeAny(u8, no_comment_line, " \t");
+            const ip_text = line_it.next() orelse continue;
+            var first_name_text: ?[]const u8 = null;
+            while (line_it.next()) |name_text| {
+                if (std.mem.eql(u8, name_text, options.name)) {
+                    if (first_name_text == null) first_name_text = name_text;
+                    break;
+                }
+            } else continue;
+
+            if (canonical_name_len == 0) {
+                if (HostName.init(first_name_text)) |name_text| {
+                    if (name_text.len <= options.canonical_name_buffer.len) {
+                        @memcpy(options.canonical_name_buffer[0..name_text.len], name_text);
+                        canonical_name_len = name_text.len;
+                    }
+                }
+            }
+
+            if (options.family != .ip6) {
+                if (IpAddress.parseIp4(ip_text, options.port)) |addr| {
+                    options.addresses_buffer[addresses_len] = addr;
+                    addresses_len += 1;
+                    if (options.addresses_buffer.len - addresses_len == 0) return .{
+                        .addresses_len = addresses_len,
+                        .canonical_name_len = canonical_name_len,
+                    };
+                } else |_| {}
+            }
+            if (options.family != .ip4) {
+                if (IpAddress.parseIp6(ip_text, options.port)) |addr| {
+                    options.addresses_buffer[addresses_len] = addr;
+                    addresses_len += 1;
+                    if (options.addresses_buffer.len - addresses_len == 0) return .{
+                        .addresses_len = addresses_len,
+                        .canonical_name_len = canonical_name_len,
+                    };
+                } else |_| {}
+            }
+        }
+    }
+
+    pub const ConnectTcpError = LookupError || IpAddress.ConnectTcpError;
+
+    pub fn connectTcp(host_name: HostName, io: Io, port: u16) ConnectTcpError!Stream {
+        var addresses_buffer: [32]IpAddress = undefined;
+
+        const results = try lookup(host_name, .{
+            .port = port,
+            .addresses_buffer = &addresses_buffer,
+            .canonical_name_buffer = &.{},
+        });
+        const addresses = addresses_buffer[0..results.addresses_len];
+
+        if (addresses.len == 0) return error.UnknownHostName;
+
+        for (addresses) |addr| {
+            return addr.connectTcp(io) catch |err| switch (err) {
+                error.ConnectionRefused => continue,
+                else => |e| return e,
+            };
+        }
+        return error.ConnectionRefused;
+    }
+};
+
 pub const IpAddress = union(enum) {
     ip4: Ip4Address,
     ip6: Ip6Address,
+
+    pub const Tag = @typeInfo(IpAddress).@"union".tag_type.?;
 
     /// Parse the given IP address string into an `IpAddress` value.
     pub fn parse(name: []const u8, port: u16) !IpAddress {
@@ -93,6 +317,13 @@ pub const IpAddress = union(enum) {
 pub const Ip4Address = struct {
     bytes: [4]u8,
     port: u16,
+
+    pub fn localhost(port: u16) Ip4Address {
+        return .{
+            .bytes = .{ 127, 0, 0, 1 },
+            .port = port,
+        };
+    }
 
     pub const ParseError = error{
         Overflow,
@@ -373,7 +604,10 @@ pub const Stream = struct {
         pub fn init(stream: Stream, buffer: []u8) Reader {
             return .{
                 .interface = .{
-                    .vtable = &.{ .stream = streamImpl },
+                    .vtable = &.{
+                        .stream = streamImpl,
+                        .readVec = readVec,
+                    },
                     .buffer = buffer,
                     .seek = 0,
                     .end = 0,
@@ -384,9 +618,17 @@ pub const Stream = struct {
         }
 
         fn streamImpl(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
+            const dest = limit.slice(try io_w.writableSliceGreedy(1));
+            var data: [1][]u8 = .{dest};
+            const n = try readVec(io_r, &data);
+            io_w.advance(n);
+            return n;
+        }
+
+        fn readVec(io_r: *Reader, data: [][]u8) Io.Reader.Error!usize {
             const r: *Reader = @alignCast(@fieldParentPtr("interface", io_r));
             const io = r.io;
-            return io.vtable.netRead(io.vtable.userdata, r.stream, io_w, limit);
+            return io.vtable.netReadVec(io.vtable.userdata, r.stream, io_r, data);
         }
     };
 
