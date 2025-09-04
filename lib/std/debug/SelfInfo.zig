@@ -87,11 +87,6 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     self.modules.deinit(gpa);
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
-test {
-    // `std.debug` does not currently utilize `deinit`, as it keeps hold of debug info for the
-    // whole lifetime of the program. Let's try to avoid it bitrotting.
-    _ = &deinit;
-}
 
 pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
     comptime assert(supports_unwinding);
