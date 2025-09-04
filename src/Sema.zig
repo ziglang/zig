@@ -3756,9 +3756,9 @@ fn zirAllocExtended(
     const pt = sema.pt;
     const gpa = sema.gpa;
     const extra = sema.code.extraData(Zir.Inst.AllocExtended, extended.operand);
+    const var_src = block.nodeOffset(extra.data.src_node);
     const ty_src = block.src(.{ .node_offset_var_decl_ty = extra.data.src_node });
     const align_src = block.src(.{ .node_offset_var_decl_align = extra.data.src_node });
-    const init_src = block.src(.{ .node_offset_var_decl_init = extra.data.src_node });
     const small: Zir.Inst.AllocExtended.Small = @bitCast(extended.small);
 
     var extra_index: usize = extra.end;
@@ -3777,7 +3777,7 @@ fn zirAllocExtended(
 
     if (block.isComptime() or small.is_comptime) {
         if (small.has_type) {
-            return sema.analyzeComptimeAlloc(block, init_src, var_ty, alignment);
+            return sema.analyzeComptimeAlloc(block, var_src, var_ty, alignment);
         } else {
             try sema.air_instructions.append(gpa, .{
                 .tag = .inferred_alloc_comptime,
@@ -3792,7 +3792,7 @@ fn zirAllocExtended(
     }
 
     if (small.has_type and try var_ty.comptimeOnlySema(pt)) {
-        return sema.analyzeComptimeAlloc(block, init_src, var_ty, alignment);
+        return sema.analyzeComptimeAlloc(block, var_src, var_ty, alignment);
     }
 
     if (small.has_type) {
@@ -3802,8 +3802,8 @@ fn zirAllocExtended(
         const target = pt.zcu.getTarget();
         try var_ty.resolveLayout(pt);
         if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
-            const var_src = block.src(.{ .node_offset_store_ptr = extra.data.src_node });
-            return sema.fail(block, var_src, "local variable in naked function", .{});
+            const store_src = block.src(.{ .node_offset_store_ptr = extra.data.src_node });
+            return sema.fail(block, store_src, "local variable in naked function", .{});
         }
         const ptr_type = try sema.pt.ptrTypeSema(.{
             .child = var_ty.toIntern(),
@@ -3842,9 +3842,9 @@ fn zirAllocComptime(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const ty_src = block.src(.{ .node_offset_var_decl_ty = inst_data.src_node });
-    const init_src = block.src(.{ .node_offset_var_decl_init = inst_data.src_node });
+    const var_src = block.nodeOffset(inst_data.src_node);
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
-    return sema.analyzeComptimeAlloc(block, init_src, var_ty, .none);
+    return sema.analyzeComptimeAlloc(block, var_src, var_ty, .none);
 }
 
 fn zirMakePtrConst(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -4254,11 +4254,11 @@ fn zirAlloc(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.I
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const ty_src = block.src(.{ .node_offset_var_decl_ty = inst_data.src_node });
-    const init_src = block.src(.{ .node_offset_var_decl_init = inst_data.src_node });
+    const var_src = block.nodeOffset(inst_data.src_node);
 
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.isComptime() or try var_ty.comptimeOnlySema(pt)) {
-        return sema.analyzeComptimeAlloc(block, init_src, var_ty, .none);
+        return sema.analyzeComptimeAlloc(block, var_src, var_ty, .none);
     }
     if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
         const mut_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
@@ -4284,14 +4284,14 @@ fn zirAllocMut(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
 
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].un_node;
     const ty_src = block.src(.{ .node_offset_var_decl_ty = inst_data.src_node });
-    const init_src = block.src(.{ .node_offset_var_decl_init = inst_data.src_node });
+    const var_src = block.nodeOffset(inst_data.src_node);
     const var_ty = try sema.resolveType(block, ty_src, inst_data.operand);
     if (block.isComptime()) {
-        return sema.analyzeComptimeAlloc(block, init_src, var_ty, .none);
+        return sema.analyzeComptimeAlloc(block, var_src, var_ty, .none);
     }
     if (sema.func_is_naked and try var_ty.hasRuntimeBitsSema(pt)) {
-        const var_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
-        return sema.fail(block, var_src, "local variable in naked function", .{});
+        const store_src = block.src(.{ .node_offset_store_ptr = inst_data.src_node });
+        return sema.fail(block, store_src, "local variable in naked function", .{});
     }
     try sema.validateVarType(block, ty_src, var_ty, false);
     const target = pt.zcu.getTarget();
