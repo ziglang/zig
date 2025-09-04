@@ -786,6 +786,7 @@ const Parser = struct {
 
             elem.* = try self.parseExpr(array_info.child, nodes.at(@intCast(i)));
         }
+        if (array_info.sentinel()) |s| result[result.len] = s;
         return result;
     }
 
