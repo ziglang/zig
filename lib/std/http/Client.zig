@@ -9,10 +9,10 @@ const builtin = @import("builtin");
 const testing = std.testing;
 const http = std.http;
 const mem = std.mem;
-const net = std.net;
 const Uri = std.Uri;
 const Allocator = mem.Allocator;
 const assert = std.debug.assert;
+const Io = std.Io;
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 
@@ -22,6 +22,8 @@ pub const disable_tls = std.options.http_disable_tls;
 
 /// Used for all client allocations. Must be thread-safe.
 allocator: Allocator,
+/// Used for opening TCP connections.
+io: Io,
 
 ca_bundle: if (disable_tls) void else std.crypto.Certificate.Bundle = if (disable_tls) {} else .{},
 ca_bundle_mutex: std.Thread.Mutex = .{},
@@ -225,8 +227,8 @@ pub const Protocol = enum {
 
 pub const Connection = struct {
     client: *Client,
-    stream_writer: net.Stream.Writer,
-    stream_reader: net.Stream.Reader,
+    stream_writer: Io.net.Stream.Writer,
+    stream_reader: Io.net.Stream.Reader,
     /// Entry in `ConnectionPool.used` or `ConnectionPool.free`.
     pool_node: std.DoublyLinkedList.Node,
     port: u16,
@@ -242,7 +244,7 @@ pub const Connection = struct {
             client: *Client,
             remote_host: []const u8,
             port: u16,
-            stream: net.Stream,
+            stream: Io.net.Stream,
         ) error{OutOfMemory}!*Plain {
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.len);
@@ -295,7 +297,7 @@ pub const Connection = struct {
             client: *Client,
             remote_host: []const u8,
             port: u16,
-            stream: net.Stream,
+            stream: Io.net.Stream,
         ) error{ OutOfMemory, TlsInitializationFailed }!*Tls {
             const gpa = client.allocator;
             const alloc_len = allocLen(client, remote_host.len);
@@ -363,7 +365,7 @@ pub const Connection = struct {
         }
     };
 
-    pub const ReadError = std.crypto.tls.Client.ReadError || std.net.Stream.ReadError;
+    pub const ReadError = std.crypto.tls.Client.ReadError || Io.net.Stream.ReadError;
 
     pub fn getReadError(c: *const Connection) ?ReadError {
         return switch (c.protocol) {
@@ -378,8 +380,8 @@ pub const Connection = struct {
         };
     }
 
-    fn getStream(c: *Connection) net.Stream {
-        return c.stream_reader.getStream();
+    fn getStream(c: *Connection) Io.net.Stream {
+        return c.stream_reader.stream;
     }
 
     pub fn host(c: *Connection) []u8 {
@@ -1409,7 +1411,7 @@ pub fn connectTcp(
 }
 
 pub const ConnectTcpOptions = struct {
-    host: []const u8,
+    host: Io.net.HostName,
     port: u16,
     protocol: Protocol,
 
@@ -1418,7 +1420,7 @@ pub const ConnectTcpOptions = struct {
 };
 
 pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcpError!*Connection {
-    const host = options.host;
+    const host = options.host_name;
     const port = options.port;
     const protocol = options.protocol;
 
@@ -1431,7 +1433,7 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         .protocol = protocol,
     })) |conn| return conn;
 
-    const stream = net.tcpConnectToHost(client.allocator, host, port) catch |err| switch (err) {
+    const stream = host.connectTcp(client.io, port) catch |err| switch (err) {
         error.ConnectionRefused => return error.ConnectionRefused,
         error.NetworkUnreachable => return error.NetworkUnreachable,
         error.ConnectionTimedOut => return error.ConnectionTimedOut,
@@ -1440,6 +1442,7 @@ pub fn connectTcpOptions(client: *Client, options: ConnectTcpOptions) ConnectTcp
         error.NameServerFailure => return error.NameServerFailure,
         error.UnknownHostName => return error.UnknownHostName,
         error.HostLacksNetworkAddresses => return error.HostLacksNetworkAddresses,
+        error.Canceled => return error.Canceled,
         else => return error.UnexpectedConnectFailure,
     };
     errdefer stream.close();
