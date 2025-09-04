@@ -3389,6 +3389,14 @@ fn buildOutputType(
     var file_system_inputs: std.ArrayListUnmanaged(u8) = .empty;
     defer file_system_inputs.deinit(gpa);
 
+    // Deduplicate rpath entries
+    var rpath_dedup = std.StringArrayHashMapUnmanaged(void){};
+    for (create_module.rpath_list.items) |rpath| {
+        try rpath_dedup.put(arena, rpath, {});
+    }
+    create_module.rpath_list.clearRetainingCapacity();
+    try create_module.rpath_list.appendSlice(arena, rpath_dedup.keys());
+
     var create_diag: Compilation.CreateDiagnostic = undefined;
     const comp = Compilation.create(gpa, arena, &create_diag, .{
         .dirs = dirs,
