@@ -4371,7 +4371,34 @@ pub const GetSockOptError = error{
     FileDescriptorNotASocket,
 } || UnexpectedError;
 
+/// Get a socket's options.  This is the simple interface for retrieving
+/// options with a known, fixed size, e.g. simple integer values or singular
+/// fixed structs.  If you're using one of the few options that may return
+/// variable-length option data, see getsockoptSlice().
 pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError!void {
+    const returned = try getsockoptSlice(fd, level, optname, opt);
+    assert(returned.len == opt.len);
+}
+
+/// This is getsockopt for options which return variably-long data.  It will
+/// return a slice of the provided opt buffer according to the optlen the
+/// system returned.
+///
+/// Known examples:
+/// IP_OPTIONS: Returns 0-40 bytes of actual IP header option data.
+///
+/// Linux SO_PEERSEC: there is no documented buffer length that will always be
+/// sufficient, so the caller has to observe the BufferTooSmall error and then
+/// try with a larger buffer until success, and then still needs to know the
+/// real length of the successfully returned value, which may be smaller than
+/// the buffer.
+///
+/// Linux SO_BINDTODEVICE: recommends the input buffer to be IFNAMSIZ long to
+/// hold any device name, but returns the actual length of the stored name in
+/// optlen, which will usually be shorter than the buffer length, and thus
+/// would fail the otherwise-useful optlen equality check in the
+/// normal getsockopt() interface.
+pub fn getsockoptSlice(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptError![]u8 {
     var len: socklen_t = @intCast(opt.len);
     if (native_os == .windows) {
         const rc = windows.ws2_32.getsockopt(fd, level, @intCast(optname), opt.ptr, @ptrCast(&len));
@@ -4403,7 +4430,8 @@ pub fn getsockopt(fd: socket_t, level: i32, optname: u32, opt: []u8) GetSockOptE
             else => |err| return unexpectedErrno(err),
         }
     }
-    assert(len == opt.len);
+    assert(len <= opt.len);
+    return opt[0..len];
 }
 
 pub fn getsockoptError(sockfd: fd_t) ConnectError!void {
