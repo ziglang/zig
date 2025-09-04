@@ -92,7 +92,8 @@ pub fn RegisterManager(
 
             const id_index = reg.id() -% min_id;
             if (id_index >= map.len) return null;
-            const set_index = map[id_index];
+            const map_copy = map; // This one can be accessed with runtime-known id_index.
+            const set_index = map_copy[id_index];
             return if (set_index < set.len) @intCast(set_index) else null;
         }
 
