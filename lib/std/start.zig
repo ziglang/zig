@@ -734,24 +734,21 @@ pub fn call_wWinMain() std.os.windows.INT {
     // - u32 in PEB.ProcessParameters.dwShowWindow
     // Since STARTUPINFO is the bottleneck for the allowed values, we use `u16` as the
     // type which can coerce into i32/c_int/u32 depending on how the user defines their wWinMain
-    // (the Win32 docs show wWinMain with `int` as the type for nCmdShow).
-    const nCmdShow: u16 = nCmdShow: {
-        // This makes Zig match the nCmdShow behavior of a C program with a WinMain symbol:
+    // (the Win32 docs show wWinMain with `int` as the type for nShowCmd).
+    const nShowCmd: u16 = nShowCmd: {
+        // This makes Zig match the nShowCmd behavior of a C program with a WinMain symbol:
         // - With STARTF_USESHOWWINDOW set in STARTUPINFO.dwFlags of the CreateProcess call:
-        //   - Compiled with subsystem:console -> nCmdShow is always SW_SHOWDEFAULT
-        //   - Compiled with subsystem:windows -> nCmdShow is STARTUPINFO.wShowWindow from
-        //     the parent CreateProcess call
+        //   - nShowCmd is STARTUPINFO.wShowWindow from the parent CreateProcess call
         // - With STARTF_USESHOWWINDOW unset:
-        //   - nCmdShow is always SW_SHOWDEFAULT
+        //   - nShowCmd is always SW_SHOWDEFAULT
         const SW_SHOWDEFAULT = 10;
         const STARTF_USESHOWWINDOW = 1;
-        // root having a wWinMain means that std.builtin.subsystem will always have a non-null value.
-        if (std.builtin.subsystem.? == .Windows and peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
-            break :nCmdShow @truncate(peb.ProcessParameters.dwShowWindow);
+        if (peb.ProcessParameters.dwFlags & STARTF_USESHOWWINDOW != 0) {
+            break :nShowCmd @truncate(peb.ProcessParameters.dwShowWindow);
         }
-        break :nCmdShow SW_SHOWDEFAULT;
+        break :nShowCmd SW_SHOWDEFAULT;
     };
 
     // second parameter hPrevInstance, MSDN: "This parameter is always NULL"
-    return root.wWinMain(hInstance, null, lpCmdLine, nCmdShow);
+    return root.wWinMain(hInstance, null, lpCmdLine, nShowCmd);
 }
