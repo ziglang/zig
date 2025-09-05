@@ -1154,6 +1154,7 @@ pub const Reader = struct {
         };
     }
 
+    /// If `error.EndOfStream` has been hit, this cannot fail.
     pub fn getSize(r: *Reader) SizeError!u64 {
         return r.size orelse {
             if (r.size_err) |err| return err;
@@ -1440,7 +1441,7 @@ pub const Reader = struct {
         }
     }
 
-    pub fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readPositional(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.pread(dest, r.pos) catch |err| switch (err) {
             error.Unseekable => {
                 r.mode = r.mode.toStreaming();
@@ -1467,7 +1468,7 @@ pub const Reader = struct {
         return n;
     }
 
-    pub fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
+    fn readStreaming(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
         const n = r.file.read(dest) catch |err| {
             r.err = err;
             return error.ReadFailed;
@@ -1478,14 +1479,6 @@ pub const Reader = struct {
         }
         r.pos += n;
         return n;
-    }
-
-    pub fn read(r: *Reader, dest: []u8) std.Io.Reader.Error!usize {
-        switch (r.mode) {
-            .positional, .positional_reading => return readPositional(r, dest),
-            .streaming, .streaming_reading => return readStreaming(r, dest),
-            .failure => return error.ReadFailed,
-        }
     }
 
     pub fn atEnd(r: *Reader) bool {
@@ -1803,9 +1796,15 @@ pub const Writer = struct {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
-            const consumed = io_w.consume(@intCast(sbytes));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
-            return consumed;
+            const n = io_w.consume(@intCast(sbytes));
+            if (n <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(n);
+            } else {
+                const direct_n = n - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(direct_n)) catch return error.ReadFailed;
+            }
+            return n;
         }
 
         if (native_os.isDarwin() and w.mode == .streaming) sf: {
@@ -1864,9 +1863,15 @@ pub const Writer = struct {
                 file_reader.size = file_reader.pos;
                 return error.EndOfStream;
             }
-            const consumed = io_w.consume(@bitCast(len));
-            file_reader.seekTo(file_reader.pos + consumed) catch return error.ReadFailed;
-            return consumed;
+            const n = io_w.consume(@bitCast(len));
+            if (n <= file_reader.interface.bufferedLen()) {
+                file_reader.interface.toss(n);
+            } else {
+                const direct_n = n - file_reader.interface.bufferedLen();
+                file_reader.interface.tossBuffered();
+                file_reader.seekBy(@intCast(direct_n)) catch return error.ReadFailed;
+            }
+            return n;
         }
 
         if (native_os == .linux and w.mode == .streaming) sf: {
@@ -1998,7 +2003,7 @@ pub const Writer = struct {
         reader_buffered: []const u8,
     ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);
-        file_reader.seekTo(file_reader.pos + n) catch return error.ReadFailed;
+        file_reader.interface.toss(n);
         return n;
     }
 
