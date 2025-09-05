@@ -2728,7 +2728,7 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_ptr,
             .elem_val,
             .elem_ptr_node,
-            .elem_val_node,
+            .elem_ptr_load,
             .elem_val_imm,
             .field_ptr,
             .field_ptr_load,
@@ -6210,14 +6210,14 @@ fn arrayAccess(
         },
         else => {
             const lhs_node, const rhs_node = tree.nodeData(node).node_and_node;
-            const lhs = try expr(gz, scope, .{ .rl = .none }, lhs_node);
+            const lhs = try expr(gz, scope, .{ .rl = .ref }, lhs_node);
 
             const cursor = maybeAdvanceSourceCursorToMainToken(gz, node);
 
             const rhs = try expr(gz, scope, .{ .rl = .{ .coerced_ty = .usize_type } }, rhs_node);
             try emitDbgStmt(gz, cursor);
 
-            return rvalue(gz, ri, try gz.addPlNode(.elem_val_node, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
+            return rvalue(gz, ri, try gz.addPlNode(.elem_ptr_load, node, Zir.Inst.Bin{ .lhs = lhs, .rhs = rhs }), node);
         },
     }
 }

@@ -1193,7 +1193,7 @@ fn analyzeBodyInner(
             .elem_ptr                     => try sema.zirElemPtr(block, inst),
             .elem_ptr_node                => try sema.zirElemPtrNode(block, inst),
             .elem_val                     => try sema.zirElemVal(block, inst),
-            .elem_val_node                => try sema.zirElemValNode(block, inst),
+            .elem_ptr_load                => try sema.zirElemPtrLoad(block, inst),
             .elem_val_imm                 => try sema.zirElemValImm(block, inst),
             .elem_type                    => try sema.zirElemType(block, inst),
             .indexable_ptr_elem_type      => try sema.zirIndexablePtrElemType(block, inst),
@@ -10102,7 +10102,7 @@ fn zirElemVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
     return sema.elemVal(block, src, array, elem_index, src, false);
 }
 
-fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirElemPtrLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -10110,10 +10110,11 @@ fn zirElemValNode(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const src = block.nodeOffset(inst_data.src_node);
     const elem_index_src = block.src(.{ .node_offset_array_access_index = inst_data.src_node });
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
-    const array = try sema.resolveInst(extra.lhs);
+    const array_ptr = try sema.resolveInst(extra.lhs);
     const uncoerced_elem_index = try sema.resolveInst(extra.rhs);
     const elem_index = try sema.coerce(block, .usize, uncoerced_elem_index, elem_index_src);
-    return sema.elemVal(block, src, array, elem_index, elem_index_src, true);
+    const elem_ptr = try elemPtr(sema, block, src, array_ptr, elem_index, elem_index_src, false, true);
+    return analyzeLoad(sema, block, src, elem_ptr, elem_index_src);
 }
 
 fn zirElemValImm(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
