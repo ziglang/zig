@@ -251,6 +251,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
         ) catch null,
     };
 }
+pub const supports_unwinding: bool = true;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.

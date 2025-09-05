@@ -14,6 +14,8 @@ const Dwarf = std.debug.Dwarf;
 const regBytes = Dwarf.abi.regBytes;
 const regValueNative = Dwarf.abi.regValueNative;
 
+const root = @import("root");
+
 const SelfInfo = @This();
 
 modules: std.AutoArrayHashMapUnmanaged(usize, Module.DebugInfo),
@@ -33,49 +35,12 @@ pub const Error = error{
 };
 
 /// Indicates whether the `SelfInfo` implementation has support for this target.
-pub const target_supported: bool = switch (native_os) {
-    .linux,
-    .freebsd,
-    .netbsd,
-    .dragonfly,
-    .openbsd,
-    .macos,
-    .solaris,
-    .illumos,
-    .windows,
-    => true,
-    else => false,
-};
+pub const target_supported: bool = Module != void;
 
-/// Indicates whether unwinding for the host is *implemented* here in the Zig
-/// standard library.
+/// Indicates whether the `SelfInfo` implementation has support for unwinding on this target.
 ///
-/// See also `Dwarf.abi.supportsUnwinding` which tells whether Dwarf supports
-/// unwinding on a target *in theory*.
-pub const supports_unwinding: bool = switch (builtin.target.cpu.arch) {
-    .x86 => switch (builtin.target.os.tag) {
-        .linux, .netbsd, .solaris, .illumos => true,
-        else => false,
-    },
-    .x86_64 => switch (builtin.target.os.tag) {
-        .linux, .netbsd, .freebsd, .openbsd, .macos, .ios, .solaris, .illumos => true,
-        else => false,
-    },
-    .arm, .armeb, .thumb, .thumbeb => switch (builtin.target.os.tag) {
-        .linux => true,
-        else => false,
-    },
-    .aarch64, .aarch64_be => switch (builtin.target.os.tag) {
-        .linux, .netbsd, .freebsd, .macos, .ios => true,
-        else => false,
-    },
-    // Unwinding is possible on other targets but this implementation does
-    // not support them...yet!
-    else => false,
-};
-comptime {
-    if (supports_unwinding) assert(Dwarf.abi.supportsUnwinding(&builtin.target));
-}
+/// For whether DWARF unwinding is *theoretically* possible, see `Dwarf.abi.supportsUnwinding`.
+pub const supports_unwinding: bool = Module.supports_unwinding;
 
 pub const init: SelfInfo = .{
     .modules = .empty,
@@ -114,48 +79,61 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
     return module.name;
 }
 
-/// This type contains the target-specific implementation. It must expose the following declarations:
+/// `void` indicates that `SelfInfo` is not supported for this target.
 ///
-/// * `LookupCache: type`, with the following declarations unless `LookupCache == void`:
-///   * `init: LookupCache`
-///   * `deinit: fn (*LookupCache, Allocator) void`
-/// * `lookup: fn (*LookupCache, Allocator, address: usize) !Module`
-/// * `key: fn (*const Module) usize`
-/// * `DebugInfo: type`, with the following declarations:
-///   * `DebugInfo.init: DebugInfo`
-/// * `getSymbolAtAddress: fn (*const Module, Allocator, *DebugInfo, address: usize) !std.debug.Symbol`
+/// This type contains the target-specific implementation. Logically, a `Module` represents a subset
+/// of the executable with its own debug information. This typically corresponds to what ELF calls a
+/// module, i.e. a shared library or executable image, but could be anything. For instance, it would
+/// be valid to consider the entire application one module, or on the other hand to consider each
+/// object file a module.
 ///
-/// If unwinding is supported on this target, it must additionally expose the following declarations:
+/// This type must must expose the following declarations:
 ///
-/// * `unwindFrame: fn (*const Module, Allocator, *DebugInfo, *UnwindContext) !usize`
-const Module = switch (native_os) {
-    else => {}, // Dwarf, // TODO MLUGG: it's this on master but that's definitely broken atm...
-    .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => @import("SelfInfo/ElfModule.zig"),
-    .macos, .ios, .watchos, .tvos, .visionos => @import("SelfInfo/DarwinModule.zig"),
-    .uefi, .windows => @import("SelfInfo/WindowsModule.zig"),
-    .wasi, .emscripten => struct {
-        const LookupCache = void;
-        fn lookup(cache: *LookupCache, gpa: Allocator, address: usize) !Module {
-            _ = cache;
-            _ = gpa;
-            _ = address;
-            @panic("TODO implement lookup module for Wasm");
-        }
-        const DebugInfo = struct {
-            const init: DebugInfo = .{};
-        };
-        fn getSymbolAtAddress(module: *const Module, gpa: Allocator, di: *DebugInfo, address: usize) !std.debug.Symbol {
-            _ = module;
-            _ = gpa;
-            _ = di;
-            _ = address;
-            unreachable;
-        }
-    },
+/// ```
+/// /// Holds state cached by the implementation between calls to `lookup`.
+/// /// This may be `void`, in which case the inner declarations can be omitted.
+/// pub const LookupCache = struct {
+///     pub const init: LookupCache;
+///     pub fn deinit(lc: *LookupCache, gpa: Allocator) void;
+/// };
+/// /// Holds debug information associated with a particular `Module`.
+/// pub const DebugInfo = struct {
+///     pub const init: DebugInfo;
+/// };
+/// /// Finds the `Module` corresponding to `address`.
+/// pub fn lookup(lc: *LookupCache, gpa: Allocator, address: usize) SelfInfo.Error!Module;
+/// /// Returns a unique identifier for this `Module`, such as a load address.
+/// pub fn key(mod: *const Module) usize;
+/// /// Locates and loads location information for the symbol corresponding to `address`.
+/// pub fn getSymbolAtAddress(
+///     mod: *const Module,
+///     gpa: Allocator,
+///     di: *DebugInfo,
+///     address: usize,
+/// ) SelfInfo.Error!std.debug.Symbol;
+/// /// Whether a reliable stack unwinding strategy, such as DWARF unwinding, is available.
+/// pub const supports_unwinding: bool;
+/// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame and returns
+/// /// the next return address (which may be 0 indicating end of stack). This is currently
+/// /// specialized to DWARF unwinding.
+/// pub fn unwindFrame(
+///     mod: *const Module,
+///     gpa: Allocator,
+///     di: *DebugInfo,
+///     ctx: *SelfInfo.UnwindContext,
+/// ) SelfInfo.Error!usize;
+/// ```
+const Module: type = Module: {
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "Module")) {
+        break :Module root.debug.Module;
+    }
+    break :Module switch (native_os) {
+        .linux, .netbsd, .freebsd, .dragonfly, .openbsd, .haiku, .solaris, .illumos => @import("SelfInfo/ElfModule.zig"),
+        .macos, .ios, .watchos, .tvos, .visionos => @import("SelfInfo/DarwinModule.zig"),
+        .uefi, .windows => @import("SelfInfo/WindowsModule.zig"),
+        else => void,
+    };
 };
-test {
-    _ = Module;
-}
 
 pub const UnwindContext = struct {
     gpa: Allocator, // MLUGG TODO: make unmanaged (also maybe rename this type, DwarfUnwindContext or smth idk)
