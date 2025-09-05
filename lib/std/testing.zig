@@ -135,14 +135,9 @@ fn expectEqualInner(comptime T: type, expected: T, actual: T) !void {
         .array => |array| try expectEqualSlices(array.child, &expected, &actual),
 
         .vector => |info| {
-            inline for (0..info.len) |i| {
-                if (expected[i] != actual[i]) {
-                    print("index {d} incorrect. expected {any}, found {any}\n", .{
-                        i, expected[i], actual[i],
-                    });
-                    return error.TestExpectedEqual;
-                }
-            }
+            const expect_array: [info.len]info.child = expected;
+            const actual_array: [info.len]info.child = actual;
+            try expectEqualSlices(info.child, &expect_array, &actual_array);
         },
 
         .@"struct" => |structType| {

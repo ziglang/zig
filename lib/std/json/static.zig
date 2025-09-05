@@ -440,10 +440,11 @@ pub fn innerParse(
             }
         },
 
-        .vector => |vecInfo| {
+        .vector => |vector_info| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
-                    return internalParseVector(T, vecInfo.child, vecInfo.len, allocator, source, options);
+                    const A = [vector_info.len]vector_info.child;
+                    return internalParseArray(A, vector_info.child, allocator, source, options);
                 },
                 else => return error.UnexpectedToken,
             }
@@ -528,26 +529,6 @@ fn internalParseArray(
     var r: T = undefined;
     for (&r) |*elem| {
         elem.* = try innerParse(Child, allocator, source, options);
-    }
-
-    if (.array_end != try source.next()) return error.UnexpectedToken;
-
-    return r;
-}
-
-fn internalParseVector(
-    comptime T: type,
-    comptime Child: type,
-    comptime len: comptime_int,
-    allocator: Allocator,
-    source: anytype,
-    options: ParseOptions,
-) !T {
-    assert(.array_begin == try source.next());
-
-    var r: T = undefined;
-    inline for (0..len) |i| {
-        r[i] = try innerParse(Child, allocator, source, options);
     }
 
     if (.array_end != try source.next()) return error.UnexpectedToken;

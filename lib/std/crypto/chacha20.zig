@@ -215,7 +215,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             }
         }
 
-        fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: BlockVec) void {
+        fn hashToBytes(comptime dm: usize, out: *[64 * dm]u8, x: *const BlockVec) void {
             inline for (0..dm) |d| {
                 for (0..4) |i| {
                     mem.writeInt(u32, out[64 * d + 16 * i + 0 ..][0..4], x[i][0 + 4 * d], .little);
@@ -242,7 +242,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
                 while (degree >= d and i + 64 * d <= in.len) : (i += 64 * d) {
                     chacha20Core(x[0..], ctx);
                     contextFeedback(&x, ctx);
-                    hashToBytes(d, buf[0 .. 64 * d], x);
+                    hashToBytes(d, buf[0 .. 64 * d], &x);
 
                     var xout = out[i..];
                     const xin = in[i..];
@@ -266,7 +266,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
             if (i < in.len) {
                 chacha20Core(x[0..], ctx);
                 contextFeedback(&x, ctx);
-                hashToBytes(1, buf[0..64], x);
+                hashToBytes(1, buf[0..64], &x);
 
                 var xout = out[i..];
                 const xin = in[i..];
@@ -284,7 +284,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
                 while (degree >= d and i + 64 * d <= out.len) : (i += 64 * d) {
                     chacha20Core(x[0..], ctx);
                     contextFeedback(&x, ctx);
-                    hashToBytes(d, out[i..][0 .. 64 * d], x);
+                    hashToBytes(d, out[i..][0 .. 64 * d], &x);
                     inline for (0..d) |d_| {
                         if (count64) {
                             const next = @addWithOverflow(ctx[3][4 * d_], d);
@@ -301,7 +301,7 @@ fn ChaChaVecImpl(comptime rounds_nb: usize, comptime degree: comptime_int) type 
                 contextFeedback(&x, ctx);
 
                 var buf: [64]u8 = undefined;
-                hashToBytes(1, buf[0..], x);
+                hashToBytes(1, buf[0..], &x);
                 @memcpy(out[i..], buf[0 .. out.len - i]);
             }
         }
@@ -394,7 +394,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             }
         }
 
-        fn hashToBytes(out: *[64]u8, x: BlockVec) void {
+        fn hashToBytes(out: *[64]u8, x: *const BlockVec) void {
             for (0..4) |i| {
                 mem.writeInt(u32, out[16 * i + 0 ..][0..4], x[i * 4 + 0], .little);
                 mem.writeInt(u32, out[16 * i + 4 ..][0..4], x[i * 4 + 1], .little);
@@ -417,7 +417,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             while (i + 64 <= in.len) : (i += 64) {
                 chacha20Core(x[0..], ctx);
                 contextFeedback(&x, ctx);
-                hashToBytes(buf[0..], x);
+                hashToBytes(buf[0..], &x);
 
                 var xout = out[i..];
                 const xin = in[i..];
@@ -438,7 +438,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             if (i < in.len) {
                 chacha20Core(x[0..], ctx);
                 contextFeedback(&x, ctx);
-                hashToBytes(buf[0..], x);
+                hashToBytes(buf[0..], &x);
 
                 var xout = out[i..];
                 const xin = in[i..];
@@ -455,7 +455,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
             while (i + 64 <= out.len) : (i += 64) {
                 chacha20Core(x[0..], ctx);
                 contextFeedback(&x, ctx);
-                hashToBytes(out[i..][0..64], x);
+                hashToBytes(out[i..][0..64], &x);
                 if (count64) {
                     const next = @addWithOverflow(ctx[12], 1);
                     ctx[12] = next[0];
@@ -469,7 +469,7 @@ fn ChaChaNonVecImpl(comptime rounds_nb: usize) type {
                 contextFeedback(&x, ctx);
 
                 var buf: [64]u8 = undefined;
-                hashToBytes(buf[0..], x);
+                hashToBytes(buf[0..], &x);
                 @memcpy(out[i..], buf[0 .. out.len - i]);
             }
         }

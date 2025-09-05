@@ -430,8 +430,12 @@ pub fn free(gpa: Allocator, value: anytype) void {
                 .many, .c => comptime unreachable,
             }
         },
-        .array => for (value) |item| {
-            free(gpa, item);
+        .array => {
+            freeArray(gpa, @TypeOf(value), &value);
+        },
+        .vector => |vector| {
+            const array: [vector.len]vector.child = value;
+            freeArray(gpa, @TypeOf(array), &array);
         },
         .@"struct" => |@"struct"| inline for (@"struct".fields) |field| {
             free(gpa, @field(value, field.name));
@@ -446,10 +450,13 @@ pub fn free(gpa: Allocator, value: anytype) void {
         .optional => if (value) |some| {
             free(gpa, some);
         },
-        .vector => |vector| inline for (0..vector.len) |i| free(gpa, value[i]),
         .void => {},
         else => comptime unreachable,
     }
+}
+
+fn freeArray(gpa: Allocator, comptime A: type, array: *const A) void {
+    for (array) |elem| free(gpa, elem);
 }
 
 fn requiresAllocator(T: type) bool {
@@ -521,12 +528,15 @@ const Parser = struct {
                 else => comptime unreachable,
             },
             .array => return self.parseArray(T, node),
+            .vector => |vector| {
+                const A = [vector.len]vector.child;
+                return try self.parseArray(A, node);
+            },
             .@"struct" => |@"struct"| if (@"struct".is_tuple)
                 return self.parseTuple(T, node)
             else
                 return self.parseStruct(T, node),
             .@"union" => return self.parseUnion(T, node),
-            .vector => return self.parseVector(T, node),
 
             else => comptime unreachable,
         }
@@ -997,33 +1007,6 @@ const Parser = struct {
             },
             else => return error.WrongType,
         }
-    }
-
-    fn parseVector(self: *@This(), T: type, node: Zoir.Node.Index) !T {
-        const vector_info = @typeInfo(T).vector;
-
-        const nodes: Zoir.Node.Index.Range = switch (node.get(self.zoir)) {
-            .array_literal => |nodes| nodes,
-            .empty_literal => .{ .start = node, .len = 0 },
-            else => return error.WrongType,
-        };
-
-        var result: T = undefined;
-
-        if (nodes.len != vector_info.len) {
-            return self.failNodeFmt(
-                node,
-                "expected {} vector elements; found {}",
-                .{ vector_info.len, nodes.len },
-            );
-        }
-
-        inline for (0..vector_info.len) |i| {
-            errdefer inline for (0..i) |j| free(self.gpa, result[j]);
-            result[i] = try self.parseExpr(vector_info.child, nodes.at(@intCast(i)));
-        }
-
-        return result;
     }
 
     fn failTokenFmt(
@@ -3206,7 +3189,7 @@ test "std.zon vector" {
             fromSlice(@Vector(2, f32), gpa, ".{0.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
-            "1:2: error: expected 2 vector elements; found 1\n",
+            "1:2: error: expected 2 array elements; found 1\n",
             "{f}",
             .{diag},
         );
@@ -3221,7 +3204,7 @@ test "std.zon vector" {
             fromSlice(@Vector(2, f32), gpa, ".{0.5, 1.5, 2.5}", &diag, .{}),
         );
         try std.testing.expectFmt(
-            "1:2: error: expected 2 vector elements; found 3\n",
+            "1:13: error: index 2 outside of array of length 2\n",
             "{f}",
             .{diag},
         );
