@@ -47,6 +47,7 @@ else switch (native_os) {
     .linux => linux,
     .plan9 => std.os.plan9,
     else => struct {
+        pub const getcontext = {};
         pub const ucontext_t = void;
         pub const pid_t = void;
         pub const pollfd = void;
