@@ -56,7 +56,7 @@ pub const Range = struct {
 
 pub const Section = struct {
     data: []const u8,
-    // If `data` is owned by this Dwarf.
+    /// If `data` is owned by this Dwarf.
     owned: bool,
 
     pub const Id = enum {
