@@ -1187,7 +1187,7 @@ fn analyzeBodyInner(
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
             .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, Air.Inst.Tag.fromCmpOp(.neq, block.float_mode == .optimized)),
-            .decl_ref                     => try sema.zirDeclRef(block, inst, true),
+            .decl_ref                     => try sema.zirDeclRef(block, inst),
             .decl_val                     => try sema.zirDeclVal(block, inst),
             .load                         => try sema.zirLoad(block, inst),
             .elem_ptr                     => try sema.zirElemPtr(block, inst),
@@ -6524,7 +6524,7 @@ pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTer
     return nts;
 }
 
-fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index, escape: bool) CompileError!Air.Inst.Ref {
+fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
@@ -6536,7 +6536,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index, escape: bool) Co
         .no_embedded_nulls,
     );
     const nav_index = try sema.lookupIdentifier(block, decl_name);
-    return sema.analyzeNavRefInner(block, src, nav_index, escape);
+    return sema.analyzeNavRef(block, src, nav_index);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
