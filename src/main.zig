@@ -343,7 +343,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
         return cmdInit(gpa, arena, cmd_args);
     } else if (mem.eql(u8, cmd, "targets")) {
         dev.check(.targets_command);
-        const host = std.zig.resolveTargetQueryOrFatal(.{});
+        const host = std.zig.resolveTargetQueryOrFatal(.{}, gpa);
         var stdout_writer = fs.File.stdout().writer(&stdout_buffer);
         try @import("print_targets.zig").cmdTargets(arena, cmd_args, &stdout_writer.interface, &host);
         return stdout_writer.interface.flush();
@@ -379,7 +379,7 @@ fn mainArgs(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
     } else if (mem.eql(u8, cmd, "ast-check")) {
         return cmdAstCheck(arena, cmd_args);
     } else if (mem.eql(u8, cmd, "detect-cpu")) {
-        return cmdDetectCpu(cmd_args);
+        return cmdDetectCpu(gpa, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "changelist")) {
         return cmdChangelist(arena, cmd_args);
     } else if (build_options.enable_debug_extensions and mem.eql(u8, cmd, "dump-zir")) {
@@ -3803,7 +3803,7 @@ fn createModule(
         }
 
         const target_query = std.zig.parseTargetQueryOrReportFatalError(arena, target_parse_options);
-        const target = std.zig.resolveTargetQueryOrFatal(target_query);
+        const target = std.zig.resolveTargetQueryOrFatal(target_query, gpa);
         break :t .{
             .result = target,
             .is_native_os = target_query.isNativeOs(),
@@ -4353,7 +4353,7 @@ fn runOrTest(
         std.debug.lockStdErr();
         const err = process.execve(gpa, argv.items, &env_map);
         std.debug.unlockStdErr();
-        try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
+        try warnAboutForeignBinaries(gpa, arena, arg_mode, target, link_libc);
         const cmd = try std.mem.join(arena, " ", argv.items);
         fatal("the following command failed to execve with '{s}':\n{s}", .{ @errorName(err), cmd });
     } else if (process.can_spawn) {
@@ -4374,7 +4374,7 @@ fn runOrTest(
             break :t child.spawnAndWait();
         };
         const term = term_result catch |err| {
-            try warnAboutForeignBinaries(arena, arg_mode, target, link_libc);
+            try warnAboutForeignBinaries(gpa, arena, arg_mode, target, link_libc);
             const cmd = try std.mem.join(arena, " ", argv.items);
             fatal("the following command failed with '{s}':\n{s}", .{ @errorName(err), cmd });
         };
@@ -5093,7 +5093,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
                     .arch_os_abi = triple,
                 });
                 break :t .{
-                    .result = std.zig.resolveTargetQueryOrFatal(target_query),
+                    .result = std.zig.resolveTargetQueryOrFatal(target_query, gpa),
                     .is_native_os = false,
                     .is_native_abi = false,
                     .is_explicit_dynamic_linker = false,
@@ -5101,7 +5101,7 @@ fn cmdBuild(gpa: Allocator, arena: Allocator, args: []const []const u8) !void {
             }
         }
         break :t .{
-            .result = std.zig.resolveTargetQueryOrFatal(.{}),
+            .result = std.zig.resolveTargetQueryOrFatal(.{}, gpa),
             .is_native_os = true,
             .is_native_abi = true,
             .is_explicit_dynamic_linker = false,
@@ -5522,7 +5522,7 @@ fn jitCmd(
 
     const target_query: std.Target.Query = .{};
     const resolved_target: Package.Module.ResolvedTarget = .{
-        .result = std.zig.resolveTargetQueryOrFatal(target_query),
+        .result = std.zig.resolveTargetQueryOrFatal(target_query, gpa),
         .is_native_os = true,
         .is_native_abi = true,
         .is_explicit_dynamic_linker = false,
@@ -6318,7 +6318,7 @@ fn cmdAstCheck(
     }
 }
 
-fn cmdDetectCpu(args: []const []const u8) !void {
+fn cmdDetectCpu(gpa: Allocator, args: []const []const u8) !void {
     dev.check(.detect_cpu_command);
 
     const detect_cpu_usage =
@@ -6363,7 +6363,7 @@ fn cmdDetectCpu(args: []const []const u8) !void {
         const cpu = try detectNativeCpuWithLLVM(builtin.cpu.arch, name, features);
         try printCpu(cpu);
     } else {
-        const host_target = std.zig.resolveTargetQueryOrFatal(.{});
+        const host_target = std.zig.resolveTargetQueryOrFatal(.{}, gpa);
         try printCpu(host_target.cpu);
     }
 }
@@ -6631,13 +6631,14 @@ fn parseIntSuffix(arg: []const u8, prefix_len: usize) u64 {
 }
 
 fn warnAboutForeignBinaries(
+    gpa: Allocator,
     arena: Allocator,
     arg_mode: ArgMode,
     target: *const std.Target,
     link_libc: bool,
 ) !void {
     const host_query: std.Target.Query = .{};
-    const host_target = std.zig.resolveTargetQueryOrFatal(host_query);
+    const host_target = std.zig.resolveTargetQueryOrFatal(host_query, gpa);
 
     switch (std.zig.system.getExternalExecutor(&host_target, target, .{ .link_libc = link_libc })) {
         .native => return,

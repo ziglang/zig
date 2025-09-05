@@ -5369,7 +5369,10 @@ fn workerDocsWasmFallible(comp: *Compilation, prog_node: std.Progress.Node) SubU
                 //.simd128,
                 // .tail_call, not supported by Safari
             }),
-        }) catch unreachable,
+        }, gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => unreachable,
+        },
 
         .is_native_os = false,
         .is_native_abi = false,

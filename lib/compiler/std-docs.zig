@@ -258,7 +258,10 @@ fn serveWasm(
         .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = autodoc_arch_os_abi,
             .cpu_features = autodoc_cpu_features,
-        }) catch unreachable) catch unreachable),
+        }) catch unreachable, gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => unreachable,
+        }),
         .output_mode = .Exe,
     });
     // std.http.Server does not have a sendfile API yet.

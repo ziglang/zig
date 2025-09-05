@@ -163,6 +163,7 @@ pub fn getExternalExecutor(
 }
 
 pub const DetectError = error{
+    OutOfMemory,
     FileSystem,
     SystemResources,
     SymLinkLoop,
@@ -181,7 +182,7 @@ pub const DetectError = error{
 /// and which are provided explicitly, this function resolves the native
 /// components by detecting the native system, and then resolves
 /// standard/default parts relative to that.
-pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
+pub fn resolveTargetQuery(query: Target.Query, gpa: Allocator) DetectError!Target {
     // Until https://github.com/ziglang/zig/issues/4592 is implemented (support detecting the
     // native CPU architecture as being different than the current target), we use this:
     const query_cpu_arch = query.cpu_arch orelse builtin.cpu.arch;
@@ -451,7 +452,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
     }
 
     if (builtin.os.tag == .linux and result.isBionicLibC() and query.os_tag == null and query.android_api_level == null) {
-        result.os.version_range.linux.android = detectAndroidApiLevel() catch |err| return switch (err) {
+        result.os.version_range.linux.android = detectAndroidApiLevel(gpa) catch |err| return switch (err) {
             error.InvalidWtf8,
             error.CurrentWorkingDirectoryUnlinked,
             error.InvalidBatchScriptArg,
@@ -461,6 +462,7 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
             else => blk: {
                 std.log.err("spawning or reading from getprop failed ({s})", .{@errorName(err)});
                 switch (err) {
+                    error.OutOfMemory,
                     error.SystemResources,
                     error.FileSystem,
                     error.ProcessFdQuotaExceeded,
@@ -1323,14 +1325,10 @@ fn elfInt(is_64: bool, need_bswap: bool, int_32: anytype, int_64: anytype) @Type
     }
 }
 
-fn detectAndroidApiLevel() !u32 {
+fn detectAndroidApiLevel(gpa: Allocator) !u32 {
     comptime if (builtin.os.tag != .linux) unreachable;
 
-    // `child.spawn()` uses an arena and the exact memory requirement isn't easily determined,
-    // so we give it 128 * 3 bytes, which was shown in testing to be enough.
-    var alloc_buf: [128 * 3]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&alloc_buf);
-    var child = std.process.Child.init(&.{ "/system/bin/getprop", "ro.build.version.sdk" }, fba.allocator());
+    var child = std.process.Child.init(&.{ "/system/bin/getprop", "ro.build.version.sdk" }, gpa);
     // pass empty EnvMap, no allocator and deinit() required
     child.env_map = &std.process.EnvMap.init(undefined);
     child.stdin_behavior = .Ignore;
@@ -1364,6 +1362,7 @@ fn detectAndroidApiLevel() !u32 {
 const builtin = @import("builtin");
 const std = @import("../std.zig");
 const mem = std.mem;
+const Allocator = mem.Allocator;
 const elf = std.elf;
 const fs = std.fs;
 const assert = std.debug.assert;

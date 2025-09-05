@@ -666,7 +666,10 @@ fn buildClientWasm(ws: *WebServer, arena: Allocator, optimize: std.builtin.Optim
         .target = &(std.zig.system.resolveTargetQuery(std.Build.parseTargetQuery(.{
             .arch_os_abi = arch_os_abi,
             .cpu_features = cpu_features,
-        }) catch unreachable) catch unreachable),
+        }) catch unreachable, ws.gpa) catch |err| switch (err) {
+            error.OutOfMemory => |e| return e,
+            else => unreachable,
+        }),
         .output_mode = .Exe,
     });
     return base_path.join(arena, bin_name);
