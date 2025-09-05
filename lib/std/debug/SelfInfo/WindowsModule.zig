@@ -246,6 +246,7 @@ pub const DebugInfo = struct {
         };
     }
 };
+pub const supports_unwinding: bool = false;
 
 const WindowsModule = @This();
 
