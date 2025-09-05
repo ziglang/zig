@@ -406,7 +406,7 @@ const Writer = struct {
             .memset,
             .memmove,
             .elem_ptr_node,
-            .elem_val_node,
+            .elem_ptr_load,
             .elem_ptr,
             .elem_val,
             .array_type,
