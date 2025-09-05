@@ -178,7 +178,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
                 break :unwinds buf[0..2];
             }
             break :unwinds buf[0..1];
-        } else if (opt_eh_frame.*) |eh_frame| {
+        } else if (opt_eh_frame.*) |*eh_frame| {
             buf[0] = .initSection(.eh_frame, eh_frame.vaddr, eh_frame.bytes);
             break :unwinds buf[0..1];
         }
