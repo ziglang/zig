@@ -19,7 +19,7 @@ const Coff = struct {
     minor_subsystem_version: u16,
     lib_directories: []const Cache.Directory,
     module_definition_file: ?[]const u8,
-    subsystem: ?std.Target.SubSystem,
+    subsystem: ?std.zig.Subsystem,
     /// These flags are populated by `codegen.llvm.updateExports` to allow us to guess the subsystem.
     lld_export_flags: struct {
         c_main: bool,
@@ -554,7 +554,7 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
             try argv.append(try allocPrint(arena, "-DEF:{s}", .{def}));
         }
 
-        const resolved_subsystem: ?std.Target.SubSystem = blk: {
+        const resolved_subsystem: ?std.zig.Subsystem = blk: {
             if (coff.subsystem) |explicit| break :blk explicit;
             switch (target.os.tag) {
                 .windows => {
@@ -565,13 +565,13 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
                             coff.lld_export_flags.winmain_crt_startup or
                             coff.lld_export_flags.wwinmain_crt_startup)
                         {
-                            break :blk .Console;
+                            break :blk .console;
                         }
                         if (coff.lld_export_flags.winmain or coff.lld_export_flags.wwinmain)
-                            break :blk .Windows;
+                            break :blk .windows;
                     }
                 },
-                .uefi => break :blk .EfiApplication,
+                .uefi => break :blk .efi_application,
                 else => {},
             }
             break :blk null;
@@ -580,60 +580,23 @@ fn coffLink(lld: *Lld, arena: Allocator) !void {
         const Mode = enum { uefi, win32 };
         const mode: Mode = mode: {
             if (resolved_subsystem) |subsystem| {
-                const subsystem_suffix = try allocPrint(arena, ",{d}.{d}", .{
-                    coff.major_subsystem_version, coff.minor_subsystem_version,
-                });
-
-                switch (subsystem) {
-                    .Console => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:console{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .EfiApplication => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_application{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiBootServiceDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_boot_service_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRom => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_rom{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .EfiRuntimeDriver => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:efi_runtime_driver{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .uefi;
-                    },
-                    .Native => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:native{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Posix => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:posix{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                    .Windows => {
-                        try argv.append(try allocPrint(arena, "-SUBSYSTEM:windows{s}", .{
-                            subsystem_suffix,
-                        }));
-                        break :mode .win32;
-                    },
-                }
+                try argv.append(try allocPrint(arena, "-SUBSYSTEM:{s},{d}.{d}", .{
+                    @tagName(subsystem),
+                    coff.major_subsystem_version,
+                    coff.minor_subsystem_version,
+                }));
+                break :mode switch (subsystem) {
+                    .console,
+                    .windows,
+                    .posix,
+                    .native,
+                    => .win32,
+                    .efi_application,
+                    .efi_boot_service_driver,
+                    .efi_rom,
+                    .efi_runtime_driver,
+                    => .uefi,
+                };
             } else if (target.os.tag == .uefi) {
                 break :mode .uefi;
             } else {

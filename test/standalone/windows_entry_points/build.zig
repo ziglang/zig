@@ -53,7 +53,7 @@ pub fn build(b: *std.Build) void {
                 .link_libc = true,
             }),
         });
-        // Note: `exe.subsystem = .Windows;` is not necessary
+        // Note: `exe.subsystem = .windows;` is not necessary
         exe.root_module.addCSourceFile(.{ .file = b.path("winmain.c") });
 
         _ = exe.getEmittedBin();
@@ -71,7 +71,7 @@ pub fn build(b: *std.Build) void {
             }),
         });
         exe.mingw_unicode_entry_point = true;
-        // Note: `exe.subsystem = .Windows;` is not necessary
+        // Note: `exe.subsystem = .windows;` is not necessary
         exe.root_module.addCSourceFile(.{ .file = b.path("wwinmain.c") });
 
         _ = exe.getEmittedBin();
