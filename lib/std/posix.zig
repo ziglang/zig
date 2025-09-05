@@ -7514,7 +7514,7 @@ pub const UnexpectedError = error{
 pub fn unexpectedErrno(err: E) UnexpectedError {
     if (unexpected_error_tracing) {
         std.debug.print("unexpected errno: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }
