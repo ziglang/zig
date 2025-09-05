@@ -5070,7 +5070,7 @@ pub fn getKernError(err: std.c.kern_return_t) KernE {
 pub fn unexpectedKernError(err: KernE) std.posix.UnexpectedError {
     if (std.posix.unexpected_error_tracing) {
         std.debug.print("unexpected error: {d}\n", .{@intFromEnum(err)});
-        std.debug.dumpCurrentStackTrace(null);
+        std.debug.dumpCurrentStackTrace(.{});
     }
     return error.Unexpected;
 }
