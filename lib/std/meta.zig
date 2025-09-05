@@ -742,12 +742,7 @@ pub fn eql(a: anytype, b: @TypeOf(a)) bool {
                 if (!eql(e, b[i])) return false;
             return true;
         },
-        .vector => |info| {
-            inline for (0..info.len) |i| {
-                if (a[i] != b[i]) return false;
-            }
-            return true;
-        },
+        .vector => return @reduce(.And, a == b),
         .pointer => |info| {
             return switch (info.size) {
                 .one, .many, .c => a == b,

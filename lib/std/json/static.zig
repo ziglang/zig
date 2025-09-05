@@ -440,10 +440,11 @@ pub fn innerParse(
             }
         },
 
-        .vector => |vecInfo| {
+        .vector => |vector_info| {
             switch (try source.peekNextTokenType()) {
                 .array_begin => {
-                    return internalParseVector(T, vecInfo.child, vecInfo.len, allocator, source, options);
+                    const A = [vector_info.len]vector_info.child;
+                    return try internalParseArray(A, vector_info.child, allocator, source, options);
                 },
                 else => return error.UnexpectedToken,
             }
@@ -535,26 +536,6 @@ fn internalParseArray(
     return r;
 }
 
-fn internalParseVector(
-    comptime T: type,
-    comptime Child: type,
-    comptime len: comptime_int,
-    allocator: Allocator,
-    source: anytype,
-    options: ParseOptions,
-) !T {
-    assert(.array_begin == try source.next());
-
-    var r: T = undefined;
-    inline for (0..len) |i| {
-        r[i] = try innerParse(Child, allocator, source, options);
-    }
-
-    if (.array_end != try source.next()) return error.UnexpectedToken;
-
-    return r;
-}
-
 /// This is an internal function called recursively
 /// during the implementation of `parseFromValueLeaky`.
 /// It is exposed primarily to enable custom `jsonParseFromValue()` methods to call back into the `parseFromValue*` system,
@@ -587,12 +568,12 @@ pub fn innerParseFromValue(
                     if (@round(f) != f) return error.InvalidNumber;
                     if (f > @as(@TypeOf(f), @floatFromInt(std.math.maxInt(T)))) return error.Overflow;
                     if (f < @as(@TypeOf(f), @floatFromInt(std.math.minInt(T)))) return error.Overflow;
-                    return @as(T, @intFromFloat(f));
+                    return @intFromFloat(f);
                 },
                 .integer => |i| {
                     if (i > std.math.maxInt(T)) return error.Overflow;
                     if (i < std.math.minInt(T)) return error.Overflow;
-                    return @as(T, @intCast(i));
+                    return @intCast(i);
                 },
                 .number_string, .string => |s| {
                     return sliceToInt(T, s);

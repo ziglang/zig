@@ -157,13 +157,11 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
             }
         },
         .array => {
-            var container = try self.beginTuple(
-                .{ .whitespace_style = .{ .fields = val.len } },
-            );
-            for (val) |item_val| {
-                try container.fieldArbitraryDepth(item_val, options);
-            }
-            try container.end();
+            try valueArbitraryDepthArray(self, @TypeOf(val), &val, options);
+        },
+        .vector => |vector| {
+            const array: [vector.len]vector.child = val;
+            try valueArbitraryDepthArray(self, @TypeOf(array), &array, options);
         },
         .@"struct" => |@"struct"| if (@"struct".is_tuple) {
             var container = try self.beginTuple(
@@ -231,18 +229,19 @@ pub fn valueArbitraryDepth(self: *Serializer, val: anytype, options: ValueOption
         } else {
             try self.writer.writeAll("null");
         },
-        .vector => |vector| {
-            var container = try self.beginTuple(
-                .{ .whitespace_style = .{ .fields = vector.len } },
-            );
-            inline for (0..vector.len) |i| {
-                try container.fieldArbitraryDepth(val[i], options);
-            }
-            try container.end();
-        },
 
         else => comptime unreachable,
     }
+}
+
+fn valueArbitraryDepthArray(s: *Serializer, comptime A: type, array: *const A, options: ValueOptions) Error!void {
+    var container = try s.beginTuple(
+        .{ .whitespace_style = .{ .fields = array.len } },
+    );
+    for (array) |elem| {
+        try container.fieldArbitraryDepth(elem, options);
+    }
+    try container.end();
 }
 
 /// Serialize an integer.
