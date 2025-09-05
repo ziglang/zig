@@ -1449,7 +1449,7 @@ fn getStringGeneric(opt_str: ?[]const u8, offset: u64) ![:0]const u8 {
 
 pub fn getSymbol(di: *Dwarf, allocator: Allocator, endian: Endian, address: u64) !std.debug.Symbol {
     const compile_unit = di.findCompileUnit(endian, address) catch |err| switch (err) {
-        error.MissingDebugInfo, error.InvalidDebugInfo => return .{ .name = null, .compile_unit_name = null, .source_location = null },
+        error.MissingDebugInfo, error.InvalidDebugInfo => return .unknown,
         else => return err,
     };
     return .{

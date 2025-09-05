@@ -196,11 +196,7 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     const full = &di.full.?;
 
     const vaddr = address - module.load_offset;
-    const symbol = MachoSymbol.find(full.symbols, vaddr) orelse return .{
-        .name = null,
-        .compile_unit_name = null,
-        .source_location = null,
-    };
+    const symbol = MachoSymbol.find(full.symbols, vaddr) orelse return .unknown;
 
     // offset of `address` from start of `symbol`
     const address_symbol_offset = vaddr - symbol.addr;

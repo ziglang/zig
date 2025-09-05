@@ -158,7 +158,7 @@ test {
 }
 
 pub const UnwindContext = struct {
-    gpa: Allocator,
+    gpa: Allocator, // MLUGG TODO: make unmanaged (also maybe rename this type, DwarfUnwindContext or smth idk)
     cfa: ?usize,
     pc: usize,
     thread_context: *std.debug.ThreadContext,
@@ -166,22 +166,20 @@ pub const UnwindContext = struct {
     vm: Dwarf.Unwind.VirtualMachine,
     stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
 
-    pub fn init(gpa: Allocator, thread_context: *std.debug.ThreadContext) !UnwindContext {
+    pub fn init(gpa: Allocator, thread_context: *std.debug.ThreadContext) UnwindContext {
         comptime assert(supports_unwinding);
 
         const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
-        const pc = stripInstructionPtrAuthCode(
-            (try regValueNative(thread_context, ip_reg_num, null)).*,
-        );
-
-        const context_copy = try gpa.create(std.debug.ThreadContext);
-        std.debug.copyContext(thread_context, context_copy);
+        const raw_pc_ptr = regValueNative(thread_context, ip_reg_num, null) catch {
+            unreachable; // error means unsupported, in which case `supports_unwinding` should have been `false`
+        };
+        const pc = stripInstructionPtrAuthCode(raw_pc_ptr.*);
 
         return .{
             .gpa = gpa,
             .cfa = null,
             .pc = pc,
-            .thread_context = context_copy,
+            .thread_context = thread_context,
             .reg_context = undefined,
             .vm = .{},
             .stack_machine = .{},
@@ -191,7 +189,6 @@ pub const UnwindContext = struct {
     pub fn deinit(self: *UnwindContext) void {
         self.vm.deinit(self.gpa);
         self.stack_machine.deinit(self.gpa);
-        self.gpa.destroy(self.thread_context);
         self.* = undefined;
     }
 
