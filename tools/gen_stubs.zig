@@ -608,7 +608,7 @@ fn parseElf(parse: Parse, comptime is_64: bool, comptime endian: builtin.Endian)
         const name = try arena.dupe(u8, mem.sliceTo(dynstr[s(sym.st_name)..], 0));
         const ty = @as(u4, @truncate(sym.st_info));
         const binding = @as(u4, @truncate(sym.st_info >> 4));
-        const visib = @as(elf.STV, @enumFromInt(@as(u2, @truncate(sym.st_other))));
+        const visib = @as(elf.STV, @enumFromInt(@as(u3, @truncate(sym.st_other))));
         const size = s(sym.st_size);
 
         if (size == 0) {

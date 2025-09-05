@@ -92,6 +92,7 @@ const indirect_vtable: Reader.VTable = .{
 ///
 /// Otherwise, `buffer` has those requirements.
 pub fn init(input: *Reader, buffer: []u8, options: Options) Decompress {
+    if (buffer.len != 0) assert(buffer.len >= options.window_len + zstd.block_size_max);
     return .{
         .input = input,
         .state = .new_frame,

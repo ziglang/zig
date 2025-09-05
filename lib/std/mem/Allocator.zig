@@ -81,6 +81,19 @@ pub const VTable = struct {
     free: *const fn (*anyopaque, memory: []u8, alignment: Alignment, ret_addr: usize) void,
 };
 
+pub fn noAlloc(
+    self: *anyopaque,
+    len: usize,
+    alignment: Alignment,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = len;
+    _ = alignment;
+    _ = ret_addr;
+    return null;
+}
+
 pub fn noResize(
     self: *anyopaque,
     memory: []u8,
@@ -444,4 +457,63 @@ pub fn dupeZ(allocator: Allocator, comptime T: type, m: []const T) Error![:0]T {
     @memcpy(new_buf[0..m.len], m);
     new_buf[m.len] = 0;
     return new_buf[0..m.len :0];
+}
+
+/// An allocator that always fails to allocate.
+pub const failing: Allocator = .{
+    .ptr = undefined,
+    .vtable = &.{
+        .alloc = noAlloc,
+        .resize = unreachableResize,
+        .remap = unreachableRemap,
+        .free = unreachableFree,
+    },
+};
+
+fn unreachableResize(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) bool {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableRemap(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    new_len: usize,
+    ret_addr: usize,
+) ?[*]u8 {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = new_len;
+    _ = ret_addr;
+    unreachable;
+}
+
+fn unreachableFree(
+    self: *anyopaque,
+    memory: []u8,
+    alignment: Alignment,
+    ret_addr: usize,
+) void {
+    _ = self;
+    _ = memory;
+    _ = alignment;
+    _ = ret_addr;
+    unreachable;
+}
+
+test failing {
+    const f: Allocator = .failing;
+    try std.testing.expectError(error.OutOfMemory, f.alloc(u8, 123));
 }

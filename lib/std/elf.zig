@@ -1122,17 +1122,17 @@ pub const OSABI = enum(u8) {
     CLOUDABI = 17,
     /// Stratus Technologies OpenVOS
     OPENVOS = 18,
-    /// NVIDIA CUDA architecture
+    /// NVIDIA CUDA architecture (not gABI assigned)
     CUDA = 51,
-    /// AMD HSA Runtime
+    /// AMD HSA Runtime (not gABI assigned)
     AMDGPU_HSA = 64,
-    /// AMD PAL Runtime
+    /// AMD PAL Runtime (not gABI assigned)
     AMDGPU_PAL = 65,
-    /// AMD Mesa3D Runtime
+    /// AMD Mesa3D Runtime (not gABI assigned)
     AMDGPU_MESA3D = 66,
-    /// ARM
+    /// ARM (not gABI assigned)
     ARM = 97,
-    /// Standalone (embedded) application
+    /// Standalone (embedded) application (not gABI assigned)
     STANDALONE = 255,
 
     _,
@@ -1165,11 +1165,11 @@ pub const EM = enum(u16) {
     S370 = 9,
     /// MIPS R3000 (and R4000) little-endian, Oct 4 1993 Draft (deprecated)
     MIPS_RS3_LE = 10,
-    /// Old version of Sparc v9, from before the ABI (deprecated)
+    /// Old version of Sparc v9, from before the ABI (not gABI assigned)
     OLD_SPARCV9 = 11,
     /// HPPA
     PARISC = 15,
-    /// Fujitsu VPP500 (also old version of PowerPC; deprecated)
+    /// Fujitsu VPP500 (also old version of PowerPC, which was not gABI assigned)
     VPP500 = 17,
     /// Sun's "v8plus"
     SPARC32PLUS = 18,
@@ -1189,7 +1189,7 @@ pub const EM = enum(u16) {
     FR20 = 37,
     /// TRW RH32
     RH32 = 38,
-    /// Motorola M*Core, aka RCE (also Fujitsu MMA)
+    /// Motorola M*Core, aka RCE (also old Fujitsu MMA, which was not gABI assigned)
     MCORE = 39,
     /// ARM
     ARM = 40,
@@ -1301,7 +1301,7 @@ pub const EM = enum(u16) {
     ARC_COMPACT = 93,
     /// Tensilica Xtensa Architecture
     XTENSA = 94,
-    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number)
+    /// Alphamosaic VideoCore processor (also old Sunplus S+core7 backend magic number, which was not gABI assigned)
     VIDEOCORE = 95,
     /// Thompson Multimedia General Purpose Processor
     TMM_GPP = 96,
@@ -1309,7 +1309,7 @@ pub const EM = enum(u16) {
     NS32K = 97,
     /// Tenor Network TPC processor
     TPC = 98,
-    /// Trebia SNP 1000 processor (also old value for picoJava; deprecated)
+    /// Trebia SNP 1000 processor (also old value for picoJava, which was not gABI assigned)
     SNP1K = 99,
     /// STMicroelectronics ST200 microcontroller
     ST200 = 100,
@@ -1341,7 +1341,7 @@ pub const EM = enum(u16) {
     ALTERA_NIOS2 = 113,
     /// National Semiconductor CRX
     CRX = 114,
-    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC; deprecated)
+    /// Motorola XGATE embedded processor (also old value for National Semiconductor CompactRISC, which was not gABI assigned)
     XGATE = 115,
     /// Infineon C16x/XC16x processor
     C166 = 116,
@@ -1377,6 +1377,8 @@ pub const EM = enum(u16) {
     TI_C2000 = 141,
     /// Texas Instruments TMS320C55x DSP family
     TI_C5500 = 142,
+    /// Texas Instruments Application Specific RISC Processor, 32bit fetch
+    TI_ARP32 = 143,
     /// Texas Instruments Programmable Realtime Unit
     TI_PRU = 144,
     /// STMicroelectronics 64bit VLIW Data Signal Processor
@@ -1537,6 +1539,18 @@ pub const EM = enum(u16) {
     TACHYUM = 261,
     /// NXP 56800EF Digital Signal Controller (DSC)
     @"56800EF" = 262,
+    /// Solana Bytecode Format
+    SBF = 263,
+    /// AMD/Xilinx AIEngine architecture
+    AIENGINE = 264,
+    /// SiMa MLA
+    SIMA_MLA = 265,
+    /// Cambricon BANG
+    BANG = 266,
+    /// Loongson LoongGPU
+    LOONGGPU = 267,
+    /// Wuxi Institute of Advanced Technology SW64
+    SW64 = 268,
     /// AVR
     AVR_OLD = 0x1057,
     /// MSP430
@@ -2289,7 +2303,7 @@ pub const R_PPC64 = enum(u32) {
     _,
 };
 
-pub const STV = enum(u2) {
+pub const STV = enum(u3) {
     DEFAULT = 0,
     INTERNAL = 1,
     HIDDEN = 2,

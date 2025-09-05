@@ -79,17 +79,18 @@ pub const AccumBuffer = struct {
         _ = writer;
 
         const buf_len = self.buf.items.len;
-        if (dist > buf_len) {
-            return error.CorruptInput;
-        }
+        if (dist > buf_len) return error.CorruptInput;
 
-        var offset = buf_len - dist;
-        var i: usize = 0;
-        while (i < len) : (i += 1) {
-            const x = self.buf.items[offset];
-            try self.buf.append(allocator, x);
-            offset += 1;
-        }
+        try self.buf.ensureUnusedCapacity(allocator, len);
+        const buffer = self.buf.allocatedSlice();
+        const src = buffer[buf_len - dist ..][0..len];
+        const dst = buffer[buf_len..][0..len];
+
+        // This is not a @memmove; it intentionally repeats patterns caused by
+        // iterating one byte at a time.
+        for (dst, src) |*d, s| d.* = s;
+
+        self.buf.items.len = buf_len + len;
         self.len += len;
     }
 
@@ -232,7 +233,6 @@ pub const Decode = struct {
 
         while (true) {
             if (accum.len >= expected_unpacked_size) break;
-            if (range_decoder.isFinished()) break;
             switch (try ld.process(reader, allocating, accum, &range_decoder, &n_read)) {
                 .more => continue,
                 .finished => break,
