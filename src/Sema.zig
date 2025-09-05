@@ -10112,6 +10112,13 @@ fn zirElemPtrLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError
     const extra = sema.code.extraData(Zir.Inst.Bin, inst_data.payload_index).data;
     const array_ptr = try sema.resolveInst(extra.lhs);
     const uncoerced_elem_index = try sema.resolveInst(extra.rhs);
+    if (try sema.resolveDefinedValue(block, src, array_ptr)) |array_ptr_val| {
+        const array_ptr_ty = sema.typeOf(array_ptr);
+        if (try sema.pointerDeref(block, src, array_ptr_val, array_ptr_ty)) |array_val| {
+            const array: Air.Inst.Ref = .fromValue(array_val);
+            return elemVal(sema, block, src, array, uncoerced_elem_index, elem_index_src, true);
+        }
+    }
     const elem_index = try sema.coerce(block, .usize, uncoerced_elem_index, elem_index_src);
     const elem_ptr = try elemPtr(sema, block, src, array_ptr, elem_index, elem_index_src, false, true);
     return analyzeLoad(sema, block, src, elem_ptr, elem_index_src);
