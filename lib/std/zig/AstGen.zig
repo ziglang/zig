@@ -2731,9 +2731,9 @@ fn addEnsureResult(gz: *GenZir, maybe_unused_result: Zir.Inst.Ref, statement: As
             .elem_val_node,
             .elem_val_imm,
             .field_ptr,
-            .field_val,
+            .field_ptr_load,
             .field_ptr_named,
-            .field_val_named,
+            .field_ptr_named_load,
             .func,
             .func_inferred,
             .func_fancy,
@@ -6160,7 +6160,7 @@ fn fieldAccess(
     switch (ri.rl) {
         .ref, .ref_coerced_ty => return addFieldAccess(.field_ptr, gz, scope, .{ .rl = .ref }, node),
         else => {
-            const access = try addFieldAccess(.field_val, gz, scope, .{ .rl = .none }, node);
+            const access = try addFieldAccess(.field_ptr_load, gz, scope, .{ .rl = .ref }, node);
             return rvalue(gz, ri, access, node);
         },
     }
@@ -9286,17 +9286,21 @@ fn builtinCall(
             return rvalue(gz, ri, result, node);
         },
         .field => {
-            if (ri.rl == .ref or ri.rl == .ref_coerced_ty) {
-                return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
-                    .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
-                    .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
-                });
+            switch (ri.rl) {
+                .ref, .ref_coerced_ty => {
+                    return gz.addPlNode(.field_ptr_named, node, Zir.Inst.FieldNamed{
+                        .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
+                        .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
+                    });
+                },
+                else => {
+                    const result = try gz.addPlNode(.field_ptr_named_load, node, Zir.Inst.FieldNamed{
+                        .lhs = try expr(gz, scope, .{ .rl = .ref }, params[0]),
+                        .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
+                    });
+                    return rvalue(gz, ri, result, node);
+                },
             }
-            const result = try gz.addPlNode(.field_val_named, node, Zir.Inst.FieldNamed{
-                .lhs = try expr(gz, scope, .{ .rl = .none }, params[0]),
-                .field_name = try comptimeExpr(gz, scope, .{ .rl = .{ .coerced_ty = .slice_const_u8_type } }, params[1], .field_name),
-            });
-            return rvalue(gz, ri, result, node);
         },
         .FieldType => {
             const ty_inst = try typeExpr(gz, scope, params[0]);

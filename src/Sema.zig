@@ -1187,7 +1187,7 @@ fn analyzeBodyInner(
             .cmp_gte                      => try sema.zirCmp(block, inst, .gte),
             .cmp_gt                       => try sema.zirCmp(block, inst, .gt),
             .cmp_neq                      => try sema.zirCmpEq(block, inst, .neq, Air.Inst.Tag.fromCmpOp(.neq, block.float_mode == .optimized)),
-            .decl_ref                     => try sema.zirDeclRef(block, inst),
+            .decl_ref                     => try sema.zirDeclRef(block, inst, true),
             .decl_val                     => try sema.zirDeclVal(block, inst),
             .load                         => try sema.zirLoad(block, inst),
             .elem_ptr                     => try sema.zirElemPtr(block, inst),
@@ -1211,8 +1211,8 @@ fn analyzeBodyInner(
             .error_value                  => try sema.zirErrorValue(block, inst),
             .field_ptr                    => try sema.zirFieldPtr(block, inst),
             .field_ptr_named              => try sema.zirFieldPtrNamed(block, inst),
-            .field_val                    => try sema.zirFieldVal(block, inst),
-            .field_val_named              => try sema.zirFieldValNamed(block, inst),
+            .field_ptr_load               => try sema.zirFieldPtrLoad(block, inst),
+            .field_ptr_named_load         => try sema.zirFieldPtrNamedLoad(block, inst),
             .func                         => try sema.zirFunc(block, inst, false),
             .func_inferred                => try sema.zirFunc(block, inst, true),
             .func_fancy                   => try sema.zirFuncFancy(block, inst),
@@ -6524,7 +6524,7 @@ pub fn appendAirString(sema: *Sema, str: []const u8) Allocator.Error!Air.NullTer
     return nts;
 }
 
-fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index, escape: bool) CompileError!Air.Inst.Ref {
     const pt = sema.pt;
     const zcu = pt.zcu;
     const inst_data = sema.code.instructions.items(.data)[@intFromEnum(inst)].str_tok;
@@ -6536,7 +6536,7 @@ fn zirDeclRef(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air
         .no_embedded_nulls,
     );
     const nav_index = try sema.lookupIdentifier(block, decl_name);
-    return sema.analyzeNavRef(block, src, nav_index);
+    return sema.analyzeNavRefInner(block, src, nav_index, escape);
 }
 
 fn zirDeclVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9711,7 +9711,7 @@ fn zirIntFromPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!
     return block.addBitCast(dest_ty, operand);
 }
 
-fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFieldPtrLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -9727,8 +9727,8 @@ fn zirFieldVal(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Ai
         sema.code.nullTerminatedString(extra.field_name_start),
         .no_embedded_nulls,
     );
-    const object = try sema.resolveInst(extra.lhs);
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
+    const object_ptr = try sema.resolveInst(extra.lhs);
+    return fieldPtrLoad(sema, block, src, object_ptr, field_name, field_name_src);
 }
 
 fn zirFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -9779,7 +9779,7 @@ fn zirStructInitFieldPtr(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Compi
     }
 }
 
-fn zirFieldValNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
+fn zirFieldPtrNamedLoad(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
     const tracy = trace(@src());
     defer tracy.end();
 
@@ -9787,9 +9787,9 @@ fn zirFieldValNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileErr
     const src = block.nodeOffset(inst_data.src_node);
     const field_name_src = block.builtinCallArgSrc(inst_data.src_node, 1);
     const extra = sema.code.extraData(Zir.Inst.FieldNamed, inst_data.payload_index).data;
-    const object = try sema.resolveInst(extra.lhs);
+    const object_ptr = try sema.resolveInst(extra.lhs);
     const field_name = try sema.resolveConstStringIntern(block, field_name_src, extra.field_name, .{ .simple = .field_name });
-    return sema.fieldVal(block, src, object, field_name, field_name_src);
+    return fieldPtrLoad(sema, block, src, object_ptr, field_name, field_name_src);
 }
 
 fn zirFieldPtrNamed(sema: *Sema, block: *Block, inst: Zir.Inst.Index) CompileError!Air.Inst.Ref {
@@ -13612,7 +13612,6 @@ fn maybeErrorUnwrap(
             .str,
             .as_node,
             .panic,
-            .field_val,
             => {},
             else => return false,
         }
@@ -13631,7 +13630,6 @@ fn maybeErrorUnwrap(
             },
             .str => try sema.zirStr(inst),
             .as_node => try sema.zirAsNode(block, inst),
-            .field_val => try sema.zirFieldVal(block, inst),
             .@"unreachable" => {
                 try safetyPanicUnwrapError(sema, block, operand_src, operand);
                 return true;
@@ -26671,6 +26669,33 @@ fn emitBackwardBranch(sema: *Sema, block: *Block, src: LazySrcLoc) !void {
         );
         return sema.failWithOwnedErrorMsg(block, msg);
     }
+}
+
+fn fieldPtrLoad(
+    sema: *Sema,
+    block: *Block,
+    src: LazySrcLoc,
+    object_ptr: Air.Inst.Ref,
+    field_name: InternPool.NullTerminatedString,
+    field_name_src: LazySrcLoc,
+) CompileError!Air.Inst.Ref {
+    const pt = sema.pt;
+    const zcu = pt.zcu;
+    const object_ptr_ty = sema.typeOf(object_ptr);
+    const pointee_ty = object_ptr_ty.childType(zcu);
+    if (try typeHasOnePossibleValue(sema, pointee_ty)) |opv| {
+        const object: Air.Inst.Ref = .fromValue(opv);
+        return fieldVal(sema, block, src, object, field_name, field_name_src);
+    }
+
+    if (try sema.resolveDefinedValue(block, src, object_ptr)) |object_ptr_val| {
+        if (try sema.pointerDeref(block, src, object_ptr_val, object_ptr_ty)) |object_val| {
+            const object: Air.Inst.Ref = .fromValue(object_val);
+            return fieldVal(sema, block, src, object, field_name, field_name_src);
+        }
+    }
+    const field_ptr = try sema.fieldPtr(block, src, object_ptr, field_name, field_name_src, false);
+    return analyzeLoad(sema, block, src, field_ptr, field_name_src);
 }
 
 fn fieldVal(
