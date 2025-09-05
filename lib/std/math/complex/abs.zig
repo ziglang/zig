@@ -1,9 +1,9 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Returns the absolute value (modulus) of z.
+/// Calculates the absolute value (modulus) of complex number.
 pub fn abs(z: anytype) @TypeOf(z.re, z.im) {
     return math.hypot(z.re, z.im);
 }
@@ -12,7 +12,7 @@ test abs {
     const epsilon = math.floatEps(f32);
 
     const a: Complex(f32) = .init(5, 3);
-    const b = abs(a);
+    const a_abs = abs(a);
 
-    try testing.expectApproxEqAbs(5.8309517, b, epsilon);
+    try testing.expectApproxEqAbs(5.8309517, a_abs, epsilon);
 }

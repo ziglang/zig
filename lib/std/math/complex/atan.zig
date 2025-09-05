@@ -1,22 +1,22 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/complex/catanf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/complex/catan.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/complex/catanf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/complex/catan.c
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Returns the arc-tangent of z.
+/// Calculates the arc-tangent of complex number.
 pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 
     return switch (T) {
         f32 => atan32(z),
         f64 => atan64(z),
-        else => @compileError("atan not implemented for " ++ @typeName(z)),
+        else => @compileError("atan not implemented for " ++ @typeName(T)),
     };
 }
 
@@ -43,16 +43,16 @@ fn atan32(z: Complex(f32)) Complex(f32) {
 
     const x2 = x * x;
 
-    var a = 1.0 - x2 - (y * y);
+    var a = 1 - x2 - (y * y);
 
-    var t = 0.5 * math.atan2(2.0 * x, a);
+    var t = 0.5 * math.atan2(2 * x, a);
 
     const w = redupif32(t);
 
-    t = y - 1.0;
+    t = y - 1;
     a = x2 + t * t;
 
-    t = y + 1.0;
+    t = y + 1;
     a = (x2 + (t * t)) / a;
 
     return .init(w, 0.25 * @log(a));
@@ -81,16 +81,16 @@ fn atan64(z: Complex(f64)) Complex(f64) {
 
     const x2 = x * x;
 
-    var a = 1.0 - x2 - (y * y);
+    var a = 1 - x2 - (y * y);
 
-    var t = 0.5 * math.atan2(2.0 * x, a);
+    var t = 0.5 * math.atan2(2 * x, a);
 
     const w = redupif64(t);
 
-    t = y - 1.0;
+    t = y - 1;
     a = x2 + t * t;
 
-    t = y + 1.0;
+    t = y + 1;
     a = (x2 + (t * t)) / a;
 
     return .init(w, 0.25 * @log(a));
@@ -100,18 +100,18 @@ test atan32 {
     const epsilon = math.floatEps(f32);
 
     const a: Complex(f32) = .init(5, 3);
-    const b = atan(a);
+    const atan_a = atan(a);
 
-    try testing.expectApproxEqAbs(1.423679, b.re, epsilon);
-    try testing.expectApproxEqAbs(0.086569, b.im, epsilon);
+    try testing.expectApproxEqAbs(1.423679, atan_a.re, epsilon);
+    try testing.expectApproxEqAbs(0.086569, atan_a.im, epsilon);
 }
 
 test atan64 {
     const epsilon = math.floatEps(f64);
 
     const a: Complex(f64) = .init(5, 3);
-    const b = atan(a);
+    const atan_a = atan(a);
 
-    try testing.expectApproxEqAbs(1.4236790442393028, b.re, epsilon);
-    try testing.expectApproxEqAbs(0.08656905917945844, b.im, epsilon);
+    try testing.expectApproxEqAbs(1.4236790442393028, atan_a.re, epsilon);
+    try testing.expectApproxEqAbs(0.08656905917945844, atan_a.im, epsilon);
 }

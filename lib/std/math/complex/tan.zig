@@ -1,24 +1,23 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
 const tanh = @import("tanh.zig").tanh;
 
-/// Returns the tangent of z.
+/// Calculates the tangent of complex number.
 pub fn tan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const q = z.mulbyi();
-    const r = tanh(q);
+    const tanhIZ = tanh(z.mulbyi());
 
-    return .init(r.im, -r.re);
+    return .init(tanhIZ.im, -tanhIZ.re);
 }
 
 test tan {
     const epsilon = math.floatEps(f32);
 
     const a: Complex(f32) = .init(5, 3);
-    const b = tan(a);
+    const tan_a = tan(a);
 
-    try testing.expectApproxEqAbs(-0.002708233, b.re, epsilon);
-    try testing.expectApproxEqAbs(1.0041647, b.im, epsilon);
+    try testing.expectApproxEqAbs(-0.002708233, tan_a.re, epsilon);
+    try testing.expectApproxEqAbs(1.0041647, tan_a.im, epsilon);
 }

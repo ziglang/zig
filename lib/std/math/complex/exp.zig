@@ -1,24 +1,24 @@
-// Ported from musl, which is licensed under the MIT license:
-// https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
-//
-// https://git.musl-libc.org/cgit/musl/tree/src/complex/cexpf.c
-// https://git.musl-libc.org/cgit/musl/tree/src/complex/cexp.c
+//! Ported from musl, which is licensed under the MIT license:
+//! https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT
+//!
+//! https://git.musl-libc.org/cgit/musl/tree/src/complex/cexpf.c
+//! https://git.musl-libc.org/cgit/musl/tree/src/complex/cexp.c
 
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
 const ldexp = @import("ldexp.zig").ldexp;
 
-/// Returns e raised to the power of z (e^z).
+/// Calculates e raised to the power of complex number.
 pub fn exp(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 
     return switch (T) {
         f32 => exp32(z),
         f64 => exp64(z),
-        else => @compileError("exp not implemented for " ++ @typeName(z)),
+        else => @compileError("exp not implemented for " ++ @typeName(T)),
     };
 }
 
@@ -30,10 +30,12 @@ fn exp32(z: Complex(f32)) Complex(f32) {
     const y = z.im;
 
     const hy = @as(u32, @bitCast(y)) & 0x7fffffff;
+
     if (hy == 0) // cexp(x + i0) = exp(x) + i0
         return .init(@exp(x), y);
 
     const hx = @as(u32, @bitCast(x));
+
     if ((hx & 0x7fffffff) == 0) // cexp(0 + iy) = cos(y) + isin(y)
         return .init(
             @cos(y),
@@ -49,18 +51,24 @@ fn exp32(z: Complex(f32)) Complex(f32) {
             return .init(x, y - y); // cexp(+inf +- i inf|nan) = inf + i nan
     }
 
-    // 88.7 <= x <= 192 so must scale
     if (hx >= exp_overflow and hx <= cexp_overflow) {
+        // x is between 88.7 and 192, so we must scale to avoid
+        // overflow in exp(x)
+
         return ldexp(z, 0);
-    }
-    // - x < exp_overflow => exp(x) won't overflow (common)
-    // - x > cexp_overflow, so exp(x) * s overflows for s > 0
-    // - x = +-inf
-    // - x = nan
-    else {
+    } else {
+        // Cases covered here:
+        //  - x < exp_overflow => exp(x) won't overflow (common)
+        //  - x > cexp_overflow, so exp(x) * s overflows for s > 0
+        //  - x = +-inf
+        //  - x = nan
+
         const exp_x = @exp(x);
 
-        return .init(exp_x * @cos(y), exp_x * @sin(y));
+        return .init(
+            exp_x * @cos(y),
+            exp_x * @sin(y),
+        );
     }
 }
 
@@ -74,12 +82,14 @@ fn exp64(z: Complex(f64)) Complex(f64) {
     const fy: u64 = @bitCast(y);
     const hy: u32 = @intCast((fy >> 32) & 0x7fffffff);
     const ly: u32 = @truncate(fy);
+
     if (hy | ly == 0) // cexp(x + i0) = exp(x) + i0
         return .init(@exp(x), y);
 
     const fx: u64 = @bitCast(x);
     const hx: u32 = @intCast(fx >> 32);
     const lx: u32 = @truncate(fx);
+
     if ((hx & 0x7fffffff) | lx == 0) // cexp(0 + iy) = cos(y) + isin(y)
         return .init(
             @cos(y),
@@ -95,15 +105,18 @@ fn exp64(z: Complex(f64)) Complex(f64) {
             return .init(x, y - y); // cexp(+inf +- i inf|nan) = inf + i nan
     }
 
-    // 709.7 <= x <= 1454.3 so must scale
     if (hx >= exp_overflow and hx <= cexp_overflow) {
+        // x is between 709.7 and 1454.3, so we must scale to avoid
+        // overflow in exp(x)
+
         return ldexp(z, 0);
-    }
-    // - x < exp_overflow => exp(x) won't overflow (common)
-    // - x > cexp_overflow, so exp(x) * s overflows for s > 0
-    // - x = +-inf
-    // - x = nan
-    else {
+    } else {
+        // Cases covered here:
+        //  - x < exp_overflow => exp(x) won't overflow (common)
+        //  - x > cexp_overflow, so exp(x) * s overflows for s > 0
+        //  - x = +-inf
+        //  - x = nan
+
         const exp_x = @exp(x);
 
         return .init(exp_x * @cos(y), exp_x * @sin(y));
@@ -115,18 +128,18 @@ test exp32 {
 
     {
         const a: Complex(f32) = .init(5, 3);
-        const b = exp(a);
+        const exp_a = exp(a);
 
-        try testing.expectApproxEqRel(@as(f32, -1.46927917e+02), b.re, tolerance_f32);
-        try testing.expectApproxEqRel(@as(f32, 2.0944065e+01), b.im, tolerance_f32);
+        try testing.expectApproxEqRel(@as(f32, -1.46927917e+02), exp_a.re, tolerance_f32);
+        try testing.expectApproxEqRel(@as(f32, 2.0944065e+01), exp_a.im, tolerance_f32);
     }
 
     {
         const a: Complex(f32) = .init(88.8, 0x1p-149);
-        const b = exp(a);
+        const exp_a = exp(a);
 
-        try testing.expectApproxEqAbs(math.inf(f32), b.re, tolerance_f32);
-        try testing.expectApproxEqAbs(@as(f32, 5.15088629e-07), b.im, tolerance_f32);
+        try testing.expectApproxEqAbs(math.inf(f32), exp_a.re, tolerance_f32);
+        try testing.expectApproxEqAbs(@as(f32, 5.15088629e-07), exp_a.im, tolerance_f32);
     }
 }
 
@@ -135,17 +148,17 @@ test exp64 {
 
     {
         const a: Complex(f64) = .init(5, 3);
-        const b = exp(a);
+        const exp_a = exp(a);
 
-        try testing.expectApproxEqRel(@as(f64, -1.469279139083189e+02), b.re, tolerance_f64);
-        try testing.expectApproxEqRel(@as(f64, 2.094406620874596e+01), b.im, tolerance_f64);
+        try testing.expectApproxEqRel(@as(f64, -1.469279139083189e+02), exp_a.re, tolerance_f64);
+        try testing.expectApproxEqRel(@as(f64, 2.094406620874596e+01), exp_a.im, tolerance_f64);
     }
 
     {
         const a: Complex(f64) = .init(709.8, 0x1p-1074);
-        const b = exp(a);
+        const exp_a = exp(a);
 
-        try testing.expectApproxEqAbs(math.inf(f64), b.re, tolerance_f64);
-        try testing.expectApproxEqAbs(@as(f64, 9.036659362159884e-16), b.im, tolerance_f64);
+        try testing.expectApproxEqAbs(math.inf(f64), exp_a.re, tolerance_f64);
+        try testing.expectApproxEqAbs(@as(f64, 9.036659362159884e-16), exp_a.im, tolerance_f64);
     }
 }

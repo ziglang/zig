@@ -1,4 +1,4 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 
@@ -99,7 +99,7 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the product of complex number and imaginary unit.
         /// You should not manually does ".mul(.i, self)" instead of using this,
-        /// as its requires more operations than this.
+        /// as its consumes more operations than this.
         pub fn mulbyi(self: Self) Self {
             return .{
                 .re = -self.im,
@@ -122,6 +122,7 @@ pub fn Complex(comptime T: type) type {
             return @sqrt(self.re * self.re + self.im * self.im);
         }
 
+        /// Returns square of magnitude.
         pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
@@ -136,44 +137,44 @@ test "add" {
     const a: TestingComplex = .init(5, 3);
     const b: TestingComplex = .init(2, 7);
 
-    const c = a.add(b);
+    const a_add_b = a.add(b);
 
-    try testing.expect(c.re == 7 and c.im == 10);
+    try testing.expect(a_add_b.re == 7 and a_add_b.im == 10);
 }
 
 test "sub" {
     const a: TestingComplex = .init(5, 3);
     const b: TestingComplex = .init(2, 7);
 
-    const c = a.sub(b);
+    const a_sub_b = a.sub(b);
 
-    try testing.expect(c.re == 3 and c.im == -4);
+    try testing.expect(a_sub_b.re == 3 and a_sub_b.im == -4);
 }
 
 test "mul" {
     const a: TestingComplex = .init(5, 3);
     const b: TestingComplex = .init(2, 7);
 
-    const c = a.mul(b);
+    const a_mul_b = a.mul(b);
 
-    try testing.expect(c.re == -11 and c.im == 41);
+    try testing.expect(a_mul_b.re == -11 and a_mul_b.im == 41);
 }
 
 test "div" {
     const a: TestingComplex = .init(5, 3);
     const b: TestingComplex = .init(2, 7);
 
-    const c = a.div(b);
+    const a_div_b = a.div(b);
 
-    try testing.expect(math.approxEqAbs(f32, c.re, @as(f32, 31) / 53, epsilon) and
-        math.approxEqAbs(f32, c.im, @as(f32, -29) / 53, epsilon));
+    try testing.expect(math.approxEqAbs(f32, a_div_b.re, @as(f32, 31) / 53, epsilon) and
+        math.approxEqAbs(f32, a_div_b.im, @as(f32, -29) / 53, epsilon));
 }
 
 test "conjugate" {
     const a: TestingComplex = .init(5, 3);
-    const b = a.conjugate();
+    const a_conjugate = a.conjugate();
 
-    try testing.expect(b.re == 5 and b.im == -3);
+    try testing.expect(a_conjugate.re == 5 and a_conjugate.im == -3);
 }
 
 test "neg" {

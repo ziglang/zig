@@ -1,4 +1,4 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -6,20 +6,17 @@ const Complex = math.Complex;
 const abs = @import("abs.zig").abs;
 const arg = @import("arg.zig").arg;
 
-/// Returns the natural logarithm of z.
+/// Calculates the natural logarithm of complex number.
 pub fn log(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const r = abs(z);
-    const phi = arg(z);
-
-    return .init(@log(r), phi);
+    return .init(@log(abs(z)), arg(z));
 }
 
 test log {
     const epsilon = math.floatEps(f32);
 
     const a: Complex(f32) = .init(5, 3);
-    const b = log(a);
+    const log_a = log(a);
 
-    try testing.expectApproxEqAbs(1.7631803, b.re, epsilon);
-    try testing.expectApproxEqAbs(0.5404195, b.im, epsilon);
+    try testing.expectApproxEqAbs(1.7631803, log_a.re, epsilon);
+    try testing.expectApproxEqAbs(0.5404195, log_a.im, epsilon);
 }

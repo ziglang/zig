@@ -1,25 +1,28 @@
-const std = @import("../../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Returns the projection of z onto the riemann sphere.
+/// Calculates the projection of complex number onto the riemann sphere.
 pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const T = @TypeOf(z.re, z.im);
+    const x = z.re;
+    const y = z.im;
 
-    if (math.isInf(z.re) or math.isInf(z.im))
+    const T = @TypeOf(x, y);
+
+    if (math.isInf(x) or math.isInf(y))
         return .init(
             math.inf(T),
-            math.copysign(@as(T, 0.0), z.re),
+            math.copysign(@as(T, 0), x),
         );
 
-    return .init(z.re, z.im);
+    return .init(x, y);
 }
 
 test proj {
     const a: Complex(f32) = .init(5, 3);
-    const b = proj(a);
+    const a_proj = proj(a);
 
-    try testing.expectEqual(5, b.re);
-    try testing.expectEqual(3, b.im);
+    try testing.expectEqual(5.0, a_proj.re);
+    try testing.expectEqual(3.0, a_proj.im);
 }
