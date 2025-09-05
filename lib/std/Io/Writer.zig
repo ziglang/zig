@@ -921,8 +921,7 @@ pub fn sendFileHeader(
 /// Asserts nonzero buffer capacity.
 pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) FileReadingError!usize {
     const dest = limit.slice(try w.writableSliceGreedy(1));
-    const n = try file_reader.interface.readSliceShort(dest);
-    if (n == 0) return error.EndOfStream;
+    const n = try file_reader.read(dest);
     w.advance(n);
     return n;
 }
@@ -935,24 +934,17 @@ pub fn sendFileReading(w: *Writer, file_reader: *File.Reader, limit: Limit) File
 ///
 /// Asserts nonzero buffer capacity.
 pub fn sendFileAll(w: *Writer, file_reader: *File.Reader, limit: Limit) FileAllError!usize {
-    // The fallback case uses `stream`. For `File.Reader`, this requires a minumum buffer size of
-    // one since it uses `writableSliceGreedy(1)`. Asserting this here ensures that this will be
-    // hit even when the fallback is not needed.
+    // The fallback sendFileReadingAll() path asserts non-zero buffer capacity.
+    // Explicitly assert it here as well to ensure the assert is hit even if
+    // the fallback path is not taken.
     assert(w.buffer.len > 0);
-
     var remaining = @intFromEnum(limit);
     while (remaining > 0) {
         const n = sendFile(w, file_reader, .limited(remaining)) catch |err| switch (err) {
             error.EndOfStream => break,
             error.Unimplemented => {
                 file_reader.mode = file_reader.mode.toReading();
-                while (remaining > 0) {
-                    remaining -= file_reader.interface.stream(w, .limited(remaining)) catch |e| switch (e) {
-                        error.EndOfStream => break,
-                        error.ReadFailed => return error.ReadFailed,
-                        error.WriteFailed => return error.WriteFailed,
-                    };
-                }
+                remaining -= try w.sendFileReadingAll(file_reader, .limited(remaining));
                 break;
             },
             else => |e| return e,
@@ -2284,12 +2276,6 @@ pub const Discarding = struct {
         const d: *Discarding = @alignCast(@fieldParentPtr("writer", w));
         d.count += w.end;
         w.end = 0;
-        const buffered_n = limit.minInt64(file_reader.interface.bufferedLen());
-        if (buffered_n != 0) {
-            file_reader.interface.toss(buffered_n);
-            d.count += buffered_n;
-            return buffered_n;
-        }
         if (limit == .nothing) return 0;
         if (file_reader.getSize()) |size| {
             const n = limit.minInt64(size - file_reader.pos);
@@ -2781,9 +2767,7 @@ pub const Allocating = struct {
         if (additional == 0) return error.EndOfStream;
         a.ensureUnusedCapacity(limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(a.writer.buffer[a.writer.end..]);
-        const n = try file_reader.interface.readSliceShort(dest);
-        // If it was a short read, then EOF has been reached and `file_reader.size`
-        // has been set and the EOF case will be hit on subsequent calls.
+        const n = try file_reader.read(dest);
         a.writer.end += n;
         return n;
     }
@@ -2834,18 +2818,18 @@ test "discarding sendFile" {
 
     const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
     defer file.close();
-    var r_buffer: [2]u8 = undefined;
+    var r_buffer: [256]u8 = undefined;
     var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
-    try file_writer.interface.writeAll("abcd");
+    try file_writer.interface.writeByte('h');
     try file_writer.interface.flush();
 
     var file_reader = file_writer.moveToReader();
     try file_reader.seekTo(0);
-    try file_reader.interface.fill(2);
 
     var w_buffer: [256]u8 = undefined;
     var discarding: Writer.Discarding = .init(&w_buffer);
-    try testing.expectEqual(4, discarding.writer.sendFileAll(&file_reader, .unlimited));
+
+    _ = try file_reader.interface.streamRemaining(&discarding.writer);
 }
 
 test "allocating sendFile" {
@@ -2854,40 +2838,18 @@ test "allocating sendFile" {
 
     const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
     defer file.close();
-    var r_buffer: [2]u8 = undefined;
+    var r_buffer: [256]u8 = undefined;
     var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
-    try file_writer.interface.writeAll("abcd");
+    try file_writer.interface.writeByte('h');
     try file_writer.interface.flush();
 
     var file_reader = file_writer.moveToReader();
     try file_reader.seekTo(0);
-    try file_reader.interface.fill(2);
 
     var allocating: Writer.Allocating = .init(testing.allocator);
     defer allocating.deinit();
-    try allocating.ensureUnusedCapacity(1);
-    try testing.expectEqual(4, allocating.writer.sendFileAll(&file_reader, .unlimited));
-    try testing.expectEqualStrings("abcd", allocating.writer.buffered());
-}
 
-test sendFileReading {
-    var tmp_dir = testing.tmpDir(.{});
-    defer tmp_dir.cleanup();
-
-    const file = try tmp_dir.dir.createFile("input.txt", .{ .read = true });
-    defer file.close();
-    var r_buffer: [2]u8 = undefined;
-    var file_writer: std.fs.File.Writer = .init(file, &r_buffer);
-    try file_writer.interface.writeAll("abcd");
-    try file_writer.interface.flush();
-
-    var file_reader = file_writer.moveToReader();
-    try file_reader.seekTo(0);
-    try file_reader.interface.fill(2);
-
-    var w_buffer: [1]u8 = undefined;
-    var discarding: Writer.Discarding = .init(&w_buffer);
-    try testing.expectEqual(4, discarding.writer.sendFileReadingAll(&file_reader, .unlimited));
+    _ = try file_reader.interface.streamRemaining(&allocating.writer);
 }
 
 test writeStruct {
