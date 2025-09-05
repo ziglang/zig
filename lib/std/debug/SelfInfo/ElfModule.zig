@@ -205,6 +205,26 @@ pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, con
     }
     return error.MissingDebugInfo;
 }
+pub const supports_unwinding: bool = s: {
+    const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
+        .linux => &.{ .x86, .x86_64, .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be },
+        .netbsd => &.{ .x86, .x86_64, .aarch64, .aarch64_be },
+        .freebsd => &.{ .x86_64, .aarch64, .aarch64_be },
+        .openbsd => &.{.x86_64},
+        .solaris => &.{ .x86, .x86_64 },
+        .illumos => &.{ .x86, .x86_64 },
+        else => unreachable,
+    };
+    for (archs) |a| {
+        if (builtin.target.cpu.arch == a) break :s true;
+    }
+    break :s false;
+};
+comptime {
+    if (supports_unwinding) {
+        std.debug.assert(Dwarf.abi.supportsUnwinding(&builtin.target));
+    }
+}
 
 const ElfModule = @This();
 

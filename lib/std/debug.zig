@@ -14,6 +14,8 @@ const builtin = @import("builtin");
 const native_arch = builtin.cpu.arch;
 const native_os = builtin.os.tag;
 
+const root = @import("root");
+
 pub const Dwarf = @import("debug/Dwarf.zig");
 pub const Pdb = @import("debug/Pdb.zig");
 pub const SelfInfo = @import("debug/SelfInfo.zig");
@@ -942,19 +944,15 @@ fn printLineInfo(
                     tty_config.setColor(writer, .reset) catch {};
                 }
                 try writer.writeAll("\n");
-            } else |err| switch (err) {
-                error.WriteFailed => |e| return e,
-                else => {
-                    // Ignore everything else. Seeing some lines in the trace without the associated
-                    // source line printed is a far better user experience than interleaving the
-                    // trace with a load of filesystem error crap. The user can always just open the
-                    // source file themselves to see the line.
-                },
             }
         }
     }
 }
 fn printLineFromFile(writer: *Writer, source_location: SourceLocation) !void {
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "printLineFromFile")) {
+        return root.debug.printLineFromFile(writer, source_location);
+    }
+
     // Need this to always block even in async I/O mode, because this could potentially
     // be called from e.g. the event loop code crashing.
     var f = try fs.cwd().openFile(source_location.file_name, .{});
@@ -1139,11 +1137,16 @@ test printLineFromFile {
 
 /// TODO multithreaded awareness
 var debug_info_arena: ?std.heap.ArenaAllocator = null;
+var debug_info_fba: std.heap.FixedBufferAllocator = .init(&debug_info_fba_buf);
+var debug_info_fba_buf: [1024 * 1024 * 4]u8 = undefined;
 fn getDebugInfoAllocator() mem.Allocator {
-    if (debug_info_arena == null) {
-        debug_info_arena = .init(std.heap.page_allocator);
+    if (false) {
+        if (debug_info_arena == null) {
+            debug_info_arena = .init(std.heap.page_allocator);
+        }
+        return debug_info_arena.?.allocator();
     }
-    return debug_info_arena.?.allocator();
+    return debug_info_fba.allocator();
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
