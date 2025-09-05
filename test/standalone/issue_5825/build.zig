@@ -31,7 +31,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
         }),
     });
-    exe.subsystem = .Console;
+    exe.subsystem = .console;
     exe.root_module.linkSystemLibrary("kernel32", .{});
     exe.root_module.linkSystemLibrary("ntdll", .{});
     exe.root_module.addObject(obj);
