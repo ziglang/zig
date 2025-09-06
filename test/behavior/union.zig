@@ -1335,7 +1335,6 @@ test "union field ptr - zero sized field" {
 }
 
 test "packed union in packed struct" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
@@ -1420,7 +1419,6 @@ test "union reassignment can use previous value" {
 }
 
 test "reinterpreting enum value inside packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
 
     const U = packed union {
@@ -1612,7 +1610,6 @@ test "memset extern union" {
 }
 
 test "memset packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const U = packed union {
@@ -1905,8 +1902,6 @@ test "extern union initialized via reintepreted struct field initializer" {
 }
 
 test "packed union initialized via reintepreted struct field initializer" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {
@@ -1950,8 +1945,6 @@ test "store of comptime reinterpreted memory to extern union" {
 }
 
 test "store of comptime reinterpreted memory to packed union" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-
     const bytes = [_]u8{ 0xaa, 0xbb, 0xcc, 0xdd };
 
     const U = packed union {
