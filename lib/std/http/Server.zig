@@ -520,6 +520,7 @@ pub const Request = struct {
     }
 
     pub const WebSocketOptions = struct {
+        allocator: std.mem.Allocator,
         /// The value from `UpgradeRequest.websocket` (sec-websocket-key header value).
         key: []const u8,
         reason: ?[]const u8 = null,
@@ -559,9 +560,14 @@ pub const Request = struct {
         try out.writeAll("\r\n");
 
         return .{
+            .fragment = .{
+                .alloc_writer = .init(options.allocator),
+                .message_type = null,
+            },
             .input = request.server.reader.in,
-            .output = request.server.out,
             .key = options.key,
+            .output = request.server.out,
+            .storage = .init(options.allocator),
         };
     }
 
@@ -652,8 +658,13 @@ pub const Request = struct {
 
 /// See https://tools.ietf.org/html/rfc6455
 pub const WebSocket = struct {
+    /// Structure that builds websocket frames that are fragmented.
+    fragment: Fragment,
+    /// The websocket handshake key
     key: []const u8,
     input: *Reader,
+    /// Writer that is used to store large messages that the input buffer cannot handle.
+    storage: Writer.Allocating,
     output: *Writer,
 
     pub const Header0 = packed struct(u8) {
@@ -685,52 +696,125 @@ pub const WebSocket = struct {
         _,
     };
 
-    pub const ReadSmallTextMessageError = error{
-        ConnectionClose,
+    pub const ReadTextMessageError = error{
         UnexpectedOpCode,
         MessageTooBig,
         MissingMaskBit,
+        InvalidUtf8Payload,
+        ControlFrameTooBig,
+        FragmentedControl,
+        UnnegociatedReservedBits,
+        UnexpectedFragment,
         ReadFailed,
         EndOfStream,
     };
 
-    pub const SmallMessage = struct {
-        /// Can be text, binary, or ping.
+    /// Wrapper around a websocket fragmented frame.
+    pub const Fragment = struct {
+        const Error = std.mem.Allocator.Error || Writer.Error;
+
+        /// Writer to preserve the fragmented payload.
+        alloc_writer: Writer.Allocating,
+        /// The type of message that the fragment is.
+        ///
+        /// Control fragment's are not supported.
+        message_type: ?Opcode,
+
+        /// Clears any allocated memory.
+        pub fn deinit(ws: *Fragment) void {
+            ws.alloc_writer.deinit();
+        }
+
+        /// Writes the payload into the buffer.
+        pub fn writeAll(ws: *Fragment, payload: []const u8) Error!void {
+            try ws.alloc_writer.ensureUnusedCapacity(payload.len);
+            return ws.alloc_writer.writer.writeAll(payload);
+        }
+
+        /// Resets the fragment but keeps the allocated memory.
+        ///
+        /// Also reset the message type back to null.
+        pub fn reset(ws: *Fragment) void {
+            ws.alloc_writer.shrinkRetainingCapacity(0);
+            ws.message_type = null;
+        }
+
+        /// Returns a slice of the currently written values on the buffer.
+        pub fn slice(ws: *Fragment) []u8 {
+            return ws.alloc_writer.written();
+        }
+
+        /// Returns the total amount of bytes that were written.
+        pub fn size(ws: Fragment) usize {
+            return ws.alloc_writer.writer.end;
+        }
+    };
+
+    pub const CloseMessage = struct {
+        exit_code: u16,
+        data: []const u8 = "",
+    };
+
+    pub const WebsocketMessage = struct {
         opcode: Opcode,
         data: []u8,
     };
 
-    /// Reads the next message from the WebSocket stream, failing if the
-    /// message does not fit into the input buffer. The returned memory points
-    /// into the input buffer and is invalidated on the next read.
-    pub fn readSmallMessage(ws: *WebSocket) ReadSmallTextMessageError!SmallMessage {
+    /// Sends close frame with the exit code and frees any allocated memory
+    pub fn close(ws: *WebSocket, options: CloseMessage) void {
+        ws.writeCloseFrame(options) catch {};
+        ws.deinit();
+    }
+
+    /// Clears any allocated memory.
+    pub fn deinit(ws: *WebSocket) void {
+        ws.storage.deinit();
+        ws.fragment.deinit();
+    }
+
+    /// Reads the next message from the WebSocket stream.
+    ///
+    /// The returned message can either point to:
+    ///
+    /// * Input buffer
+    /// * Storage writer buffer
+    /// * The fragments writer buffer
+    ///
+    /// Either of them will have their pointer invalidated on the next read message
+    pub fn readMessage(ws: *WebSocket) !WebsocketMessage {
         const in = ws.input;
         while (true) {
             const header = try in.takeArray(2);
-            const h0: Header0 = @bitCast(header[0]);
-            const h1: Header1 = @bitCast(header[1]);
 
-            switch (h0.opcode) {
-                .text, .binary, .pong, .ping => {},
-                .connection_close => return error.ConnectionClose,
-                .continuation => return error.UnexpectedOpCode,
-                _ => return error.UnexpectedOpCode,
-            }
+            const op_head: Header0 = @bitCast(header[0]);
+            const payload_head: Header1 = @bitCast(header[1]);
 
-            if (!h0.fin) return error.MessageTooBig;
-            if (!h1.mask) return error.MissingMaskBit;
+            if (!payload_head.mask)
+                return error.MissingMaskBit;
 
-            const len: usize = switch (h1.payload_len) {
+            // TODO: Remove check here for op_head.rsv1 if compression
+            // is added in the future
+            if (@bitCast(op_head.rsv1) or @bitCast(op_head.rsv2) or @bitCast(op_head.rsv3))
+                return error.UnnegociatedReservedBits;
+
+            const total = switch (payload_head.payload_len) {
                 .len16 => try in.takeInt(u16, .big),
                 .len64 => std.math.cast(usize, try in.takeInt(u64, .big)) orelse return error.MessageTooBig,
-                else => @intFromEnum(h1.payload_len),
+                _ => @intFromEnum(payload_head.payload_len),
             };
-            if (len > in.buffer.len) return error.MessageTooBig;
-            const mask: u32 = @bitCast((try in.takeArray(4)).*);
-            const payload = try in.take(len);
 
-            // Skip pongs.
-            if (h0.opcode == .pong) continue;
+            const mask: u32 = @bitCast((try in.takeArray(4)).*);
+            const payload = blk: {
+                if (total > in.buffer.len) {
+                    try ws.storage.ensureUnusedCapacity(total);
+                    try in.streamExact(&ws.storage.writer, total);
+                    defer ws.storage.shrinkRetainingCapacity(0);
+
+                    break :blk ws.storage.written();
+                }
+
+                break :blk try in.take(total);
+            };
 
             // The last item may contain a partial word of unused data.
             const floored_len = (payload.len / 4) * 4;
@@ -740,63 +824,188 @@ pub const WebSocket = struct {
             for (payload[floored_len..], mask_bytes[0 .. payload.len - floored_len]) |*leftover, m|
                 leftover.* ^= m;
 
-            return .{
-                .opcode = h0.opcode,
-                .data = payload,
-            };
+            switch (op_head.opcode) {
+                .text,
+                .binary,
+                => {
+                    if (!op_head.fin) {
+                        try ws.fragment.writeAll(payload);
+                        ws.fragment.message_type = op_head.opcode;
+
+                        continue;
+                    }
+
+                    if (ws.fragment.size() != 0)
+                        return error.UnexpectedFragment;
+
+                    if (op_head.opcode == .text and !std.unicode.utf8ValidateSlice(payload))
+                        return error.InvalidUtf8Payload;
+
+                    return .{
+                        .opcode = op_head.opcode,
+                        .data = payload,
+                    };
+                },
+                .continuation,
+                => {
+                    const message_type = ws.fragment.message_type orelse return error.FragmentedControl;
+
+                    if (!op_head.fin) {
+                        try ws.fragment.writeAll(payload);
+                        continue;
+                    }
+
+                    try ws.fragment.writeAll(payload);
+                    defer ws.fragment.reset();
+
+                    const slice = ws.fragment.slice();
+
+                    if (message_type == .text and !std.unicode.utf8ValidateSlice(slice))
+                        return error.InvalidUtf8Payload;
+
+                    return .{
+                        .opcode = message_type,
+                        .data = slice,
+                    };
+                },
+                .ping,
+                .pong,
+                .connection_close,
+                => {
+                    if (total > 125 or !op_head.fin)
+                        return error.ControlFrameTooBig;
+
+                    return .{
+                        .opcode = op_head.opcode,
+                        .data = payload,
+                    };
+                },
+                _ => return error.UnexpectedOpCode,
+            }
         }
     }
 
-    pub fn writeMessage(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
+    /// Writes to the server a close frame with a provided `exit_code`.
+    ///
+    /// For more details please see: https://www.rfc-editor.org/rfc/rfc6455#section-5.5.1
+    pub fn writeCloseFrame(ws: *WebSocket, options: CloseMessage) Writer.Error!void {
+        if (options.exit_code == 0) {
+            @branchHint(.likely);
+
+            return ws.writeFrame(options.data, .connection_close);
+        }
+
+        var buffer: [2]u8 = undefined;
+        std.mem.writeInt(u16, buffer[0..2], options.exit_code, .big);
+
+        var bufs: [2][]const u8 = .{ buffer[0..], options.data };
+        try ws.writeHeaderFrameVecUnflushed(&bufs, .connection_close, true);
+        try ws.writeBodyVecUnflushed(&bufs);
+
+        return ws.flush();
+    }
+
+    /// Writes a websocket frame directly to the socket.
+    ///
+    /// The message is unmasked according to the websocket RFC.
+    /// More details here: https://www.rfc-editor.org/rfc/rfc6455#section-6.1
+    pub fn writeFrame(ws: *WebSocket, data: []const u8, opcode: Opcode) Writer.Error!void {
         var bufs: [1][]const u8 = .{data};
-        try writeMessageVecUnflushed(ws, &bufs, op);
-        try ws.output.flush();
+        try ws.writeFrameVecUnflushed(&bufs, opcode);
+
+        return ws.flush();
     }
 
-    pub fn writeMessageUnflushed(ws: *WebSocket, data: []const u8, op: Opcode) Writer.Error!void {
-        var bufs: [1][]const u8 = .{data};
-        try writeMessageVecUnflushed(ws, &bufs, op);
+    /// Writes a websocket frame directly to the socket.
+    ///
+    /// The message is unmasked according to the websocket RFC.
+    /// More details here: https://www.rfc-editor.org/rfc/rfc6455#section-6.1
+    pub fn writeFrameVec(ws: *WebSocket, data: [][]const u8, opcode: Opcode) Writer.Error!void {
+        try ws.writeFrameVecUnflushed(data, opcode);
+
+        return ws.flush();
     }
 
-    pub fn writeMessageVec(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
-        try writeMessageVecUnflushed(ws, data, op);
-        try ws.output.flush();
+    /// Writes a websocket frame directly to the socket. Doesn't flush the writers buffer.
+    ///
+    /// The fin bit is set to true on this sent frame.
+    ///
+    /// To send a fragmented message please see `writeHeaderFrameVecUnflushed`
+    /// and pair it with `writeBodyVecUnflushed` and don't forget to flush!
+    ///
+    /// The message is unmasked according to the websocket RFC.
+    /// More details here: https://www.rfc-editor.org/rfc/rfc6455#section-6.1
+    pub fn writeFrameVecUnflushed(ws: *WebSocket, messages: [][]const u8, opcode: Opcode) Writer.Error!void {
+        try ws.writeHeaderFrameVecUnflushed(messages, opcode, true);
+
+        return ws.writeBodyVecUnflushed(messages);
     }
 
-    pub fn writeMessageVecUnflushed(ws: *WebSocket, data: [][]const u8, op: Opcode) Writer.Error!void {
-        const total_len = l: {
+    /// Writes a websocket message directly to the socket without the header
+    ///
+    /// The message is unmasked according to the websocket RFC.
+    /// More details here: https://www.rfc-editor.org/rfc/rfc6455#section-6.1
+    pub fn writeBodyVecUnflushed(ws: *WebSocket, data: [][]const u8) Writer.Error!void {
+        return ws.output.writeVecAll(data);
+    }
+
+    /// Generates the websocket header frame based on the message len and the opcode provided.
+    ///
+    ///  0                   1                   2                   3
+    ///  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    /// +-+-+-+-+-------+-+-------------+-------------------------------+
+    /// |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+    /// |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+    /// |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+    /// | |1|2|3|       |K|             |                               |
+    /// +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+    /// |     Extended payload length continued, if payload len == 127  |
+    /// + - - - - - - - - - - - - - - - +-------------------------------+
+    /// |                               |Masking-key, if MASK set to 1  |
+    /// +-------------------------------+-------------------------------+
+    /// | Masking-key (continued)       |          Payload Data         |
+    /// +-------------------------------- - - - - - - - - - - - - - - - +
+    /// :                     Payload Data continued ...                :
+    /// + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+    /// |                     Payload Data continued ...                |
+    /// +---------------------------------------------------------------+
+    pub fn writeHeaderFrameVecUnflushed(ws: *WebSocket, messages: [][]const u8, opcode: Opcode, fin_bit: bool) Writer.Error!void {
+        const total_len = len: {
             var total_len: u64 = 0;
-            for (data) |iovec| total_len += iovec.len;
-            break :l total_len;
+            for (messages) |iovec| total_len += iovec.len;
+            break :len total_len;
         };
-        const out = ws.output;
-        try out.writeByte(@bitCast(@as(Header0, .{
-            .opcode = op,
-            .fin = true,
+
+        try ws.output.writeByte(@bitCast(@as(Header0, .{
+            .opcode = opcode,
+            .fin = fin_bit,
         })));
+
         switch (total_len) {
-            0...125 => try out.writeByte(@bitCast(@as(Header1, .{
+            0...125 => return ws.output.writeByte(@bitCast(@as(Header1, .{
                 .payload_len = @enumFromInt(total_len),
                 .mask = false,
             }))),
-            126...0xffff => {
-                try out.writeByte(@bitCast(@as(Header1, .{
+            126...0xFFFF => {
+                try ws.output.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len16,
                     .mask = false,
                 })));
-                try out.writeInt(u16, @intCast(total_len), .big);
+
+                return ws.output.writeInt(u16, @intCast(total_len), .big);
             },
             else => {
-                try out.writeByte(@bitCast(@as(Header1, .{
+                try ws.output.writeByte(@bitCast(@as(Header1, .{
                     .payload_len = .len64,
                     .mask = false,
                 })));
-                try out.writeInt(u64, total_len, .big);
+
+                return ws.output.writeInt(u64, total_len, .big);
             },
         }
-        try out.writeVecAll(data);
     }
 
+    /// Drains all of the remaining buffered data.
     pub fn flush(ws: *WebSocket) Writer.Error!void {
         try ws.output.flush();
     }
