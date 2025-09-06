@@ -17,25 +17,12 @@ const Alignment = std.mem.Alignment;
 /// The OS-specific file descriptor or file handle.
 handle: Handle,
 
-pub const Handle = posix.fd_t;
-pub const Mode = posix.mode_t;
-pub const INode = posix.ino_t;
+pub const Handle = std.Io.File.Handle;
+pub const Mode = std.Io.File.Mode;
+pub const INode = std.Io.File.INode;
 pub const Uid = posix.uid_t;
 pub const Gid = posix.gid_t;
-
-pub const Kind = enum {
-    block_device,
-    character_device,
-    directory,
-    named_pipe,
-    sym_link,
-    file,
-    unix_domain_socket,
-    whiteout,
-    door,
-    event_port,
-    unknown,
-};
+pub const Kind = std.Io.File.Kind;
 
 /// This is the default mode given to POSIX operating systems for creating
 /// files. `0o666` is "-rw-rw-rw-" which is counter-intuitive at first,
@@ -399,115 +386,11 @@ pub fn mode(self: File) ModeError!Mode {
     return (try self.stat()).mode;
 }
 
-pub const Stat = struct {
-    /// A number that the system uses to point to the file metadata. This
-    /// number is not guaranteed to be unique across time, as some file
-    /// systems may reuse an inode after its file has been deleted. Some
-    /// systems may change the inode of a file over time.
-    ///
-    /// On Linux, the inode is a structure that stores the metadata, and
-    /// the inode _number_ is what you see here: the index number of the
-    /// inode.
-    ///
-    /// The FileIndex on Windows is similar. It is a number for a file that
-    /// is unique to each filesystem.
-    inode: INode,
-    size: u64,
-    /// This is available on POSIX systems and is always 0 otherwise.
-    mode: Mode,
-    kind: Kind,
-
-    /// Last access time in nanoseconds, relative to UTC 1970-01-01.
-    atime: i128,
-    /// Last modification time in nanoseconds, relative to UTC 1970-01-01.
-    mtime: i128,
-    /// Last status/metadata change time in nanoseconds, relative to UTC 1970-01-01.
-    ctime: i128,
-
-    pub fn fromPosix(st: posix.Stat) Stat {
-        const atime = st.atime();
-        const mtime = st.mtime();
-        const ctime = st.ctime();
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = st.mode,
-            .kind = k: {
-                const m = st.mode & posix.S.IFMT;
-                switch (m) {
-                    posix.S.IFBLK => break :k .block_device,
-                    posix.S.IFCHR => break :k .character_device,
-                    posix.S.IFDIR => break :k .directory,
-                    posix.S.IFIFO => break :k .named_pipe,
-                    posix.S.IFLNK => break :k .sym_link,
-                    posix.S.IFREG => break :k .file,
-                    posix.S.IFSOCK => break :k .unix_domain_socket,
-                    else => {},
-                }
-                if (builtin.os.tag.isSolarish()) switch (m) {
-                    posix.S.IFDOOR => break :k .door,
-                    posix.S.IFPORT => break :k .event_port,
-                    else => {},
-                };
-
-                break :k .unknown;
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromLinux(stx: linux.Statx) Stat {
-        const atime = stx.atime;
-        const mtime = stx.mtime;
-        const ctime = stx.ctime;
-
-        return .{
-            .inode = stx.ino,
-            .size = stx.size,
-            .mode = stx.mode,
-            .kind = switch (stx.mode & linux.S.IFMT) {
-                linux.S.IFDIR => .directory,
-                linux.S.IFCHR => .character_device,
-                linux.S.IFBLK => .block_device,
-                linux.S.IFREG => .file,
-                linux.S.IFIFO => .named_pipe,
-                linux.S.IFLNK => .sym_link,
-                linux.S.IFSOCK => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = @as(i128, atime.sec) * std.time.ns_per_s + atime.nsec,
-            .mtime = @as(i128, mtime.sec) * std.time.ns_per_s + mtime.nsec,
-            .ctime = @as(i128, ctime.sec) * std.time.ns_per_s + ctime.nsec,
-        };
-    }
-
-    pub fn fromWasi(st: std.os.wasi.filestat_t) Stat {
-        return .{
-            .inode = st.ino,
-            .size = @bitCast(st.size),
-            .mode = 0,
-            .kind = switch (st.filetype) {
-                .BLOCK_DEVICE => .block_device,
-                .CHARACTER_DEVICE => .character_device,
-                .DIRECTORY => .directory,
-                .SYMBOLIC_LINK => .sym_link,
-                .REGULAR_FILE => .file,
-                .SOCKET_STREAM, .SOCKET_DGRAM => .unix_domain_socket,
-                else => .unknown,
-            },
-            .atime = st.atim,
-            .mtime = st.mtim,
-            .ctime = st.ctim,
-        };
-    }
-};
+pub const Stat = std.Io.File.Stat;
 
 pub const StatError = posix.FStatError;
 
 /// Returns `Stat` containing basic information about the `File`.
-/// TODO: integrate with async I/O
 pub fn stat(self: File) StatError!Stat {
     if (builtin.os.tag == .windows) {
         var io_status_block: windows.IO_STATUS_BLOCK = undefined;
@@ -1727,7 +1610,7 @@ pub const Writer = struct {
 
     pub fn sendFile(
         io_w: *std.Io.Writer,
-        file_reader: *Reader,
+        file_reader: *std.Io.File.Reader,
         limit: std.Io.Limit,
     ) std.Io.Writer.FileError!usize {
         const reader_buffered = file_reader.interface.buffered();
@@ -1994,7 +1877,7 @@ pub const Writer = struct {
 
     fn sendFileBuffered(
         io_w: *std.Io.Writer,
-        file_reader: *Reader,
+        file_reader: *std.Io.File.Reader,
         reader_buffered: []const u8,
     ) std.Io.Writer.FileError!usize {
         const n = try drain(io_w, &.{reader_buffered}, 1);

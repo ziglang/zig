@@ -5,7 +5,7 @@ const Writer = @This();
 const std = @import("../std.zig");
 const assert = std.debug.assert;
 const Limit = std.Io.Limit;
-const File = std.fs.File;
+const File = std.Io.File;
 const testing = std.testing;
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -2778,7 +2778,8 @@ pub const Allocating = struct {
         if (additional == 0) return error.EndOfStream;
         a.ensureUnusedCapacity(limit.minInt64(additional)) catch return error.WriteFailed;
         const dest = limit.slice(a.writer.buffer[a.writer.end..]);
-        const n = try file_reader.read(dest);
+        const n = try file_reader.interface.readSliceShort(dest);
+        if (n == 0) return error.EndOfStream;
         a.writer.end += n;
         return n;
     }
