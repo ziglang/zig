@@ -1350,12 +1350,16 @@ pub fn printValue(
                 try w.printAddress(value);
             },
             .slice => {
-                if (!is_any)
-                    @compileError("cannot format slice without a specifier (i.e. {s}, {x}, {b64}, or {any})");
+                const remaining_fmt = comptime if (fmt.len > 0 and fmt[0] == '#')
+                    stripOptionalOrErrorUnionSpec(fmt)
+                else if (is_any)
+                    ANY
+                else
+                    @compileError("cannot format slice without a specifier (i.e. {#}, {s}, {x}, {b64}, or {any})");
                 if (max_depth == 0) return w.writeAll("{ ... }");
                 try w.writeAll("{ ");
                 for (value, 0..) |elem, i| {
-                    try w.printValue(fmt, options, elem, max_depth - 1);
+                    try w.printValue(remaining_fmt, options, elem, max_depth - 1);
                     if (i != value.len - 1) {
                         try w.writeAll(", ");
                     }
@@ -1364,11 +1368,16 @@ pub fn printValue(
             },
         },
         .array => {
-            if (!is_any) @compileError("cannot format array without a specifier (i.e. {s} or {any})");
+            const remaining_fmt = comptime if (fmt.len > 0 and fmt[0] == '#')
+                stripOptionalOrErrorUnionSpec(fmt)
+            else if (is_any)
+                ANY
+            else
+                @compileError("cannot format array without a specifier (i.e. {#}, {s} or {any})");
             if (max_depth == 0) return w.writeAll("{ ... }");
             try w.writeAll("{ ");
             for (value, 0..) |elem, i| {
-                try w.printValue(fmt, options, elem, max_depth - 1);
+                try w.printValue(remaining_fmt, options, elem, max_depth - 1);
                 if (i < value.len - 1) {
                     try w.writeAll(", ");
                 }
