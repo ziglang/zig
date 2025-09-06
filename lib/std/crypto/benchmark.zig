@@ -143,7 +143,7 @@ const signatures = [_]Crypto{
 };
 
 pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate();
 
     var timer = try Timer.start();
@@ -166,7 +166,7 @@ pub fn benchmarkSignature(comptime Signature: anytype, comptime signatures_count
 const signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate();
     const sig = try key_pair.sign(&msg, null);
 
@@ -190,7 +190,7 @@ pub fn benchmarkSignatureVerification(comptime Signature: anytype, comptime sign
 const batch_signature_verifications = [_]Crypto{Crypto{ .ty = crypto.sign.Ed25519, .name = "ed25519" }};
 
 pub fn benchmarkBatchSignatureVerification(comptime Signature: anytype, comptime signatures_count: comptime_int) !u64 {
-    const msg = [_]u8{0} ** 64;
+    const msg: [64]u8 = @splat(0);
     const key_pair = Signature.KeyPair.generate();
     const sig = try key_pair.sign(&msg, null);
 
@@ -338,7 +338,7 @@ pub fn benchmarkAes(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
-    var in = [_]u8{0} ** 16;
+    var in: [16]u8 = @splat(0);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -367,7 +367,7 @@ pub fn benchmarkAes8(comptime Aes: anytype, comptime count: comptime_int) !u64 {
     random.bytes(key[0..]);
     const ctx = Aes.initEnc(key);
 
-    var in = [_]u8{0} ** (8 * 16);
+    var in: [8 * 16]u8 = @splat(0);
 
     var timer = try Timer.start();
     const start = timer.lap();
@@ -416,8 +416,8 @@ fn benchmarkPwhash(
     comptime params: *const anyopaque,
     comptime count: comptime_int,
 ) !f64 {
-    const password = "testpass" ** 2;
-    const opts = ty.HashOptions{
+    const password = "testpasstestpass";
+    const opts: ty.HashOptions = .{
         .allocator = allocator,
         .params = @as(*const ty.Params, @ptrCast(@alignCast(params))).*,
         .encoding = .phc,

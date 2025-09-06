@@ -399,7 +399,7 @@ test "bitcast vector to integer and back" {
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
     if (builtin.cpu.arch == .aarch64_be and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest;
 
-    const arr: [16]bool = [_]bool{ true, false } ++ [_]bool{true} ** 14;
+    const arr: [16]bool = [_]bool{ true, false } ++ @as([14]bool, @splat(true));
     var x: @Vector(16, bool) = @splat(true);
     x[1] = false;
     try expect(@as(u16, @bitCast(x)) == comptime @as(u16, @bitCast(@as(@Vector(16, bool), arr))));

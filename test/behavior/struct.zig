@@ -636,7 +636,7 @@ test "packed array 24bits" {
         try expect(@sizeOf(FooArray24Bits) == @sizeOf(u96));
     }
 
-    var bytes = [_]u8{0} ** (@sizeOf(FooArray24Bits) + 1);
+    var bytes: [@sizeOf(FooArray24Bits) + 1]u8 = @splat(0);
     bytes[bytes.len - 1] = 0xbb;
     const ptr = &std.mem.bytesAsSlice(FooArray24Bits, bytes[0 .. bytes.len - 1])[0];
     try expect(ptr.a == 0);

@@ -66,7 +66,7 @@ pub const WideGlyph = extern struct {
     attributes: WideGlyphAttributes,
     glyph_col_1: [19]u8,
     glyph_col_2: [19]u8,
-    _pad: [3]u8 = [_]u8{0} ** 3,
+    _pad: [3]u8 = @splat(0),
 };
 
 pub const StringPackage = extern struct {

@@ -35,7 +35,7 @@ pub fn parse(
         found: bool,
         allocated: ?[:0]u8,
     };
-    var found_keys = [1]FoundKey{FoundKey{ .found = false, .allocated = null }} ** fields.len;
+    var found_keys: [fields.len]FoundKey = @splat(.{ .found = false, .allocated = null });
     errdefer {
         self = .{};
         for (found_keys) |found_key| {

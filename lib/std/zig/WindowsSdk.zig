@@ -105,7 +105,7 @@ fn iterateAndFilterByVersion(
         if (!std.mem.startsWith(u8, entry.name, prefix)) continue;
 
         var version: Version = .{
-            .nums = .{0} ** 4,
+            .nums = @splat(0),
             .build = "",
         };
         const suffix = entry.name[prefix.len..];

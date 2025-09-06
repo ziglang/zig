@@ -96,7 +96,7 @@ pub fn Uint(comptime max_bits: comptime_int) type {
 
         /// The zero integer.
         pub const zero: Self = .{
-            .limbs_buffer = [1]Limb{0} ** max_limbs_count,
+            .limbs_buffer = @splat(0),
             .limbs_len = max_limbs_count,
         };
 
@@ -701,7 +701,7 @@ pub fn Modulus(comptime max_bits: comptime_int) type {
                 }
             } else {
                 // Use a precomputation table for large exponents
-                var pc = [1]Fe{x} ++ [_]Fe{self.zero} ** 14;
+                var pc = [1]Fe{x} ++ @as([14]Fe, @splat(self.zero));
                 if (x.montgomery == false) {
                     self.toMontgomery(&pc[0]) catch unreachable;
                 }
