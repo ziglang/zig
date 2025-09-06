@@ -93,7 +93,7 @@ const Fiber = struct {
     }
 
     fn resultPointer(f: *Fiber, comptime Result: type) *Result {
-        return @alignCast(@ptrCast(f.resultBytes(.of(Result))));
+        return @ptrCast(@alignCast(f.resultBytes(.of(Result))));
     }
 
     fn resultBytes(f: *Fiber, alignment: Alignment) [*]u8 {
@@ -153,8 +153,8 @@ pub fn io(el: *EventLoop) Io {
             .conditionWake = conditionWake,
 
             .createFile = createFile,
-            .openFile = openFile,
-            .closeFile = closeFile,
+            .fileOpen = fileOpen,
+            .fileClose = fileClose,
             .pread = pread,
             .pwrite = pwrite,
 
@@ -193,7 +193,7 @@ pub fn init(el: *EventLoop, gpa: Allocator) !void {
     };
     const main_thread = &el.threads.allocated[0];
     Thread.self = main_thread;
-    const idle_stack_end: [*]align(16) usize = @alignCast(@ptrCast(allocated_slice[idle_stack_end_offset..].ptr));
+    const idle_stack_end: [*]align(16) usize = @ptrCast(@alignCast(allocated_slice[idle_stack_end_offset..].ptr));
     (idle_stack_end - 1)[0..1].* = .{@intFromPtr(el)};
     main_thread.* = .{
         .thread = undefined,
@@ -244,7 +244,7 @@ pub fn deinit(el: *EventLoop) void {
         assert(ready_fiber == null or ready_fiber == Fiber.finished); // pending async
     }
     el.yield(null, .exit);
-    const allocated_ptr: [*]align(@alignOf(Thread)) u8 = @alignCast(@ptrCast(el.threads.allocated.ptr));
+    const allocated_ptr: [*]align(@alignOf(Thread)) u8 = @ptrCast(@alignCast(el.threads.allocated.ptr));
     const idle_stack_end_offset = std.mem.alignForward(usize, el.threads.allocated.len * @sizeOf(Thread) + idle_stack_size, std.heap.page_size_max);
     for (el.threads.allocated[1..active_threads]) |*thread| thread.thread.join();
     el.gpa.free(allocated_ptr[0..idle_stack_end_offset]);
@@ -530,7 +530,7 @@ const SwitchMessage = struct {
                 const prev_fiber: *Fiber = @alignCast(@fieldParentPtr("context", message.contexts.prev));
                 assert(prev_fiber.queue_next == null);
                 for (futures) |any_future| {
-                    const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+                    const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
                     if (@atomicRmw(?*Fiber, &future_fiber.awaiter, .Xchg, prev_fiber, .acq_rel) == Fiber.finished) {
                         const closure: *AsyncClosure = .fromFiber(future_fiber);
                         if (!@atomicRmw(bool, &closure.already_awaited, .Xchg, true, .seq_cst)) {
@@ -897,12 +897,12 @@ fn asyncConcurrent(
     assert(result_len <= Fiber.max_result_size); // TODO
     assert(context.len <= Fiber.max_context_size); // TODO
 
-    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
+    const event_loop: *EventLoop = @ptrCast(@alignCast(userdata));
     const fiber = try Fiber.allocate(event_loop);
     std.log.debug("allocated {*}", .{fiber});
 
     const closure: *AsyncClosure = .fromFiber(fiber);
-    const stack_end: [*]align(16) usize = @alignCast(@ptrCast(closure));
+    const stack_end: [*]align(16) usize = @ptrCast(@alignCast(closure));
     (stack_end - 1)[0..1].* = .{@intFromPtr(&AsyncClosure.call)};
     fiber.* = .{
         .required_align = {},
@@ -974,7 +974,7 @@ fn asyncDetached(
     assert(context_alignment.compare(.lte, Fiber.max_context_align)); // TODO
     assert(context.len <= Fiber.max_context_size); // TODO
 
-    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
+    const event_loop: *EventLoop = @ptrCast(@alignCast(userdata));
     const fiber = Fiber.allocate(event_loop) catch {
         start(context.ptr);
         return;
@@ -985,7 +985,7 @@ fn asyncDetached(
     const closure: *DetachedClosure = @ptrFromInt(Fiber.max_context_align.max(.of(DetachedClosure)).backward(
         @intFromPtr(fiber.allocatedEnd()) - Fiber.max_context_size,
     ) - @sizeOf(DetachedClosure));
-    const stack_end: [*]align(16) usize = @alignCast(@ptrCast(closure));
+    const stack_end: [*]align(16) usize = @ptrCast(@alignCast(closure));
     (stack_end - 1)[0..1].* = .{@intFromPtr(&DetachedClosure.call)};
     fiber.* = .{
         .required_align = {},
@@ -1035,8 +1035,8 @@ fn await(
     result: []u8,
     result_alignment: Alignment,
 ) void {
-    const event_loop: *EventLoop = @alignCast(@ptrCast(userdata));
-    const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+    const event_loop: *EventLoop = @ptrCast(@alignCast(userdata));
+    const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
     if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) != Fiber.finished)
         event_loop.yield(null, .{ .register_awaiter = &future_fiber.awaiter });
     @memcpy(result, future_fiber.resultBytes(result_alignment));
@@ -1044,11 +1044,11 @@ fn await(
 }
 
 fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
 
     // Optimization to avoid the yield below.
     for (futures, 0..) |any_future, i| {
-        const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+        const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
         if (@atomicLoad(?*Fiber, &future_fiber.awaiter, .acquire) == Fiber.finished)
             return i;
     }
@@ -1062,7 +1062,7 @@ fn select(userdata: ?*anyopaque, futures: []const *Io.AnyFuture) usize {
     var result: ?usize = null;
 
     for (futures, 0..) |any_future, i| {
-        const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+        const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
         if (@cmpxchgStrong(?*Fiber, &future_fiber.awaiter, my_fiber, null, .seq_cst, .seq_cst)) |awaiter| {
             if (awaiter == Fiber.finished) {
                 if (result == null) result = i;
@@ -1085,7 +1085,7 @@ fn cancel(
     result: []u8,
     result_alignment: Alignment,
 ) void {
-    const future_fiber: *Fiber = @alignCast(@ptrCast(any_future));
+    const future_fiber: *Fiber = @ptrCast(@alignCast(any_future));
     if (@atomicRmw(
         ?*Thread,
         &future_fiber.cancel_thread,
@@ -1124,7 +1124,7 @@ fn createFile(
     sub_path: []const u8,
     flags: Io.File.CreateFlags,
 ) Io.File.OpenError!Io.File {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1220,13 +1220,13 @@ fn createFile(
     }
 }
 
-fn openFile(
+fn fileOpen(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
     flags: Io.File.OpenFlags,
 ) Io.File.OpenError!Io.File {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1328,8 +1328,8 @@ fn openFile(
     }
 }
 
-fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1365,7 +1365,7 @@ fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
 }
 
 fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.off_t) Io.File.PReadError!usize {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1417,7 +1417,7 @@ fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: std.posix.o
 }
 
 fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: std.posix.off_t) Io.File.PWriteError!usize {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1479,7 +1479,7 @@ fn now(userdata: ?*anyopaque, clockid: std.posix.clockid_t) Io.ClockGetTimeError
 }
 
 fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadline) Io.SleepError!void {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const thread: *Thread = .current();
     const iou = &thread.io_uring;
     const fiber = thread.currentFiber();
@@ -1532,7 +1532,7 @@ fn sleep(userdata: ?*anyopaque, clockid: std.posix.clockid_t, deadline: Io.Deadl
 }
 
 fn mutexLock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) error{Canceled}!void {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     el.yield(null, .{ .mutex_lock = .{ .prev_state = prev_state, .mutex = mutex } });
 }
 fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mutex) void {
@@ -1553,7 +1553,7 @@ fn mutexUnlock(userdata: ?*anyopaque, prev_state: Io.Mutex.State, mutex: *Io.Mut
         .acquire,
     ) orelse return) |next_state| maybe_waiting_fiber = @ptrFromInt(@intFromEnum(next_state));
     maybe_waiting_fiber.?.queue_next = null;
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     el.yield(maybe_waiting_fiber.?, .reschedule);
 }
 
@@ -1566,7 +1566,7 @@ const ConditionImpl = struct {
 };
 
 fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) Io.Cancelable!void {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     el.yield(null, .{ .condition_wait = .{ .cond = cond, .mutex = mutex } });
     const thread = Thread.current();
     const fiber = thread.currentFiber();
@@ -1595,7 +1595,7 @@ fn conditionWait(userdata: ?*anyopaque, cond: *Io.Condition, mutex: *Io.Mutex) I
 }
 
 fn conditionWake(userdata: ?*anyopaque, cond: *Io.Condition, wake: Io.Condition.Wake) void {
-    const el: *EventLoop = @alignCast(@ptrCast(userdata));
+    const el: *EventLoop = @ptrCast(@alignCast(userdata));
     const waiting_fiber = @atomicRmw(?*Fiber, @as(*?*Fiber, @ptrCast(&cond.state)), .Xchg, null, .acquire) orelse return;
     waiting_fiber.resultPointer(ConditionImpl).event = .{ .wake = wake };
     el.yield(waiting_fiber, .reschedule);

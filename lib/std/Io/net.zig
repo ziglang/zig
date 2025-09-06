@@ -17,9 +17,12 @@ pub const ListenOptions = struct {
     force_nonblocking: bool = false,
 };
 
-/// An already-validated host name.
+/// An already-validated host name. A valid host name:
+/// * Has length less than or equal to `max_len`.
+/// * Is valid UTF-8.
+/// * Lacks ASCII characters other than alphanumeric, '-', and '.'.
 pub const HostName = struct {
-    /// Externally managed memory. Already checked to be within `max_len`.
+    /// Externally managed memory. Already checked to be valid.
     bytes: []const u8,
 
     pub const max_len = 255;
@@ -55,13 +58,14 @@ pub const HostName = struct {
         family: ?IpAddress.Tag = null,
     };
 
-    pub const LookupError = Io.Cancelable || error{};
+    pub const LookupError = Io.Cancelable || Io.File.OpenError || Io.File.Reader.Error || error{
+        UnknownHostName,
+    };
 
     pub const LookupResult = struct {
         /// How many `LookupOptions.addresses_buffer` elements are populated.
-        addresses_len: usize,
-        /// Length zero means no canonical name returned.
-        canonical_name_len: usize,
+        addresses_len: usize = 0,
+        canonical_name: ?HostName = null,
     };
 
     pub fn lookup(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
@@ -75,17 +79,17 @@ pub const HostName = struct {
             if (options.family != .ip6) {
                 if (IpAddress.parseIp4(name, options.port)) |addr| {
                     options.addresses_buffer[0] = addr;
-                    return .{ .addresses_len = 1, .canonical_name_len = 0 };
+                    return .{ .addresses_len = 1 };
                 } else |_| {}
             }
             if (options.family != .ip4) {
                 if (IpAddress.parseIp6(name, options.port)) |addr| {
                     options.addresses_buffer[0] = addr;
-                    return .{ .addresses_len = 1, .canonical_name_len = 0 };
+                    return .{ .addresses_len = 1 };
                 } else |_| {}
             }
             {
-                const result = try lookupHosts(io, options);
+                const result = try lookupHosts(host_name, io, options);
                 if (result.addresses_len > 0) return sortLookupResults(options, result);
             }
             {
@@ -110,8 +114,12 @@ pub const HostName = struct {
                         i += 1;
                     }
                     const canon_name = "localhost";
-                    options.canonical_name_buffer[0..canon_name.len].* = canon_name.*;
-                    return sortLookupResults(options, .{ .addresses_len = i, .canonical_name_len = canon_name.len });
+                    const canon_name_dest = options.canonical_name_buffer[0..canon_name.len];
+                    canon_name_dest.* = canon_name.*;
+                    return sortLookupResults(options, .{
+                        .addresses_len = i,
+                        .canonical_name = .{ .bytes = canon_name_dest },
+                    });
                 }
             }
             {
@@ -135,27 +143,27 @@ pub const HostName = struct {
         @panic("TODO");
     }
 
-    fn lookupHosts(io: Io, options: LookupOptions) !LookupResult {
-        const file = Io.File.openFileAbsoluteZ(io, "/etc/hosts", .{}) catch |err| switch (err) {
+    fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
+        const file = Io.File.openAbsolute(io, "/etc/hosts", .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.AccessDenied,
-            => return,
+            => return .{},
+
             else => |e| return e,
         };
-        defer file.close();
+        defer file.close(io);
 
         var line_buf: [512]u8 = undefined;
         var file_reader = file.reader(io, &line_buf);
-        return lookupHostsReader(options, &file_reader.interface) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+        return lookupHostsReader(host_name, options, &file_reader.interface) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
         };
     }
 
-    fn lookupHostsReader(options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
+    fn lookupHostsReader(host_name: HostName, options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
         var addresses_len: usize = 0;
-        var canonical_name_len: usize = 0;
+        var canonical_name: ?HostName = null;
         while (true) {
             const line = reader.takeDelimiterExclusive('\n') catch |err| switch (err) {
                 error.StreamTooLong => {
@@ -176,19 +184,20 @@ pub const HostName = struct {
             const ip_text = line_it.next() orelse continue;
             var first_name_text: ?[]const u8 = null;
             while (line_it.next()) |name_text| {
-                if (std.mem.eql(u8, name_text, options.name)) {
+                if (std.mem.eql(u8, name_text, host_name.bytes)) {
                     if (first_name_text == null) first_name_text = name_text;
                     break;
                 }
             } else continue;
 
-            if (canonical_name_len == 0) {
-                if (HostName.init(first_name_text)) |name_text| {
-                    if (name_text.len <= options.canonical_name_buffer.len) {
-                        @memcpy(options.canonical_name_buffer[0..name_text.len], name_text);
-                        canonical_name_len = name_text.len;
+            if (canonical_name == null) {
+                if (HostName.init(first_name_text.?)) |name_text| {
+                    if (name_text.bytes.len <= options.canonical_name_buffer.len) {
+                        const canonical_name_dest = options.canonical_name_buffer[0..name_text.bytes.len];
+                        @memcpy(canonical_name_dest, name_text.bytes);
+                        canonical_name = .{ .bytes = canonical_name_dest };
                     }
-                }
+                } else |_| {}
             }
 
             if (options.family != .ip6) {
@@ -197,7 +206,7 @@ pub const HostName = struct {
                     addresses_len += 1;
                     if (options.addresses_buffer.len - addresses_len == 0) return .{
                         .addresses_len = addresses_len,
-                        .canonical_name_len = canonical_name_len,
+                        .canonical_name = canonical_name,
                     };
                 } else |_| {}
             }
@@ -207,11 +216,15 @@ pub const HostName = struct {
                     addresses_len += 1;
                     if (options.addresses_buffer.len - addresses_len == 0) return .{
                         .addresses_len = addresses_len,
-                        .canonical_name_len = canonical_name_len,
+                        .canonical_name = canonical_name,
                     };
                 } else |_| {}
             }
         }
+        return .{
+            .addresses_len = addresses_len,
+            .canonical_name = canonical_name,
+        };
     }
 
     pub const ConnectTcpError = LookupError || IpAddress.ConnectTcpError;
@@ -289,9 +302,9 @@ pub const IpAddress = union(enum) {
         }
     }
 
-    pub fn format(a: IpAddress, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: IpAddress, w: *Io.Writer) Io.Writer.Error!void {
         switch (a) {
-            .ip4, .ip6 => |x| return x.format(w),
+            inline .ip4, .ip6 => |x| return x.format(w),
         }
     }
 
@@ -365,7 +378,7 @@ pub const Ip4Address = struct {
         return error.Incomplete;
     }
 
-    pub fn format(a: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: Ip4Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes = &a.bytes;
         try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], a.port });
     }
@@ -392,6 +405,13 @@ pub const Ip6Address = struct {
         InvalidIpv4Mapping,
         Incomplete,
     };
+
+    pub fn localhost(port: u16) Ip6Address {
+        return .{
+            .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
+            .port = port,
+        };
+    }
 
     pub fn parse(buffer: []const u8, port: u16) ParseError!Ip6Address {
         var result: Ip6Address = .{
@@ -504,7 +524,7 @@ pub const Ip6Address = struct {
         }
     }
 
-    pub fn format(a: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes = &a.bytes;
         if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{

@@ -805,36 +805,7 @@ pub fn exit(status: u8) noreturn {
     system.exit(status);
 }
 
-pub const ReadError = error{
-    InputOutput,
-    SystemResources,
-    IsDir,
-    OperationAborted,
-    BrokenPipe,
-    ConnectionResetByPeer,
-    ConnectionTimedOut,
-    NotOpenForReading,
-    SocketNotConnected,
-
-    /// This error occurs when no global event loop is configured,
-    /// and reading from the file descriptor would block.
-    WouldBlock,
-
-    /// reading a timerfd with CANCEL_ON_SET will lead to this error
-    /// when the clock goes through a discontinuous change
-    Canceled,
-
-    /// In WASI, this error occurs when the file descriptor does
-    /// not hold the required rights to read from it.
-    AccessDenied,
-
-    /// This error occurs in Linux if the process to be read from
-    /// no longer exists.
-    ProcessNotFound,
-
-    /// Unable to read file due to lock.
-    LockViolation,
-} || UnexpectedError;
+pub const ReadError = std.Io.File.ReadStreamingError;
 
 /// Returns the number of bytes that were read, which can be less than
 /// buf.len. If 0 bytes were read, that means EOF.
@@ -921,7 +892,6 @@ pub fn read(fd: fd_t, buf: []u8) ReadError!usize {
 /// a pointer within the address space of the application.
 pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     if (native_os == .windows) {
-        // TODO improve this to use ReadFileScatter
         if (iov.len == 0) return 0;
         const first = iov[0];
         return read(fd, first.base[0..first.len]);
@@ -969,7 +939,7 @@ pub fn readv(fd: fd_t, iov: []const iovec) ReadError!usize {
     }
 }
 
-pub const PReadError = ReadError || error{Unseekable};
+pub const PReadError = std.Io.ReadPositionalError;
 
 /// Number of bytes read is returned. Upon reading end-of-file, zero is returned.
 ///
@@ -5393,13 +5363,7 @@ pub fn gettimeofday(tv: ?*timeval, tz: ?*timezone) void {
     }
 }
 
-pub const SeekError = error{
-    Unseekable,
-
-    /// In WASI, this error may occur when the file descriptor does
-    /// not hold the required rights to seek on it.
-    AccessDenied,
-} || UnexpectedError;
+pub const SeekError = std.Io.File.SeekError;
 
 /// Repositions read/write file offset relative to the beginning.
 pub fn lseek_SET(fd: fd_t, offset: u64) SeekError!void {
@@ -7572,7 +7536,7 @@ pub fn ioctl_SIOCGIFINDEX(fd: fd_t, ifr: *ifreq) IoCtl_SIOCGIFINDEX_Error!void {
     }
 }
 
-const lfs64_abi = native_os == .linux and builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
+pub const lfs64_abi = native_os == .linux and builtin.link_libc and (builtin.abi.isGnu() or builtin.abi.isAndroid());
 
 /// Whether or not `error.Unexpected` will print its value and a stack trace.
 ///
@@ -7584,17 +7548,7 @@ pub const unexpected_error_tracing = builtin.mode == .Debug and switch (builtin.
     else => false,
 };
 
-pub const UnexpectedError = error{
-    /// The Operating System returned an undocumented error code.
-    ///
-    /// This error is in theory not possible, but it would be better
-    /// to handle this error than to invoke undefined behavior.
-    ///
-    /// When this error code is observed, it usually means the Zig Standard
-    /// Library needs a small patch to add the error code to the error set for
-    /// the respective function.
-    Unexpected,
-};
+pub const UnexpectedError = std.Io.UnexpectedError;
 
 /// Call this when you made a syscall or something that sets errno
 /// and you get an unexpected error.
