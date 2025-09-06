@@ -481,7 +481,6 @@ pub fn readVecAll(r: *Reader, data: [][]u8) Error!void {
 /// is returned instead.
 ///
 /// See also:
-/// * `peek`
 /// * `toss`
 pub fn peek(r: *Reader, n: usize) Error![]u8 {
     try r.fill(n);
@@ -732,7 +731,7 @@ pub const DelimiterError = error{
 };
 
 /// Returns a slice of the next bytes of buffered data from the stream until
-/// `sentinel` is found, advancing the seek position.
+/// `sentinel` is found, advancing the seek position past the sentinel.
 ///
 /// Returned slice has a sentinel.
 ///
@@ -765,7 +764,7 @@ pub fn peekSentinel(r: *Reader, comptime sentinel: u8) DelimiterError![:sentinel
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
-/// `delimiter` is found, advancing the seek position.
+/// `delimiter` is found, advancing the seek position past the delimiter.
 ///
 /// Returned slice includes the delimiter as the last byte.
 ///
@@ -818,7 +817,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
-/// `delimiter` is found, advancing the seek position up to the delimiter.
+/// `delimiter` is found, advancing the seek position up to (but not past)
+/// the delimiter.
 ///
 /// Returned slice excludes the delimiter. End-of-stream is treated equivalent
 /// to a delimiter, unless it would result in a length 0 return value, in which
@@ -832,20 +832,13 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// Invalidates previously returned values from `peek`.
 ///
 /// See also:
+/// * `takeDelimiter`
 /// * `takeDelimiterInclusive`
 /// * `peekDelimiterExclusive`
 pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
-    const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
-        error.EndOfStream => {
-            const remaining = r.buffer[r.seek..r.end];
-            if (remaining.len == 0) return error.EndOfStream;
-            r.toss(remaining.len);
-            return remaining;
-        },
-        else => |e| return e,
-    };
+    const result = try r.peekDelimiterExclusive(delimiter);
     r.toss(result.len);
-    return result[0 .. result.len - 1];
+    return result;
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
@@ -866,7 +859,7 @@ pub fn takeDelimiterExclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
 /// * `takeDelimiterInclusive`
 /// * `takeDelimiterExclusive`
 pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong }!?[]u8 {
-    const result = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
+    const inclusive = r.peekDelimiterInclusive(delimiter) catch |err| switch (err) {
         error.EndOfStream => {
             const remaining = r.buffer[r.seek..r.end];
             if (remaining.len == 0) return null;
@@ -875,8 +868,8 @@ pub fn takeDelimiter(r: *Reader, delimiter: u8) error{ ReadFailed, StreamTooLong
         },
         else => |e| return e,
     };
-    r.toss(result.len + 1);
-    return result[0 .. result.len - 1];
+    r.toss(inclusive.len);
+    return inclusive[0 .. inclusive.len - 1];
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
@@ -1403,6 +1396,9 @@ test peekSentinel {
     var r: Reader = .fixed("ab\nc");
     try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
     try testing.expectEqualStrings("ab", try r.peekSentinel('\n'));
+    r.toss(3);
+    try testing.expectError(error.EndOfStream, r.peekSentinel('\n'));
+    try testing.expectEqualStrings("c", try r.peek(1));
 }
 
 test takeDelimiterInclusive {
@@ -1417,22 +1413,52 @@ test peekDelimiterInclusive {
     try testing.expectEqualStrings("ab\n", try r.peekDelimiterInclusive('\n'));
     r.toss(3);
     try testing.expectError(error.EndOfStream, r.peekDelimiterInclusive('\n'));
+    try testing.expectEqualStrings("c", try r.peek(1));
 }
 
 test takeDelimiterExclusive {
     var r: Reader = .fixed("ab\nc");
+
     try testing.expectEqualStrings("ab", try r.takeDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("", try r.takeDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("", try r.takeDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("\n", try r.take(1));
+
     try testing.expectEqualStrings("c", try r.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
 }
 
 test peekDelimiterExclusive {
     var r: Reader = .fixed("ab\nc");
+
     try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
     try testing.expectEqualStrings("ab", try r.peekDelimiterExclusive('\n'));
-    r.toss(3);
+    r.toss(2);
+    try testing.expectEqualStrings("", try r.peekDelimiterExclusive('\n'));
+    try testing.expectEqualStrings("\n", try r.take(1));
+
     try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
     try testing.expectEqualStrings("c", try r.peekDelimiterExclusive('\n'));
+    r.toss(1);
+    try testing.expectError(error.EndOfStream, r.peekDelimiterExclusive('\n'));
+}
+
+test takeDelimiter {
+    var r: Reader = .fixed("ab\nc\n\nd");
+    try testing.expectEqualStrings("ab", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("c", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("d", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
+
+    r = .fixed("ab\nc\n\nd\n"); // one trailing newline does not affect behavior
+    try testing.expectEqualStrings("ab", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("c", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqualStrings("d", (try r.takeDelimiter('\n')).?);
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
 }
 
 test streamDelimiter {
