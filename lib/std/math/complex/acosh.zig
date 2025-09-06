@@ -12,7 +12,7 @@ pub fn acosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return if (math.signbit(z.im))
         q.mulByMinusI()
     else
-        q.mulbyi();
+        q.mulByI();
 }
 
 test acosh {
