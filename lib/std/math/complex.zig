@@ -118,16 +118,6 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Calculates the product of complex number and conjugate of imaginary unit.
-        /// You should not manually does "*.mul(conj(i))" instead of using this,
-        /// as its consumes more operations than this.
-        pub fn mulByIConj(self: Self) Self {
-            return .{
-                .re = -self.im,
-                .im = -self.re,
-            };
-        }
-
         /// Calculates the reciprocal of a complex number.
         pub fn recip(self: Self) Self {
             const magnitude_sq = self.squaredMagnitude();
@@ -244,14 +234,6 @@ test "multiplication by negation of i yields same result as mulByMinusI" {
 
     try testing.expectEqual(minus_i_a_intentional.re, minus_i_a_natural.re);
     try testing.expectEqual(minus_i_a_intentional.im, minus_i_a_natural.im);
-}
-
-test "mulByIConj" {
-    const a: TestingComplex = .init(5, 3);
-    const i_conj_a = a.mulByIConj();
-
-    try testing.expectEqual(-3, i_conj_a.re);
-    try testing.expectEqual(-5, i_conj_a.im);
 }
 
 test "i^2 equals to -1" {
