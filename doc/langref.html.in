@@ -6356,13 +6356,19 @@ fn cmpxchgWeakButNotAtomic(comptime T: type, ptr: *T, expected_value: T, new_val
       {#header_close#}
 
       {#header_open|Implementing an Allocator#}
-      <p>Zig programmers can implement their own allocators by fulfilling the Allocator interface.
-      In order to do this one must read carefully the documentation comments in std/mem.zig and
-      then supply a {#syntax#}allocFn{#endsyntax#} and a {#syntax#}resizeFn{#endsyntax#}.
+      <p>
+      Zig programmers can implement their own allocators by fulfilling the Allocator interface.
+      In order to do so, one should read the documentation comments for the functions inside
+      {#syntax#}std.mem.Allocator.VTable{#endsyntax#} and supply said functions.
       </p>
       <p>
-      There are many example allocators to look at for inspiration. Look at std/heap.zig and
-      {#syntax#}std.heap.GeneralPurposeAllocator{#endsyntax#}.
+      If the allocator doesn't support one or multiple of the functions,
+      {#syntax#}std.mem.Allocator.no*{#endsyntax#} functions may be used instead to automatically
+      return the appropriate error state.
+      </p>
+      <p>
+      There are many example allocators to look at for inspiration, such as
+      {#syntax#}std.heap.DebugAllocator{#endsyntax#} and {#syntax#}std.heap.FixedBufferAllocator{#endsyntax#}.
       </p>
       {#header_close#}
 
