@@ -777,12 +777,14 @@ pub const StackIterator = struct {
     // When SelfInfo and a register context is available, this iterator can unwind
     // stacks with frames that don't use a frame pointer (ie. -fomit-frame-pointer),
     // using DWARF and MachO unwind info.
-    unwind_state: if (have_ucontext) ?struct {
+    unwind_state: if (have_ucontext) ?UnwindState else void = if (have_ucontext) null else {},
+
+    pub const UnwindState = struct {
         debug_info: *SelfInfo,
         dwarf_context: SelfInfo.UnwindContext,
         last_error: ?UnwindError = null,
         failed: bool = false,
-    } else void = if (have_ucontext) null else {},
+    };
 
     pub fn init(first_address: ?usize, fp: usize) StackIterator {
         if (native_arch.isSPARC()) {
@@ -877,18 +879,19 @@ pub const StackIterator = struct {
         return address;
     }
 
-    fn next_unwind(it: *StackIterator) !usize {
-        const unwind_state = &it.unwind_state.?;
-        const module = try unwind_state.debug_info.getModuleForAddress(unwind_state.dwarf_context.pc);
+    // must not be a member function of StackIterator
+    // to avoid a dependency loop in UnwindError
+    fn next_unwind(debug_info: *SelfInfo, dwarf_context: *SelfInfo.UnwindContext) !usize {
+        const module = try debug_info.getModuleForAddress(dwarf_context.pc);
         switch (native_os) {
             .macos, .ios, .watchos, .tvos, .visionos => {
                 // __unwind_info is a requirement for unwinding on Darwin. It may fall back to DWARF, but unwinding
                 // via DWARF before attempting to use the compact unwind info will produce incorrect results.
                 if (module.unwind_info) |unwind_info| {
                     if (SelfInfo.unwindFrameMachO(
-                        unwind_state.debug_info.allocator,
+                        debug_info.allocator,
                         module.base_address,
-                        &unwind_state.dwarf_context,
+                        dwarf_context,
                         unwind_info,
                         module.eh_frame,
                     )) |return_address| {
@@ -901,12 +904,12 @@ pub const StackIterator = struct {
             else => {},
         }
 
-        if (try module.getDwarfInfoForAddress(unwind_state.debug_info.allocator, unwind_state.dwarf_context.pc)) |di| {
+        if (try module.getDwarfInfoForAddress(debug_info.allocator, dwarf_context.pc)) |di| {
             return SelfInfo.unwindFrameDwarf(
-                unwind_state.debug_info.allocator,
+                debug_info.allocator,
                 di,
                 module.base_address,
-                &unwind_state.dwarf_context,
+                dwarf_context,
                 null,
             );
         } else return error.MissingDebugInfo;
@@ -918,7 +921,7 @@ pub const StackIterator = struct {
                 if (!unwind_state.failed) {
                     if (unwind_state.dwarf_context.pc == 0) return null;
                     defer it.fp = unwind_state.dwarf_context.getFp() catch 0;
-                    if (it.next_unwind()) |return_address| {
+                    if (next_unwind(unwind_state.debug_info, &unwind_state.dwarf_context)) |return_address| {
                         return return_address;
                     } else |err| {
                         unwind_state.last_error = err;

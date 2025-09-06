@@ -202,11 +202,11 @@ pub const OpenProtocolAttributes = enum(u32) {
     _,
 
     pub fn fromBits(bits: Bits) OpenProtocolAttributes {
-        return @bitCast(bits);
+        return @enumFromInt(@as(u32, @bitCast(bits)));
     }
 
     pub fn toBits(self: OpenProtocolAttributes) Bits {
-        return @bitCast(self);
+        return @bitCast(@intFromEnum(self));
     }
 };
 
