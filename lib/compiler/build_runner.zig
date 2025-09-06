@@ -79,7 +79,7 @@ pub fn main() !void {
         .zig_lib_directory = zig_lib_directory,
         .host = .{
             .query = .{},
-            .result = try std.zig.system.resolveTargetQuery(.{}),
+            .result = try std.zig.system.resolveTargetQuery(.{}, arena),
         },
         .time_report = false,
     };

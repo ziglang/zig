@@ -39,7 +39,7 @@ pub fn cmdEnv(
     const zig_std_dir = try dirs.zig_lib.join(arena, &.{"std"});
     const global_cache_dir = dirs.global_cache.path orelse "";
 
-    const host = try std.zig.system.resolveTargetQuery(.{});
+    const host = try std.zig.system.resolveTargetQuery(.{}, arena);
     const triple = try host.zigTriple(arena);
 
     var serializer: std.zon.Serializer = .{ .writer = out };

@@ -66,7 +66,7 @@ pub fn main() !void {
     const target_query = std.zig.parseTargetQueryOrReportFatalError(gpa, .{
         .arch_os_abi = target_arch_os_abi,
     });
-    const target = std.zig.resolveTargetQueryOrFatal(target_query);
+    const target = std.zig.resolveTargetQueryOrFatal(target_query, gpa);
 
     if (print_includes) {
         const libc_installation: ?*LibCInstallation = libc: {
