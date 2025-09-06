@@ -106,8 +106,9 @@ pub fn io(pool: *Pool) Io {
             .createFile = createFile,
             .openFile = openFile,
             .closeFile = closeFile,
-            .pread = pread,
             .pwrite = pwrite,
+            .fileReadStreaming = fileReadStreaming,
+            .fileReadPositional = fileReadPositional,
 
             .now = now,
             .sleep = sleep,
@@ -651,14 +652,52 @@ fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
     return fs_file.close();
 }
 
-fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: posix.off_t) Io.File.PReadError!usize {
+fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
-    const fs_file: std.fs.File = .{ .handle = file.handle };
-    return switch (offset) {
-        -1 => fs_file.read(buffer),
-        else => fs_file.pread(buffer, @bitCast(offset)),
-    };
+
+    if (builtin.os.tag == .windows) {
+        if (data.len == 0) return 0;
+        const first = data[0];
+        return std.os.windows.ReadFile(file.handle, first.base[0..first.len], null);
+    }
+
+    var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
+    var i: usize = 0;
+    for (data) |buf| {
+        if (iovecs_buffer.len - i == 0) break;
+        if (buf.len != 0) {
+            iovecs_buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+        }
+    }
+    const dest = iovecs_buffer[0..i];
+    assert(dest[0].len > 0);
+    return posix.readv(file.handle, dest);
+}
+
+fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    if (builtin.os.tag == .windows) {
+        if (data.len == 0) return 0;
+        const first = data[0];
+        return std.os.windows.ReadFile(file.handle, first.base[0..first.len], offset);
+    }
+
+    var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
+    var i: usize = 0;
+    for (data) |buf| {
+        if (iovecs_buffer.len - i == 0) break;
+        if (buf.len != 0) {
+            iovecs_buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+        }
+    }
+    const dest = iovecs_buffer[0..i];
+    assert(dest[0].len > 0);
+    return posix.preadv(file.handle, dest, @bitCast(offset));
 }
 
 fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {

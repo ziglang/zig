@@ -6,7 +6,6 @@ const windows = std.os.windows;
 const posix = std.posix;
 const math = std.math;
 const assert = std.debug.assert;
-const fs = std.fs;
 const Allocator = std.mem.Allocator;
 const Alignment = std.mem.Alignment;
 
@@ -652,8 +651,11 @@ pub const VTable = struct {
     createFile: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.CreateFlags) File.OpenError!File,
     openFile: *const fn (?*anyopaque, dir: Dir, sub_path: []const u8, flags: File.OpenFlags) File.OpenError!File,
     closeFile: *const fn (?*anyopaque, File) void,
-    pread: *const fn (?*anyopaque, file: File, buffer: []u8, offset: std.posix.off_t) File.PReadError!usize,
     pwrite: *const fn (?*anyopaque, file: File, buffer: []const u8, offset: std.posix.off_t) File.PWriteError!usize,
+    fileReadStreaming: *const fn (?*anyopaque, file: File, data: [][]u8) File.ReadStreamingError!usize,
+    fileReadPositional: *const fn (?*anyopaque, file: File, data: [][]u8, offset: u64) File.ReadPositionalError!usize,
+    fileSeekBy: *const fn (?*anyopaque, file: File, offset: i64) File.SeekError!void,
+    fileSeekTo: *const fn (?*anyopaque, file: File, offset: u64) File.SeekError!void,
 
     now: *const fn (?*anyopaque, clockid: std.posix.clockid_t) ClockGetTimeError!Timestamp,
     sleep: *const fn (?*anyopaque, clockid: std.posix.clockid_t, deadline: Deadline) SleepError!void,
@@ -706,66 +708,7 @@ pub const Dir = struct {
     }
 };
 
-pub const File = struct {
-    handle: Handle,
-
-    pub const Handle = std.posix.fd_t;
-
-    pub const OpenFlags = fs.File.OpenFlags;
-    pub const CreateFlags = fs.File.CreateFlags;
-
-    pub const OpenError = fs.File.OpenError || Cancelable;
-
-    pub fn close(file: File, io: Io) void {
-        return io.vtable.closeFile(io.userdata, file);
-    }
-
-    pub const ReadError = fs.File.ReadError || Cancelable;
-
-    pub fn read(file: File, io: Io, buffer: []u8) ReadError!usize {
-        return @errorCast(file.pread(io, buffer, -1));
-    }
-
-    pub const PReadError = fs.File.PReadError || Cancelable;
-
-    pub fn pread(file: File, io: Io, buffer: []u8, offset: std.posix.off_t) PReadError!usize {
-        return io.vtable.pread(io.userdata, file, buffer, offset);
-    }
-
-    pub const WriteError = fs.File.WriteError || Cancelable;
-
-    pub fn write(file: File, io: Io, buffer: []const u8) WriteError!usize {
-        return @errorCast(file.pwrite(io, buffer, -1));
-    }
-
-    pub const PWriteError = fs.File.PWriteError || Cancelable;
-
-    pub fn pwrite(file: File, io: Io, buffer: []const u8, offset: std.posix.off_t) PWriteError!usize {
-        return io.vtable.pwrite(io.userdata, file, buffer, offset);
-    }
-
-    pub fn writeAll(file: File, io: Io, bytes: []const u8) WriteError!void {
-        var index: usize = 0;
-        while (index < bytes.len) {
-            index += try file.write(io, bytes[index..]);
-        }
-    }
-
-    pub fn readAll(file: File, io: Io, buffer: []u8) ReadError!usize {
-        var index: usize = 0;
-        while (index != buffer.len) {
-            const amt = try file.read(io, buffer[index..]);
-            if (amt == 0) break;
-            index += amt;
-        }
-        return index;
-    }
-
-    pub fn openAbsolute(io: Io, absolute_path: []const u8, flags: OpenFlags) OpenError {
-        assert(std.fs.path.isAbsolute(absolute_path));
-        return Dir.cwd().openFile(io, absolute_path, flags);
-    }
-};
+pub const File = @import("Io/File.zig");
 
 pub const Timestamp = enum(i96) {
     _,

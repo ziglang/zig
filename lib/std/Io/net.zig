@@ -62,6 +62,11 @@ pub const HostName = struct {
         addresses_len: usize,
         /// Length zero means no canonical name returned.
         canonical_name_len: usize,
+
+        pub const empty: LookupResult = .{
+            .addresses_len = 0,
+            .canonical_name_len = 0,
+        };
     };
 
     pub fn lookup(host_name: HostName, io: Io, options: LookupOptions) LookupError!LookupResult {
@@ -85,7 +90,7 @@ pub const HostName = struct {
                 } else |_| {}
             }
             {
-                const result = try lookupHosts(io, options);
+                const result = try lookupHosts(host_name, io, options);
                 if (result.addresses_len > 0) return sortLookupResults(options, result);
             }
             {
@@ -135,25 +140,25 @@ pub const HostName = struct {
         @panic("TODO");
     }
 
-    fn lookupHosts(io: Io, options: LookupOptions) !LookupResult {
-        const file = Io.File.openFileAbsoluteZ(io, "/etc/hosts", .{}) catch |err| switch (err) {
+    fn lookupHosts(host_name: HostName, io: Io, options: LookupOptions) !LookupResult {
+        const file = Io.File.openAbsolute(io, "/etc/hosts", .{}) catch |err| switch (err) {
             error.FileNotFound,
             error.NotDir,
             error.AccessDenied,
-            => return,
+            => return .empty,
+
             else => |e| return e,
         };
         defer file.close();
 
         var line_buf: [512]u8 = undefined;
         var file_reader = file.reader(io, &line_buf);
-        return lookupHostsReader(options, &file_reader.interface) catch |err| switch (err) {
-            error.OutOfMemory => return error.OutOfMemory,
+        return lookupHostsReader(host_name, options, &file_reader.interface) catch |err| switch (err) {
             error.ReadFailed => return file_reader.err.?,
         };
     }
 
-    fn lookupHostsReader(options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
+    fn lookupHostsReader(host_name: HostName, options: LookupOptions, reader: *Io.Reader) error{ReadFailed}!LookupResult {
         var addresses_len: usize = 0;
         var canonical_name_len: usize = 0;
         while (true) {
@@ -176,14 +181,14 @@ pub const HostName = struct {
             const ip_text = line_it.next() orelse continue;
             var first_name_text: ?[]const u8 = null;
             while (line_it.next()) |name_text| {
-                if (std.mem.eql(u8, name_text, options.name)) {
+                if (std.mem.eql(u8, name_text, host_name.bytes)) {
                     if (first_name_text == null) first_name_text = name_text;
                     break;
                 }
             } else continue;
 
             if (canonical_name_len == 0) {
-                if (HostName.init(first_name_text)) |name_text| {
+                if (HostName.init(first_name_text.?)) |name_text| {
                     if (name_text.len <= options.canonical_name_buffer.len) {
                         @memcpy(options.canonical_name_buffer[0..name_text.len], name_text);
                         canonical_name_len = name_text.len;
@@ -289,7 +294,7 @@ pub const IpAddress = union(enum) {
         }
     }
 
-    pub fn format(a: IpAddress, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: IpAddress, w: *Io.Writer) Io.Writer.Error!void {
         switch (a) {
             .ip4, .ip6 => |x| return x.format(w),
         }
@@ -365,7 +370,7 @@ pub const Ip4Address = struct {
         return error.Incomplete;
     }
 
-    pub fn format(a: Ip4Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: Ip4Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes = &a.bytes;
         try w.print("{d}.{d}.{d}.{d}:{d}", .{ bytes[0], bytes[1], bytes[2], bytes[3], a.port });
     }
@@ -504,7 +509,7 @@ pub const Ip6Address = struct {
         }
     }
 
-    pub fn format(a: Ip6Address, w: *std.io.Writer) std.io.Writer.Error!void {
+    pub fn format(a: Ip6Address, w: *Io.Writer) Io.Writer.Error!void {
         const bytes = &a.bytes;
         if (std.mem.eql(u8, bytes[0..12], &[_]u8{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff })) {
             try w.print("[::ffff:{d}.{d}.{d}.{d}]:{d}", .{
