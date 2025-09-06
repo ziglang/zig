@@ -2222,7 +2222,7 @@ pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const aggregate_ty = parent_ptr_ty.childType(zcu);
 
     const parent_ptr_info = parent_ptr_ty.ptrInfo(zcu);
-    assert(parent_ptr_info.flags.size == .one);
+    assert(parent_ptr_info.flags.size == .one or parent_ptr_info.flags.size == .c);
 
     // Exiting this `switch` indicates that the `field` pointer representation should be used.
     // `field_align` may be `.none` to represent the natural alignment of `field_ty`, but is not necessarily.
