@@ -10,6 +10,7 @@ pub const BufMap = @import("buf_map.zig").BufMap;
 pub const BufSet = @import("buf_set.zig").BufSet;
 pub const StaticStringMap = static_string_map.StaticStringMap;
 pub const StaticStringMapWithEql = static_string_map.StaticStringMapWithEql;
+pub const Deque = @import("deque.zig").Deque;
 pub const DoublyLinkedList = @import("DoublyLinkedList.zig");
 pub const DynLib = @import("dynamic_library.zig").DynLib;
 pub const DynamicBitSet = bit_set.DynamicBitSet;
