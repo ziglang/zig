@@ -4037,16 +4037,20 @@ fn setSockFlags(sock: socket_t, flags: u32) !void {
                 }
             }
         } else {
-            var fl_flags = fcntl(sock, F.GETFL, 0) catch |err| switch (err) {
+            const backing_int = @typeInfo(O).@"struct".backing_integer.?;
+            var fl_flags_int = @as(backing_int, @truncate(fcntl(sock, F.GETFL, 0) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
                 error.DeadLock => unreachable,
                 error.LockedRegionLimitExceeded => unreachable,
                 else => |e| return e,
-            };
-            fl_flags |= 1 << @bitOffsetOf(O, "NONBLOCK");
-            _ = fcntl(sock, F.SETFL, fl_flags) catch |err| switch (err) {
+            }));
+            var fl_flags_struct: O = @bitCast(fl_flags_int);
+            fl_flags_struct.NONBLOCK = true;
+            fl_flags_int = @bitCast(fl_flags_struct);
+
+            _ = fcntl(sock, F.SETFL, @as(usize, fl_flags_int)) catch |err| switch (err) {
                 error.FileBusy => unreachable,
                 error.Locked => unreachable,
                 error.PermissionDenied => unreachable,
