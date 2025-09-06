@@ -382,7 +382,7 @@ pub const Connection = struct {
         return c.stream_reader.getStream();
     }
 
-    fn host(c: *Connection) []u8 {
+    pub fn host(c: *Connection) []u8 {
         return switch (c.protocol) {
             .tls => {
                 if (disable_tls) unreachable;
