@@ -6147,6 +6147,26 @@ pub fn body(isel: *Select, air_body: []const Air.Inst.Index) error{ OutOfMemory,
             }
             if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
         },
+        .ptr_slice_len_ptr => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| unused: {
+                defer dst_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                const dst_ra = try dst_vi.value.defReg(isel) orelse break :unused;
+                const src_vi = try isel.use(ty_op.operand);
+                const src_mat = try src_vi.matReg(isel);
+                try isel.emit(.add(dst_ra.x(), src_mat.ra.x(), .{ .immediate = 8 }));
+                try src_mat.finish(isel);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
+        .ptr_slice_ptr_ptr => {
+            if (isel.live_values.fetchRemove(air.inst_index)) |dst_vi| {
+                defer dst_vi.value.deref(isel);
+                const ty_op = air.data(air.inst_index).ty_op;
+                try dst_vi.value.move(isel, ty_op.operand);
+            }
+            if (air.next()) |next_air_tag| continue :air_tag next_air_tag;
+        },
         .array_elem_val => {
             if (isel.live_values.fetchRemove(air.inst_index)) |elem_vi| unused: {
                 defer elem_vi.value.deref(isel);
