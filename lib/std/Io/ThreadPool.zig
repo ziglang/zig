@@ -1,11 +1,16 @@
+const Pool = @This();
+
 const builtin = @import("builtin");
+const native_os = builtin.os.tag;
+const is_windows = native_os == .windows;
+const windows = std.os.windows;
+
 const std = @import("../std.zig");
 const Allocator = std.mem.Allocator;
 const assert = std.debug.assert;
 const WaitGroup = std.Thread.WaitGroup;
 const posix = std.posix;
 const Io = std.Io;
-const Pool = @This();
 
 /// Thread-safe.
 allocator: Allocator,
@@ -22,6 +27,10 @@ threadlocal var current_closure: ?*AsyncClosure = null;
 
 const max_iovecs_len = 8;
 const splat_buffer_size = 64;
+
+comptime {
+    assert(max_iovecs_len <= posix.IOV_MAX);
+}
 
 pub const Runnable = struct {
     start: Start,
@@ -104,10 +113,13 @@ pub fn io(pool: *Pool) Io {
             .conditionWake = conditionWake,
 
             .createFile = createFile,
-            .openFile = openFile,
-            .closeFile = closeFile,
-            .pread = pread,
+            .fileOpen = fileOpen,
+            .fileClose = fileClose,
             .pwrite = pwrite,
+            .fileReadStreaming = fileReadStreaming,
+            .fileReadPositional = fileReadPositional,
+            .fileSeekBy = fileSeekBy,
+            .fileSeekTo = fileSeekTo,
 
             .now = now,
             .sleep = sleep,
@@ -631,7 +643,7 @@ fn createFile(
     return .{ .handle = fs_file.handle };
 }
 
-fn openFile(
+fn fileOpen(
     userdata: ?*anyopaque,
     dir: Io.Dir,
     sub_path: []const u8,
@@ -644,21 +656,256 @@ fn openFile(
     return .{ .handle = fs_file.handle };
 }
 
-fn closeFile(userdata: ?*anyopaque, file: Io.File) void {
+fn fileClose(userdata: ?*anyopaque, file: Io.File) void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     _ = pool;
     const fs_file: std.fs.File = .{ .handle = file.handle };
     return fs_file.close();
 }
 
-fn pread(userdata: ?*anyopaque, file: Io.File, buffer: []u8, offset: posix.off_t) Io.File.PReadError!usize {
+fn fileReadStreaming(userdata: ?*anyopaque, file: Io.File, data: [][]u8) Io.File.ReadStreamingError!usize {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+
+    if (is_windows) {
+        const DWORD = windows.DWORD;
+        var index: usize = 0;
+        var truncate: usize = 0;
+        var total: usize = 0;
+        while (index < data.len) {
+            try pool.checkCancel();
+            {
+                const untruncated = data[index];
+                data[index] = untruncated[truncate..];
+                defer data[index] = untruncated;
+                const buffer = data[index..];
+                const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
+                var n: DWORD = undefined;
+                if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, null) == 0) {
+                    switch (windows.GetLastError()) {
+                        .IO_PENDING => unreachable,
+                        .OPERATION_ABORTED => continue,
+                        .BROKEN_PIPE => return 0,
+                        .HANDLE_EOF => return 0,
+                        .NETNAME_DELETED => return error.ConnectionResetByPeer,
+                        .LOCK_VIOLATION => return error.LockViolation,
+                        .ACCESS_DENIED => return error.AccessDenied,
+                        .INVALID_HANDLE => return error.NotOpenForReading,
+                        else => |err| return windows.unexpectedError(err),
+                    }
+                }
+                total += n;
+                truncate += n;
+            }
+            while (index < data.len and truncate >= data[index].len) {
+                truncate -= data[index].len;
+                index += 1;
+            }
+        }
+        return total;
+    }
+
+    var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
+    var i: usize = 0;
+    for (data) |buf| {
+        if (iovecs_buffer.len - i == 0) break;
+        if (buf.len != 0) {
+            iovecs_buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+        }
+    }
+    const dest = iovecs_buffer[0..i];
+    assert(dest[0].len > 0);
+
+    if (native_os == .wasi and !builtin.link_libc) {
+        try pool.checkCancel();
+        var nread: usize = undefined;
+        switch (std.os.wasi.fd_read(file.handle, dest.ptr, dest.len, &nread)) {
+            .SUCCESS => return nread,
+            .INTR => unreachable,
+            .INVAL => unreachable,
+            .FAULT => unreachable,
+            .AGAIN => unreachable, // currently not support in WASI
+            .BADF => return error.NotOpenForReading, // can be a race condition
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+
+    while (true) {
+        try pool.checkCancel();
+        const rc = posix.system.readv(file.handle, dest.ptr, dest.len);
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @intCast(rc),
+            .INTR => continue,
+            .INVAL => unreachable,
+            .FAULT => unreachable,
+            .SRCH => return error.ProcessNotFound,
+            .AGAIN => return error.WouldBlock,
+            .BADF => return error.NotOpenForReading, // can be a race condition
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn fileReadPositional(userdata: ?*anyopaque, file: Io.File, data: [][]u8, offset: u64) Io.File.ReadPositionalError!usize {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+
+    const have_pread_but_not_preadv = switch (native_os) {
+        .windows, .macos, .ios, .watchos, .tvos, .visionos, .haiku, .serenity => true,
+        else => false,
+    };
+    if (have_pread_but_not_preadv) {
+        @compileError("TODO");
+    }
+
+    if (is_windows) {
+        const DWORD = windows.DWORD;
+        const OVERLAPPED = windows.OVERLAPPED;
+        var index: usize = 0;
+        var truncate: usize = 0;
+        var total: usize = 0;
+        while (true) {
+            try pool.checkCancel();
+            {
+                const untruncated = data[index];
+                data[index] = untruncated[truncate..];
+                defer data[index] = untruncated;
+                const buffer = data[index..];
+                const want_read_count: DWORD = @min(std.math.maxInt(DWORD), buffer.len);
+                var n: DWORD = undefined;
+                var overlapped_data: OVERLAPPED = undefined;
+                const overlapped: ?*OVERLAPPED = if (offset) |off| blk: {
+                    overlapped_data = .{
+                        .Internal = 0,
+                        .InternalHigh = 0,
+                        .DUMMYUNIONNAME = .{
+                            .DUMMYSTRUCTNAME = .{
+                                .Offset = @as(u32, @truncate(off)),
+                                .OffsetHigh = @as(u32, @truncate(off >> 32)),
+                            },
+                        },
+                        .hEvent = null,
+                    };
+                    break :blk &overlapped_data;
+                } else null;
+                if (windows.kernel32.ReadFile(file.handle, buffer.ptr, want_read_count, &n, overlapped) == 0) {
+                    switch (windows.GetLastError()) {
+                        .IO_PENDING => unreachable,
+                        .OPERATION_ABORTED => continue,
+                        .BROKEN_PIPE => return 0,
+                        .HANDLE_EOF => return 0,
+                        .NETNAME_DELETED => return error.ConnectionResetByPeer,
+                        .LOCK_VIOLATION => return error.LockViolation,
+                        .ACCESS_DENIED => return error.AccessDenied,
+                        .INVALID_HANDLE => return error.NotOpenForReading,
+                        else => |err| return windows.unexpectedError(err),
+                    }
+                }
+                total += n;
+                truncate += n;
+            }
+            while (index < data.len and truncate >= data[index].len) {
+                truncate -= data[index].len;
+                index += 1;
+            }
+        }
+        return total;
+    }
+
+    var iovecs_buffer: [max_iovecs_len]posix.iovec = undefined;
+    var i: usize = 0;
+    for (data) |buf| {
+        if (iovecs_buffer.len - i == 0) break;
+        if (buf.len != 0) {
+            iovecs_buffer[i] = .{ .base = buf.ptr, .len = buf.len };
+            i += 1;
+        }
+    }
+    const dest = iovecs_buffer[0..i];
+    assert(dest[0].len > 0);
+
+    if (native_os == .wasi and !builtin.link_libc) {
+        try pool.checkCancel();
+        var nread: usize = undefined;
+        switch (std.os.wasi.fd_pread(file.handle, dest.ptr, dest.len, offset, &nread)) {
+            .SUCCESS => return nread,
+            .INTR => unreachable,
+            .INVAL => unreachable,
+            .FAULT => unreachable,
+            .AGAIN => unreachable,
+            .BADF => return error.NotOpenForReading, // can be a race condition
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .NXIO => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            .OVERFLOW => return error.Unseekable,
+            .NOTCAPABLE => return error.AccessDenied,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+
+    const preadv_sym = if (posix.lfs64_abi) posix.system.preadv64 else posix.system.preadv;
+    while (true) {
+        try pool.checkCancel();
+        const rc = preadv_sym(file.handle, dest.ptr, dest.len, @bitCast(offset));
+        switch (posix.errno(rc)) {
+            .SUCCESS => return @bitCast(rc),
+            .INTR => continue,
+            .INVAL => unreachable,
+            .FAULT => unreachable,
+            .SRCH => return error.ProcessNotFound,
+            .AGAIN => return error.WouldBlock,
+            .BADF => return error.NotOpenForReading, // can be a race condition
+            .IO => return error.InputOutput,
+            .ISDIR => return error.IsDir,
+            .NOBUFS => return error.SystemResources,
+            .NOMEM => return error.SystemResources,
+            .NOTCONN => return error.SocketNotConnected,
+            .CONNRESET => return error.ConnectionResetByPeer,
+            .TIMEDOUT => return error.ConnectionTimedOut,
+            .NXIO => return error.Unseekable,
+            .SPIPE => return error.Unseekable,
+            .OVERFLOW => return error.Unseekable,
+            else => |err| return posix.unexpectedErrno(err),
+        }
+    }
+}
+
+fn fileSeekBy(userdata: ?*anyopaque, file: Io.File, offset: i64) Io.File.SeekError!void {
     const pool: *Pool = @ptrCast(@alignCast(userdata));
     try pool.checkCancel();
-    const fs_file: std.fs.File = .{ .handle = file.handle };
-    return switch (offset) {
-        -1 => fs_file.read(buffer),
-        else => fs_file.pread(buffer, @bitCast(offset)),
-    };
+
+    _ = file;
+    _ = offset;
+    @panic("TODO");
+}
+
+fn fileSeekTo(userdata: ?*anyopaque, file: Io.File, offset: u64) Io.File.SeekError!void {
+    const pool: *Pool = @ptrCast(@alignCast(userdata));
+    try pool.checkCancel();
+
+    _ = file;
+    _ = offset;
+    @panic("TODO");
 }
 
 fn pwrite(userdata: ?*anyopaque, file: Io.File, buffer: []const u8, offset: posix.off_t) Io.File.PWriteError!usize {
