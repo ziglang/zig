@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -7,9 +7,7 @@ const asin = @import("asin.zig").asin;
 
 /// Calculates the hyperbolic arc-sine of complex number.
 pub fn asinh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const asinIZ = asin(z.mulbyi());
-
-    return .init(asinIZ.im, -asinIZ.re);
+    return asin(z.mulByI()).mulByMinusI();
 }
 
 test asinh {

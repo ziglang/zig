@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -19,9 +19,7 @@ pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     );
     const q: Complex(T) = .init(-y, x);
 
-    const r = log(q.add(sqrt(p)));
-
-    return .init(r.im, -r.re);
+    return log(q.add(sqrt(p))).mulByMinusI();
 }
 
 test asin {

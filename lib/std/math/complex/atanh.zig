@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -7,9 +7,7 @@ const atan = @import("atan.zig").atan;
 
 /// Calculates the hyperbolic arc-tangent of complex number.
 pub fn atanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const atanIZ = atan(z.mulbyi());
-
-    return .init(atanIZ.im, -atanIZ.re);
+    return atan(z.mulByI()).mulByMinusI();
 }
 
 test atanh {

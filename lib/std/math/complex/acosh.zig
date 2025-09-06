@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -10,7 +10,7 @@ pub fn acosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const q = acos(z);
 
     return if (math.signbit(z.im))
-        .init(q.im, -q.re)
+        q.mulByMinusI()
     else
         q.mulbyi();
 }

@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -7,9 +7,7 @@ const sinh = @import("sinh.zig").sinh;
 
 /// Calculates the sine of complex number.
 pub fn sin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const sinhIZ = sinh(z.mulbyi());
-
-    return .init(sinhIZ.im, -sinhIZ.re);
+    return sinh(z.mulByI()).mulByMinusI();
 }
 
 test sin {

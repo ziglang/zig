@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -7,9 +7,7 @@ const tanh = @import("tanh.zig").tanh;
 
 /// Calculates the tangent of complex number.
 pub fn tan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    const tanhIZ = tanh(z.mulbyi());
-
-    return .init(tanhIZ.im, -tanhIZ.re);
+    return tanh(z.mulByI()).mulByMinusI();
 }
 
 test tan {

@@ -1,4 +1,4 @@
-const std = @import("std");
+const std = @import("../../std.zig");
 const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
@@ -7,7 +7,7 @@ const cosh = @import("cosh.zig").cosh;
 
 /// Calculates the cosine of complex number.
 pub fn cos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
-    return cosh(z.mulbyi());
+    return cosh(z.mulByI());
 }
 
 test cos {

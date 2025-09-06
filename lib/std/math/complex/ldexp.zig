@@ -4,7 +4,7 @@
 //! https://git.musl-libc.org/cgit/musl/tree/src/complex/__cexpf.c
 //! https://git.musl-libc.org/cgit/musl/tree/src/complex/__cexp.c
 
-const std = @import("std");
+const std = @import("../../std.zig");
 const debug = std.debug;
 const math = std.math;
 const testing = std.testing;
