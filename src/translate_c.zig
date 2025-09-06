@@ -4030,24 +4030,26 @@ fn transCPtrCast(
     const src_child_type = src_ty.getPointeeType();
     const dst_type_node = try transType(c, scope, ty, loc);
 
-    if (!src_ty.isArrayType() and ((src_child_type.isConstQualified() and
-        !child_type.isConstQualified()) or
-        (src_child_type.isVolatileQualified() and
-            !child_type.isVolatileQualified())))
+    // Implicit downcasting from higher to lower alignment values is forbidden,
+    // use @alignCast to side-step this problem
+    const rhs = if (qualTypeCanon(child_type).isVoidType())
+        // void has 1-byte alignment, so @alignCast is not needed
+        expr
+    else if (typeIsOpaque(c, qualTypeCanon(child_type), loc))
+        // For opaque types a ptrCast is enough
+        expr
+    else blk: {
+        break :blk try Tag.align_cast.create(c.arena, expr);
+    };
+
+    if (!src_ty.isArrayType() and
+        (((src_child_type.isConstQualified() or qualTypeIsFunction(src_child_type)) and
+            !child_type.isConstQualified()) or
+            (src_child_type.isVolatileQualified() and
+                !child_type.isVolatileQualified())))
     {
-        return removeCVQualifiers(c, dst_type_node, expr);
+        return removeCVQualifiers(c, dst_type_node, rhs);
     } else {
-        // Implicit downcasting from higher to lower alignment values is forbidden,
-        // use @alignCast to side-step this problem
-        const rhs = if (qualTypeCanon(child_type).isVoidType())
-            // void has 1-byte alignment, so @alignCast is not needed
-            expr
-        else if (typeIsOpaque(c, qualTypeCanon(child_type), loc))
-            // For opaque types a ptrCast is enough
-            expr
-        else blk: {
-            break :blk try Tag.align_cast.create(c.arena, expr);
-        };
         return Tag.as.create(c.arena, .{
             .lhs = dst_type_node,
             .rhs = try Tag.ptr_cast.create(c.arena, rhs),
@@ -4340,6 +4342,11 @@ fn qualTypeIsPtr(qt: clang.QualType) bool {
 
 fn qualTypeIsBoolean(qt: clang.QualType) bool {
     return qualTypeCanon(qt).isBooleanType();
+}
+
+fn qualTypeIsFunction(qt: clang.QualType) bool {
+    const type_class = qualTypeCanon(qt).getTypeClass();
+    return type_class == .FunctionProto or type_class == .FunctionNoProto;
 }
 
 fn qualTypeIntBitWidth(c: *Context, qt: clang.QualType) !u32 {
