@@ -1391,7 +1391,6 @@ test takeSentinel {
     try testing.expectEqualStrings("ab", try r.takeSentinel('\n'));
     try testing.expectEqualStrings("cd", try r.takeSentinel('\n'));
     try testing.expectError(error.EndOfStream, r.takeSentinel('\n'));
-
     try testing.expectEqualStrings("e", try r.peek(1));
 }
 
@@ -1405,31 +1404,26 @@ test peekSentinel {
     r.toss(1);
     try testing.expectEqual(error.EndOfStream, r.peekSentinel('\n'));
     try testing.expectEqual(error.EndOfStream, r.peekSentinel('\n'));
-
     try testing.expectEqualStrings("c", try r.peek(1));
 }
 
 test takeDelimiter {
     var r: Reader = .fixed("ab\ncd\ne");
-
     try testing.expectEqualStrings("ab", try r.takeDelimiter('\n') orelse "null");
     try testing.expectEqualStrings("cd", try r.takeDelimiter('\n') orelse "null");
     try testing.expectEqualStrings("e", try r.takeDelimiter('\n') orelse "null");
     try testing.expectEqual(null, try r.takeDelimiter('\n'));
+    r = .fixed("no delimiter");
+    try testing.expectEqualStrings("no delimiter", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
+    try testing.expectEqual(null, ending.takeDelimiter('\n'));
 }
-
-// test "takeDelimiter no delimiter" {
-//     var r: Reader = .fixed("abc");
-//     try testing.expectEqualStrings("abc", try r.takeDelimiter('\n') orelse "null");
-//     try testing.expectEqual(null, try r.takeDelimiter('\n'));
-// }
 
 test takeDelimiterInclusive {
     var r: Reader = .fixed("ab\ncd\ne");
     try testing.expectEqualStrings("ab\n", try r.takeDelimiterInclusive('\n'));
     try testing.expectEqualStrings("cd\n", try r.takeDelimiterInclusive('\n'));
     try testing.expectError(error.EndOfStream, r.takeDelimiterInclusive('\n'));
-
     try testing.expectEqualStrings("e", try r.peek(1));
 }
 
@@ -1442,14 +1436,10 @@ test peekDelimiterInclusive {
     r.toss(1);
     try testing.expectError(error.EndOfStream, r.peekDelimiterInclusive('\n'));
     try testing.expectError(error.EndOfStream, r.peekDelimiterInclusive('\n'));
-
     try testing.expectEqualStrings("c", try r.peek(1));
+    r = .fixed("no delimiter");
+    try testing.expectEqual(error.EndOfStream, r.peekDelimiterInclusive('\n'));
 }
-
-// test "peekDelimiterInclusive no delimiter" {
-//     var r: Reader = .fixed("abc");
-//     try testing.expectEqual(error.EndOfStream, r.peekDelimiterInclusive('\n'));
-// }
 
 test takeDelimiterExclusive {
     var r: Reader = .fixed("ab\ncd\ne");
@@ -1461,17 +1451,6 @@ test takeDelimiterExclusive {
     try testing.expectEqualStrings("no delimiter", try r.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, ending.takeDelimiterExclusive('\n'));
-}
-
-test takeDelimiter {
-    var r: Reader = .fixed("ab\nc");
-    try testing.expectEqualStrings("ab", try r.takeDelimiter('\n') orelse "null");
-    try testing.expectEqualStrings("c", try r.takeDelimiter('\n') orelse "null");
-    try testing.expectEqual(null, r.takeDelimiter('\n'));
-    r = .fixed("no delimiter");
-    try testing.expectEqualStrings("no delimiter", try r.takeDelimiter('\n') orelse "null");
-    try testing.expectEqual(null, r.takeDelimiter('\n'));
-    try testing.expectEqual(null, ending.takeDelimiter('\n'));
 }
 
 test peekDelimiterExclusive {
@@ -1487,12 +1466,9 @@ test peekDelimiterExclusive {
     r.toss(1);
     try testing.expectError(error.EndOfStream, r.peekDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.peekDelimiterExclusive('\n'));
+    r = .fixed("no delimiter");
+    try testing.expectEqualStrings("no delimiter", try r.peekDelimiterExclusive('\n'));
 }
-
-// test "peekDelimiterExclusive no delimiter" {
-//     var r: Reader = .fixed("abc");
-//     try testing.expectEqualStrings("abc", try r.peekDelimiterExclusive('\n'));
-// }
 
 test streamDelimiter {
     var out_buffer: [10]u8 = undefined;
