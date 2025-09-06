@@ -812,6 +812,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
             return r.buffer[0 .. r.end - n + end + 1];
         }
     }
+    // check if rebase returns EndOfStream
+    try r.vtable.rebase(r, r.buffer.len);
     return error.StreamTooLong;
 }
 
@@ -1422,6 +1424,21 @@ test takeDelimiterExclusive {
     try testing.expectEqualStrings("ab", try r.takeDelimiterExclusive('\n'));
     try testing.expectEqualStrings("c", try r.takeDelimiterExclusive('\n'));
     try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
+    r = .fixed("no delimiter");
+    try testing.expectEqualStrings("no delimiter", try r.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, r.takeDelimiterExclusive('\n'));
+    try testing.expectError(error.EndOfStream, ending.takeDelimiterExclusive('\n'));
+}
+
+test takeDelimiter {
+    var r: Reader = .fixed("ab\nc");
+    try testing.expectEqualStrings("ab", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqualStrings("c", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqual(null, r.takeDelimiter('\n'));
+    r = .fixed("no delimiter");
+    try testing.expectEqualStrings("no delimiter", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqual(null, r.takeDelimiter('\n'));
+    try testing.expectEqual(null, ending.takeDelimiter('\n'));
 }
 
 test peekDelimiterExclusive {
