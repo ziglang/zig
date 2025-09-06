@@ -813,8 +813,8 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
         }
     }
     // check for EndOfStream in fixed Reader
-    var w = std.Io.Writer.failing;
-    _ = r.stream(&w, std.Io.Limit.nothing) catch |err| switch (err) {
+    var writer = Writer.failing;
+    _ = r.vtable.stream(r, &writer, Limit.nothing) catch |err| switch (err) {
         error.WriteFailed => return error.StreamTooLong,
         else => |e| return e,
     };
