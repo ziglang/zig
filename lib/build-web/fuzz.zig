@@ -101,22 +101,22 @@ const SourceLocationIndex = enum(u32) {
 
     fn sourceLocationLinkHtml(
         sli: SourceLocationIndex,
-        out: *std.ArrayListUnmanaged(u8),
+        out: *std.ArrayList(u8),
         focused: bool,
-    ) Allocator.Error!void {
+    ) error{OutOfMemory}!void {
         const sl = sli.ptr();
-        try out.writer(gpa).print("<code{s}>", .{
+        try out.print(gpa, "<code{s}>", .{
             @as([]const u8, if (focused) " class=\"status-running\"" else ""),
         });
         try sli.appendPath(out);
-        try out.writer(gpa).print(":{d}:{d} </code><button class=\"linkish\" onclick=\"wasm_exports.fuzzSelectSli({d});\">View</button>", .{
+        try out.print(gpa, ":{d}:{d} </code><button class=\"linkish\" onclick=\"wasm_exports.fuzzSelectSli({d});\">View</button>", .{
             sl.line,
             sl.column,
             @intFromEnum(sli),
         });
     }
 
-    fn appendPath(sli: SourceLocationIndex, out: *std.ArrayListUnmanaged(u8)) Allocator.Error!void {
+    fn appendPath(sli: SourceLocationIndex, out: *std.ArrayList(u8)) error{OutOfMemory}!void {
         const sl = sli.ptr();
         const file = coverage.fileAt(sl.file);
         const file_name = coverage.stringAt(file.basename);
@@ -294,7 +294,7 @@ fn updateStats() error{OutOfMemory}!void {
 }
 
 fn updateEntryPoints() error{OutOfMemory}!void {
-    var html: std.ArrayListUnmanaged(u8) = .empty;
+    var html: std.ArrayList(u8) = .empty;
     defer html.deinit(gpa);
     for (entry_points.items) |sli| {
         try html.appendSlice(gpa, "<li>");
