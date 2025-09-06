@@ -1752,13 +1752,6 @@ pub const FetchOptions = struct {
         url: []const u8,
         uri: Uri,
     };
-
-    pub const ResponseStorage = struct {
-        list: *std.ArrayListUnmanaged(u8),
-        /// If null then only the existing capacity will be used.
-        allocator: ?Allocator = null,
-        append_limit: std.Io.Limit = .unlimited,
-    };
 };
 
 pub const FetchResult = struct {
