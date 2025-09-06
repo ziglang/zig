@@ -125,7 +125,7 @@ pub fn build(b: *std.Build) void {
     //        });
 
     //        const run_stripped = std.Build.Step.Run.create(b, b.fmt("run {s}", .{filename}));
-    //        run_stripped.addFileArg(stripped_exe.getOutput());
+    //        run_stripped.addFileArg(.{ .lazy_path = stripped_exe.getOutput() });
     //        test_step.dependOn(&run_stripped.step);
     //    }
     //}
