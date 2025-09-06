@@ -2149,15 +2149,18 @@ pub fn makeBool(x: bool) Value {
     return if (x) .true else .false;
 }
 
-/// `parent_ptr` must be a single-pointer to some optional.
+/// `parent_ptr` must be a single-pointer or C pointer to some optional.
+///
 /// Returns a pointer to the payload of the optional.
+///
 /// May perform type resolution.
 pub fn ptrOptPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
     const parent_ptr_ty = parent_ptr.typeOf(zcu);
     const opt_ty = parent_ptr_ty.childType(zcu);
+    const ptr_size = parent_ptr_ty.ptrSize(zcu);
 
-    assert(parent_ptr_ty.ptrSize(zcu) == .one);
+    assert(ptr_size == .one or ptr_size == .c);
     assert(opt_ty.zigTypeTag(zcu) == .optional);
 
     const result_ty = try pt.ptrTypeSema(info: {
@@ -2212,9 +2215,12 @@ pub fn ptrEuPayload(parent_ptr: Value, pt: Zcu.PerThread) !Value {
     } }));
 }
 
-/// `parent_ptr` must be a single-pointer to a struct, union, or slice.
+/// `parent_ptr` must be a single-pointer or c pointer to a struct, union, or slice.
+///
 /// Returns a pointer to the aggregate field at the specified index.
+///
 /// For slices, uses `slice_ptr_index` and `slice_len_index`.
+///
 /// May perform type resolution.
 pub fn ptrField(parent_ptr: Value, field_idx: u32, pt: Zcu.PerThread) !Value {
     const zcu = pt.zcu;
