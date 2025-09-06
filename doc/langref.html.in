@@ -2496,6 +2496,7 @@ or
       {#header_open|packed union#}
       <p>A {#syntax#}packed union{#endsyntax#} has well-defined in-memory layout and is eligible
           to be in a {#link|packed struct#}.</p>
+      <p>All fields in a packed union must have the same {#link|@bitSizeOf#}.</p>
       {#header_close#}
 
       {#header_open|Anonymous Union Literals#}

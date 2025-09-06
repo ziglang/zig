@@ -223,7 +223,7 @@ test "packed union generates correctly aligned type" {
 
     const U = packed union {
         f1: *const fn () error{TestUnexpectedResult}!void,
-        f2: u32,
+        f2: usize,
     };
     var foo = [_]U{
         U{ .f1 = doTest },
@@ -356,10 +356,10 @@ test "simple union(enum(u32))" {
 
 const PackedPtrOrInt = packed union {
     ptr: *u8,
-    int: u64,
+    int: usize,
 };
 test "packed union size" {
-    comptime assert(@sizeOf(PackedPtrOrInt) == 8);
+    comptime assert(@sizeOf(PackedPtrOrInt) == @sizeOf(usize));
 }
 
 const ZeroBits = union {
@@ -1337,7 +1337,7 @@ test "packed union in packed struct" {
 
     const S = packed struct {
         nested: packed union {
-            val: u16,
+            val: u32,
             foo: u32,
         },
         bar: u16,
@@ -1413,25 +1413,6 @@ test "union reassignment can use previous value" {
     var a = U{ .a = 32 };
     a = U{ .b = a.a };
     try expect(a.b == 32);
-}
-
-test "packed union with zero-bit field" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
-
-    const S = packed struct {
-        nested: packed union {
-            zero: void,
-            sized: u32,
-        },
-        bar: u32,
-
-        fn doTest(self: @This()) !void {
-            try expect(self.bar == 42);
-        }
-    };
-    try S.doTest(.{ .nested = .{ .zero = {} }, .bar = 42 });
 }
 
 test "reinterpreting enum value inside packed union" {
@@ -1632,15 +1613,15 @@ test "memset packed union" {
 
     const U = packed union {
         a: u32,
-        b: u8,
+        b: u32,
     };
 
     const S = struct {
         fn doTheTest() !void {
             var u: U = undefined;
-            @memset(std.mem.asBytes(&u), 42);
+            @memset(@as([]u8, @ptrCast(&u)), 42);
             try expectEqual(@as(u32, 0x2a2a2a2a), u.a);
-            try expectEqual(@as(u8, 0x2a), u.b);
+            try expectEqual(@as(u32, 0x2a2a2a2a), u.b);
         }
     };
 
@@ -1732,10 +1713,19 @@ test "reinterpret packed union" {
     if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     const U = packed union {
-        foo: u8,
-        bar: u29,
+        foo: packed struct(u64) {
+            a: u8,
+            b: u56,
+        },
+        bar: packed struct(u64) {
+            a: u29,
+            b: u35,
+        },
         baz: u64,
-        qux: u12,
+        qux: packed struct(u64) {
+            a: u12,
+            b: u52,
+        },
     };
 
     const S = struct {
@@ -1745,16 +1735,16 @@ test "reinterpret packed union" {
                     var u: U = undefined;
                     @memset(std.mem.asBytes(&u), 0);
                     u.baz = 0xbbbbbbbb;
-                    u.qux = 0xe2a;
+                    u.qux.a = 0xe2a;
                     break :blk u;
                 };
 
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
+                try expectEqual(@as(u8, 0x2a), u.foo.a);
+                try expectEqual(@as(u12, 0xe2a), u.qux.a);
 
                 // https://github.com/ziglang/zig/issues/17360
                 if (@inComptime()) {
-                    try expectEqual(@as(u29, 0x1bbbbe2a), u.bar);
+                    try expectEqual(@as(u29, 0x1bbbbe2a), u.bar.a);
                     try expectEqual(@as(u64, 0xbbbbbe2a), u.baz);
                 }
             }
@@ -1762,31 +1752,31 @@ test "reinterpret packed union" {
             {
                 // Union initialization
                 var u: U = .{ .baz = 0 }; // ensure all bits are defined
-                u.qux = 0xe2a;
-                try expectEqual(@as(u8, 0x2a), u.foo);
-                try expectEqual(@as(u12, 0xe2a), u.qux);
-                try expectEqual(@as(u29, 0xe2a), u.bar & 0xfff);
+                u.qux.a = 0xe2a;
+                try expectEqual(@as(u8, 0x2a), u.foo.a);
+                try expectEqual(@as(u12, 0xe2a), u.qux.a);
+                try expectEqual(@as(u29, 0xe2a), u.bar.a & 0xfff);
                 try expectEqual(@as(u64, 0xe2a), u.baz & 0xfff);
 
                 // Writing to a larger field
                 u.baz = 0xbbbbbbbb;
-                try expectEqual(@as(u8, 0xbb), u.foo);
-                try expectEqual(@as(u12, 0xbbb), u.qux);
-                try expectEqual(@as(u29, 0x1bbbbbbb), u.bar);
+                try expectEqual(@as(u8, 0xbb), u.foo.a);
+                try expectEqual(@as(u12, 0xbbb), u.qux.a);
+                try expectEqual(@as(u29, 0x1bbbbbbb), u.bar.a);
                 try expectEqual(@as(u64, 0xbbbbbbbb), u.baz);
 
                 // Writing to the same field
                 u.baz = 0xcccccccc;
-                try expectEqual(@as(u8, 0xcc), u.foo);
-                try expectEqual(@as(u12, 0xccc), u.qux);
-                try expectEqual(@as(u29, 0x0ccccccc), u.bar);
+                try expectEqual(@as(u8, 0xcc), u.foo.a);
+                try expectEqual(@as(u12, 0xccc), u.qux.a);
+                try expectEqual(@as(u29, 0x0ccccccc), u.bar.a);
                 try expectEqual(@as(u64, 0xcccccccc), u.baz);
 
                 // Writing to a smaller field
-                u.foo = 0xdd;
-                try expectEqual(@as(u8, 0xdd), u.foo);
-                try expectEqual(@as(u12, 0xcdd), u.qux);
-                try expectEqual(@as(u29, 0x0cccccdd), u.bar);
+                u.foo.a = 0xdd;
+                try expectEqual(@as(u8, 0xdd), u.foo.a);
+                try expectEqual(@as(u12, 0xcdd), u.qux.a);
+                try expectEqual(@as(u29, 0x0cccccdd), u.bar.a);
                 try expectEqual(@as(u64, 0xccccccdd), u.baz);
             }
         }
@@ -1807,7 +1797,10 @@ test "reinterpret packed union inside packed struct" {
 
     const U = packed union {
         a: u7,
-        b: u1,
+        b: packed struct(u7) {
+            a: u1,
+            b: u6,
+        },
     };
 
     const V = packed struct {
@@ -1818,18 +1811,18 @@ test "reinterpret packed union inside packed struct" {
     const S = struct {
         fn doTheTest() !void {
             var v: V = undefined;
-            @memset(std.mem.asBytes(&v), 0x55);
-            try expectEqual(@as(u7, 0x55), v.lo.a);
-            try expectEqual(@as(u1, 1), v.lo.b);
-            try expectEqual(@as(u7, 0x2a), v.hi.a);
-            try expectEqual(@as(u1, 0), v.hi.b);
+            @memset(@as([]u8, @ptrCast(&v)), 0x55);
+            try expect(@as(u7, 0x55) == v.lo.a);
+            try expect(@as(u1, 1) == v.lo.b.a);
+            try expect(@as(u7, 0x2a) == v.hi.a);
+            try expect(@as(u1, 0) == v.hi.b.a);
 
-            v.lo.b = 0;
-            try expectEqual(@as(u7, 0x54), v.lo.a);
-            try expectEqual(@as(u1, 0), v.lo.b);
-            v.hi.b = 1;
-            try expectEqual(@as(u7, 0x2b), v.hi.a);
-            try expectEqual(@as(u1, 1), v.hi.b);
+            v.lo.b.a = 0;
+            try expect(@as(u7, 0x54) == v.lo.a);
+            try expect(@as(u1, 0) == v.lo.b.a);
+            v.hi.b.a = 1;
+            try expect(@as(u7, 0x2b) == v.hi.a);
+            try expect(@as(u1, 1) == v.hi.b.a);
         }
     };
 
@@ -1869,8 +1862,9 @@ test "inner struct initializer uses packed union layout" {
             a: packed struct {
                 x: u32 = @alignOf(U) + 1,
             },
-            b: packed struct {
+            b: packed struct(u32) {
                 y: u16 = @sizeOf(U) + 2,
+                padding: u16 = 0,
             },
         };
     };
@@ -1898,7 +1892,7 @@ test "extern union initialized via reintepreted struct field initializer" {
     };
 
     const S = extern struct {
-        u: U = std.mem.bytesAsValue(U, &bytes).*,
+        u: U = @as(*align(1) const U, @ptrCast(&bytes)).*,
     };
 
     const s: S = .{};
@@ -1913,17 +1907,20 @@ test "packed union initialized via reintepreted struct field initializer" {
 
     const U = packed union {
         a: u32,
-        b: u8,
+        b: packed struct(u32) {
+            a: u8,
+            b: u24,
+        },
     };
 
     const S = packed struct {
-        u: U = std.mem.bytesAsValue(U, &bytes).*,
+        u: U = @as(*align(1) const U, @ptrCast(&bytes)).*,
     };
 
     var s: S = .{};
     _ = &s;
     try expect(s.u.a == littleToNativeEndian(u32, 0xddccbbaa));
-    try expect(s.u.b == if (endian == .little) 0xaa else 0xdd);
+    try expect(s.u.b.a == if (endian == .little) 0xaa else 0xdd);
 }
 
 test "store of comptime reinterpreted memory to extern union" {
@@ -1938,7 +1935,7 @@ test "store of comptime reinterpreted memory to extern union" {
 
     const reinterpreted = comptime b: {
         var u: U = undefined;
-        u = std.mem.bytesAsValue(U, &bytes).*;
+        u = @as(*align(1) const U, @ptrCast(&bytes)).*;
         break :b u;
     };
 
@@ -1955,19 +1952,22 @@ test "store of comptime reinterpreted memory to packed union" {
 
     const U = packed union {
         a: u32,
-        b: u8,
+        b: packed struct(u32) {
+            a: u8,
+            b: u24,
+        },
     };
 
     const reinterpreted = comptime b: {
         var u: U = undefined;
-        u = std.mem.bytesAsValue(U, &bytes).*;
+        u = @as(*align(1) const U, @ptrCast(&bytes)).*;
         break :b u;
     };
 
     var u: U = reinterpreted;
     _ = &u;
     try expect(u.a == littleToNativeEndian(u32, 0xddccbbaa));
-    try expect(u.b == if (endian == .little) 0xaa else 0xdd);
+    try expect(u.b.a == if (endian == .little) 0xaa else 0xdd);
 }
 
 test "union field is a pointer to an aligned version of itself" {
