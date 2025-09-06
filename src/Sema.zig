@@ -35614,6 +35614,12 @@ fn unionFields(
     if (small.any_aligned_fields)
         try field_aligns.ensureTotalCapacityPrecise(sema.arena, fields_len);
 
+    var max_bits: u64 = 0;
+    var min_bits: u64 = std.math.maxInt(u64);
+    var max_bits_src: LazySrcLoc = undefined;
+    var min_bits_src: LazySrcLoc = undefined;
+    var max_bits_ty: Type = undefined;
+    var min_bits_ty: Type = undefined;
     const bits_per_field = 4;
     const fields_per_u32 = 32 / bits_per_field;
     const bit_bags_count = std.math.divCeil(usize, fields_len, fields_per_u32) catch unreachable;
@@ -35622,6 +35628,7 @@ fn unionFields(
     var cur_bit_bag: u32 = undefined;
     var field_i: u32 = 0;
     var last_tag_val: ?Value = null;
+    const layout = union_type.flagsUnordered(ip).layout;
     while (field_i < fields_len) : (field_i += 1) {
         if (field_i % fields_per_u32 == 0) {
             cur_bit_bag = zir.extra[bit_bag_index];
@@ -35773,31 +35780,45 @@ fn unionFields(
             };
             return sema.failWithOwnedErrorMsg(&block_scope, msg);
         }
-        const layout = union_type.flagsUnordered(ip).layout;
-        if (layout == .@"extern" and
-            !try sema.validateExternType(field_ty, .union_field))
-        {
-            const msg = msg: {
-                const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
-                errdefer msg.destroy(sema.gpa);
+        switch (layout) {
+            .@"extern" => if (!try sema.validateExternType(field_ty, .union_field)) {
+                const msg = msg: {
+                    const msg = try sema.errMsg(type_src, "extern unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
+                    errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotExtern(msg, type_src, field_ty, .union_field);
+                    try sema.explainWhyTypeIsNotExtern(msg, type_src, field_ty, .union_field);
 
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
-        } else if (layout == .@"packed" and !try sema.validatePackedType(field_ty)) {
-            const msg = msg: {
-                const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
-                errdefer msg.destroy(sema.gpa);
+                    try sema.addDeclaredHereNote(msg, field_ty);
+                    break :msg msg;
+                };
+                return sema.failWithOwnedErrorMsg(&block_scope, msg);
+            },
+            .@"packed" => {
+                if (!try sema.validatePackedType(field_ty)) {
+                    const msg = msg: {
+                        const msg = try sema.errMsg(type_src, "packed unions cannot contain fields of type '{f}'", .{field_ty.fmt(pt)});
+                        errdefer msg.destroy(sema.gpa);
 
-                try sema.explainWhyTypeIsNotPacked(msg, type_src, field_ty);
+                        try sema.explainWhyTypeIsNotPacked(msg, type_src, field_ty);
 
-                try sema.addDeclaredHereNote(msg, field_ty);
-                break :msg msg;
-            };
-            return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                        try sema.addDeclaredHereNote(msg, field_ty);
+                        break :msg msg;
+                    };
+                    return sema.failWithOwnedErrorMsg(&block_scope, msg);
+                }
+                const field_bits = try field_ty.bitSizeSema(pt);
+                if (field_bits >= max_bits) {
+                    max_bits = field_bits;
+                    max_bits_src = type_src;
+                    max_bits_ty = field_ty;
+                }
+                if (field_bits <= min_bits) {
+                    min_bits = field_bits;
+                    min_bits_src = type_src;
+                    min_bits_ty = field_ty;
+                }
+            },
+            .auto => {},
         }
 
         field_types.appendAssumeCapacity(field_ty.toIntern());
@@ -35814,6 +35835,19 @@ fn unionFields(
 
     union_type.setFieldTypes(ip, field_types.items);
     union_type.setFieldAligns(ip, field_aligns.items);
+
+    if (layout == .@"packed" and fields_len != 0 and min_bits != max_bits) {
+        const msg = msg: {
+            const msg = try sema.errMsg(src, "packed union has fields with mismatching bit sizes", .{});
+            errdefer msg.destroy(sema.gpa);
+            try sema.errNote(min_bits_src, msg, "{d} bits here", .{min_bits});
+            try sema.addDeclaredHereNote(msg, min_bits_ty);
+            try sema.errNote(max_bits_src, msg, "{d} bits here", .{max_bits});
+            try sema.addDeclaredHereNote(msg, max_bits_ty);
+            break :msg msg;
+        };
+        return sema.failWithOwnedErrorMsg(&block_scope, msg);
+    }
 
     if (explicit_tags_seen.len > 0) {
         const tag_ty = union_type.tagTypeUnordered(ip);

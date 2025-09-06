@@ -1193,13 +1193,6 @@ test hasUniqueRepresentation {
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
 
-    const TestUnion1 = packed union {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
-
     const TestUnion2 = extern union {
         a: u32,
         b: u16,
