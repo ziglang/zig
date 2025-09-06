@@ -1417,6 +1417,10 @@ test takeDelimiter {
     try testing.expectEqualStrings("no delimiter", try r.takeDelimiter('\n') orelse "null");
     try testing.expectEqual(null, try r.takeDelimiter('\n'));
     try testing.expectEqual(null, ending.takeDelimiter('\n'));
+    r = .fixed("more capacity");
+    r.end = 2;
+    try testing.expectEqualStrings("mo", try r.takeDelimiter('\n') orelse "null");
+    try testing.expectEqual(null, try r.takeDelimiter('\n'));
 }
 
 test takeDelimiterInclusive {
