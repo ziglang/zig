@@ -169,6 +169,8 @@ pub const runtime_safety = switch (builtin.mode) {
 pub const sys_can_stack_trace = switch (builtin.cpu.arch) {
     // Observed to go into an infinite loop.
     // TODO: Make this work.
+    .loongarch32,
+    .loongarch64,
     .mips,
     .mipsel,
     .mips64,
