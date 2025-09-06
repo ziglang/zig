@@ -812,9 +812,14 @@ pub fn peekDelimiterInclusive(r: *Reader, delimiter: u8) DelimiterError![]u8 {
             return r.buffer[0 .. r.end - n + end + 1];
         }
     }
-    // check if rebase returns EndOfStream
-    try r.vtable.rebase(r, r.buffer.len);
-    return error.StreamTooLong;
+    // check for EndOfStream in fixed Reader
+    var w = std.Io.Writer.failing;
+    _ = r.stream(&w, std.Io.Limit.nothing) catch |err| switch (err) {
+        error.WriteFailed => return error.StreamTooLong,
+        else => |e| return e,
+    };
+    // streaming to failing writer should fail either way
+    unreachable;
 }
 
 /// Returns a slice of the next bytes of buffered data from the stream until
