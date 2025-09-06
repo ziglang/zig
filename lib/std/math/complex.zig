@@ -120,15 +120,15 @@ pub fn Complex(comptime T: type) type {
 
         /// Returns the reciprocal of a complex number.
         pub fn recip(self: Self) Self {
-            const sm = self.squaredMagnitude();
+            const magnitude_sq = self.squaredMagnitude();
 
             return .{
-                .re = self.re / sm,
-                .im = -self.im / sm,
+                .re = self.re / magnitude_sq,
+                .im = -self.im / magnitude_sq,
             };
         }
 
-        /// Returns squared magnitude.
+        /// Returns the squared magnitude.
         pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
@@ -267,9 +267,9 @@ test "magnitude" {
 
 test "squaredMagnitude" {
     const a: TestingComplex = .init(5, 3);
-    const a_magnitude_squared = a.squaredMagnitude();
+    const a_magnitude_sq = a.squaredMagnitude();
 
-    try testing.expectApproxEqAbs(math.pow(f32, a.magnitude(), 2), a_magnitude_squared, testing_epsilon);
+    try testing.expectApproxEqAbs(math.pow(f32, a.magnitude(), 2), a_magnitude_sq, testing_epsilon);
 }
 
 test {
