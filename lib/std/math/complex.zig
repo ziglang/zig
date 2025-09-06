@@ -1,26 +1,6 @@
-const std = @import("../std.zig");
+const std = @import("std");
 const testing = std.testing;
 const math = std.math;
-
-pub const abs = @import("complex/abs.zig").abs;
-pub const acosh = @import("complex/acosh.zig").acosh;
-pub const acos = @import("complex/acos.zig").acos;
-pub const arg = @import("complex/arg.zig").arg;
-pub const asinh = @import("complex/asinh.zig").asinh;
-pub const asin = @import("complex/asin.zig").asin;
-pub const atanh = @import("complex/atanh.zig").atanh;
-pub const atan = @import("complex/atan.zig").atan;
-pub const cosh = @import("complex/cosh.zig").cosh;
-pub const cos = @import("complex/cos.zig").cos;
-pub const exp = @import("complex/exp.zig").exp;
-pub const log = @import("complex/log.zig").log;
-pub const pow = @import("complex/pow.zig").pow;
-pub const proj = @import("complex/proj.zig").proj;
-pub const sinh = @import("complex/sinh.zig").sinh;
-pub const sin = @import("complex/sin.zig").sin;
-pub const sqrt = @import("complex/sqrt.zig").sqrt;
-pub const tanh = @import("complex/tanh.zig").tanh;
-pub const tan = @import("complex/tan.zig").tan;
 
 /// A complex number consisting of a real an imaginary part.
 /// T must be a floating-point value.
@@ -37,7 +17,7 @@ pub fn Complex(comptime T: type) type {
         /// Imarinary unit that satisfies "i^2 = -1".
         pub const i: Self = .init(0, 1);
 
-        /// Create a new complex number from the given real and imaginary parts.
+        /// Creates a new complex number from the given real and imaginary parts.
         pub fn init(re: T, im: T) Self {
             return .{
                 .re = re,
@@ -45,7 +25,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the sum of two complex numbers.
+        /// Calculates the sum of two complex numbers.
         pub fn add(self: Self, other: Self) Self {
             return .{
                 .re = self.re + other.re,
@@ -53,7 +33,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the subtraction of two complex numbers.
+        /// Calculates the subtraction of two complex numbers.
         pub fn sub(self: Self, other: Self) Self {
             return .{
                 .re = self.re - other.re,
@@ -61,7 +41,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the product of two complex numbers.
+        /// Calculates the product of two complex numbers.
         pub fn mul(self: Self, other: Self) Self {
             return .{
                 .re = self.re * other.re - self.im * other.im,
@@ -69,7 +49,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the quotient of two complex numbers.
+        /// Calculates the quotient of two complex numbers.
         pub fn div(self: Self, other: Self) Self {
             const re_num = self.re * other.re + self.im * other.im;
             const im_num = self.im * other.re - self.re * other.im;
@@ -81,7 +61,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the complex conjugate of a complex number.
+        /// Calculates the complex conjugate of a complex number.
         pub fn conj(self: Self) Self {
             return .{
                 .re = self.re,
@@ -89,7 +69,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the negation of a complex number.
+        /// Calculates the negation of a complex number.
         pub fn neg(self: Self) Self {
             return .{
                 .re = -self.re,
@@ -97,7 +77,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the product of complex number and imaginary unit.
+        /// Calculates the product of complex number and imaginary unit.
         /// You should not manually does ".mul(.i, *)" instead of using this,
         /// as its consumes more operations than this.
         pub fn mulByI(self: Self) Self {
@@ -107,7 +87,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the product of complex number and negation of imaginary unit,
+        /// Calculates the product of complex number and negation of imaginary unit,
         /// thus this rotates 90 degrees clockwise on the complex plane.
         /// You should not manually does "*.neg().mul(.i)" instead of using this,
         /// as its consumes more operations than this.
@@ -118,7 +98,17 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the reciprocal of a complex number.
+        /// Calculates the product of complex number and conjugate of imaginary unit.
+        /// You should not manually does "*.mul(conj(i))" instead of using this,
+        /// as its consumes more operations than this.
+        pub fn mulByIConj(self: Self) Self {
+            return .{
+                .re = -self.im,
+                .im = -self.re,
+            };
+        }
+
+        /// Calculates the reciprocal of a complex number.
         pub fn recip(self: Self) Self {
             const magnitude_sq = self.squaredMagnitude();
 
@@ -128,12 +118,12 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the squared magnitude.
+        /// Calculates the squared magnitude.
         pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
 
-        /// Returns the magnitude of a complex number.
+        /// Calculates the magnitude of a complex number.
         pub fn magnitude(self: Self) T {
             return @sqrt(self.squaredMagnitude());
         }
@@ -236,6 +226,14 @@ test "multiplication by negation of i yields same result as mulByMinusI" {
     try testing.expectEqual(minus_i_a_intentional.im, minus_i_a_natural.im);
 }
 
+test "mulByIConj" {
+    const a: TestingComplex = .init(5, 3);
+    const i_conj_a = a.mulByIConj();
+
+    try testing.expectEqual(-3, i_conj_a.re);
+    try testing.expectEqual(-5, i_conj_a.im);
+}
+
 test "i^2 equals to -1" {
     const a: TestingComplex = .mul(.i, .i);
 
@@ -270,26 +268,4 @@ test "squaredMagnitude" {
     const a_magnitude_sq = a.squaredMagnitude();
 
     try testing.expectApproxEqAbs(math.pow(f32, a.magnitude(), 2), a_magnitude_sq, testing_epsilon);
-}
-
-test {
-    _ = @import("complex/abs.zig");
-    _ = @import("complex/acosh.zig");
-    _ = @import("complex/acos.zig");
-    _ = @import("complex/arg.zig");
-    _ = @import("complex/asinh.zig");
-    _ = @import("complex/asin.zig");
-    _ = @import("complex/atanh.zig");
-    _ = @import("complex/atan.zig");
-    _ = @import("complex/cosh.zig");
-    _ = @import("complex/cos.zig");
-    _ = @import("complex/exp.zig");
-    _ = @import("complex/log.zig");
-    _ = @import("complex/pow.zig");
-    _ = @import("complex/proj.zig");
-    _ = @import("complex/sinh.zig");
-    _ = @import("complex/sin.zig");
-    _ = @import("complex/sqrt.zig");
-    _ = @import("complex/tanh.zig");
-    _ = @import("complex/tan.zig");
 }
