@@ -128,14 +128,14 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Returns the magnitude of a complex number.
-        pub fn magnitude(self: Self) T {
-            return @sqrt(self.re * self.re + self.im * self.im);
-        }
-
-        /// Returns square of magnitude.
+        /// Returns squared magnitude.
         pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
+        }
+
+        /// Returns the magnitude of a complex number.
+        pub fn magnitude(self: Self) T {
+            return @sqrt(self.squaredMagnitude());
         }
     };
 }

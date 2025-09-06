@@ -154,10 +154,7 @@ test tanh64 {
 test "tanh64 musl" {
     const epsilon = math.floatEps(f64);
 
-    const a: Complex(f64) = .init(
-        math.inf(f64),
-        math.inf(f64),
-    );
+    const a: Complex(f64) = .init(math.inf(f64), math.inf(f64));
     const tanh_a = tanh(a);
 
     try testing.expectApproxEqAbs(1.0, tanh_a.re, epsilon);
