@@ -270,7 +270,7 @@ pub fn errno(rc: anytype) E {
     if (use_libc) {
         return if (rc == -1) @enumFromInt(std.c._errno().*) else .SUCCESS;
     }
-    const signed: isize = @bitCast(rc);
+    const signed: isize = if (@typeInfo(@TypeOf(rc)).int.signedness == .unsigned) @bitCast(@as(usize, rc)) else rc;
     const int = if (signed > -4096 and signed < 0) -signed else 0;
     return @enumFromInt(int);
 }
@@ -4420,7 +4420,9 @@ pub const WaitPidResult = struct {
 /// Use this version of the `waitpid` wrapper if you spawned your child process using explicit
 /// `fork` and `execve` method.
 pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
-    var status: if (builtin.link_libc) c_int else u32 = undefined;
+    if (!use_libc and builtin.os.tag == .linux) return wait4(pid, flags, null);
+
+    var status: if (use_libc) c_int else u32 = undefined;
     while (true) {
         const rc = system.waitpid(pid, &status, @intCast(flags));
         switch (errno(rc)) {
@@ -4437,12 +4439,11 @@ pub fn waitpid(pid: pid_t, flags: u32) WaitPidResult {
 }
 
 pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
-    var status: if (builtin.link_libc) c_int else u32 = undefined;
     while (true) {
-        const rc = system.wait4(pid, &status, @intCast(flags), ru);
+        const rc, const status = wait4_impl(pid, flags, ru);
         switch (errno(rc)) {
             .SUCCESS => return .{
-                .pid = @intCast(rc),
+                .pid = rc,
                 .status = @bitCast(status),
             },
             .INTR => continue,
@@ -4451,6 +4452,44 @@ pub fn wait4(pid: pid_t, flags: u32, ru: ?*rusage) WaitPidResult {
             else => unreachable,
         }
     }
+}
+
+fn wait4_impl(pid: pid_t, flags: u32, ru: ?*rusage) struct { pid_t, if (use_libc) c_int else u32 } {
+    if (use_libc or builtin.os.tag != .linux) {
+        var status: if (use_libc) c_int else u32 = undefined;
+        const rc = system.wait4(pid, &status, @intCast(flags), ru);
+        return .{ rc, status };
+    }
+
+    // Emulate wait4 using waitid; adapted from musl/src/internal/emulate_wait4.c
+
+    const id_type: system.P = if (pid < -1 or pid == 0) .PGID else if (pid == -1) .ALL else .PID;
+    const id = if (pid < -1) -pid else pid;
+
+    var info: siginfo_t = undefined;
+    info.fields.common.first.piduid.pid = 0;
+
+    const r: isize = @bitCast(system.waitid(id_type, id, &info, flags | W.EXITED, ru));
+    if (r < 0) return .{ @intCast(r), 0 }; // r < 0
+    // WNOHANG passed and no children in waitable state
+    if (info.fields.common.first.piduid.pid == 0) return .{ 0, 0 };
+
+    const si_status: u32 = @bitCast(info.fields.common.second.sigchld.status);
+    const status = switch (info.code) {
+        // CLD_EXITED
+        1 => (si_status & 0xff) << 8,
+        // CLD_KILLED
+        2 => si_status & 0x7f,
+        // CLD_DUMPED
+        3 => si_status & 0x7f | 0x80,
+        // CLD_TRAPPED, CLD_STOPPED
+        // see ptrace(2); the high bits of si_status can contain PTRACE_EVENT_ values which must be preserved
+        4, 5 => (si_status << 8) + 0x7f,
+        // CLD_CONTINUED
+        6 => 0xffff,
+        else => unreachable,
+    };
+    return .{ info.fields.common.first.piduid.pid, status };
 }
 
 pub const FStatError = error{
