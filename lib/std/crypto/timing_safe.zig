@@ -147,7 +147,7 @@ fn markSecret(ptr: anytype, comptime action: enum { classify, declassify }) void
             @compileError("A pointer value is always assumed leak information via side channels");
         },
         else => {
-            const mem8: *const [@sizeOf(@TypeOf(ptr.*))]u8 = @constCast(@ptrCast(ptr));
+            const mem8: *const [@sizeOf(@TypeOf(ptr.*))]u8 = @ptrCast(@constCast(ptr));
             if (action == .classify) {
                 std.valgrind.memcheck.makeMemUndefined(mem8);
             } else {
@@ -265,7 +265,7 @@ test classify {
 
     // Comparing secret data must be done in constant time. The result
     // is going to be considered as secret as well.
-    var res = std.crypto.utils.timingSafeEql([32]u8, out, secret);
+    var res = std.crypto.timing_safe.eql([32]u8, out, secret);
 
     // If we want to make a conditional jump based on a secret,
     // it has to be declassified.

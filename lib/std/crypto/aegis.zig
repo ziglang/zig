@@ -104,7 +104,7 @@ fn State128X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
+        fn update(state: *State, d1: AesBlockVec, d2: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[7];
             comptime var i: usize = 7;
@@ -413,7 +413,7 @@ fn State256X(comptime degree: u7) type {
             return state;
         }
 
-        inline fn update(state: *State, d: AesBlockVec) void {
+        fn update(state: *State, d: AesBlockVec) void {
             const blocks = &state.blocks;
             const tmp = blocks[5].encrypt(blocks[0]);
             comptime var i: usize = 5;
@@ -585,12 +585,12 @@ fn Aegis256XGeneric(comptime degree: u7, comptime tag_bits: u9) type {
             var dst: [block_length]u8 align(alignment) = undefined;
             var i: usize = 0;
             while (i + block_length <= ad.len) : (i += block_length) {
-                state.enc(&dst, ad[i..][0..block_length]);
+                state.absorb(ad[i..][0..block_length]);
             }
             if (ad.len % block_length != 0) {
                 @memset(src[0..], 0);
                 @memcpy(src[0 .. ad.len % block_length], ad[i..][0 .. ad.len % block_length]);
-                state.enc(&dst, &src);
+                state.absorb(&src);
             }
             i = 0;
             while (i + block_length <= m.len) : (i += block_length) {
@@ -800,18 +800,6 @@ fn AegisMac(comptime T: type) type {
             var ctx = Mac.init(key);
             ctx.update(msg);
             ctx.final(out);
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Mac, Error, write);
-
-        fn write(self: *Mac, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Mac) Writer {
-            return .{ .context = self };
         }
     };
 }

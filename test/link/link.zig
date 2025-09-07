@@ -13,7 +13,7 @@ pub const Options = struct {
 };
 
 pub fn addTestStep(b: *Build, prefix: []const u8, opts: Options) *Step {
-    const target = opts.target.result.zigTriple(b.allocator) catch @panic("OOM");
+    const target = opts.target.query.zigTriple(b.allocator) catch @panic("OOM");
     const optimize = @tagName(opts.optimize);
     const use_llvm = if (opts.use_llvm) "llvm" else "no-llvm";
     const use_lld = if (opts.use_lld) "lld" else "no-lld";
@@ -140,20 +140,20 @@ pub fn addRunArtifact(comp: *Compile) *Run {
 pub fn addCSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.c", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
+    comp.root_module.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
 pub fn addCppSourceBytes(comp: *Compile, bytes: []const u8, flags: []const []const u8) void {
     const b = comp.step.owner;
     const file = WriteFile.create(b).add("a.cpp", bytes);
-    comp.addCSourceFile(.{ .file = file, .flags = flags });
+    comp.root_module.addCSourceFile(.{ .file = file, .flags = flags });
 }
 
 pub fn addAsmSourceBytes(comp: *Compile, bytes: []const u8) void {
     const b = comp.step.owner;
     const actual_bytes = std.fmt.allocPrint(b.allocator, "{s}\n", .{bytes}) catch @panic("OOM");
     const file = WriteFile.create(b).add("a.s", actual_bytes);
-    comp.addAssemblyFile(file);
+    comp.root_module.addAssemblyFile(file);
 }
 
 pub fn expectLinkErrors(comp: *Compile, test_step: *Step, expected_errors: Compile.ExpectedCompileErrors) void {

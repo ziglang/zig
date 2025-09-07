@@ -83,7 +83,7 @@ static const bool assertions_on = false;
 LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Triple,
     const char *CPU, const char *Features, LLVMCodeGenOptLevel Level, LLVMRelocMode Reloc,
     LLVMCodeModel CodeModel, bool function_sections, bool data_sections, ZigLLVMFloatABI float_abi,
-    const char *abi_name)
+    const char *abi_name, bool emulated_tls)
 {
     std::optional<Reloc::Model> RM;
     switch (Reloc){
@@ -149,8 +149,20 @@ LLVMTargetMachineRef ZigLLVMCreateTargetMachine(LLVMTargetRef T, const char *Tri
         opt.MCOptions.ABIName = abi_name;
     }
 
-    TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(Triple, CPU, Features, opt, RM, CM,
-            OL, JIT);
+    if (emulated_tls) {
+        opt.EmulatedTLS = true;
+    }
+
+    TargetMachine *TM = reinterpret_cast<Target*>(T)->createTargetMachine(
+        llvm::Triple(Triple),
+        CPU,
+        Features,
+        opt,
+        RM,
+        CM,
+        OL,
+        JIT);
+
     return reinterpret_cast<LLVMTargetMachineRef>(TM);
 }
 
@@ -216,7 +228,7 @@ static SanitizerCoverageOptions getSanCovOptions(ZigLLVMCoverageOptions z) {
 ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machine_ref, LLVMModuleRef module_ref,
     char **error_message, const ZigLLVMEmitOptions *options)
 {
-    TimePassesIsEnabled = options->time_report;
+    TimePassesIsEnabled = options->time_report_out != nullptr;
 
     raw_fd_ostream *dest_asm_ptr = nullptr;
     raw_fd_ostream *dest_bin_ptr = nullptr;
@@ -259,6 +271,16 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
                               options->bin_filename? options->bin_filename : options->asm_filename);
 
     TargetMachine &target_machine = *reinterpret_cast<TargetMachine*>(targ_machine_ref);
+
+    if (options->allow_fast_isel) {
+        target_machine.setO0WantsFastISel(true);
+    } else {
+        target_machine.setFastISel(false);
+    }
+
+    if (!options->allow_machine_outliner) {
+        target_machine.setMachineOutliner(false);
+    }
 
     Module &llvm_module = *unwrap(module_ref);
 
@@ -385,12 +407,6 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         }
     }
 
-    if (options->allow_fast_isel) {
-        target_machine.setO0WantsFastISel(true);
-    } else {
-        target_machine.setFastISel(false);
-    }
-
     // Optimization phase
     module_pm.run(llvm_module, module_am);
 
@@ -410,10 +426,17 @@ ZIG_EXTERN_C bool ZigLLVMTargetMachineEmitToFile(LLVMTargetMachineRef targ_machi
         WriteBitcodeToFile(llvm_module, *dest_bitcode);
     }
 
-    if (options->time_report) {
-        TimerGroup::printAll(errs());
+    // This must only happen once we know we've succeeded and will be returning `false`, because
+    // this code `malloc`s memory which will become owned by the caller (in Zig code).
+    if (options->time_report_out != nullptr) {
+        std::string out_str;
+        auto os = raw_string_ostream(out_str);
+        TimerGroup::printAll(os);
+        TimerGroup::clearAll();
+        auto c_str = (char *)malloc(out_str.length() + 1);
+        strcpy(c_str, out_str.c_str());
+        *options->time_report_out = c_str;
     }
-
     return false;
 }
 
@@ -484,20 +507,22 @@ bool ZigLLVMWriteImportLibrary(const char *def_path, unsigned int coff_machine,
         }
     }
 
-    if (machine == COFF::IMAGE_FILE_MACHINE_I386 && kill_at) {
+    if (kill_at) {
         for (object::COFFShortExport& E : def->Exports) {
             if (!E.ImportName.empty() || (!E.Name.empty() && E.Name[0] == '?'))
                 continue;
-            E.SymbolName = E.Name;
+            if (machine == COFF::IMAGE_FILE_MACHINE_I386) {
+                // By making sure E.SymbolName != E.Name for decorated symbols,
+                // writeImportLibrary writes these symbols with the type
+                // IMPORT_NAME_UNDECORATE.
+                E.SymbolName = E.Name;
+            }
             // Trim off the trailing decoration. Symbols will always have a
             // starting prefix here (either _ for cdecl/stdcall, @ for fastcall
             // or ? for C++ functions). Vectorcall functions won't have any
             // fixed prefix, but the function base name will still be at least
             // one char.
             E.Name = E.Name.substr(0, E.Name.find('@', 1));
-            // By making sure E.SymbolName != E.Name for decorated symbols,
-            // writeImportLibrary writes these symbols with the type
-            // IMPORT_NAME_UNDECORATE.
         }
     }
 

@@ -22,7 +22,7 @@ const Config = struct {
 
 pub fn addCase(self: *StackTrace, config: Config) void {
     self.addCaseInner(config, true);
-    if (shouldTestNonLlvm(self.b.graph.host.result)) {
+    if (shouldTestNonLlvm(&self.b.graph.host.result)) {
         self.addCaseInner(config, false);
     }
 }
@@ -41,7 +41,7 @@ fn addCaseInner(self: *StackTrace, config: Config, use_llvm: bool) void {
         self.addExpect(config.name, config.source, .ReleaseSafe, use_llvm, per_mode);
 }
 
-fn shouldTestNonLlvm(target: std.Target) bool {
+fn shouldTestNonLlvm(target: *const std.Target) bool {
     return switch (target.cpu.arch) {
         .x86_64 => switch (target.ofmt) {
             .elf => true,

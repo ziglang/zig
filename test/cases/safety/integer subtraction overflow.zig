@@ -18,4 +18,4 @@ fn sub(a: u16, b: u16) u16 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

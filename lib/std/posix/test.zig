@@ -4,7 +4,6 @@ const testing = std.testing;
 const expect = testing.expect;
 const expectEqual = testing.expectEqual;
 const expectError = testing.expectError;
-const io = std.io;
 const fs = std.fs;
 const mem = std.mem;
 const elf = std.elf;
@@ -395,11 +394,27 @@ test "fstatat" {
     // now repeat but using `fstatat` instead
     const statat = try posix.fstatat(tmp.dir.fd, "file.txt", posix.AT.SYMLINK_NOFOLLOW);
 
-    // s390x-linux does not have nanosecond precision for fstat(), but it does for fstatat(). As a
-    // result, comparing the two structures is doomed to fail.
-    if (builtin.cpu.arch == .s390x and builtin.os.tag == .linux) return error.SkipZigTest;
+    try expectEqual(stat.dev, statat.dev);
+    try expectEqual(stat.ino, statat.ino);
+    try expectEqual(stat.nlink, statat.nlink);
+    try expectEqual(stat.mode, statat.mode);
+    try expectEqual(stat.uid, statat.uid);
+    try expectEqual(stat.gid, statat.gid);
+    try expectEqual(stat.rdev, statat.rdev);
+    try expectEqual(stat.size, statat.size);
+    try expectEqual(stat.blksize, statat.blksize);
 
-    try expectEqual(stat, statat);
+    // The stat.blocks/statat.blocks count is managed by the filesystem and may
+    // change if the file is stored in a journal or "inline".
+    // try expectEqual(stat.blocks, statat.blocks);
+
+    // s390x-linux does not have nanosecond precision for fstat(), but it does for
+    // fstatat(). As a result, comparing the timestamps isn't worth the effort
+    if (!(builtin.cpu.arch == .s390x and builtin.os.tag == .linux)) {
+        try expectEqual(stat.atime(), statat.atime());
+        try expectEqual(stat.mtime(), statat.mtime());
+        try expectEqual(stat.ctime(), statat.ctime());
+    }
 }
 
 test "readlinkat" {
@@ -659,19 +674,19 @@ test "mmap" {
     }
 
     const test_out_file = "os_tmp_test";
-    // Must be a multiple of 4096 so that the test works with mmap2
-    const alloc_size = 8 * 4096;
+    // Must be a multiple of the page size so that the test works with mmap2
+    const alloc_size = 8 * std.heap.pageSize();
 
     // Create a file used for testing mmap() calls with a file descriptor
     {
         const file = try tmp.dir.createFile(test_out_file, .{});
         defer file.close();
 
-        const stream = file.writer();
+        var stream = file.writer(&.{});
 
-        var i: u32 = 0;
+        var i: usize = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try stream.writeInt(u32, i, .little);
+            try stream.interface.writeInt(u32, @intCast(i), .little);
         }
     }
 
@@ -690,12 +705,11 @@ test "mmap" {
         );
         defer posix.munmap(data);
 
-        var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.reader();
+        var stream: std.Io.Reader = .fixed(data);
 
-        var i: u32 = 0;
+        var i: usize = 0;
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readInt(u32, .little));
+            try testing.expectEqual(i, try stream.takeInt(u32, .little));
         }
     }
 
@@ -714,12 +728,11 @@ test "mmap" {
         );
         defer posix.munmap(data);
 
-        var mem_stream = io.fixedBufferStream(data);
-        const stream = mem_stream.reader();
+        var stream: std.Io.Reader = .fixed(data);
 
-        var i: u32 = alloc_size / 2 / @sizeOf(u32);
+        var i: usize = alloc_size / 2 / @sizeOf(u32);
         while (i < alloc_size / @sizeOf(u32)) : (i += 1) {
-            try testing.expectEqual(i, try stream.readInt(u32, .little));
+            try testing.expectEqual(i, try stream.takeInt(u32, .little));
         }
     }
 }
@@ -1001,6 +1014,11 @@ test "sigset_t bits" {
     if (native_os == .wasi or native_os == .windows)
         return error.SkipZigTest;
 
+    if (true) {
+        // https://github.com/ziglang/zig/issues/24380
+        return error.SkipZigTest;
+    }
+
     const S = struct {
         var expected_sig: i32 = undefined;
         var handler_called_count: u32 = 0;
@@ -1161,7 +1179,7 @@ test "POSIX file locking with fcntl" {
         posix.exit(0);
     } else {
         // parent waits for child to get shared lock:
-        std.time.sleep(1 * std.time.ns_per_ms);
+        std.Thread.sleep(1 * std.time.ns_per_ms);
         // parent expects deadlock when attempting to upgrade the shared lock to exclusive:
         struct_flock.start = 1;
         struct_flock.type = posix.F.WRLCK;

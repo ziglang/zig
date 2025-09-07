@@ -166,6 +166,8 @@ pub fn ValidationAllocator(comptime T: type) type {
     };
 }
 
+/// Wraps an allocator with basic validation checks.
+/// Asserts that allocation sizes are greater than zero and returned pointers have correct alignment.
 pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)) {
     return ValidationAllocator(@TypeOf(allocator)).init(allocator);
 }
@@ -597,6 +599,12 @@ test zeroInit {
     }, nested_baz);
 }
 
+/// Sorts a slice in-place using a stable algorithm (maintains relative order of equal elements).
+/// Average time complexity: O(n log n), worst case: O(n log n)
+/// Space complexity: O(log n) for recursive calls
+///
+/// For slice of primitives with default ordering, consider using `std.sort.block` directly.
+/// For unstable but potentially faster sorting, see `sortUnstable`.
 pub fn sort(
     comptime T: type,
     items: []T,
@@ -606,6 +614,12 @@ pub fn sort(
     std.sort.block(T, items, context, lessThanFn);
 }
 
+/// Sorts a slice in-place using an unstable algorithm (does not preserve relative order of equal elements).
+/// Time complexity: O(n) best case, O(n log n) worst case and average case.
+/// Generally faster than stable sort but order of equal elements is undefined.
+///
+/// Uses pattern-defeating quicksort (PDQ) algorithm which performs well on many data patterns.
+/// For stable sorting that preserves equal element order, use `sort`.
 pub fn sortUnstable(
     comptime T: type,
     items: []T,
@@ -621,6 +635,12 @@ pub fn sortContext(a: usize, b: usize, context: anytype) void {
     std.sort.insertionContext(a, b, context);
 }
 
+/// Sorts a range [a, b) using an unstable algorithm with custom context.
+/// This is a lower-level interface for sorting that works with indices instead of slices.
+/// Does not preserve relative order of equal elements.
+///
+/// The context must provide lessThan(a_idx, b_idx) and swap(a_idx, b_idx) methods.
+/// Uses pattern-defeating quicksort (PDQ) algorithm.
 pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
     std.sort.pdqContext(a, b, context);
 }
@@ -674,23 +694,25 @@ test lessThan {
     try testing.expect(lessThan(u8, "", "a"));
 }
 
-const eqlBytes_allowed = switch (builtin.zig_backend) {
+const use_vectors = switch (builtin.zig_backend) {
     // These backends don't support vectors yet.
+    .stage2_aarch64,
     .stage2_powerpc,
     .stage2_riscv64,
     => false,
     // The SPIR-V backend does not support the optimized path yet.
-    .stage2_spirv64 => false,
-    // The naive memory comparison implementation is more useful for fuzzers to
-    // find interesting inputs.
-    else => !builtin.fuzz,
+    .stage2_spirv => false,
+    else => true,
 };
+
+// The naive memory comparison implementation is more useful for fuzzers to find interesting inputs.
+const use_vectors_for_comparison = use_vectors and !builtin.fuzz;
 
 /// Returns true if and only if the slices have the same length and all elements
 /// compare true using equality operator.
 pub fn eql(comptime T: type, a: []const T, b: []const T) bool {
     if (!@inComptime() and @sizeOf(T) != 0 and std.meta.hasUniqueRepresentation(T) and
-        eqlBytes_allowed)
+        use_vectors_for_comparison)
     {
         return eqlBytes(sliceAsBytes(a), sliceAsBytes(b));
     }
@@ -725,7 +747,7 @@ test eql {
 
 /// std.mem.eql heavily optimized for slices of bytes.
 fn eqlBytes(a: []const u8, b: []const u8) bool {
-    comptime assert(eqlBytes_allowed);
+    comptime assert(use_vectors_for_comparison);
 
     if (a.len != b.len) return false;
     if (a.len == 0 or a.ptr == b.ptr) return true;
@@ -1087,15 +1109,12 @@ test len {
     try testing.expect(len(c_ptr) == 2);
 }
 
-const backend_supports_vectors = switch (builtin.zig_backend) {
-    .stage2_llvm, .stage2_c => true,
-    else => false,
-};
-
+/// Returns the index of the sentinel value in a sentinel-terminated pointer.
+/// Linear search through memory until the sentinel is found.
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
 
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -1258,11 +1277,13 @@ pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return null;
 }
 
+/// Linear search for the index of a scalar value inside a slice, starting from a given position.
+/// Returns null if the value is not found.
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     if (start_index >= slice.len) return null;
 
     var i: usize = start_index;
-    if (backend_supports_vectors and
+    if (use_vectors_for_comparison and
         !std.debug.inValgrind() and // https://github.com/ziglang/zig/issues/17717
         !@inComptime() and
         (@typeInfo(T) == .int or @typeInfo(T) == .float) and std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -1334,10 +1355,14 @@ test indexOfScalarPos {
     }
 }
 
+/// Linear search for the index of any value in the provided list inside a slice.
+/// Returns null if no values are found.
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
     return indexOfAnyPos(T, slice, 0, values);
 }
 
+/// Linear search for the last index of any value in the provided list inside a slice.
+/// Returns null if no values are found.
 pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
     var i: usize = slice.len;
     while (i != 0) {
@@ -1349,6 +1374,8 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
     return null;
 }
 
+/// Linear search for the index of any value in the provided list inside a slice, starting from a given position.
+/// Returns null if no values are found.
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     if (start_index >= slice.len) return null;
     for (slice[start_index..], start_index..) |c, i| {
@@ -1407,6 +1434,9 @@ test indexOfNone {
     try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
+/// Search for needle in haystack and return the index of the first occurrence.
+/// Uses Boyer-Moore-Horspool algorithm on large inputs; linear search on small inputs.
+/// Returns null if needle is not found.
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
@@ -1714,7 +1744,7 @@ pub fn readVarInt(comptime ReturnType: type, bytes: []const u8, endian: Endian) 
             }
         },
     }
-    return @as(ReturnType, @truncate(result));
+    return @truncate(result);
 }
 
 test readVarInt {
@@ -2150,7 +2180,7 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                     } else {
                         byteSwapAllFields(f.type, &@field(ptr, f.name));
                     },
-                    .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
+                    .@"union", .array => byteSwapAllFields(f.type, &@field(ptr, f.name)),
                     .@"enum" => {
                         @field(ptr, f.name) = @enumFromInt(@byteSwap(@intFromEnum(@field(ptr, f.name))));
                     },
@@ -2164,24 +2194,27 @@ pub fn byteSwapAllFields(comptime S: type, ptr: *S) void {
                 }
             }
         },
-        .array => {
-            for (ptr) |*item| {
-                switch (@typeInfo(@TypeOf(item.*))) {
-                    .@"struct", .array => byteSwapAllFields(@TypeOf(item.*), item),
-                    .@"enum" => {
-                        item.* = @enumFromInt(@byteSwap(@intFromEnum(item.*)));
-                    },
-                    .bool => {},
-                    .float => |float_info| {
-                        item.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(item.*))));
-                    },
-                    else => {
-                        item.* = @byteSwap(item.*);
-                    },
+        .@"union" => |union_info| {
+            if (union_info.tag_type != null) {
+                @compileError("byteSwapAllFields expects an untagged union");
+            }
+
+            const first_size = @bitSizeOf(union_info.fields[0].type);
+            inline for (union_info.fields) |field| {
+                if (@bitSizeOf(field.type) != first_size) {
+                    @compileError("Unable to byte-swap unions with varying field sizes");
                 }
             }
+
+            const BackingInt = std.meta.Int(.unsigned, @bitSizeOf(S));
+            ptr.* = @bitCast(@byteSwap(@as(BackingInt, @bitCast(ptr.*))));
         },
-        else => @compileError("byteSwapAllFields expects a struct or array as the first argument"),
+        .array => |info| {
+            byteSwapAllElements(info.child, ptr);
+        },
+        else => {
+            ptr.* = @byteSwap(ptr.*);
+        },
     }
 }
 
@@ -2193,6 +2226,7 @@ test byteSwapAllFields {
         f3: [1]u8,
         f4: bool,
         f5: f32,
+        f6: extern union { f0: u16, f1: u16 },
     };
     const K = extern struct {
         f0: u8,
@@ -2209,6 +2243,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x4640e400))),
+        .f6 = .{ .f0 = 0x1234 },
     };
     var k = K{
         .f0 = 0x12,
@@ -2227,6 +2262,7 @@ test byteSwapAllFields {
         .f3 = .{0x12},
         .f4 = true,
         .f5 = @as(f32, @bitCast(@as(u32, 0x00e44046))),
+        .f6 = .{ .f0 = 0x3412 },
     }, s);
     try std.testing.expectEqual(K{
         .f0 = 0x12,
@@ -2238,7 +2274,26 @@ test byteSwapAllFields {
     }, k);
 }
 
-pub const tokenize = @compileError("deprecated; use tokenizeAny, tokenizeSequence, or tokenizeScalar");
+/// Reverses the byte order of all elements in a slice.
+/// Handles structs, unions, arrays, enums, floats, and integers recursively.
+/// Useful for converting between little-endian and big-endian representations.
+pub fn byteSwapAllElements(comptime Elem: type, slice: []Elem) void {
+    for (slice) |*elem| {
+        switch (@typeInfo(@TypeOf(elem.*))) {
+            .@"struct", .@"union", .array => byteSwapAllFields(@TypeOf(elem.*), elem),
+            .@"enum" => {
+                elem.* = @enumFromInt(@byteSwap(@intFromEnum(elem.*)));
+            },
+            .bool => {},
+            .float => |float_info| {
+                elem.* = @bitCast(@byteSwap(@as(std.meta.Int(.unsigned, float_info.bits), @bitCast(elem.*))));
+            },
+            else => {
+                elem.* = @byteSwap(elem.*);
+            },
+        }
+    }
+}
 
 /// Returns an iterator that iterates over the slices of `buffer` that are not
 /// any of the items in `delimiters`.
@@ -2438,8 +2493,6 @@ test "tokenize (reset)" {
     }
 }
 
-pub const split = @compileError("deprecated; use splitSequence, splitAny, or splitScalar");
-
 /// Returns an iterator that iterates over the slices of `buffer` that
 /// are separated by the byte sequence in `delimiter`.
 ///
@@ -2638,8 +2691,6 @@ test "split (reset)" {
         try testing.expect(it.next() == null);
     }
 }
-
-pub const splitBackwards = @compileError("deprecated; use splitBackwardsSequence, splitBackwardsAny, or splitBackwardsScalar");
 
 /// Returns an iterator that iterates backwards over the slices of `buffer` that
 /// are separated by the sequence in `delimiter`.
@@ -2965,6 +3016,7 @@ test window {
     }
 }
 
+/// Iterator type returned by the `window` function for sliding window operations.
 pub fn WindowIterator(comptime T: type) type {
     return struct {
         buffer: []const T,
@@ -3005,6 +3057,8 @@ pub fn WindowIterator(comptime T: type) type {
     };
 }
 
+/// Returns true if haystack starts with needle.
+/// Time complexity: O(needle.len)
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
@@ -3014,6 +3068,8 @@ test startsWith {
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
 
+/// Returns true if haystack ends with needle.
+/// Time complexity: O(needle.len)
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
@@ -3023,8 +3079,10 @@ test endsWith {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
+/// Delimiter type for tokenization and splitting operations.
 pub const DelimiterType = enum { sequence, any, scalar };
 
+/// Iterator type for tokenization operations, skipping empty sequences and delimiter sequences.
 pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3098,6 +3156,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
     };
 }
 
+/// Iterator type for splitting operations, including empty sequences between delimiters.
 pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3163,6 +3222,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
     };
 }
 
+/// Iterator type for splitting operations from the end backwards, including empty sequences.
 pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3572,6 +3632,7 @@ test indexOfMinMax {
     try testing.expectEqual(.{ 0, 0 }, indexOfMinMax(u8, "a"));
 }
 
+/// Exchanges contents of two memory locations.
 pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
@@ -3590,7 +3651,7 @@ inline fn reverseVector(comptime N: usize, comptime T: type, a: []T) [N]T {
 pub fn reverse(comptime T: type, items: []T) void {
     var i: usize = 0;
     const end = items.len / 2;
-    if (backend_supports_vectors and
+    if (use_vectors and
         !@inComptime() and
         @bitSizeOf(T) > 0 and
         std.math.isPowerOfTwo(@bitSizeOf(T)))
@@ -4437,6 +4498,9 @@ pub fn alignForward(comptime T: type, addr: T, alignment: T) T {
     return alignBackward(T, addr + (alignment - 1), alignment);
 }
 
+/// Rounds an address up to the next alignment boundary using log2 representation.
+/// Equivalent to alignForward with alignment = 1 << log2_alignment.
+/// More efficient when alignment is known to be a power of 2.
 pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     const alignment = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(log2_alignment));
     return alignForward(usize, addr, alignment);
@@ -4464,7 +4528,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
                 );
                 asm volatile (""
                     :
-                    : [val2] "r" (val2),
+                    : [_] "r" (val2),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4472,7 +4536,7 @@ pub fn doNotOptimizeAway(val: anytype) void {
             if ((t.float.bits == 32 or t.float.bits == 64) and builtin.zig_backend != .stage2_c) {
                 asm volatile (""
                     :
-                    : [val] "rm" (val),
+                    : [_] "rm" (val),
                 );
             } else doNotOptimizeAway(&val);
         },
@@ -4482,9 +4546,8 @@ pub fn doNotOptimizeAway(val: anytype) void {
             } else {
                 asm volatile (""
                     :
-                    : [val] "m" (val),
-                    : "memory"
-                );
+                    : [_] "m" (val),
+                    : .{ .memory = true });
             }
         },
         .array => {
@@ -4577,6 +4640,9 @@ pub fn isValidAlignGeneric(comptime T: type, alignment: T) bool {
     return alignment > 0 and std.math.isPowerOfTwo(alignment);
 }
 
+/// Returns true if i is aligned to the given alignment.
+/// Works with any positive alignment value, not just powers of 2.
+/// For power-of-2 alignments, `isAligned` is more efficient.
 pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
     if (isValidAlign(alignment))
         return isAligned(i, alignment);
@@ -4584,6 +4650,9 @@ pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
     return 0 == @mod(i, alignment);
 }
 
+/// Returns true if addr is aligned to 2^log2_alignment.
+/// More efficient than `isAligned` when alignment is known to be a power of 2.
+/// log2_alignment must be < @bitSizeOf(usize).
 pub fn isAlignedLog2(addr: usize, log2_alignment: u8) bool {
     return @ctz(addr) >= log2_alignment;
 }
@@ -4594,6 +4663,9 @@ pub fn isAligned(addr: usize, alignment: usize) bool {
     return isAlignedGeneric(u64, addr, alignment);
 }
 
+/// Generic version of `isAligned` that works with any integer type.
+/// Returns true if addr is aligned to the given alignment.
+/// Alignment must be a power of 2 and greater than 0.
 pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
     return alignBackward(T, addr, alignment) == addr;
 }

@@ -491,7 +491,7 @@
    or without -D_GNU_SOURCE, but -std=c89 -D_GNU_SOURCE will have the
    old extension.  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ < 7)
-/* support for ISOC99 was added in glibc-2.7 */
+/* zig patch: support for ISOC99 was added in glibc-2.7 */
 # define __GLIBC_USE_DEPRECATED_SCANF 1
 #elif (defined __USE_GNU							\
      && (defined __cplusplus						\
@@ -503,7 +503,7 @@
 #endif
 
 
-/* support for ISO C2X strtol was added in 2.38
+/* zig patch: support for ISO C2X strtol was added in 2.38
  * glibc commit 64924422a99690d147a166b4de3103f3bf3eaf6c
  */
 #if (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 38) || __GLIBC__ > 2

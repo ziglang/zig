@@ -41,7 +41,7 @@ pub const TokenWithExpansionLocs = struct {
 
     pub fn addExpansionLocation(tok: *TokenWithExpansionLocs, gpa: std.mem.Allocator, new: []const Source.Location) !void {
         if (new.len == 0 or tok.id == .whitespace or tok.id == .macro_ws or tok.id == .placemarker) return;
-        var list = std.ArrayList(Source.Location).init(gpa);
+        var list = std.array_list.Managed(Source.Location).init(gpa);
         defer {
             @memset(list.items.ptr[list.items.len..list.capacity], .{});
             // Add a sentinel to indicate the end of the list since
@@ -800,7 +800,7 @@ pub fn nodeLoc(tree: *const Tree, node: NodeIndex) ?Source.Location {
     return tree.tokens.items(.loc)[@intFromEnum(tok_i)];
 }
 
-pub fn dump(tree: *const Tree, config: std.io.tty.Config, writer: anytype) !void {
+pub fn dump(tree: *const Tree, config: std.Io.tty.Config, writer: anytype) !void {
     const mapper = tree.comp.string_interner.getFastTypeMapper(tree.comp.gpa) catch tree.comp.string_interner.getSlowTypeMapper();
     defer mapper.deinit(tree.comp.gpa);
 
@@ -855,17 +855,17 @@ fn dumpNode(
     node: NodeIndex,
     level: u32,
     mapper: StringInterner.TypeMapper,
-    config: std.io.tty.Config,
+    config: std.Io.tty.Config,
     w: anytype,
 ) !void {
     const delta = 2;
     const half = delta / 2;
-    const TYPE = std.io.tty.Color.bright_magenta;
-    const TAG = std.io.tty.Color.bright_cyan;
-    const IMPLICIT = std.io.tty.Color.bright_blue;
-    const NAME = std.io.tty.Color.bright_red;
-    const LITERAL = std.io.tty.Color.bright_green;
-    const ATTRIBUTE = std.io.tty.Color.bright_yellow;
+    const TYPE = std.Io.tty.Color.bright_magenta;
+    const TAG = std.Io.tty.Color.bright_cyan;
+    const IMPLICIT = std.Io.tty.Color.bright_blue;
+    const NAME = std.Io.tty.Color.bright_red;
+    const LITERAL = std.Io.tty.Color.bright_green;
+    const ATTRIBUTE = std.Io.tty.Color.bright_yellow;
     std.debug.assert(node != .none);
 
     const tag = tree.nodes.items(.tag)[@intFromEnum(node)];

@@ -1,7 +1,6 @@
 const std = @import("std");
 const builtin = @import("builtin");
 const assert = std.debug.assert;
-const io = std.io;
 const mem = std.mem;
 const meta = std.meta;
 const testing = std.testing;
@@ -1883,10 +1882,8 @@ pub const GenericBlob = extern struct {
 pub const data_in_code_entry = extern struct {
     /// From mach_header to start of data range.
     offset: u32,
-
     /// Number of bytes in data range.
     length: u16,
-
     /// A DICE_KIND value.
     kind: u16,
 };

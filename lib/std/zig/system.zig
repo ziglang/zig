@@ -28,7 +28,7 @@ pub const GetExternalExecutorOptions = struct {
 /// Return whether or not the given host is capable of running executables of
 /// the other target.
 pub fn getExternalExecutor(
-    host: std.Target,
+    host: *const std.Target,
     candidate: *const std.Target,
     options: GetExternalExecutorOptions,
 ) Executor {
@@ -109,7 +109,7 @@ pub fn getExternalExecutor(
             .riscv64 => Executor{ .qemu = "qemu-riscv64" },
             .s390x => Executor{ .qemu = "qemu-s390x" },
             .sparc => Executor{
-                .qemu = if (candidate.cpu.has(.sparc, .v9))
+                .qemu = if (candidate.cpu.has(.sparc, .v8plus))
                     "qemu-sparc32plus"
                 else
                     "qemu-sparc",
@@ -228,7 +228,6 @@ pub fn resolveTargetQuery(query: Target.Query) DetectError!Target {
                 var len: usize = @sizeOf(@TypeOf(value));
 
                 posix.sysctlbynameZ(key, &value, &len, null, 0) catch |err| switch (err) {
-                    error.NameTooLong => unreachable, // constant, known good value
                     error.PermissionDenied => unreachable, // only when setting values,
                     error.SystemResources => unreachable, // memory already on the stack
                     error.UnknownName => unreachable, // constant, known good value

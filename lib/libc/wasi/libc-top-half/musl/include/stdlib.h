@@ -108,7 +108,7 @@ size_t __ctype_get_mb_cur_max(void);
 #define WTERMSIG(s) ((s) & 0x7f)
 #define WSTOPSIG(s) WEXITSTATUS(s)
 #define WIFEXITED(s) (!WTERMSIG(s))
-#define WIFSTOPPED(s) ((short)((((s)&0xffff)*0x10001)>>8) > 0x7f00)
+#define WIFSTOPPED(s) ((short)((((s)&0xffff)*0x10001U)>>8) > 0x7f00)
 #define WIFSIGNALED(s) (((s)&0xffff)-1U < 0xffu)
 #endif
 
@@ -190,7 +190,7 @@ long double strtold_l(const char *__restrict, char **__restrict, struct __locale
 #endif
 
 #ifdef __wasilibc_unmodified_upstream /* WASI has no temp directories */
-#if defined(_LARGEFILE64_SOURCE) || defined(_GNU_SOURCE)
+#if defined(_LARGEFILE64_SOURCE)
 #define mkstemp64 mkstemp
 #define mkostemp64 mkostemp
 #if defined(_GNU_SOURCE) || defined(_BSD_SOURCE)

@@ -17,11 +17,15 @@ const Rex = encoder.Rex;
 
 pub const Error = error{
     EndOfStream,
+    /// After the TODO below is solved this will make sense.
+    ReadFailed,
     LegacyPrefixAfterRex,
     UnknownOpcode,
     Overflow,
     Todo,
 };
+
+// TODO these fields should be replaced by std.Io.Reader
 
 code: []const u8,
 pos: usize = 0,
@@ -283,13 +287,12 @@ const Prefixes = struct {
 
 fn parsePrefixes(dis: *Disassembler) !Prefixes {
     const rex_prefix_mask: u4 = 0b0100;
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
+    var reader: std.Io.Reader = .fixed(dis.code[dis.pos..]);
 
     var res: Prefixes = .{};
 
     while (true) {
-        const next_byte = try reader.readByte();
+        const next_byte = try reader.takeByte();
         dis.pos += 1;
 
         switch (next_byte) {
@@ -337,12 +340,11 @@ fn parseEncoding(dis: *Disassembler, prefixes: Prefixes) !?Encoding {
     const o_mask: u8 = 0b1111_1000;
 
     var opcode: [3]u8 = .{ 0, 0, 0 };
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
+    var reader: std.Io.Reader = .fixed(dis.code[dis.pos..]);
 
     comptime var opc_count = 0;
     inline while (opc_count < 3) : (opc_count += 1) {
-        const byte = try reader.readByte();
+        const byte = try reader.takeByte();
         opcode[opc_count] = byte;
         dis.pos += 1;
 
@@ -388,29 +390,29 @@ fn parseGpRegister(low_enc: u3, is_extended: bool, rex: Rex, bit_size: u64) Regi
 }
 
 fn parseImm(dis: *Disassembler, kind: Encoding.Op) !Immediate {
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    var creader = std.io.countingReader(stream.reader());
-    const reader = creader.reader();
+    var reader: std.Io.Reader = .fixed(dis.code);
+    reader.seek = dis.pos;
+    defer dis.pos = reader.seek;
+
     const imm = switch (kind) {
-        .imm8s, .rel8 => Immediate.s(try reader.readInt(i8, .little)),
-        .imm16s, .rel16 => Immediate.s(try reader.readInt(i16, .little)),
-        .imm32s, .rel32 => Immediate.s(try reader.readInt(i32, .little)),
-        .imm8 => Immediate.u(try reader.readInt(u8, .little)),
-        .imm16 => Immediate.u(try reader.readInt(u16, .little)),
-        .imm32 => Immediate.u(try reader.readInt(u32, .little)),
-        .imm64 => Immediate.u(try reader.readInt(u64, .little)),
+        .imm8s, .rel8 => Immediate.s(try reader.takeInt(i8, .little)),
+        .imm16s, .rel16 => Immediate.s(try reader.takeInt(i16, .little)),
+        .imm32s, .rel32 => Immediate.s(try reader.takeInt(i32, .little)),
+        .imm8 => Immediate.u(try reader.takeInt(u8, .little)),
+        .imm16 => Immediate.u(try reader.takeInt(u16, .little)),
+        .imm32 => Immediate.u(try reader.takeInt(u32, .little)),
+        .imm64 => Immediate.u(try reader.takeInt(u64, .little)),
         else => unreachable,
     };
-    dis.pos += std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
     return imm;
 }
 
 fn parseOffset(dis: *Disassembler) !u64 {
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    const reader = stream.reader();
-    const offset = try reader.readInt(u64, .little);
-    dis.pos += 8;
-    return offset;
+    var reader: std.Io.Reader = .fixed(dis.code);
+    reader.seek = dis.pos;
+    defer dis.pos = reader.seek;
+
+    return reader.takeInt(u64, .little);
 }
 
 const ModRm = packed struct {
@@ -483,25 +485,25 @@ fn parseSibByte(dis: *Disassembler) !Sib {
 }
 
 fn parseDisplacement(dis: *Disassembler, modrm: ModRm, sib: ?Sib) !i32 {
-    var stream = std.io.fixedBufferStream(dis.code[dis.pos..]);
-    var creader = std.io.countingReader(stream.reader());
-    const reader = creader.reader();
+    var reader: std.Io.Reader = .fixed(dis.code);
+    reader.seek = dis.pos;
+    defer dis.pos = reader.seek;
+
     const disp = disp: {
         if (sib) |info| {
             if (info.base == 0b101 and modrm.mod == 0) {
-                break :disp try reader.readInt(i32, .little);
+                break :disp try reader.takeInt(i32, .little);
             }
         }
         if (modrm.rip()) {
-            break :disp try reader.readInt(i32, .little);
+            break :disp try reader.takeInt(i32, .little);
         }
         break :disp switch (modrm.mod) {
             0b00 => 0,
-            0b01 => try reader.readInt(i8, .little),
-            0b10 => try reader.readInt(i32, .little),
+            0b01 => try reader.takeInt(i8, .little),
+            0b10 => try reader.takeInt(i32, .little),
             0b11 => unreachable,
         };
     };
-    dis.pos += std.math.cast(usize, creader.bytes_read) orelse return error.Overflow;
     return disp;
 }

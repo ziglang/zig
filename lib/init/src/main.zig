@@ -1,16 +1,17 @@
 const std = @import("std");
-const _LITNAME = @import(".NAME");
+const _NAME = @import(".NAME");
 
 pub fn main() !void {
     // Prints to stderr, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try .NAME.advancedPrint();
+    try _NAME.bufferedPrint();
 }
 
 test "simple test" {
-    var list = std.ArrayList(i32).init(std.testing.allocator);
-    defer list.deinit(); // Try commenting this out and see if zig detects the memory leak!
-    try list.append(42);
+    const gpa = std.testing.allocator;
+    var list: std.ArrayList(i32) = .empty;
+    defer list.deinit(gpa); // Try commenting this out and see if zig detects the memory leak!
+    try list.append(gpa, 42);
     try std.testing.expectEqual(@as(i32, 42), list.pop());
 }
 

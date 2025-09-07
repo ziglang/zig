@@ -10,7 +10,7 @@ const trace = @import("../tracy.zig").trace;
 
 pub const BuildError = error{
     OutOfMemory,
-    SubCompilationFailed,
+    AlreadyReported,
     ZigCompilerNotBuiltWithLLVMExtensions,
 };
 
@@ -27,11 +27,11 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
     const arena = arena_allocator.allocator();
 
     const output_mode = .Lib;
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
     const unwind_tables: std.builtin.UnwindTables =
-        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .@"async";
+        if (target.cpu.arch == .x86 and target.os.tag == .windows) .none else .async;
     const config = Compilation.Config.resolve(.{
-        .output_mode = .Lib,
+        .output_mode = output_mode,
         .resolved_target = comp.root_mod.resolved_target,
         .is_test = false,
         .have_zcu = false,
@@ -42,12 +42,12 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .any_unwind_tables = unwind_tables != .none,
         .lto = comp.config.lto,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libunwind,
             "unable to build libunwind: resolving configuration failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
     const root_mod = Module.create(arena, .{
         .paths = .{
@@ -76,29 +76,18 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .cc_argv = &.{},
         .parent = null,
     }) catch |err| {
-        comp.setMiscFailure(
+        comp.lockAndSetMiscFailure(
             .libunwind,
             "unable to build libunwind: creating module failed: {s}",
             .{@errorName(err)},
         );
-        return error.SubCompilationFailed;
+        return error.AlreadyReported;
     };
 
     const root_name = "unwind";
-    const link_mode = .static;
-    const basename = try std.zig.binNameAlloc(arena, .{
-        .root_name = root_name,
-        .target = target,
-        .output_mode = output_mode,
-        .link_mode = link_mode,
-    });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = null, // Put it in the cache directory.
-        .basename = basename,
-    };
     var c_source_files: [unwind_src_list.len]Compilation.CSourceFile = undefined;
     for (unwind_src_list, 0..) |unwind_src, i| {
-        var cflags = std.ArrayList([]const u8).init(arena);
+        var cflags = std.array_list.Managed([]const u8).init(arena);
 
         switch (Compilation.classifyFileExt(unwind_src)) {
             .c => {
@@ -150,7 +139,11 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
             .owner = root_mod,
         };
     }
-    const sub_compilation = Compilation.create(comp.gpa, arena, .{
+
+    const misc_task: Compilation.MiscTask = .libunwind;
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .self_exe_path = comp.self_exe_path,
         .config = config,
@@ -160,7 +153,7 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .main_mod = null,
         .thread_pool = comp.thread_pool,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
+        .emit_bin = .yes_cache,
         .function_sections = comp.function_sections,
         .c_source_files = &c_source_files,
         .verbose_cc = comp.verbose_cc,
@@ -173,29 +166,24 @@ pub fn buildStaticLib(comp: *Compilation, prog_node: std.Progress.Node) BuildErr
         .clang_passthrough_mode = comp.clang_passthrough_mode,
         .skip_linker_dependencies = true,
     }) catch |err| {
-        comp.setMiscFailure(
-            .libunwind,
-            "unable to build libunwind: create compilation failed: {s}",
-            .{@errorName(err)},
-        );
-        return error.SubCompilationFailed;
+        switch (err) {
+            else => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {t}", .{ misc_task, err }),
+            error.CreateFail => comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: create compilation failed: {f}", .{ misc_task, sub_create_diag }),
+        }
+        return error.AlreadyReported;
     };
     defer sub_compilation.destroy();
 
-    comp.updateSubCompilation(sub_compilation, .libunwind, prog_node) catch |err| switch (err) {
-        error.SubCompilationFailed => return error.SubCompilationFailed,
+    comp.updateSubCompilation(sub_compilation, misc_task, prog_node) catch |err| switch (err) {
+        error.AlreadyReported => return error.AlreadyReported,
         else => |e| {
-            comp.setMiscFailure(
-                .libunwind,
-                "unable to build libunwind: compilation failed: {s}",
-                .{@errorName(e)},
-            );
-            return error.SubCompilationFailed;
+            comp.lockAndSetMiscFailure(misc_task, "unable to build {t}: compilation failed: {s}", .{ misc_task, @errorName(e) });
+            return error.AlreadyReported;
         },
     };
 
     const crt_file = try sub_compilation.toCrtFile();
-    comp.queueLinkTaskMode(crt_file.full_object_path, &config);
+    comp.queuePrelinkTaskMode(crt_file.full_object_path, &config);
     assert(comp.libunwind_static_lib == null);
     comp.libunwind_static_lib = crt_file;
 }

@@ -353,11 +353,10 @@ fn declVisitor(c: *Context, decl: *const clang.Decl) Error!void {
 }
 
 fn transFileScopeAsm(c: *Context, scope: *Scope, file_scope_asm: *const clang.FileScopeAsmDecl) Error!void {
-    const asm_string = file_scope_asm.getAsmString();
-    var len: usize = undefined;
-    const bytes_ptr = asm_string.getString_bytes_begin_size(&len);
+    const asm_string = std.mem.span(file_scope_asm.getAsmString());
+    defer clang.FileScopeAsmDecl.freeAsmString(asm_string.ptr);
 
-    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(asm_string)});
     const str_node = try Tag.string_literal.create(c.arena, str);
 
     const asm_node = try Tag.asm_simple.create(c.arena, str_node);
@@ -924,10 +923,10 @@ fn transRecordDecl(c: *Context, scope: *Scope, record_decl: *const clang.RecordD
             break :blk Tag.opaque_literal.init();
         };
 
-        var fields = std.ArrayList(ast.Payload.Record.Field).init(c.gpa);
+        var fields = std.array_list.Managed(ast.Payload.Record.Field).init(c.gpa);
         defer fields.deinit();
 
-        var functions = std.ArrayList(Node).init(c.gpa);
+        var functions = std.array_list.Managed(Node).init(c.gpa);
         defer functions.deinit();
 
         const flexible_field = flexibleArrayField(c, record_def);
@@ -2276,7 +2275,7 @@ fn transNarrowStringLiteral(
     var len: usize = undefined;
     const bytes_ptr = stmt.getString_bytes_begin_size(&len);
 
-    const str = try std.fmt.allocPrint(c.arena, "\"{}\"", .{std.zig.fmtEscapes(bytes_ptr[0..len])});
+    const str = try std.fmt.allocPrint(c.arena, "\"{f}\"", .{std.zig.fmtString(bytes_ptr[0..len])});
     const node = try Tag.string_literal.create(c.arena, str);
     return maybeSuppressResult(c, result_used, node);
 }
@@ -2606,7 +2605,7 @@ fn transInitListExprRecord(
 
     const ty_node = try transType(c, scope, ty, loc);
     const init_count = expr.getNumInits();
-    var field_inits = std.ArrayList(ast.Payload.ContainerInit.Initializer).init(c.gpa);
+    var field_inits = std.array_list.Managed(ast.Payload.ContainerInit.Initializer).init(c.gpa);
     defer field_inits.deinit();
 
     if (init_count == 0) {
@@ -3116,7 +3115,7 @@ fn transSwitch(
     defer cond_scope.deinit();
     const switch_expr = try transExpr(c, &cond_scope.base, stmt.getCond(), .used);
 
-    var cases = std.ArrayList(Node).init(c.gpa);
+    var cases = std.array_list.Managed(Node).init(c.gpa);
     defer cases.deinit();
     var has_default = false;
 
@@ -3130,7 +3129,7 @@ fn transSwitch(
     while (it != end_it) : (it += 1) {
         switch (it[0].getStmtClass()) {
             .CaseStmtClass => {
-                var items = std.ArrayList(Node).init(c.gpa);
+                var items = std.array_list.Managed(Node).init(c.gpa);
                 defer items.deinit();
                 const sub = try transCaseStmt(c, base_scope, it[0], &items);
                 const res = try transSwitchProngStmt(c, base_scope, sub, it, end_it);
@@ -3185,7 +3184,7 @@ fn transSwitch(
 
 /// Collects all items for this case, returns the first statement after the labels.
 /// If items ends up empty, the prong should be translated as an else.
-fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *std.ArrayList(Node)) TransError!*const clang.Stmt {
+fn transCaseStmt(c: *Context, scope: *Scope, stmt: *const clang.Stmt, items: *std.array_list.Managed(Node)) TransError!*const clang.Stmt {
     var sub = stmt;
     var seen_default = false;
     while (true) {
@@ -3338,7 +3337,7 @@ fn transPredefinedExpr(c: *Context, scope: *Scope, expr: *const clang.Predefined
 
 fn transCreateCharLitNode(c: *Context, narrow: bool, val: u32) TransError!Node {
     return Tag.char_literal.create(c.arena, if (narrow)
-        try std.fmt.allocPrint(c.arena, "'{'}'", .{std.zig.fmtEscapes(&.{@as(u8, @intCast(val))})})
+        try std.fmt.allocPrint(c.arena, "'{f}'", .{std.zig.fmtChar(@intCast(val))})
     else
         try std.fmt.allocPrint(c.arena, "'\\u{{{x}}}'", .{val}));
 }
@@ -3696,6 +3695,7 @@ fn transUnaryExprOrTypeTraitExpr(
         .SizeOf => try Tag.sizeof.create(c.arena, type_node),
         .AlignOf => try Tag.alignof.create(c.arena, type_node),
         .DataSizeOf,
+        .CountOf,
         .PreferredAlignOf,
         .PtrAuthTypeDiscriminator,
         .VecStep,
@@ -4008,11 +4008,11 @@ fn transCreateCompoundAssign(
 }
 
 fn removeCVQualifiers(c: *Context, dst_type_node: Node, expr: Node) Error!Node {
-    const const_casted = try Tag.const_cast.create(c.arena, expr);
-    const volatile_casted = try Tag.volatile_cast.create(c.arena, const_casted);
+    const volatile_casted = try Tag.volatile_cast.create(c.arena, expr);
+    const const_casted = try Tag.const_cast.create(c.arena, volatile_casted);
     return Tag.as.create(c.arena, .{
         .lhs = dst_type_node,
-        .rhs = try Tag.ptr_cast.create(c.arena, volatile_casted),
+        .rhs = try Tag.ptr_cast.create(c.arena, const_casted),
     });
 }
 
@@ -4716,7 +4716,7 @@ fn transCreateNodeNumber(c: *Context, num: anytype, num_kind: enum { int, float 
 }
 
 fn transCreateNodeMacroFn(c: *Context, name: []const u8, ref: Node, proto_alias: *ast.Payload.Func) !Node {
-    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
+    var fn_params = std.array_list.Managed(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     for (proto_alias.data.params) |param| {
@@ -5115,7 +5115,7 @@ fn finishTransFnProto(
     const scope = &c.global_scope.base;
 
     const param_count: usize = if (fn_proto_ty != null) fn_proto_ty.?.getNumParams() else 0;
-    var fn_params = try std.ArrayList(ast.Payload.Param).initCapacity(c.gpa, param_count);
+    var fn_params = try std.array_list.Managed(ast.Payload.Param).initCapacity(c.gpa, param_count);
     defer fn_params.deinit();
 
     var i: usize = 0;
@@ -5333,7 +5333,7 @@ fn transPreprocessorEntities(c: *Context, unit: *clang.ASTUnit) Error!void {
     // TODO if we see #undef, delete it from the table
     var it = unit.getLocalPreprocessingEntities_begin();
     const it_end = unit.getLocalPreprocessingEntities_end();
-    var tok_list = std.ArrayList(CToken).init(c.gpa);
+    var tok_list = std.array_list.Managed(CToken).init(c.gpa);
     defer tok_list.deinit();
     const scope = c.global_scope;
 
@@ -5484,7 +5484,7 @@ fn transMacroFnDefine(c: *Context, m: *MacroCtx) ParseError!void {
 
     try m.skip(c, .l_paren);
 
-    var fn_params = std.ArrayList(ast.Payload.Param).init(c.gpa);
+    var fn_params = std.array_list.Managed(ast.Payload.Param).init(c.gpa);
     defer fn_params.deinit();
 
     while (true) {
@@ -5832,7 +5832,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                         num += c - 'A' + 10;
                     },
                     else => {
-                        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                         num = 0;
                         if (c == '\\')
                             state = .escape
@@ -5858,7 +5858,7 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
                     };
                     num += c - '0';
                 } else {
-                    i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+                    i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
                     num = 0;
                     count = 0;
                     if (c == '\\')
@@ -5872,21 +5872,21 @@ fn zigifyEscapeSequences(ctx: *Context, m: *MacroCtx) ![]const u8 {
         }
     }
     if (state == .hex or state == .octal)
-        i += std.fmt.formatIntBuf(bytes[i..], num, 16, .lower, std.fmt.FormatOptions{ .fill = '0', .width = 2 });
+        i += std.fmt.printInt(bytes[i..], num, 16, .lower, .{ .fill = '0', .width = 2 });
     return bytes[0..i];
 }
 
-/// non-ASCII characters (c > 127) are also treated as non-printable by fmtSliceEscapeLower.
+/// non-ASCII characters (c > 127) are also treated as non-printable by ascii.hexEscape.
 /// If a C string literal or char literal in a macro is not valid UTF-8, we need to escape
 /// non-ASCII characters so that the Zig source we output will itself be UTF-8.
 fn escapeUnprintables(ctx: *Context, m: *MacroCtx) ![]const u8 {
     const zigified = try zigifyEscapeSequences(ctx, m);
     if (std.unicode.utf8ValidateSlice(zigified)) return zigified;
 
-    const formatter = std.fmt.fmtSliceEscapeLower(zigified);
-    const encoded_size = @as(usize, @intCast(std.fmt.count("{s}", .{formatter})));
+    const formatter = std.ascii.hexEscape(zigified, .lower);
+    const encoded_size: usize = @intCast(std.fmt.count("{f}", .{formatter}));
     const output = try ctx.arena.alloc(u8, encoded_size);
-    return std.fmt.bufPrint(output, "{s}", .{formatter}) catch |err| switch (err) {
+    return std.fmt.bufPrint(output, "{f}", .{formatter}) catch |err| switch (err) {
         error.NoSpaceLeft => unreachable,
         else => |e| return e,
     };
@@ -5905,7 +5905,7 @@ fn parseCPrimaryExpr(c: *Context, m: *MacroCtx, scope: *Scope) ParseError!Node {
             if (slice[0] != '\'' or slice[1] == '\\' or slice.len == 3) {
                 return Tag.char_literal.create(c.arena, try escapeUnprintables(c, m));
             } else {
-                const str = try std.fmt.allocPrint(c.arena, "0x{s}", .{std.fmt.fmtSliceHexLower(slice[1 .. slice.len - 1])});
+                const str = try std.fmt.allocPrint(c.arena, "0x{x}", .{slice[1 .. slice.len - 1]});
                 return Tag.integer_literal.create(c.arena, str);
             }
         },
@@ -6459,7 +6459,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
                     m.i += 1;
                     node = try Tag.call.create(c.arena, .{ .lhs = node, .args = &[0]Node{} });
                 } else {
-                    var args = std.ArrayList(Node).init(c.gpa);
+                    var args = std.array_list.Managed(Node).init(c.gpa);
                     defer args.deinit();
                     while (true) {
                         const arg = try parseCCondExpr(c, m, scope);
@@ -6480,7 +6480,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
             .l_brace => {
                 // Check for designated field initializers
                 if (m.peek().? == .period) {
-                    var init_vals = std.ArrayList(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
+                    var init_vals = std.array_list.Managed(ast.Payload.ContainerInitDot.Initializer).init(c.gpa);
                     defer init_vals.deinit();
 
                     while (true) {
@@ -6506,7 +6506,7 @@ fn parseCPostfixExprInner(c: *Context, m: *MacroCtx, scope: *Scope, type_name: ?
                     continue;
                 }
 
-                var init_vals = std.ArrayList(Node).init(c.gpa);
+                var init_vals = std.array_list.Managed(Node).init(c.gpa);
                 defer init_vals.deinit();
 
                 while (true) {

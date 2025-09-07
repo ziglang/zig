@@ -13,7 +13,7 @@ pub fn main() !void {
     const input_path = args[1];
     const optimize_mode_text = args[2];
 
-    const input_bytes = try std.fs.cwd().readFileAlloc(arena, input_path, 5 * 1024 * 1024);
+    const input_bytes = try std.fs.cwd().readFileAlloc(input_path, arena, .limited(5 * 1024 * 1024));
     const optimize_mode = std.meta.stringToEnum(std.builtin.OptimizeMode, optimize_mode_text).?;
 
     var stderr = input_bytes;
@@ -24,7 +24,7 @@ pub fn main() !void {
     // - replace function name with symbolic string when optimize_mode != .Debug
     // - skip empty lines
     const got: []const u8 = got_result: {
-        var buf = std.ArrayList(u8).init(arena);
+        var buf = std.array_list.Managed(u8).init(arena);
         defer buf.deinit();
         if (stderr.len != 0 and stderr[stderr.len - 1] == '\n') stderr = stderr[0 .. stderr.len - 1];
         var it = mem.splitScalar(u8, stderr, '\n');
@@ -65,7 +65,7 @@ pub fn main() !void {
                 // This actually violates the DWARF specification (DWARF5 § 3.1.1, lines 24-27).
                 // The self-hosted backend uses the root Zig source file of the module (in compilance with the spec).
                 if (std.mem.eql(u8, file_name, "test") or
-                    std.mem.eql(u8, file_name, "test.exe.obj") or
+                    std.mem.eql(u8, file_name, "test_zcu.obj") or
                     std.mem.endsWith(u8, file_name, ".zig"))
                 {
                     try buf.appendSlice("[main_file]");
@@ -84,5 +84,5 @@ pub fn main() !void {
         break :got_result try buf.toOwnedSlice();
     };
 
-    try std.io.getStdOut().writeAll(got);
+    try std.fs.File.stdout().writeAll(got);
 }

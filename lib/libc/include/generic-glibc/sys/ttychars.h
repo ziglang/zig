@@ -54,8 +54,4 @@ struct ttychars {
 	char	tc_lnextc;	/* literal next character */
 };
 
-#ifdef __USE_OLD_TTY
-#include <sys/ttydefaults.h>	/* to pick up character defaults */
-#endif
-
 #endif /* sys/ttychars.h */

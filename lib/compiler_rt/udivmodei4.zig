@@ -113,8 +113,8 @@ pub fn divmod(q: ?[]u32, r: ?[]u32, u: []const u32, v: []const u32) !void {
 }
 
 pub fn __udivei4(q_p: [*]u8, u_p: [*]const u8, v_p: [*]const u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(builtin.is_test);
-    const byte_size = std.zig.target.intByteSize(builtin.target, @intCast(bits));
+    @setRuntimeSafety(common.test_safety);
+    const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const q: []u32 = @ptrCast(@alignCast(q_p[0..byte_size]));
     const u: []const u32 = @ptrCast(@alignCast(u_p[0..byte_size]));
     const v: []const u32 = @ptrCast(@alignCast(v_p[0..byte_size]));
@@ -122,8 +122,8 @@ pub fn __udivei4(q_p: [*]u8, u_p: [*]const u8, v_p: [*]const u8, bits: usize) ca
 }
 
 pub fn __umodei4(r_p: [*]u8, u_p: [*]const u8, v_p: [*]const u8, bits: usize) callconv(.c) void {
-    @setRuntimeSafety(builtin.is_test);
-    const byte_size = std.zig.target.intByteSize(builtin.target, @intCast(bits));
+    @setRuntimeSafety(common.test_safety);
+    const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     const r: []u32 = @ptrCast(@alignCast(r_p[0..byte_size]));
     const u: []const u32 = @ptrCast(@alignCast(u_p[0..byte_size]));
     const v: []const u32 = @ptrCast(@alignCast(v_p[0..byte_size]));
@@ -131,6 +131,7 @@ pub fn __umodei4(r_p: [*]u8, u_p: [*]const u8, v_p: [*]const u8, bits: usize) ca
 }
 
 test "__udivei4/__umodei4" {
+    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_c) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_wasm) return error.SkipZigTest;
 

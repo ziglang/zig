@@ -15,6 +15,7 @@ pub fn intMaxType(target: std.Target) Type {
         .bpfeb,
         .loongarch64,
         .riscv64,
+        .riscv64be,
         .powerpc64,
         .powerpc64le,
         .ve,
@@ -47,6 +48,7 @@ pub fn intPtrType(target: std.Target) Type {
         .csky,
         .loongarch32,
         .riscv32,
+        .riscv32be,
         .xcore,
         .hexagon,
         .m68k,
@@ -109,6 +111,7 @@ pub fn int64Type(target: std.Target) Type {
         .loongarch64,
         .ve,
         .riscv64,
+        .riscv64be,
         .powerpc64,
         .powerpc64le,
         .bpfel,
@@ -138,7 +141,7 @@ pub fn defaultFunctionAlignment(target: std.Target) u8 {
         .arm, .armeb => 4,
         .aarch64, .aarch64_be => 4,
         .sparc, .sparc64 => 4,
-        .riscv64 => 2,
+        .riscv64, .riscv64be => 2,
         else => 1,
     };
 }
@@ -330,7 +333,9 @@ pub const FPSemantics = enum {
             .armeb,
             .hexagon,
             .riscv32,
+            .riscv32be,
             .riscv64,
+            .riscv64be,
             .spirv32,
             .spirv64,
             => return .IEEEHalf,
@@ -429,7 +434,9 @@ pub fn ldEmulationOption(target: std.Target, arm_endianness: ?std.builtin.Endian
         .powerpc64 => "elf64ppc",
         .powerpc64le => "elf64lppc",
         .riscv32 => "elf32lriscv",
+        .riscv32be => "elf32briscv",
         .riscv64 => "elf64lriscv",
+        .riscv64be => "elf64briscv",
         .sparc => "elf32_sparc",
         .sparc64 => "elf64_sparc",
         .loongarch32 => "elf32loongarch",
@@ -477,6 +484,7 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .powerpc,
         .powerpcle,
         .riscv32,
+        .riscv32be,
         .sparc,
         .thumb,
         .thumbeb,
@@ -486,7 +494,6 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .kalimba,
         .lanai,
         .wasm32,
-        .spirv,
         .spirv32,
         .loongarch32,
         .xtensa,
@@ -503,6 +510,7 @@ pub fn get32BitArchVariant(target: std.Target) ?std.Target {
         .powerpc64 => copy.cpu.arch = .powerpc,
         .powerpc64le => copy.cpu.arch = .powerpcle,
         .riscv64 => copy.cpu.arch = .riscv32,
+        .riscv64be => copy.cpu.arch = .riscv32be,
         .sparc64 => copy.cpu.arch = .sparc,
         .x86_64 => copy.cpu.arch = .x86,
     }
@@ -538,6 +546,7 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpc64,
         .powerpc64le,
         .riscv64,
+        .riscv64be,
         .s390x,
         .sparc64,
         .ve,
@@ -553,8 +562,8 @@ pub fn get64BitArchVariant(target: std.Target) ?std.Target {
         .powerpc => copy.cpu.arch = .powerpc64,
         .powerpcle => copy.cpu.arch = .powerpc64le,
         .riscv32 => copy.cpu.arch = .riscv64,
+        .riscv32be => copy.cpu.arch = .riscv64be,
         .sparc => copy.cpu.arch = .sparc64,
-        .spirv => copy.cpu.arch = .spirv64,
         .spirv32 => copy.cpu.arch = .spirv64,
         .thumb => copy.cpu.arch = .aarch64,
         .thumbeb => copy.cpu.arch = .aarch64_be,
@@ -569,8 +578,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
     // 64 bytes is assumed to be large enough to hold any target triple; increase if necessary
     std.debug.assert(buf.len >= 64);
 
-    var stream = std.io.fixedBufferStream(buf);
-    const writer = stream.writer();
+    var writer: std.Io.Writer = .fixed(buf);
 
     const llvm_arch = switch (target.cpu.arch) {
         .arm => "arm",
@@ -597,7 +605,9 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .powerpc64le => "powerpc64le",
         .amdgcn => "amdgcn",
         .riscv32 => "riscv32",
+        .riscv32be => "riscv32be",
         .riscv64 => "riscv64",
+        .riscv64be => "riscv64be",
         .sparc => "sparc",
         .sparc64 => "sparc64",
         .s390x => "s390x",
@@ -609,7 +619,6 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .xtensa => "xtensa",
         .nvptx => "nvptx",
         .nvptx64 => "nvptx64",
-        .spirv => "spirv",
         .spirv32 => "spirv32",
         .spirv64 => "spirv64",
         .kalimba => "kalimba",
@@ -657,6 +666,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .driverkit => "driverkit",
         .visionos => "xros",
         .serenity => "serenity",
+        .managarm => "managarm",
         .opencl,
         .opengl,
         .vulkan,
@@ -708,7 +718,7 @@ pub fn toLLVMTriple(target: std.Target, buf: []u8) []const u8 {
         .ohoseabi => "ohoseabi",
     };
     writer.writeAll(llvm_abi) catch unreachable;
-    return stream.getWritten();
+    return writer.buffered();
 }
 
 test "alignment functions - smoke test" {

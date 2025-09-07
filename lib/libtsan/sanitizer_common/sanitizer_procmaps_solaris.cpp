@@ -9,9 +9,6 @@
 // Information about the process mappings (Solaris-specific parts).
 //===----------------------------------------------------------------------===//
 
-// Before Solaris 11.4, <procfs.h> doesn't work in a largefile environment.
-#undef _FILE_OFFSET_BITS
-
 // Avoid conflict between `_TIME_BITS` defined vs. `_FILE_OFFSET_BITS`
 // undefined in some Linux configurations.
 #undef _TIME_BITS

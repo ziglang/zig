@@ -24,4 +24,4 @@ const std = @import("std");
 
 // run
 // backend=stage2,llvm
-// target=x86_64-linux
+// target=x86_64-linux,aarch64-linux

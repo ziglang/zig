@@ -46,7 +46,6 @@ fn setFooX(foo: *Foo) void {
 
 test "assign undefined to struct" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
@@ -63,7 +62,6 @@ test "assign undefined to struct" {
 
 test "assign undefined to struct with method" {
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest;
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     comptime {
@@ -79,7 +77,7 @@ test "assign undefined to struct with method" {
 }
 
 test "type name of undefined" {
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_sparc64) return error.SkipZigTest; // TODO
 
     const x = undefined;
@@ -89,9 +87,8 @@ test "type name of undefined" {
 var buf: []u8 = undefined;
 
 test "reslice of undefined global var slice" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
 
     var stack_buf: [100]u8 = [_]u8{0} ** 100;
     buf = &stack_buf;
@@ -100,9 +97,8 @@ test "reslice of undefined global var slice" {
 }
 
 test "returned undef is 0xaa bytes when runtime safety is enabled" {
-    if (builtin.zig_backend == .stage2_aarch64) return error.SkipZigTest; // TODO
     if (builtin.zig_backend == .stage2_arm) return error.SkipZigTest; // TODO
-    if (builtin.zig_backend == .stage2_spirv64) return error.SkipZigTest;
+    if (builtin.zig_backend == .stage2_spirv) return error.SkipZigTest;
     if (builtin.zig_backend == .stage2_riscv64) return error.SkipZigTest;
 
     const Rect = struct {

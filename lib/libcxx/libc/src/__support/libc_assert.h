@@ -9,7 +9,6 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_LIBC_ASSERT_H
 #define LLVM_LIBC_SRC___SUPPORT_LIBC_ASSERT_H
 
-#include "src/__support/macros/config.h"
 #if defined(LIBC_COPT_USE_C_ASSERT) || !defined(LIBC_FULL_BUILD)
 
 // The build is configured to just use the public <assert.h> API
@@ -25,6 +24,7 @@
 #include "src/__support/OSUtil/io.h"
 #include "src/__support/integer_to_string.h"
 #include "src/__support/macros/attributes.h"   // For LIBC_INLINE
+#include "src/__support/macros/config.h"
 #include "src/__support/macros/optimization.h" // For LIBC_UNLIKELY
 
 namespace LIBC_NAMESPACE_DECL {

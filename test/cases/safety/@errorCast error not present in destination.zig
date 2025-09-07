@@ -18,4 +18,4 @@ fn foo(set1: Set1) Set2 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux

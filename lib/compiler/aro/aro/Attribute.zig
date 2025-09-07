@@ -708,7 +708,7 @@ pub const Arguments = blk: {
         field.* = .{
             .name = decl.name,
             .type = @field(attributes, decl.name),
-            .alignment = 0,
+            .alignment = @alignOf(@field(attributes, decl.name)),
         };
     }
 
@@ -780,7 +780,7 @@ fn ignoredAttrErr(p: *Parser, tok: TokenIndex, attr: Attribute.Tag, context: []c
     const strings_top = p.strings.items.len;
     defer p.strings.items.len = strings_top;
 
-    try p.strings.writer().print("attribute '{s}' ignored on {s}", .{ @tagName(attr), context });
+    try p.strings.print("attribute '{s}' ignored on {s}", .{ @tagName(attr), context });
     const str = try p.comp.diagnostics.arena.allocator().dupe(u8, p.strings.items[strings_top..]);
     try p.errStr(.ignored_attribute, tok, str);
 }

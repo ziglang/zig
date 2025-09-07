@@ -18,7 +18,7 @@ pub const CrtFile = enum {
 };
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) {
         return error.ZigCompilerNotBuiltWithLLVMExtensions;
@@ -29,11 +29,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     const target = comp.getTarget();
 
     // The old 32-bit x86 variant of SEH doesn't use tables.
-    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .@"async" else .none;
+    const unwind_tables: std.builtin.UnwindTables = if (target.cpu.arch != .x86) .async else .none;
 
     switch (crt_file) {
         .crt2_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCrtCcArgs(comp, arena, &args);
             if (comp.mingw_unicode_entry_point) {
                 try args.appendSlice(&.{ "-DUNICODE", "-D_UNICODE" });
@@ -53,7 +53,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
         },
 
         .dllcrt2_o => {
-            var args = std.ArrayList([]const u8).init(arena);
+            var args = std.array_list.Managed([]const u8).init(arena);
             try addCrtCcArgs(comp, arena, &args);
             var files = [_]Compilation.CSourceFile{
                 .{
@@ -70,10 +70,10 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
         },
 
         .libmingw32_lib => {
-            var c_source_files = std.ArrayList(Compilation.CSourceFile).init(arena);
+            var c_source_files = std.array_list.Managed(Compilation.CSourceFile).init(arena);
 
             {
-                var crt_args = std.ArrayList([]const u8).init(arena);
+                var crt_args = std.array_list.Managed([]const u8).init(arena);
                 try addCrtCcArgs(comp, arena, &crt_args);
 
                 for (mingw32_generic_src) |dep| {
@@ -150,11 +150,12 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
             }
 
             {
-                var winpthreads_args = std.ArrayList([]const u8).init(arena);
+                var winpthreads_args = std.array_list.Managed([]const u8).init(arena);
                 try addCcArgs(comp, arena, &winpthreads_args);
                 try winpthreads_args.appendSlice(&[_][]const u8{
                     "-DIN_WINPTHREAD",
-                    "-DWIN32_LEAN_AND_MEAN",
+                    // winpthreads incorrectly assumes that Clang has `-Wprio-ctor-dtor`.
+                    "-Wno-unknown-warning-option",
                 });
 
                 switch (comp.compilerRtOptMode()) {
@@ -185,7 +186,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 fn addCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try args.appendSlice(&[_][]const u8{
         "-std=gnu11",
@@ -199,7 +200,7 @@ fn addCcArgs(
 fn addCrtCcArgs(
     comp: *Compilation,
     arena: Allocator,
-    args: *std.ArrayList([]const u8),
+    args: *std.array_list.Managed([]const u8),
 ) error{OutOfMemory}!void {
     try addCcArgs(comp, arena, args);
 
@@ -294,24 +295,17 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         "o", &digest, final_def_basename,
     });
 
-    const target_defines = switch (target.cpu.arch) {
-        .thumb => "#define DEF_ARM32\n",
-        .aarch64 => "#define DEF_ARM64\n",
-        .x86 => "#define DEF_I386\n",
-        .x86_64 => "#define DEF_X64\n",
-        else => unreachable,
-    };
-
     const aro = @import("aro");
     var aro_comp = aro.Compilation.init(gpa, std.fs.cwd());
     defer aro_comp.deinit();
 
+    aro_comp.target = target.*;
+
     const include_dir = try comp.dirs.zig_lib.join(arena, &.{ "libc", "mingw", "def-include" });
 
     if (comp.verbose_cc) print: {
-        std.debug.lockStdErr();
-        defer std.debug.unlockStdErr();
-        const stderr = std.io.getStdErr().writer();
+        var stderr = std.debug.lockStderrWriter(&.{});
+        defer std.debug.unlockStderrWriter();
         nosuspend stderr.print("def file: {s}\n", .{def_file_path}) catch break :print;
         nosuspend stderr.print("include dir: {s}\n", .{include_dir}) catch break :print;
         nosuspend stderr.print("output path: {s}\n", .{def_final_path}) catch break :print;
@@ -320,7 +314,6 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     try aro_comp.include_dirs.append(gpa, include_dir);
 
     const builtin_macros = try aro_comp.generateBuiltinMacros(.include_system_defines);
-    const user_macros = try aro_comp.addSourceFromBuffer("<command line>", target_defines);
     const def_file_source = try aro_comp.addSourceFromPath(def_file_path);
 
     var pp = aro.Preprocessor.init(&aro_comp);
@@ -328,11 +321,11 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
     pp.linemarkers = .none;
     pp.preserve_whitespace = true;
 
-    try pp.preprocessSources(&.{ def_file_source, builtin_macros, user_macros });
+    try pp.preprocessSources(&.{ def_file_source, builtin_macros });
 
     for (aro_comp.diagnostics.list.items) |diagnostic| {
         if (diagnostic.kind == .@"fatal error" or diagnostic.kind == .@"error") {
-            aro.Diagnostics.render(&aro_comp, std.io.tty.detectConfig(std.io.getStdErr()));
+            aro.Diagnostics.render(&aro_comp, std.Io.tty.detectConfig(std.fs.File.stderr()));
             return error.AroPreprocessorFailed;
         }
     }
@@ -341,7 +334,10 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
         // new scope to ensure definition file is written before passing the path to WriteImportLibrary
         const def_final_file = try o_dir.createFile(final_def_basename, .{ .truncate = true });
         defer def_final_file.close();
-        try pp.prettyPrintTokens(def_final_file.writer(), .result_only);
+        var buffer: [1024]u8 = undefined;
+        var def_final_file_writer = def_final_file.writer(&buffer);
+        try pp.prettyPrintTokens(&def_final_file_writer.interface, .result_only);
+        try def_final_file_writer.interface.flush();
     }
 
     const lib_final_path = try std.fs.path.join(gpa, &.{ "o", &digest, final_lib_basename });
@@ -379,7 +375,7 @@ pub fn buildImportLib(comp: *Compilation, lib_name: []const u8) !void {
 
 pub fn libExists(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) !bool {
@@ -395,7 +391,7 @@ pub fn libExists(
 /// see if a .def file exists.
 fn findDef(
     allocator: Allocator,
-    target: std.Target,
+    target: *const std.Target,
     zig_lib_directory: Cache.Directory,
     lib_name: []const u8,
 ) ![]u8 {
@@ -407,7 +403,7 @@ fn findDef(
         else => unreachable,
     };
 
-    var override_path = std.ArrayList(u8).init(allocator);
+    var override_path = std.array_list.Managed(u8).init(allocator);
     defer override_path.deinit();
 
     const s = path.sep_str;
@@ -416,9 +412,9 @@ fn findDef(
         // Try the archtecture-specific path first.
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "{s}" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_path, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{ lib_path, lib_name });
+            try override_path.print(fmt_path, .{ lib_path, lib_name });
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -433,9 +429,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -450,9 +446,9 @@ fn findDef(
         override_path.shrinkRetainingCapacity(0);
         const fmt_path = "libc" ++ s ++ "mingw" ++ s ++ "lib-common" ++ s ++ "{s}.def.in";
         if (zig_lib_directory.path) |p| {
-            try override_path.writer().print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
+            try override_path.print("{s}" ++ s ++ fmt_path, .{ p, lib_name });
         } else {
-            try override_path.writer().print(fmt_path, .{lib_name});
+            try override_path.print(fmt_path, .{lib_name});
         }
         if (std.fs.cwd().access(override_path.items, .{})) |_| {
             return override_path.toOwnedSlice();
@@ -485,7 +481,6 @@ const mingw32_generic_src = [_][]const u8{
     "crt" ++ path.sep_str ++ "pesect.c",
     "crt" ++ path.sep_str ++ "udllargc.c",
     "crt" ++ path.sep_str ++ "xthdloc.c",
-    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     "crt" ++ path.sep_str ++ "mingw_helpers.c",
     "crt" ++ path.sep_str ++ "pseudo-reloc.c",
     "crt" ++ path.sep_str ++ "udll_argv.c",
@@ -584,9 +579,6 @@ const mingw32_generic_src = [_][]const u8{
     "math" ++ path.sep_str ++ "frexpl.c",
     "math" ++ path.sep_str ++ "hypotf.c",
     "math" ++ path.sep_str ++ "hypotl.c",
-    "math" ++ path.sep_str ++ "isnan.c",
-    "math" ++ path.sep_str ++ "isnanf.c",
-    "math" ++ path.sep_str ++ "isnanl.c",
     "math" ++ path.sep_str ++ "ldexpf.c",
     "math" ++ path.sep_str ++ "lgamma.c",
     "math" ++ path.sep_str ++ "lgammaf.c",
@@ -609,7 +601,6 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "delayimp.c",
     "misc" ++ path.sep_str ++ "dirent.c",
     "misc" ++ path.sep_str ++ "dirname.c",
-    "misc" ++ path.sep_str ++ "dllentrypoint.c",
     "misc" ++ path.sep_str ++ "dllmain.c",
     "misc" ++ path.sep_str ++ "feclearexcept.c",
     "misc" ++ path.sep_str ++ "fegetenv.c",
@@ -621,10 +612,14 @@ const mingw32_generic_src = [_][]const u8{
     "misc" ++ path.sep_str ++ "fesetexceptflag.c",
     "misc" ++ path.sep_str ++ "fesetround.c",
     "misc" ++ path.sep_str ++ "fetestexcept.c",
+    "misc" ++ path.sep_str ++ "mingw_controlfp.c",
+    "misc" ++ path.sep_str ++ "mingw_setfp.c",
     "misc" ++ path.sep_str ++ "feupdateenv.c",
     "misc" ++ path.sep_str ++ "ftruncate.c",
-    "misc" ++ path.sep_str ++ "ftw.c",
+    "misc" ++ path.sep_str ++ "ftw32.c",
+    "misc" ++ path.sep_str ++ "ftw32i64.c",
     "misc" ++ path.sep_str ++ "ftw64.c",
+    "misc" ++ path.sep_str ++ "ftw64i32.c",
     "misc" ++ path.sep_str ++ "fwide.c",
     "misc" ++ path.sep_str ++ "getlogin.c",
     "misc" ++ path.sep_str ++ "getopt.c",
@@ -669,12 +664,12 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "_findfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_findnext64i32.c",
     "stdio" ++ path.sep_str ++ "_fstat64i32.c",
-    "stdio" ++ path.sep_str ++ "_stat.c",
     "stdio" ++ path.sep_str ++ "_stat64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindfirst64i32.c",
     "stdio" ++ path.sep_str ++ "_wfindnext64i32.c",
-    "stdio" ++ path.sep_str ++ "_wstat.c",
     "stdio" ++ path.sep_str ++ "_wstat64i32.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_stat_path.c",
+    "stdio" ++ path.sep_str ++ "__mingw_fix_wstat_path.c",
     "stdio" ++ path.sep_str ++ "asprintf.c",
     "stdio" ++ path.sep_str ++ "fopen64.c",
     "stdio" ++ path.sep_str ++ "fseeko32.c",
@@ -749,23 +744,36 @@ const mingw32_generic_src = [_][]const u8{
     "stdio" ++ path.sep_str ++ "ucrt__vscprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt__vsnwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_printf_options.c",
+    "stdio" ++ path.sep_str ++ "ucrt___local_stdio_scanf_options.c",
     "stdio" ++ path.sep_str ++ "ucrt_fprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_fwprintf.c",
-    "stdio" ++ path.sep_str ++ "ucrt_ms_fprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_fwscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_ms_fwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_printf.c",
     "stdio" ++ path.sep_str ++ "ucrt_scanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_snprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_snwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_sscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_swprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vfscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vfwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vscanf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsnprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vsnwprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vswprintf.c",
     "stdio" ++ path.sep_str ++ "ucrt_vsscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wscanf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_vwprintf.c",
+    "stdio" ++ path.sep_str ++ "ucrt_wprintf.c",
     "string" ++ path.sep_str ++ "ucrt__wcstok.c",
     // uuid
     "libsrc" ++ path.sep_str ++ "ativscp-uuid.c",
@@ -889,6 +897,8 @@ const mingw32_generic_src = [_][]const u8{
 };
 
 const mingw32_x86_src = [_][]const u8{
+    // mingw32
+    "crt" ++ path.sep_str ++ "CRT_fp10.c",
     // mingwex
     "math" ++ path.sep_str ++ "cbrtl.c",
     "math" ++ path.sep_str ++ "erfl.c",
@@ -903,7 +913,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "rintl.c",
     "math" ++ path.sep_str ++ "roundl.c",
     "math" ++ path.sep_str ++ "tgammal.c",
-    "math" ++ path.sep_str ++ "truncl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acoshl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "acosl.c",
@@ -912,7 +921,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2l.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanhl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanl.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceill.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "copysignl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "cosl_internal.S",
@@ -920,7 +928,6 @@ const mingw32_x86_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "exp2l.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "expm1l.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorl.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodl.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fucom.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ilogbl.S",
@@ -963,19 +970,17 @@ const mingw32_x86_32_src = [_][]const u8{
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "asinf.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atan2f.c",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "atanf.c",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "ceilf.S",
-    "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "floorf.S",
     "math" ++ path.sep_str ++ "x86" ++ path.sep_str ++ "fmodf.c",
 };
 
 const mingw32_arm_src = [_][]const u8{
     // mingwex
     "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "ldexpl.c",
+    "math" ++ path.sep_str ++ "arm-common" ++ path.sep_str ++ "sincosl.c",
 };
 
 const mingw32_arm32_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rint.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "s_rintf.c",
     "math" ++ path.sep_str ++ "arm" ++ path.sep_str ++ "sincos.S",
@@ -983,7 +988,6 @@ const mingw32_arm32_src = [_][]const u8{
 
 const mingw32_arm64_src = [_][]const u8{
     // mingwex
-    "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "_chgsignl.S",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rint.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "rintf.c",
     "math" ++ path.sep_str ++ "arm64" ++ path.sep_str ++ "sincos.S",
@@ -997,7 +1001,6 @@ const mingw32_winpthreads_src = [_][]const u8{
     "winpthreads" ++ path.sep_str ++ "misc.c",
     "winpthreads" ++ path.sep_str ++ "mutex.c",
     "winpthreads" ++ path.sep_str ++ "nanosleep.c",
-    "winpthreads" ++ path.sep_str ++ "ref.c",
     "winpthreads" ++ path.sep_str ++ "rwlock.c",
     "winpthreads" ++ path.sep_str ++ "sched.c",
     "winpthreads" ++ path.sep_str ++ "sem.c",

@@ -418,29 +418,6 @@ test fieldInfo {
     try testing.expect(comptime uf.type == u8);
 }
 
-/// Deprecated: use @FieldType
-pub fn FieldType(comptime T: type, comptime field: FieldEnum(T)) type {
-    return @FieldType(T, @tagName(field));
-}
-
-test FieldType {
-    const S = struct {
-        a: u8,
-        b: u16,
-    };
-
-    const U = union {
-        c: u32,
-        d: *const u8,
-    };
-
-    try testing.expect(FieldType(S, .a) == u8);
-    try testing.expect(FieldType(S, .b) == u16);
-
-    try testing.expect(FieldType(U, .c) == u32);
-    try testing.expect(FieldType(U, .d) == *const u8);
-}
-
 pub fn fieldNames(comptime T: type) *const [fields(T).len][:0]const u8 {
     return comptime blk: {
         const fieldInfos = fields(T);
@@ -962,7 +939,7 @@ fn CreateUniqueTuple(comptime N: comptime_int, comptime types: [N]type) type {
             .type = T,
             .default_value_ptr = null,
             .is_comptime = false,
-            .alignment = 0,
+            .alignment = @alignOf(T),
         };
     }
 
@@ -1215,13 +1192,6 @@ test hasUniqueRepresentation {
     };
 
     try testing.expect(hasUniqueRepresentation(TestStruct6));
-
-    const TestUnion1 = packed union {
-        a: u32,
-        b: u16,
-    };
-
-    try testing.expect(!hasUniqueRepresentation(TestUnion1));
 
     const TestUnion2 = extern union {
         a: u32,

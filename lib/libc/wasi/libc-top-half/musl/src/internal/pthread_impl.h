@@ -186,7 +186,9 @@ static inline void __wake(volatile void *addr, int cnt, int priv)
 	__syscall(SYS_futex, addr, FUTEX_WAKE|priv, cnt) != -ENOSYS ||
 	__syscall(SYS_futex, addr, FUTEX_WAKE, cnt);
 #else
+#ifdef _REENTRANT
 	__builtin_wasm_memory_atomic_notify((int*)addr, cnt);
+#endif
 #endif
 }
 static inline void __futexwait(volatile void *addr, int val, int priv)

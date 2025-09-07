@@ -9,6 +9,7 @@ const StringInterner = @import("StringInterner.zig");
 const StringId = StringInterner.StringId;
 const target_util = @import("target.zig");
 const LangOpts = @import("LangOpts.zig");
+const Writer = std.Io.Writer;
 
 pub const Qualifiers = packed struct {
     @"const": bool = false,
@@ -23,7 +24,7 @@ pub const Qualifiers = packed struct {
         return quals.@"const" or quals.restrict or quals.@"volatile" or quals.atomic;
     }
 
-    pub fn dump(quals: Qualifiers, w: anytype) !void {
+    pub fn dump(quals: Qualifiers, w: *Writer) !void {
         if (quals.@"const") try w.writeAll("const ");
         if (quals.atomic) try w.writeAll("_Atomic ");
         if (quals.@"volatile") try w.writeAll("volatile ");
@@ -2411,12 +2412,12 @@ pub fn intValueSuffix(ty: Type, comp: *const Compilation) []const u8 {
 }
 
 /// Print type in C style
-pub fn print(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
+pub fn print(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!void {
     _ = try ty.printPrologue(mapper, langopts, w);
     try ty.printEpilogue(mapper, langopts, w);
 }
 
-pub fn printNamed(ty: Type, name: []const u8, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
+pub fn printNamed(ty: Type, name: []const u8, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!void {
     const simple = try ty.printPrologue(mapper, langopts, w);
     if (simple) try w.writeByte(' ');
     try w.writeAll(name);
@@ -2426,7 +2427,7 @@ pub fn printNamed(ty: Type, name: []const u8, mapper: StringInterner.TypeMapper,
 const StringGetter = fn (TokenIndex) []const u8;
 
 /// return true if `ty` is simple
-fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!bool {
+fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!bool {
     if (ty.qual.atomic) {
         var non_atomic_ty = ty;
         non_atomic_ty.qual.atomic = false;
@@ -2497,7 +2498,7 @@ fn printPrologue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts
     return true;
 }
 
-fn printEpilogue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
+fn printEpilogue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!void {
     if (ty.qual.atomic) return;
     if (ty.isPtr()) {
         const elem_ty = ty.elemType();
@@ -2564,7 +2565,7 @@ fn printEpilogue(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts
 const dump_detailed_containers = false;
 
 // Print as Zig types since those are actually readable
-pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
+pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!void {
     try ty.qual.dump(w);
     switch (ty.specifier) {
         .invalid => try w.writeAll("invalid"),
@@ -2656,7 +2657,7 @@ pub fn dump(ty: Type, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: 
     }
 }
 
-fn dumpEnum(@"enum": *Enum, mapper: StringInterner.TypeMapper, w: anytype) @TypeOf(w).Error!void {
+fn dumpEnum(@"enum": *Enum, mapper: StringInterner.TypeMapper, w: *Writer) Writer.Error!void {
     try w.writeAll(" {");
     for (@"enum".fields) |field| {
         try w.print(" {s} = {d},", .{ mapper.lookup(field.name), field.value });
@@ -2664,7 +2665,7 @@ fn dumpEnum(@"enum": *Enum, mapper: StringInterner.TypeMapper, w: anytype) @Type
     try w.writeAll(" }");
 }
 
-fn dumpRecord(record: *Record, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: anytype) @TypeOf(w).Error!void {
+fn dumpRecord(record: *Record, mapper: StringInterner.TypeMapper, langopts: LangOpts, w: *Writer) Writer.Error!void {
     try w.writeAll(" {");
     for (record.fields) |field| {
         try w.writeByte(' ');

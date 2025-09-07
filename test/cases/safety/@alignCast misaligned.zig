@@ -22,4 +22,4 @@ fn foo(bytes: []u8) u32 {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux,aarch64-linux

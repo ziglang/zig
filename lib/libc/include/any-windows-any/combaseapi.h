@@ -147,7 +147,7 @@ typedef interface IRpcStubBuffer IRpcStubBuffer;
 typedef interface IRpcChannelBuffer IRpcChannelBuffer;
 
 typedef enum tagCOINITBASE {
-  COINITBASE_MULTITHREADED = 0x0,
+  COINITBASE_MULTITHREADED = 0x0
 } COINITBASE;
 
 #include <wtypesbase.h>

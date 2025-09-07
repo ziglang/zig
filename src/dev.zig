@@ -26,8 +26,11 @@ pub const Env = enum {
     sema,
 
     /// - sema
-    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
-    @"x86_64-linux",
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target aarch64-linux --listen=-`
+    @"aarch64-linux",
+
+    /// - `zig build-* -ofmt=c`
+    cbe,
 
     /// - sema
     /// - `zig build-* -fincremental -fno-llvm -fno-lld -target powerpc(64)(le)-linux --listen=-`
@@ -38,8 +41,16 @@ pub const Env = enum {
     @"riscv64-linux",
 
     /// - sema
+    /// - `zig build-* -fno-llvm -fno-lld -target spirv(32/64)-* --listen=-`
+    spirv,
+
+    /// - sema
     /// - `zig build-* -fno-llvm -fno-lld -target wasm32-* --listen=-`
     wasm,
+
+    /// - sema
+    /// - `zig build-* -fincremental -fno-llvm -fno-lld -target x86_64-linux --listen=-`
+    @"x86_64-linux",
 
     pub inline fn supports(comptime dev_env: Env, comptime feature: Feature) bool {
         return switch (dev_env) {
@@ -71,6 +82,7 @@ pub const Env = enum {
                 .ast_gen,
                 .sema,
                 .legalize,
+                .c_compiler,
                 .llvm_backend,
                 .c_backend,
                 .wasm_backend,
@@ -81,7 +93,7 @@ pub const Env = enum {
                 .powerpc_backend,
                 .riscv64_backend,
                 .sparc64_backend,
-                .spirv64_backend,
+                .spirv_backend,
                 .lld_linker,
                 .coff_linker,
                 .elf_linker,
@@ -120,6 +132,7 @@ pub const Env = enum {
                 .clang_command,
                 .cc_command,
                 .translate_c_command,
+                .c_compiler,
                 => true,
                 else => false,
             },
@@ -144,13 +157,19 @@ pub const Env = enum {
                 => true,
                 else => Env.ast_gen.supports(feature),
             },
-            .@"x86_64-linux" => switch (feature) {
+            .@"aarch64-linux" => switch (feature) {
                 .build_command,
                 .stdio_listen,
                 .incremental,
-                .legalize,
-                .x86_64_backend,
+                .aarch64_backend,
                 .elf_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .cbe => switch (feature) {
+                .legalize,
+                .c_backend,
+                .c_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },
@@ -169,11 +188,28 @@ pub const Env = enum {
                 => true,
                 else => Env.sema.supports(feature),
             },
+            .spirv => switch (feature) {
+                .spirv_backend,
+                .spirv_linker,
+                .legalize,
+                => true,
+                else => Env.sema.supports(feature),
+            },
             .wasm => switch (feature) {
                 .stdio_listen,
                 .incremental,
                 .wasm_backend,
                 .wasm_linker,
+                => true,
+                else => Env.sema.supports(feature),
+            },
+            .@"x86_64-linux" => switch (feature) {
+                .build_command,
+                .stdio_listen,
+                .incremental,
+                .legalize,
+                .x86_64_backend,
+                .elf_linker,
                 => true,
                 else => Env.sema.supports(feature),
             },
@@ -229,6 +265,8 @@ pub const Feature = enum {
     sema,
     legalize,
 
+    c_compiler,
+
     llvm_backend,
     c_backend,
     wasm_backend,
@@ -239,7 +277,7 @@ pub const Feature = enum {
     powerpc_backend,
     riscv64_backend,
     sparc64_backend,
-    spirv64_backend,
+    spirv_backend,
 
     lld_linker,
     coff_linker,

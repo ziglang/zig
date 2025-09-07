@@ -96,7 +96,7 @@ pub fn parseHeader(
     file_path: Path,
     fs_file: std.fs.File,
     stat: Stat,
-    target: std.Target,
+    target: *const std.Target,
 ) !Header {
     var ehdr: elf.Elf64_Ehdr = undefined;
     {
@@ -357,7 +357,7 @@ pub fn markImportExports(self: *SharedObject, elf_file: *Elf) void {
         const ref = self.resolveSymbol(@intCast(i), elf_file);
         const ref_sym = elf_file.symbol(ref) orelse continue;
         const ref_file = ref_sym.file(elf_file).?;
-        const vis = @as(elf.STV, @enumFromInt(ref_sym.elfSym(elf_file).st_other));
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(ref_sym.elfSym(elf_file).st_other)));
         if (ref_file != .shared_object and vis != .HIDDEN) ref_sym.flags.@"export" = true;
     }
 }
@@ -423,7 +423,7 @@ pub fn initSymbolAliases(self: *SharedObject, elf_file: *Elf) !void {
 
     const comp = elf_file.base.comp;
     const gpa = comp.gpa;
-    var aliases = std.ArrayList(Symbol.Index).init(gpa);
+    var aliases = std.array_list.Managed(Symbol.Index).init(gpa);
     defer aliases.deinit();
     try aliases.ensureTotalCapacityPrecise(self.symbols.items.len);
 
@@ -509,51 +509,31 @@ pub fn setSymbolExtra(self: *SharedObject, index: u32, extra: Symbol.Extra) void
     }
 }
 
-pub fn format(
-    self: SharedObject,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("unreachable");
-}
-
-pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: SharedObject, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .shared = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     shared: SharedObject,
     elf_file: *Elf,
-};
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const shared = ctx.shared;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  globals\n");
-    for (shared.symbols.items, 0..) |sym, i| {
-        const ref = shared.resolveSymbol(@intCast(i), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const shared = f.shared;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  globals\n");
+        for (shared.symbols.items, 0..) |sym, i| {
+            const ref = shared.resolveSymbol(@intCast(i), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
         }
     }
-}
+};
 
 const SharedObject = @This();
 

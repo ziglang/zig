@@ -23,6 +23,7 @@
 #include <__iterator/iter_move.h>
 #include <__iterator/iter_swap.h>
 #include <__iterator/iterator_traits.h>
+#include <__iterator/product_iterator.h>
 #include <__ranges/access.h>
 #include <__ranges/all.h>
 #include <__ranges/concepts.h>
@@ -251,8 +252,12 @@ class zip_view<_Views...>::__iterator : public __zip_view_iterator_category_base
 
   friend class zip_view<_Views...>;
 
+  static constexpr bool __is_zip_view_iterator = true;
+
+  friend struct __product_iterator_traits<__iterator>;
+
 public:
-  using iterator_concept = decltype(__get_zip_view_iterator_tag<_Const, _Views...>());
+  using iterator_concept = decltype(ranges::__get_zip_view_iterator_tag<_Const, _Views...>());
   using value_type       = tuple<range_value_t<__maybe_const<_Const, _Views>>...>;
   using difference_type  = common_type_t<range_difference_t<__maybe_const<_Const, _Views>>...>;
 
@@ -467,6 +472,23 @@ inline constexpr auto zip = __zip::__fn{};
 } // namespace __cpo
 } // namespace views
 } // namespace ranges
+
+template <class _Iterator>
+  requires _Iterator::__is_zip_view_iterator
+struct __product_iterator_traits<_Iterator> {
+  static constexpr size_t __size = tuple_size<decltype(std::declval<_Iterator>().__current_)>::value;
+
+  template <size_t _Nth, class _Iter>
+    requires(_Nth < __size)
+  _LIBCPP_HIDE_FROM_ABI static constexpr decltype(auto) __get_iterator_element(_Iter&& __it) {
+    return std::get<_Nth>(std::forward<_Iter>(__it).__current_);
+  }
+
+  template <class... _Iters>
+  _LIBCPP_HIDE_FROM_ABI static constexpr _Iterator __make_product_iterator(_Iters&&... __iters) {
+    return _Iterator(std::tuple(std::forward<_Iters>(__iters)...));
+  }
+};
 
 #endif // _LIBCPP_STD_VER >= 23
 

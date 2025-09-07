@@ -1,4 +1,3 @@
-const is_test = @import("builtin").is_test;
 const std = @import("std");
 const math = std.math;
 const testing = std.testing;

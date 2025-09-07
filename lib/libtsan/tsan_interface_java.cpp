@@ -122,7 +122,6 @@ void __tsan_java_move(jptr src, jptr dst, jptr size) {
   DCHECK_GE(dst, jctx->heap_begin);
   DCHECK_LE(dst + size, jctx->heap_begin + jctx->heap_size);
   DCHECK_NE(dst, src);
-  DCHECK_NE(size, 0);
 
   // Assuming it's not running concurrently with threads that do
   // memory accesses and mutex operations (stop-the-world phase).

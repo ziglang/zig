@@ -61,7 +61,7 @@ pub fn lowerMir(lower: *Lower, index: Mir.Inst.Index, options: struct {
     defer lower.result_relocs_len = undefined;
 
     const inst = lower.mir.instructions.get(index);
-    log.debug("lowerMir {}", .{inst});
+    log.debug("lowerMir {f}", .{inst});
     switch (inst.tag) {
         else => try lower.generic(inst),
         .pseudo_dbg_line_column,

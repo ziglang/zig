@@ -10,6 +10,6 @@ comptime {
 }
 
 pub fn __floateitf(a: [*]const u8, bits: usize) callconv(.c) f128 {
-    const byte_size = std.zig.target.intByteSize(builtin.target, @intCast(bits));
+    const byte_size = std.zig.target.intByteSize(&builtin.target, @intCast(bits));
     return floatFromBigInt(f128, .signed, @ptrCast(@alignCast(a[0..byte_size])));
 }

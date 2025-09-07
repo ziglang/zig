@@ -7,7 +7,7 @@
 const std = @import("std");
 var some_enum: enum { first, second } = .first;
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(@tagName(some_enum));
+    try std.fs.File.stdout().writeAll(@tagName(some_enum));
 }
 #expect_stdout="first"
 #update=no change
@@ -15,6 +15,6 @@ pub fn main() !void {
 const std = @import("std");
 var some_enum: enum { first, second } = .first;
 pub fn main() !void {
-    try std.io.getStdOut().writeAll(@tagName(some_enum));
+    try std.fs.File.stdout().writeAll(@tagName(some_enum));
 }
 #expect_stdout="first"

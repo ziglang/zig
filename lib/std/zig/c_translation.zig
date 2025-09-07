@@ -71,7 +71,7 @@ fn castInt(comptime DestType: type, target: anytype) DestType {
 }
 
 fn castPtr(comptime DestType: type, target: anytype) DestType {
-    return @constCast(@volatileCast(@alignCast(@ptrCast(target))));
+    return @ptrCast(@alignCast(@constCast(@volatileCast(target))));
 }
 
 fn castToPtr(comptime DestType: type, comptime SourceType: type, target: anytype) DestType {
@@ -253,9 +253,6 @@ test "sizeof" {
 }
 
 pub const CIntLiteralBase = enum { decimal, octal, hex };
-
-/// Deprecated: use `CIntLiteralBase`
-pub const CIntLiteralRadix = CIntLiteralBase;
 
 fn PromoteIntLiteralReturnType(comptime SuffixType: type, comptime number: comptime_int, comptime base: CIntLiteralBase) type {
     const signed_decimal = [_]type{ c_int, c_long, c_longlong, c_ulonglong };

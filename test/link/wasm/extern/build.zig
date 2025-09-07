@@ -16,7 +16,7 @@ fn add(b: *std.Build, test_step: *std.Build.Step, optimize: std.builtin.Optimize
             .target = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .wasi }),
         }),
     });
-    exe.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &.{} });
+    exe.root_module.addCSourceFile(.{ .file = b.path("foo.c"), .flags = &.{} });
     exe.use_llvm = false;
     exe.use_lld = false;
 

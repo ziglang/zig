@@ -216,6 +216,11 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 #else
 #  include <__config>
 
+// standard-mandated includes
+
+// [ios.syn]
+#  include <iosfwd>
+
 #  if _LIBCPP_HAS_LOCALIZATION
 
 #    include <__fwd/ios.h>
@@ -229,11 +234,6 @@ storage-class-specifier const error_category& iostream_category() noexcept;
 #    include <__utility/swap.h>
 #    include <__verbose_abort>
 #    include <version>
-
-// standard-mandated includes
-
-// [ios.syn]
-#    include <iosfwd>
 
 #    if _LIBCPP_HAS_ATOMIC_HEADER
 #      include <__atomic/atomic.h> // for __xindex_
@@ -418,11 +418,11 @@ _LIBCPP_DECLARE_STRONG_ENUM(io_errc){stream = 1};
 _LIBCPP_DECLARE_STRONG_ENUM_EPILOG(io_errc)
 
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc> : public true_type {};
+struct is_error_code_enum<io_errc> : public true_type {};
 
 #    ifdef _LIBCPP_CXX03_LANG
 template <>
-struct _LIBCPP_TEMPLATE_VIS is_error_code_enum<io_errc::__lx> : public true_type {};
+struct is_error_code_enum<io_errc::__lx> : public true_type {};
 #    endif
 
 _LIBCPP_EXPORTED_FROM_ABI const error_category& iostream_category() _NOEXCEPT;
@@ -559,7 +559,7 @@ private:
 };
 
 template <class _CharT, class _Traits>
-class _LIBCPP_TEMPLATE_VIS basic_ios : public ios_base {
+class basic_ios : public ios_base {
 public:
   // types:
   typedef _CharT char_type;
@@ -887,6 +887,7 @@ _LIBCPP_POP_MACROS
 #    include <limits>
 #    include <mutex>
 #    include <new>
+#    include <optional>
 #    include <stdexcept>
 #    include <system_error>
 #    include <type_traits>

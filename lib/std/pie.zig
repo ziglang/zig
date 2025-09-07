@@ -30,7 +30,7 @@ const R_RELATIVE = switch (builtin.cpu.arch) {
     .m68k => R_68K_RELATIVE,
     .mips, .mipsel, .mips64, .mips64el => R_MIPS_RELATIVE,
     .powerpc, .powerpcle, .powerpc64, .powerpc64le => R_PPC_RELATIVE,
-    .riscv32, .riscv64 => R_RISCV_RELATIVE,
+    .riscv32, .riscv32be, .riscv64, .riscv64be => R_RISCV_RELATIVE,
     .s390x => R_390_RELATIVE,
     .sparc, .sparc64 => R_SPARC_RELATIVE,
     else => @compileError("Missing R_RELATIVE definition for this target"),
@@ -100,8 +100,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ %[ret] = add(r1, %[ret])
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "r1"
-            ),
+                : .{ .r1 = true }),
             .loongarch32, .loongarch64 => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -127,8 +126,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ addu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr"
-            ),
+                : .{ .lr = true }),
             .mips64, .mips64el => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -140,8 +138,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ daddu %[ret], %[ret], $gp
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr"
-            ),
+                : .{ .lr = true }),
             .powerpc, .powerpcle => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -153,8 +150,7 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr", "r4"
-            ),
+                : .{ .lr = true, .r4 = true }),
             .powerpc64, .powerpc64le => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
@@ -166,9 +162,8 @@ inline fn getDynamicSymbol() [*]const elf.Dyn {
                 \\ add %[ret], 4, %[ret]
                 : [ret] "=r" (-> [*]const elf.Dyn),
                 :
-                : "lr", "r4"
-            ),
-            .riscv32, .riscv64 => asm volatile (
+                : .{ .lr = true, .r4 = true }),
+            .riscv32, .riscv32be, .riscv64, .riscv64be => asm volatile (
                 \\ .weak _DYNAMIC
                 \\ .hidden _DYNAMIC
                 \\ lla %[ret], _DYNAMIC
@@ -264,7 +259,7 @@ pub fn relocate(phdrs: []const elf.Phdr) void {
 
     const rel = sorted_dynv[elf.DT_REL];
     if (rel != 0) {
-        const rels: []const elf.Rel = @alignCast(@ptrCast(
+        const rels: []const elf.Rel = @ptrCast(@alignCast(
             @as([*]align(@alignOf(elf.Rel)) const u8, @ptrFromInt(base_addr + rel))[0..sorted_dynv[elf.DT_RELSZ]],
         ));
         for (rels) |r| {
@@ -275,7 +270,7 @@ pub fn relocate(phdrs: []const elf.Phdr) void {
 
     const rela = sorted_dynv[elf.DT_RELA];
     if (rela != 0) {
-        const relas: []const elf.Rela = @alignCast(@ptrCast(
+        const relas: []const elf.Rela = @ptrCast(@alignCast(
             @as([*]align(@alignOf(elf.Rela)) const u8, @ptrFromInt(base_addr + rela))[0..sorted_dynv[elf.DT_RELASZ]],
         ));
         for (relas) |r| {

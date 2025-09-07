@@ -57,7 +57,7 @@ fn libcPath(comp: *Compilation, arena: Allocator, sub_path: []const u8) ![]const
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progress.Node) anyerror!void {
     if (!build_options.have_llvm) return error.ZigCompilerNotBuiltWithLLVMExtensions;
 
@@ -66,7 +66,7 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
     defer arena_allocator.deinit();
     const arena = arena_allocator.allocator();
 
-    const target = comp.root_mod.resolved_target.result;
+    const target = &comp.root_mod.resolved_target.result;
 
     // In all cases in this function, we add the C compiler flags to
     // cache_exempt_flags rather than extra_flags, because these arguments
@@ -76,12 +76,11 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
 
     switch (crt_file) {
         .scrt1_o => {
-            var cflags = std.ArrayList([]const u8).init(arena);
+            var cflags = std.array_list.Managed([]const u8).init(arena);
             try cflags.appendSlice(&.{
                 "-O2",
                 "-fno-common",
                 "-std=gnu99",
-                "-DPIC",
                 "-w", // Disable all warnings.
             });
 
@@ -89,15 +88,16 @@ pub fn buildCrtFile(comp: *Compilation, crt_file: CrtFile, prog_node: std.Progre
                 try cflags.append("-mlongcall");
             }
 
-            var acflags = std.ArrayList([]const u8).init(arena);
+            var acflags = std.array_list.Managed([]const u8).init(arena);
             try acflags.appendSlice(&.{
                 "-DLOCORE",
                 // See `Compilation.addCCArgs`.
-                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000}),
+                try std.fmt.allocPrint(arena, "-D__FreeBSD_version={d}", .{target.os.version_range.semver.min.major * 100_000 + 500}),
             });
 
             inline for (.{ &cflags, &acflags }) |flags| {
                 try flags.appendSlice(&.{
+                    "-DPIC",
                     "-DSTRIP_FBSDID",
                     "-I",
                     try includePath(comp, arena, try std.fmt.allocPrint(arena, "{s}-{s}-{s}", .{
@@ -407,14 +407,14 @@ pub const BuiltSharedObjects = struct {
 
 const all_map_basename = "all.map";
 
-fn wordDirective(target: std.Target) []const u8 {
+fn wordDirective(target: *const std.Target) []const u8 {
     // Based on its description in the GNU `as` manual, you might assume that `.word` is sized
     // according to the target word size. But no; that would just make too much sense.
     return if (target.ptrBitWidth() == 64) ".quad" else ".long";
 }
 
 /// TODO replace anyerror with explicit error set, recording user-friendly errors with
-/// setMiscFailure and returning error.SubCompilationFailed. see libcxx.zig for example.
+/// lockAndSetMiscFailure and returning error.AlreadyReported. see libcxx.zig for example.
 pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anyerror!void {
     // See also glibc.zig which this code is based on.
 
@@ -497,47 +497,44 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             .lt => continue,
             .gt => {
                 // TODO Expose via compile error mechanism instead of log.
-                log.warn("invalid target FreeBSD libc version: {}", .{target_version});
+                log.warn("invalid target FreeBSD libc version: {f}", .{target_version});
                 return error.InvalidTargetLibCVersion;
             },
         }
     } else blk: {
         const latest_index = metadata.all_versions.len - 1;
-        log.warn("zig cannot build new FreeBSD libc version {}; providing instead {}", .{
+        log.warn("zig cannot build new FreeBSD libc version {f}; providing instead {f}", .{
             target_version, metadata.all_versions[latest_index],
         });
         break :blk latest_index;
     };
 
     {
-        var map_contents = std.ArrayList(u8).init(arena);
+        var map_contents = std.array_list.Managed(u8).init(arena);
         for (metadata.all_versions[0 .. target_ver_index + 1]) |ver| {
-            try map_contents.writer().print("FBSD_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
+            try map_contents.print("FBSD_{d}.{d} {{ }};\n", .{ ver.major, ver.minor });
         }
         try o_directory.handle.writeFile(.{ .sub_path = all_map_basename, .data = map_contents.items });
         map_contents.deinit();
     }
 
-    var stubs_asm = std.ArrayList(u8).init(gpa);
+    var stubs_asm = std.array_list.Managed(u8).init(gpa);
     defer stubs_asm.deinit();
 
     for (libs, 0..) |lib, lib_i| {
         stubs_asm.shrinkRetainingCapacity(0);
 
-        const stubs_writer = stubs_asm.writer();
-
-        try stubs_writer.writeAll(".text\n");
+        try stubs_asm.appendSlice(".text\n");
 
         var sym_i: usize = 0;
-        var sym_name_buf = std.ArrayList(u8).init(arena);
+        var sym_name_buf: std.Io.Writer.Allocating = .init(arena);
         var opt_symbol_name: ?[]const u8 = null;
         var versions = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
         var weak_linkages = try std.DynamicBitSetUnmanaged.initEmpty(arena, metadata.all_versions.len);
 
-        var inc_fbs = std.io.fixedBufferStream(metadata.inclusions);
-        var inc_reader = inc_fbs.reader();
+        var inc_reader: std.Io.Reader = .fixed(metadata.inclusions);
 
-        const fn_inclusions_len = try inc_reader.readInt(u16, .little);
+        const fn_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         // Pick the default symbol version:
         // - If there are no versions, don't emit it
@@ -550,19 +547,21 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < fn_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions.unsetAll();
                 weak_linkages.unsetAll();
                 chosen_def_ver_index = 255;
                 chosen_unversioned_ver_index = 255;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
             {
-                const targets = try std.leb.readUleb128(u64, inc_reader);
-                var lib_index = try inc_reader.readByte();
+                const targets = try inc_reader.takeLeb128(u64);
+                var lib_index = try inc_reader.takeByte();
 
                 const is_unversioned = (lib_index & (1 << 5)) != 0;
                 const is_weak = (lib_index & (1 << 6)) != 0;
@@ -576,7 +575,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
                 while (true) {
-                    const byte = try inc_reader.readByte();
+                    const byte = try inc_reader.takeByte();
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -608,7 +607,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 // .globl _Exit
                 // .type _Exit, %function
                 // _Exit: .long 0
-                try stubs_writer.print(
+                try stubs_asm.print(
                     \\.balign {d}
                     \\.{s} {s}
                     \\.type {s}, %function
@@ -640,7 +639,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         .{ sym_name, ver.major, ver.minor },
                     );
 
-                    try stubs_writer.print(
+                    try stubs_asm.print(
                         \\.balign {d}
                         \\.{s} {s}
                         \\.type {s}, %function
@@ -665,14 +664,14 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
         }
 
-        try stubs_writer.writeAll(".data\n");
+        try stubs_asm.appendSlice(".data\n");
 
         // FreeBSD's `libc.so.7` contains strong references to `__progname` and `environ` which are
         // defined in the statically-linked startup code. Those references cause the linker to put
         // the symbols in the dynamic symbol table. We need to create dummy references to them here
         // to get the same effect.
         if (std.mem.eql(u8, lib.name, "c")) {
-            try stubs_writer.print(
+            try stubs_asm.print(
                 \\.balign {d}
                 \\.globl __progname
                 \\.globl environ
@@ -686,7 +685,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             });
         }
 
-        const obj_inclusions_len = try inc_reader.readInt(u16, .little);
+        const obj_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         var sizes = try arena.alloc(u16, metadata.all_versions.len);
 
@@ -696,21 +695,23 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < obj_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions.unsetAll();
                 weak_linkages.unsetAll();
                 chosen_def_ver_index = 255;
                 chosen_unversioned_ver_index = 255;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
 
             {
-                const targets = try std.leb.readUleb128(u64, inc_reader);
-                const size = try std.leb.readUleb128(u16, inc_reader);
-                var lib_index = try inc_reader.readByte();
+                const targets = try inc_reader.takeLeb128(u64);
+                const size = try inc_reader.takeLeb128(u16);
+                var lib_index = try inc_reader.takeByte();
 
                 const is_unversioned = (lib_index & (1 << 5)) != 0;
                 const is_weak = (lib_index & (1 << 6)) != 0;
@@ -724,7 +725,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
                 while (true) {
-                    const byte = try inc_reader.readByte();
+                    const byte = try inc_reader.takeByte();
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -758,7 +759,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 // .type malloc_conf, %object
                 // .size malloc_conf, 4
                 // malloc_conf: .fill 4, 1, 0
-                try stubs_writer.print(
+                try stubs_asm.print(
                     \\.balign {d}
                     \\.{s} {s}
                     \\.type {s}, %object
@@ -794,7 +795,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         .{ sym_name, ver.major, ver.minor },
                     );
 
-                    try stubs_asm.writer().print(
+                    try stubs_asm.print(
                         \\.balign {d}
                         \\.{s} {s}
                         \\.type {s}, %object
@@ -822,9 +823,9 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
             }
         }
 
-        try stubs_writer.writeAll(".tdata\n");
+        try stubs_asm.appendSlice(".tdata\n");
 
-        const tls_inclusions_len = try inc_reader.readInt(u16, .little);
+        const tls_inclusions_len = try inc_reader.takeInt(u16, .little);
 
         sym_i = 0;
         opt_symbol_name = null;
@@ -832,21 +833,23 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
         while (sym_i < tls_inclusions_len) : (sym_i += 1) {
             const sym_name = opt_symbol_name orelse n: {
                 sym_name_buf.clearRetainingCapacity();
-                try inc_reader.streamUntilDelimiter(sym_name_buf.writer(), 0, null);
+                _ = try inc_reader.streamDelimiter(&sym_name_buf.writer, 0);
+                assert(inc_reader.buffered()[0] == 0); // TODO change streamDelimiter API
+                inc_reader.toss(1);
 
-                opt_symbol_name = sym_name_buf.items;
+                opt_symbol_name = sym_name_buf.written();
                 versions.unsetAll();
                 weak_linkages.unsetAll();
                 chosen_def_ver_index = 255;
                 chosen_unversioned_ver_index = 255;
 
-                break :n sym_name_buf.items;
+                break :n sym_name_buf.written();
             };
 
             {
-                const targets = try std.leb.readUleb128(u64, inc_reader);
-                const size = try std.leb.readUleb128(u16, inc_reader);
-                var lib_index = try inc_reader.readByte();
+                const targets = try inc_reader.takeLeb128(u64);
+                const size = try inc_reader.takeLeb128(u16);
+                var lib_index = try inc_reader.takeByte();
 
                 const is_unversioned = (lib_index & (1 << 5)) != 0;
                 const is_weak = (lib_index & (1 << 6)) != 0;
@@ -860,7 +863,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                     ((targets & (@as(u64, 1) << @as(u6, @intCast(target_targ_index)))) != 0);
 
                 while (true) {
-                    const byte = try inc_reader.readByte();
+                    const byte = try inc_reader.takeByte();
                     const last = (byte & 0b1000_0000) != 0;
                     const ver_i = @as(u7, @truncate(byte));
                     if (ok_lib_and_target and ver_i <= target_ver_index) {
@@ -894,7 +897,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                 // .type _ThreadRuneLocale, %object
                 // .size _ThreadRuneLocale, 4
                 // _ThreadRuneLocale: .fill 4, 1, 0
-                try stubs_writer.print(
+                try stubs_asm.print(
                     \\.balign {d}
                     \\.{s} {s}
                     \\.type {s}, %tls_object
@@ -930,7 +933,7 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
                         .{ sym_name, ver.major, ver.minor },
                     );
 
-                    try stubs_writer.print(
+                    try stubs_asm.print(
                         \\.balign {d}
                         \\.{s} {s}
                         \\.type {s}, %tls_object
@@ -977,15 +980,11 @@ pub fn buildSharedObjects(comp: *Compilation, prog_node: std.Progress.Node) anye
     });
 }
 
-pub fn sharedObjectsCount() u8 {
-    return libs.len;
-}
-
 fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
     assert(comp.freebsd_so_files == null);
     comp.freebsd_so_files = so_files;
 
-    var task_buffer: [libs.len]link.Task = undefined;
+    var task_buffer: [libs.len]link.PrelinkTask = undefined;
     var task_buffer_i: usize = 0;
 
     {
@@ -1004,7 +1003,7 @@ fn queueSharedObjects(comp: *Compilation, so_files: BuiltSharedObjects) void {
         }
     }
 
-    comp.queueLinkTasks(task_buffer[0..task_buffer_i]);
+    comp.queuePrelinkTasks(task_buffer[0..task_buffer_i]);
 }
 
 fn buildSharedLib(
@@ -1019,10 +1018,6 @@ fn buildSharedLib(
     defer tracy.end();
 
     const basename = try std.fmt.allocPrint(arena, "lib{s}.so.{d}", .{ lib.name, lib.sover });
-    const emit_bin = Compilation.EmitLoc{
-        .directory = bin_directory,
-        .basename = basename,
-    };
     const version: Version = .{ .major = lib.sover, .minor = 0, .patch = 0 };
     const ld_basename = path.basename(comp.getTarget().standardDynamicLinkerPath().get().?);
     const soname = if (mem.eql(u8, lib.name, "ld")) ld_basename else basename;
@@ -1073,17 +1068,21 @@ fn buildSharedLib(
         },
     };
 
-    const sub_compilation = try Compilation.create(comp.gpa, arena, .{
+    const misc_task: Compilation.MiscTask = .@"freebsd libc shared object";
+
+    var sub_create_diag: Compilation.CreateDiagnostic = undefined;
+    const sub_compilation = Compilation.create(comp.gpa, arena, &sub_create_diag, .{
         .dirs = comp.dirs.withoutLocalCache(),
         .thread_pool = comp.thread_pool,
         .self_exe_path = comp.self_exe_path,
-        .cache_mode = .incremental,
+        // Because we manually cache the whole set of objects, we don't cache the individual objects
+        // within it. In fact, we *can't* do that, because we need `emit_bin` to specify the path.
+        .cache_mode = .none,
         .config = config,
         .root_mod = root_mod,
         .root_name = lib.name,
         .libc_installation = comp.libc_installation,
-        .emit_bin = emit_bin,
-        .emit_h = null,
+        .emit_bin = .{ .yes_path = try bin_directory.join(arena, &.{basename}) },
         .verbose_cc = comp.verbose_cc,
         .verbose_link = comp.verbose_link,
         .verbose_air = comp.verbose_air,
@@ -1097,8 +1096,14 @@ fn buildSharedLib(
         .soname = soname,
         .c_source_files = &c_source_files,
         .skip_linker_dependencies = true,
-    });
+    }) catch |err| switch (err) {
+        error.CreateFail => {
+            comp.lockAndSetMiscFailure(misc_task, "sub-compilation of {t} failed: {f}", .{ misc_task, sub_create_diag });
+            return error.AlreadyReported;
+        },
+        else => |e| return e,
+    };
     defer sub_compilation.destroy();
 
-    try comp.updateSubCompilation(sub_compilation, .@"freebsd libc shared object", prog_node);
+    try comp.updateSubCompilation(sub_compilation, misc_task, prog_node);
 }

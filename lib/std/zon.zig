@@ -23,6 +23,7 @@
 //!     .b = "hello, world!",
 //!     .c = .{ true, false },
 //!     .d = .{ 1, 2, 3 },
+//!     .e = .{ .x = 13, .y = 67 },
 //! }
 //! ```
 //!
@@ -38,6 +39,7 @@
 
 pub const parse = @import("zon/parse.zig");
 pub const stringify = @import("zon/stringify.zig");
+pub const Serializer = @import("zon/Serializer.zig");
 
 test {
     _ = parse;

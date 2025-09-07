@@ -69,7 +69,7 @@ pub fn parse(
     /// For error reporting purposes only.
     path: Path,
     handle: fs.File,
-    target: std.Target,
+    target: *const std.Target,
     debug_fmt_strip: bool,
     default_sym_version: elf.Versym,
 ) !void {
@@ -98,7 +98,7 @@ pub fn parseCommon(
     diags: *Diags,
     path: Path,
     handle: fs.File,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const offset = if (self.archive) |ar| ar.offset else 0;
     const file_size = (try handle.stat()).size;
@@ -106,6 +106,9 @@ pub fn parseCommon(
     const header_buffer = try Elf.preadAllAlloc(gpa, handle, offset, @sizeOf(elf.Elf64_Ehdr));
     defer gpa.free(header_buffer);
     self.header = @as(*align(1) const elf.Elf64_Ehdr, @ptrCast(header_buffer)).*;
+    if (!mem.eql(u8, self.header.?.e_ident[0..4], elf.MAGIC)) {
+        return diags.failParse(path, "not an ELF file", .{});
+    }
 
     const em = target.toElfMachine();
     if (em != self.header.?.e_machine) {
@@ -182,11 +185,11 @@ pub fn parseCommon(
 pub fn validateEFlags(
     diags: *Diags,
     path: Path,
-    target: std.Target,
+    target: *const std.Target,
     e_flags: elf.Word,
 ) !void {
     switch (target.cpu.arch) {
-        .riscv64 => {
+        .riscv64, .riscv64be => {
             const flags: riscv.Eflags = @bitCast(e_flags);
             var any_errors: bool = false;
 
@@ -263,7 +266,7 @@ fn initAtoms(
     path: Path,
     handle: fs.File,
     debug_fmt_strip: bool,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const shdrs = self.shdrs.items;
     try self.atoms.ensureTotalCapacityPrecise(gpa, shdrs.len);
@@ -281,7 +284,7 @@ fn initAtoms(
             elf.SHT_GROUP => {
                 if (shdr.sh_info >= self.symtab.items.len) {
                     // TODO convert into an error
-                    log.debug("{}: invalid symbol index in sh_info", .{self.fmtPath()});
+                    log.debug("{f}: invalid symbol index in sh_info", .{self.fmtPath()});
                     continue;
                 }
                 const group_info_sym = self.symtab.items[shdr.sh_info];
@@ -363,7 +366,7 @@ fn initAtoms(
                 const rel_count: u32 = @intCast(relocs.len);
                 self.setAtomFields(atom_ptr, .{ .rel_index = rel_index, .rel_count = rel_count });
                 try self.relocs.appendUnalignedSlice(gpa, relocs);
-                if (target.cpu.arch == .riscv64) {
+                if (target.cpu.arch.isRiscv64()) {
                     sortRelocs(self.relocs.items[rel_index..][0..rel_count]);
                 }
             }
@@ -420,7 +423,7 @@ fn parseEhFrame(
     gpa: Allocator,
     handle: fs.File,
     shndx: u32,
-    target: std.Target,
+    target: *const std.Target,
 ) !void {
     const relocs_shndx = for (self.shdrs.items, 0..) |shdr, i| switch (shdr.sh_type) {
         elf.SHT_RELA => if (shdr.sh_info == shndx) break @as(u32, @intCast(i)),
@@ -442,7 +445,7 @@ fn parseEhFrame(
     // We expect relocations to be sorted by r_offset as per this comment in mold linker:
     // https://github.com/rui314/mold/blob/8e4f7b53832d8af4f48a633a8385cbc932d1944e/src/input-files.cc#L653
     // Except for RISCV and Loongarch which do not seem to be uphold this convention.
-    if (target.cpu.arch == .riscv64) {
+    if (target.cpu.arch.isRiscv64()) {
         sortRelocs(self.relocs.items[rel_start..][0..relocs.len]);
     }
     const fdes_start = self.fdes.items.len;
@@ -488,10 +491,7 @@ fn parseEhFrame(
             if (cie.offset == cie_ptr) break @as(u32, @intCast(cie_index));
         } else {
             // TODO convert into an error
-            log.debug("{s}: no matching CIE found for FDE at offset {x}", .{
-                self.fmtPath(),
-                fde.offset,
-            });
+            log.debug("{f}: no matching CIE found for FDE at offset {x}", .{ self.fmtPath(), fde.offset });
             continue;
         };
         fde.cie_index = cie_index;
@@ -582,7 +582,7 @@ pub fn scanRelocs(self: *Object, elf_file: *Elf, undefs: anytype) !void {
             if (sym.flags.import) {
                 if (sym.type(elf_file) != elf.STT_FUNC)
                     // TODO convert into an error
-                    log.debug("{s}: {s}: CIE referencing external data reference", .{
+                    log.debug("{f}: {s}: CIE referencing external data reference", .{
                         self.fmtPath(), sym.name(elf_file),
                     });
                 sym.flags.needs_plt = true;
@@ -634,7 +634,7 @@ pub fn claimUnresolved(self: *Object, elf_file: *Elf) void {
 
         const is_import = blk: {
             if (!elf_file.isEffectivelyDynLib()) break :blk false;
-            const vis = @as(elf.STV, @enumFromInt(esym.st_other));
+            const vis: elf.STV = @enumFromInt(@as(u3, @truncate(esym.st_other)));
             if (vis == .HIDDEN) break :blk false;
             break :blk true;
         };
@@ -707,7 +707,7 @@ pub fn markImportsExports(self: *Object, elf_file: *Elf) void {
         const file = sym.file(elf_file).?;
         // https://github.com/ziglang/zig/issues/21678
         if (@as(u16, @bitCast(sym.version_index)) == @as(u16, @bitCast(elf.Versym.LOCAL))) continue;
-        const vis: elf.STV = @enumFromInt(sym.elfSym(elf_file).st_other);
+        const vis: elf.STV = @enumFromInt(@as(u3, @truncate(sym.elfSym(elf_file).st_other)));
         if (vis == .HIDDEN) continue;
         if (file == .shared_object and !sym.isAbs(elf_file)) {
             sym.flags.import = true;
@@ -796,7 +796,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
                 if (!isNull(data[end .. end + sh_entsize])) {
                     var err = try diags.addErrorWithNotes(1);
                     try err.addMsg("string not null terminated", .{});
-                    err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                    err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                     return error.LinkFailure;
                 }
                 end += sh_entsize;
@@ -811,7 +811,7 @@ pub fn initInputMergeSections(self: *Object, elf_file: *Elf) !void {
             if (shdr.sh_size % sh_entsize != 0) {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("size not a multiple of sh_entsize", .{});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             }
 
@@ -889,7 +889,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             var err = try diags.addErrorWithNotes(2);
             try err.addMsg("invalid symbol value: {x}", .{esym.st_value});
             err.addNote("for symbol {s}", .{sym.name(elf_file)});
-            err.addNote("in {}", .{self.fmtPath()});
+            err.addNote("in {f}", .{self.fmtPath()});
             return error.LinkFailure;
         };
 
@@ -914,7 +914,7 @@ pub fn resolveMergeSubsections(self: *Object, elf_file: *Elf) error{
             const res = imsec.findSubsection(@intCast(@as(i64, @intCast(esym.st_value)) + rel.r_addend)) orelse {
                 var err = try diags.addErrorWithNotes(1);
                 try err.addMsg("invalid relocation at offset 0x{x}", .{rel.r_offset});
-                err.addNote("in {}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
+                err.addNote("in {f}:{s}", .{ self.fmtPath(), atom_ptr.name(elf_file) });
                 return error.LinkFailure;
             };
 
@@ -952,7 +952,7 @@ pub fn convertCommonSymbols(self: *Object, elf_file: *Elf) !void {
         const is_tls = sym.type(elf_file) == elf.STT_TLS;
         const name = if (is_tls) ".tls_common" else ".common";
         const name_offset = @as(u32, @intCast(self.strtab.items.len));
-        try self.strtab.writer(gpa).print("{s}\x00", .{name});
+        try self.strtab.print(gpa, "{s}\x00", .{name});
 
         var sh_flags: u32 = elf.SHF_ALLOC | elf.SHF_WRITE;
         if (is_tls) sh_flags |= elf.SHF_TLS;
@@ -1198,15 +1198,14 @@ pub fn codeDecompressAlloc(self: *Object, elf_file: *Elf, atom_index: Atom.Index
         const chdr = @as(*align(1) const elf.Elf64_Chdr, @ptrCast(data.ptr)).*;
         switch (chdr.ch_type) {
             .ZLIB => {
-                var stream = std.io.fixedBufferStream(data[@sizeOf(elf.Elf64_Chdr)..]);
-                var zlib_stream = std.compress.zlib.decompressor(stream.reader());
+                var stream: std.Io.Reader = .fixed(data[@sizeOf(elf.Elf64_Chdr)..]);
+                var zlib_stream: std.compress.flate.Decompress = .init(&stream, .zlib, &.{});
                 const size = std.math.cast(usize, chdr.ch_size) orelse return error.Overflow;
-                const decomp = try gpa.alloc(u8, size);
-                const nread = zlib_stream.reader().readAll(decomp) catch return error.InputOutput;
-                if (nread != decomp.len) {
-                    return error.InputOutput;
-                }
-                return decomp;
+                var aw: std.Io.Writer.Allocating = .init(gpa);
+                try aw.ensureUnusedCapacity(size);
+                defer aw.deinit();
+                _ = try zlib_stream.reader.streamRemaining(&aw.writer);
+                return aw.toOwnedSlice();
             },
             else => @panic("TODO unhandled compression scheme"),
         }
@@ -1432,171 +1431,116 @@ pub fn group(self: *Object, index: Elf.Group.Index) *Elf.Group {
     return &self.groups.items[index];
 }
 
-pub fn format(
-    self: *Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = self;
-    _ = unused_fmt_string;
-    _ = options;
-    _ = writer;
-    @compileError("do not format objects directly");
-}
-
-pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatSymtab) {
+pub fn fmtSymtab(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.symtab) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-const FormatContext = struct {
+const Format = struct {
     object: *Object,
     elf_file: *Elf,
+
+    fn symtab(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  locals\n");
+        for (object.locals()) |sym| {
+            try writer.print("    {f}\n", .{sym.fmt(elf_file)});
+        }
+        try writer.writeAll("  globals\n");
+        for (object.globals(), 0..) |sym, i| {
+            const first_global = object.first_global.?;
+            const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
+            if (elf_file.symbol(ref)) |ref_sym| {
+                try writer.print("    {f}\n", .{ref_sym.fmt(elf_file)});
+            } else {
+                try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
+            }
+        }
+    }
+
+    fn atoms(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  atoms\n");
+        for (object.atoms_indexes.items) |atom_index| {
+            const atom_ptr = object.atom(atom_index) orelse continue;
+            try writer.print("    {f}\n", .{atom_ptr.fmt(f.elf_file)});
+        }
+    }
+
+    fn cies(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  cies\n");
+        for (object.cies.items, 0..) |cie, i| {
+            try writer.print("    cie({d}) : {f}\n", .{ i, cie.fmt(f.elf_file) });
+        }
+    }
+
+    fn fdes(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const object = f.object;
+        try writer.writeAll("  fdes\n");
+        for (object.fdes.items, 0..) |fde, i| {
+            try writer.print("    fde({d}) : {f}\n", .{ i, fde.fmt(f.elf_file) });
+        }
+    }
+
+    fn groups(f: Format, writer: *std.Io.Writer) std.Io.Writer.Error!void {
+        const object = f.object;
+        const elf_file = f.elf_file;
+        try writer.writeAll("  groups\n");
+        for (object.groups.items, 0..) |g, g_index| {
+            try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
+            if (!g.alive) try writer.writeAll(" : [*]");
+            try writer.writeByte('\n');
+            const g_members = g.members(elf_file);
+            for (g_members) |shndx| {
+                const atom_index = object.atoms_indexes.items[shndx];
+                const atom_ptr = object.atom(atom_index) orelse continue;
+                try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
+            }
+        }
+    }
 };
 
-fn formatSymtab(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  locals\n");
-    for (object.locals()) |sym| {
-        try writer.print("    {}\n", .{sym.fmt(elf_file)});
-    }
-    try writer.writeAll("  globals\n");
-    for (object.globals(), 0..) |sym, i| {
-        const first_global = object.first_global.?;
-        const ref = object.resolveSymbol(@intCast(i + first_global), elf_file);
-        if (elf_file.symbol(ref)) |ref_sym| {
-            try writer.print("    {}\n", .{ref_sym.fmt(elf_file)});
-        } else {
-            try writer.print("    {s} : unclaimed\n", .{sym.name(elf_file)});
-        }
-    }
-}
-
-pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatAtoms) {
+pub fn fmtAtoms(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.atoms) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatAtoms(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  atoms\n");
-    for (object.atoms_indexes.items) |atom_index| {
-        const atom_ptr = object.atom(atom_index) orelse continue;
-        try writer.print("    {}\n", .{atom_ptr.fmt(ctx.elf_file)});
-    }
-}
-
-pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatCies) {
+pub fn fmtCies(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.cies) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatCies(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  cies\n");
-    for (object.cies.items, 0..) |cie, i| {
-        try writer.print("    cie({d}) : {}\n", .{ i, cie.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatFdes) {
+pub fn fmtFdes(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.fdes) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatFdes(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    try writer.writeAll("  fdes\n");
-    for (object.fdes.items, 0..) |fde, i| {
-        try writer.print("    fde({d}) : {}\n", .{ i, fde.fmt(ctx.elf_file) });
-    }
-}
-
-pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Formatter(formatGroups) {
+pub fn fmtGroups(self: *Object, elf_file: *Elf) std.fmt.Alt(Format, Format.groups) {
     return .{ .data = .{
         .object = self,
         .elf_file = elf_file,
     } };
 }
 
-fn formatGroups(
-    ctx: FormatContext,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
-    const object = ctx.object;
-    const elf_file = ctx.elf_file;
-    try writer.writeAll("  groups\n");
-    for (object.groups.items, 0..) |g, g_index| {
-        try writer.print("    {s}({d})", .{ if (g.is_comdat) "COMDAT" else "GROUP", g_index });
-        if (!g.alive) try writer.writeAll(" : [*]");
-        try writer.writeByte('\n');
-        const g_members = g.members(elf_file);
-        for (g_members) |shndx| {
-            const atom_index = object.atoms_indexes.items[shndx];
-            const atom_ptr = object.atom(atom_index) orelse continue;
-            try writer.print("      atom({d}) : {s}\n", .{ atom_index, atom_ptr.name(elf_file) });
-        }
-    }
-}
-
-pub fn fmtPath(self: Object) std.fmt.Formatter(formatPath) {
+pub fn fmtPath(self: Object) std.fmt.Alt(Object, formatPath) {
     return .{ .data = self };
 }
 
-fn formatPath(
-    object: Object,
-    comptime unused_fmt_string: []const u8,
-    options: std.fmt.FormatOptions,
-    writer: anytype,
-) !void {
-    _ = unused_fmt_string;
-    _ = options;
+fn formatPath(object: Object, writer: *std.Io.Writer) std.Io.Writer.Error!void {
     if (object.archive) |ar| {
-        try writer.print("{}({})", .{ ar.path, object.path });
+        try writer.print("{f}({f})", .{ ar.path, object.path });
     } else {
-        try writer.print("{}", .{object.path});
+        try writer.print("{f}", .{object.path});
     }
 }
 

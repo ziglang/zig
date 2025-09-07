@@ -517,15 +517,18 @@ uint32_t wasi_snapshot_preview1_fd_read(uint32_t fd, uint32_t iovs, uint32_t iov
         case wasi_filetype_character_device: break;
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
-        default: panic("unimplemented");
+        default: panic("unimplemented: fd_read special file");
+    }
+
+    if (fds[fd].stream == NULL) {
+        store32_align2(res_size_ptr, 0);
+        return wasi_errno_success;
     }
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
         uint32_t len = load32_align2(&iovs_ptr[i].len);
-        size_t read_size = 0;
-        if (fds[fd].stream != NULL)
-            read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
+        size_t read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         size += read_size;
         if (read_size < len) break;
     }
@@ -629,12 +632,14 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
         case wasi_filetype_character_device: break;
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
-        default: panic("unimplemented");
+        default: panic("unimplemented: fd_pwrite special file");
     }
 
     fpos_t pos;
-    if (fgetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
-    if (fseek(fds[fd].stream, offset, SEEK_SET) < 0) return wasi_errno_io;
+    if (fds[fd].stream != NULL) {
+        if (fgetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+        if (fseek(fds[fd].stream, offset, SEEK_SET) < 0) return wasi_errno_io;
+    }
 
     size_t size = 0;
     for (uint32_t i = 0; i < iovs_len; i += 1) {
@@ -648,7 +653,9 @@ uint32_t wasi_snapshot_preview1_fd_pwrite(uint32_t fd, uint32_t iovs, uint32_t i
         if (written_size < len) break;
     }
 
-    if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+    if (fds[fd].stream != NULL) {
+        if (fsetpos(fds[fd].stream, &pos) < 0) return wasi_errno_io;
+    }
 
     if (size > 0) {
         time_t now = time(NULL);
@@ -679,7 +686,7 @@ uint32_t wasi_snapshot_preview1_fd_filestat_set_times(uint32_t fd, uint64_t atim
     fprintf(stderr, "wasi_snapshot_preview1_fd_filestat_set_times(%u, %llu, %llu, 0x%X)\n", fd, (unsigned long long)atim, (unsigned long long)mtim, fst_flags);
 #endif
 
-    panic("unimplemented");
+    panic("unimplemented: fd_filestat_set_times");
     return wasi_errno_success;
 }
 
@@ -703,7 +710,7 @@ uint32_t wasi_snapshot_preview1_environ_get(uint32_t environ, uint32_t environ_b
     fprintf(stderr, "wasi_snapshot_preview1_environ_get()\n");
 #endif
 
-    panic("unimplemented");
+    panic("unimplemented: environ_get");
     return wasi_errno_success;
 }
 
@@ -757,7 +764,7 @@ uint32_t wasi_snapshot_preview1_fd_readdir(uint32_t fd, uint32_t buf, uint32_t b
     fprintf(stderr, "wasi_snapshot_preview1_fd_readdir(%u, 0x%X, %u, %llu)\n", fd, buf, buf_len, (unsigned long long)cookie);
 #endif
 
-    panic("unimplemented");
+    panic("unimplemented: fd_readdir");
     return wasi_errno_success;
 }
 
@@ -774,7 +781,7 @@ uint32_t wasi_snapshot_preview1_fd_write(uint32_t fd, uint32_t iovs, uint32_t io
         case wasi_filetype_character_device: break;
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
-        default: panic("unimplemented");
+        default: panic("unimplemented: fd_write special file");
     }
 
     size_t size = 0;
@@ -825,7 +832,7 @@ uint32_t wasi_snapshot_preview1_path_open(uint32_t fd, uint32_t dirflags, uint32
         fds[fd_len].fdflags = fdflags;
         switch (des[de].filetype) {
             case wasi_filetype_directory: fds[fd_len].stream = NULL; break;
-            default: panic("unimplemented");
+            default: panic("unimplemented: path_open non-directory DirEntry");
         }
         fds[fd_len].fs_rights_inheriting = fs_rights_inheriting;
 
@@ -943,7 +950,7 @@ uint32_t wasi_snapshot_preview1_path_unlink_file(uint32_t fd, uint32_t path, uin
     enum wasi_errno lookup_errno = DirEntry_lookup(fd, 0, path_ptr, path_len, &de);
     if (lookup_errno != wasi_errno_success) return lookup_errno;
     if (des[de].filetype == wasi_filetype_directory) return wasi_errno_isdir;
-    if (des[de].filetype != wasi_filetype_regular_file) panic("unimplemented");
+    if (des[de].filetype != wasi_filetype_regular_file) panic("unimplemented: path_unlink_file special file");
     DirEntry_unlink(de);
     return wasi_errno_success;
 }
@@ -961,7 +968,12 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
         case wasi_filetype_character_device: break;
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
-        default: panic("unimplemented");
+        default: panic("unimplemented: fd_pread special file");
+    }
+
+    if (fds[fd].stream == NULL) {
+        store32_align2(res_size_ptr, 0);
+        return wasi_errno_success;
     }
 
     fpos_t pos;
@@ -975,7 +987,7 @@ uint32_t wasi_snapshot_preview1_fd_pread(uint32_t fd, uint32_t iovs, uint32_t io
         if (fds[fd].stream != NULL)
             read_size = fread(&m[load32_align2(&iovs_ptr[i].ptr)], 1, len, fds[fd].stream);
         else
-            panic("unimplemented");
+            panic("unimplemented: fd_pread stream=NULL");
         size += read_size;
         if (read_size < len) break;
     }
@@ -1000,7 +1012,7 @@ uint32_t wasi_snapshot_preview1_fd_seek(uint32_t fd, uint64_t in_offset, uint32_
         case wasi_filetype_character_device: break;
         case wasi_filetype_regular_file: break;
         case wasi_filetype_directory: return wasi_errno_inval;
-        default: panic("unimplemented");
+        default: panic("unimplemented: fd_seek special file");
     }
 
     if (fds[fd].stream == NULL) return wasi_errno_success;
@@ -1035,7 +1047,7 @@ uint32_t wasi_snapshot_preview1_poll_oneoff(uint32_t in, uint32_t out, uint32_t 
     fprintf(stderr, "wasi_snapshot_preview1_poll_oneoff(%u)\n", nsubscriptions);
 #endif
 
-    panic("unimplemented");
+    panic("unimplemented: poll_oneoff");
     return wasi_errno_success;
 }
 

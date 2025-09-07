@@ -57,8 +57,6 @@ liveness: Air.Liveness,
 bin_file: *link.File,
 target: *const std.Target,
 func_index: InternPool.Index,
-code: *std.ArrayListUnmanaged(u8),
-debug_output: link.File.DebugInfoOutput,
 err_msg: ?*ErrorMsg,
 args: []MCValue,
 ret_mcv: MCValue,
@@ -90,7 +88,7 @@ reused_operands: std.StaticBitSet(Air.Liveness.bpi - 1) = undefined,
 /// within different branches. Special consideration is needed when a branch
 /// joins with its parent, to make sure all instructions have the same MCValue
 /// across each runtime branch upon joining.
-branch_stack: *std.ArrayList(Branch),
+branch_stack: *std.array_list.Managed(Branch),
 
 // Key is the block instruction
 blocks: std.AutoHashMapUnmanaged(Air.Inst.Index, BlockData) = .empty,
@@ -268,11 +266,9 @@ pub fn generate(
     pt: Zcu.PerThread,
     src_loc: Zcu.LazySrcLoc,
     func_index: InternPool.Index,
-    air: Air,
-    liveness: Air.Liveness,
-    code: *std.ArrayListUnmanaged(u8),
-    debug_output: link.File.DebugInfoOutput,
-) CodeGenError!void {
+    air: *const Air,
+    liveness: *const ?Air.Liveness,
+) CodeGenError!Mir {
     const zcu = pt.zcu;
     const gpa = zcu.gpa;
     const func = zcu.funcInfo(func_index);
@@ -280,7 +276,7 @@ pub fn generate(
     const file_scope = zcu.navFileScope(func.owner_nav);
     const target = &file_scope.mod.?.resolved_target.result;
 
-    var branch_stack = std.ArrayList(Branch).init(gpa);
+    var branch_stack = std.array_list.Managed(Branch).init(gpa);
     defer {
         assert(branch_stack.items.len == 1);
         branch_stack.items[0].deinit(gpa);
@@ -291,13 +287,11 @@ pub fn generate(
     var function: Self = .{
         .gpa = gpa,
         .pt = pt,
-        .air = air,
-        .liveness = liveness,
+        .air = air.*,
+        .liveness = liveness.*.?,
         .target = target,
         .bin_file = lf,
         .func_index = func_index,
-        .code = code,
-        .debug_output = debug_output,
         .err_msg = null,
         .args = undefined, // populated after `resolveCallingConventionValues`
         .ret_mcv = undefined, // populated after `resolveCallingConventionValues`
@@ -330,29 +324,13 @@ pub fn generate(
         else => |e| return e,
     };
 
-    var mir = Mir{
+    var mir: Mir = .{
         .instructions = function.mir_instructions.toOwnedSlice(),
-        .extra = try function.mir_extra.toOwnedSlice(gpa),
+        .extra = &.{}, // fallible, so populated after errdefer
     };
-    defer mir.deinit(gpa);
-
-    var emit: Emit = .{
-        .mir = mir,
-        .bin_file = lf,
-        .debug_output = debug_output,
-        .target = target,
-        .src_loc = src_loc,
-        .code = code,
-        .prev_di_pc = 0,
-        .prev_di_line = func.lbrace_line,
-        .prev_di_column = func.lbrace_column,
-    };
-    defer emit.deinit();
-
-    emit.emitMir() catch |err| switch (err) {
-        error.EmitFail => return function.failMsg(emit.err_msg.?),
-        else => |e| return e,
-    };
+    errdefer mir.deinit(gpa);
+    mir.extra = try function.mir_extra.toOwnedSlice(gpa);
+    return mir;
 }
 
 fn gen(self: *Self) !void {
@@ -718,6 +696,8 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
             .sub_safe,
             .mul_safe,
             .intcast_safe,
+            .int_from_float_safe,
+            .int_from_float_optimized_safe,
             => @panic("TODO implement safety_checked_instructions"),
 
             .is_named_enum_value => @panic("TODO implement is_named_enum_value"),
@@ -743,7 +723,7 @@ fn genBody(self: *Self, body: []const Air.Inst.Index) InnerError!void {
 
         if (std.debug.runtime_safety) {
             if (self.air_bookkeeping < old_air_bookkeeping + 1) {
-                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
+                std.debug.panic("in codegen.zig, handling of AIR instruction %{d} ('{t}') did not do proper bookkeeping. Look for a missing call to finishAir.", .{ inst, air_tags[@intFromEnum(inst)] });
             }
         }
     }
@@ -893,10 +873,10 @@ fn airArrayToSlice(self: *Self, inst: Air.Inst.Index) !void {
 fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
     const ty_pl = self.air.instructions.items(.data)[@intFromEnum(inst)].ty_pl;
     const extra = self.air.extraData(Air.Asm, ty_pl.payload);
-    const is_volatile = (extra.data.flags & 0x80000000) != 0;
-    const clobbers_len: u31 = @truncate(extra.data.flags);
+    const is_volatile = extra.data.flags.is_volatile;
+    const outputs_len = extra.data.flags.outputs_len;
     var extra_i: usize = extra.end;
-    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.outputs_len]);
+    const outputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + outputs_len]);
     extra_i += outputs.len;
     const inputs: []const Air.Inst.Ref = @ptrCast(self.air.extra.items[extra_i .. extra_i + extra.data.inputs_len]);
     extra_i += inputs.len;
@@ -941,17 +921,8 @@ fn airAsm(self: *Self, inst: Air.Inst.Index) !void {
             try self.genSetReg(self.typeOf(input), reg, arg_mcv);
         }
 
-        {
-            var clobber_i: u32 = 0;
-            while (clobber_i < clobbers_len) : (clobber_i += 1) {
-                const clobber = std.mem.sliceTo(std.mem.sliceAsBytes(self.air.extra.items[extra_i..]), 0);
-                // This equation accounts for the fact that even if we have exactly 4 bytes
-                // for the string, we still use the next u32 for the null terminator.
-                extra_i += clobber.len / 4 + 1;
-
-                // TODO honor these
-            }
-        }
+        // TODO honor the clobbers
+        _ = extra.data.clobbers;
 
         const asm_source = std.mem.sliceAsBytes(self.air.extra.items[extra_i..])[0..extra.data.source_len];
 
@@ -1017,23 +988,29 @@ fn airArg(self: *Self, inst: Air.Inst.Index) InnerError!void {
     self.arg_index += 1;
 
     const ty = self.typeOfIndex(inst);
-
-    const arg = self.args[arg_index];
-    const mcv = blk: {
-        switch (arg) {
+    const mcv: MCValue = blk: {
+        switch (self.args[arg_index]) {
             .stack_offset => |off| {
                 const abi_size = math.cast(u32, ty.abiSize(zcu)) orelse {
-                    return self.fail("type '{}' too big to fit into stack frame", .{ty.fmt(pt)});
+                    return self.fail("type '{f}' too big to fit into stack frame", .{ty.fmt(pt)});
                 };
                 const offset = off + abi_size;
-                break :blk MCValue{ .stack_offset = offset };
+                break :blk .{ .stack_offset = offset };
             },
-            else => break :blk arg,
+            else => |mcv| break :blk mcv,
         }
     };
 
-    self.genArgDbgInfo(inst, mcv) catch |err|
-        return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    const func_zir = zcu.funcInfo(self.func_index).zir_body_inst.resolveFull(&zcu.intern_pool).?;
+    const file = zcu.fileByIndex(func_zir.file);
+    if (!file.mod.?.strip) {
+        const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
+        const zir = &file.zir.?;
+        const name = zir.nullTerminatedString(zir.getParamName(zir.getParamBody(func_zir.inst)[arg.zir_param_index]).?);
+
+        self.genArgDbgInfo(name, ty, mcv) catch |err|
+            return self.fail("failed to generate debug info for parameter: {s}", .{@errorName(err)});
+    }
 
     if (self.liveness.isUnused(inst))
         return self.finishAirBookkeeping();
@@ -2762,7 +2739,7 @@ fn allocMemPtr(self: *Self, inst: Air.Inst.Index) !u32 {
     }
 
     const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     // TODO swap this for inst.ty.ptrAlign
     const abi_align = elem_ty.abiAlignment(zcu);
@@ -2774,7 +2751,7 @@ fn allocRegOrMem(self: *Self, inst: Air.Inst.Index, reg_ok: bool) !MCValue {
     const zcu = pt.zcu;
     const elem_ty = self.typeOfIndex(inst);
     const abi_size = math.cast(u32, elem_ty.abiSize(zcu)) orelse {
-        return self.fail("type '{}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
+        return self.fail("type '{f}' too big to fit into stack frame", .{elem_ty.fmt(pt)});
     };
     const abi_align = elem_ty.abiAlignment(zcu);
     self.stack_align = self.stack_align.max(abi_align);
@@ -3561,16 +3538,15 @@ fn finishAir(self: *Self, inst: Air.Inst.Index, result: MCValue, operands: [Air.
     self.finishAirBookkeeping();
 }
 
-fn genArgDbgInfo(self: Self, inst: Air.Inst.Index, mcv: MCValue) !void {
-    const arg = self.air.instructions.items(.data)[@intFromEnum(inst)].arg;
-    const ty = arg.ty.toType();
-    if (arg.name == .none) return;
-
+fn genArgDbgInfo(self: Self, name: []const u8, ty: Type, mcv: MCValue) !void {
+    // TODO: Add a pseudo-instruction or something to defer this work until Emit.
+    //       We aren't allowed to interact with linker state here.
+    if (true) return;
     switch (self.debug_output) {
         .dwarf => |dw| switch (mcv) {
             .register => |reg| try dw.genLocalDebugInfo(
                 .local_arg,
-                arg.name.toSlice(self.air),
+                name,
                 ty,
                 .{ .reg = reg.dwarfNum() },
             ),
@@ -4103,7 +4079,7 @@ fn genTypedValue(self: *Self, val: Value) InnerError!MCValue {
         pt,
         self.src_loc,
         val,
-        self.target.*,
+        self.target,
     )) {
         .mcv => |mcv| switch (mcv) {
             .none => .none,
@@ -4126,7 +4102,7 @@ fn getResolvedInstValue(self: *Self, inst: Air.Inst.Index) MCValue {
     while (true) {
         i -= 1;
         if (self.branch_stack.items[i].inst_table.get(inst)) |mcv| {
-            log.debug("getResolvedInstValue %{} => {}", .{ inst, mcv });
+            log.debug("getResolvedInstValue %{f} => {}", .{ inst, mcv });
             assert(mcv != .dead);
             return mcv;
         }
@@ -4397,7 +4373,7 @@ fn processDeath(self: *Self, inst: Air.Inst.Index) void {
     const prev_value = self.getResolvedInstValue(inst);
     const branch = &self.branch_stack.items[self.branch_stack.items.len - 1];
     branch.inst_table.putAssumeCapacity(inst, .dead);
-    log.debug("%{} death: {} -> .dead", .{ inst, prev_value });
+    log.debug("%{f} death: {} -> .dead", .{ inst, prev_value });
     switch (prev_value) {
         .register => |reg| {
             self.register_manager.freeReg(reg);

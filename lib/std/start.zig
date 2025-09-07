@@ -19,7 +19,7 @@ pub const simplified_logic = switch (builtin.zig_backend) {
     .stage2_arm,
     .stage2_powerpc,
     .stage2_sparc64,
-    .stage2_spirv64,
+    .stage2_spirv,
     .stage2_x86,
     => true,
     else => false,
@@ -57,7 +57,7 @@ comptime {
         } else if (builtin.output_mode == .Exe or @hasDecl(root, "main")) {
             if (builtin.link_libc and @hasDecl(root, "main")) {
                 if (native_arch.isWasm()) {
-                    @export(&mainWithoutEnv, .{ .name = "main" });
+                    @export(&mainWithoutEnv, .{ .name = "__main_argc_argv" });
                 } else if (!@typeInfo(@TypeOf(root.main)).@"fn".calling_convention.eql(.c)) {
                     @export(&main, .{ .name = "main" });
                 }
@@ -101,17 +101,11 @@ comptime {
 // Simplified start code for stage2 until it supports more language features ///
 
 fn main2() callconv(.c) c_int {
-    root.main();
-    return 0;
+    return callMain();
 }
 
 fn _start2() callconv(.withStackAlign(.c, 1)) noreturn {
-    callMain2();
-}
-
-fn callMain2() noreturn {
-    root.main();
-    exit2(0);
+    std.posix.exit(callMain());
 }
 
 fn spirvMain2() callconv(.kernel) void {
@@ -119,55 +113,7 @@ fn spirvMain2() callconv(.kernel) void {
 }
 
 fn wWinMainCRTStartup2() callconv(.c) noreturn {
-    root.main();
-    exit2(0);
-}
-
-fn exit2(code: usize) noreturn {
-    switch (native_os) {
-        .linux => switch (builtin.cpu.arch) {
-            .x86_64 => {
-                asm volatile ("syscall"
-                    :
-                    : [number] "{rax}" (231),
-                      [arg1] "{rdi}" (code),
-                    : "rcx", "r11", "memory"
-                );
-            },
-            .arm => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{r7}" (1),
-                      [arg1] "{r0}" (code),
-                    : "memory"
-                );
-            },
-            .aarch64 => {
-                asm volatile ("svc #0"
-                    :
-                    : [number] "{x8}" (93),
-                      [arg1] "{x0}" (code),
-                    : "memory", "cc"
-                );
-            },
-            .sparc64 => {
-                asm volatile ("ta 0x6d"
-                    :
-                    : [number] "{g1}" (1),
-                      [arg1] "{o0}" (code),
-                    : "o0", "o1", "o2", "o3", "o4", "o5", "o6", "o7", "memory"
-                );
-            },
-            else => @compileError("TODO"),
-        },
-        // exits(0)
-        .plan9 => std.os.plan9.exits(null),
-        .windows => {
-            std.os.windows.ntdll.RtlExitUserProcess(@truncate(code));
-        },
-        else => @compileError("TODO"),
-    }
-    unreachable;
+    std.posix.exit(callMain());
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -257,7 +203,7 @@ fn _start() callconv(.naked) noreturn {
             .m68k => ".cfi_undefined %%pc",
             .mips, .mipsel, .mips64, .mips64el => ".cfi_undefined $ra",
             .powerpc, .powerpcle, .powerpc64, .powerpc64le => ".cfi_undefined lr",
-            .riscv32, .riscv64 => if (builtin.zig_backend == .stage2_riscv64)
+            .riscv32, .riscv32be, .riscv64, .riscv64be => if (builtin.zig_backend == .stage2_riscv64)
                 ""
             else
                 ".cfi_undefined ra",
@@ -359,7 +305,7 @@ fn _start() callconv(.naked) noreturn {
             \\ bstrins.d $sp, $zero, 3, 0
             \\ b %[posixCallMainAndExit]
             ,
-            .riscv32, .riscv64 =>
+            .riscv32, .riscv32be, .riscv64, .riscv64be =>
             \\ li fp, 0
             \\ li ra, 0
             \\ mv a0, sp
@@ -485,6 +431,9 @@ fn _start() callconv(.naked) noreturn {
 }
 
 fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
+    // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
+    if (builtin.cpu.arch.isX86() and builtin.abi == .gnu) asm volatile ("fninit");
+
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -495,6 +444,9 @@ fn WinStartup() callconv(.withStackAlign(.c, 1)) noreturn {
 }
 
 fn wWinMainCRTStartup() callconv(.withStackAlign(.c, 1)) noreturn {
+    // Switch from the x87 fpu state set by windows to the state expected by the gnu abi.
+    if (builtin.cpu.arch.isX86() and builtin.abi == .gnu) asm volatile ("fninit");
+
     if (!builtin.single_threaded and !builtin.link_libc) {
         _ = @import("os/windows/tls.zig");
     }
@@ -677,7 +629,7 @@ pub inline fn callMain() u8 {
                     .stage2_powerpc,
                     .stage2_riscv64,
                     => {
-                        std.debug.print("error: failed with error\n", .{});
+                        _ = std.posix.write(std.posix.STDERR_FILENO, "error: failed with error\n") catch {};
                         return 1;
                     },
                     else => {},
@@ -747,6 +699,7 @@ fn maybeIgnoreSigpipe() void {
         .visionos,
         .dragonfly,
         .freebsd,
+        .serenity,
         => true,
 
         else => false,

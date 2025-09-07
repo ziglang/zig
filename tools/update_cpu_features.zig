@@ -399,6 +399,7 @@ const targets = [_]ArchTarget{
             .name = "AMDGPU",
             .td_name = "AMDGPU",
         },
+        .branch_quota = 2000,
         .feature_overrides = &.{
             .{
                 .llvm_name = "DumpCode",
@@ -1106,11 +1107,6 @@ const targets = [_]ArchTarget{
                 .deps = &.{"v1_0"},
             },
             .{
-                .zig_name = "matrix",
-                .desc = "Enable Matrix capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
                 .zig_name = "storage_push_constant16",
                 .desc = "Enable SPV_KHR_16bit_storage extension and the StoragePushConstant16 capability",
                 .deps = &.{"v1_3"},
@@ -1121,38 +1117,18 @@ const targets = [_]ArchTarget{
                 .deps = &.{"v1_5"},
             },
             .{
-                .zig_name = "kernel",
-                .desc = "Enable Kernel capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "addresses",
-                .desc = "Enable Addresses capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
                 .zig_name = "generic_pointer",
                 .desc = "Enable GenericPointer capability",
-                .deps = &.{ "v1_0", "addresses" },
+                .deps = &.{"v1_0"},
             },
             .{
                 .zig_name = "vector16",
                 .desc = "Enable Vector16 capability",
-                .deps = &.{ "v1_0", "kernel" },
-            },
-            .{
-                .zig_name = "shader",
-                .desc = "Enable Shader capability",
-                .deps = &.{ "v1_0", "matrix" },
+                .deps = &.{"v1_0"},
             },
             .{
                 .zig_name = "variable_pointers",
                 .desc = "Enable SPV_KHR_physical_storage_buffer extension and the PhysicalStorageBufferAddresses capability",
-                .deps = &.{"v1_0"},
-            },
-            .{
-                .zig_name = "physical_storage_buffer",
-                .desc = "Enable SPV_KHR_variable_pointers extension and the (VariablePointers, VariablePointersStorageBuffer) capabilities",
                 .deps = &.{"v1_0"},
             },
         },
@@ -1160,12 +1136,12 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = null,
                 .zig_name = "vulkan_v1_2",
-                .features = &.{ "v1_5", "shader" },
+                .features = &.{"v1_5"},
             },
             .{
                 .llvm_name = null,
                 .zig_name = "opencl_v2",
-                .features = &.{ "v1_2", "kernel", "addresses", "generic_pointer" },
+                .features = &.{"v1_2"},
             },
         },
     },
@@ -1252,6 +1228,27 @@ const targets = [_]ArchTarget{
             .{
                 .llvm_name = "64bit-mode",
                 .omit = true,
+            },
+            // Remove these when LLVM removes AVX10.N-256 support.
+            .{
+                .llvm_name = "avx10.1-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.2-256",
+                .flatten = true,
+            },
+            .{
+                .llvm_name = "avx10.1-512",
+                .zig_name = "avx10_1",
+            },
+            .{
+                .llvm_name = "avx10.2-512",
+                .zig_name = "avx10_2",
+            },
+            .{
+                .llvm_name = "avx512f",
+                .extra_deps = &.{"evex512"},
             },
             .{
                 .llvm_name = "alderlake",
@@ -1659,8 +1656,8 @@ fn processOneTarget(job: Job) void {
     defer progress_node.end();
 
     var features_table = std.StringHashMap(Feature).init(arena);
-    var all_features = std.ArrayList(Feature).init(arena);
-    var all_cpus = std.ArrayList(Cpu).init(arena);
+    var all_features = std.array_list.Managed(Feature).init(arena);
+    var all_cpus = std.array_list.Managed(Cpu).init(arena);
 
     if (target.llvm) |llvm| {
         const tblgen_progress = progress_node.start("running llvm-tblgen", 0);
@@ -1751,7 +1748,7 @@ fn processOneTarget(job: Job) void {
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
                     var desc = kv.value_ptr.object.get("Desc").?.string;
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit = false;
                     var flatten = false;
                     var omit_deps: []const []const u8 = &.{};
@@ -1835,7 +1832,7 @@ fn processOneTarget(job: Job) void {
                     if (omitted) continue;
 
                     var zig_name = try llvmNameToZigName(arena, llvm_name);
-                    var deps = std.ArrayList([]const u8).init(arena);
+                    var deps = std.array_list.Managed([]const u8).init(arena);
                     var omit_deps: []const []const u8 = &.{};
                     var extra_deps: []const []const u8 = &.{};
                     for (target.feature_overrides) |feature_override| {
@@ -1931,8 +1928,9 @@ fn processOneTarget(job: Job) void {
     var zig_code_file = try target_dir.createFile(zig_code_basename, .{});
     defer zig_code_file.close();
 
-    var bw = std.io.bufferedWriter(zig_code_file.writer());
-    const w = bw.writer();
+    var zig_code_file_buffer: [4096]u8 = undefined;
+    var zig_code_file_writer = zig_code_file.writer(&zig_code_file_buffer);
+    const w = &zig_code_file_writer.interface;
 
     try w.writeAll(
         \\//! This file is auto-generated by tools/update_cpu_features.zig.
@@ -1945,7 +1943,7 @@ fn processOneTarget(job: Job) void {
     );
 
     for (all_features.items, 0..) |feature, i| {
-        try w.print("\n    {p},", .{std.zig.fmtId(feature.zig_name)});
+        try w.print("\n    {f},", .{std.zig.fmtIdPU(feature.zig_name)});
 
         if (i == all_features.items.len - 1) try w.writeAll("\n");
     }
@@ -1974,27 +1972,27 @@ fn processOneTarget(job: Job) void {
     for (all_features.items) |feature| {
         if (feature.llvm_name) |llvm_name| {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
-                \\        .llvm_name = "{}",
-                \\        .description = "{}",
+                \\    result[@intFromEnum(Feature.{f})] = .{{
+                \\        .llvm_name = "{f}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(llvm_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(llvm_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         } else {
             try w.print(
-                \\    result[@intFromEnum(Feature.{p_})] = .{{
+                \\    result[@intFromEnum(Feature.{f})] = .{{
                 \\        .llvm_name = null,
-                \\        .description = "{}",
+                \\        .description = "{f}",
                 \\        .dependencies = featureSet(&[_]Feature{{
             ,
                 .{
-                    std.zig.fmtId(feature.zig_name),
-                    std.zig.fmtEscapes(feature.desc),
+                    std.zig.fmtIdPU(feature.zig_name),
+                    std.zig.fmtString(feature.desc),
                 },
             );
         }
@@ -2003,7 +2001,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, dep);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var dependencies = std.ArrayList([]const u8).init(arena);
+        var dependencies = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {
@@ -2021,7 +2019,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (dependencies.items) |dep| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(dep)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(dep)});
             }
             try w.writeAll(
                 \\        }),
@@ -2048,7 +2046,7 @@ fn processOneTarget(job: Job) void {
             try putDep(&deps_set, features_table, feature_zig_name);
         }
         try pruneFeatures(arena, features_table, &deps_set);
-        var cpu_features = std.ArrayList([]const u8).init(arena);
+        var cpu_features = std.array_list.Managed([]const u8).init(arena);
         {
             var it = deps_set.keyIterator();
             while (it.next()) |key| {
@@ -2058,24 +2056,24 @@ fn processOneTarget(job: Job) void {
         mem.sort([]const u8, cpu_features.items, {}, asciiLessThan);
         if (cpu.llvm_name) |llvm_name| {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
-                \\        .llvm_name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
+                \\        .llvm_name = "{f}",
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
-                std.zig.fmtEscapes(llvm_name),
+                std.zig.fmtString(cpu.zig_name),
+                std.zig.fmtString(llvm_name),
             });
         } else {
             try w.print(
-                \\    pub const {}: CpuModel = .{{
-                \\        .name = "{}",
+                \\    pub const {f}: CpuModel = .{{
+                \\        .name = "{f}",
                 \\        .llvm_name = null,
                 \\        .features = featureSet(&[_]Feature{{
             , .{
                 std.zig.fmtId(cpu.zig_name),
-                std.zig.fmtEscapes(cpu.zig_name),
+                std.zig.fmtString(cpu.zig_name),
             });
         }
         if (cpu_features.items.len == 0) {
@@ -2087,7 +2085,7 @@ fn processOneTarget(job: Job) void {
         } else {
             try w.writeAll("\n");
             for (cpu_features.items) |feature_zig_name| {
-                try w.print("            .{p_},\n", .{std.zig.fmtId(feature_zig_name)});
+                try w.print("            .{f},\n", .{std.zig.fmtIdPU(feature_zig_name)});
             }
             try w.writeAll(
                 \\        }),
@@ -2101,14 +2099,14 @@ fn processOneTarget(job: Job) void {
         \\};
         \\
     );
-    try bw.flush();
+    try w.flush();
 
     render_progress.end();
 }
 
 fn usageAndExit(arg0: []const u8, code: u8) noreturn {
-    const stderr = std.io.getStdErr();
-    stderr.writer().print(
+    const stderr = std.debug.lockStderrWriter(&.{});
+    stderr.print(
         \\Usage: {s} /path/to/llvm-tblgen /path/git/llvm-project /path/git/zig [zig_name filter]
         \\
         \\Updates lib/std/target/<target>.zig from llvm/lib/Target/<Target>/<Target>.td .

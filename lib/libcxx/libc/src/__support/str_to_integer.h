@@ -15,6 +15,7 @@
 #ifndef LLVM_LIBC_SRC___SUPPORT_STR_TO_INTEGER_H
 #define LLVM_LIBC_SRC___SUPPORT_STR_TO_INTEGER_H
 
+#include "hdr/errno_macros.h" // For ERANGE
 #include "src/__support/CPP/limits.h"
 #include "src/__support/CPP/type_traits.h"
 #include "src/__support/CPP/type_traits/make_unsigned.h"
@@ -24,22 +25,20 @@
 #include "src/__support/macros/config.h"
 #include "src/__support/str_to_num_result.h"
 #include "src/__support/uint128.h"
-#include "src/errno/libc_errno.h" // For ERANGE
 
 namespace LIBC_NAMESPACE_DECL {
 namespace internal {
 
-// Returns a pointer to the first character in src that is not a whitespace
+// Returns the idx to the first character in src that is not a whitespace
 // character (as determined by isspace())
-// TODO: Change from returning a pointer to returning a length.
-LIBC_INLINE const char *
+LIBC_INLINE size_t
 first_non_whitespace(const char *__restrict src,
                      size_t src_len = cpp::numeric_limits<size_t>::max()) {
   size_t src_cur = 0;
   while (src_cur < src_len && internal::isspace(src[src_cur])) {
     ++src_cur;
   }
-  return src + src_cur;
+  return src_cur;
 }
 
 // checks if the next 3 characters of the string pointer are the start of a
@@ -96,7 +95,7 @@ strtointeger(const char *__restrict src, int base,
   if (base < 0 || base == 1 || base > 36)
     return {0, 0, EINVAL};
 
-  src_cur = first_non_whitespace(src, src_len) - src;
+  src_cur = first_non_whitespace(src, src_len);
 
   char result_sign = '+';
   if (src[src_cur] == '+' || src[src_cur] == '-') {
@@ -119,7 +118,7 @@ strtointeger(const char *__restrict src, int base,
   ResultType const abs_max =
       (is_positive ? cpp::numeric_limits<T>::max() : NEGATIVE_MAX);
   ResultType const abs_max_div_by_base =
-      static_cast<ResultType>(abs_max / base);
+      abs_max / static_cast<ResultType>(base);
 
   while (src_cur < src_len && isalnum(src[src_cur])) {
     int cur_digit = b36_char_to_int(src[src_cur]);
@@ -141,17 +140,17 @@ strtointeger(const char *__restrict src, int base,
       result = abs_max;
       error_val = ERANGE;
     } else {
-      result = static_cast<ResultType>(result * base);
+      result = result * static_cast<ResultType>(base);
     }
-    if (result > abs_max - cur_digit) {
+    if (result > abs_max - static_cast<ResultType>(cur_digit)) {
       result = abs_max;
       error_val = ERANGE;
     } else {
-      result = static_cast<ResultType>(result + cur_digit);
+      result = result + static_cast<ResultType>(cur_digit);
     }
   }
 
-  ptrdiff_t str_len = is_number ? (src_cur) : 0;
+  ptrdiff_t str_len = is_number ? static_cast<ptrdiff_t>(src_cur) : 0;
 
   if (error_val == ERANGE) {
     if (is_positive || IS_UNSIGNED)

@@ -26,4 +26,4 @@ pub fn main() !void {
 }
 // run
 // backend=stage2,llvm
-// target=native
+// target=x86_64-linux

@@ -763,7 +763,7 @@ pub const Payload = struct {
 pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
     var ctx = Context{
         .gpa = gpa,
-        .buf = std.ArrayList(u8).init(gpa),
+        .buf = std.array_list.Managed(u8).init(gpa),
     };
     defer ctx.buf.deinit();
     defer ctx.nodes.deinit(gpa);
@@ -787,7 +787,7 @@ pub fn render(gpa: Allocator, nodes: []const Node) !std.zig.Ast {
     });
 
     const root_members = blk: {
-        var result = std.ArrayList(NodeIndex).init(gpa);
+        var result = std.array_list.Managed(NodeIndex).init(gpa);
         defer result.deinit();
 
         for (nodes) |node| {
@@ -825,14 +825,14 @@ const ExtraIndex = std.zig.Ast.ExtraIndex;
 
 const Context = struct {
     gpa: Allocator,
-    buf: std.ArrayList(u8),
+    buf: std.array_list.Managed(u8),
     nodes: std.zig.Ast.NodeList = .{},
     extra_data: std.ArrayListUnmanaged(u32) = .empty,
     tokens: std.zig.Ast.TokenList = .{},
 
     fn addTokenFmt(c: *Context, tag: TokenTag, comptime format: []const u8, args: anytype) Allocator.Error!TokenIndex {
         const start_index = c.buf.items.len;
-        try c.buf.writer().print(format ++ " ", args);
+        try c.buf.print(format ++ " ", args);
 
         try c.tokens.append(c.gpa, .{
             .tag = tag,
@@ -849,7 +849,7 @@ const Context = struct {
     fn addIdentifier(c: *Context, bytes: []const u8) Allocator.Error!TokenIndex {
         if (std.zig.primitives.isPrimitive(bytes))
             return c.addTokenFmt(.identifier, "@\"{s}\"", .{bytes});
-        return c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(bytes)});
+        return c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(bytes, .{ .allow_primitive = true })});
     }
 
     fn listToSpan(c: *Context, list: []const NodeIndex) Allocator.Error!NodeSubRange {
@@ -886,7 +886,7 @@ const Context = struct {
 };
 
 fn renderNodes(c: *Context, nodes: []const Node) Allocator.Error!NodeSubRange {
-    var result = std.ArrayList(NodeIndex).init(c.gpa);
+    var result = std.array_list.Managed(NodeIndex).init(c.gpa);
     defer result.deinit();
 
     for (nodes) |node| {
@@ -1201,7 +1201,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
 
             const compile_error_tok = try c.addToken(.builtin, "@compileError");
             _ = try c.addToken(.l_paren, "(");
-            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(payload.mangled)});
+            const err_msg_tok = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(payload.mangled)});
             const err_msg = try c.addNode(.{
                 .tag = .string_literal,
                 .main_token = err_msg_tok,
@@ -1622,7 +1622,7 @@ fn renderNode(c: *Context, node: Node) Allocator.Error!NodeIndex {
             }
             const l_brace = try c.addToken(.l_brace, "{");
 
-            var stmts = std.ArrayList(NodeIndex).init(c.gpa);
+            var stmts = std.array_list.Managed(NodeIndex).init(c.gpa);
             defer stmts.deinit();
             for (payload.stmts) |stmt| {
                 const res = try renderNode(c, stmt);
@@ -2116,7 +2116,7 @@ fn renderRecord(c: *Context, node: Node) !NodeIndex {
     defer c.gpa.free(members);
 
     for (payload.fields, 0..) |field, i| {
-        const name_tok = try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field.name)});
+        const name_tok = try c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(field.name, .{ .allow_primitive = true })});
         _ = try c.addToken(.colon, ":");
         const type_expr = try renderNode(c, field.type);
 
@@ -2205,7 +2205,7 @@ fn renderFieldAccess(c: *Context, lhs: NodeIndex, field_name: []const u8) !NodeI
         .main_token = try c.addToken(.period, "."),
         .data = .{ .node_and_token = .{
             lhs,
-            try c.addTokenFmt(.identifier, "{p}", .{std.zig.fmtId(field_name)}),
+            try c.addTokenFmt(.identifier, "{f}", .{std.zig.fmtIdFlags(field_name, .{ .allow_primitive = true })}),
         } },
     });
 }
@@ -2681,7 +2681,7 @@ fn renderVar(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2765,7 +2765,7 @@ fn renderFunc(c: *Context, node: Node) !NodeIndex {
         _ = try c.addToken(.l_paren, "(");
         const res = try c.addNode(.{
             .tag = .string_literal,
-            .main_token = try c.addTokenFmt(.string_literal, "\"{}\"", .{std.zig.fmtEscapes(some)}),
+            .main_token = try c.addTokenFmt(.string_literal, "\"{f}\"", .{std.zig.fmtString(some)}),
             .data = undefined,
         });
         _ = try c.addToken(.r_paren, ")");
@@ -2954,9 +2954,9 @@ fn renderMacroFunc(c: *Context, node: Node) !NodeIndex {
     });
 }
 
-fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.ArrayList(NodeIndex) {
+fn renderParams(c: *Context, params: []Payload.Param, is_var_args: bool) !std.array_list.Managed(NodeIndex) {
     _ = try c.addToken(.l_paren, "(");
-    var rendered = try std.ArrayList(NodeIndex).initCapacity(c.gpa, params.len);
+    var rendered = try std.array_list.Managed(NodeIndex).initCapacity(c.gpa, params.len);
     errdefer rendered.deinit();
 
     for (params, 0..) |param, i| {

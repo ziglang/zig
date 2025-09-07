@@ -6,6 +6,7 @@ const CpuModel = std.Target.Cpu.Model;
 
 pub const Feature = enum {
     @"32bit",
+    @"32s",
     @"64bit",
     d,
     div32,
@@ -41,10 +42,17 @@ pub const all_features = blk: {
         .description = "LA32 Basic Integer and Privilege Instruction Set",
         .dependencies = featureSet(&[_]Feature{}),
     };
+    result[@intFromEnum(Feature.@"32s")] = .{
+        .llvm_name = "32s",
+        .description = "LA32 Standard Basic Instruction Extension",
+        .dependencies = featureSet(&[_]Feature{}),
+    };
     result[@intFromEnum(Feature.@"64bit")] = .{
         .llvm_name = "64bit",
         .description = "LA64 Basic Integer and Privilege Instruction Set",
-        .dependencies = featureSet(&[_]Feature{}),
+        .dependencies = featureSet(&[_]Feature{
+            .@"32s",
+        }),
     };
     result[@intFromEnum(Feature.d)] = .{
         .llvm_name = "d",
@@ -65,7 +73,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.frecipe)] = .{
         .llvm_name = "frecipe",
-        .description = "Support frecipe.{s/d} and frsqrte.{s/d} instructions.",
+        .description = "Support frecipe.{s/d} and frsqrte.{s/d} instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.la_global_with_abs)] = .{
@@ -85,12 +93,12 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.lam_bh)] = .{
         .llvm_name = "lam-bh",
-        .description = "Support amswap[_db].{b/h} and amadd[_db].{b/h} instructions.",
+        .description = "Support amswap[_db].{b/h} and amadd[_db].{b/h} instructions",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lamcas)] = .{
         .llvm_name = "lamcas",
-        .description = "Support amcas[_db].{b/h/w/d}.",
+        .description = "Support amcas[_db].{b/h/w/d}",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lasx)] = .{
@@ -107,7 +115,7 @@ pub const all_features = blk: {
     };
     result[@intFromEnum(Feature.ld_seq_sa)] = .{
         .llvm_name = "ld-seq-sa",
-        .description = "Don't use load-load barrier (dbar 0x700).",
+        .description = "Don't use a same-address load-load barrier (dbar 0x700)",
         .dependencies = featureSet(&[_]Feature{}),
     };
     result[@intFromEnum(Feature.lsx)] = .{

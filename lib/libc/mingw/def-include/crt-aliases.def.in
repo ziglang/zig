@@ -137,8 +137,11 @@ ADD_UNDERSCORE(spawnve)
 ADD_UNDERSCORE(spawnvp)
 ADD_UNDERSCORE(spawnvpe)
 #endif
-#ifndef CRTDLL
-; stat is provided by mingw to workaround trailing slash issue in _stat
+#ifdef UCRTBASE
+F32(stat == _stat32)
+F64(stat == _stat64i32)
+#else
+; stat for non-UCRT is provided by mingw to workaround trailing slash issue in _stat
 #endif
 #ifdef NO_STRCMPI_ALIAS
 ; Symbol _strcmpi is natively present and defined in the library def file
@@ -208,7 +211,11 @@ ADD_UNDERSCORE(write)
 ; This is list of symbol aliases added in the Visual C++ 2.0 oldnames.lib library
 ; All these symbols with leading underscore are present also in pre-2.0 CRT versions: crtdll.dll and msvcrt10.dll
 ; ADD_UNDERSCORE(control87)
+#if __SIZEOF_LONG_DOUBLE__ == __SIZEOF_DOUBLE__
+ADD_UNDERSCORE(fpreset)
+#else
 ; ADD_UNDERSCORE(fpreset) ; Alias fpreset is set in CRT_fp10.c and CRT_fp8.c
+#endif
 ADD_UNDERSCORE(wcsdup)
 ADD_UNDERSCORE(wcsicmp)
 ADD_UNDERSCORE(wcsicoll)
@@ -222,7 +229,11 @@ ADD_UNDERSCORE(wcsupr)
 ; This is list of symbol aliases added in the Visual C++ 4.0 oldnames.lib library
 ; All these symbols with leading underscore are present also in pre-4.0 CRT versions: crtdll.dll, msvcrt10.dll and msvcrt20.dll
 ; ADD_UNDERSCORE(cabs)
+#ifdef UCRTBASE
+; hypot is natively exported from UCRT
+#else
 ADD_UNDERSCORE(hypot)
+#endif
 ADD_UNDERSCORE(j0)
 ADD_UNDERSCORE(j1)
 ADD_UNDERSCORE(jn)
@@ -247,27 +258,26 @@ wcstok == wcstok_s
 ADD_UNDERSCORE(nextafter)
 #endif
 
-#if defined(DEF_ARM32) || defined(DEF_ARM64)
 ; This is list of symbol aliases for C99 ARM long double functions
 ; They are defined as aliases to regular double symbols as on ARM, long double is equal to regular double
-acosl == acos
-asinl == asin
-atan2l == atan2
-atanl == atan
-ceill == ceil
-cosl == cos
-expl == exp
-floorl == floor
-fmodl == fmod
-log10l == log10
-logl == log
+F_LD64(acosl == acos)
+F_LD64(asinl == asin)
+F_LD64(atan2l == atan2)
+F_LD64(atanl == atan)
+F_LD64(ceill == ceil)
+F_LD64(cosl == cos)
+F_LD64(expl == exp)
+F_LD64(floorl == floor)
+F_LD64(fmodl == fmod)
+F_LD64(log10l == log10)
+F_LD64(logl == log)
 ; FIXME: Why is powl alias defined only for UCRT?
 #ifdef UCRTBASE
-powl == pow
+F_LD64(powl == pow)
 #endif
-sinl == sin
-tanl == tan
-#endif
+F_LD64(sinl == sin)
+F_LD64(tanl == tan)
+F_LD64(_chgsignl == _chgsign)
 
 ; This is list of symbol aliases for C11 functions
 #ifdef UCRTBASE
@@ -289,6 +299,22 @@ ADD_UNDERSCORE(popen)
 ; fgetpos and fsetpos are already 64-bit
 fgetpos64 == fgetpos
 fsetpos64 == fsetpos
+#endif
+#ifdef UCRTBASE
+stat32 == _stat32
+stat32i64 == _stat32i64
+stat64 == _stat64
+stat64i32 == _stat64i32
+#else
+; stat for non-UCRT is provided by mingw to workaround trailing slash issue in _stat
+#endif
+#ifdef FIXED_SIZE_SYMBOLS
+// NO_FIXED_SIZE_64_ALIAS means that DLL provides the native _fstat64 symbol
+#if defined(NO_FIXED_SIZE_64_ALIAS) && !defined(NO_FSTAT64_ALIAS)
+fstat64 == _fstat64
+#endif
+#else
+fstat64 == _fstat64
 #endif
 
 ; This is list of symbol aliases for GNU functions which are not part of POSIX or ISO C
@@ -545,18 +571,22 @@ __ms_vsprintf == vsprintf
 __ms_vwprintf == vwprintf
 __ms_wprintf == wprintf
 __ms_wscanf == wscanf
-#ifdef WITH_MS_VSCANF_ALIASES
-__ms_vfscanf == vfscanf
-__ms_vfwscanf == vfwscanf
-__ms_vscanf == vscanf
-__ms_vsscanf == vsscanf
-__ms_vswscanf == vswscanf
-__ms_vwscanf == vwscanf
-#endif
 #endif
 
 ; This is list of additional symbol aliases not available in any library as neither native symbols nor aliases
 ; FIXME: check if these really are needed
+
+; This is wstat and wstat64 symbol available only in mingw but for a long time
+#ifdef UCRTBASE
+F32(wstat == _wstat32)
+F64(wstat == _wstat64i32)
+wstat32 == _wstat32
+wstat32i64 == _wstat32i64
+wstat64 == _wstat64
+wstat64i32 == _wstat64i32
+#else
+; wstat for non-UCRT is provided by mingw to workaround trailing slash issue in _wstat
+#endif
 
 ; Origin of the symbol wcscmpi is unknown. This symbol is not present in
 ; crtdll.dll and neither in any msvcr* version. The only source of wcscmpi is

@@ -1,4 +1,5 @@
 const std = @import("std");
+const assert = std.debug.assert;
 const Allocator = mem.Allocator;
 const mem = std.mem;
 const Source = @import("Source.zig");
@@ -321,14 +322,15 @@ pub fn addExtra(
         return error.FatalError;
 }
 
-pub fn render(comp: *Compilation, config: std.io.tty.Config) void {
+pub fn render(comp: *Compilation, config: std.Io.tty.Config) void {
     if (comp.diagnostics.list.items.len == 0) return;
-    var m = defaultMsgWriter(config);
+    var buffer: [1000]u8 = undefined;
+    var m = defaultMsgWriter(config, &buffer);
     defer m.deinit();
     renderMessages(comp, &m);
 }
-pub fn defaultMsgWriter(config: std.io.tty.Config) MsgWriter {
-    return MsgWriter.init(config);
+pub fn defaultMsgWriter(config: std.Io.tty.Config, buffer: []u8) MsgWriter {
+    return MsgWriter.init(config, buffer);
 }
 
 pub fn renderMessages(comp: *Compilation, m: anytype) void {
@@ -443,18 +445,13 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                 printRt(m, prop.msg, .{"{s}"}, .{&str});
             } else {
                 var buf: [3]u8 = undefined;
-                const str = std.fmt.bufPrint(&buf, "x{x}", .{std.fmt.fmtSliceHexLower(&.{msg.extra.invalid_escape.char})}) catch unreachable;
+                const str = std.fmt.bufPrint(&buf, "x{x}", .{msg.extra.invalid_escape.char}) catch unreachable;
                 printRt(m, prop.msg, .{"{s}"}, .{str});
             }
         },
         .normalized => {
             const f = struct {
-                pub fn f(
-                    bytes: []const u8,
-                    comptime _: []const u8,
-                    _: std.fmt.FormatOptions,
-                    writer: anytype,
-                ) !void {
+                pub fn f(bytes: []const u8, writer: *std.Io.Writer) std.Io.Writer.Error!void {
                     var it: std.unicode.Utf8Iterator = .{
                         .bytes = bytes,
                         .i = 0,
@@ -464,22 +461,16 @@ pub fn renderMessage(comp: *Compilation, m: anytype, msg: Message) void {
                             try writer.writeByte(@intCast(codepoint));
                         } else if (codepoint < 0xFFFF) {
                             try writer.writeAll("\\u");
-                            try std.fmt.formatInt(codepoint, 16, .upper, .{
-                                .fill = '0',
-                                .width = 4,
-                            }, writer);
+                            try writer.printInt(codepoint, 16, .upper, .{ .fill = '0', .width = 4 });
                         } else {
                             try writer.writeAll("\\U");
-                            try std.fmt.formatInt(codepoint, 16, .upper, .{
-                                .fill = '0',
-                                .width = 8,
-                            }, writer);
+                            try writer.printInt(codepoint, 16, .upper, .{ .fill = '0', .width = 8 });
                         }
                     }
                 }
             }.f;
-            printRt(m, prop.msg, .{"{s}"}, .{
-                std.fmt.Formatter(f){ .data = msg.extra.normalized },
+            printRt(m, prop.msg, .{"{f}"}, .{
+                std.fmt.Alt([]const u8, f){ .data = msg.extra.normalized },
             });
         },
         .none, .offset => m.write(prop.msg),
@@ -535,32 +526,31 @@ fn tagKind(d: *Diagnostics, tag: Tag, langopts: LangOpts) Kind {
 }
 
 const MsgWriter = struct {
-    w: std.io.BufferedWriter(4096, std.fs.File.Writer),
-    config: std.io.tty.Config,
+    writer: *std.Io.Writer,
+    config: std.Io.tty.Config,
 
-    fn init(config: std.io.tty.Config) MsgWriter {
-        std.debug.lockStdErr();
+    fn init(config: std.Io.tty.Config, buffer: []u8) MsgWriter {
         return .{
-            .w = std.io.bufferedWriter(std.io.getStdErr().writer()),
+            .writer = std.debug.lockStderrWriter(buffer),
             .config = config,
         };
     }
 
     pub fn deinit(m: *MsgWriter) void {
-        m.w.flush() catch {};
-        std.debug.unlockStdErr();
+        std.debug.unlockStderrWriter();
+        m.* = undefined;
     }
 
     pub fn print(m: *MsgWriter, comptime fmt: []const u8, args: anytype) void {
-        m.w.writer().print(fmt, args) catch {};
+        m.writer.print(fmt, args) catch {};
     }
 
     fn write(m: *MsgWriter, msg: []const u8) void {
-        m.w.writer().writeAll(msg) catch {};
+        m.writer.writeAll(msg) catch {};
     }
 
-    fn setColor(m: *MsgWriter, color: std.io.tty.Color) void {
-        m.config.setColor(m.w.writer(), color) catch {};
+    fn setColor(m: *MsgWriter, color: std.Io.tty.Color) void {
+        m.config.setColor(m.writer, color) catch {};
     }
 
     fn location(m: *MsgWriter, path: []const u8, line: u32, col: u32) void {

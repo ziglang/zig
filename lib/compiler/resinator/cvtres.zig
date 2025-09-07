@@ -43,7 +43,7 @@ pub const Resource = struct {
 };
 
 pub const ParsedResources = struct {
-    list: std.ArrayListUnmanaged(Resource) = .empty,
+    list: std.ArrayList(Resource) = .empty,
     allocator: Allocator,
 
     pub fn init(allocator: Allocator) ParsedResources {
@@ -65,7 +65,7 @@ pub const ParseResOptions = struct {
 };
 
 /// The returned ParsedResources should be freed by calling its `deinit` function.
-pub fn parseRes(allocator: Allocator, reader: anytype, options: ParseResOptions) !ParsedResources {
+pub fn parseRes(allocator: Allocator, reader: *std.Io.Reader, options: ParseResOptions) !ParsedResources {
     var resources = ParsedResources.init(allocator);
     errdefer resources.deinit();
 
@@ -74,7 +74,7 @@ pub fn parseRes(allocator: Allocator, reader: anytype, options: ParseResOptions)
     return resources;
 }
 
-pub fn parseResInto(resources: *ParsedResources, reader: anytype, options: ParseResOptions) !void {
+pub fn parseResInto(resources: *ParsedResources, reader: *std.Io.Reader, options: ParseResOptions) !void {
     const allocator = resources.allocator;
     var bytes_remaining: u64 = options.max_size;
     {
@@ -103,43 +103,38 @@ pub const ResourceAndSize = struct {
     total_size: u64,
 };
 
-pub fn parseResource(allocator: Allocator, reader: anytype, max_size: u64) !ResourceAndSize {
-    var header_counting_reader = std.io.countingReader(reader);
-    const header_reader = header_counting_reader.reader();
-    const data_size = try header_reader.readInt(u32, .little);
-    const header_size = try header_reader.readInt(u32, .little);
+pub fn parseResource(allocator: Allocator, reader: *std.Io.Reader, max_size: u64) !ResourceAndSize {
+    const data_size = try reader.takeInt(u32, .little);
+    const header_size = try reader.takeInt(u32, .little);
     const total_size: u64 = @as(u64, header_size) + data_size;
     if (total_size > max_size) return error.ImpossibleSize;
 
-    var header_bytes_available = header_size -| 8;
-    var type_reader = std.io.limitedReader(header_reader, header_bytes_available);
-    const type_value = try parseNameOrOrdinal(allocator, type_reader.reader());
+    const remaining_header_bytes = try reader.take(header_size -| 8);
+    var remaining_header_reader: std.Io.Reader = .fixed(remaining_header_bytes);
+    const type_value = try parseNameOrOrdinal(allocator, &remaining_header_reader);
     errdefer type_value.deinit(allocator);
 
-    header_bytes_available -|= @intCast(type_value.byteLen());
-    var name_reader = std.io.limitedReader(header_reader, header_bytes_available);
-    const name_value = try parseNameOrOrdinal(allocator, name_reader.reader());
+    const name_value = try parseNameOrOrdinal(allocator, &remaining_header_reader);
     errdefer name_value.deinit(allocator);
 
-    const padding_after_name = numPaddingBytesNeeded(@intCast(header_counting_reader.bytes_read));
-    try header_reader.skipBytes(padding_after_name, .{ .buf_size = 3 });
+    const padding_after_name = numPaddingBytesNeeded(@intCast(remaining_header_reader.seek));
+    try remaining_header_reader.discardAll(padding_after_name);
 
-    std.debug.assert(header_counting_reader.bytes_read % 4 == 0);
-    const data_version = try header_reader.readInt(u32, .little);
-    const memory_flags: MemoryFlags = @bitCast(try header_reader.readInt(u16, .little));
-    const language: Language = @bitCast(try header_reader.readInt(u16, .little));
-    const version = try header_reader.readInt(u32, .little);
-    const characteristics = try header_reader.readInt(u32, .little);
+    std.debug.assert(remaining_header_reader.seek % 4 == 0);
+    const data_version = try remaining_header_reader.takeInt(u32, .little);
+    const memory_flags: MemoryFlags = @bitCast(try remaining_header_reader.takeInt(u16, .little));
+    const language: Language = @bitCast(try remaining_header_reader.takeInt(u16, .little));
+    const version = try remaining_header_reader.takeInt(u32, .little);
+    const characteristics = try remaining_header_reader.takeInt(u32, .little);
 
-    const header_bytes_read = header_counting_reader.bytes_read;
-    if (header_size != header_bytes_read) return error.HeaderSizeMismatch;
+    if (remaining_header_reader.seek != remaining_header_reader.end) return error.HeaderSizeMismatch;
 
     const data = try allocator.alloc(u8, data_size);
     errdefer allocator.free(data);
-    try reader.readNoEof(data);
+    try reader.readSliceAll(data);
 
     const padding_after_data = numPaddingBytesNeeded(@intCast(data_size));
-    try reader.skipBytes(padding_after_data, .{ .buf_size = 3 });
+    try reader.discardAll(padding_after_data);
 
     return .{
         .resource = .{
@@ -156,18 +151,18 @@ pub fn parseResource(allocator: Allocator, reader: anytype, max_size: u64) !Reso
     };
 }
 
-pub fn parseNameOrOrdinal(allocator: Allocator, reader: anytype) !NameOrOrdinal {
-    const first_code_unit = try reader.readInt(u16, .little);
+pub fn parseNameOrOrdinal(allocator: Allocator, reader: *std.Io.Reader) !NameOrOrdinal {
+    const first_code_unit = try reader.takeInt(u16, .little);
     if (first_code_unit == 0xFFFF) {
-        const ordinal_value = try reader.readInt(u16, .little);
+        const ordinal_value = try reader.takeInt(u16, .little);
         return .{ .ordinal = ordinal_value };
     }
-    var name_buf = try std.ArrayListUnmanaged(u16).initCapacity(allocator, 16);
+    var name_buf = try std.ArrayList(u16).initCapacity(allocator, 16);
     errdefer name_buf.deinit(allocator);
     var code_unit = first_code_unit;
     while (code_unit != 0) {
         try name_buf.append(allocator, std.mem.nativeToLittle(u16, code_unit));
-        code_unit = try reader.readInt(u16, .little);
+        code_unit = try reader.takeInt(u16, .little);
     }
     return .{ .name = try name_buf.toOwnedSliceSentinel(allocator, 0) };
 }
@@ -193,7 +188,7 @@ pub const Diagnostics = union {
     overflow_resource: usize,
 };
 
-pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resource, options: CoffOptions, diagnostics: ?*Diagnostics) !void {
+pub fn writeCoff(allocator: Allocator, writer: *std.Io.Writer, resources: []const Resource, options: CoffOptions, diagnostics: ?*Diagnostics) !void {
     var resource_tree = ResourceTree.init(allocator, options);
     defer resource_tree.deinit();
 
@@ -237,7 +232,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
         .flags = flags,
     };
 
-    try writer.writeStructEndian(coff_header, .little);
+    try writer.writeStruct(coff_header, .little);
 
     const rsrc01_header = std.coff.SectionHeader{
         .name = ".rsrc$01".*,
@@ -255,7 +250,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
             .MEM_READ = 1,
         },
     };
-    try writer.writeStructEndian(rsrc01_header, .little);
+    try writer.writeStruct(rsrc01_header, .little);
 
     const rsrc02_header = std.coff.SectionHeader{
         .name = ".rsrc$02".*,
@@ -273,7 +268,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
             .MEM_READ = 1,
         },
     };
-    try writer.writeStructEndian(rsrc02_header, .little);
+    try writer.writeStruct(rsrc02_header, .little);
 
     // TODO: test surrogate pairs
     try resource_tree.sort();
@@ -378,7 +373,7 @@ pub fn writeCoff(allocator: Allocator, writer: anytype, resources: []const Resou
     try writer.writeAll(string_table.bytes.items);
 }
 
-fn writeSymbol(writer: anytype, symbol: std.coff.Symbol) !void {
+fn writeSymbol(writer: *std.Io.Writer, symbol: std.coff.Symbol) !void {
     try writer.writeAll(&symbol.name);
     try writer.writeInt(u32, symbol.value, .little);
     try writer.writeInt(u16, @intFromEnum(symbol.section_number), .little);
@@ -388,7 +383,7 @@ fn writeSymbol(writer: anytype, symbol: std.coff.Symbol) !void {
     try writer.writeInt(u8, symbol.number_of_aux_symbols, .little);
 }
 
-fn writeSectionDefinition(writer: anytype, def: std.coff.SectionDefinition) !void {
+fn writeSectionDefinition(writer: *std.Io.Writer, def: std.coff.SectionDefinition) !void {
     try writer.writeInt(u32, def.length, .little);
     try writer.writeInt(u16, def.number_of_relocations, .little);
     try writer.writeInt(u16, def.number_of_linenumbers, .little);
@@ -422,7 +417,7 @@ pub const ResourceDirectoryEntry = extern struct {
         to_subdirectory: bool,
     },
 
-    pub fn writeCoff(self: ResourceDirectoryEntry, writer: anytype) !void {
+    pub fn writeCoff(self: ResourceDirectoryEntry, writer: *std.Io.Writer) !void {
         try writer.writeInt(u32, @bitCast(self.entry), .little);
         try writer.writeInt(u32, @bitCast(self.offset), .little);
     }
@@ -440,7 +435,7 @@ const ResourceTree = struct {
     type_to_name_map: std.ArrayHashMapUnmanaged(NameOrOrdinal, NameToLanguageMap, NameOrOrdinalHashContext, true),
     rsrc_string_table: std.ArrayHashMapUnmanaged(NameOrOrdinal, void, NameOrOrdinalHashContext, true),
     deduplicated_data: std.StringArrayHashMapUnmanaged(u32),
-    data_offsets: std.ArrayListUnmanaged(u32),
+    data_offsets: std.ArrayList(u32),
     rsrc02_len: u32,
     coff_options: CoffOptions,
     allocator: Allocator,
@@ -670,26 +665,23 @@ const ResourceTree = struct {
     pub fn writeCoff(
         self: *const ResourceTree,
         allocator: Allocator,
-        writer: anytype,
+        w: *std.Io.Writer,
         resources_in_data_order: []const Resource,
         lengths: Lengths,
         coff_string_table: *StringTable,
     ) ![]const std.coff.Symbol {
         if (self.type_to_name_map.count() == 0) {
-            try writer.writeByteNTimes(0, 16);
+            try w.splatByteAll(0, 16);
             return &.{};
         }
 
-        var counting_writer = std.io.countingWriter(writer);
-        const w = counting_writer.writer();
-
-        var level2_list: std.ArrayListUnmanaged(*const NameToLanguageMap) = .empty;
+        var level2_list: std.ArrayList(*const NameToLanguageMap) = .empty;
         defer level2_list.deinit(allocator);
 
-        var level3_list: std.ArrayListUnmanaged(*const LanguageToResourceMap) = .empty;
+        var level3_list: std.ArrayList(*const LanguageToResourceMap) = .empty;
         defer level3_list.deinit(allocator);
 
-        var resources_list: std.ArrayListUnmanaged(*const RelocatableResource) = .empty;
+        var resources_list: std.ArrayList(*const RelocatableResource) = .empty;
         defer resources_list.deinit(allocator);
 
         var relocations = Relocations.init(allocator);
@@ -718,7 +710,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = self.type_to_name_map.iterator();
             while (it.next()) |entry| {
@@ -740,7 +732,6 @@ const ResourceTree = struct {
                 try level2_list.append(allocator, name_to_lang_map);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == level2_start);
 
         const level3_start = level2_start + lengths.level2;
         var level3_address = level3_start;
@@ -754,7 +745,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = name_to_lang_map.iterator();
             while (it.next()) |entry| {
@@ -776,7 +767,6 @@ const ResourceTree = struct {
                 try level3_list.append(allocator, lang_to_resources_map);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == level3_start);
 
         var reloc_addresses = try allocator.alloc(u32, resources_in_data_order.len);
         defer allocator.free(reloc_addresses);
@@ -796,7 +786,7 @@ const ResourceTree = struct {
                 .number_of_id_entries = counts.ids,
                 .number_of_name_entries = counts.names,
             };
-            try w.writeStructEndian(table, .little);
+            try w.writeStruct(table, .little);
 
             var it = lang_to_resources_map.iterator();
             while (it.next()) |entry| {
@@ -818,7 +808,6 @@ const ResourceTree = struct {
                 try resources_list.append(allocator, reloc_resource);
             }
         }
-        std.debug.assert(counting_writer.bytes_written == data_entries_start);
 
         for (resources_list.items, 0..) |reloc_resource, i| {
             // TODO: This logic works but is convoluted, would be good to clean this up
@@ -830,9 +819,8 @@ const ResourceTree = struct {
                 .size = @intCast(orig_resource.data.len),
                 .codepage = 0,
             };
-            try w.writeStructEndian(data_entry, .little);
+            try w.writeStruct(data_entry, .little);
         }
-        std.debug.assert(counting_writer.bytes_written == strings_start);
 
         for (self.rsrc_string_table.keys()) |v| {
             const str = v.name;
@@ -840,7 +828,7 @@ const ResourceTree = struct {
             try w.writeAll(std.mem.sliceAsBytes(str));
         }
 
-        try w.writeByteNTimes(0, lengths.padding);
+        try w.splatByteAll(0, lengths.padding);
 
         for (relocations.list.items) |relocation| {
             try writeRelocation(w, std.coff.Relocation{
@@ -854,13 +842,13 @@ const ResourceTree = struct {
             for (self.deduplicated_data.keys()) |data| {
                 const padding_bytes: u4 = @intCast((8 -% data.len) % 8);
                 try w.writeAll(data);
-                try w.writeByteNTimes(0, padding_bytes);
+                try w.splatByteAll(0, padding_bytes);
             }
         } else {
             for (resources_in_data_order) |resource| {
                 const padding_bytes: u4 = @intCast((8 -% resource.data.len) % 8);
                 try w.writeAll(resource.data);
-                try w.writeByteNTimes(0, padding_bytes);
+                try w.splatByteAll(0, padding_bytes);
             }
         }
 
@@ -908,7 +896,7 @@ const ResourceTree = struct {
         return symbols;
     }
 
-    fn writeRelocation(writer: anytype, relocation: std.coff.Relocation) !void {
+    fn writeRelocation(writer: *std.Io.Writer, relocation: std.coff.Relocation) !void {
         try writer.writeInt(u32, relocation.virtual_address, .little);
         try writer.writeInt(u32, relocation.symbol_table_index, .little);
         try writer.writeInt(u16, relocation.type, .little);
@@ -940,7 +928,7 @@ const Relocation = struct {
 
 const Relocations = struct {
     allocator: Allocator,
-    list: std.ArrayListUnmanaged(Relocation) = .empty,
+    list: std.ArrayList(Relocation) = .empty,
     cur_symbol_index: u32 = 5,
 
     pub fn init(allocator: Allocator) Relocations {
@@ -964,7 +952,7 @@ const Relocations = struct {
 /// Does not do deduplication (only because there's no chance of duplicate strings in this
 /// instance).
 const StringTable = struct {
-    bytes: std.ArrayListUnmanaged(u8) = .empty,
+    bytes: std.ArrayList(u8) = .empty,
 
     pub fn deinit(self: *StringTable, allocator: Allocator) void {
         self.bytes.deinit(allocator);

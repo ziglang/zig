@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 const math = std.math;
@@ -79,18 +80,6 @@ pub fn Keccak(comptime f: u11, comptime output_bits: u11, comptime default_delim
         pub fn final(self: *Self, out: *[digest_length]u8) void {
             self.st.pad();
             self.st.squeeze(out[0..]);
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
         }
     };
 }
@@ -191,18 +180,6 @@ fn ShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime 
         pub fn fillBlock(self: *Self) void {
             self.st.fillBlock();
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
@@ -283,18 +260,6 @@ fn CShakeLike(comptime security_level: u11, comptime default_delim: u8, comptime
         /// Align the input to a block boundary.
         pub fn fillBlock(self: *Self) void {
             self.shaker.fillBlock();
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
         }
     };
 }
@@ -390,18 +355,6 @@ fn KMacLike(comptime security_level: u11, comptime default_delim: u8, comptime r
             ctx.update(msg);
             ctx.final(out);
         }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
-        }
     };
 }
 
@@ -481,18 +434,6 @@ fn TupleHashLike(comptime security_level: u11, comptime default_delim: u8, compt
                 self.xof_mode = true;
             }
             self.cshaker.squeeze(out);
-        }
-
-        pub const Error = error{};
-        pub const Writer = std.io.Writer(*Self, Error, write);
-
-        fn write(self: *Self, bytes: []const u8) Error!usize {
-            self.update(bytes);
-            return bytes.len;
-        }
-
-        pub fn writer(self: *Self) Writer {
-            return .{ .context = self };
         }
     };
 }
@@ -633,6 +574,8 @@ test "sha3-384 streaming" {
 }
 
 test "sha3-512 single" {
+    if (builtin.cpu.has(.riscv, .v) and builtin.zig_backend == .stage2_llvm) return error.SkipZigTest; // https://github.com/ziglang/zig/issues/25083
+
     const h1 = "a69f73cca23a9ac5c8b567dc185a756e97c982164fe25859e0d1dcc1475c80a615b2123af1f5f94c11e3e9402c3ac558f500199d95b6d3e301758586281dcd26";
     try htest.assertEqualHash(Sha3_512, h1, "");
     const h2 = "b751850b1a57168a5693cd924b6b096e08f621827444f70d884f5d0240d2712e10e116e9192af3c91a7ec57647e3934057340b4cf408d5a56592f8274eec53f0";

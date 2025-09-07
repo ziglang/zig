@@ -59,7 +59,6 @@ static void assert_invariants(void) {
 
 /// Allocate space for more preopens. Returns 0 on success and -1 on failure.
 static int resize(void) {
-    LOCK(lock);
     size_t start_capacity = 4;
     size_t old_capacity = preopen_capacity;
     size_t new_capacity = old_capacity == 0 ? start_capacity : old_capacity * 2;
@@ -67,7 +66,6 @@ static int resize(void) {
     preopen *old_preopens = preopens;
     preopen *new_preopens = calloc(sizeof(preopen), new_capacity);
     if (new_preopens == NULL) {
-        UNLOCK(lock);
         return -1;
     }
 
@@ -77,7 +75,6 @@ static int resize(void) {
     free(old_preopens);
 
     assert_invariants();
-    UNLOCK(lock);
     return 0;
 }
 
@@ -101,8 +98,7 @@ static const char *strip_prefixes(const char *path) {
     return path;
 }
 
-/// Similar to `internal_register_preopened_fd_unlocked` but does not
-/// take a lock.
+/// Similar to `internal_register_preopened_fd` but does not take a lock.
 static int internal_register_preopened_fd_unlocked(__wasi_fd_t fd, const char *relprefix) {
     // Check preconditions.
     assert_invariants();
@@ -184,7 +180,7 @@ int __wasilibc_find_abspath(const char *path,
                             const char **relative_path) {
     __wasilibc_populate_preopens();
 
-    // Strip leading `/` characters, the prefixes we're mataching won't have
+    // Strip leading `/` characters, the prefixes we're matching won't have
     // them.
     while (*path == '/')
         path++;
@@ -231,6 +227,7 @@ int __wasilibc_find_abspath(const char *path,
     return fd;
 }
 
+/* zig patch: initialize preopens early so zig code doesn't have to call __wasilibc_populate_preopens */
 __attribute__((constructor(51)))
 void __wasilibc_populate_preopens(void) {
     // Fast path: If the preopens are already initialized, do nothing.
