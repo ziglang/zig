@@ -16,7 +16,9 @@ pub fn build(b: *std.Build) void {
             .target = target,
         }),
     });
-    const generated = b.addRunArtifact(touch).addOutputFileArg("subdir" ++ std.fs.path.sep_str ++ "generated.txt");
+    const generated = b.addRunArtifact(touch).addOutputFileArg(
+        .{ .basename = "subdir" ++ std.fs.path.sep_str ++ "generated.txt" },
+    );
 
     const exists_in = b.addExecutable(.{
         .name = "exists_in",
@@ -81,7 +83,7 @@ fn addTestRun(
     args: []const []const u8,
 ) void {
     const run = test_step.owner.addRunArtifact(exe);
-    run.addDirectoryArg(dirname);
+    run.addDirectoryArg(.{ .lazy_path = dirname });
     run.addArgs(args);
     run.expectExitCode(0);
     test_step.dependOn(&run.step);
