@@ -132,9 +132,58 @@ pub const HostName = struct {
     }
 
     fn sortLookupResults(options: LookupOptions, result: LookupResult) !LookupResult {
-        _ = options;
-        _ = result;
-        @panic("TODO");
+        const addresses = options.addresses_buffer[0..result.addresses_len];
+        // No further processing is needed if there are fewer than 2 results or
+        // if there are only IPv4 results.
+        if (addresses.len < 2) return result;
+        const all_ip4 = for (addresses) |a| switch (a) {
+            .ip4 => continue,
+            .ip6 => break false,
+        } else true;
+        if (all_ip4) return result;
+
+        // RFC 3484/6724 describes how destination address selection is
+        // supposed to work. However, to implement it requires making a bunch
+        // of networking syscalls, which is unnecessarily high latency,
+        // especially if implemented serially. Furthermore, rules 3, 4, and 7
+        // have excessive runtime and code size cost and dubious benefit.
+        //
+        // Therefore, this logic sorts only using values available without
+        // doing any syscalls, relying on the calling code to have a
+        // meta-strategy such as attempting connection to multiple results at
+        // once and keeping the fastest response while canceling the others.
+
+        const S = struct {
+            pub fn lessThan(s: @This(), lhs: IpAddress, rhs: IpAddress) bool {
+                return sortKey(s, lhs) < sortKey(s, rhs);
+            }
+
+            fn sortKey(s: @This(), a: IpAddress) i32 {
+                _ = s;
+                var da6: Ip6Address = .{
+                    .port = 65535,
+                    .bytes = undefined,
+                };
+                switch (a) {
+                    .ip6 => |ip6| {
+                        da6.bytes = ip6.bytes;
+                        da6.scope_id = ip6.scope_id;
+                    },
+                    .ip4 => |ip4| {
+                        da6.bytes[0..12].* = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff".*;
+                        da6.bytes[12..].* = ip4.bytes;
+                    },
+                }
+                const da6_scope: i32 = da6.scope();
+                const da6_prec: i32 = da6.policy().prec;
+                var key: i32 = 0;
+                key |= da6_prec << 20;
+                key |= (15 - da6_scope) << 16;
+                return key;
+            }
+        };
+        std.mem.sort(IpAddress, addresses, @as(S, .{}), S.lessThan);
+        return result;
     }
 
     fn lookupDns(io: Io, options: LookupOptions) !LookupResult {
@@ -406,6 +455,14 @@ pub const Ip6Address = struct {
         Incomplete,
     };
 
+    pub const Policy = struct {
+        addr: [16]u8,
+        len: u8,
+        mask: u8,
+        prec: u8,
+        label: u8,
+    };
+
     pub fn localhost(port: u16) Ip6Address {
         return .{
             .bytes = .{ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 },
@@ -597,6 +654,98 @@ pub const Ip6Address = struct {
     pub fn eql(a: Ip6Address, b: Ip6Address) bool {
         return a.port == b.port and std.mem.eql(u8, &a.bytes, &b.bytes);
     }
+
+    pub fn isMultiCast(a: Ip6Address) bool {
+        return a.bytes[0] == 0xff;
+    }
+
+    pub fn isLinkLocal(a: Ip6Address) bool {
+        const b = &a.bytes;
+        return b[0] == 0xfe and (b[1] & 0xc0) == 0x80;
+    }
+
+    pub fn isLoopBack(a: Ip6Address) bool {
+        const b = &a.bytes;
+        return b[0] == 0 and b[1] == 0 and
+            b[2] == 0 and
+            b[12] == 0 and b[13] == 0 and
+            b[14] == 0 and b[15] == 1;
+    }
+
+    pub fn isSiteLocal(a: Ip6Address) bool {
+        const b = &a.bytes;
+        return b[0] == 0xfe and (b[1] & 0xc0) == 0xc0;
+    }
+
+    pub fn policy(a: Ip6Address) *const Policy {
+        const b = &a.bytes;
+        for (&defined_policies) |*p| {
+            if (!std.mem.eql(u8, b[0..p.len], p.addr[0..p.len])) continue;
+            if ((b[p.len] & p.mask) != p.addr[p.len]) continue;
+            return p;
+        }
+        unreachable;
+    }
+
+    pub fn scope(a: Ip6Address) u8 {
+        if (isMultiCast(a)) return a.bytes[1] & 15;
+        if (isLinkLocal(a)) return 2;
+        if (isLoopBack(a)) return 2;
+        if (isSiteLocal(a)) return 5;
+        return 14;
+    }
+
+    const defined_policies = [_]Policy{
+        .{
+            .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01".*,
+            .len = 15,
+            .mask = 0xff,
+            .prec = 50,
+            .label = 0,
+        },
+        .{
+            .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff\x00\x00\x00\x00".*,
+            .len = 11,
+            .mask = 0xff,
+            .prec = 35,
+            .label = 4,
+        },
+        .{
+            .addr = "\x20\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
+            .len = 1,
+            .mask = 0xff,
+            .prec = 30,
+            .label = 2,
+        },
+        .{
+            .addr = "\x20\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
+            .len = 3,
+            .mask = 0xff,
+            .prec = 5,
+            .label = 5,
+        },
+        .{
+            .addr = "\xfc\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
+            .len = 0,
+            .mask = 0xfe,
+            .prec = 3,
+            .label = 13,
+        },
+        //  These are deprecated and/or returned to the address
+        //  pool, so despite the RFC, treating them as special
+        //  is probably wrong.
+        // { "", 11, 0xff, 1, 3 },
+        // { "\xfe\xc0", 1, 0xc0, 1, 11 },
+        // { "\x3f\xfe", 1, 0xff, 1, 12 },
+        // Last rule must match all addresses to stop loop.
+        .{
+            .addr = "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00".*,
+            .len = 0,
+            .mask = 0,
+            .prec = 40,
+            .label = 1,
+        },
+    };
 };
 
 pub const Stream = struct {
