@@ -166,6 +166,8 @@ pub fn ValidationAllocator(comptime T: type) type {
     };
 }
 
+/// Wraps an allocator with basic validation checks.
+/// Asserts that allocation sizes are greater than zero and returned pointers have correct alignment.
 pub fn validationWrap(allocator: anytype) ValidationAllocator(@TypeOf(allocator)) {
     return ValidationAllocator(@TypeOf(allocator)).init(allocator);
 }
@@ -597,6 +599,12 @@ test zeroInit {
     }, nested_baz);
 }
 
+/// Sorts a slice in-place using a stable algorithm (maintains relative order of equal elements).
+/// Average time complexity: O(n log n), worst case: O(n log n)
+/// Space complexity: O(log n) for recursive calls
+///
+/// For slice of primitives with default ordering, consider using `std.sort.block` directly.
+/// For unstable but potentially faster sorting, see `sortUnstable`.
 pub fn sort(
     comptime T: type,
     items: []T,
@@ -606,6 +614,12 @@ pub fn sort(
     std.sort.block(T, items, context, lessThanFn);
 }
 
+/// Sorts a slice in-place using an unstable algorithm (does not preserve relative order of equal elements).
+/// Time complexity: O(n) best case, O(n log n) worst case and average case.
+/// Generally faster than stable sort but order of equal elements is undefined.
+///
+/// Uses pattern-defeating quicksort (PDQ) algorithm which performs well on many data patterns.
+/// For stable sorting that preserves equal element order, use `sort`.
 pub fn sortUnstable(
     comptime T: type,
     items: []T,
@@ -621,6 +635,12 @@ pub fn sortContext(a: usize, b: usize, context: anytype) void {
     std.sort.insertionContext(a, b, context);
 }
 
+/// Sorts a range [a, b) using an unstable algorithm with custom context.
+/// This is a lower-level interface for sorting that works with indices instead of slices.
+/// Does not preserve relative order of equal elements.
+///
+/// The context must provide lessThan(a_idx, b_idx) and swap(a_idx, b_idx) methods.
+/// Uses pattern-defeating quicksort (PDQ) algorithm.
 pub fn sortUnstableContext(a: usize, b: usize, context: anytype) void {
     std.sort.pdqContext(a, b, context);
 }
@@ -1089,6 +1109,8 @@ test len {
     try testing.expect(len(c_ptr) == 2);
 }
 
+/// Returns the index of the sentinel value in a sentinel-terminated pointer.
+/// Linear search through memory until the sentinel is found.
 pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]const T) usize {
     var i: usize = 0;
 
@@ -1255,6 +1277,8 @@ pub fn lastIndexOfScalar(comptime T: type, slice: []const T, value: T) ?usize {
     return null;
 }
 
+/// Linear search for the index of a scalar value inside a slice, starting from a given position.
+/// Returns null if the value is not found.
 pub fn indexOfScalarPos(comptime T: type, slice: []const T, start_index: usize, value: T) ?usize {
     if (start_index >= slice.len) return null;
 
@@ -1331,10 +1355,14 @@ test indexOfScalarPos {
     }
 }
 
+/// Linear search for the index of any value in the provided list inside a slice.
+/// Returns null if no values are found.
 pub fn indexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
     return indexOfAnyPos(T, slice, 0, values);
 }
 
+/// Linear search for the last index of any value in the provided list inside a slice.
+/// Returns null if no values are found.
 pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?usize {
     var i: usize = slice.len;
     while (i != 0) {
@@ -1346,6 +1374,8 @@ pub fn lastIndexOfAny(comptime T: type, slice: []const T, values: []const T) ?us
     return null;
 }
 
+/// Linear search for the index of any value in the provided list inside a slice, starting from a given position.
+/// Returns null if no values are found.
 pub fn indexOfAnyPos(comptime T: type, slice: []const T, start_index: usize, values: []const T) ?usize {
     if (start_index >= slice.len) return null;
     for (slice[start_index..], start_index..) |c, i| {
@@ -1404,6 +1434,9 @@ test indexOfNone {
     try testing.expect(indexOfNonePos(u8, "abc123", 3, "321") == null);
 }
 
+/// Search for needle in haystack and return the index of the first occurrence.
+/// Uses Boyer-Moore-Horspool algorithm on large inputs; linear search on small inputs.
+/// Returns null if needle is not found.
 pub fn indexOf(comptime T: type, haystack: []const T, needle: []const T) ?usize {
     return indexOfPos(T, haystack, 0, needle);
 }
@@ -2241,6 +2274,9 @@ test byteSwapAllFields {
     }, k);
 }
 
+/// Reverses the byte order of all elements in a slice.
+/// Handles structs, unions, arrays, enums, floats, and integers recursively.
+/// Useful for converting between little-endian and big-endian representations.
 pub fn byteSwapAllElements(comptime Elem: type, slice: []Elem) void {
     for (slice) |*elem| {
         switch (@typeInfo(@TypeOf(elem.*))) {
@@ -2980,6 +3016,7 @@ test window {
     }
 }
 
+/// Iterator type returned by the `window` function for sliding window operations.
 pub fn WindowIterator(comptime T: type) type {
     return struct {
         buffer: []const T,
@@ -3020,6 +3057,8 @@ pub fn WindowIterator(comptime T: type) type {
     };
 }
 
+/// Returns true if haystack starts with needle.
+/// Time complexity: O(needle.len)
 pub fn startsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[0..needle.len], needle);
 }
@@ -3029,6 +3068,8 @@ test startsWith {
     try testing.expect(!startsWith(u8, "Needle in haystack", "haystack"));
 }
 
+/// Returns true if haystack ends with needle.
+/// Time complexity: O(needle.len)
 pub fn endsWith(comptime T: type, haystack: []const T, needle: []const T) bool {
     return if (needle.len > haystack.len) false else eql(T, haystack[haystack.len - needle.len ..], needle);
 }
@@ -3038,8 +3079,10 @@ test endsWith {
     try testing.expect(!endsWith(u8, "Bob", "Bo"));
 }
 
+/// Delimiter type for tokenization and splitting operations.
 pub const DelimiterType = enum { sequence, any, scalar };
 
+/// Iterator type for tokenization operations, skipping empty sequences and delimiter sequences.
 pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3113,6 +3156,7 @@ pub fn TokenIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
     };
 }
 
+/// Iterator type for splitting operations, including empty sequences between delimiters.
 pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3178,6 +3222,7 @@ pub fn SplitIterator(comptime T: type, comptime delimiter_type: DelimiterType) t
     };
 }
 
+/// Iterator type for splitting operations from the end backwards, including empty sequences.
 pub fn SplitBackwardsIterator(comptime T: type, comptime delimiter_type: DelimiterType) type {
     return struct {
         buffer: []const T,
@@ -3587,6 +3632,7 @@ test indexOfMinMax {
     try testing.expectEqual(.{ 0, 0 }, indexOfMinMax(u8, "a"));
 }
 
+/// Exchanges contents of two memory locations.
 pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
@@ -4452,6 +4498,9 @@ pub fn alignForward(comptime T: type, addr: T, alignment: T) T {
     return alignBackward(T, addr + (alignment - 1), alignment);
 }
 
+/// Rounds an address up to the next alignment boundary using log2 representation.
+/// Equivalent to alignForward with alignment = 1 << log2_alignment.
+/// More efficient when alignment is known to be a power of 2.
 pub fn alignForwardLog2(addr: usize, log2_alignment: u8) usize {
     const alignment = @as(usize, 1) << @as(math.Log2Int(usize), @intCast(log2_alignment));
     return alignForward(usize, addr, alignment);
@@ -4591,6 +4640,9 @@ pub fn isValidAlignGeneric(comptime T: type, alignment: T) bool {
     return alignment > 0 and std.math.isPowerOfTwo(alignment);
 }
 
+/// Returns true if i is aligned to the given alignment.
+/// Works with any positive alignment value, not just powers of 2.
+/// For power-of-2 alignments, `isAligned` is more efficient.
 pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
     if (isValidAlign(alignment))
         return isAligned(i, alignment);
@@ -4598,6 +4650,9 @@ pub fn isAlignedAnyAlign(i: usize, alignment: usize) bool {
     return 0 == @mod(i, alignment);
 }
 
+/// Returns true if addr is aligned to 2^log2_alignment.
+/// More efficient than `isAligned` when alignment is known to be a power of 2.
+/// log2_alignment must be < @bitSizeOf(usize).
 pub fn isAlignedLog2(addr: usize, log2_alignment: u8) bool {
     return @ctz(addr) >= log2_alignment;
 }
@@ -4608,6 +4663,9 @@ pub fn isAligned(addr: usize, alignment: usize) bool {
     return isAlignedGeneric(u64, addr, alignment);
 }
 
+/// Generic version of `isAligned` that works with any integer type.
+/// Returns true if addr is aligned to the given alignment.
+/// Alignment must be a power of 2 and greater than 0.
 pub fn isAlignedGeneric(comptime T: type, addr: T, alignment: T) bool {
     return alignBackward(T, addr, alignment) == addr;
 }
