@@ -4157,7 +4157,7 @@ fn shouldDedupeType(ty: Type, ctx: *Comparison, pt: Zcu.PerThread) error{OutOfMe
         const entry: Comparison.DedupeEntry = if (should_dedupe) b: {
             ctx.placeholder_index += 1;
             break :b .{ .dedupe = .{ .index = ctx.placeholder_index - 1 } };
-        } else .{ .dont_dedupe = {} };
+        } else .dont_dedupe;
 
         try ctx.type_dedupe_cache.put(pt.zcu.gpa, ty, entry);
 
