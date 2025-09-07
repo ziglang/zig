@@ -62,7 +62,7 @@ fn tanh32(z: Complex(f32)) Complex(f32) {
     }
 
     const t = @tan(y);
-    const beta = 1.0 + t * t;
+    const beta = 1 + t * t;
     const s = math.sinh(x);
     const rho = @sqrt(1 + s * s);
     const den = 1 + beta * s * s;
@@ -120,7 +120,7 @@ fn tanh64(z: Complex(f64)) Complex(f64) {
 
     // Kahan's algorithm
     const t = @tan(y);
-    const beta = 1.0 + t * t; // = 1 / cos^2(y)
+    const beta = 1 + t * t; // = 1 / cos^2(y)
     const s = math.sinh(x);
     const rho = @sqrt(1 + s * s); // = cosh(x)
     const den = 1 + beta * s * s;
@@ -157,6 +157,6 @@ test "tanh64 musl" {
     const a: Complex(f64) = .init(math.inf(f64), math.inf(f64));
     const tanh_a = tanh(a);
 
-    try testing.expectApproxEqAbs(1.0, tanh_a.re, epsilon);
-    try testing.expectApproxEqAbs(0.0, tanh_a.im, epsilon);
+    try testing.expectApproxEqAbs(1, tanh_a.re, epsilon);
+    try testing.expectApproxEqAbs(0, tanh_a.im, epsilon);
 }

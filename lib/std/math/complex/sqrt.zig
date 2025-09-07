@@ -59,13 +59,13 @@ fn sqrt32(z: Complex(f32)) Complex(f32) {
 
         return .init(
             @floatCast(t),
-            @floatCast(dy / (2.0 * t)),
+            @floatCast(dy / (2 * t)),
         );
     } else {
         const t = @sqrt((-dx + math.hypot(dx, dy)) * 0.5);
 
         return .init(
-            @floatCast(@abs(b) / (2.0 * t)),
+            @floatCast(@abs(b) / (2 * t)),
             @floatCast(math.copysign(t, b)),
         );
     }

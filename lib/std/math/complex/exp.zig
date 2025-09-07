@@ -119,7 +119,10 @@ fn exp64(z: Complex(f64)) Complex(f64) {
 
         const exp_x = @exp(x);
 
-        return .init(exp_x * @cos(y), exp_x * @sin(y));
+        return .init(
+            exp_x * @cos(y),
+            exp_x * @sin(y),
+        );
     }
 }
 

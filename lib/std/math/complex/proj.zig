@@ -20,9 +20,21 @@ pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
 }
 
 test proj {
-    const a: Complex(f32) = .init(5, 3);
-    const a_proj = proj(a);
+    { // Finite complex number
+        const a: Complex(f32) = .init(5, 3);
+        const a_proj = proj(a);
 
-    try testing.expectEqual(5.0, a_proj.re);
-    try testing.expectEqual(3.0, a_proj.im);
+        try testing.expectEqual(5, a_proj.re);
+        try testing.expectEqual(3, a_proj.im);
+    }
+
+    { // Infinity complex number
+        const inf = math.inf(f32);
+
+        const a: Complex(f32) = .init(inf, 2);
+        const a_proj = proj(a);
+
+        try testing.expectEqual(inf, a_proj.re);
+        try testing.expectEqual(0, a_proj.im);
+    }
 }
