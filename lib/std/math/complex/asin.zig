@@ -6,12 +6,12 @@ const Complex = math.Complex;
 const sqrt = @import("sqrt.zig").sqrt;
 const log = @import("log.zig").log;
 
-/// Calculates the arc-sine of complex number.
+/// Calculates the arc-sine of a complex number.
 pub fn asin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const x = z.re;
     const y = z.im;
 
-    const T = @TypeOf(x);
+    const T = @TypeOf(x, y);
 
     const p: Complex(T) = .init(
         1 - (x - y) * (x + y),
@@ -26,8 +26,8 @@ test asin {
     const epsilon = math.floatEps(f32);
 
     const a: Complex(f32) = .init(5, 3);
-    const b = asin(a);
+    const asin_a = asin(a);
 
-    try testing.expectApproxEqAbs(1.0238227, b.re, epsilon);
-    try testing.expectApproxEqAbs(2.4529128, b.im, epsilon);
+    try testing.expectApproxEqAbs(1.0238227, asin_a.re, epsilon);
+    try testing.expectApproxEqAbs(2.4529128, asin_a.im, epsilon);
 }

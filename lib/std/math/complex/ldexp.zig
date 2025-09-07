@@ -10,7 +10,7 @@ const math = std.math;
 const testing = std.testing;
 const Complex = math.Complex;
 
-/// Calculates scaled exp of complex number to avoid overflow.
+/// Calculates scaled exp of a complex number to avoid overflow.
 pub fn ldexp(z: anytype, expt: i32) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

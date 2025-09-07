@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const atan = @import("atan.zig").atan;
 
-/// Calculates the hyperbolic arc-tangent of complex number.
+/// Calculates the hyperbolic arc-tangent of a complex number.
 pub fn atanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return atan(z.mulByI()).mulByMinusI();
 }

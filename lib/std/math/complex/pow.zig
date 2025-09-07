@@ -6,7 +6,7 @@ const Complex = math.Complex;
 const exp = @import("exp.zig").exp;
 const log = @import("log.zig").log;
 
-/// Calculates z raised to the complex power of complex number.
+/// Calculates z raised to the complex power of a complex number.
 pub fn pow(z: anytype, s: anytype) Complex(@TypeOf(z.re, z.im, s.re, s.im)) {
     return exp(log(z).mul(s));
 }

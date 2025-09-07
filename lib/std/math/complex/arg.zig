@@ -3,7 +3,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the angular component (in radians) of complex number.
+/// Calculates the angular component (in radians) of a complex number.
 pub fn arg(z: anytype) @TypeOf(z.re, z.im) {
     return math.atan2(z.im, z.re);
 }

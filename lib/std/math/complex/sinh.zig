@@ -11,7 +11,7 @@ const Complex = math.Complex;
 
 const ldexp = @import("ldexp.zig").ldexp;
 
-/// Calculates the hyperbolic sine of complex number.
+/// Calculates the hyperbolic sine of a complex number.
 pub fn sinh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const sinh = @import("sinh.zig").sinh;
 
-/// Calculates the sine of complex number.
+/// Calculates the sine of a complex number.
 pub fn sin(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return sinh(z.mulByI()).mulByMinusI();
 }

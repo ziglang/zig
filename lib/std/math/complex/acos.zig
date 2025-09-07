@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const asin = @import("asin.zig").asin;
 
-/// Calculates the arc-cosine of complex number.
+/// Calculates the arc-cosine of a complex number.
 pub fn acos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

@@ -9,7 +9,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the hyperbolic tangent of complex number.
+/// Calculates the hyperbolic tangent of a complex number.
 pub fn tanh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

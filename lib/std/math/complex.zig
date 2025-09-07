@@ -22,7 +22,7 @@ pub const sqrt = @import("complex/sqrt.zig").sqrt;
 pub const tanh = @import("complex/tanh.zig").tanh;
 pub const tan = @import("complex/tan.zig").tan;
 
-/// A complex number consisting of a real an imaginary part.
+/// A complex number consisting of a real and imaginary part.
 /// T must be a floating-point value.
 pub fn Complex(comptime T: type) type {
     return struct {
@@ -97,7 +97,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Calculates the product of complex number and imaginary unit.
+        /// Calculates the product of a complex number and imaginary unit.
         /// You should not manually does ".mul(.i, *)" instead of using this,
         /// as its consumes more operations than this.
         pub fn mulByI(self: Self) Self {
@@ -107,7 +107,7 @@ pub fn Complex(comptime T: type) type {
             };
         }
 
-        /// Calculates the product of complex number and negation of imaginary unit,
+        /// Calculates the product of a complex number and negation of imaginary unit,
         /// thus this rotates 90 degrees clockwise on the complex plane.
         /// You should not manually does "*.mul(.i).neg()" (or "*.neg().mul(.i)") instead of using this,
         /// as its consumes more operations than this.
@@ -133,7 +133,7 @@ pub fn Complex(comptime T: type) type {
             return @sqrt(self.squaredMagnitude());
         }
 
-        /// Calculates the squared magnitude.
+        /// Calculates the squared magnitude of a complex number.
         pub fn squaredMagnitude(self: Self) T {
             return self.re * self.re + self.im * self.im;
         }
@@ -212,10 +212,10 @@ test "multiplication by i yields same result as mulByI" {
     const a: TestingComplex = .init(5, 3);
 
     const i_a_natural = a.mulByI();
-    const i_a_intentional: TestingComplex = .mul(.i, a);
+    const i_a_unnatural: TestingComplex = .mul(.i, a);
 
-    try testing.expectEqual(i_a_intentional.re, i_a_natural.re);
-    try testing.expectEqual(i_a_intentional.im, i_a_natural.im);
+    try testing.expectEqual(i_a_unnatural.re, i_a_natural.re);
+    try testing.expectEqual(i_a_unnatural.im, i_a_natural.im);
 }
 
 test "mulByMinusI" {
@@ -230,10 +230,10 @@ test "multiplication by negation of i yields same result as mulByMinusI" {
     const a: TestingComplex = .init(5, 3);
 
     const minus_i_a_natural = a.mulByMinusI();
-    const minus_i_a_intentional: TestingComplex = a.mul(.i).neg(); // x.mul(.i).neg() -> -ix
+    const minus_i_a_unnatural: TestingComplex = a.mul(.i).neg(); // x.mul(.i).neg() -> -ix
 
-    try testing.expectEqual(minus_i_a_intentional.re, minus_i_a_natural.re);
-    try testing.expectEqual(minus_i_a_intentional.im, minus_i_a_natural.im);
+    try testing.expectEqual(minus_i_a_unnatural.re, minus_i_a_natural.re);
+    try testing.expectEqual(minus_i_a_unnatural.im, minus_i_a_natural.im);
 }
 
 test "i^2 equals to -1" {

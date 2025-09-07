@@ -9,7 +9,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the arc-tangent of complex number.
+/// Calculates the arc-tangent of a complex number.
 pub fn atan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

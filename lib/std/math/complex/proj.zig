@@ -3,7 +3,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the projection of complex number onto the riemann sphere.
+/// Calculates the projection of a complex number onto the riemann sphere.
 pub fn proj(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const x = z.re;
     const y = z.im;

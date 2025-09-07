@@ -11,7 +11,7 @@ const Complex = math.Complex;
 
 const ldexp = @import("ldexp.zig").ldexp;
 
-/// Calculates the hyperbolic arc-cosine of complex number.
+/// Calculates the hyperbolic arc-cosine of a complex number.
 pub fn cosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

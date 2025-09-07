@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const asin = @import("asin.zig").asin;
 
-/// Calculates the hyperbolic arc-sine of complex number.
+/// Calculates the hyperbolic arc-sine of a complex number.
 pub fn asinh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return asin(z.mulByI()).mulByMinusI();
 }

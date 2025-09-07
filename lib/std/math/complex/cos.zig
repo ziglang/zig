@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const cosh = @import("cosh.zig").cosh;
 
-/// Calculates the cosine of complex number.
+/// Calculates the cosine of a complex number.
 pub fn cos(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return cosh(z.mulByI());
 }

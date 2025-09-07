@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const tanh = @import("tanh.zig").tanh;
 
-/// Calculates the tangent of complex number.
+/// Calculates the tangent of a complex number.
 pub fn tan(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     return tanh(z.mulByI()).mulByMinusI();
 }

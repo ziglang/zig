@@ -3,7 +3,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the absolute value (modulus) of complex number.
+/// Calculates the absolute value (modulus) of a complex number.
 pub fn abs(z: anytype) @TypeOf(z.re, z.im) {
     return math.hypot(z.re, z.im);
 }

@@ -5,7 +5,7 @@ const Complex = math.Complex;
 
 const acos = @import("acos.zig").acos;
 
-/// Calculates the hyperbolic arc-cosine of complex number.
+/// Calculates the hyperbolic arc-cosine of a complex number.
 pub fn acosh(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const q = acos(z);
 

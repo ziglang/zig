@@ -11,7 +11,7 @@ const Complex = math.Complex;
 
 const ldexp = @import("ldexp.zig").ldexp;
 
-/// Calculates e raised to the power of complex number.
+/// Calculates e raised to the power of a complex number.
 pub fn exp(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
 

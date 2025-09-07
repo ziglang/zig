@@ -9,7 +9,7 @@ const testing = std.testing;
 const math = std.math;
 const Complex = math.Complex;
 
-/// Calculates the square root of complex number. The real and imaginary parts of the result have the same sign
+/// Calculates the square root of a complex number. The real and imaginary parts of the result have the same sign
 /// as the imaginary part of complex number.
 pub fn sqrt(z: anytype) Complex(@TypeOf(z.re, z.im)) {
     const T = @TypeOf(z.re, z.im);
