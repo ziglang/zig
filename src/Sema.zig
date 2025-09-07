@@ -11003,19 +11003,38 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
     var case_vals: std.ArrayList(Air.Inst.Ref) = try .initCapacity(gpa, scalar_cases_len + 2 * multi_cases_len);
     defer case_vals.deinit(gpa);
 
+    const operand_ty = sema.typeOf(raw_operand_val);
+    const operand_err_union_ty = if (extra.data.bits.payload_is_ref)
+        operand_ty.childType(zcu)
+    else
+        operand_ty;
+
+    if (operand_err_union_ty.zigTypeTag(zcu) != .error_union) {
+        return sema.fail(block, switch_src, "expected error union type, found '{f}'", .{
+            operand_ty.fmt(pt),
+        });
+    }
+
+    const operand_err_set_ty = operand_err_union_ty.errorUnionSet(zcu);
+    const operand_payload_ty = operand_err_union_ty.errorUnionPayload(zcu);
+
     const NonError = struct {
         body: []const Zir.Inst.Index,
         end: usize,
         capture: Zir.Inst.SwitchBlock.ProngInfo.Capture,
     };
 
-    const non_error_case: NonError = non_error: {
+    const non_error_case: ?NonError, const non_err_case_end: usize = non_error: {
         const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(sema.code.extra[header_extra_index]);
         const extra_body_start = header_extra_index + 1;
+        const non_err_case_end = extra_body_start + info.body_len;
         break :non_error .{
-            .body = sema.code.bodySlice(extra_body_start, info.body_len),
-            .end = extra_body_start + info.body_len,
-            .capture = info.capture,
+            if (operand_payload_ty.isNoReturn(zcu)) null else .{
+                .body = sema.code.bodySlice(extra_body_start, info.body_len),
+                .end = non_err_case_end,
+                .capture = info.capture,
+            },
+            non_err_case_end,
         };
     };
 
@@ -11028,12 +11047,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     const else_case: Else = if (!extra.data.bits.has_else) .{
         .body = &.{},
-        .end = non_error_case.end,
+        .end = non_err_case_end,
         .is_inline = false,
         .has_capture = false,
     } else special: {
-        const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(sema.code.extra[non_error_case.end]);
-        const extra_body_start = non_error_case.end + 1;
+        const info: Zir.Inst.SwitchBlock.ProngInfo = @bitCast(sema.code.extra[non_err_case_end]);
+        const extra_body_start = non_err_case_end + 1;
         assert(info.capture != .by_ref);
         assert(!info.has_tag_capture);
         break :special .{
@@ -11046,20 +11065,6 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     var seen_errors = SwitchErrorSet.init(gpa);
     defer seen_errors.deinit();
-
-    const operand_ty = sema.typeOf(raw_operand_val);
-    const operand_err_set = if (extra.data.bits.payload_is_ref)
-        operand_ty.childType(zcu)
-    else
-        operand_ty;
-
-    if (operand_err_set.zigTypeTag(zcu) != .error_union) {
-        return sema.fail(block, switch_src, "expected error union type, found '{f}'", .{
-            operand_ty.fmt(pt),
-        });
-    }
-
-    const operand_err_set_ty = operand_err_set.errorUnionSet(zcu);
 
     const block_inst: Air.Inst.Index = @enumFromInt(sema.air_instructions.len);
     try sema.air_instructions.append(gpa, .{
@@ -11100,7 +11105,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     const resolved_err_set = try sema.resolveInferredErrorSetTy(block, main_src, operand_err_set_ty.toIntern());
     if (Type.fromInterned(resolved_err_set).errorSetIsEmpty(zcu)) {
-        return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
+        return if (non_error_case) |nec|
+            sema.resolveBlockBody(block, main_operand_src, &child_block, nec.body, inst, merges)
+        else unreach: {
+            try sema.analyzeUnreachable(block, main_operand_src, false);
+            break :unreach .unreachable_value;
+        };
     }
 
     const else_error_ty: ?Type = try validateErrSetSwitch(
@@ -11138,7 +11148,7 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
             ov;
 
         if (operand_val.errorUnionIsPayload(zcu)) {
-            return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
+            return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.?.body, inst, merges);
         } else {
             const err_val = Value.fromInterned(try pt.intern(.{
                 .err = .{
@@ -11184,7 +11194,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
 
     if (scalar_cases_len + multi_cases_len == 0) {
         if (else_error_ty) |ty| if (ty.errorSetIsEmpty(zcu)) {
-            return sema.resolveBlockBody(block, main_operand_src, &child_block, non_error_case.body, inst, merges);
+            return if (non_error_case) |nec|
+                sema.resolveBlockBody(block, main_operand_src, &child_block, nec.body, inst, merges)
+            else unreach: {
+                try sema.analyzeUnreachable(block, main_operand_src, false);
+                break :unreach .unreachable_value;
+            };
         };
     }
 
@@ -11193,25 +11208,12 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         unreachable;
     }
 
-    const cond = if (extra.data.bits.payload_is_ref) blk: {
-        try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val).elemType2(zcu));
-        const loaded = try sema.analyzeLoad(block, main_src, raw_operand_val, main_src);
-        break :blk try sema.analyzeIsNonErr(block, main_src, loaded);
-    } else blk: {
-        try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val));
-        break :blk try sema.analyzeIsNonErr(block, main_src, raw_operand_val);
-    };
-
     var sub_block = child_block.makeSubBlock();
     sub_block.runtime_loop = null;
     sub_block.runtime_cond = main_operand_src;
     sub_block.runtime_index.increment();
     sub_block.need_debug_scope = null; // this body is emitted regardless
     defer sub_block.instructions.deinit(gpa);
-
-    const non_error_hint = try sema.analyzeBodyRuntimeBreak(&sub_block, non_error_case.body);
-    const true_instructions = try sub_block.instructions.toOwnedSlice(gpa);
-    defer gpa.free(true_instructions);
 
     spa.operand.simple.by_val = if (extra.data.bits.payload_is_ref)
         try sema.analyzeErrUnionCodePtr(&sub_block, switch_operand_src, raw_operand_val)
@@ -11257,31 +11259,48 @@ fn zirSwitchBlockErrUnion(sema: *Sema, block: *Block, inst: Zir.Inst.Index) Comp
         &.{},
         &.{},
     );
+    const err_switch_instructions = try sub_block.instructions.toOwnedSlice(gpa);
+    defer gpa.free(err_switch_instructions);
 
-    try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
-        true_instructions.len + sub_block.instructions.items.len);
+    if (non_error_case) |nec| {
+        const cond = if (extra.data.bits.payload_is_ref) blk: {
+            try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val).elemType2(zcu));
+            const loaded = try sema.analyzeLoad(block, main_src, raw_operand_val, main_src);
+            break :blk try sema.analyzeIsNonErr(block, main_src, loaded);
+        } else blk: {
+            try sema.checkErrorType(block, main_src, sema.typeOf(raw_operand_val));
+            break :blk try sema.analyzeIsNonErr(block, main_src, raw_operand_val);
+        };
 
-    _ = try child_block.addInst(.{
-        .tag = .cond_br,
-        .data = .{
-            .pl_op = .{
-                .operand = cond,
-                .payload = sema.addExtraAssumeCapacity(Air.CondBr{
-                    .then_body_len = @intCast(true_instructions.len),
-                    .else_body_len = @intCast(sub_block.instructions.items.len),
-                    .branch_hints = .{
-                        .true = non_error_hint,
-                        .false = .none,
-                        // Code coverage is desired for error handling.
-                        .then_cov = .poi,
-                        .else_cov = .poi,
-                    },
-                }),
+        const non_error_hint = try sema.analyzeBodyRuntimeBreak(&sub_block, nec.body);
+
+        try sema.air_extra.ensureUnusedCapacity(gpa, @typeInfo(Air.CondBr).@"struct".fields.len +
+            err_switch_instructions.len + sub_block.instructions.items.len);
+
+        _ = try child_block.addInst(.{
+            .tag = .cond_br,
+            .data = .{
+                .pl_op = .{
+                    .operand = cond,
+                    .payload = sema.addExtraAssumeCapacity(Air.CondBr{
+                        .then_body_len = @intCast(sub_block.instructions.items.len),
+                        .else_body_len = @intCast(err_switch_instructions.len),
+                        .branch_hints = .{
+                            .true = non_error_hint,
+                            .false = .none,
+                            // Code coverage is desired for error handling.
+                            .then_cov = .poi,
+                            .else_cov = .poi,
+                        },
+                    }),
+                },
             },
-        },
-    });
-    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(true_instructions));
-    sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
+        });
+        sema.air_extra.appendSliceAssumeCapacity(@ptrCast(sub_block.instructions.items));
+        sema.air_extra.appendSliceAssumeCapacity(@ptrCast(err_switch_instructions));
+    } else {
+        try child_block.instructions.appendSlice(gpa, err_switch_instructions);
+    }
 
     return sema.resolveAnalyzedBlock(block, main_src, &child_block, merges, false);
 }
