@@ -3632,7 +3632,7 @@ test indexOfMinMax {
     try testing.expectEqual(.{ 0, 0 }, indexOfMinMax(u8, "a"));
 }
 
-/// Swaps the values of two variables.
+/// Exchanges contents of two memory locations.
 pub fn swap(comptime T: type, a: *T, b: *T) void {
     const tmp = a.*;
     a.* = b.*;
