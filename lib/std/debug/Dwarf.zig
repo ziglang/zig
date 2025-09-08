@@ -652,7 +652,7 @@ fn scanAllCompileUnits(di: *Dwarf, allocator: Allocator, endian: Endian) ScanErr
     }
 }
 
-pub fn populateRanges(d: *Dwarf, gpa: Allocator) ScanError!void {
+pub fn populateRanges(d: *Dwarf, gpa: Allocator, endian: Endian) ScanError!void {
     assert(d.ranges.items.len == 0);
 
     for (d.compile_unit_list.items, 0..) |*cu, cu_index| {
@@ -665,7 +665,7 @@ pub fn populateRanges(d: *Dwarf, gpa: Allocator) ScanError!void {
             continue;
         }
         const ranges_value = cu.die.getAttr(AT.ranges) orelse continue;
-        var iter = DebugRangeIterator.init(ranges_value, d, cu) catch continue;
+        var iter = DebugRangeIterator.init(ranges_value, d, endian, cu) catch continue;
         while (try iter.next()) |range| {
             // Not sure why LLVM thinks it's OK to emit these...
             if (range.start == range.end) continue;
