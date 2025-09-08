@@ -636,7 +636,7 @@ pub inline fn callMain() u8 {
                 }
                 std.log.err("{s}", .{@errorName(err)});
                 if (@errorReturnTrace()) |trace| {
-                    std.debug.dumpStackTrace(trace.*);
+                    std.debug.dumpStackTrace(trace);
                 }
                 return 1;
             };

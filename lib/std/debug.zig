@@ -1443,7 +1443,7 @@ pub fn ConfigurableTrace(comptime size: usize, comptime stack_frame_count: usize
                     .index = frames.len,
                     .instruction_addresses = frames,
                 };
-                writeStackTrace(stack_trace, stderr, tty_config) catch return;
+                writeStackTrace(&stack_trace, stderr, tty_config) catch return;
             }
             if (t.index > end) {
                 stderr.print("{d} more traces not shown; consider increasing trace size\n", .{

@@ -892,7 +892,7 @@ pub const nlist_64 = extern struct {
     n_desc: packed struct(u16) {
         _pad0: u3 = 0,
         arm_thumb_def: bool,
-        _pad1: u1 = 0,
+        referenced_dynamically: bool,
         /// The meaning of this bit is contextual.
         /// See `N_DESC_DISCARDED` and `N_NO_DEAD_STRIP`.
         discarded_or_no_dead_strip: bool,
@@ -907,7 +907,7 @@ pub const nlist_64 = extern struct {
     n_value: u64,
 
     pub fn tentative(sym: nlist_64) bool {
-        return sym.n_type.type == .undf and sym.n_value != 0;
+        return sym.n_type.bits.type == .undf and sym.n_value != 0;
     }
 };
 
