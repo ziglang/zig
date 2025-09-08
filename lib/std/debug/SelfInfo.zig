@@ -124,6 +124,7 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 /// ) SelfInfo.Error!usize;
 /// ```
 const Module: type = Module: {
+    // Allow overriding the target-specific `SelfInfo` implementation by exposing `root.debug.Module`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "Module")) {
         break :Module root.debug.Module;
     }
