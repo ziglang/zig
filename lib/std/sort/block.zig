@@ -135,6 +135,7 @@ pub fn blockContext(
     b: usize,
     context: anytype,
 ) void {
+    // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
     _ = .{ a, b };
     const Context = struct {
         sub_ctx: @TypeOf(context),
@@ -166,8 +167,6 @@ pub fn blockContext(
             return lt;
         }
     }.lessThan else lessThanFn;
-
-    // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
 
     if (items.len < 4) {
         if (items.len == 3) {
