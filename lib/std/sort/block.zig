@@ -157,7 +157,6 @@ pub fn blockContext(
         }
     };
     const wrapped_context = Context{ .sub_ctx = context };
-    _ = wrapped_context;
     const lessThan = if (builtin.mode == .Debug) struct {
         fn lessThan(ctx: @TypeOf(inner_context), lhs: T, rhs: T) bool {
             const lt = lessThanFn(ctx, lhs, rhs);
@@ -172,13 +171,13 @@ pub fn blockContext(
     if (range_length < 4) {
         if (range_length == 3) {
             // hard coded insertion sort
-            if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
-            if (lessThan(inner_context, items[2], items[1])) {
-                mem.swap(T, &items[1], &items[2]);
-                if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
+            if (wrapped_context.lessThan(a + 1, a + 0)) wrapped_context.swap(a + 0, a + 1);
+            if (wrapped_context.lessThan(a + 2, a + 1)) {
+                wrapped_context.swap(a + 1, a + 2);
+                if (wrapped_context.lessThan(a + 1, a + 0)) wrapped_context.swap(a + 0, a + 1);
             }
         } else if (range_length == 2) {
-            if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
+            if (wrapped_context.lessThan(a + 1, a + 0)) wrapped_context.swap(a + 0, a + 1);
         }
         return;
     }
