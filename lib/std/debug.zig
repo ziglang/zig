@@ -1285,20 +1285,7 @@ fn handleSegfaultPosix(sig: i32, info: *const posix.siginfo_t, ctx_ptr: ?*anyopa
         break :info .{ addr, name };
     };
 
-    // MLUGG TODO: this doesn't make any sense at all?
-    const use_context = switch (native_arch) {
-        .x86,
-        .x86_64,
-        .arm,
-        .armeb,
-        .thumb,
-        .thumbeb,
-        .aarch64,
-        .aarch64_be,
-        => true,
-        else => false,
-    };
-    if (ThreadContext == noreturn or !use_context) return handleSegfault(addr, name, null);
+    if (ThreadContext == noreturn) return handleSegfault(addr, name, null);
 
     // Some kernels don't align `ctx_ptr` properly, so we'll copy it into a local buffer.
     var copied_ctx: ThreadContextBuf = undefined;
