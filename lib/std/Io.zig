@@ -667,6 +667,8 @@ pub const VTable = struct {
     netRead: *const fn (?*anyopaque, src: net.Stream, data: [][]u8) net.Stream.Reader.Error!usize,
     netWrite: *const fn (?*anyopaque, dest: net.Stream, header: []const u8, data: []const []const u8, splat: usize) net.Stream.Writer.Error!usize,
     netClose: *const fn (?*anyopaque, stream: net.Stream) void,
+    /// Equivalent to libc "if_nametoindex".
+    netInterfaceIndex: *const fn (?*anyopaque, name: []const u8) net.InterfaceIndexError!u32,
 };
 
 pub const Cancelable = error{
