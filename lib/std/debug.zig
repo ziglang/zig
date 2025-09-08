@@ -216,8 +216,12 @@ pub fn unlockStdErr() void {
 ///
 /// During the lock, any `std.Progress` information is cleared from the terminal.
 ///
-/// Returns a `Writer` with empty buffer, meaning that it is
-/// in fact unbuffered and does not need to be flushed.
+/// The lock is recursive, so it is valid for the same thread to call `lockStderrWriter` multiple
+/// times. The primary motivation is that this allows the panic handler to safely dump the stack
+/// trace and panic message even if the mutex was held at the panic site.
+///
+/// The returned `Writer` does not need to be manually flushed: flushing is performed automatically
+/// when the matching `unlockStderrWriter` call occurs.
 pub fn lockStderrWriter(buffer: []u8) *Writer {
     return std.Progress.lockStderrWriter(buffer);
 }
@@ -348,13 +352,12 @@ pub fn relocateContext(dest: *ThreadContext) void {
     }
 }
 
-pub const have_getcontext = @TypeOf(posix.system.getcontext) != void;
-
 /// Capture the current context. The register values in the context will reflect the
 /// state after the platform `getcontext` function returns.
 ///
 /// It is valid to call this if the platform doesn't have context capturing support,
-/// in that case false will be returned.
+/// in that case `false` will be returned. This function is `inline` so that the `false`
+/// is comptime-known at the call site in that case.
 pub inline fn getContext(context: *ThreadContext) bool {
     if (native_os == .windows) {
         context.* = std.mem.zeroes(windows.CONTEXT);
@@ -362,18 +365,19 @@ pub inline fn getContext(context: *ThreadContext) bool {
         return true;
     }
 
-    const result = have_getcontext and posix.system.getcontext(context) == 0;
-    if (native_os == .macos) {
-        assert(context.mcsize == @sizeOf(std.c.mcontext_t));
+    if (@TypeOf(posix.system.getcontext) != void) {
+        if (posix.system.getcontext(context) != 0) return false;
+        if (native_os == .macos) {
+            assert(context.mcsize == @sizeOf(std.c.mcontext_t));
 
-        // On aarch64-macos, the system getcontext doesn't write anything into the pc
-        // register slot, it only writes lr. This makes the context consistent with
-        // other aarch64 getcontext implementations which write the current lr
-        // (where getcontext will return to) into both the lr and pc slot of the context.
-        if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
+            // On aarch64-macos, the system getcontext doesn't write anything into the pc
+            // register slot, it only writes lr. This makes the context consistent with
+            // other aarch64 getcontext implementations which write the current lr
+            // (where getcontext will return to) into both the lr and pc slot of the context.
+            if (native_arch == .aarch64) context.mcontext.ss.pc = context.mcontext.ss.lr;
+        }
+        return true;
     }
-
-    return result;
 }
 
 /// Invokes detectable illegal behavior when `ok` is `false`.
@@ -413,8 +417,8 @@ pub fn panic(comptime format: []const u8, args: anytype) noreturn {
     panicExtra(@returnAddress(), format, args);
 }
 
-/// Equivalent to `@panic` but with a formatted message, and with an explicitly
-/// provided return address.
+/// Equivalent to `@panic` but with a formatted message and an explicitly provided return address
+/// which will be the first address in the stack trace.
 pub fn panicExtra(
     ret_addr: ?usize,
     comptime format: []const u8,
@@ -952,6 +956,7 @@ fn printLineInfo(
     }
 }
 fn printLineFromFile(writer: *Writer, source_location: SourceLocation) !void {
+    // Allow overriding the target-agnostic source line printing logic by exposing `root.debug.printLineFromFile`.
     if (@hasDecl(root, "debug") and @hasDecl(root.debug, "printLineFromFile")) {
         return root.debug.printLineFromFile(writer, source_location);
     }
@@ -1139,17 +1144,17 @@ test printLineFromFile {
 }
 
 /// TODO multithreaded awareness
-var debug_info_arena: ?std.heap.ArenaAllocator = null;
-var debug_info_fba: std.heap.FixedBufferAllocator = .init(&debug_info_fba_buf);
-var debug_info_fba_buf: [1024 * 1024 * 4]u8 = undefined;
-fn getDebugInfoAllocator() mem.Allocator {
-    if (false) {
-        if (debug_info_arena == null) {
-            debug_info_arena = .init(std.heap.page_allocator);
-        }
-        return debug_info_arena.?.allocator();
+fn getDebugInfoAllocator() Allocator {
+    // Allow overriding the debug info allocator by exposing `root.debug.getDebugInfoAllocator`.
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "getDebugInfoAllocator")) {
+        return root.debug.getDebugInfoAllocator();
     }
-    return debug_info_fba.allocator();
+    // Otherwise, use a global arena backed by the page allocator
+    const S = struct {
+        var arena: ?std.heap.ArenaAllocator = null;
+    };
+    if (S.arena == null) S.arena = .init(std.heap.page_allocator);
+    return S.arena.?.allocator();
 }
 
 /// Whether or not the current target can print useful debug information when a segfault occurs.
@@ -1184,7 +1189,16 @@ pub fn updateSegfaultHandler(act: ?*const posix.Sigaction) void {
     posix.sigaction(posix.SIG.FPE, act, null);
 }
 
-/// Attaches a global SIGSEGV handler which calls `@panic("segmentation fault");`
+/// Attaches a global handler for several signals which, when triggered, prints output to stderr
+/// similar to the default panic handler, with a message containing the type of signal and a stack
+/// trace if possible. This implementation does not just call the panic handler, because unwinding
+/// the stack (for a stack trace) when a signal is received requires special target-specific logic.
+///
+/// The signals for which a handler is installed are:
+/// * SIGSEGV (segmentation fault)
+/// * SIGILL (illegal instruction)
+/// * SIGBUS (bus error)
+/// * SIGFPE (arithmetic exception)
 pub fn attachSegfaultHandler() void {
     if (!have_segfault_handling_support) {
         @compileError("segfault handler not supported for this target");
@@ -1305,6 +1319,14 @@ fn handleSegfaultWindows(info: *windows.EXCEPTION_POINTERS) callconv(.winapi) c_
 }
 
 fn handleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?*ThreadContext) noreturn {
+    // Allow overriding the target-agnostic segfault handler by exposing `root.debug.handleSegfault`.
+    if (@hasDecl(root, "debug") and @hasDecl(root.debug, "handleSegfault")) {
+        return root.debug.handleSegfault(addr, name, opt_ctx);
+    }
+    return defaultHandleSegfault(addr, name, opt_ctx);
+}
+
+pub fn defaultHandleSegfault(addr: ?usize, name: []const u8, opt_ctx: ?*ThreadContext) noreturn {
     // There is very similar logic to the following in `defaultPanic`.
     switch (panic_stage) {
         0 => {
