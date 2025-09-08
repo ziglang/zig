@@ -1,6 +1,8 @@
 pub const PE = packed struct(u8) {
     type: Type,
     rel: Rel,
+    /// Undocumented GCC extension
+    indirect: bool = false,
 
     /// This is a special encoding which does not correspond to named `type`/`rel` values.
     pub const omit: PE = @bitCast(@as(u8, 0xFF));
@@ -18,15 +20,15 @@ pub const PE = packed struct(u8) {
         _,
     };
 
-    pub const Rel = enum(u4) {
+    /// The specification considers this a `u4`, but the GCC `indirect` field extension conflicts
+    /// with that, so we consider it a `u3` instead.
+    pub const Rel = enum(u3) {
         abs = 0x0,
         pcrel = 0x1,
         textrel = 0x2,
         datarel = 0x3,
         funcrel = 0x4,
         aligned = 0x5,
-        /// Undocumented GCC extension
-        indirect = 0x8,
         _,
     };
 };

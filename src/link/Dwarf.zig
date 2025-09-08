@@ -4852,7 +4852,7 @@ fn flushWriterError(dwarf: *Dwarf, pt: Zcu.PerThread) (FlushError || Writer.Erro
                         hw.writeSleb128(dwarf.debug_frame.header.data_alignment_factor) catch unreachable;
                         hw.writeUleb128(dwarf.debug_frame.header.return_address_register) catch unreachable;
                         hw.writeUleb128(1) catch unreachable;
-                        hw.writeByte(DW.EH.PE.pcrel | DW.EH.PE.sdata4) catch unreachable;
+                        hw.writeByte(@bitCast(@as(DW.EH.PE, .{ .type = .sdata4, .rel = .pcrel }))) catch unreachable;
                         hw.writeByte(DW.CFA.def_cfa_sf) catch unreachable;
                         hw.writeUleb128(Register.rsp.dwarfNum()) catch unreachable;
                         hw.writeSleb128(-1) catch unreachable;

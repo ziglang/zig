@@ -123,9 +123,9 @@ fn newSymbol(self: *ZigObject, allocator: Allocator, name: MachO.String, args: s
     self.symtab.set(nlist_idx, .{
         .nlist = .{
             .n_strx = name.pos,
-            .n_type = args.type,
+            .n_type = @bitCast(args.type),
             .n_sect = 0,
-            .n_desc = args.desc,
+            .n_desc = @bitCast(args.desc),
             .n_value = 0,
         },
         .size = 0,
@@ -206,8 +206,8 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
     const gpa = macho_file.base.comp.gpa;
 
     for (self.symtab.items(.nlist), self.symtab.items(.atom), self.globals.items, 0..) |nlist, atom_index, *global, i| {
-        if (!nlist.ext()) continue;
-        if (nlist.sect()) {
+        if (!nlist.n_type.bits.ext) continue;
+        if (nlist.n_type.bits.type == .sect) {
             const atom = self.getAtom(atom_index).?;
             if (!atom.isAlive()) continue;
         }
@@ -221,7 +221,7 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
         }
         global.* = gop.index;
 
-        if (nlist.undf() and !nlist.tentative()) continue;
+        if (nlist.n_type.bits.type == .undf and !nlist.tentative()) continue;
         if (gop.ref.getFile(macho_file) == null) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
             continue;
@@ -229,7 +229,7 @@ pub fn resolveSymbols(self: *ZigObject, macho_file: *MachO) !void {
 
         if (self.asFile().getSymbolRank(.{
             .archive = false,
-            .weak = nlist.weakDef(),
+            .weak = nlist.n_desc.weak_def_or_ref_to_weak,
             .tentative = nlist.tentative(),
         }) < gop.ref.getSymbol(macho_file).?.getSymbolRank(macho_file)) {
             gop.ref.* = .{ .index = @intCast(i), .file = self.index };
@@ -243,12 +243,12 @@ pub fn markLive(self: *ZigObject, macho_file: *MachO) void {
 
     for (0..self.symbols.items.len) |i| {
         const nlist = self.symtab.items(.nlist)[i];
-        if (!nlist.ext()) continue;
+        if (!nlist.n_type.bits.ext) continue;
 
         const ref = self.getSymbolRef(@intCast(i), macho_file);
         const file = ref.getFile(macho_file) orelse continue;
         const sym = ref.getSymbol(macho_file).?;
-        const should_keep = nlist.undf() or (nlist.tentative() and !sym.flags.tentative);
+        const should_keep = nlist.n_type.bits.type == .undf or (nlist.tentative() and !sym.flags.tentative);
         if (should_keep and file == .object and !file.object.alive) {
             file.object.alive = true;
             file.object.markLive(macho_file);
@@ -331,8 +331,8 @@ pub fn claimUnresolved(self: *ZigObject, macho_file: *MachO) void {
 
     for (self.symbols.items, 0..) |*sym, i| {
         const nlist = self.symtab.items(.nlist)[i];
-        if (!nlist.ext()) continue;
-        if (!nlist.undf()) continue;
+        if (!nlist.n_type.bits.ext) continue;
+        if (nlist.n_type.bits.type != .undf) continue;
 
         if (self.getSymbolRef(@intCast(i), macho_file).getFile(macho_file) != null) continue;
 
@@ -974,7 +974,7 @@ fn updateNavCode(
     atom.setAlive(true);
     atom.name = sym.name;
     nlist.n_strx = sym.name.pos;
-    nlist.n_type = macho.N_SECT;
+    nlist.n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } };
     nlist.n_sect = sect_index + 1;
     self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
@@ -1115,7 +1115,7 @@ fn createTlvDescriptor(
     atom.name = sym.name;
     nlist.n_strx = sym.name.pos;
     nlist.n_sect = sect_index + 1;
-    nlist.n_type = macho.N_SECT;
+    nlist.n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } };
     nlist.n_value = 0;
     self.symtab.items(.size)[sym.nlist_idx] = size;
 
@@ -1322,7 +1322,7 @@ pub fn updateExports(
         const global_sym = &self.symbols.items[global_nlist_index];
         global_nlist.n_value = nlist.n_value;
         global_nlist.n_sect = nlist.n_sect;
-        global_nlist.n_type = macho.N_EXT | macho.N_SECT;
+        global_nlist.n_type = .{ .bits = .{ .ext = true, .type = .sect, .pext = false, .is_stab = 0 } };
         self.symtab.items(.size)[global_nlist_index] = self.symtab.items(.size)[nlist_idx];
         self.symtab.items(.atom)[global_nlist_index] = atom_index;
         global_sym.atom_ref = .{ .index = atom_index, .file = self.index };
@@ -1330,7 +1330,7 @@ pub fn updateExports(
         switch (exp.opts.linkage) {
             .internal => {
                 // Symbol should be hidden, or in MachO lingo, private extern.
-                global_nlist.n_type |= macho.N_PEXT;
+                global_nlist.n_type.bits.pext = true;
                 global_sym.visibility = .hidden;
             },
             .strong => {
@@ -1339,7 +1339,7 @@ pub fn updateExports(
             .weak => {
                 // Weak linkage is specified as part of n_desc field.
                 // Symbol's n_type is like for a symbol with strong linkage.
-                global_nlist.n_desc |= macho.N_WEAK_DEF;
+                global_nlist.n_desc.weak_def_or_ref_to_weak = true;
                 global_sym.visibility = .global;
                 global_sym.flags.weak = true;
             },
@@ -1394,7 +1394,7 @@ fn updateLazySymbol(
 
     const nlist = &self.symtab.items(.nlist)[sym.nlist_idx];
     nlist.n_strx = name_str.pos;
-    nlist.n_type = macho.N_SECT;
+    nlist.n_type = .{ .bits = .{ .ext = false, .type = .sect, .pext = false, .is_stab = 0 } };
     nlist.n_sect = output_section_index + 1;
     self.symtab.items(.size)[sym.nlist_idx] = code.len;
 
