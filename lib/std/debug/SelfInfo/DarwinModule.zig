@@ -75,7 +75,7 @@ fn loadUnwindInfo(module: *const DarwinModule) DebugInfo.Unwind {
         .eh_frame = eh_frame,
     };
 }
-fn loadFullInfo(module: *const DarwinModule, gpa: Allocator) !DebugInfo.Full {
+fn loadMachO(module: *const DarwinModule, gpa: Allocator) !DebugInfo.LoadedMachO {
     const mapped_mem = try mapDebugInfoFile(module.name);
     errdefer posix.munmap(mapped_mem);
 
@@ -189,21 +189,21 @@ fn loadFullInfo(module: *const DarwinModule, gpa: Allocator) !DebugInfo.Full {
     };
 }
 pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, address: usize) Error!std.debug.Symbol {
-    if (di.full == null) di.full = module.loadFullInfo(gpa) catch |err| switch (err) {
+    if (di.loaded_macho == null) di.loaded_macho = module.loadMachO(gpa) catch |err| switch (err) {
         error.InvalidDebugInfo, error.MissingDebugInfo, error.OutOfMemory, error.Unexpected => |e| return e,
         else => return error.ReadFailed,
     };
-    const full = &di.full.?;
+    const loaded_macho = &di.loaded_macho.?;
 
     const vaddr = address - module.load_offset;
-    const symbol = MachoSymbol.find(full.symbols, vaddr) orelse return .unknown;
+    const symbol = MachoSymbol.find(loaded_macho.symbols, vaddr) orelse return .unknown;
 
     // offset of `address` from start of `symbol`
     const address_symbol_offset = vaddr - symbol.addr;
 
     // Take the symbol name from the N_FUN STAB entry, we're going to
     // use it if we fail to find the DWARF infos
-    const stab_symbol = mem.sliceTo(full.strings[symbol.strx..], 0);
+    const stab_symbol = mem.sliceTo(loaded_macho.strings[symbol.strx..], 0);
 
     // If any information is missing, we can at least return this from now on.
     const sym_only_result: std.debug.Symbol = .{
@@ -213,11 +213,11 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     };
 
     const o_file: *DebugInfo.OFile = of: {
-        const gop = try full.ofiles.getOrPut(gpa, symbol.ofile);
+        const gop = try loaded_macho.ofiles.getOrPut(gpa, symbol.ofile);
         if (!gop.found_existing) {
-            const o_file_path = mem.sliceTo(full.strings[symbol.ofile..], 0);
+            const o_file_path = mem.sliceTo(loaded_macho.strings[symbol.ofile..], 0);
             gop.value_ptr.* = DebugInfo.loadOFile(gpa, o_file_path) catch {
-                _ = full.ofiles.pop().?;
+                _ = loaded_macho.ofiles.pop().?;
                 return sym_only_result;
             };
         }
@@ -581,23 +581,22 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
 }
 pub const DebugInfo = struct {
     unwind: ?Unwind,
-    // MLUGG TODO: awful field name
-    full: ?Full,
+    loaded_macho: ?LoadedMachO,
 
     pub const init: DebugInfo = .{
         .unwind = null,
-        .full = null,
+        .loaded_macho = null,
     };
 
     pub fn deinit(di: *DebugInfo, gpa: Allocator) void {
-        if (di.full) |*full| {
-            for (full.ofiles.values()) |*ofile| {
+        if (di.loaded_macho) |*loaded_macho| {
+            for (loaded_macho.ofiles.values()) |*ofile| {
                 ofile.dwarf.deinit(gpa);
                 ofile.symbols_by_name.deinit(gpa);
             }
-            full.ofiles.deinit(gpa);
-            gpa.free(full.symbols);
-            posix.munmap(full.mapped_memory);
+            loaded_macho.ofiles.deinit(gpa);
+            gpa.free(loaded_macho.symbols);
+            posix.munmap(loaded_macho.mapped_memory);
         }
     }
 
@@ -607,7 +606,7 @@ pub const DebugInfo = struct {
         eh_frame: ?[]const u8,
     };
 
-    const Full = struct {
+    const LoadedMachO = struct {
         mapped_memory: []align(std.heap.page_size_min) const u8,
         symbols: []const MachoSymbol,
         strings: [:0]const u8,
