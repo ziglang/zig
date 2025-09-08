@@ -42,6 +42,8 @@ pub const target_supported: bool = Module != void;
 /// For whether DWARF unwinding is *theoretically* possible, see `Dwarf.abi.supportsUnwinding`.
 pub const supports_unwinding: bool = Module.supports_unwinding;
 
+pub const UnwindContext = if (supports_unwinding) Module.UnwindContext;
+
 pub const init: SelfInfo = .{
     .modules = .empty,
     .lookup_cache = if (Module.LookupCache != void) .init,
@@ -53,7 +55,7 @@ pub fn deinit(self: *SelfInfo, gpa: Allocator) void {
     if (Module.LookupCache != void) self.lookup_cache.deinit(gpa);
 }
 
-pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *DwarfUnwindContext) Error!usize {
+pub fn unwindFrame(self: *SelfInfo, gpa: Allocator, context: *UnwindContext) Error!usize {
     comptime assert(supports_unwinding);
     const module: Module = try .lookup(&self.lookup_cache, gpa, context.pc);
     const gop = try self.modules.getOrPut(gpa, module.key());
@@ -113,14 +115,23 @@ pub fn getModuleNameForAddress(self: *SelfInfo, gpa: Allocator, address: usize) 
 /// ) SelfInfo.Error!std.debug.Symbol;
 /// /// Whether a reliable stack unwinding strategy, such as DWARF unwinding, is available.
 /// pub const supports_unwinding: bool;
+/// /// Only required if `supports_unwinding == true`.
+/// pub const UnwindContext = struct {
+///     /// A PC value inside the function of the last unwound frame.
+///     pc: usize,
+///     pub fn init(tc: *std.debug.ThreadContext, gpa: Allocator) Allocator.Error!UnwindContext;
+///     pub fn deinit(uc: *UnwindContext, gpa: Allocator) void;
+///     /// Returns the frame pointer associated with the last unwound stack frame. If the frame
+///     /// pointer is unknown, 0 may be returned instead.
+///     pub fn getFp(uc: *UnwindContext) usize;
+/// };
 /// /// Only required if `supports_unwinding == true`. Unwinds a single stack frame and returns
-/// /// the next return address (which may be 0 indicating end of stack). This is currently
-/// /// specialized to DWARF unwinding.
+/// /// the next return address (which may be 0 indicating end of stack).
 /// pub fn unwindFrame(
 ///     mod: *const Module,
 ///     gpa: Allocator,
 ///     di: *DebugInfo,
-///     ctx: *SelfInfo.DwarfUnwindContext,
+///     ctx: *UnwindContext,
 /// ) SelfInfo.Error!usize;
 /// ```
 const Module: type = Module: {
@@ -136,6 +147,8 @@ const Module: type = Module: {
     };
 };
 
+/// An implementation of `UnwindContext` useful for DWARF-based unwinders. The `Module.unwindFrame`
+/// implementation should wrap `DwarfUnwindContext.unwindFrame`.
 pub const DwarfUnwindContext = struct {
     cfa: ?usize,
     pc: usize,
@@ -144,8 +157,9 @@ pub const DwarfUnwindContext = struct {
     vm: Dwarf.Unwind.VirtualMachine,
     stack_machine: Dwarf.expression.StackMachine(.{ .call_frame_context = true }),
 
-    pub fn init(thread_context: *std.debug.ThreadContext) DwarfUnwindContext {
+    pub fn init(thread_context: *std.debug.ThreadContext, gpa: Allocator) error{}!DwarfUnwindContext {
         comptime assert(supports_unwinding);
+        _ = gpa;
 
         const ip_reg_num = Dwarf.abi.ipRegNum(native_arch).?;
         const raw_pc_ptr = regValueNative(thread_context, ip_reg_num, null) catch {
@@ -169,8 +183,8 @@ pub const DwarfUnwindContext = struct {
         self.* = undefined;
     }
 
-    pub fn getFp(self: *const DwarfUnwindContext) !usize {
-        return (try regValueNative(self.thread_context, Dwarf.abi.fpRegNum(native_arch, self.reg_context), self.reg_context)).*;
+    pub fn getFp(self: *const DwarfUnwindContext) usize {
+        return (regValueNative(self.thread_context, Dwarf.abi.fpRegNum(native_arch, self.reg_context), self.reg_context) catch return 0).*;
     }
 
     /// Resolves the register rule and places the result into `out` (see regBytes)

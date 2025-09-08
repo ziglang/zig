@@ -378,6 +378,8 @@ pub inline fn getContext(context: *ThreadContext) bool {
         }
         return true;
     }
+
+    return false;
 }
 
 /// Invokes detectable illegal behavior when `ok` is `false`.
@@ -619,7 +621,9 @@ pub const StackUnwindOptions = struct {
 /// See `writeCurrentStackTrace` to immediately print the trace instead of capturing it.
 pub fn captureCurrentStackTrace(options: StackUnwindOptions, addr_buf: []usize) std.builtin.StackTrace {
     var context_buf: ThreadContext = undefined;
-    var it: StackIterator = .init(options.context, &context_buf);
+    var it = StackIterator.init(options.context, &context_buf) catch {
+        return .{ .index = 0, .instruction_addresses = &.{} };
+    };
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) {
         return .{ .index = 0, .instruction_addresses = &.{} };
@@ -657,7 +661,14 @@ pub fn writeCurrentStackTrace(options: StackUnwindOptions, writer: *Writer, tty_
         },
     };
     var context_buf: ThreadContext = undefined;
-    var it: StackIterator = .init(options.context, &context_buf);
+    var it = StackIterator.init(options.context, &context_buf) catch |err| switch (err) {
+        error.OutOfMemory => {
+            tty_config.setColor(writer, .dim) catch {};
+            try writer.print("Cannot print stack trace: out of memory\n", .{});
+            tty_config.setColor(writer, .reset) catch {};
+            return;
+        },
+    };
     defer it.deinit();
     if (!it.stratOk(options.allow_unsafe_unwind)) {
         tty_config.setColor(writer, .dim) catch {};
@@ -751,14 +762,14 @@ pub fn dumpStackTrace(st: *const std.builtin.StackTrace) void {
 
 const StackIterator = union(enum) {
     /// Unwinding using debug info (e.g. DWARF CFI).
-    di: if (SelfInfo.supports_unwinding) SelfInfo.DwarfUnwindContext else noreturn,
+    di: if (SelfInfo.supports_unwinding) SelfInfo.UnwindContext else noreturn,
     /// Naive frame-pointer-based unwinding. Very simple, but typically unreliable.
     fp: usize,
 
     /// It is important that this function is marked `inline` so that it can safely use
     /// `@frameAddress` and `getContext` as the caller's stack frame and our own are one
     /// and the same.
-    inline fn init(context_opt: ?*const ThreadContext, context_buf: *ThreadContext) StackIterator {
+    inline fn init(context_opt: ?*const ThreadContext, context_buf: *ThreadContext) error{OutOfMemory}!StackIterator {
         if (builtin.cpu.arch.isSPARC()) {
             // Flush all the register windows on stack.
             if (builtin.cpu.has(.sparc, .v9)) {
@@ -770,10 +781,10 @@ const StackIterator = union(enum) {
         if (context_opt) |context| {
             context_buf.* = context.*;
             relocateContext(context_buf);
-            return .{ .di = .init(context_buf) };
+            return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
         }
         if (getContext(context_buf)) {
-            return .{ .di = .init(context_buf) };
+            return .{ .di = try .init(context_buf, getDebugInfoAllocator()) };
         }
         return .{ .fp = @frameAddress() };
     }
@@ -816,10 +827,10 @@ const StackIterator = union(enum) {
                     if (ra == 0) return .end;
                     return .{ .frame = ra };
                 } else |err| {
-                    const bad_pc = unwind_context.pc;
-                    it.* = .{ .fp = unwind_context.getFp() catch 0 };
+                    const pc = unwind_context.pc;
+                    it.* = .{ .fp = unwind_context.getFp() };
                     return .{ .switch_to_fp = .{
-                        .address = bad_pc,
+                        .address = pc,
                         .err = err,
                     } };
                 }

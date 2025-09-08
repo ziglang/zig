@@ -282,13 +282,13 @@ pub const Die = struct {
                     .@"32" => {
                         const byte_offset = compile_unit.str_offsets_base + 4 * index;
                         if (byte_offset + 4 > debug_str_offsets.len) return bad();
-                        const offset = mem.readInt(u32, debug_str_offsets[byte_offset..][0..4], endian);
+                        const offset = mem.readInt(u32, debug_str_offsets[@intCast(byte_offset)..][0..4], endian);
                         return getStringGeneric(opt_str, offset);
                     },
                     .@"64" => {
                         const byte_offset = compile_unit.str_offsets_base + 8 * index;
                         if (byte_offset + 8 > debug_str_offsets.len) return bad();
-                        const offset = mem.readInt(u64, debug_str_offsets[byte_offset..][0..8], endian);
+                        const offset = mem.readInt(u64, debug_str_offsets[@intCast(byte_offset)..][0..8], endian);
                         return getStringGeneric(opt_str, offset);
                     },
                 }

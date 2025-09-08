@@ -193,7 +193,7 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
         else => unreachable,
     }
 }
-pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) Error!usize {
+pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
     if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
     std.debug.assert(di.unwind[0] != null);
     for (&di.unwind) |*opt_unwind| {
@@ -205,6 +205,7 @@ pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, con
     }
     return error.MissingDebugInfo;
 }
+pub const UnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 pub const supports_unwinding: bool = s: {
     const archs: []const std.Target.Cpu.Arch = switch (builtin.target.os.tag) {
         .linux => &.{ .x86, .x86_64, .arm, .armeb, .thumb, .thumbeb, .aarch64, .aarch64_be },
@@ -233,7 +234,6 @@ const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const elf = std.elf;
 const mem = std.mem;
-const DwarfUnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 const Error = std.debug.SelfInfo.Error;
 
 const builtin = @import("builtin");
