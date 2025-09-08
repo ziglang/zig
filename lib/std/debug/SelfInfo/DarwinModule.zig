@@ -255,7 +255,7 @@ pub const supports_unwinding: bool = true;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) Error!usize {
     return unwindFrameInner(module, gpa, di, context) catch |err| switch (err) {
         error.InvalidDebugInfo,
         error.MissingDebugInfo,
@@ -274,8 +274,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         => return error.InvalidDebugInfo,
     };
 }
-fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
-    _ = gpa;
+fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) !usize {
     if (di.unwind == null) di.unwind = module.loadUnwindInfo();
     const unwind = &di.unwind.?;
 
@@ -505,7 +504,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             .DWARF => {
                 const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
-                return context.unwindFrameDwarf(
+                return context.unwindFrame(
+                    gpa,
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
                     module.load_offset,
                     @intCast(encoding.value.x86_64.dwarf),
@@ -524,7 +524,8 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
             .DWARF => {
                 const eh_frame = unwind.eh_frame orelse return error.MissingDebugInfo;
                 const eh_frame_vaddr = @intFromPtr(eh_frame.ptr) - module.load_offset;
-                return context.unwindFrameDwarf(
+                return context.unwindFrame(
+                    gpa,
                     &.initSection(.eh_frame, eh_frame_vaddr, eh_frame),
                     module.load_offset,
                     @intCast(encoding.value.x86_64.dwarf),
@@ -574,7 +575,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
         else => comptime unreachable, // unimplemented
     };
 
-    context.pc = UnwindContext.stripInstructionPtrAuthCode(new_ip);
+    context.pc = DwarfUnwindContext.stripInstructionPtrAuthCode(new_ip);
     if (context.pc > 0) context.pc -= 1;
     return new_ip;
 }
@@ -819,7 +820,7 @@ const macho = std.macho;
 const mem = std.mem;
 const posix = std.posix;
 const testing = std.testing;
-const UnwindContext = std.debug.SelfInfo.UnwindContext;
+const DwarfUnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 const Error = std.debug.SelfInfo.Error;
 const regBytes = Dwarf.abi.regBytes;
 const regValueNative = Dwarf.abi.regValueNative;
