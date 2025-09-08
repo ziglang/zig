@@ -136,7 +136,6 @@ pub fn blockContext(
     context: anytype,
 ) void {
     // Implementation ported from https://github.com/BonzaiThePenguin/WikiSort/blob/master/WikiSort.c
-    _ = .{ a, b };
     const Context = struct {
         sub_ctx: @TypeOf(context),
 
@@ -168,15 +167,17 @@ pub fn blockContext(
         }
     }.lessThan else lessThanFn;
 
-    if (items.len < 4) {
-        if (items.len == 3) {
+    const range_length = b - a;
+
+    if (range_length < 4) {
+        if (range_length == 3) {
             // hard coded insertion sort
             if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
             if (lessThan(inner_context, items[2], items[1])) {
                 mem.swap(T, &items[1], &items[2]);
                 if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
             }
-        } else if (items.len == 2) {
+        } else if (range_length == 2) {
             if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
         }
         return;
@@ -185,7 +186,7 @@ pub fn blockContext(
     // sort groups of 4-8 items at a time using an unstable sorting network,
     // but keep track of the original item orders to force it to be stable
     // http://pages.ripco.net/~jgamble/nw.html
-    var iterator = Iterator.init(items.len, 4);
+    var iterator = Iterator.init(range_length, 4);
     while (!iterator.finished()) {
         var order = [_]u8{ 0, 1, 2, 3, 4, 5, 6, 7 };
         const range = iterator.nextRange();
@@ -266,7 +267,7 @@ pub fn blockContext(
             else => {},
         }
     }
-    if (items.len < 8) return;
+    if (range_length < 8) return;
 
     // then merge sort the higher levels, which can be 8-15, 16-31, 32-63, 64-127, etc.
     while (true) {
