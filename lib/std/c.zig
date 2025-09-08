@@ -10599,6 +10599,12 @@ pub const socket = switch (native_os) {
     else => private.socket,
 };
 
+pub const socketpair = switch (native_os) {
+    // https://devblogs.microsoft.com/commandline/af_unix-comes-to-windows/#unsupported\unavailable:
+    .windows => void,
+    else => private.socketpair,
+};
+
 pub const stat = switch (native_os) {
     .macos => switch (native_arch) {
         .x86_64 => private.@"stat$INODE64",
@@ -10740,7 +10746,6 @@ pub extern "c" fn uname(buf: *utsname) c_int;
 pub extern "c" fn gethostname(name: [*]u8, len: usize) c_int;
 pub extern "c" fn shutdown(socket: fd_t, how: c_int) c_int;
 pub extern "c" fn bind(socket: fd_t, address: ?*const sockaddr, address_len: socklen_t) c_int;
-pub extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
 pub extern "c" fn listen(sockfd: fd_t, backlog: c_uint) c_int;
 pub extern "c" fn getsockname(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
 pub extern "c" fn getpeername(sockfd: fd_t, noalias addr: *sockaddr, noalias addrlen: *socklen_t) c_int;
@@ -11429,6 +11434,7 @@ const private = struct {
     extern "c" fn sigismember(set: ?*const sigset_t, signo: c_int) c_int;
     extern "c" fn sigprocmask(how: c_int, noalias set: ?*const sigset_t, noalias oset: ?*sigset_t) c_int;
     extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+    extern "c" fn socketpair(domain: c_uint, sock_type: c_uint, protocol: c_uint, sv: *[2]fd_t) c_int;
     extern "c" fn stat(noalias path: [*:0]const u8, noalias buf: *Stat) c_int;
     extern "c" fn sigaltstack(ss: ?*stack_t, old_ss: ?*stack_t) c_int;
     extern "c" fn sysconf(sc: c_int) c_long;
