@@ -103,8 +103,41 @@ pub fn block(
     context: anytype,
     comptime lessThanFn: fn (@TypeOf(context), lhs: T, rhs: T) bool,
 ) void {
+    const Context = struct {
+        items: []T,
+        sub_ctx: @TypeOf(context),
+
+        pub fn lessThan(ctx: @This(), a: usize, b: usize) bool {
+            return lessThanFn(ctx.sub_ctx, ctx.items[a], ctx.items[b]);
+        }
+
+        pub fn swap(ctx: @This(), a: usize, b: usize) void {
+            return mem.swap(T, &ctx.items[a], &ctx.items[b]);
+        }
+    };
+    return blockContext(T, items, context, lessThanFn, 0, items.len, Context{ .items = items, .sub_ctx = context });
+}
+
+/// Stable in-place sort. O(n) best case, O(n*log(n)) worst case and average case.
+/// O(1) memory (no allocator required).
+/// Sorts in ascending order with respect to the given `lessThan` function.
+/// `context` must have methods `swap` and `lessThan`,
+/// which each take 2 `usize` parameters indicating the index of an item.
+///
+/// NOTE: The algorithm only works when the comparison is less-than or greater-than.
+///       (See https://github.com/ziglang/zig/issues/8289)
+pub fn blockContext(
+    comptime T: type,
+    items: []T,
+    inner_context: anytype,
+    comptime lessThanFn: fn (@TypeOf(inner_context), lhs: T, rhs: T) bool,
+    a: usize,
+    b: usize,
+    context: anytype,
+) void {
+    _ = .{ a, b, context };
     const lessThan = if (builtin.mode == .Debug) struct {
-        fn lessThan(ctx: @TypeOf(context), lhs: T, rhs: T) bool {
+        fn lessThan(ctx: @TypeOf(inner_context), lhs: T, rhs: T) bool {
             const lt = lessThanFn(ctx, lhs, rhs);
             const gt = lessThanFn(ctx, rhs, lhs);
             std.debug.assert(!(lt and gt));
@@ -117,13 +150,13 @@ pub fn block(
     if (items.len < 4) {
         if (items.len == 3) {
             // hard coded insertion sort
-            if (lessThan(context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
-            if (lessThan(context, items[2], items[1])) {
+            if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
+            if (lessThan(inner_context, items[2], items[1])) {
                 mem.swap(T, &items[1], &items[2]);
-                if (lessThan(context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
+                if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
             }
         } else if (items.len == 2) {
-            if (lessThan(context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
+            if (lessThan(inner_context, items[1], items[0])) mem.swap(T, &items[0], &items[1]);
         }
         return;
     }
@@ -139,75 +172,75 @@ pub fn block(
         const sliced_items = items[range.start..];
         switch (range.length()) {
             8 => {
-                swap(T, sliced_items, &order, 0, 1, context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, context, lessThan);
-                swap(T, sliced_items, &order, 6, 7, context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, context, lessThan);
-                swap(T, sliced_items, &order, 4, 6, context, lessThan);
-                swap(T, sliced_items, &order, 5, 7, context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, context, lessThan);
-                swap(T, sliced_items, &order, 5, 6, context, lessThan);
-                swap(T, sliced_items, &order, 0, 4, context, lessThan);
-                swap(T, sliced_items, &order, 3, 7, context, lessThan);
-                swap(T, sliced_items, &order, 1, 5, context, lessThan);
-                swap(T, sliced_items, &order, 2, 6, context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, context, lessThan);
-                swap(T, sliced_items, &order, 3, 6, context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, context, lessThan);
+                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 6, 7, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 4, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 5, 7, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 5, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 7, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
             },
             7 => {
-                swap(T, sliced_items, &order, 1, 2, context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, context, lessThan);
-                swap(T, sliced_items, &order, 5, 6, context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, context, lessThan);
-                swap(T, sliced_items, &order, 4, 6, context, lessThan);
-                swap(T, sliced_items, &order, 0, 1, context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, context, lessThan);
-                swap(T, sliced_items, &order, 2, 6, context, lessThan);
-                swap(T, sliced_items, &order, 0, 4, context, lessThan);
-                swap(T, sliced_items, &order, 1, 5, context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, context, lessThan);
-                swap(T, sliced_items, &order, 2, 5, context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, context, lessThan);
+                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 5, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 4, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
+                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 6, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
             },
             6 => {
-                swap(T, sliced_items, &order, 1, 2, context, lessThan);
-                swap(T, sliced_items, &order, 4, 5, context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, context, lessThan);
-                swap(T, sliced_items, &order, 3, 5, context, lessThan);
-                swap(T, sliced_items, &order, 0, 1, context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, context, lessThan);
-                swap(T, sliced_items, &order, 2, 5, context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, context, lessThan);
+                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 4, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 5, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
             },
             5 => {
-                swap(T, sliced_items, &order, 0, 1, context, lessThan);
-                swap(T, sliced_items, &order, 3, 4, context, lessThan);
-                swap(T, sliced_items, &order, 2, 4, context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, context, lessThan);
-                swap(T, sliced_items, &order, 1, 4, context, lessThan);
-                swap(T, sliced_items, &order, 0, 3, context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, context, lessThan);
+                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
+                swap(T, sliced_items, &order, 3, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 4, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
             },
             4 => {
-                swap(T, sliced_items, &order, 0, 1, context, lessThan);
-                swap(T, sliced_items, &order, 2, 3, context, lessThan);
-                swap(T, sliced_items, &order, 0, 2, context, lessThan);
-                swap(T, sliced_items, &order, 1, 3, context, lessThan);
-                swap(T, sliced_items, &order, 1, 2, context, lessThan);
+                swap(T, sliced_items, &order, 0, 1, inner_context, lessThan);
+                swap(T, sliced_items, &order, 2, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 0, 2, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 3, inner_context, lessThan);
+                swap(T, sliced_items, &order, 1, 2, inner_context, lessThan);
             },
             else => {},
         }
@@ -289,7 +322,7 @@ pub fn block(
                 last = index;
                 count += 1;
             }) {
-                index = findLastForward(T, items, items[last], Range.init(last + 1, A.end), find - count, context, lessThan);
+                index = findLastForward(T, items, items[last], Range.init(last + 1, A.end), find - count, inner_context, lessThan);
                 if (index == A.end) break;
             }
             index = last;
@@ -343,7 +376,7 @@ pub fn block(
                 last = index - 1;
                 count += 1;
             }) {
-                index = findFirstBackward(T, items, items[last], Range.init(B.start, last), find - count, context, lessThan);
+                index = findFirstBackward(T, items, items[last], Range.init(B.start, last), find - count, inner_context, lessThan);
                 if (index == B.start) break;
             }
             index = last;
@@ -404,7 +437,7 @@ pub fn block(
                 index = pull[pull_index].from;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findFirstBackward(T, items, items[index - 1], Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, context, lessThan);
+                    index = findFirstBackward(T, items, items[index - 1], Range.init(pull[pull_index].to, pull[pull_index].from - (count - 1)), length - count, inner_context, lessThan);
                     const range = Range.init(index + 1, pull[pull_index].from + 1);
                     mem.rotate(T, items[range.start..range.end], range.length() - count);
                     pull[pull_index].from = index + count;
@@ -414,7 +447,7 @@ pub fn block(
                 index = pull[pull_index].from + 1;
                 count = 1;
                 while (count < length) : (count += 1) {
-                    index = findLastForward(T, items, items[index], Range.init(index, pull[pull_index].to), length - count, context, lessThan);
+                    index = findLastForward(T, items, items[index], Range.init(index, pull[pull_index].to), length - count, inner_context, lessThan);
                     const range = Range.init(pull[pull_index].from, index - 1);
                     mem.rotate(T, items[range.start..range.end], count);
                     pull[pull_index].from = index - 1 - count;
@@ -460,10 +493,10 @@ pub fn block(
                 }
             }
 
-            if (lessThan(context, items[B.end - 1], items[A.start])) {
+            if (lessThan(inner_context, items[B.end - 1], items[A.start])) {
                 // the two ranges are in reverse order, so a simple rotation should fix it
                 mem.rotate(T, items[A.start..B.end], A.length());
-            } else if (lessThan(context, items[A.end], items[A.end - 1])) {
+            } else if (lessThan(inner_context, items[A.end], items[A.end - 1])) {
                 // these two ranges weren't already in order, so we'll need to merge them!
                 var findA: usize = undefined;
 
@@ -498,16 +531,16 @@ pub fn block(
                     while (true) {
                         // if there's a previous B block and the first value of the minimum A block is <= the last value of the previous B block,
                         // then drop that minimum A block behind. or if there are no B blocks left then keep dropping the remaining A blocks.
-                        if ((lastB.length() > 0 and !lessThan(context, items[lastB.end - 1], items[indexA])) or blockB.length() == 0) {
+                        if ((lastB.length() > 0 and !lessThan(inner_context, items[lastB.end - 1], items[indexA])) or blockB.length() == 0) {
                             // figure out where to split the previous B block, and rotate it at the split
-                            const B_split = binaryFirst(T, items, items[indexA], lastB, context, lessThan);
+                            const B_split = binaryFirst(T, items, items[indexA], lastB, inner_context, lessThan);
                             const B_remaining = lastB.end - B_split;
 
                             // swap the minimum A block to the beginning of the rolling A blocks
                             var minA = blockA.start;
                             findA = minA + block_size;
                             while (findA < blockA.end) : (findA += block_size) {
-                                if (lessThan(context, items[findA], items[minA])) {
+                                if (lessThan(inner_context, items[findA], items[minA])) {
                                     minA = findA;
                                 }
                             }
@@ -522,9 +555,9 @@ pub fn block(
                             // or failing that we'll use a strictly in-place merge algorithm (MergeInPlace)
 
                             if (buffer2.length() > 0) {
-                                mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, context, lessThan);
+                                mergeInternal(T, items, lastA, Range.init(lastA.end, B_split), buffer2, inner_context, lessThan);
                             } else {
-                                mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), context, lessThan);
+                                mergeInPlace(T, items, lastA, Range.init(lastA.end, B_split), inner_context, lessThan);
                             }
 
                             if (buffer2.length() > 0) {
@@ -575,9 +608,9 @@ pub fn block(
 
                 // merge the last A block with the remaining B values
                 if (buffer2.length() > 0) {
-                    mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, context, lessThan);
+                    mergeInternal(T, items, lastA, Range.init(lastA.end, B.end), buffer2, inner_context, lessThan);
                 } else {
-                    mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), context, lessThan);
+                    mergeInPlace(T, items, lastA, Range.init(lastA.end, B.end), inner_context, lessThan);
                 }
             }
         }
@@ -591,7 +624,7 @@ pub fn block(
         // it was consistently slightly slower than a simple insertion sort,
         // even for tens of millions of items. this may be because insertion
         // sort is quite fast when the data is already somewhat sorted, like it is here
-        sort.insertion(T, items[buffer2.start..buffer2.end], context, lessThan);
+        sort.insertion(T, items[buffer2.start..buffer2.end], inner_context, lessThan);
 
         pull_index = 0;
         while (pull_index < 2) : (pull_index += 1) {
@@ -600,7 +633,7 @@ pub fn block(
                 // the values were pulled out to the left, so redistribute them back to the right
                 var buffer = Range.init(pull[pull_index].range.start, pull[pull_index].range.start + pull[pull_index].count);
                 while (buffer.length() > 0) {
-                    index = findFirstForward(T, items, items[buffer.start], Range.init(buffer.end, pull[pull_index].range.end), unique, context, lessThan);
+                    index = findFirstForward(T, items, items[buffer.start], Range.init(buffer.end, pull[pull_index].range.end), unique, inner_context, lessThan);
                     const amount = index - buffer.end;
                     mem.rotate(T, items[buffer.start..index], buffer.length());
                     buffer.start += (amount + 1);
@@ -611,7 +644,7 @@ pub fn block(
                 // the values were pulled out to the right, so redistribute them back to the left
                 var buffer = Range.init(pull[pull_index].range.end - pull[pull_index].count, pull[pull_index].range.end);
                 while (buffer.length() > 0) {
-                    index = findLastBackward(T, items, items[buffer.end - 1], Range.init(pull[pull_index].range.start, buffer.start), unique, context, lessThan);
+                    index = findLastBackward(T, items, items[buffer.end - 1], Range.init(pull[pull_index].range.start, buffer.start), unique, inner_context, lessThan);
                     const amount = buffer.start - index;
                     mem.rotate(T, items[index..buffer.end], amount);
                     buffer.start -= amount;
