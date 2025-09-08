@@ -14,9 +14,9 @@ pub fn main() !void {
     const exe = args[0];
     var catted_anything = false;
     var stdout_buffer: [4096]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writerStreaming(&stdout_buffer);
+    var stdout_writer = fs.File.stdout().writerStreaming(&stdout_buffer);
     const stdout = &stdout_writer.interface;
-    var stdin_reader = std.fs.File.stdin().readerStreaming(&.{});
+    var stdin_reader = fs.File.stdin().readerStreaming(&.{});
 
     const cwd = fs.cwd();
 
