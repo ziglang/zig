@@ -1156,10 +1156,10 @@ pub fn indexOfSentinel(comptime T: type, comptime sentinel: T, p: [*:sentinel]co
                     }
                 }
 
-                assert(std.mem.isAligned(@intFromPtr(&p[i]), block_size));
+                std.debug.assertAligned(&p[i], .fromByteUnits(block_size));
                 while (true) {
-                    const block: *const Block = @ptrCast(@alignCast(p[i..][0..block_len]));
-                    const matches = block.* == mask;
+                    const block: Block = p[i..][0..block_len].*;
+                    const matches = block == mask;
                     if (@reduce(.Or, matches)) {
                         return i + std.simd.firstTrue(matches).?;
                     }
