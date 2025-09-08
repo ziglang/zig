@@ -1130,8 +1130,8 @@ fn analyzeBodyInner(
     const tags = sema.code.instructions.items(.tag);
     const datas = sema.code.instructions.items(.data);
 
-    var crash_info = crash_report.prepAnalyzeBody(sema, block, body);
-    crash_info.push();
+    var crash_info: crash_report.AnalyzeBody = undefined;
+    crash_info.push(sema, block, body);
     defer crash_info.pop();
 
     // We use a while (true) loop here to avoid a redundant way of breaking out of
@@ -2632,7 +2632,7 @@ pub fn failWithOwnedErrorMsg(sema: *Sema, block: ?*Block, err_msg: *Zcu.ErrorMsg
         std.debug.print("compile error during Sema:\n", .{});
         var error_bundle = wip_errors.toOwnedBundle("") catch @panic("out of memory");
         error_bundle.renderToStdErr(.{ .ttyconf = .no_color });
-        crash_report.compilerPanic("unexpected compile error occurred", null);
+        std.debug.panicExtra(@returnAddress(), "unexpected compile error occurred", .{});
     }
 
     if (block) |start_block| {
