@@ -139,7 +139,7 @@ pub fn regBytes(
         };
     }
 
-    if (!std.debug.have_ucontext) return error.ThreadContextNotSupported;
+    if (posix.ucontext_t == void) return error.ThreadContextNotSupported;
 
     const ucontext_ptr = thread_context_ptr;
     return switch (builtin.cpu.arch) {
