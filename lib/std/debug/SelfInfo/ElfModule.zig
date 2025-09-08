@@ -193,12 +193,12 @@ fn loadUnwindInfo(module: *const ElfModule, gpa: Allocator, di: *DebugInfo) Erro
         else => unreachable,
     }
 }
-pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
+pub fn unwindFrame(module: *const ElfModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) Error!usize {
     if (di.unwind[0] == null) try module.loadUnwindInfo(gpa, di);
     std.debug.assert(di.unwind[0] != null);
     for (&di.unwind) |*opt_unwind| {
         const unwind = &(opt_unwind.* orelse break);
-        return context.unwindFrameDwarf(unwind, module.load_offset, null) catch |err| switch (err) {
+        return context.unwindFrame(gpa, unwind, module.load_offset, null) catch |err| switch (err) {
             error.MissingDebugInfo => continue, // try the next one
             else => |e| return e,
         };
@@ -233,7 +233,7 @@ const Allocator = std.mem.Allocator;
 const Dwarf = std.debug.Dwarf;
 const elf = std.elf;
 const mem = std.mem;
-const UnwindContext = std.debug.SelfInfo.UnwindContext;
+const DwarfUnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 const Error = std.debug.SelfInfo.Error;
 
 const builtin = @import("builtin");
