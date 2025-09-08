@@ -4149,9 +4149,9 @@ pub const SymtabCtx = struct {
 
 pub const null_sym = macho.nlist_64{
     .n_strx = 0,
-    .n_type = 0,
+    .n_type = @bitCast(@as(u8, 0)),
     .n_sect = 0,
-    .n_desc = 0,
+    .n_desc = @bitCast(@as(u16, 0)),
     .n_value = 0,
 };
 
