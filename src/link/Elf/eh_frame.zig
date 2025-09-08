@@ -456,10 +456,10 @@ pub fn writeEhFrameRelocs(elf_file: *Elf, relocs: *std.array_list.Managed(elf.El
 
 pub fn writeEhFrameHdr(elf_file: *Elf, writer: anytype) !void {
     try writer.writeByte(1); // version
-    try writer.writeByte(DW_EH_PE.pcrel | DW_EH_PE.sdata4); // eh_frame_ptr_enc
+    try writer.writeByte(@bitCast(@as(DW_EH_PE, .{ .type = .sdata4, .rel = .pcrel }))); // eh_frame_ptr_enc
     // Building the lookup table would be expensive work on every `flush` -- omit it.
-    try writer.writeByte(DW_EH_PE.omit); // fde_count_enc
-    try writer.writeByte(DW_EH_PE.omit); // table_enc
+    try writer.writeByte(@bitCast(DW_EH_PE.omit)); // fde_count_enc
+    try writer.writeByte(@bitCast(DW_EH_PE.omit)); // table_enc
 
     const shdrs = elf_file.sections.items(.shdr);
     const eh_frame_shdr = shdrs[elf_file.section_indexes.eh_frame.?];

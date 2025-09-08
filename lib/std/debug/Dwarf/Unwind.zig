@@ -603,13 +603,13 @@ fn readEhPointerAbs(r: *Reader, enc_ty: EH.PE.Type, addr_size_bytes: u8, endian:
 /// Returns `error.InvalidDebugInfo` if the encoding is `EH.PE.omit`.
 fn readEhPointer(r: *Reader, enc: EH.PE, addr_size_bytes: u8, ctx: EhPointerContext, endian: Endian) !u64 {
     const offset = try readEhPointerAbs(r, enc.type, addr_size_bytes, endian);
+    if (enc.indirect) return bad(); // GCC extension; not supported
     const base = switch (enc.rel) {
         .abs, .aligned => 0,
         .pcrel => ctx.pc_rel_base,
         .textrel => ctx.text_rel_base orelse return bad(),
         .datarel => ctx.data_rel_base orelse return bad(),
         .funcrel => ctx.function_rel_base orelse return bad(),
-        .indirect => return bad(), // GCC extension; not supported
         _ => return bad(),
     };
     return switch (offset) {
