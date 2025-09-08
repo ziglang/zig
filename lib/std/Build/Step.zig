@@ -275,18 +275,6 @@ pub fn dependOn(step: *Step, other: *Step) void {
     step.dependencies.append(other) catch @panic("OOM");
 }
 
-pub fn getStackTrace(s: *Step) ?std.builtin.StackTrace {
-    var len: usize = 0;
-    while (len < s.debug_stack_trace.len and s.debug_stack_trace[len] != 0) {
-        len += 1;
-    }
-
-    return if (len == 0) null else .{
-        .instruction_addresses = s.debug_stack_trace,
-        .index = len,
-    };
-}
-
 fn makeNoOp(step: *Step, options: MakeOptions) anyerror!void {
     _ = options;
 
@@ -308,9 +296,9 @@ pub fn cast(step: *Step, comptime T: type) ?*T {
 
 /// For debugging purposes, prints identifying information about this Step.
 pub fn dump(step: *Step, w: *std.Io.Writer, tty_config: std.Io.tty.Config) void {
-    if (step.getStackTrace()) |stack_trace| {
+    if (step.debug_stack_trace.instruction_addresses.len > 0) {
         w.print("name: '{s}'. creation stack trace:\n", .{step.name}) catch {};
-        std.debug.writeStackTrace(stack_trace, w, tty_config) catch {};
+        std.debug.writeStackTrace(&step.debug_stack_trace, w, tty_config) catch {};
     } else {
         const field = "debug_stack_frames_count";
         comptime assert(@hasField(Build, field));
