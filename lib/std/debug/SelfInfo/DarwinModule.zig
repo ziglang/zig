@@ -252,10 +252,11 @@ pub fn getSymbolAtAddress(module: *const DarwinModule, gpa: Allocator, di: *Debu
     };
 }
 pub const supports_unwinding: bool = true;
+pub const UnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 /// Unwind a frame using MachO compact unwind info (from __unwind_info).
 /// If the compact encoding can't encode a way to unwind a frame, it will
 /// defer unwinding to DWARF, in which case `.eh_frame` will be used if available.
-pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) Error!usize {
+pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) Error!usize {
     return unwindFrameInner(module, gpa, di, context) catch |err| switch (err) {
         error.InvalidDebugInfo,
         error.MissingDebugInfo,
@@ -274,7 +275,7 @@ pub fn unwindFrame(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, 
         => return error.InvalidDebugInfo,
     };
 }
-fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *DwarfUnwindContext) !usize {
+fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
     if (di.unwind == null) di.unwind = module.loadUnwindInfo();
     const unwind = &di.unwind.?;
 
@@ -575,7 +576,7 @@ fn unwindFrameInner(module: *const DarwinModule, gpa: Allocator, di: *DebugInfo,
         else => comptime unreachable, // unimplemented
     };
 
-    context.pc = DwarfUnwindContext.stripInstructionPtrAuthCode(new_ip);
+    context.pc = UnwindContext.stripInstructionPtrAuthCode(new_ip);
     if (context.pc > 0) context.pc -= 1;
     return new_ip;
 }
@@ -819,7 +820,6 @@ const macho = std.macho;
 const mem = std.mem;
 const posix = std.posix;
 const testing = std.testing;
-const DwarfUnwindContext = std.debug.SelfInfo.DwarfUnwindContext;
 const Error = std.debug.SelfInfo.Error;
 const regBytes = Dwarf.abi.regBytes;
 const regValueNative = Dwarf.abi.regValueNative;

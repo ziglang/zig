@@ -102,7 +102,7 @@ fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !
         if (create_section_rc != .SUCCESS) return error.MissingDebugInfo;
         errdefer windows.CloseHandle(section_handle);
         var coff_len: usize = 0;
-        var section_view_ptr: [*]const u8 = undefined;
+        var section_view_ptr: ?[*]const u8 = null;
         const map_section_rc = windows.ntdll.NtMapViewOfSection(
             section_handle,
             process_handle,
@@ -116,8 +116,8 @@ fn loadDebugInfo(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo) !
             windows.PAGE_READONLY,
         );
         if (map_section_rc != .SUCCESS) return error.MissingDebugInfo;
-        errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(section_view_ptr)) == .SUCCESS);
-        const section_view = section_view_ptr[0..coff_len];
+        errdefer assert(windows.ntdll.NtUnmapViewOfSection(process_handle, @constCast(section_view_ptr.?)) == .SUCCESS);
+        const section_view = section_view_ptr.?[0..coff_len];
         coff_obj = coff.Coff.init(section_view, false) catch return error.InvalidDebugInfo;
         di.mapped_file = .{
             .file = coff_file,
@@ -246,7 +246,116 @@ pub const DebugInfo = struct {
         };
     }
 };
-pub const supports_unwinding: bool = false;
+
+pub const supports_unwinding: bool = true;
+pub const UnwindContext = switch (builtin.cpu.arch) {
+    .x86 => struct {
+        pc: usize,
+        frames: []usize,
+        frames_capacity: usize,
+        next_index: usize,
+        /// Marked `noinline` to ensure that `RtlCaptureStackBackTrace` includes our caller.
+        pub noinline fn init(ctx: *windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
+            const frames_buf = try gpa.alloc(usize, 1024);
+            errdefer comptime unreachable;
+            const frames_len = windows.ntdll.RtlCaptureStackBackTrace(0, frames_buf.len, @ptrCast(frames_buf.ptr), null);
+            const regs = ctx.getRegs();
+            const first_index = for (frames_buf[0..frames_len], 0..) |ret_addr, idx| {
+                if (ret_addr == regs.ip) break idx;
+            } else i: {
+                // If we were called by an exception handler, `regs.ip` wasn't in the trace because
+                // RtlCaptureStackBackTrace omits the KiUserExceptionDispatcher frame, which is the
+                // one in `regs.ip`. In that case, we have to start one frame shallower instead, and
+                // we can figure out that frame's ip from the context's bp.
+                const start_addr_ptr: *const usize = @ptrFromInt(regs.bp + 4);
+                const start_addr = start_addr_ptr.*;
+                for (frames_buf[0..frames_len], 0..) |ret_addr, idx| {
+                    if (ret_addr == start_addr) break :i idx;
+                }
+                // The IP in the context can't be found; return an empty trace.
+                gpa.free(frames_buf);
+                return .{ .pc = 0, .frames = &.{}, .frames_capacity = 0, .next_index = 0 };
+            };
+            return .{
+                .pc = @returnAddress(),
+                .frames = frames_buf[0..frames_len],
+                .frames_capacity = 0,
+                .next_index = first_index,
+            };
+        }
+        pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
+            gpa.free(ctx.frames.ptr[0..ctx.frames_capacity]);
+            ctx.* = undefined;
+        }
+        pub fn getFp(ctx: *UnwindContext) usize {
+            _ = ctx;
+            return 0;
+        }
+    },
+    else => struct {
+        pc: usize,
+        cur: windows.CONTEXT,
+        history_table: windows.UNWIND_HISTORY_TABLE,
+        pub fn init(ctx: *const windows.CONTEXT, gpa: Allocator) Allocator.Error!UnwindContext {
+            _ = gpa;
+            return .{
+                .pc = @returnAddress(),
+                .cur = ctx.*,
+                .history_table = std.mem.zeroes(windows.UNWIND_HISTORY_TABLE),
+            };
+        }
+        pub fn deinit(ctx: *UnwindContext, gpa: Allocator) void {
+            _ = ctx;
+            _ = gpa;
+        }
+        pub fn getFp(ctx: *UnwindContext) usize {
+            return ctx.cur.getRegs().bp;
+        }
+    },
+};
+pub fn unwindFrame(module: *const WindowsModule, gpa: Allocator, di: *DebugInfo, context: *UnwindContext) !usize {
+    _ = module;
+    _ = gpa;
+    _ = di;
+
+    if (builtin.cpu.arch == .x86) {
+        const i = context.next_index;
+        if (i == context.frames.len) return 0;
+        context.next_index += 1;
+        const ip = context.frames[i];
+        context.pc = ip -| 1;
+        return ip;
+    }
+
+    const current_regs = context.cur.getRegs();
+    var image_base: windows.DWORD64 = undefined;
+    if (windows.ntdll.RtlLookupFunctionEntry(current_regs.ip, &image_base, &context.history_table)) |runtime_function| {
+        var handler_data: ?*anyopaque = null;
+        var establisher_frame: u64 = undefined;
+        _ = windows.ntdll.RtlVirtualUnwind(
+            windows.UNW_FLAG_NHANDLER,
+            image_base,
+            current_regs.ip,
+            runtime_function,
+            &context.cur,
+            &handler_data,
+            &establisher_frame,
+            null,
+        );
+    } else {
+        // leaf function
+        context.cur.setIp(@as(*const usize, @ptrFromInt(current_regs.sp)).*);
+        context.cur.setSp(current_regs.sp + @sizeOf(usize));
+    }
+
+    const next_regs = context.cur.getRegs();
+    const tib = &windows.teb().NtTib;
+    if (next_regs.sp < @intFromPtr(tib.StackLimit) or next_regs.sp > @intFromPtr(tib.StackBase)) {
+        return 0;
+    }
+    context.pc = next_regs.ip -| 1;
+    return next_regs.ip;
+}
 
 const WindowsModule = @This();
 
