@@ -1678,6 +1678,7 @@ test "indexOfPos empty needle" {
 /// needle.len must be > 0
 /// does not count overlapping needles
 pub fn count(comptime T: type, haystack: []const T, needle: []const T) usize {
+    if (needle.len == 1) return countScalar(T, haystack, needle[0]);
     assert(needle.len > 0);
     var i: usize = 0;
     var found: usize = 0;
@@ -1702,6 +1703,26 @@ test count {
     try testing.expect(count(u8, "foofoofoo", "foo") == 3);
     try testing.expect(count(u8, "fffffff", "ff") == 3);
     try testing.expect(count(u8, "owowowu", "owowu") == 1);
+}
+
+/// Returns the number of times `element` appears in a slice of memory.
+pub fn countScalar(comptime T: type, list: []const T, element: T) usize {
+    var i: usize = 0;
+    var found: usize = 0;
+
+    while (indexOfScalarPos(T, list, i, element)) |next_index| {
+        i = next_index + 1;
+        found += 1;
+    }
+
+    return found;
+}
+
+test countScalar {
+    try testing.expect(countScalar(u8, "", 'h') == 0);
+    try testing.expect(countScalar(u8, "h", 'h') == 1);
+    try testing.expect(countScalar(u8, "hh", 'h') == 2);
+    try testing.expect(countScalar(u8, "ahhb", 'h') == 2);
 }
 
 /// Returns true if the haystack contains expected_count or more needles
